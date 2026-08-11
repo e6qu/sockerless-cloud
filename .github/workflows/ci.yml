@@ -1,0 +1,753 @@
+name: CI
+
+env:
+  FIRECRACKER_VERSION: v1.15.1
+  GO_CACHE_DEPENDENCY_PATHS: |
+    go.work
+    **/go.sum
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Reusable so tag pushes can get full PR-level CI.
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  lint-go:
+    name: lint (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: simulators
+            modules: simulator-aws simulator-gcp simulator-azure
+            timeout_minutes: 10
+          - shard: support
+            modules: realexec testutil ui-auth
+            timeout_minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - name: Install golangci-lint
+        run: |
+          set -o pipefail
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors --connect-timeout 30 --max-time 180 https://golangci-lint.run/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+      - name: Lint
+        run: |
+          set -e
+          for module in ${{ matrix.modules }}; do
+            echo "=== $module ==="
+            make "$module/lint"
+          done
+        timeout-minutes: ${{ matrix.timeout_minutes }}
+
+  check-deps:
+    name: check-deps (deps + actions + scripts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - name: Install script check tools
+        run: bash scripts/ci-apt-update.sh && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y jq shellcheck zsh
+      - name: Check shell scripts
+        run: |
+          shellcheck -x -s bash scripts/*.sh
+          bash -n scripts/*.sh
+          zsh -n scripts/*.sh
+      # The Actions half of this check reads the GitHub API. Unauthenticated
+      # requests are rate limited, and a throttled reply is indistinguishable
+      # from "this action has no newer tag", so the token is passed explicitly
+      # rather than left to whatever quota the runner happens to have.
+      - name: Check dependency freshness (bash)
+        run: bash scripts/check-latest-deps.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check dependency freshness (zsh)
+        run: zsh scripts/check-latest-deps.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Every cloud's vendored specifications are gated, not just one: the
+      # check takes a cloud argument, and each cloud is its own step so a
+      # drift names the cloud that drifted. Each captures the newer document
+      # it sampled so the refresh does not depend on the authoring machine's
+      # edge serving the same revision the runner saw.
+      - name: Check Amazon Web Services API specification freshness
+        id: aws-spec-freshness
+        # The AWS and Azure specifications live in GitHub repositories, so this
+        # check resolves their upstream tip through the GitHub API.
+        # Unauthenticated requests are rate limited and the script treats a
+        # throttled reply as "cannot query upstream" — correctly refusing to
+        # pass a gate it could not evaluate — so the token is passed explicitly.
+        # Google Cloud's Discovery documents are fetched from Google's own
+        # endpoints and need no token.
+        run: bash scripts/check-spec-freshness.sh aws
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/aws-spec-drift
+      - name: Preserve drifted Amazon Web Services API specifications
+        if: failure() && steps.aws-spec-freshness.outcome == 'failure'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: aws-smithy-drift
+          path: ${{ runner.temp }}/aws-spec-drift
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: Check Microsoft Azure API specification freshness
+        id: azure-spec-freshness
+        run: bash scripts/check-spec-freshness.sh azure
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/azure-spec-drift
+      - name: Preserve drifted Microsoft Azure API specifications
+        if: failure() && steps.azure-spec-freshness.outcome == 'failure'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: azure-spec-drift
+          path: ${{ runner.temp }}/azure-spec-drift
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: Check Google Cloud API specification freshness
+        id: gcp-spec-freshness
+        run: bash scripts/check-spec-freshness.sh gcp
+        env:
+          SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/gcp-spec-drift
+      - name: Preserve drifted Google Cloud API specifications
+        if: failure() && steps.gcp-spec-freshness.outcome == 'failure'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gcp-discovery-drift
+          path: ${{ runner.temp }}/gcp-spec-drift
+          if-no-files-found: ignore
+          retention-days: 1
+
+  firecracker:
+    name: firecracker (microVM arithmetic)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/firecracker-ci
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+      - name: Install Firecracker test dependencies
+        run: |
+          bash scripts/ci-apt-update.sh
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iptables iputils-ping nftables openssh-client squashfs-tools
+      - name: Install Firecracker
+        run: bash scripts/install-firecracker.sh
+      - name: Run Firecracker arithmetic smoke
+        run: make firecracker-test
+      - name: Run real-execution network/NIC smoke
+        run: make realexec-network-test
+
+  sim:
+    # VM-backed simulator slices require /dev/kvm for real Firecracker guests.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [gcp, azure]
+        # The SDK and CLI suites run as separate jobs so each gets its own
+        # 15-minute ceiling: the Azure SDK suite's Cosmos DB emulator
+        # differential tests alone approach the ceiling, leaving no room to run
+        # the CLI suite in the same job.
+        suite: [sdk, cli]
+    name: sim (${{ matrix.cloud }} ${{ matrix.suite }})
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # Simulator runs mutate the restored guest rootfs as root. Restore the
+      # immutable seed produced by the dedicated Firecracker job, but never
+      # archive the test-mutated tree from a matrix job.
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/firecracker-ci
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+      - name: Install gcloud CLI
+        if: matrix.cloud == 'gcp'
+        run: |
+          archive="$RUNNER_TEMP/google-cloud-cli-linux-x86_64.tar.gz"
+          curl --fail --location --show-error --silent --http1.1 \
+            --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 300 \
+            --output "$archive" \
+            https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz
+          tar -xzf "$archive" -C "$HOME"
+          echo "$HOME/google-cloud-sdk/bin" >> "$GITHUB_PATH"
+          # The Firestore-emulator component is the differential-test oracle for
+          # TestFirestore_DifferentialVsEmulator (the runner ships a JRE).
+          "$HOME/google-cloud-sdk/bin/gcloud" components install cloud-firestore-emulator beta --quiet
+      - name: Install Azure CLI
+        if: matrix.cloud == 'azure'
+        run: az version
+      - name: Install real-execution tools
+        run: |
+          bash scripts/ci-apt-update.sh
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/install-firecracker.sh
+      - name: Run module unit tests
+        # Shard-independent; the sdk suite carries them so they run once per cloud.
+        if: matrix.suite == 'sdk'
+        run: cd simulator-${{ matrix.cloud }} && make unit-test
+        timeout-minutes: 3
+      # Pre-pull the Cosmos DB emulator (the differential-test oracle for
+      # TestCosmos_DifferentialVsEmulator). The differential checks the local
+      # image store before running, so this is what makes it run for real.
+      - name: Pull Cosmos DB emulator (differential oracle)
+        if: matrix.cloud == 'azure' && matrix.suite == 'sdk'
+        run: docker pull mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+        timeout-minutes: 8
+      - name: Run SDK tests
+        if: matrix.suite == 'sdk'
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/sdk-tests
+          cd simulator-${{ matrix.cloud }}
+          sudo env "PATH=$PATH" "HOME=$HOME" \
+            SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
+            SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
+            make sdk-test
+        # Now the SDK suite owns the whole job: give the step headroom over the
+        # inner go-test deadline (SDK_TEST_TIMEOUT, 13m) so the Cosmos-heavy
+        # Azure suite fails with a named Go stack rather than an opaque step kill.
+        timeout-minutes: 14
+      - name: Run CLI tests
+        if: matrix.suite == 'cli'
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/cli-tests
+          cd simulator-${{ matrix.cloud }}
+          sudo env "PATH=$PATH" "HOME=$HOME" \
+            SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
+            SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
+            make cli-test
+        timeout-minutes: 14
+      - name: Spec-shape ratchet
+        run: bash scripts/check-spec-violations.sh ${{ matrix.cloud }} "$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl"
+
+  sim-aws-sdk:
+    # The AWS SDK suite outgrew a single 15-minute job (the full run reached
+    # the ceiling on runner-speed variance), so it fans out across four shards
+    # the way the AWS CLI suite does. Shard regexes use the character-class form
+    # ('^Test[...]') rather than the CLI shards' alternation form
+    # ('^Test(...)') so each suite's coverage gate reads only its own shard
+    # set; scripts/check-sdk-shard-coverage.sh asserts every SDK test matches
+    # exactly one shard.
+    name: sim (aws sdk ${{ matrix.suite }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: compute
+            run: '^Test[E]'
+          - suite: data
+            run: '^Test[D]'
+          - suite: services-a-m
+            run: '^Test[A-CF-M]'
+          - suite: services-n-z
+            run: '^Test[N-Z]'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/firecracker-ci
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+      - name: Install real-execution tools
+        # Firecracker and the netns toolchain back the Amazon EC2 real-execution
+        # tests, which all live in the compute shard ('^Test[E]'); the other
+        # shards skip this install so apt/network variance can't erode their
+        # 15-minute budget.
+        if: matrix.suite == 'compute'
+        run: |
+          bash scripts/ci-apt-update.sh
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/install-firecracker.sh
+      - name: Run AWS module unit tests
+        # The module unit tests are shard-independent; one shard carries them
+        # so they run exactly once per workflow.
+        if: matrix.suite == 'services-n-z'
+        run: cd simulator-aws && make unit-test
+        timeout-minutes: 3
+      # Compile the sim binary + the (large, AWS-SDK-importing) SDK test binary
+      # in a separate deterministic build step, so the timed test run below isn't
+      # eaten by a cold recompile after an unrelated dep change busts the shared
+      # **/go.sum Go cache. Build time gets its own budget; the test keeps a
+      # tight one.
+      - name: Pre-build AWS SDK tests (warm build cache)
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-aws
+          cd simulator-aws && make build
+          cd sdk-tests && CGO_ENABLED=0 go test -c -o /tmp/aws-sdk-tests.test .
+        timeout-minutes: 6
+      - name: Free AWS SDK runner disk before execution
+        run: |
+          df -h
+          go clean -cache -testcache -modcache
+          rm -rf "$HOME/.cache/go-build" "$HOME/go/pkg/mod" "$RUNNER_TEMP/go-build"
+          docker image prune -af
+          sudo apt-get clean
+          df -h
+        timeout-minutes: 3
+      # Pre-pull the DynamoDB Local differential oracle so the timed test run
+      # below doesn't spend its budget on the image fetch (the differential test
+      # checks the local image store before pulling). DynamoDB Local is the
+      # reference oracle for the TestDynamoDB_DifferentialVsLocal sweep.
+      - name: Pull DynamoDB Local (differential oracle)
+        # TestDynamoDB_DifferentialVsLocal lives in the data shard.
+        if: matrix.suite == 'data'
+        # A registry answering "toomanyrequests" is telling us to wait, not that
+        # the image is unavailable — the same signal a client is expected to
+        # back off on. Anonymous pulls share a per-address budget with every
+        # other runner on the same egress, so one throttled attempt is not a
+        # verdict. Retry with widening backoff and fail loudly if the budget
+        # never frees up.
+        run: |
+          set -o pipefail
+          image=public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local:latest
+          for attempt in 1 2 3 4 5; do
+            if docker pull "$image"; then exit 0; fi
+            delay=$((attempt * 15))
+            echo "pull attempt $attempt failed; retrying in ${delay}s" >&2
+            sleep "$delay"
+          done
+          echo "could not pull $image after 5 attempts" >&2
+          exit 1
+        timeout-minutes: 6
+      - name: Run AWS SDK tests
+        # The suite has exhausted the runner volume from a 89 GB starting
+        # margin, killing the runner process as it wrote its own diagnostic log
+        # — which destroyed the job log along with it, so nothing identified the
+        # writer. Output goes to a file under a watched budget instead: if the
+        # log or the volume crosses its threshold, the run stops and reports the
+        # largest relevant consumers through bounded scans while there is still
+        # disk to report them on.
+        run: |
+          set -o pipefail
+          cd simulator-aws/sdk-tests
+          log="$RUNNER_TEMP/aws-sdk-tests.out"
+          report() {
+            echo "=== volume ==="; df -h /
+            echo "=== test output size ==="; du -h "$log" 2>/dev/null || true
+            echo "=== docker ==="; docker system df 2>/dev/null || true
+          }
+          report_consumers() {
+            echo "=== largest relevant consumers ==="
+            for path in "$GITHUB_WORKSPACE" "$RUNNER_TEMP" /tmp/sockerless-firecracker; do
+              if [ -e "$path" ]; then
+                echo "--- $path ---"
+                sudo timeout 5s du -x -m -d 2 "$path" \
+                  | sort -rn | sed -n '1,10p' \
+                  || echo "::warning::Disk-consumer scan did not complete within 5 seconds: $path"
+              fi
+            done
+          }
+          # The runner shell owns the diagnostic log; only the test process needs root.
+          # shellcheck disable=SC2024
+          sudo env "PATH=$PATH" "HOME=$HOME" \
+            SOCKERLESS_AWS_SIMULATOR_BINARY="$GITHUB_WORKSPACE/simulator-aws/simulator-aws" \
+            SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/aws-spec-violations.jsonl" \
+            SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/aws" \
+            /tmp/aws-sdk-tests.test -test.v -test.count=1 -test.timeout=600s -test.run "$SHARD_RUN" > "$log" 2>&1 &
+          test_pid=$!
+          while kill -0 "$test_pid" 2>/dev/null; do
+            log_mb=$(( $(stat -c %s "$log" 2>/dev/null || echo 0) / 1048576 ))
+            free_mb=$(df -m --output=avail / | tail -1 | tr -d ' ')
+            if [ "$log_mb" -gt 2048 ] || [ "$free_mb" -lt 8192 ]; then
+              echo "::error::AWS SDK tests exceeded their disk budget (output ${log_mb} MB, ${free_mb} MB free)."
+              echo "--- last 200 lines before the budget was hit ---"
+              tail -n 200 "$log" || true
+              report
+              report_consumers
+              sudo kill -QUIT "$test_pid" 2>/dev/null || true
+              sleep 10
+              sudo kill -9 "$test_pid" 2>/dev/null || true
+              exit 1
+            fi
+            sleep 10
+          done
+          # The step runs under `bash -e`; guard the wait with `|| status=$?`
+          # so a failing test binary does not abort the step before `cat "$log"`
+          # prints which test failed — an unguarded `wait` swallowed the entire
+          # diagnostic on a real failure.
+          status=0
+          wait "$test_pid" || status=$?
+          cat "$log"
+          report
+          exit "$status"
+        # The suite grows as services reach full op-coverage; give the step
+        # headroom over the inner go-test deadline (SDK_TEST_TIMEOUT) so a hung
+        # test fails with a named Go stack rather than an opaque step kill.
+        timeout-minutes: 12
+        env:
+          SHARD_RUN: ${{ matrix.run }}
+      - name: Spec-shape ratchet (aws sdk ${{ matrix.suite }})
+        run: bash scripts/check-spec-violations.sh aws "$RUNNER_TEMP/aws-spec-violations.jsonl"
+
+  sim-aws-cli:
+    name: sim (aws cli ${{ matrix.suite }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: edge-routing
+            run: '^Test(ACM|Amplify|APIGateway|ApplicationAutoScaling|AutoScaling|Batch|Budgets|PrivateCA)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: edge-delivery
+            run: '^Test(CloudFront|CloudTrail|CodeBuild|ELBv2|Firehose)'
+            timeout: 1200s
+            timeout_minutes: 15
+          # AWS Glue and IAM moved out of the edge-delivery and appdata shards
+          # after both jobs reached their measured 15-minute budget edge
+          # (14.4m); together they run well inside one shard's budget.
+          - suite: glue-iam
+            run: '^Test(Glue|IAM)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: ec2-a-m
+            run: '^Test(EC2(CLI_[A-M]|Copy|EBS|Instance|Key|Launch))'
+            timeout: 1500s
+            timeout_minutes: 15
+          - suite: ec2-n-z
+            run: '^Test(EC2(CLI_[N-Z]|Nat|Network|Routing|Security|Subnet))'
+            timeout: 1500s
+            timeout_minutes: 15
+          - suite: compute
+            run: '^Test(CloudMap|DynamoDB|CLI_ECR|ECR|EFS|Logs)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: ecs
+            run: '^Test(ECS)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: appdata
+            run: '^Test(CloudWatch|EventBridge|Kinesis|KMS|Lambda|ElastiCache|Organizations|ResourceTags)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: appdata2
+            run: '^Test(AWSServiceState|RDS|Route53|S3)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: appdata3
+            run: '^Test(Scheduler|SecretsManager|SFN|SNS|SQS|SSM|STS|WAFv2)'
+            timeout: 1200s
+            timeout_minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/firecracker-ci
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+      - name: Install real-execution tools
+        run: |
+          bash scripts/ci-apt-update.sh
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/install-firecracker.sh
+      - name: Install Session Manager plugin
+        run: |
+          curl -fsSLo /tmp/session-manager-plugin.deb https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
+          sudo dpkg -i /tmp/session-manager-plugin.deb
+          session-manager-plugin --version
+      - name: Install latest AWS CLI v2
+        # The ubuntu-runner-bundled aws CLI lags; newer service operations (e.g.
+        # ECS Express Mode, launched 2025-11-21) need a current CLI. Install the
+        # latest v2 so the cli-tests exercise every operation for real.
+        run: |
+          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+          unzip -q -o /tmp/awscliv2.zip -d /tmp
+          sudo /tmp/aws/install --update
+          hash -r
+          aws --version
+      - name: Run AWS CLI tests
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-aws
+          cd simulator-aws
+          sudo env "PATH=$PATH" "HOME=$HOME" \
+            SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/aws-cli-spec-violations.jsonl" \
+            SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/aws" \
+            make cli-test CLI_TEST_TIMEOUT=${{ matrix.timeout }} CLI_TEST_ARGS="-run '${{ matrix.run }}' ./..."
+        timeout-minutes: ${{ matrix.timeout_minutes }}
+      - name: Spec-shape ratchet (aws cli ${{ matrix.suite }})
+        run: bash scripts/check-spec-violations.sh aws "$RUNNER_TEMP/aws-cli-spec-violations.jsonl"
+
+  tf:
+    # Stock hashicorp/aws / hashicorp/google / hashicorp/azurerm
+    # providers run against the sim binary via `terraform init` +
+    # `terraform apply -auto-approve`. Exercises the provider's
+    # call-sequence shape, which differs materially from the SDK's.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      # The azure cloud runs as two shards: the shared stack, and a standalone
+      # `azurerm_subscription` config whose creates and cancels each sit
+      # through the provider's fixed 60s StateChangeConf delay plus four 10s
+      # confirmation polls — too long to fit inside the shared stack's budget
+      # under the repo-wide 15-minute job ceiling.
+      matrix:
+        include:
+          - suite: aws
+            cloud: aws
+            tf_packages: "."
+            timeout_minutes: 12
+          - suite: aws Amazon ElastiCache
+            cloud: aws
+            tf_packages: "./elasticache"
+            timeout_minutes: 12
+          - suite: aws Amazon RDS instance
+            cloud: aws
+            tf_packages: "./rds-instance"
+            timeout_minutes: 12
+          - suite: aws Amazon RDS restore
+            cloud: aws
+            tf_packages: "./rds-restore"
+            timeout_minutes: 12
+          - suite: aws Amazon RDS snapshot
+            cloud: aws
+            tf_packages: "./rds-snapshot"
+            timeout_minutes: 12
+          - suite: gcp
+            cloud: gcp
+            timeout_minutes: 12
+          - suite: azure
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformApplyDestroy
+            timeout_minutes: 12
+          - suite: azure subscription
+            cloud: azure
+            tf_timeout: 780s
+            tf_run: TestTerraformSubscriptionApplyDestroy
+            timeout_minutes: 14
+    name: tf (${{ matrix.suite }})
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/firecracker-ci
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_wrapper: false
+      - name: Install real-execution tools
+        run: |
+          bash scripts/ci-apt-update.sh
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/install-firecracker.sh
+      - name: Install Caddy
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
+      - name: Run terraform tests
+        run: |
+          cd simulator-${{ matrix.cloud }}
+          export SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-tf-spec-violations.jsonl"
+          export SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}"
+          if [ "${{ matrix.cloud }}" = "aws" ]; then
+            sudo env "PATH=$PATH" "HOME=$HOME" \
+              SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
+              make terraform-https-test TERRAFORM_TEST_TIMEOUT=600s TERRAFORM_TEST_PACKAGES="${{ matrix.tf_packages }}"
+          elif [ "${{ matrix.cloud }}" = "azure" ]; then
+            sudo env "PATH=$PATH" "HOME=$HOME" \
+              SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
+              make terraform-test TERRAFORM_TEST_TIMEOUT=${{ matrix.tf_timeout }} TERRAFORM_TEST_ARGS="-run ${{ matrix.tf_run }}"
+          else
+            sudo env "PATH=$PATH" "HOME=$HOME" \
+              SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
+              make terraform-https-test
+          fi
+        # Must exceed the inner go-test deadline (TERRAFORM_TEST_TIMEOUT)
+        # plus docker startup so the step never beats the test's own
+        # watchdog, while staying inside the repo-wide 15-minute job
+        # ceiling: 12 for the shared stacks (inner 600s), 14 for the
+        # azure subscription shard (inner 780s).
+        timeout-minutes: ${{ matrix.timeout_minutes }}
+      - name: Spec-shape ratchet (tf)
+        run: bash scripts/check-spec-violations.sh ${{ matrix.cloud }} "$RUNNER_TEMP/${{ matrix.cloud }}-tf-spec-violations.jsonl"
+
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    # A one-shot run on a fresh checkout has no use for turbo's background
+    # daemon, and a build step has no business making a telemetry request: both
+    # are work that can block without producing output, on a job whose real
+    # work takes about two minutes. Each turbo step also carries its own
+    # timeout, so a step that stops making progress is reported as the step it
+    # stopped in rather than as the whole job running out of time.
+    env:
+      TURBO_TELEMETRY_DISABLED: '1'
+      DO_NOT_TRACK: '1'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: '1.3'
+      - run: cd ui && bun install --frozen-lockfile
+        timeout-minutes: 3
+      - run: cd ui && bunx turbo run build --no-daemon
+        timeout-minutes: 4
+      - run: cd ui && bunx turbo run typecheck --no-daemon
+        timeout-minutes: 4
+      - run: cd ui && bunx turbo run test --no-daemon
+        timeout-minutes: 6
+
+  ui-browser:
+    name: browser (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - simulator-aws
+          - simulator-gcp
+          - simulator-azure
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: '1.3'
+      - run: cd ui && bun install --frozen-lockfile
+      # The browser binaries are cached because the only thing between this job
+      # and the network is a 177 MiB download that the lockfile pins exactly.
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('ui/bun.lock') }}
+      # Deliberately not --with-deps. The runner image already carries every
+      # library Chromium links against — a --with-deps run reports all of them
+      # "already the newest version" — so the only packages it adds are nine
+      # CJK, Thai and Cyrillic font packages no browser test renders. Fetching
+      # them cost 10min 22s at 33.9 kB/s on one run, which overran the job
+      # budget and cancelled the tests. A missing library, if the image ever
+      # drops one, fails loudly at browser launch naming what is absent.
+      - run: cd ui && bunx playwright install chromium
+        timeout-minutes: 5
+      - run: cd "ui/packages/${{ matrix.package }}" && bun run test:e2e
+
+  simulators-quality:
+    name: simulators (dead code + copy-paste)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: '1.3'
+      - name: Install deadcode
+        run: go install golang.org/x/tools/cmd/deadcode@latest
+      - name: Install dupl
+        run: go install github.com/mibk/dupl@latest
+      - name: Install UI deps
+        run: cd ui && bun install --frozen-lockfile
+      - name: simulators deadcode
+        run: bash scripts/simulators-deadcode.sh
+      - name: simulators dupl (Go ≥200 tokens)
+        run: bash scripts/simulators-dupl.sh
+      - name: simulators knip (dead TS exports)
+        run: bash scripts/simulators-knip.sh
+      - name: simulators jscpd (UI ≥200 tokens)
+        run: bash scripts/simulators-jscpd.sh
+
+  build-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - name: Check simulator SDK/CLI/Terraform coverage matrix
+        run: bash scripts/check-simulator-coverage-matrix.sh
+        timeout-minutes: 5
+      - name: Check generated simulator surface tables
+        run: bash scripts/check-surface-tables-generated.sh
+        timeout-minutes: 5
+      - name: Check AWS behavioral pattern coverage registry
+        run: bash scripts/check-behavioral-coverage.sh
+        timeout-minutes: 5
+      - name: Check AWS CLI shard coverage
+        run: bash scripts/check-cli-shard-coverage.sh
+        timeout-minutes: 5
+      - name: Check AWS SDK shard coverage
+        run: bash scripts/check-sdk-shard-coverage.sh
+        timeout-minutes: 5
+      - name: Mux-overlap scan
+        run: bash scripts/scan-mux-overlap.sh
+        timeout-minutes: 5
+      - name: No case-fold-then-index slice-bounds class
+        run: bash scripts/check-casefold-slice.sh
+        timeout-minutes: 5
+      - name: No store-mutex acquisition inside *Locked helpers
+        run: bash scripts/check-locked-helpers.sh
+        timeout-minutes: 5
+      - name: No new skip-if-tool-absent tests
+        run: bash scripts/check-no-tool-absent-skips.sh
+        timeout-minutes: 5
+      - name: Check container publication contract
+        run: bash scripts/check-container-publication.sh
+        timeout-minutes: 5
+      - name: GitHub Actions jobs finish within 15 minutes
+        run: |
+          bash scripts/test-workflow-timeouts.sh
+          bash scripts/check-workflow-timeouts.sh
+        timeout-minutes: 5

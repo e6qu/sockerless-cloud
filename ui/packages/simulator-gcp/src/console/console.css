@@ -1,0 +1,660 @@
+/* Google Cloud console layout. See tokens.css for why these values. */
+
+.gcp,
+.gcp button,
+.gcp input {
+  font-family: var(--gc-font);
+}
+.gcp h1,
+.gcp h2,
+.gcp .gc-wordmark,
+.gcp .gc-product-title {
+  font-family: var(--gc-font-display);
+}
+
+/* The shared shell tints the document background; the console owns the whole
+ * viewport, so it is reset here rather than showing through at the edges. */
+body:has(.gcp) { background: var(--gc-layout-bg); }
+
+.gcp {
+  min-height: 100vh;
+  width: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--gc-layout-bg);
+  color: var(--gc-fg);
+  font-size: 14px;
+}
+
+/* Global header ---------------------------------------------------------- */
+/* The header sizes to its contents and establishes a stacking context. A
+ * fixed height leaves anything taller drawn outside its box, where the row
+ * below paints over it and clicks land on the wrong element. */
+.gc-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 16px;
+  min-height: 48px;
+  position: relative;
+  z-index: 1;
+  background: var(--gc-header-bg);
+  color: var(--gc-header-fg);
+  border-bottom: 1px solid var(--gc-header-border);
+}
+.gc-header-left { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.gc-wordmark { font-size: 22px; font-weight: 400; color: var(--gc-fg); white-space: nowrap; margin-left: 4px; }
+.gc-project-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--gc-border);
+  border-radius: 999px;
+  padding: 6px 16px;
+  margin-left: 8px;
+  font-size: 14px;
+  color: var(--gc-fg);
+  white-space: nowrap;
+}
+.gc-project-dot { width: 12px; height: 12px; border-radius: 3px; background: var(--gc-primary); display: inline-block; }
+.gc-header-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  background: var(--gc-header-search-bg);
+  border-radius: 999px;
+  padding: 0 16px;
+  max-width: 720px;
+  margin: 0 auto;
+  height: 40px;
+}
+.gc-header-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gc-fg);
+  min-width: 0;
+}
+.gc-header-search input:focus-visible { outline: none; }
+.gc-header-search:focus-within { outline: 2px solid var(--gc-primary); outline-offset: 1px; }
+.gc-header-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; min-width: 0; }
+.gc-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--gc-fg-secondary);
+  font: inherit;
+  line-height: 1;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  cursor: pointer;
+}
+.gc-icon-button:hover { background: var(--gc-surface-alt); }
+
+/* Product navigation ----------------------------------------------------- */
+.gc-body { display: grid; grid-template-columns: 256px minmax(0, 1fr); align-items: start; }
+.gc-product-nav {
+  background: var(--gc-surface);
+  border-right: 1px solid var(--gc-border-subtle);
+  min-height: calc(100vh - 49px);
+  padding: 8px 0;
+}
+.gc-product-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px 16px;
+  font-size: 17px;
+  color: var(--gc-fg);
+}
+.gc-product-nav ul { list-style: none; margin: 0; padding: 0; }
+/* The active pill is anchored to the left edge and rounded only on its right,
+ * so it reads as attached to the rail rather than floating. */
+.gc-product-nav li { padding: 0 8px 0 0; }
+.gc-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 12px 9px 24px;
+  margin: 1px 0;
+  border-radius: 0 999px 999px 0;
+  font-size: 14px;
+  color: var(--gc-fg);
+  text-decoration: none;
+}
+.gc-nav-link:hover { background: var(--gc-surface-alt); }
+.gc-nav-link-active {
+  background: var(--gc-nav-active-bg);
+  color: var(--gc-nav-active-fg);
+  font-weight: 500;
+}
+.gc-nav-link-active svg { color: var(--gc-nav-active-fg); }
+.gc-nav-footer { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--gc-border-subtle); }
+
+/* Navigation drawer -------------------------------------------------------
+ * The hamburger opens the full Google Cloud product catalog, grouped the way
+ * the real console's navigation drawer groups it (Material 3's navigation
+ * drawer: a scrollable list of sections, each with a small-caps headline,
+ * separated by a divider). Supported products are ordinary nav links;
+ * unsupported ones carry the NotSupportedChip and route to a short honest
+ * explanation instead of being silently omitted. */
+.gc-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(32, 33, 36, 0.5);
+  display: flex;
+  z-index: 100;
+}
+.gc-drawer {
+  width: min(320px, 90vw);
+  height: 100%;
+  background: var(--gc-surface);
+  color: var(--gc-fg);
+  overflow-y: auto;
+  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.25);
+}
+.gc-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 10px 20px;
+  position: sticky;
+  top: 0;
+  background: var(--gc-surface);
+  border-bottom: 1px solid var(--gc-border-subtle);
+}
+.gc-drawer-title { font-size: 16px; font-weight: 500; font-family: var(--gc-font-display); }
+.gc-drawer-note { font-size: 12.5px; color: var(--gc-fg-secondary); margin: 12px 20px; }
+.gc-drawer-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 8px;
+  padding: 0 12px;
+  height: 40px;
+  border: 1px solid var(--gc-border);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-surface);
+}
+.gc-drawer-search:focus-within { outline: 2px solid var(--gc-primary); outline-offset: 1px; }
+.gc-drawer-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gc-fg);
+  padding: 8px 0;
+}
+.gc-drawer-search input:focus-visible { outline: none; }
+.gc-drawer-group { padding: 8px 0; border-top: 1px solid var(--gc-border-subtle); }
+.gc-drawer-group:first-of-type { border-top: 0; }
+.gc-drawer-group-label {
+  margin: 4px 20px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gc-fg-secondary);
+}
+.gc-drawer-group ul { list-style: none; margin: 0; padding: 0; }
+.gc-drawer-link {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 20px;
+  color: var(--gc-fg);
+  text-decoration: none;
+  font-size: 14px;
+}
+.gc-drawer-link:hover { background: var(--gc-surface-alt); }
+.gc-drawer-link-active { background: var(--gc-nav-active-bg); color: var(--gc-nav-active-fg); font-weight: 500; }
+.gc-drawer-link-active svg { color: var(--gc-nav-active-fg); }
+.gc-drawer-link-unsupported { color: var(--gc-fg-secondary); }
+.gc-drawer-link-unsupported svg { color: var(--gc-fg-disabled); }
+
+/* Chips -------------------------------------------------------------------
+ * A filled-tonal Material 3 chip. Meaning is carried by its text and
+ * aria-label, never colour alone, so it reads the same to a screen-reader
+ * user, a low-vision user, and a sighted one. */
+.gc-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.gc-chip-unsupported {
+  background: var(--gc-surface-alt);
+  color: var(--gc-fg-secondary);
+  border: 1px solid var(--gc-border-subtle);
+}
+
+/* Account control -------------------------------------------------------- */
+.gc-account { position: relative; }
+.gc-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--gc-primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+}
+.gc-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.gc-avatar-anonymous { background: transparent; color: var(--gc-fg-secondary); }
+.gc-avatar-large { width: 64px; height: 64px; font-size: 26px; }
+.gc-account-menu {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  width: 300px;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-border-subtle);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  padding: 20px;
+  z-index: 20;
+}
+.gc-account-identity { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.gc-account-name { margin: 0; font-size: 15px; font-weight: 500; color: var(--gc-fg); }
+.gc-account-email { margin: 2px 0 0; font-size: 13px; color: var(--gc-fg-secondary); }
+.gc-account-signout { display: flex; justify-content: center; }
+.gc-account-signout button {
+  border: 1px solid var(--gc-border);
+  border-radius: 999px;
+  background: var(--gc-surface);
+  color: var(--gc-link);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 24px;
+  cursor: pointer;
+}
+.gc-account-signout button:hover { background: var(--gc-surface-alt); }
+
+/* Working area ----------------------------------------------------------- */
+.gc-main { padding: 16px 24px 48px; min-width: 0; }
+
+/* Page header ------------------------------------------------------------ */
+.gc-page-header { margin-bottom: 16px; }
+.gc-page-header-row { display: flex; align-items: center; gap: 20px; }
+.gc-page-header h1 { margin: 0; font-size: 22px; font-weight: 400; }
+.gc-page-actions { display: flex; align-items: center; gap: 16px; }
+.gc-text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gc-link);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.gc-text-action:disabled { color: var(--gc-fg-disabled); cursor: default; }
+.gc-text-action-primary { font-weight: 500; }
+.gc-action-glyph { font-size: 15px; }
+.gc-refresh {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gc-link);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.gc-refresh:disabled { color: var(--gc-fg-disabled); cursor: default; }
+.gc-page-description { margin: 8px 0 0; font-size: 14px; color: var(--gc-fg-secondary); max-width: 900px; }
+
+/* Logs Explorer query bar --------------------------------------------------- */
+.gc-log-query { display: flex; align-items: flex-end; gap: 16px; margin: 16px 0; flex-wrap: wrap; }
+.gc-log-query-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--gc-fg-secondary); min-width: 220px; }
+.gc-log-query-field input,
+.gc-log-query-field select {
+  padding: 8px 10px;
+  border: 1px solid var(--gc-border);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-surface);
+  color: var(--gc-fg);
+  font: inherit;
+  font-size: 14px;
+}
+
+/* Table tools ------------------------------------------------------------ */
+.gc-table-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--gc-border-subtle);
+}
+.gc-filter-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--gc-fg-secondary); }
+.gc-filter-glyph { font-size: 14px; }
+.gc-filter-input {
+  flex: 1;
+  max-width: 640px;
+  border: 0;
+  background: transparent;
+  padding: 6px 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gc-fg);
+}
+.gc-filter-input:focus-visible { outline: none; }
+.gc-table-tools:focus-within { box-shadow: inset 0 -2px 0 var(--gc-primary); }
+.gc-table-tools-right { margin-left: auto; display: flex; gap: 4px; }
+
+/* Table ------------------------------------------------------------------ */
+.gc-table-wrap { overflow-x: auto; }
+.gc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.gc-table th, .gc-table td {
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gc-border-subtle);
+  vertical-align: top;
+}
+.gc-table th { font-weight: 500; white-space: nowrap; color: var(--gc-fg-secondary); }
+.gc-table th button {
+  border: 0; background: transparent; font: inherit; font-weight: 500;
+  color: var(--gc-fg-secondary); cursor: pointer; padding: 0; display: inline-flex; gap: 6px; align-items: center;
+}
+.gc-header-help { color: var(--gc-fg-disabled); font-size: 12px; }
+.gc-sort { color: var(--gc-primary); font-size: 12px; min-width: 8px; }
+.gc-table-select { width: 44px; }
+.gc-table tbody tr:hover { background: var(--gc-surface-alt); }
+.gc-row-selected { background: var(--gc-nav-active-bg) !important; }
+.gc-table td { color: var(--gc-fg); overflow-wrap: anywhere; }
+.gc-table td a, .gc-table .gc-cell-link { color: var(--gc-link); text-decoration: none; }
+.gc-table td a:hover { text-decoration: underline; }
+.gc-table-state { padding: 0; }
+/* Several per-row text actions sit in a single cell with a little spacing. */
+.gc-row-actions { display: inline-flex; align-items: center; gap: 12px; }
+
+/* States ----------------------------------------------------------------- */
+.gc-loading { padding: 40px 16px; text-align: center; color: var(--gc-fg-secondary); }
+.gc-message { padding: 16px; font-size: 14px; }
+.gc-message-error { color: var(--gc-status-error); }
+
+/* The console pairs an illustration with a headline, an explanation, and the
+ * side effect of the primary action. */
+.gc-empty { padding: 48px 16px; text-align: center; color: var(--gc-fg-secondary); }
+.gc-empty-illustration { width: 160px; height: 96px; color: var(--gc-fg-disabled); margin-bottom: 16px; }
+.gc-empty-headline { margin: 0; font-size: 20px; font-weight: 400; color: var(--gc-fg); font-family: var(--gc-font-display); }
+.gc-empty-description { margin: 8px auto 0; font-size: 14px; max-width: 520px; }
+.gc-empty-sideeffect { margin: 16px 0 0; font-size: 13px; color: var(--gc-fg-secondary); }
+.gc-empty-description a { color: var(--gc-link); text-decoration: none; }
+.gc-empty-description a:hover { text-decoration: underline; }
+.gc-empty-actions { margin-top: 24px; display: flex; align-items: center; justify-content: center; gap: 20px; }
+.gc-empty-quickstart { color: var(--gc-link); text-decoration: none; font-size: 14px; }
+.gc-empty-quickstart:hover { text-decoration: underline; }
+.gc-button-primary {
+  border: 0;
+  border-radius: 4px;
+  background: var(--gc-primary);
+  color: var(--gc-primary-fg);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 24px;
+  cursor: pointer;
+}
+.gc-button-primary:hover:not(:disabled) { background: var(--gc-primary-hover); }
+.gc-button-primary:disabled { opacity: 0.55; cursor: default; }
+
+/* Pagination ------------------------------------------------------------- */
+.gc-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 0; font-size: 13px; color: var(--gc-fg-secondary); }
+.gc-pagination button {
+  border: 0; background: transparent; font: inherit; font-size: 16px;
+  color: var(--gc-link); cursor: pointer; padding: 0 6px; border-radius: 4px;
+}
+.gc-pagination button:disabled { color: var(--gc-fg-disabled); cursor: default; }
+
+/* Status ----------------------------------------------------------------- */
+.gc-status { display: inline-flex; align-items: center; gap: 6px; }
+.gc-status-success { color: var(--gc-status-success); }
+.gc-status-error { color: var(--gc-status-error); }
+.gc-status-warning { color: var(--gc-status-warning); }
+.gc-status-inactive { color: var(--gc-status-inactive); }
+
+/* Overview cards --------------------------------------------------------- */
+.gc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.gc-card {
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-border-subtle);
+  border-radius: var(--gc-radius);
+  padding: 20px;
+}
+.gc-card h2 { margin: 0 0 8px; font-size: 14px; font-weight: 500; color: var(--gc-fg-secondary); }
+.gc-card a { font-size: 32px; color: var(--gc-link); text-decoration: none; font-family: var(--gc-font-display); }
+.gc-card a:hover { text-decoration: underline; }
+
+/* Every control shows where focus is, in both themes. */
+.gcp a:focus-visible,
+.gcp button:focus-visible,
+.gcp input:focus-visible {
+  outline: 2px solid var(--gc-primary);
+  outline-offset: 2px;
+}
+
+/* Dialogs ----------------------------------------------------------------- */
+.gc-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(32, 33, 36, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.gc-dialog {
+  background: var(--gc-surface);
+  color: var(--gc-fg);
+  border-radius: var(--gc-radius);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  padding: 24px;
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+}
+.gc-dialog-title { margin: 0 0 16px; font-size: 18px; font-weight: 500; font-family: var(--gc-font-display); }
+.gc-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+.gc-dialog p { font-size: 14px; }
+
+/* Forms ------------------------------------------------------------------- */
+.gc-field { display: block; margin: 0 0 16px; font-size: 13px; color: var(--gc-fg-secondary); }
+.gc-field input,
+.gc-field select,
+.gc-field textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gc-fg);
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-border);
+  border-radius: var(--gc-radius-control);
+  padding: 8px 10px;
+}
+.gc-field-hint { margin: 4px 0 0; font-size: 12px; }
+.gc-derived-email { font-size: 13px; color: var(--gc-fg-secondary); margin: 0 0 16px; overflow-wrap: anywhere; }
+.gc-radio { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; font-size: 14px; color: var(--gc-fg); }
+.gc-radio input { margin-top: 3px; }
+.gc-radio-note { font-size: 12px; color: var(--gc-fg-secondary); }
+.gc-button-text {
+  border: 0;
+  background: transparent;
+  color: var(--gc-link);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: var(--gc-radius-control);
+  cursor: pointer;
+}
+.gc-button-text:hover { background: var(--gc-surface-alt); }
+.gc-button-text:disabled { color: var(--gc-fg-disabled); cursor: default; background: transparent; }
+
+/* Labels editor ------------------------------------------------------------
+ * The key/value row editor for a resource's `labels` map, reused by every
+ * edit flow that touches labels. */
+.gc-labels-editor { margin: 0 0 16px; }
+.gc-labels-editor > .gc-field { display: block; margin: 0 0 8px; }
+.gc-labels-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.gc-label-row { display: flex; align-items: center; gap: 8px; }
+.gc-label-row input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gc-fg);
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-border);
+  border-radius: var(--gc-radius-control);
+  padding: 8px 10px;
+}
+.gc-label-remove { width: 32px; height: 32px; flex-shrink: 0; }
+.gc-label-add { padding-left: 0; }
+
+/* Inline code / CLI usage -------------------------------------------------- */
+.gc-code-inline {
+  font-family: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  background: var(--gc-surface-alt);
+  border-radius: var(--gc-radius-control);
+  padding: 1px 6px;
+}
+.gc-code {
+  background: var(--gc-surface-alt);
+  border-radius: var(--gc-radius-control);
+  padding: 12px;
+  font-family: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 8px 0 0;
+  color: var(--gc-fg);
+}
+
+/* Resource detail pages ---------------------------------------------------- */
+.gc-detail-back { margin-bottom: 8px; font-size: 13px; }
+.gc-detail-back a { color: var(--gc-link); text-decoration: none; }
+.gc-detail-back a:hover { text-decoration: underline; }
+.gc-detail-heading { margin: 24px 0 8px; font-size: 16px; font-weight: 500; font-family: var(--gc-font-display); }
+.gc-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 4px 40px; margin: 0; }
+.gc-detail-pair { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; padding: 8px 0; font-size: 14px; border-bottom: 1px solid var(--gc-border-subtle); }
+.gc-detail-pair dt { color: var(--gc-fg-secondary); }
+.gc-detail-pair dd { margin: 0; color: var(--gc-fg); overflow-wrap: anywhere; }
+
+/* Resource detail tabs — Material 3 primary tabs: a row of text labels below
+ * the header, the active one tinted with the primary colour and underlined. */
+.gc-tabs { margin-top: 8px; }
+.gc-tablist { display: flex; gap: 4px; border-bottom: 1px solid var(--gc-border-subtle); }
+.gc-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  padding: 12px 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gc-fg-secondary);
+  cursor: pointer;
+}
+.gc-tab:hover { color: var(--gc-fg); background: var(--gc-surface-alt); }
+.gc-tab-active { color: var(--gc-primary); border-bottom-color: var(--gc-primary); }
+.gc-tabpanel { padding-top: 20px; }
+.gc-tabpanel:focus-visible { outline: none; }
+
+/* ---- Project picker ---- */
+/* The chip is a button opening the project dialog; it keeps the chip look. */
+button.gc-project-chip {
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+button.gc-project-chip:hover { background: var(--gc-surface-alt); }
+.gc-picker-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.gc-picker-search {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--gc-fg);
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-border);
+  border-radius: var(--gc-radius-control);
+}
+.gc-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--gc-border-subtle);
+  border-radius: var(--gc-radius);
+}
+.gc-picker-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--gc-fg);
+  cursor: pointer;
+}
+.gc-picker-row:hover { background: var(--gc-surface-alt); }
+.gc-picker-row-current { background: var(--gc-nav-active-bg); color: var(--gc-nav-active-fg); }
+.gc-picker-row-current:hover { background: var(--gc-nav-active-bg); }
+.gc-picker-row-name { font-size: 14px; }
+.gc-picker-row-meta { font-size: 12px; color: var(--gc-fg-secondary); }
+.gc-picker-row-current .gc-picker-row-meta { color: inherit; }
+.gc-picker-empty { font-size: 14px; color: var(--gc-fg-secondary); margin: 8px 0; }
+.gc-picker-progress { display: flex; align-items: center; gap: 10px; font-size: 14px; margin: 0 0 8px; }
+.gc-picker-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--gc-border-subtle);
+  border-top-color: var(--gc-primary);
+  border-radius: 50%;
+  animation: gc-picker-spin 0.8s linear infinite;
+}
+@keyframes gc-picker-spin { to { transform: rotate(360deg); } }
+a.gc-button-text { text-decoration: none; display: inline-flex; align-items: center; }
+a.gc-button-primary { text-decoration: none; display: inline-flex; align-items: center; }

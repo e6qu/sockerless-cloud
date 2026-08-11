@@ -1,0 +1,68 @@
+# Sim surface — aws-batch
+
+Surface registered in `simulator-aws/batch.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
+
+## Status legend
+
+- ✓ — implemented + tested
+- ✗ — missing (paired with an open BUG or issue; never silent)
+- 501 — stubbed NotImplemented (wire-visible gap)
+- n/a — no meaningful client/provider surface for this op
+
+## Implemented ops (extracted from HandleFunc registrations)
+
+| Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
+|---|---|---|---|---|---|
+| `POST /v1/createcomputeenvironment` | ✓ `simulator-aws/batch.go:171::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describecomputeenvironments` | ✓ `simulator-aws/batch.go:172::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/updatecomputeenvironment` | ✓ `simulator-aws/batch.go:173::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/deletecomputeenvironment` | ✓ `simulator-aws/batch.go:174::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/createjobqueue` | ✓ `simulator-aws/batch.go:176::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describejobqueues` | ✓ `simulator-aws/batch.go:177::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/updatejobqueue` | ✓ `simulator-aws/batch.go:178::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/deletejobqueue` | ✓ `simulator-aws/batch.go:179::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/registerjobdefinition` | ✓ `simulator-aws/batch.go:181::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describejobdefinitions` | ✓ `simulator-aws/batch.go:182::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/deregisterjobdefinition` | ✓ `simulator-aws/batch.go:183::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/submitjob` | ✓ `simulator-aws/batch.go:185::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describejobs` | ✓ `simulator-aws/batch.go:186::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/listjobs` | ✓ `simulator-aws/batch.go:187::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/canceljob` | ✓ `simulator-aws/batch.go:188::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/terminatejob` | ✓ `simulator-aws/batch.go:189::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/createschedulingpolicy` | ✓ `simulator-aws/batch.go:191::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describeschedulingpolicies` | ✓ `simulator-aws/batch.go:192::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/listschedulingpolicies` | ✓ `simulator-aws/batch.go:193::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/updateschedulingpolicy` | ✓ `simulator-aws/batch.go:194::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/deleteschedulingpolicy` | ✓ `simulator-aws/batch.go:195::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/createconsumableresource` | ✓ `simulator-aws/batch.go:198::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describeconsumableresource` | ✓ `simulator-aws/batch.go:199::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/listconsumableresources` | ✓ `simulator-aws/batch.go:200::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/updateconsumableresource` | ✓ `simulator-aws/batch.go:201::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/deleteconsumableresource` | ✓ `simulator-aws/batch.go:202::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/listjobsbyconsumableresource` | ✓ `simulator-aws/batch.go:203::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/createserviceenvironment` | ✓ `simulator-aws/batch.go:206::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describeserviceenvironments` | ✓ `simulator-aws/batch.go:207::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/updateserviceenvironment` | ✓ `simulator-aws/batch.go:208::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/deleteserviceenvironment` | ✓ `simulator-aws/batch.go:209::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/submitservicejob` | ✓ `simulator-aws/batch.go:212::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describeservicejob` | ✓ `simulator-aws/batch.go:213::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/listservicejobs` | ✓ `simulator-aws/batch.go:214::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/terminateservicejob` | ✓ `simulator-aws/batch.go:215::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/updateservicejob` | ✓ `simulator-aws/batch.go:216::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/createquotashare` | ✓ `simulator-aws/batch.go:219::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/describequotashare` | ✓ `simulator-aws/batch.go:220::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/listquotashares` | ✓ `simulator-aws/batch.go:221::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/updatequotashare` | ✓ `simulator-aws/batch.go:222::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/deletequotashare` | ✓ `simulator-aws/batch.go:223::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/getjobqueuesnapshot` | ✓ `simulator-aws/batch.go:226::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tags/{resourceArn}` | ✓ `simulator-aws/batch.go:229::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/tags/{resourceArn}` | ✓ `simulator-aws/batch.go:230::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/tags/{resourceArn}` | ✓ `simulator-aws/batch.go:231::cloudTrailRecordedREST` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+
+## Coverage status
+
+- Row-level SDK/Terraform cells summarize the maintained coverage matrix in `specs/SIM_TEST_COVERAGE_MATRIX.md`; detailed client files and client-family `n/a` decisions live there.
+- Missing public-cloud operations that are not registered by the simulator still require a concrete BUG and a row here when discovered by a community issue or periodic audit.
+
+<!-- HAND-WRITTEN BEGIN -->
+<!-- HAND-WRITTEN END -->

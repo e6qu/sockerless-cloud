@@ -1,0 +1,76 @@
+name: Fuzz (nightly)
+
+# Exploratory fuzzing to discover NEW crashers (the committed seed corpus
+# already runs under the normal `go test` jobs as a regression net). Runs every
+# fuzz target for a fixed time; a crasher fails the job and uploads the failing
+# input so it can be committed as a regression seed + fixed.
+
+# Without this the Go cache never restores: setup-go looks for a root go.mod,
+# this repository is a go.work, and the action logs "Restore cache failed:
+# Dependencies file is not found" on every shard. ci.yml already sets it; the
+# nightly needs it for the same reason.
+env:
+  GO_CACHE_DEPENDENCY_PATHS: |
+    go.work
+    **/go.sum
+
+on:
+  schedule:
+    # 07:00 UTC daily.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Seconds per fuzz target'
+        required: false
+        default: '90'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # aws is split because it does not fit the 15-minute budget: it holds
+          # roughly half of all targets, and one job running all of them takes
+          # about 21 minutes even with a warm cache. Halving it puts each shard
+          # alongside the other groups. The shared/ framework packages live
+          # inside each cloud module, so passing the module root covers them.
+          - group: aws-1of2
+            modules: simulator-aws
+            shard_index: 1
+            shard_total: 2
+          - group: aws-2of2
+            modules: simulator-aws
+            shard_index: 2
+            shard_total: 2
+          - group: gcp
+            modules: simulator-gcp
+          - group: azure
+            modules: simulator-azure
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - name: Fuzz
+        env:
+          FUZZTIME_SECONDS: ${{ github.event.inputs.seconds || '90' }}
+          FUZZ_SHARD_INDEX: ${{ matrix.shard_index || 1 }}
+          FUZZ_SHARD_TOTAL: ${{ matrix.shard_total || 1 }}
+        run: scripts/run-fuzz.sh ${{ matrix.modules }}
+      - name: Upload crashers
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: fuzz-crashers-${{ matrix.group }}
+          path: '.fuzz-artifacts/**'
+          if-no-files-found: ignore

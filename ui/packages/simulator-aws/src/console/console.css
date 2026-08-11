@@ -1,0 +1,202 @@
+/* Amazon Web Services console layout — the residue that is not itself a
+ * Cloudscape component. See tokens.css for where --aws-header-bg/-fg come
+ * from. */
+
+.aws {
+  min-height: 100vh;
+  width: 100%;
+  font-family: var(--aws-font);
+}
+.aws h1,
+.aws h2,
+.aws h3 {
+  font-family: var(--aws-font);
+}
+
+/* Global header ----------------------------------------------------------
+ * `TopNavigation` (in AwsConsole.tsx) renders the identity, the services
+ * search row, and the notification/settings/support utilities with its own
+ * genuine dark "top-navigation" visual context — no CSS of this console's
+ * own is involved in that part. The account cluster (region, the operator's
+ * signed-in identity, the theme toggle) sits beside it, outside
+ * `TopNavigation`'s own DOM, so it needs its own rule to sit on the same
+ * dark strip rather than the page's light/dark surface colour. */
+.aws-header {
+  display: flex;
+  align-items: center;
+  background: var(--aws-header-bg);
+  color: var(--aws-header-fg);
+}
+.aws-header-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 0 16px;
+  color: var(--aws-header-fg);
+}
+.aws-header-region {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Log events viewer -------------------------------------------------------
+ * The CloudWatch Logs stream's recent-events panel: a scrolling monospace
+ * transcript, one line per event, timestamp dimmed ahead of the message —
+ * the same shape the real console's log-stream viewer renders. Cloudscape
+ * has no packaged "log transcript" component, so this stays hand-built. Its
+ * border-radius and font-family come from `@cloudscape-design/design-tokens`
+ * (`borderRadiusContainer`/`fontFamilyMonospace`, applied as inline style in
+ * LogGroupDetailPage.tsx) rather than a literal value here — those two
+ * tokens are mode-independent (identical in light and dark), so, unlike the
+ * colours below, importing the real published token is possible without
+ * fighting Cloudscape's own build-hashed custom property names. */
+.aws-log-events {
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--aws-log-bg);
+  border: 1px solid var(--aws-log-border);
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.aws-log-event-line { display: flex; gap: 12px; padding: 3px 0; align-items: baseline; }
+.aws-log-event-timestamp { color: var(--aws-log-fg-secondary); white-space: nowrap; }
+.aws-log-event-message { color: var(--aws-log-fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* AWS Step Functions Workflow Studio and execution graph ------------------ */
+.aws-sfn-studio {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
+  min-height: 480px;
+  border: 1px solid var(--aws-log-border);
+  background: var(--aws-log-bg);
+}
+.aws-sfn-studio-pane { min-width: 0; padding: 16px; }
+.aws-sfn-studio-pane + .aws-sfn-studio-pane { border-left: 1px solid var(--aws-log-border); background: var(--aws-log-bg); }
+.aws-sfn-workflow-canvas {
+  min-height: 360px;
+  padding: 24px;
+  background-image: radial-gradient(var(--aws-log-border) .7px, transparent .7px);
+  background-size: 16px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.aws-sfn-graph-start,
+.aws-sfn-graph-end {
+  border-radius: 999px;
+  border: 1px solid var(--aws-log-border);
+  background: var(--aws-log-bg);
+  padding: 5px 18px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.aws-sfn-graph-step { display: flex; flex-direction: column; align-items: center; width: min(380px, 100%); }
+.aws-sfn-graph-arrow { height: 28px; line-height: 28px; color: var(--aws-log-fg-secondary); }
+.aws-sfn-state-card {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--aws-log-border);
+  border-left: 5px solid #527fff;
+  background: var(--aws-log-bg);
+  padding: 10px 14px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+.aws-sfn-state-card small { display: block; margin-top: 2px; color: var(--aws-log-fg-secondary); }
+.aws-sfn-state-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #354bb4;
+  font-weight: 800;
+}
+.aws-sfn-state-choice { border-left-color: #8b5cf6; }
+.aws-sfn-state-succeed { border-left-color: #1d8102; }
+.aws-sfn-state-fail { border-left-color: #d91515; }
+.aws-sfn-state-active { outline: 3px solid rgb(255 153 0 / 35%); }
+.aws-sfn-branches { display: flex; gap: 8px; padding-top: 8px; flex-wrap: wrap; justify-content: center; }
+.aws-sfn-branches span { border: 1px solid var(--aws-log-border); padding: 2px 7px; background: var(--aws-log-bg); font-size: 11px; }
+.aws-sfn-definition-editor textarea { font-family: monospace !important; line-height: 1.45 !important; }
+.aws-sfn-graph-error { padding: 32px; color: #d91515; text-align: center; }
+.aws-sfn-event-details { max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .aws-sfn-studio { grid-template-columns: 1fr; }
+  .aws-sfn-studio-pane + .aws-sfn-studio-pane { border-left: 0; border-top: 1px solid var(--aws-log-border); }
+}
+
+/* AWS Lambda function designer ------------------------------------------- */
+.aws-lambda-overview {
+  min-height: 300px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 220px minmax(220px, 1fr);
+  align-items: center;
+  gap: 36px;
+  padding: 28px;
+  background-image: radial-gradient(var(--aws-log-border) .7px, transparent .7px);
+  background-size: 16px 16px;
+}
+.aws-lambda-trigger-column,
+.aws-lambda-destination-column {
+  align-self: stretch;
+  padding: 14px;
+  border: 1px solid var(--aws-log-border);
+  background: var(--aws-log-bg);
+}
+.aws-lambda-function-node {
+  position: relative;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ff9900;
+  background: var(--aws-log-bg);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 18%);
+}
+.aws-lambda-function-node::before,
+.aws-lambda-function-node::after {
+  position: absolute;
+  content: "";
+  width: 36px;
+  top: 50%;
+  border-top: 2px solid var(--aws-log-border);
+}
+.aws-lambda-function-node::before { right: 100%; }
+.aws-lambda-function-node::after { left: 100%; }
+.aws-lambda-function-node small,
+.aws-lambda-resource-card small {
+  display: block;
+  margin-top: 5px;
+  color: var(--aws-log-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.aws-lambda-icon {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: #ff9900;
+  color: #16191f;
+  font-size: 30px;
+  font-weight: 800;
+}
+.aws-lambda-resource-card {
+  margin-top: 10px;
+  padding: 10px;
+  border-left: 4px solid #527fff;
+  background: var(--aws-log-bg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
+}
+@media (max-width: 900px) {
+  .aws-lambda-overview { grid-template-columns: 1fr; }
+  .aws-lambda-function-node::before,
+  .aws-lambda-function-node::after { display: none; }
+}

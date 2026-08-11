@@ -1,0 +1,44 @@
+{
+	admin localhost:{$SOCKERLESS_HTTPS_GATEWAY_ADMIN_PORT:28443}
+	auto_https disable_redirects
+	skip_install_trust
+}
+
+https://aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+	tls internal
+	reverse_proxy 127.0.0.1:{$SOCKERLESS_AWS_SIM_PORT:4566} {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+https://gcp.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+	tls internal
+	reverse_proxy 127.0.0.1:{$SOCKERLESS_GCP_SIM_PORT:4567} {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+https://localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+	tls internal
+	reverse_proxy 127.0.0.1:{$SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT:4566} {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+https://azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.blob.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.file.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.queue.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.table.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.web.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.dfs.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.vault.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.servicebus.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.eventgrid.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.documents.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.azurecr.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+	tls internal
+	reverse_proxy 127.0.0.1:{$SOCKERLESS_AZURE_SIM_PORT:4568} {
+		header_up X-Forwarded-Proto https
+	}
+}

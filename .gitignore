@@ -1,0 +1,84 @@
+# Build outputs
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+__debug_bin*
+.gocache/
+
+# Simulator binaries (built by `go build` / `make build`)
+simulator-aws/simulator-aws
+simulator-gcp/simulator-gcp
+simulator-azure/simulator-azure
+
+# Test-helper binaries built by `go build ./...` in testdata dirs. The
+# binaries are extensionless and named after their dir; every committed source
+# file carries an extension (.go/.mod/.md), so ignore the extensionless build
+# outputs and keep the sources.
+testdata/*/*
+!testdata/*/*.*
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+!*.tfvars.example
+
+# Test outputs
+coverage.out
+coverage.html
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Node
+node_modules/
+
+# UI monorepo build state. dist/ inside ui/packages stays ignored; the
+# embeddable copies under simulator-*/dist ARE committed so that
+# `go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@version`
+# ships the console SPA (see AGENTS.md § Committed console dist).
+ui/node_modules/
+ui/packages/*/node_modules/
+ui/packages/*/dist/
+.turbo/
+ui/.turbo/
+ui/packages/*/.turbo/
+ui/packages/*/*.tsbuildinfo
+
+# Playwright
+ui/packages/*/test-results/
+ui/packages/*/playwright-report/
+
+# Misc
+*.log
+tmp/
+.local/
+
+# Per-user Claude state
+.claude/*
+!.claude/skills/

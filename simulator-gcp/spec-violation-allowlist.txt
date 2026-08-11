@@ -1,0 +1,24 @@
+# Known runtime spec-shape violations — the burn-down list.
+#
+# Each line is a violation key (op<TAB>kind<TAB>field, array indices
+# collapsed to []) recorded by SOCKERLESS_SPEC_VALIDATE and accepted by
+# scripts/check-spec-violations.sh. Every burn-down entry MUST carry a
+# BUG ID; this list only shrinks — fixing the simulator removes lines,
+# never the other way around. New violations fail CI until fixed or
+# filed + listed here.
+
+# BUG-2646 — Cloud Run WorkerPoolScaling automatic-scaling members. Google has
+# not published scalingMode / minInstanceCount / maxInstanceCount in the Cloud
+# Run v2 Discovery document or the REST reference (checked through revision
+# 20260717), but the API serves them: gcloud's own generated Cloud Run v2
+# client and the google Terraform provider both send and read them, and
+# `manual_instance_count` sits at proto field 6 with 1-5 unpublished. The
+# simulator models what the official clients speak, so the validator sees three
+# members the pinned document does not declare. These lines go away when Google
+# publishes the members — never by dropping them from the simulator.
+GET /v2/projects/{projectsId}/locations/{locationsId}/workerPools/{workerPoolsId}	unknown-field	$.scaling.scalingMode
+GET /v2/projects/{projectsId}/locations/{locationsId}/workerPools/{workerPoolsId}	unknown-field	$.scaling.minInstanceCount
+GET /v2/projects/{projectsId}/locations/{locationsId}/workerPools/{workerPoolsId}	unknown-field	$.scaling.maxInstanceCount
+GET /v2/projects/{projectsId}/locations/{locationsId}/workerPools	unknown-field	$.workerPools[].scaling.scalingMode
+GET /v2/projects/{projectsId}/locations/{locationsId}/workerPools	unknown-field	$.workerPools[].scaling.minInstanceCount
+GET /v2/projects/{projectsId}/locations/{locationsId}/workerPools	unknown-field	$.workerPools[].scaling.maxInstanceCount

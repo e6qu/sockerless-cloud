@@ -1,0 +1,154 @@
+# Build and publish the simulator container images. Currently pushes to
+# ghcr.io/e6qu/<image>; the workflow can later be extended to publish
+# to other registries (Docker Hub, GAR, ACR) by adding matrix entries
+# or per-registry login steps.
+#
+# Every main commit publishes exactly one immutable short-SHA manifest and its
+# two native architecture images. No mutable branch or latest tags are emitted.
+#
+# Multi-arch shape: each (image, arch) pair builds + pushes its own
+# digest on a NATIVE runner (linux/arm64 → ubuntu-24.04-arm,
+# linux/amd64 → ubuntu-latest). A trailing manifest-merge job
+# composes both digests into a single multi-arch manifest list. This
+# avoids QEMU emulation entirely — every build runs on its target
+# CPU architecture.
+name: Publish container images
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  prepare:
+    timeout-minutes: 5
+    name: Release coordinates
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.revision.outputs.short_sha }}
+    steps:
+      - id: revision
+        env:
+          REVISION: ${{ github.sha }}
+        run: echo "short_sha=${REVISION:0:12}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: sockerless-simulator-aws, dockerfile: simulator-aws/Dockerfile, context: . }
+          - { name: sockerless-simulator-gcp, dockerfile: simulator-gcp/Dockerfile, context: . }
+          - { name: sockerless-simulator-azure, dockerfile: simulator-azure/Dockerfile, context: . }
+        arch:
+          - { platform: linux/amd64, runner: ubuntu-latest, suffix: amd64 }
+          - { platform: linux/arm64, runner: ubuntu-24.04-arm, suffix: arm64 }
+    name: ${{ matrix.image.name }} (${{ matrix.arch.suffix }})
+    runs-on: ${{ matrix.arch.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: docker/setup-buildx-action@v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (per-arch, by digest)
+        id: build
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ matrix.arch.platform }}
+          push: true
+          provenance: false
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/e6qu/${{ matrix.image.name }}:${{ needs.prepare.outputs.short_sha }}-${{ matrix.arch.suffix }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch.suffix }}
+          cache-to: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch.suffix }},mode=max
+
+  manifest:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - sockerless-simulator-aws
+          - sockerless-simulator-gcp
+          - sockerless-simulator-azure
+    name: ${{ matrix.image }} manifest
+    steps:
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compose multi-arch manifest list
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ env.REGISTRY }}/e6qu/${{ matrix.image }}:${{ needs.prepare.outputs.short_sha }}"
+          AMD64_REF="$TAG-amd64"
+          ARM64_REF="$TAG-arm64"
+          echo "▸ assembling $TAG from $AMD64_REF + $ARM64_REF"
+          docker buildx imagetools create \
+            --tag "$TAG" \
+            "$AMD64_REF" \
+            "$ARM64_REF"
+
+          for REF in "$AMD64_REF" "$ARM64_REF"; do
+            MEDIA_TYPE=$(docker buildx imagetools inspect \
+              --format '{{.Manifest.MediaType}}' "$REF")
+            test "$MEDIA_TYPE" = "application/vnd.oci.image.manifest.v1+json"
+          done
+
+          MEDIA_TYPE=$(docker buildx imagetools inspect \
+            --format '{{.Manifest.MediaType}}' "$TAG")
+          test "$MEDIA_TYPE" = "application/vnd.oci.image.index.v1+json"
+          PLATFORMS=$(docker buildx imagetools inspect \
+            --format '{{range .Manifest.Manifests}}{{printf "%s/%s\n" .Platform.OS .Platform.Architecture}}{{end}}' \
+            "$TAG" | sort)
+          test "$PLATFORMS" = "$(printf 'linux/amd64\nlinux/arm64')"
+
+  retention:
+    needs: manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - sockerless-simulator-aws
+          - sockerless-simulator-gcp
+          - sockerless-simulator-azure
+    name: ${{ matrix.image }} retention
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Retain the newest 20 immutable releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/prune-ghcr-images.sh "${{ github.repository_owner }}" "${{ matrix.image }}" 20

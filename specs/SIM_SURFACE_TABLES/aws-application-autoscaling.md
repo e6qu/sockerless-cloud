@@ -1,0 +1,37 @@
+# Sim surface — aws-application-autoscaling
+
+Surface registered in `simulator-aws/application_autoscaling.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
+
+## Status legend
+
+- ✓ — implemented + tested
+- ✗ — missing (paired with an open BUG or issue; never silent)
+- 501 — stubbed NotImplemented (wire-visible gap)
+- n/a — no meaningful client/provider surface for this op
+
+## Implemented ops (extracted from HandleFunc registrations)
+
+| Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
+|---|---|---|---|---|---|
+| `Action AnyScaleFrontendService.RegisterScalableTarget` | ✓ `simulator-aws/application_autoscaling.go:97::handleAppASRegisterScalableTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DeregisterScalableTarget` | ✓ `simulator-aws/application_autoscaling.go:98::handleAppASDeregisterScalableTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DescribeScalableTargets` | ✓ `simulator-aws/application_autoscaling.go:99::handleAppASDescribeScalableTargets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.PutScalingPolicy` | ✓ `simulator-aws/application_autoscaling.go:100::handleAppASPutScalingPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DeleteScalingPolicy` | ✓ `simulator-aws/application_autoscaling.go:101::handleAppASDeleteScalingPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DescribeScalingPolicies` | ✓ `simulator-aws/application_autoscaling.go:102::handleAppASDescribeScalingPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.ListTagsForResource` | ✓ `simulator-aws/application_autoscaling.go:103::handleAppASListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.TagResource` | ✓ `simulator-aws/application_autoscaling.go:104::handleAppASTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.UntagResource` | ✓ `simulator-aws/application_autoscaling.go:105::handleAppASUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.PutScheduledAction` | ✓ `simulator-aws/application_autoscaling.go:106::handleAppASPutScheduledAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DeleteScheduledAction` | ✓ `simulator-aws/application_autoscaling.go:107::handleAppASDeleteScheduledAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DescribeScheduledActions` | ✓ `simulator-aws/application_autoscaling.go:108::handleAppASDescribeScheduledActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.DescribeScalingActivities` | ✓ `simulator-aws/application_autoscaling.go:109::handleAppASDescribeScalingActivities` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AnyScaleFrontendService.GetPredictiveScalingForecast` | ✓ `simulator-aws/application_autoscaling.go:110::handleAppASGetPredictiveScalingForecast` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+
+## Coverage status
+
+- Row-level SDK/Terraform cells summarize the maintained coverage matrix in `specs/SIM_TEST_COVERAGE_MATRIX.md`; detailed client files and client-family `n/a` decisions live there.
+- Missing public-cloud operations that are not registered by the simulator still require a concrete BUG and a row here when discovered by a community issue or periodic audit.
+
+<!-- HAND-WRITTEN BEGIN -->
+<!-- HAND-WRITTEN END -->

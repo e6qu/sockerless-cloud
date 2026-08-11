@@ -1,0 +1,49 @@
+/*
+ * Amazon Web Services Management Console appearance — the small residue of
+ * AWS product chrome that is not itself a published Cloudscape component or
+ * design token. Everything else (surfaces, text, borders, status colours,
+ * badges, buttons, focus rings, light/dark themes) now comes directly from
+ * the real `@cloudscape-design/components` this console renders and
+ * `@cloudscape-design/global-styles` (imported in index.css), which is
+ * exactly the AWS Management Console's own design system.
+ *
+ * Cloudscape components read their own colours from CSS custom properties
+ * with build-hashed names (e.g. `--color-text-body-default-vvtq8u`), private
+ * to the installed package version — there is no stable, public custom
+ * property this console's own CSS can read the same tokens from. The values
+ * below are instead read directly from the same published JSON that backs
+ * those hashed properties — `@cloudscape-design/design-tokens@3.0.104`'s
+ * `index-visual-refresh.json`, `tokens[name].$value.light` /
+ * `.dark` (or, for the header, `contexts["top-navigation"]
+ * .tokens["color-background-container-header"].$value`) — for the handful
+ * of surfaces that have no packaged Cloudscape component of their own: the
+ * global header's account cluster (which sits beside `TopNavigation`,
+ * outside its own DOM) and the CloudWatch Logs events transcript.
+ */
+.aws {
+  /* contexts["top-navigation"].tokens["color-background-container-header"],
+   * identical in light and dark mode — TopNavigation applies it to itself
+   * automatically; this lets the header's own account cluster match it. */
+  --aws-header-bg: #161d26;
+  --aws-header-fg: #f9f9fa;
+
+  /* font-family-base, light and dark alike — Cloudscape applies this per
+   * component rather than once globally, so the console's own root
+   * reasserts it for anything (headings, page text) that isn't itself a
+   * Cloudscape component. */
+  --aws-font: "Open Sans", "Helvetica Neue", Roboto, Arial, sans-serif;
+
+  /* tokens["color-background-container-header"/"color-border-divider-default"
+   * /"color-text-body-secondary"/"color-text-body-default"].$value.light */
+  --aws-log-bg: #ffffff;
+  --aws-log-border: #c6c6cd;
+  --aws-log-fg-secondary: #424650;
+  --aws-log-fg: #0f141a;
+}
+.dark .aws {
+  /* the same four tokens' .$value.dark */
+  --aws-log-bg: #161d26;
+  --aws-log-border: #424650;
+  --aws-log-fg-secondary: #c6c6cd;
+  --aws-log-fg: #c6c6cd;
+}

@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@import "@sockerless/ui-core/styles";
+/* The portal shell owns the whole viewport; see portal/tokens.css. */
+@import "./portal/tokens.css";
+@import "./portal/portal.css";
+
+/* Per-app accent — see ui/packages/core/src/styles/tokens.css for the
+ * full token surface this overrides. */
+:root {
+  --color-accent: oklch(0.6 0.18 245);
+  --color-accent-fg: oklch(0.96 0.04 245);
+  --color-accent-soft: oklch(0.94 0.07 245);
+}
+.dark {
+  --color-accent-soft: oklch(0.32 0.08 245);
+}

@@ -1,0 +1,11 @@
+AWSStepFunctions.ValidateStateMachineDefinition
+AWSGlue.GetPartitionIndexes
+POST /service/GraniteServiceVersion20100801/operation/
+GET /2018-10-31/layers
+GET /SimpleNotificationService-
+GET /acme/{endpoint}/directory
+HEAD /acme/{endpoint}/new-nonce
+GET /acme/{endpoint}/new-nonce
+POST /acme/{endpoint}/{resource}
+POST /acme/{endpoint}/{resource}/{id}
+GET /acm/email-validation/{token}

@@ -1,0 +1,6 @@
+GET /compute/v1/projects/{project}/aggregated/
+GET /compute/v1/projects/{project}/global/
+GET /compute/v1/projects/{project}/regions/{region}/
+GET /compute/v1/projects/{project}/zones/{zone}/
+GET /v1/projects/{project}/locations/{location}/aclPolicies/{id}/revisions
+GET /v1/projects/{project}/locations/{location}/aclPolicies/{id}/revisions/{revision}

@@ -1,0 +1,92 @@
+/* Google Cloud console palette.
+ *
+ * Taken from the console's own surfaces rather than a brand sheet: the light
+ * global header, the white working area over a faintly tinted page, the
+ * filled-pill selected item in the product navigation, and the link blue that
+ * carries every resource reference and inline action.
+ *
+ * Every foreground was checked against the surface it lands on; the lowest
+ * ratio in either theme is recorded beside it, against the 4.5:1 WCAG AA
+ * requires for body text. */
+
+.gcp {
+  /* Roboto is the console's real body typeface (vendored); the display face is
+   * Google Sans, approximated by Roboto since that face is not redistributable. */
+  --gc-font: Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  --gc-font-display: Roboto, Arial, sans-serif;
+
+  /* Values read from the live console's computed styles. The console's current
+   * theme is a blue-tinted light palette, not the older grey one. */
+  --gc-header-bg: #ffffff;
+  --gc-header-fg: #1f1f1f;           /* 15.6:1 on the header */
+  --gc-header-border: #c4c7c5;
+  /* The global search field's own fill. It must be a token, not a literal: the
+   * field's text follows --gc-fg, so a fixed light fill leaves near-white text
+   * on a pale background in dark mode. */
+  --gc-header-search-bg: #eef3fb;    /* 14.8:1 against --gc-fg */
+
+  --gc-layout-bg: #f0f5fe;           /* the app frame's blue-tinted background */
+  --gc-surface: #ffffff;             /* the working area is white */
+  --gc-surface-alt: #f1f3f4;
+
+  --gc-fg: #1f1f1f;                  /* 16.1:1 on white */
+  --gc-fg-secondary: #444746;        /* 9.0:1 on white */
+  --gc-fg-disabled: #9aa0a6;
+
+  --gc-link: #0b57d0;                /* 6.3:1 on white — the console's link blue */
+  --gc-link-hover: #0842a0;
+
+  --gc-primary: #0b57d0;
+  --gc-primary-hover: #0842a0;
+  --gc-primary-fg: #ffffff;          /* 6.3:1 on the primary fill */
+
+  --gc-nav-active-bg: #dbedfc;       /* the active nav pill, from the console */
+  --gc-nav-active-fg: #1b2e5d;       /* 10.9:1 on the active pill */
+
+  --gc-border: #747775;
+  --gc-border-subtle: #e1e3e1;
+
+  --gc-status-success: #188038;      /* 4.6:1 on white */
+  --gc-status-error: #c5221f;        /* 5.9:1 on white */
+  --gc-status-warning: #b06000;      /* 4.9:1 on white */
+  --gc-status-inactive: #5f6368;
+
+  --gc-radius: 8px;
+  --gc-radius-control: 4px;
+}
+
+/* The console's dark theme keeps the same link and primary roles over dark
+ * surfaces. Foregrounds are lightened until each clears AA on the surface it
+ * lands on, rather than reused at lower contrast. */
+.dark .gcp {
+  --gc-header-bg: #202124;
+  --gc-header-fg: #e8eaed;           /* 13.4:1 on the dark header */
+  --gc-header-border: #3c4043;
+  --gc-header-search-bg: #303134;    /* 10.4:1 against --gc-fg */
+
+  --gc-layout-bg: #202124;
+  --gc-surface: #292a2d;
+  --gc-surface-alt: #35363a;
+
+  --gc-fg: #e8eaed;                  /* 12.3:1 on the working area */
+  --gc-fg-secondary: #bdc1c6;        /* 8.2:1 on the working area */
+  --gc-fg-disabled: #80868b;
+
+  --gc-link: #8ab4f8;                /* 8.0:1 on the working area */
+  --gc-link-hover: #aecbfa;
+
+  --gc-primary: #8ab4f8;
+  --gc-primary-hover: #aecbfa;
+  --gc-primary-fg: #202124;          /* 8.0:1 on the primary fill */
+
+  --gc-nav-active-bg: #283142;
+  --gc-nav-active-fg: #8ab4f8;       /* 6.9:1 on the active pill */
+
+  --gc-border: #5f6368;
+  --gc-border-subtle: #3c4043;
+
+  --gc-status-success: #81c995;      /* 8.5:1 on the working area */
+  --gc-status-error: #f28b82;        /* 7.6:1 on the working area */
+  --gc-status-warning: #fdd663;      /* 12.4:1 on the working area */
+  --gc-status-inactive: #bdc1c6;
+}

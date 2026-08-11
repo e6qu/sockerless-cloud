@@ -1,0 +1,73 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - forcetypeassert
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - unconvert
+    - wastedassign
+  settings:
+    errcheck:
+      # Only genuinely fire-and-forget calls are excluded. Parse/read calls
+      # (json.Unmarshal, io.ReadAll, json.Decoder.Decode, fmt.Sscanf) are NOT
+      # excluded — a dropped decode/read error hides a real fault and is the
+      # class fuzzing keeps surfacing, so it must be handled or surfaced.
+      exclude-functions:
+        # HTTP response writing — errors indicate client disconnected
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        # Streaming / copying
+        - io.Copy
+        # Writer helpers
+        - (*bufio.Writer).WriteString
+        - (*archive/tar.Writer).WriteHeader
+        - (*bytes.Buffer).Write
+        - (*bytes.Buffer).WriteString
+        # Crypto / formatting
+        - (crypto/rand).Read
+        # Shell output — best effort
+        - fmt.Fprintf
+        - fmt.Fprint
+        - fmt.Fprintln
+        # Cleanup / filesystem — best effort
+        - os.RemoveAll
+        - os.Remove
+        - os.MkdirAll
+        - os.WriteFile
+        - os.Setenv
+        # Close / Flush — deferred cleanup, error not actionable
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*os.File).Write
+        - (*net.TCPConn).Close
+        - (*net.UnixConn).Close
+        - (net.Conn).Close
+        - (*bufio.Writer).Flush
+        - (*net/http.Response).Body.Close
+        # WebSocket
+        - (*github.com/gorilla/websocket.Conn).WriteJSON
+        # Process signals (fire-and-forget)
+        - (*os.Process).Signal
+        - (*os.Process).Kill
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - govet
+          - forcetypeassert
+      - linters:
+          - staticcheck
+        text: "SA1019:"
+      - linters:
+          - staticcheck
+        text: "QF1003:"
+    paths:
+      - .build

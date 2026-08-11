@@ -1,0 +1,168 @@
+# Hooks without an explicit `stages:` would otherwise run in EVERY installed
+# stage — re-executing the whole always_run suite a second time during the
+# commit-msg stage of each commit, with file-scoped hooks misleadingly
+# reporting "no files to check". Scope the default to pre-commit; hooks that
+# belong elsewhere declare their stage explicitly.
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # The committed simulator console bundles (simulator-*/dist/) are build
+      # artifacts embedded verbatim into the binaries; whitespace "fixes"
+      # would diverge them from the real build output.
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+        exclude: ^simulator-(aws|gcp|azure)/dist/
+      - id: end-of-file-fixer
+        exclude: ^simulator-(aws|gcp|azure)/dist/
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: [-x, -s, bash]
+        files: ^(scripts/|tests/|ui/packages/core/e2e/).*\.sh$
+
+  - repo: local
+    hooks:
+      # Pre-commit: format + lint
+      - id: gofmt
+        name: Go format
+        entry: gofmt -l -w
+        language: system
+        types: [go]
+
+      - id: golangci-lint
+        name: Go lint
+        entry: bash scripts/lint-changed.sh
+        language: system
+        types: [go]
+        require_serial: true
+
+      - id: single-open-pr
+        name: At most one PR open (put all work in the one open PR)
+        entry: bash scripts/check-single-open-pr.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: simulator-testing-contract
+        name: Simulator testing contract (SDK + CLI + terraform per change)
+        entry: bash scripts/check-simulator-tests.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: behavioral-coverage
+        name: AWS behavioral pattern coverage registry
+        entry: bash scripts/check-behavioral-coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: simulator-coverage-matrix
+        name: Simulator SDK/CLI/Terraform coverage matrix
+        entry: bash scripts/check-simulator-coverage-matrix.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: simulator-surface-table-generation
+        name: Generated simulator surface tables
+        entry: bash scripts/check-surface-tables-generated.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: cli-shard-coverage
+        name: AWS CLI shard coverage (every CLI test runs in exactly one CI shard)
+        entry: bash scripts/check-cli-shard-coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: sdk-shard-coverage
+        name: AWS SDK shard coverage (every SDK test runs in exactly one CI shard)
+        entry: bash scripts/check-sdk-shard-coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: mux-overlap-scan
+        name: Mux-overlap scan
+        entry: bash scripts/scan-mux-overlap.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: casefold-slice
+        name: No case-fold-then-index slice-bounds class (use sim.CaseInsensitiveIndex)
+        entry: bash scripts/check-casefold-slice.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: locked-helpers
+        name: No store-mutex acquisition inside *Locked helpers (RWMutex is not reentrant)
+        entry: bash scripts/check-locked-helpers.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: no-tool-absent-skips
+        name: No new skip-if-tool-absent tests
+        entry: bash scripts/check-no-tool-absent-skips.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: embedded-ui-build-order
+        name: Embedded web interfaces build before Go binaries
+        entry: bash scripts/check-embedded-ui-build-order.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: container-publication
+        name: Immutable multi-architecture container publication contract
+        entry: bash scripts/check-container-publication.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: workflow-timeouts
+        name: GitHub Actions jobs finish within 15 minutes
+        entry: bash -c 'scripts/test-workflow-timeouts.sh && scripts/check-workflow-timeouts.sh'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # simulator code-quality: dead code + copy-paste detection
+      - id: simulators-deadcode
+        name: simulator dead code (deadcode aws/gcp/azure)
+        entry: bash scripts/simulators-deadcode.sh
+        language: system
+        pass_filenames: false
+        files: ^simulator-(aws|gcp|azure)/.*\.go$
+        always_run: false
+
+      - id: simulators-dupl
+        name: simulator copy-paste Go (dupl ≥200 tokens)
+        entry: bash scripts/simulators-dupl.sh
+        language: system
+        pass_filenames: false
+        files: ^simulator-(aws|gcp|azure)/.*\.go$
+        always_run: false
+
+      - id: simulators-knip
+        name: simulator dead TS exports (knip)
+        entry: bash scripts/simulators-knip.sh
+        language: system
+        pass_filenames: false
+        files: ^ui/packages/simulator-(aws|gcp|azure)/src/
+        always_run: false

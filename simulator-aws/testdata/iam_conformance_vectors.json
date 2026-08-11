@@ -1,0 +1,343 @@
+[
+  {
+    "name": "explicit-allow-matches",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*"
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::bucket/key",
+    "expect": "allowed"
+  },
+  {
+    "name": "no-statement-implicit-deny",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:PutObject",
+          "Resource": "*"
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "*",
+    "expect": "implicitDeny"
+  },
+  {
+    "name": "explicit-deny-wins-over-allow",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:*",
+          "Resource": "*"
+        },
+        {
+          "Effect": "Deny",
+          "Action": "s3:DeleteObject",
+          "Resource": "*"
+        }
+      ]
+    },
+    "action": "s3:DeleteObject",
+    "resource": "*",
+    "expect": "explicitDeny"
+  },
+  {
+    "name": "stringlike-wildcard-action",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "ec2:Describe*",
+          "Resource": "*"
+        }
+      ]
+    },
+    "action": "ec2:DescribeVolumes",
+    "resource": "*",
+    "expect": "allowed"
+  },
+  {
+    "name": "numericlessthan-true",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:ListBucket",
+          "Resource": "*",
+          "Condition": {
+            "NumericLessThan": {
+              "s3:max-keys": "100"
+            }
+          }
+        }
+      ]
+    },
+    "action": "s3:ListBucket",
+    "resource": "*",
+    "context": {
+      "s3:max-keys": "50"
+    },
+    "expect": "allowed",
+    "contextType": "numeric"
+  },
+  {
+    "name": "numericlessthan-false-implicit-deny",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:ListBucket",
+          "Resource": "*",
+          "Condition": {
+            "NumericLessThan": {
+              "s3:max-keys": "100"
+            }
+          }
+        }
+      ]
+    },
+    "action": "s3:ListBucket",
+    "resource": "*",
+    "context": {
+      "s3:max-keys": "500"
+    },
+    "expect": "implicitDeny",
+    "contextType": "numeric"
+  },
+  {
+    "name": "ipaddress-in-cidr",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "IpAddress": {
+              "aws:SourceIp": "10.0.0.0/8"
+            }
+          }
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "*",
+    "context": {
+      "aws:SourceIp": "10.1.2.3"
+    },
+    "expect": "allowed",
+    "contextType": "ip"
+  },
+  {
+    "name": "ipaddress-outside-cidr",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "IpAddress": {
+              "aws:SourceIp": "10.0.0.0/8"
+            }
+          }
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "*",
+    "context": {
+      "aws:SourceIp": "192.168.0.1"
+    },
+    "expect": "implicitDeny",
+    "contextType": "ip"
+  },
+  {
+    "name": "dategreaterthan-true",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "DateGreaterThan": {
+              "aws:CurrentTime": "2020-01-01T00:00:00Z"
+            }
+          }
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "*",
+    "context": {
+      "aws:CurrentTime": "2025-06-01T00:00:00Z"
+    },
+    "expect": "allowed",
+    "contextType": "date"
+  },
+  {
+    "name": "bool-true",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "Bool": {
+              "aws:SecureTransport": "true"
+            }
+          }
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "*",
+    "context": {
+      "aws:SecureTransport": "true"
+    },
+    "expect": "allowed",
+    "contextType": "boolean"
+  },
+  {
+    "name": "null-key-absent-allows",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "Null": {
+              "aws:TokenIssueTime": "true"
+            }
+          }
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "*",
+    "expect": "allowed"
+  },
+  {
+    "name": "stringequals-resourcetag-match",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "ec2:DeleteVolume",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:ResourceTag/edd:managed": "true"
+            }
+          }
+        }
+      ]
+    },
+    "action": "ec2:DeleteVolume",
+    "resource": "*",
+    "context": {
+      "aws:ResourceTag/edd:managed": "true"
+    },
+    "expect": "allowed"
+  },
+  {
+    "name": "stringequals-resourcetag-absent-deny",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "ec2:DeleteVolume",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:ResourceTag/edd:managed": "true"
+            }
+          }
+        }
+      ]
+    },
+    "action": "ec2:DeleteVolume",
+    "resource": "*",
+    "expect": "implicitDeny"
+  },
+  {
+    "name": "stringnotequals-true",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "StringNotEquals": {
+              "aws:RequestedRegion": "us-west-1"
+            }
+          }
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "*",
+    "context": {
+      "aws:RequestedRegion": "us-east-1"
+    },
+    "expect": "allowed"
+  },
+  {
+    "name": "resource-arn-scoped-mismatch-deny",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::allowed-bucket/*"
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::other-bucket/key",
+    "expect": "implicitDeny"
+  },
+  {
+    "name": "resource-arn-scoped-match-allow",
+    "policy": {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::allowed-bucket/*"
+        }
+      ]
+    },
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::allowed-bucket/key",
+    "expect": "allowed"
+  }
+]

@@ -1,0 +1,5 @@
+# Functions whose name ends in "Locked" as domain vocabulary ("is X locked?"),
+# not as the caller-holds-the-lock contract suffix. check-locked-helpers.sh
+# skips these; they are ordinary self-locking methods.
+IsUserMigrationRepoLocked
+IsOrgMigrationRepoLocked

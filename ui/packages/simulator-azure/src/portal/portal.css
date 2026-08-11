@@ -1,0 +1,20 @@
+/* Microsoft Azure portal layout residue — see tokens.css for why so little
+ * is left here. Colours, typography, borders, and every component's own
+ * surface now come from real Fluent components and their tokens
+ * (AzurePortal.tsx's `useAzureStyles`); this file only resets the shell to
+ * fill the viewport, which has to apply outside/around any single Fluent
+ * component's own styling. */
+
+.azure {
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* The "Not supported" badge sits beside a service label in the narrow service
+ * menu. Fluent's Badge wraps its text by default, so a two-word label broke
+ * onto two lines and collided with the service name; it must stay on one line
+ * and keep its width when the label beside it is long enough to truncate. */
+.az-badge-unsupported {
+  white-space: nowrap;
+  flex-shrink: 0;
+}

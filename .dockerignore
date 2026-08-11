@@ -1,0 +1,29 @@
+.DS_Store
+
+# Release simulator images build the per-cloud binaries. Test harnesses,
+# generated test binaries, Terraform caches, and UI build artifacts are not
+# part of the runtime image source context.
+**/sdk-tests
+**/cli-tests
+**/terraform-tests
+**/*.test
+**/dist
+
+# Locally built simulator binaries.
+simulator-aws/simulator-aws
+simulator-gcp/simulator-gcp
+simulator-azure/simulator-azure
+
+# Terraform and local runtime artifacts can appear under test directories.
+**/.terraform
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/.stack-pids
+
+# Never ship VCS state, package caches, or local Go build caches into a context.
+.git
+**/node_modules
+.gocache
+.turbo
+**/.turbo

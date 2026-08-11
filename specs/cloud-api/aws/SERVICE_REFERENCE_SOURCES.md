@@ -1,0 +1,40 @@
+# Vendored spec provenance — aws
+
+Verbatim upstream snapshots (gzipped); never edited. Refresh with the
+matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
+
+| Local file | Upstream repo / host | Upstream path | License | Pinned at | Fetched (UTC) |
+|---|---|---|---|---|---|
+| `service-reference/ecs.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/ecs/ecs.json` | AWS Service Reference (public service authorization data) | `modified1785355305` | 2026-08-03T06:21:11Z |
+| `service-reference/ecr.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/ecr/ecr.json` | AWS Service Reference (public service authorization data) | `modified1775534505` | 2026-08-03T06:21:11Z |
+| `service-reference/sqs.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/sqs/sqs.json` | AWS Service Reference (public service authorization data) | `modified1774454977` | 2026-08-03T06:21:11Z |
+| `service-reference/ssm.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/ssm/ssm.json` | AWS Service Reference (public service authorization data) | `modified1785355300` | 2026-08-03T06:21:12Z |
+| `service-reference/budgets.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/budgets/budgets.json` | AWS Service Reference (public service authorization data) | `modified1780549308` | 2026-08-03T06:21:12Z |
+| `service-reference/application-autoscaling.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/application-autoscaling/application-autoscaling.json` | AWS Service Reference (public service authorization data) | `modified1774454971` | 2026-08-03T06:21:12Z |
+| `service-reference/events.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/events/events.json` | AWS Service Reference (public service authorization data) | `modified1784592095` | 2026-08-03T06:21:12Z |
+| `service-reference/states.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/states/states.json` | AWS Service Reference (public service authorization data) | `modified1774454964` | 2026-08-03T06:21:12Z |
+| `service-reference/wafv2.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/wafv2/wafv2.json` | AWS Service Reference (public service authorization data) | `modified1785355297` | 2026-08-03T06:21:12Z |
+| `service-reference/acm.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/acm/acm.json` | AWS Service Reference (public service authorization data) | `modified1785355296` | 2026-08-03T06:21:12Z |
+| `service-reference/acm-pca.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/acm-pca/acm-pca.json` | AWS Service Reference (public service authorization data) | `modified1774454986` | 2026-08-03T06:21:13Z |
+| `service-reference/codebuild.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/codebuild/codebuild.json` | AWS Service Reference (public service authorization data) | `modified1774454958` | 2026-08-03T06:21:13Z |
+| `service-reference/firehose.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/firehose/firehose.json` | AWS Service Reference (public service authorization data) | `modified1774454984` | 2026-08-03T06:21:13Z |
+| `service-reference/cloudwatch.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/cloudwatch/cloudwatch.json` | AWS Service Reference (public service authorization data) | `modified1785355298` | 2026-08-03T06:21:13Z |
+| `service-reference/kinesis.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/kinesis/kinesis.json` | AWS Service Reference (public service authorization data) | `modified1776985299` | 2026-08-03T06:21:13Z |
+| `service-reference/logs.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/logs/logs.json` | AWS Service Reference (public service authorization data) | `modified1785643290` | 2026-08-03T06:21:13Z |
+| `service-reference/servicediscovery.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/servicediscovery/servicediscovery.json` | AWS Service Reference (public service authorization data) | `modified1774454977` | 2026-08-03T06:21:13Z |
+| `service-reference/kms.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/kms/kms.json` | AWS Service Reference (public service authorization data) | `modified1785355303` | 2026-08-03T06:21:14Z |
+| `service-reference/secretsmanager.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/secretsmanager/secretsmanager.json` | AWS Service Reference (public service authorization data) | `modified1781028111` | 2026-08-03T06:21:14Z |
+| `service-reference/sns.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/sns/sns.json` | AWS Service Reference (public service authorization data) | `modified1780027312` | 2026-08-03T06:21:14Z |
+| `service-reference/elasticloadbalancing.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/elasticloadbalancing/elasticloadbalancing.json` | AWS Service Reference (public service authorization data) | `modified1779825707` | 2026-08-03T06:21:15Z |
+| `service-reference/rds.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/rds/rds.json` | AWS Service Reference (public service authorization data) | `modified1785301291` | 2026-08-03T06:21:15Z |
+| `service-reference/iam.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/iam/iam.json` | AWS Service Reference (public service authorization data) | `modified1779992487` | 2026-08-03T06:21:15Z |
+| `service-reference/sts.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/sts/sts.json` | AWS Service Reference (public service authorization data) | `modified1784322099` | 2026-08-03T06:21:15Z |
+| `service-reference/cloudtrail.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/cloudtrail/cloudtrail.json` | AWS Service Reference (public service authorization data) | `modified1781323310` | 2026-08-03T06:21:16Z |
+| `service-reference/s3.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/s3/s3.json` | AWS Service Reference (public service authorization data) | `modified1785355301` | 2026-08-03T06:21:16Z |
+| `service-reference/lambda.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/lambda/lambda.json` | AWS Service Reference (public service authorization data) | `modified1785272496` | 2026-08-03T06:21:16Z |
+| `service-reference/organizations.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/organizations/organizations.json` | AWS Service Reference (public service authorization data) | `modified1785790900` | 2026-08-03T21:50:56Z |
+| `service-reference/dynamodb.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/dynamodb/dynamodb.json` | AWS Service Reference (public service authorization data) | `modified1785945693` | 2026-08-05T17:09:07Z |
+| `service-reference/glue.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/glue/glue.json` | AWS Service Reference (public service authorization data) | `modified1785960098` | 2026-08-05T20:18:23Z |
+| `service-reference/autoscaling.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/autoscaling/autoscaling.json` | AWS Service Reference (public service authorization data) | `modified1786057293` | 2026-08-07T06:46:34Z |
+| `service-reference/ec2.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/ec2/ec2.json` | AWS Service Reference (public service authorization data) | `modified1786132899` | 2026-08-08T10:25:17Z |
+| `service-reference/elasticache.servicereference.json.gz` | `servicereference.us-east-1.amazonaws.com` | `v1/elasticache/elasticache.json` | AWS Service Reference (public service authorization data) | `modified1786334498` | 2026-08-11T06:30:01Z |

@@ -1,0 +1,18 @@
+/* Roboto (Apache License 2.0) — the console's body typeface, vendored as a
+ * latin woff2 subset and served from the console's own origin. The console's
+ * display face is Google Sans, which is not redistributable; Roboto stands in
+ * for it, so headings are an honest approximation rather than the exact face. */
+@font-face {
+  font-family: "Roboto";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/roboto-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Roboto";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/roboto-500.woff2") format("woff2");
+}

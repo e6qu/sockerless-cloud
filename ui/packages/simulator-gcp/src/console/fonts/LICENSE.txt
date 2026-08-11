@@ -1,0 +1,9 @@
+Roboto is licensed under the Apache License, Version 2.0.
+https://github.com/googlefonts/roboto — Copyright the Roboto Project Authors.
+
+The Material Symbols icon paths vendored in ../icons.tsx are likewise licensed
+under the Apache License, Version 2.0.
+https://github.com/google/material-design-icons — Copyright Google LLC.
+
+A copy of the Apache License 2.0 is available at
+https://www.apache.org/licenses/LICENSE-2.0

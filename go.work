@@ -1,0 +1,23 @@
+go 1.25.8
+
+use (
+	./realexec
+	./simulator-aws
+	./simulator-aws/cli-tests
+	./simulator-aws/sdk-tests
+	./simulator-aws/terraform-tests
+	./simulator-azure
+	./simulator-azure/cli-tests
+	./simulator-azure/sdk-tests
+	./simulator-azure/terraform-tests
+	./simulator-gcp
+	./simulator-gcp/cli-tests
+	./simulator-gcp/sdk-tests
+	./simulator-gcp/terraform-tests
+	./testdata/container-command
+	./testdata/eval-arithmetic
+	./testdata/http-localhost-probe
+	./testdata/lambda-runtime-handler
+	./testutil
+	./ui-auth
+)

@@ -1,0 +1,1 @@
+GET /acr/v1/logs/{runId}

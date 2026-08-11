@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@import "@sockerless/ui-core/styles";
+/* The console shell owns the whole viewport; see console/tokens.css. */
+@import "./console/fonts.css";
+@import "./console/tokens.css";
+@import "./console/console.css";
+
+/* Per-app accent — see ui/packages/core/src/styles/tokens.css for the
+ * full token surface this overrides. */
+:root {
+  --color-accent: oklch(0.68 0.13 200);
+  --color-accent-fg: oklch(0.16 0.04 200);
+  --color-accent-soft: oklch(0.94 0.07 200);
+}
+.dark {
+  --color-accent-soft: oklch(0.32 0.08 200);
+}

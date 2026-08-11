@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@import "@sockerless/ui-core/styles";
+@import "@cloudscape-design/global-styles/index.css";
+/* The AWS console appearance now comes from real Cloudscape components and
+ * their own published design tokens (imported above) — the same design
+ * system the real AWS Management Console is built on, including its own
+ * embedded Open Sans faces. Imported after the shared styles so this
+ * simulator presents as the AWS Management Console rather than as the
+ * generic shell the other simulators share. What's left in these two files
+ * is AWS product chrome Cloudscape itself doesn't publish a token for (the
+ * always-dark global header) plus the handful of widgets (the log-events
+ * transcript, the services flyout panel) that have no packaged Cloudscape
+ * equivalent. */
+@import "./console/tokens.css";
+@import "./console/console.css";
+
+/* Per-app accent — see ui/packages/core/src/styles/tokens.css for the
+ * full token surface this overrides. */
+:root {
+  --color-accent: oklch(0.78 0.18 55);
+  --color-accent-fg: oklch(0.18 0.04 55);
+  --color-accent-soft: oklch(0.94 0.07 55);
+}
+.dark {
+  --color-accent-soft: oklch(0.32 0.08 55);
+}
