@@ -1,0 +1,172 @@
+# Release artifact pipeline. Runs when release-please publishes a GitHub
+# Release (one vX.Y.Z tag per release — no per-module tags, no latest) and
+# attaches everything a release ships:
+#
+#   - simulator binaries for linux/darwin × amd64/arm64, consoles embedded
+#     (built from the committed simulator-<cloud>/dist, exactly what the
+#     module at this tag serves),
+#   - the three console web bundles (the same committed dist trees),
+#   - version-tagged multi-architecture container images: each architecture
+#     pushes ghcr.io/e6qu/sockerless-simulator-<cloud>:vX.Y.Z-<arch> from a
+#     NATIVE runner (no QEMU), and a manifest job composes the unsuffixed
+#     :vX.Y.Z OCI index from the two architecture tags.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+env:
+  GO_CACHE_DEPENDENCY_PATHS: |
+    go.work
+    **/go.sum
+
+jobs:
+  binaries:
+    name: binaries (${{ matrix.cloud }} ${{ matrix.goos }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [aws, gcp, azure]
+        goos: [linux, darwin]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - name: Build, archive, and upload (amd64 + arm64)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          cd simulator-${{ matrix.cloud }}
+          for arch in amd64 arm64; do
+            out="simulator-${{ matrix.cloud }}"
+            GOOS=${{ matrix.goos }} GOARCH="$arch" CGO_ENABLED=0 \
+              go build -ldflags="-s -w" -o "$out" .
+            archive="simulator-${{ matrix.cloud }}_${TAG}_${{ matrix.goos }}_${arch}.tar.gz"
+            tar -czf "$archive" "$out"
+            sha256sum "$archive" > "$archive.sha256"
+            gh release upload "$TAG" "$archive" "$archive.sha256" --clobber
+            rm -f "$out" "$archive" "$archive.sha256"
+          done
+
+  console-bundles:
+    name: console bundles
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Archive and upload the committed console bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          for cloud in aws gcp azure; do
+            archive="sockerless-console-${cloud}_${TAG}.tar.gz"
+            tar -czf "$archive" -C "simulator-${cloud}" dist
+            sha256sum "$archive" > "$archive.sha256"
+            gh release upload "$TAG" "$archive" "$archive.sha256" --clobber
+          done
+
+  image:
+    name: ${{ matrix.image.name }} (${{ matrix.arch.suffix }})
+    runs-on: ${{ matrix.arch.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: sockerless-simulator-aws, dockerfile: simulator-aws/Dockerfile, context: . }
+          - { name: sockerless-simulator-gcp, dockerfile: simulator-gcp/Dockerfile, context: . }
+          - { name: sockerless-simulator-azure, dockerfile: simulator-azure/Dockerfile, context: . }
+        arch:
+          - { platform: linux/amd64, runner: ubuntu-latest, suffix: amd64 }
+          - { platform: linux/arm64, runner: ubuntu-24.04-arm, suffix: arm64 }
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: docker/setup-buildx-action@v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (per-arch, by digest)
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ matrix.arch.platform }}
+          push: true
+          provenance: false
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          tags: ghcr.io/e6qu/${{ matrix.image.name }}:${{ github.event.release.tag_name }}-${{ matrix.arch.suffix }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch.suffix }}
+          cache-to: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch.suffix }},mode=max
+
+  manifest:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - sockerless-simulator-aws
+          - sockerless-simulator-gcp
+          - sockerless-simulator-azure
+    name: ${{ matrix.image }} manifest
+    steps:
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compose multi-arch manifest list
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          TAG="ghcr.io/e6qu/${{ matrix.image }}:${TAG_NAME}"
+          AMD64_REF="$TAG-amd64"
+          ARM64_REF="$TAG-arm64"
+          echo "▸ assembling $TAG from $AMD64_REF + $ARM64_REF"
+          docker buildx imagetools create \
+            --tag "$TAG" \
+            "$AMD64_REF" \
+            "$ARM64_REF"
+
+          for REF in "$AMD64_REF" "$ARM64_REF"; do
+            MEDIA_TYPE=$(docker buildx imagetools inspect \
+              --format '{{.Manifest.MediaType}}' "$REF")
+            test "$MEDIA_TYPE" = "application/vnd.oci.image.manifest.v1+json"
+          done
+
+          MEDIA_TYPE=$(docker buildx imagetools inspect \
+            --format '{{.Manifest.MediaType}}' "$TAG")
+          test "$MEDIA_TYPE" = "application/vnd.oci.image.index.v1+json"
+          PLATFORMS=$(docker buildx imagetools inspect \
+            --format '{{range .Manifest.Manifests}}{{printf "%s/%s\n" .Platform.OS .Platform.Architecture}}{{end}}' \
+            "$TAG" | sort)
+          test "$PLATFORMS" = "$(printf 'linux/amd64\nlinux/arm64')"

@@ -79,9 +79,20 @@ Any fake, synthetic, hardcoded, or placeholder behavior is a **bug**, not a feat
 
 ## Module layout — installable per-cloud modules
 
-- `simulator-aws/`, `simulator-gcp/`, `simulator-azure/` are separate root Go modules (`github.com/e6qu/sockerless-cloud/simulator-<cloud>`), each containing its own `shared/` framework package. They carry **no `replace` directives** so `go install …@version` always works; the sibling support modules (`realexec/`, `ui-auth/`, `testutil/`) are required at tagged versions (`realexec/vX.Y.Z` subdirectory tags) and resolved locally through the repo-root `go.work` during development.
+- `simulator-aws/`, `simulator-gcp/`, `simulator-azure/` are separate root Go modules (`github.com/e6qu/sockerless-cloud/simulator-<cloud>`), each containing its own `shared/` framework package. They carry **no `replace` directives** so `go install …@<version>` always works; the sibling support modules (`realexec/`, `ui-auth/`, `testutil/`) are required dependencies resolved locally through the repo-root `go.work` during development.
 - The sdk/cli/terraform test modules are never installed and keep relative `replace` directives.
-- When a support module changes, tag it and bump the requiring modules **in the same PR**.
+- When a support module changes, bump the requiring modules' pins **in the same PR** (`go get github.com/e6qu/sockerless-cloud/<module>@<commit>`; Go records a pseudo-version).
+
+## Releases — one tag per release, via release-please
+
+Releases are managed by **release-please** (`release-please-config.json`): Conventional Commits (`feat:` / `fix:` / `feat!:` …) on `main` accumulate into a release pull request; merging it creates exactly **one `vX.Y.Z` tag** and the GitHub Release. Never create per-module subdirectory tags and never a `latest`/floating tag — the historical `*/v0.1.0` module tags predate this policy and stay only because the Go module proxy has them cached.
+
+The `Release` workflow attaches every release artifact to that one tag:
+- simulator binaries for linux/darwin × amd64/arm64 with the consoles embedded (built from the committed `simulator-<cloud>/dist`),
+- the three console web bundles,
+- multi-architecture container images: `ghcr.io/e6qu/sockerless-simulator-<cloud>:vX.Y.Z-amd64` and `:vX.Y.Z-arm64` built on native runners, composed into the unsuffixed `:vX.Y.Z` OCI index. Release images are immortal; only the per-main-push short-SHA image stream is pruned.
+
+Because subdirectory Go modules can only be version-tagged with `<subdir>/vX.Y.Z` tags (which this policy forbids), Go consumers pin **the release commit**: `go get github.com/e6qu/sockerless-cloud/simulator-<cloud>@<release-commit>` records the pseudo-version; checkout- and git-context consumers use the `vX.Y.Z` tag directly.
 
 ### Committed console dist
 

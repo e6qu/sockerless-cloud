@@ -44,7 +44,7 @@ fi
 
 remaining_unrecognized="$(jq '[.[] | select(
 	(.metadata.container.tags | length) == 0
-	or any(.metadata.container.tags[]; test("^[0-9a-f]{12}(-(amd64|arm64))?$"; "i") | not)
+	or any(.metadata.container.tags[]; test("^([0-9a-f]{12}|v[0-9]+\\.[0-9]+\\.[0-9]+)(-(amd64|arm64))?$"; "i") | not)
 )] | length' "$remaining_versions_file")"
 if ((remaining_unrecognized > 0)); then
 	echo "$package retained $remaining_unrecognized untagged or non-release package version(s)" >&2
@@ -65,10 +65,16 @@ if ((remaining_incomplete > 0)); then
 	exit 1
 fi
 
+# Versioned release images (vX.Y.Z) are immortal and accumulate by design;
+# only the short-SHA stream is bounded.
+remaining_sha_versions="$(jq '[.[] | select(
+	(.metadata.container.tags | length) > 0
+	and all(.metadata.container.tags[]; test("^[0-9a-f]{12}(-(amd64|arm64))?$"; "i"))
+)] | length' "$remaining_versions_file")"
 remaining_versions="$(jq 'length' "$remaining_versions_file")"
 maximum_versions=$((keep * 3))
-if ((remaining_versions > maximum_versions)); then
-	echo "$package retained $remaining_versions package versions; expected at most $maximum_versions for $keep releases" >&2
+if ((remaining_sha_versions > maximum_versions)); then
+	echo "$package retained $remaining_sha_versions short-SHA package versions; expected at most $maximum_versions for $keep releases" >&2
 	exit 1
 fi
 

@@ -2,6 +2,12 @@
 # indivisible package version. Treat releases connected through any shared
 # package version as one atomic component. Keep the newest complete components
 # only while the complete release count stays within the requested limit.
+#
+# Two tag streams share each package: the per-main-push short-SHA stream
+# (12 hex digits, pruned here beyond the requested limit) and the versioned
+# release stream (vX.Y.Z from release-please, immortal — a published release
+# must stay pullable forever, so any version carrying a release tag is never
+# selected).
 
 def release_name:
   select(type == "string")
@@ -47,7 +53,7 @@ def release_component($release; $groups):
          ] | unique,
          recognized: all(
            ($version.metadata.container.tags // [])[];
-           test("^[0-9a-f]{12}(-(amd64|arm64))?$"; "i")
+           test("^([0-9a-f]{12}|v[0-9]+\\.[0-9]+\\.[0-9]+)(-(amd64|arm64))?$"; "i")
          )
        }
      | select(.members | length > 0)
@@ -104,6 +110,7 @@ def release_component($release; $groups):
 | $versions[]
 | . as $version
 | ($version.metadata.container.tags // []) as $tags
+| select(all($tags[]; test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-(amd64|arm64))?$") | not))
 | select(
     ($tags | length) == 0
     or all($tags[]; . as $tag | $keep_tags | index($tag) == null)

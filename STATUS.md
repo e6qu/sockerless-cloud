@@ -27,6 +27,15 @@ Current state of the sockerless-cloud repository.
   dead-code/copy-paste quality gates, spec-freshness and shard-coverage gates,
   and the nightly fuzz workflow.
 
+## Releases
+
+- One `vX.Y.Z` tag per release via release-please (Conventional Commits →
+  release PR → tag + GitHub Release); no per-module tags, no `latest`. The
+  `Release` workflow ships binaries (consoles embedded, linux/darwin ×
+  amd64/arm64), the console bundles, and `-amd64`/`-arm64` suffixed container
+  images composed into the unsuffixed `vX.Y.Z` manifest list. Release images
+  are exempt from GHCR retention; the short-SHA stream stays bounded at 20.
+
 ## Published
 
 - `v0.1.0` tags live for the repository and every module

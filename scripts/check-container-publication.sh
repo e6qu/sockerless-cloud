@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 workflow="$root/.github/workflows/publish-container-images.yml"
+release_workflow="$root/.github/workflows/release.yml"
 gha='$'
 
 expect_count() {
@@ -40,6 +41,44 @@ done
 
 if grep -Eiq 'tags?:[^#]*(:(latest|main))([[:space:]]|$)' "$workflow"; then
 	echo 'publication workflow must not publish latest or main image tags' >&2
+	exit 1
+fi
+
+# The release workflow publishes the same three images once per release-please
+# release: one architecture tag per native runner (vX.Y.Z-amd64 / vX.Y.Z-arm64)
+# and an unsuffixed vX.Y.Z OCI index composed from exactly those two — never a
+# latest or floating tag.
+expect_release_count() {
+	local expected="$1" literal="$2" actual
+	actual="$(grep -Fxc -- "$literal" "$release_workflow" || true)"
+	if [[ "$actual" != "$expected" ]]; then
+		echo "release workflow expected $expected exact occurrence(s), found $actual: $literal" >&2
+		exit 1
+	fi
+}
+
+expect_release_count 1 '          - { platform: linux/amd64, runner: ubuntu-latest, suffix: amd64 }'
+expect_release_count 1 '          - { platform: linux/arm64, runner: ubuntu-24.04-arm, suffix: arm64 }'
+expect_release_count 1 "          tags: ghcr.io/e6qu/${gha}{{ matrix.image.name }}:${gha}{{ github.event.release.tag_name }}-${gha}{{ matrix.arch.suffix }}"
+expect_release_count 1 '          provenance: false'
+expect_release_count 1 "          labels: org.opencontainers.image.revision=${gha}{{ github.sha }}"
+if [[ "$(grep -Fc "test \"\$MEDIA_TYPE\" = \"application/vnd.oci.image.manifest.v1+json\"" "$release_workflow")" != 1 ]]; then
+	echo 'release workflow must verify both architecture tags are direct OCI manifests' >&2
+	exit 1
+fi
+if [[ "$(grep -Fc "test \"\$MEDIA_TYPE\" = \"application/vnd.oci.image.index.v1+json\"" "$release_workflow")" != 1 ]]; then
+	echo 'release workflow must verify the generic tag is an OCI index' >&2
+	exit 1
+fi
+for image in sockerless-simulator-aws sockerless-simulator-gcp sockerless-simulator-azure; do
+	count="$(grep -Fc -- "$image" "$release_workflow")"
+	if [[ "$count" != 2 ]]; then
+		echo "release workflow expected $image in the image and manifest matrices, found $count occurrence(s)" >&2
+		exit 1
+	fi
+done
+if grep -Eiq 'tags?:[^#]*(:(latest|main))([[:space:]]|$)' "$release_workflow"; then
+	echo 'release workflow must not publish latest or main image tags' >&2
 	exit 1
 fi
 
