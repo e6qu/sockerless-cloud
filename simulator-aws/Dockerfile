@@ -10,7 +10,14 @@ WORKDIR /src
 COPY . .
 COPY --from=web /src/ui/packages/simulator-aws/dist /src/simulator-aws/dist
 WORKDIR /src/simulator-aws
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /simulator-aws .
+# The repository go.work lists the sdk/cli/terraform test modules, which
+# .dockerignore keeps out of the image context. Replace it with a minimal
+# workspace covering just this simulator and its support modules, so the
+# build resolves the working tree's realexec/ui-auth instead of failing on
+# the absent test modules.
+RUN rm /src/go.work /src/go.work.sum && \
+    go work init . ../realexec ../ui-auth && \
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /simulator-aws .
 
 FROM alpine:3.20
 RUN apk add --no-cache wget
