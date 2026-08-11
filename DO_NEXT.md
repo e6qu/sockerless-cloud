@@ -3,9 +3,14 @@
 1. Watch the first CI run on GitHub Actions; fix anything the Linux runners
    surface that macOS could not exercise locally (Docker-harness suites,
    Firecracker/KVM realexec tests).
-2. Configure branch protection for `main` and port sockerless's
+2. Grant this repository write access to the existing GHCR packages
+   (`sockerless-simulator-{aws,gcp,azure}` are linked to e6qu/sockerless):
+   Package settings → Manage Actions access → add `e6qu/sockerless-cloud`
+   with Write. Until then the publish workflow fails with
+   `permission_denied: write_package`.
+3. Configure branch protection for `main` and port sockerless's
    required-status-checks manifest + gate once the required contexts settle.
-3. Work the open bugs (BUGS.md), starting with BUG-1 (shared/ deadcode
+4. Work the open bugs (BUGS.md), starting with BUG-1 (shared/ deadcode
    coverage, needs a Linux host) and BUG-2 (Cosmos differential skips).
 
 ## Simulator burn-downs (carried over from the sockerless monorepo)
