@@ -1,0 +1,323 @@
+# Snyk policy.
+#
+# Every entry below silences an infrastructure rule for Terraform that is never
+# applied to a cloud. The simulators' terraform-tests configurations exist to
+# prove a real provider drives the simulator's API surface: they are applied
+# against a local process and destroyed inside the same test.
+#
+# Hardening them would be wrong, not merely unnecessary. A bucket that lives for
+# the duration of one test against a simulator does not need MFA delete,
+# versioning or a customer-managed key, and adding them would stop the fixture
+# resembling the minimal configuration a consumer actually writes — which is the
+# only thing it is there to prove.
+#
+# The ignores carry no expiry because the reason cannot expire: these files are
+# fixtures by construction, not infrastructure awaiting hardening.
+version: v1.25.0
+ignore:
+  SNYK-CC-AWS-405:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-407:
+    - 'simulator-aws/terraform-tests/elasticache/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-408:
+    - 'simulator-aws/terraform-tests/rds-instance/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-restore/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-snapshot/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-414:
+    - 'simulator-aws/terraform-tests/rds-instance/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-restore/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-snapshot/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-415:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-417:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-418:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-421:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-424:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-426:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-427:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AWS-450:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-474:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-504:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-510:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-511:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-516:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-518:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-595:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-610:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-621:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-625:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-AZURE-649:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-270:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-271:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-273:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-274:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-275:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-281:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-282:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-283:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-284:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-287:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-288:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-289:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-290:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-291:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-292:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-295:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-461:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-687:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-693:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-695:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-696:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-GCP-697:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-124:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-125:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-126:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-127:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-128:
+    - 'simulator-aws/terraform-tests/ecs-express/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-129:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-130:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-133:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-134:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-135:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-138:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-142:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-149:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-15:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-16:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-17:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-173:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-174:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-175:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-183:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-184:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-185:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-194:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-201:
+    - 'simulator-aws/terraform-tests/rds-instance/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-restore/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-snapshot/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-204:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-256:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-263:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-3:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-32:
+    - 'simulator-gcp/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-35:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-45:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-47:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-48:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-51:
+    - 'simulator-aws/terraform-tests/launch-template/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-53:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-56:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/launch-template/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-61:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-62:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-73:
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-74:
+    - 'simulator-aws/terraform-tests/acm-validation/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/ecs-express/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/elasticache/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/idempotency-fidelity/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/launch-template/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/network-interface/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-instance/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-restore/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/rds-snapshot/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-75:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-79:
+    - 'simulator-azure/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+  SNYK-CC-TF-99:
+    - 'simulator-aws/terraform-tests/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
