@@ -27,6 +27,15 @@ Current state of the sockerless-cloud repository.
   dead-code/copy-paste quality gates, spec-freshness and shard-coverage gates,
   and the nightly fuzz workflow.
 
+## Published
+
+- `v0.1.0` tags live for the repository and every module
+  (`simulator-{aws,gcp,azure}/v0.1.0`, `realexec/v0.1.0`, `ui-auth/v0.1.0`,
+  `testutil/v0.1.0`); the simulator modules carry no replace directives and
+  `go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@v0.1.0`
+  was verified from a clean module cache for all three clouds, consoles
+  embedded.
+
 ## Verified locally at extraction time
 
 - `go build` + `go vet` green for all 6 root modules and 9 test modules.
