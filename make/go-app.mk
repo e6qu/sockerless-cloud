@@ -120,8 +120,8 @@ endif
 test-integration-cloud: ## run integration tests against the operator-supplied real cloud (requires SOCKERLESS_ENDPOINT_URL + per-backend ARM env vars)
 	$(GO_ENV) SOCKERLESS_TEST_TARGET=cloud go test -tags 'noui integration' -v -timeout 30m ./...
 
-upgrade-deps: ## bump every direct require in go.mod to its latest (excluding github.com/sockerless/* in-repo modules)
-	@deps=$$(awk '/^require \(/{b=1;next} /^\)/&&b{b=0} b&&!/\/\/ indirect/&&!/github.com\/sockerless\//{sub(/^[ \t]+/,"");sub(/[ \t]*\/\/.*$$/,"");if(NF>=2)print $$1}' go.mod); \
+upgrade-deps: ## bump every direct require in go.mod to its latest (in-repo github.com/e6qu/sockerless-cloud modules included — their pins are real published versions)
+	@deps=$$(awk '/^require \(/{b=1;next} /^\)/&&b{b=0} b&&!/\/\/ indirect/{sub(/^[ \t]+/,"");sub(/[ \t]*\/\/.*$$/,"");if(NF>=2)print $$1}' go.mod); \
 	for d in $$deps; do \
 	  printf "$(COLOR_CYAN)▸ go get -u %s@latest$(COLOR_RESET)\n" "$$d"; \
 	  $(GO_ENV) go get -u "$$d@latest"; \

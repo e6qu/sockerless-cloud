@@ -3,7 +3,7 @@ module github.com/e6qu/sockerless-cloud/simulator-azure/terraform-tests
 go 1.25.0
 
 require (
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-00010101000000-000000000000
+	github.com/e6qu/sockerless-cloud/realexec v0.1.0
 	github.com/stretchr/testify v1.11.1
 )
 

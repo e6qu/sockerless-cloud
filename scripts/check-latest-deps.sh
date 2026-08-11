@@ -61,7 +61,6 @@ while IFS= read -r mod_file; do
 
   while IFS=' ' read -r name pinned; do
     [[ -z "$name" ]] && continue
-    if [[ "$name" == github.com/sockerless/* ]]; then continue; fi
     latest=$(GOFLAGS='' go list -m -versions "$name" 2>/dev/null \
       | tr ' ' '\n' | tail -n +2 \
       | grep -vE '\-(beta|alpha|rc|dev|preview)' | tail -1 || true)

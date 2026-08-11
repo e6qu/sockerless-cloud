@@ -3,9 +3,9 @@ module github.com/e6qu/sockerless-cloud/simulator-aws/cli-tests
 go 1.25.0
 
 require (
-	github.com/e6qu/sockerless-cloud/testutil v0.0.0-00010101000000-000000000000
+	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.54.0
+	golang.org/x/crypto v0.55.0
 )
 
 require (
