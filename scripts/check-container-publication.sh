@@ -59,7 +59,7 @@ expect_release_count() {
 
 expect_release_count 1 '          - { platform: linux/amd64, runner: ubuntu-latest, suffix: amd64 }'
 expect_release_count 1 '          - { platform: linux/arm64, runner: ubuntu-24.04-arm, suffix: arm64 }'
-expect_release_count 1 "          tags: ghcr.io/e6qu/${gha}{{ matrix.image.name }}:${gha}{{ github.event.release.tag_name }}-${gha}{{ matrix.arch.suffix }}"
+expect_release_count 1 "          tags: ghcr.io/e6qu/${gha}{{ matrix.image.name }}:${gha}{{ inputs.tag_name }}-${gha}{{ matrix.arch.suffix }}"
 expect_release_count 1 '          provenance: false'
 expect_release_count 1 "          labels: org.opencontainers.image.revision=${gha}{{ github.sha }}"
 if [[ "$(grep -Fc "test \"\$MEDIA_TYPE\" = \"application/vnd.oci.image.manifest.v1+json\"" "$release_workflow")" != 1 ]]; then

@@ -85,7 +85,7 @@ Any fake, synthetic, hardcoded, or placeholder behavior is a **bug**, not a feat
 
 ## Releases — one tag per release, via release-please
 
-Releases are managed by **release-please** (`release-please-config.json`): Conventional Commits (`feat:` / `fix:` / `feat!:` …) on `main` accumulate into a release pull request; merging it creates exactly **one `vX.Y.Z` tag** and the GitHub Release. Never create per-module subdirectory tags and never a `latest`/floating tag — the historical `*/v0.1.0` module tags predate this policy and stay only because the Go module proxy has them cached.
+Releases are managed by **release-please** (`release-please-config.json`): Conventional Commits (`feat:` / `fix:` / `feat!:` …) on `main` accumulate into a release pull request; merging it creates exactly **one `vX.Y.Z` tag** and the GitHub Release. Never create per-module subdirectory tags and never a `latest`/floating tag. (The bootstrap `*/v0.1.0` module tags were deleted once v0.2.0 shipped; those module versions survive only in the Go module proxy cache, which keeps the sim modules' `require …/realexec v0.1.0` graph resolvable.)
 
 The `Release` workflow attaches every release artifact to that one tag:
 - simulator binaries for linux/darwin × amd64/arm64 with the consoles embedded (built from the committed `simulator-<cloud>/dist`),

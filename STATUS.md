@@ -38,11 +38,14 @@ Current state of the sockerless-cloud repository.
 
 ## Published
 
-- `v0.1.0` tags live for the repository and every module
-  (`simulator-{aws,gcp,azure}/v0.1.0`, `realexec/v0.1.0`, `ui-auth/v0.1.0`,
-  `testutil/v0.1.0`); the simulator modules carry no replace directives and
-  `go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@v0.1.0`
-  was verified from a clean module cache for all three clouds, consoles
+- **v0.2.0** is the first release-please release: one repository tag, with
+  the Release workflow attaching binaries, console bundles, and the
+  version-tagged multi-architecture images. The bootstrap `v0.1.0` tags
+  (repository + per-module) were deleted; the v0.1.0 module versions
+  survive only in the Go module proxy cache, which keeps the simulator
+  modules' `require` graph resolvable.
+  `go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@<release-commit>`
+  was verified from a clean module cache after the tag deletion, consoles
   embedded.
 
 ## Verified locally at extraction time

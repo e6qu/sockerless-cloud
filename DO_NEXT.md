@@ -1,10 +1,8 @@
 # DO NEXT
 
-1. Land the first release-please release: write releasable changes with
-   Conventional Commit messages (`feat:`/`fix:`), merge the release PR it
-   opens, and verify the `Release` workflow attaches binaries, console
-   bundles, and the version-tagged multi-architecture images. (Blocked on
-   the GHCR package-access grant below for the image half.)
+1. Verify v0.2.0's `Release` workflow artifacts (binaries + console
+   bundles attached to the GitHub Release; the image half stays blocked on
+   the GHCR package-access grant below).
 2. Watch the first CI run on GitHub Actions; fix anything the Linux runners
    surface that macOS could not exercise locally (Docker-harness suites,
    Firecracker/KVM realexec tests).
