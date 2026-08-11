@@ -8,8 +8,8 @@ require (
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.8.1
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0
+	github.com/e6qu/sockerless-cloud/realexec v0.1.0
+	github.com/e6qu/sockerless-cloud/ui-auth v0.1.0
 	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/golang/snappy v1.0.0
@@ -102,7 +102,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.0 // indirect
 )
-
-replace github.com/e6qu/sockerless-cloud/ui-auth => ../ui-auth
-
-replace github.com/e6qu/sockerless-cloud/realexec => ../realexec

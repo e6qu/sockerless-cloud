@@ -15,8 +15,8 @@ require (
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.8.1
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0
+	github.com/e6qu/sockerless-cloud/realexec v0.1.0
+	github.com/e6qu/sockerless-cloud/ui-auth v0.1.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/rs/zerolog v1.35.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
@@ -81,7 +81,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.0 // indirect
 )
-
-replace github.com/e6qu/sockerless-cloud/ui-auth => ../ui-auth
-
-replace github.com/e6qu/sockerless-cloud/realexec => ../realexec
