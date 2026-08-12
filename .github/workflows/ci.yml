@@ -248,8 +248,9 @@ jobs:
         run: cd simulator-${{ matrix.cloud }} && make unit-test
         timeout-minutes: 3
       # Pre-pull the Cosmos DB emulator (the differential-test oracle for
-      # TestCosmos_DifferentialVsEmulator). The differential checks the local
-      # image store before running, so this is what makes it run for real.
+      # TestCosmos_DifferentialVsEmulator). The differential pulls the image
+      # itself when it is absent; pre-pulling only keeps that download out of
+      # the go-test deadline so the job budget stays predictable.
       - name: Pull Cosmos DB emulator (differential oracle)
         if: matrix.cloud == 'azure' && matrix.suite == 'sdk'
         run: docker pull mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
