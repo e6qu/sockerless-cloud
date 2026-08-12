@@ -138,6 +138,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+  single-open-pr:
+    name: At most one PR open
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: At most one PR open
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/check-single-open-pr.sh
+
+  # rebased-on-main: fail if the PR branch has fallen behind origin/main, so
+  # every PR is tested (and merges) on top of the latest base.
+  rebased-on-main:
+    name: Branch rebased on origin/main
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Branch must be rebased on origin/main
+        run: bash scripts/check-rebased-on-main.sh
+
   firecracker:
     name: firecracker (microVM arithmetic)
     runs-on: ubuntu-24.04
@@ -745,6 +773,9 @@ jobs:
         timeout-minutes: 5
       - name: Check container publication contract
         run: bash scripts/check-container-publication.sh
+        timeout-minutes: 5
+      - name: Required status checks stay emittable
+        run: bash scripts/check-required-status-checks.sh
         timeout-minutes: 5
       - name: GitHub Actions jobs finish within 15 minutes
         run: |
