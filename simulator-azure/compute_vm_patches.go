@@ -31,7 +31,7 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 		if !ok {
 			return
 		}
-		guest, err := azureGuestFor(vm.ID)
+		guest, err := azureGuestFor(r.Context(), vm.ID)
 		if err != nil {
 			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
@@ -68,7 +68,7 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 				http.StatusBadRequest)
 			return
 		}
-		guest, err := azureGuestFor(vm.ID)
+		guest, err := azureGuestFor(r.Context(), vm.ID)
 		if err != nil {
 			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
@@ -362,7 +362,7 @@ func azureCaptureVMImage(
 	vm VirtualMachine,
 	vhdPrefix, container string,
 ) (map[string]any, error) {
-	guest, err := azureGuestFor(vm.ID)
+	guest, err := azureGuestFor(ctx, vm.ID)
 	if err != nil {
 		return nil, err
 	}
