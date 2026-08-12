@@ -242,6 +242,17 @@ jobs:
           bash scripts/ci-apt-update.sh
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
+      # Module download + test-binary compilation get their own budget so the
+      # timed run below isn't eaten by a cold module cache after a dep change
+      # busts the shared **/go.sum Go cache.
+      - name: Pre-build module unit tests (warm build cache)
+        if: matrix.suite == 'sdk'
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
+          cd simulator-${{ matrix.cloud }}
+          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null .
+          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null ./shared
+        timeout-minutes: 8
       - name: Run module unit tests
         # Shard-independent; the sdk suite carries them so they run once per cloud.
         if: matrix.suite == 'sdk'
@@ -327,12 +338,27 @@ jobs:
           bash scripts/ci-apt-update.sh
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
+      # Download modules and compile the unit-test binaries in their own
+      # budgeted step, so the timed test run below isn't eaten by a cold
+      # module cache after a dep change busts the shared **/go.sum Go cache —
+      # the same separation the SDK pre-build step below makes for the same
+      # reason.
+      - name: Pre-build AWS module unit tests (warm build cache)
+        if: matrix.suite == 'services-n-z'
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-aws
+          cd simulator-aws
+          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null .
+          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null ./shared
+        timeout-minutes: 8
       - name: Run AWS module unit tests
         # The module unit tests are shard-independent; one shard carries them
-        # so they run exactly once per workflow.
+        # so they run exactly once per workflow. The shared/ suite carries a
+        # real SQLite durability soak, so the run step's budget holds the
+        # suite alone — compilation happened above.
         if: matrix.suite == 'services-n-z'
         run: cd simulator-aws && make unit-test
-        timeout-minutes: 3
+        timeout-minutes: 5
       # Compile the sim binary + the (large, AWS-SDK-importing) SDK test binary
       # in a separate deterministic build step, so the timed test run below isn't
       # eaten by a cold recompile after an unrelated dep change busts the shared
