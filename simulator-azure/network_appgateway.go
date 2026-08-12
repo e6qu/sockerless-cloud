@@ -735,6 +735,7 @@ func registerNetworkApplicationGateways(srv *sim.Server) {
 	registerApplicationGatewayOperations(srv)
 	registerApplicationGatewayPrivateLink(srv)
 	registerApplicationGatewayCatalogs(srv)
+	registerApplicationGatewayWafRuleSets(srv)
 	registerApplicationGatewayDataPlane(srv)
 }
 

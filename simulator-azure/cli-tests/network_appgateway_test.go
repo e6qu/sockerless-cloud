@@ -214,3 +214,81 @@ func TestNetworkApplicationGatewayCLI(t *testing.T) {
 	runCLI(t, azRest("DELETE", subnetURL, ""))
 	runCLI(t, azRest("DELETE", vnetURL, ""))
 }
+
+// TestNetworkApplicationGatewayWafRuleSetsCLI covers the subscription-scoped
+// web application firewall rule-set catalog: all nine managed rule sets with
+// their full rule-group and rule contents.
+func TestNetworkApplicationGatewayWafRuleSetsCLI(t *testing.T) {
+	out := runCLI(t, azRest("GET", subscriptionURL("Microsoft.Network",
+		"applicationGatewayAvailableWafRuleSets", applicationGatewayAPIVersion), ""))
+	var ruleSets struct {
+		Value []struct {
+			Name       string `json:"name"`
+			Type       string `json:"type"`
+			Properties struct {
+				ProvisioningState string   `json:"provisioningState"`
+				RuleSetType       string   `json:"ruleSetType"`
+				RuleSetVersion    string   `json:"ruleSetVersion"`
+				Tiers             []string `json:"tiers"`
+				RuleGroups        []struct {
+					RuleGroupName string `json:"ruleGroupName"`
+					Rules         []struct {
+						RuleID       int    `json:"ruleId"`
+						RuleIDString string `json:"ruleIdString"`
+						Description  string `json:"description"`
+						State        string `json:"state"`
+						Action       string `json:"action"`
+					} `json:"rules"`
+				} `json:"ruleGroups"`
+			} `json:"properties"`
+		} `json:"value"`
+	}
+	parseJSON(t, out, &ruleSets)
+	require.Len(t, ruleSets.Value, 9)
+
+	counts := map[string]int{}
+	for _, ruleSet := range ruleSets.Value {
+		assert.Equal(t, "Microsoft.Network/applicationGatewayAvailableWafRuleSets", ruleSet.Type)
+		assert.Equal(t, "Succeeded", ruleSet.Properties.ProvisioningState)
+		assert.NotEmpty(t, ruleSet.Properties.Tiers)
+		total := 0
+		for _, group := range ruleSet.Properties.RuleGroups {
+			total += len(group.Rules)
+		}
+		counts[ruleSet.Name] = total
+	}
+	assert.Equal(t, map[string]int{
+		"OWASP_2.2.9":                     245,
+		"OWASP_3.0":                       160,
+		"OWASP_3.1":                       183,
+		"OWASP_3.2":                       187,
+		"Microsoft_BotManagerRuleSet_0.1": 1,
+		"Microsoft_BotManagerRuleSet_1.0": 11,
+		"Microsoft_BotManagerRuleSet_1.1": 17,
+		"Microsoft_DefaultRuleSet_2.1":    190,
+		"Microsoft_DefaultRuleSet_2.2":    200,
+	}, counts)
+
+	for _, ruleSet := range ruleSets.Value {
+		if ruleSet.Name != "OWASP_3.2" {
+			continue
+		}
+		assert.Equal(t, []string{"WAF_v2"}, ruleSet.Properties.Tiers)
+		for _, group := range ruleSet.Properties.RuleGroups {
+			if group.RuleGroupName != "REQUEST-942-APPLICATION-ATTACK-SQLI" {
+				continue
+			}
+			found := false
+			for _, rule := range group.Rules {
+				if rule.RuleID == 942100 {
+					found = true
+					assert.Equal(t, "942100", rule.RuleIDString)
+					assert.Equal(t, "SQL Injection Attack Detected via libinjection", rule.Description)
+					assert.Equal(t, "Enabled", rule.State)
+					assert.Equal(t, "AnomalyScoring", rule.Action)
+				}
+			}
+			assert.True(t, found, "rule 942100 must be in REQUEST-942-APPLICATION-ATTACK-SQLI")
+		}
+	}
+}
