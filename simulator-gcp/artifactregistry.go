@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	dockerclient "github.com/docker/docker/client"
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	dockerclient "github.com/moby/moby/client"
 )
 
 // Artifact Registry types
@@ -1251,7 +1251,7 @@ func hydrateOCIImageFromLocalDocker(reg *sim.OCIRegistry, dockerImages sim.Store
 		return fmt.Errorf("repository is not a docker-hub or gitlab-registry remote repository")
 	}
 	ctx := context.Background()
-	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
+	cli, err := dockerclient.New(dockerclient.FromEnv)
 	if err != nil {
 		return fmt.Errorf("docker client: %w", err)
 	}

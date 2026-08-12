@@ -1,28 +1,31 @@
 # DO NEXT
 
-1. Verify v0.2.0's `Release` workflow artifacts (binaries + console
-   bundles attached to the GitHub Release; the image half stays blocked on
-   the GHCR package-access grant below).
-2. Watch the first CI run on GitHub Actions; fix anything the Linux runners
-   surface that macOS could not exercise locally (Docker-harness suites,
-   Firecracker/KVM realexec tests).
-3. Grant this repository write access to the existing GHCR packages
-   (`sockerless-simulator-{aws,gcp,azure}` are linked to e6qu/sockerless):
-   Package settings → Manage Actions access → add `e6qu/sockerless-cloud`
-   with Write. Until then the publish workflow fails with
-   `permission_denied: write_package`.
-4. Configure branch protection for `main` and port sockerless's
-   required-status-checks manifest + gate once the required contexts settle.
-5. Work the open bugs (BUGS.md), starting with BUG-1 (shared/ deadcode
-   coverage, needs a Linux host) and BUG-2 (Cosmos differential skips).
+1. Watch the polish-pass-1 pull request's CI — the first run under the new
+   required-check set (38 contexts) and the first Linux run of the widened
+   deadcode gate and the moby-client container suites.
+2. BUG-2924 awaits user sign-off on the proposed design (host-subnet
+   allocator decoupled from the VPC CIDR, ENI IP added as a secondary
+   interface address via an ephemeral NET_ADMIN netns-join container) before
+   any implementation.
+3. Surface ratchets, staged one service per pass: Azure App Service
+   (161/692), Cloud Spanner admin (82/198), Cloud Run v1 (100/152). Google
+   Cloud Billing (6/36) carries a data question first: `services.list` /
+   `services.skus.list` answer with Google's public SKU catalog, which would
+   need vendoring under the same no-partial-catalog rule as the WAF rule
+   sets.
+4. IAM derivation remainder: 195 operations, each classified in the
+   `iamDerivationCoverageFloor` comment. The thin derivable tail is
+   per-service state lookups — Amazon SQS `CancelMessageMoveTask` through the
+   move-task store, AWS Cloud Map `GetOperation` through the operation store,
+   AWS CloudTrail's `ResourceId`/`ResourceIdList` ARN members.
 
 ## Simulator burn-downs (carried over from the sockerless monorepo)
 
-Resource-scoped IAM authorization covers twenty-seven services, and every
+Resource-scoped IAM authorization covers thirty services, and every
 per-request case that predated the generated table is gone but for AWS Lambda.
-BUG-2909 records the 234 served operations that still authorize against a
+BUG-2909 records the 195 served operations that still authorize against a
 literal `"*"`, largest first — Amazon EC2 (55), AWS Glue (35), Amazon RDS (27),
-Amazon EventBridge (19), Amazon DynamoDB (18).
+Amazon DynamoDB (18), AWS Systems Manager (17).
 
 Every service with a straightforward answer has one. What remains is mostly an
 operation that creates its resource and so carries no identifier for it yet, or
@@ -45,9 +48,12 @@ Where the identifier itself says what it identifies, the type is read off it
 rather than off the member it arrived under, as AWS Organizations does — the
 shape for a service whose members accept several resource types at once.
 
-Elastic Load Balancing, Amazon CloudWatch and AWS Certificate Manager are the
-next three by size and none is known to need a new shape. AWS Glue's remaining
-35 are the data-quality operations, which name a result rather than the ruleset
+The services a straightforward pass could finish are finished — the latest
+slice added Amazon Data Firehose, AWS Security Token Service, Application
+Auto Scaling and the Amazon EventBridge alias table. What remains is
+dominated by creates with no identifier yet and operations that name
+something other than what they authorize against; AWS Glue's remaining 35
+are the data-quality operations, which name a result rather than the ruleset
 they authorize against, and creates that have no identifier yet.
 
 The response-pattern burn-down is done on all three simulators. The AWS

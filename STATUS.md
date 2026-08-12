@@ -24,8 +24,22 @@ Current state of the sockerless-cloud repository.
 - **CI** ports the simulator jobs from the sockerless repo: per-cloud lint +
   unit tests, gcp/azure SDK+CLI suites, AWS SDK (4 shards) + CLI (10 shards),
   Terraform (8 shards), UI vitest/typecheck/build, Playwright browser suites,
-  dead-code/copy-paste quality gates, spec-freshness and shard-coverage gates,
-  and the nightly fuzz workflow.
+  dead-code/copy-paste quality gates (the deadcode gate covers `shared/`),
+  spec-freshness and shard-coverage gates, the `At most one PR open` and
+  `Branch rebased on origin/main` jobs, and the nightly fuzz workflow (aws in
+  three shards; `run-fuzz.sh` requalifies Go's fuzztime-boundary shutdown
+  race and nothing else).
+- **Branch protection**: `main` requires the 38 contexts mirrored in
+  `.github/required-status-checks.txt` (strict, linear history);
+  `scripts/check-required-status-checks.sh` gates the manifest against the
+  workflows in pre-commit and build-gates, and
+  `--verify-branch-protection` matches the live settings.
+- **Container client**: the simulators use `github.com/moby/moby/client` +
+  `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
+  module graphs; govulncheck clean).
+- **Measured floors**: IAM resource derivation 1,779 of 1,974 served
+  operations; `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
+  WAF rule-set catalog vendored).
 
 ## Releases
 

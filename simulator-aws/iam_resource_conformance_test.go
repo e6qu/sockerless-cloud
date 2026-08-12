@@ -525,6 +525,10 @@ func TestIAMCloudTrailFieldAliasesAreRealRequestMembers(t *testing.T) {
 	assertAliasesAreRealFields(t, "cloudtrail", iamCloudTrailFieldAliases, loadCloudTrailRequestMembers(t))
 }
 
+func TestIAMEventBridgeFieldAliasesAreRealRequestMembers(t *testing.T) {
+	assertAliasesAreRealFields(t, "events", iamEventBridgeFieldAliases, loadEventBridgeRequestMembers(t))
+}
+
 func TestIAMKMSFieldAliasesAreRealRequestMembers(t *testing.T) {
 	assertAliasesAreRealFields(t, "kms", iamKMSFieldAliases, loadKMSRequestMembers(t))
 }
@@ -982,9 +986,11 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // is authorized against a literal "*", which matches only a policy whose
 // Resource is itself "*", so every resource-scoped grant written for it is
 // denied. Raising this number is how that defect class is burned down; the test
-// prints what is left.
-// What remains for the three services measured against their own requests is
-// the part the request genuinely does not name.
+// prints what is left. What remains, per service, is either the part the
+// request genuinely does not name, or a request shape this probe cannot
+// express — those are pinned against the real shape instead, because teaching
+// the probe about one operation, or filling a field with an ARN because the
+// metric wanted one, would be measuring the measurement.
 //
 // Amazon EC2's 55: an operation that creates its resource has no identifier for
 // it yet, the Disassociate/Detach family names an association rather than
@@ -997,20 +1003,63 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // identifier yet. Its registry and schema operations, which name their resource
 // inside a nested RegistryId/SchemaId member, derive now.
 //
-// AWS Systems Manager's 17: the tagging operations name a resource by a bare
-// identifier plus a separate ResourceType member rather than by ARN, the
-// creates have no identifier yet, and the remainder are scoped by a path or an
-// operating system rather than by a resource.
-//
 // Amazon RDS's 27: the copy operations name a source and a target that does not
 // exist yet, and the custom-engine-version operations need an identifier the
 // request does not carry. The tagging and maintenance operations are counted
 // here too, but only because the probe fills every field with a placeholder:
 // they name their resource by ARN outright, which a real caller supplies and
 // the gate does read — TestIAMResourceARNs_RDSTakesTheARNTheRequestNames pins
-// that. Counting them as derived here would mean filling a field with an ARN
-// because the metric wanted one, which is measuring the measurement.
+// that.
 //
+// Amazon DynamoDB's 18: fourteen name their resource by ARN outright — a
+// backup, an export, an import, the export and import family's TableArn, and
+// the tagging and resource-policy operations' ResourceArn — which a real
+// caller supplies and the gate reads, pinned by
+// TestIAMResourceARNs_DynamoDBTakesTheARNTheRequestNames; the probe fills a
+// placeholder. The two batches carry their tables per item inside
+// RequestItems, a nested shape the flat probe cannot express, which the
+// per-request reader derives for real calls. ImportTable creates a resource
+// that has no ARN yet, and RestoreTableToPointInTime names a source and a
+// target table that does not exist yet.
+//
+// AWS Systems Manager's 17: the tagging operations name a resource by a bare
+// identifier plus a separate ResourceType member rather than by ARN, the
+// creates have no identifier yet, and the remainder are scoped by a path or an
+// operating system rather than by a resource.
+//
+// AWS CloudTrail's 10: its tagging operations name their target under
+// ResourceId and ResourceIdList — members that carry ARNs under a spelling the
+// gate does not read — the resource-policy operations name a ResourceArn a
+// real caller supplies where the probe fills a placeholder, the creates have
+// no identifier yet, StartQuery names its event data store only inside the SQL
+// statement, and ListInsightsData filters by dimensions rather than naming a
+// store.
+//
+// Amazon ElastiCache's 6: the tagging operations name their target by an
+// ARN-valued ResourceName a real caller supplies where the probe fills a
+// placeholder, the copy operations name a source and a target that does not
+// exist yet, and CreateGlobalReplicationGroup names a global datastore whose
+// id AWS completes with an assigned prefix no request carries.
+//
+// Amazon EC2 Auto Scaling's 4: the tagging operations carry each target inside
+// a nested tag entry rather than under a member of its own, and the two
+// instance operations name an instance whose group the request does not carry.
+// Amazon CloudWatch's 4: three are metric operations the reference associates
+// with a dataset while the request names no dataset, and ListAlarmMuteRules
+// filters mute rules by the alarm they belong to rather than naming one.
+// Elastic Load Balancing's 4: three create an object that has no assigned
+// identifier yet, and SetRulePriorities carries each rule's ARN inside a
+// priority entry — a nested shape pinned by
+// TestIAMResourceARNs_ELBReadsARuleARNNestedInAPriority.
+// Amazon EventBridge's 4: the tagging operations name a ResourceARN a real
+// caller supplies where the probe fills a placeholder, and PutEvents carries
+// its event bus per entry, a nested list shape nothing flat can read.
+//
+// AWS Budgets' 3: its reference is vendored for the PassRole table and it has
+// no derivation case at all; the three are its tagging operations, and closing
+// them means giving the service a generated table and an extractor.
+// AWS Step Functions' 3: creating a state machine, an activity or an alias
+// names an object that has no ARN yet.
 // AWS Organizations' 2: CreatePolicy names a policy that does not exist yet,
 // and DescribeEffectivePolicy takes a target that may be a root, an
 // organizational unit or an account while the reference declares only the
@@ -1019,24 +1068,15 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // accepts several types the organizational unit, uniformly; picking the
 // account for that one member would raise the count by one without changing
 // what the gate does for the other two spellings.
-// Elastic Load Balancing's 4: three create an object that has no assigned
-// identifier yet, and SetRulePriorities carries each rule's ARN inside a
-// priority entry rather than under a member of its own — a shape this probe
-// cannot express, since it fills every member with one scalar.
-// TestIAMResourceARNs_ELBReadsARuleARNNestedInAPriority pins that the real
-// request shape does derive; counting it here would mean teaching the probe
-// about one operation, which is measuring the measurement.
-//
-// Amazon CloudWatch's 4: three are metric operations the reference associates
-// with a dataset while the request names no dataset, and ListAlarmMuteRules
-// filters mute rules by the alarm they belong to rather than naming one.
-// AWS Step Functions' 3: creating a state machine, an activity or an alias
-// names an object that has no ARN yet.
+// AWS Security Token Service's 1: AssumeRoot names the member account whose
+// root user the call becomes as a bare twelve-digit account id, which the
+// probe fills with a placeholder no account can be read from —
+// TestIAMResourceARNs_STSNamesTheIdentityEachCallIsAbout pins the real shape.
 // Amazon SQS's 1: CancelMessageMoveTask names only the task handle, which
 // encodes its queue opaquely.
 // AWS Cloud Map's 1: GetOperation names an operation id, which identifies
 // neither of the two resource types the reference declares for it.
-const iamDerivationCoverageFloor = 1740
+const iamDerivationCoverageFloor = 1779
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1090,6 +1130,9 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	sqsParameters := loadRequestFields(t, "sqs", memberWireName)
 	acmPCAMembers := loadRequestFields(t, "acm-pca", memberWireName)
 	cloudMapMembers := loadRequestFields(t, "servicediscovery", memberWireName)
+	firehoseMembers := loadRequestFields(t, "firehose", memberWireName)
+	stsParameters := loadRequestFields(t, "sts", memberWireName)
+	appAutoScalingMembers := loadRequestFields(t, "application-auto-scaling", memberWireName)
 	iamCloudMapProbeState()
 	organizationsIDs := iamOrganizationsProbeState()
 
@@ -1156,6 +1199,14 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "servicediscovery":
 			derived = iamJSONProbeDerives("servicediscovery", o.name, cloudMapMembers[o.name],
 				"arn:aws:servicediscovery:us-east-1:123456789012:namespace/ns-probe")
+		case "firehose":
+			derived = iamJSONProbeDerives("firehose", o.name, firehoseMembers[o.name],
+				"arn:aws:firehose:us-east-1:123456789012:deliverystream/probe")
+		case "sts":
+			derived = iamQueryProbeDerives("sts", o.name, "2011-06-15", stsParameters[o.name])
+		case "application-autoscaling":
+			derived = iamJSONProbeDerives("application-autoscaling", o.name, appAutoScalingMembers[o.name],
+				"arn:aws:application-autoscaling:us-east-1:123456789012:scalable-target/probe")
 		}
 		if derived {
 			covered++

@@ -33,14 +33,6 @@ func RequestID(ctx context.Context) string {
 	return ""
 }
 
-// Identity returns the caller identity from the context.
-func Identity(ctx context.Context) string {
-	if v, ok := ctx.Value(identityKey).(string); ok {
-		return v
-	}
-	return "anonymous"
-}
-
 // RequestIDMiddleware generates a unique request ID and stores it in context.
 // It also sets the provider-specific response header.
 func RequestIDMiddleware(provider string) func(http.Handler) http.Handler {

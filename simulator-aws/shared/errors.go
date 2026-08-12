@@ -26,50 +26,6 @@ func AWSErrorf(w http.ResponseWriter, code string, statusCode int, format string
 	AWSError(w, code, fmt.Sprintf(format, args...), statusCode)
 }
 
-// GCPError writes a GCP-style JSON error response.
-//
-// GCP error format:
-//
-//	{"error": {"code": 404, "message": "details", "status": "NOT_FOUND", "details": []}}
-func GCPError(w http.ResponseWriter, code int, message string, status string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]any{
-			"code":    code,
-			"message": message,
-			"status":  status,
-			"details": []any{},
-		},
-	})
-}
-
-// GCPErrorf writes a GCP-style error with a formatted message.
-func GCPErrorf(w http.ResponseWriter, code int, status string, format string, args ...any) {
-	GCPError(w, code, fmt.Sprintf(format, args...), status)
-}
-
-// AzureError writes an Azure ARM-style JSON error response.
-//
-// Azure error format:
-//
-//	{"error": {"code": "ResourceNotFound", "message": "details"}}
-func AzureError(w http.ResponseWriter, code string, message string, statusCode int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]string{
-			"code":    code,
-			"message": message,
-		},
-	})
-}
-
-// AzureErrorf writes an Azure-style error with a formatted message.
-func AzureErrorf(w http.ResponseWriter, code string, statusCode int, format string, args ...any) {
-	AzureError(w, code, fmt.Sprintf(format, args...), statusCode)
-}
-
 // S3Error writes an S3-style XML error response.
 //
 // S3 uses XML for error responses, unlike other AWS services.
@@ -89,33 +45,6 @@ func S3ErrorXML(w http.ResponseWriter, code string, message string, resource str
 		Code:      code,
 		Message:   message,
 		Resource:  resource,
-		RequestID: requestID,
-	})
-}
-
-// EC2ErrorXML writes an AWS Query Protocol XML error response.
-// Used by EC2, IAM, and STS services.
-//
-// Format:
-//
-//	<Response><Errors><Error><Code>...</Code><Message>...</Message></Error></Errors><RequestId>...</RequestId></Response>
-func EC2ErrorXML(w http.ResponseWriter, code string, message string, requestID string, statusCode int) {
-	type item struct {
-		Code    string `xml:"Code"`
-		Message string `xml:"Message"`
-	}
-	type errList struct {
-		Error item `xml:"Error"`
-	}
-	type resp struct {
-		XMLName   xml.Name `xml:"Response"`
-		Errors    errList  `xml:"Errors"`
-		RequestID string   `xml:"RequestId"`
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(statusCode)
-	_ = xml.NewEncoder(w).Encode(resp{
-		Errors:    errList{Error: item{Code: code, Message: message}},
 		RequestID: requestID,
 	})
 }

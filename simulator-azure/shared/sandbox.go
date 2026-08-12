@@ -4,7 +4,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/api/types/container"
 )
 
 // SandboxProfile encodes the security restrictions the real cloud

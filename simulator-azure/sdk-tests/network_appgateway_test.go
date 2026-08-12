@@ -716,3 +716,73 @@ func stringValues(values []*string) []string {
 	}
 	return out
 }
+
+// TestNetworkApplicationGateway_AvailableWafRuleSets covers the subscription-
+// scoped web application firewall rule-set catalog: all nine managed rule sets
+// Application Gateway WAF offers, with their full rule-group and rule contents.
+func TestNetworkApplicationGateway_AvailableWafRuleSets(t *testing.T) {
+	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+
+	ruleSets, err := client.ListAvailableWafRuleSets(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, ruleSets.Value, 9)
+
+	type setCounts struct {
+		groups int
+		rules  int
+	}
+	got := map[string]setCounts{}
+	byName := map[string]*armnetwork.ApplicationGatewayFirewallRuleSet{}
+	for _, ruleSet := range ruleSets.Value {
+		require.NotNil(t, ruleSet.Properties)
+		require.NotNil(t, ruleSet.Name)
+		byName[*ruleSet.Name] = ruleSet
+		counts := setCounts{groups: len(ruleSet.Properties.RuleGroups)}
+		for _, group := range ruleSet.Properties.RuleGroups {
+			counts.rules += len(group.Rules)
+		}
+		got[*ruleSet.Properties.RuleSetType+"_"+*ruleSet.Properties.RuleSetVersion] = counts
+		assert.Equal(t, armnetwork.ProvisioningStateSucceeded, *ruleSet.Properties.ProvisioningState)
+	}
+	assert.Equal(t, map[string]setCounts{
+		"OWASP_2.2.9":                     {groups: 12, rules: 245},
+		"OWASP_3.0":                       {groups: 13, rules: 160},
+		"OWASP_3.1":                       {groups: 14, rules: 183},
+		"OWASP_3.2":                       {groups: 14, rules: 187},
+		"Microsoft_BotManagerRuleSet_0.1": {groups: 1, rules: 1},
+		"Microsoft_BotManagerRuleSet_1.0": {groups: 3, rules: 11},
+		"Microsoft_BotManagerRuleSet_1.1": {groups: 3, rules: 17},
+		"Microsoft_DefaultRuleSet_2.1":    {groups: 17, rules: 190},
+		"Microsoft_DefaultRuleSet_2.2":    {groups: 18, rules: 200},
+	}, got)
+
+	drs21 := byName["Microsoft_DefaultRuleSet_2.1"]
+	require.NotNil(t, drs21)
+	assert.Contains(t, drs21.Properties.Tiers, to.Ptr(armnetwork.ApplicationGatewayTierTypesWAFV2))
+	var sqli *armnetwork.ApplicationGatewayFirewallRuleGroup
+	for _, group := range drs21.Properties.RuleGroups {
+		if *group.RuleGroupName == "SQLI" {
+			sqli = group
+		}
+	}
+	require.NotNil(t, sqli, "Microsoft_DefaultRuleSet 2.1 must carry the SQLI rule group")
+	var libinjection *armnetwork.ApplicationGatewayFirewallRule
+	for _, rule := range sqli.Rules {
+		if *rule.RuleID == 942100 {
+			libinjection = rule
+		}
+	}
+	require.NotNil(t, libinjection, "rule 942100 must be in the SQLI group")
+	assert.Equal(t, "942100", *libinjection.RuleIDString)
+	assert.Equal(t, "SQL Injection Attack Detected via libinjection", *libinjection.Description)
+	assert.Equal(t, armnetwork.ApplicationGatewayWafRuleStateTypesEnabled, *libinjection.State)
+	assert.Equal(t, armnetwork.ApplicationGatewayWafRuleActionTypesAnomalyScoring, *libinjection.Action)
+
+	owasp30 := byName["OWASP_3.0"]
+	require.NotNil(t, owasp30)
+	assert.ElementsMatch(t, []*armnetwork.ApplicationGatewayTierTypes{
+		to.Ptr(armnetwork.ApplicationGatewayTierTypesWAF),
+		to.Ptr(armnetwork.ApplicationGatewayTierTypesWAFV2),
+	}, owasp30.Properties.Tiers)
+}

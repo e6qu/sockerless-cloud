@@ -12,11 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
+	"github.com/moby/moby/client"
 )
 
 const containerReaperArgument = "--sockerless-container-reaper"
@@ -99,7 +96,7 @@ func RunContainerReaper() bool {
 		time.Sleep(250 * time.Millisecond)
 	}
 
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "initialize container reaper runtime: %v\n", err)
 		os.Exit(1)
@@ -107,30 +104,29 @@ func RunContainerReaper() bool {
 	defer func() { _ = dockerClient.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	labelFilters := filters.NewArgs(
-		filters.Arg("label", "sockerless-sim-provider="+provider),
-		filters.Arg("label", "sockerless-sim-run="+runID),
-	)
-	containers, err := dockerClient.ContainerList(ctx, container.ListOptions{All: true, Filters: labelFilters})
+	labelFilters := client.Filters{}.
+		Add("label", "sockerless-sim-provider="+provider).
+		Add("label", "sockerless-sim-run="+runID)
+	containers, err := dockerClient.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: labelFilters})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "list orphaned simulator workloads: %v\n", err)
 		os.Exit(1)
 	}
-	for _, workload := range containers {
+	for _, workload := range containers.Items {
 		timeout := 5
-		_ = dockerClient.ContainerStop(ctx, workload.ID, container.StopOptions{Timeout: &timeout})
-		if err := dockerClient.ContainerRemove(ctx, workload.ID, container.RemoveOptions{Force: true}); err != nil {
+		_, _ = dockerClient.ContainerStop(ctx, workload.ID, client.ContainerStopOptions{Timeout: &timeout})
+		if _, err := dockerClient.ContainerRemove(ctx, workload.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
 			fmt.Fprintf(os.Stderr, "remove orphaned simulator workload %s: %v\n", workload.ID, err)
 			os.Exit(1)
 		}
 	}
-	networks, err := dockerClient.NetworkList(ctx, network.ListOptions{Filters: labelFilters})
+	networks, err := dockerClient.NetworkList(ctx, client.NetworkListOptions{Filters: labelFilters})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "list orphaned simulator networks: %v\n", err)
 		os.Exit(1)
 	}
-	for _, workloadNetwork := range networks {
-		if err := dockerClient.NetworkRemove(ctx, workloadNetwork.ID); err != nil {
+	for _, workloadNetwork := range networks.Items {
+		if _, err := dockerClient.NetworkRemove(ctx, workloadNetwork.ID, client.NetworkRemoveOptions{}); err != nil {
 			fmt.Fprintf(os.Stderr, "remove orphaned simulator network %s: %v\n", workloadNetwork.ID, err)
 			os.Exit(1)
 		}

@@ -264,7 +264,7 @@ func azureRunVMExtension(
 			"extension %q carries no commandToExecute, so there is nothing for the handler to run", name)
 	}
 
-	guest, err := azureGuestFor(vm.ID)
+	guest, err := azureGuestFor(ctx, vm.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -320,14 +320,21 @@ func azureCustomScriptCommand(properties VirtualMachineExtensionProperties) stri
 
 // azureGuestFor resolves the running guest of a machine. An operation that runs
 // something inside a machine needs the machine to be running, and saying so is
-// the honest answer — Azure refuses the same way.
-func azureGuestFor(vmID string) (*realexec.FirecrackerVM, error) {
+// the honest answer — Azure refuses the same way. A machine that IS running may
+// still be finishing its boot: the create returns while the guest brings up its
+// services, and Azure's guest operations wait for the guest agent to report
+// ready rather than failing on the first connection. The same bounded wait
+// happens here before the guest is handed to the caller.
+func azureGuestFor(ctx context.Context, vmID string) (*realexec.FirecrackerVM, error) {
 	azureRealMu.Lock()
 	guest := azureRealVMs[vmID]
 	azureRealMu.Unlock()
 	if guest == nil || !guest.Alive() {
 		return nil, fmt.Errorf(
 			"virtual machine %q is not running, so nothing can be executed inside it", vmID)
+	}
+	if err := guest.WaitForGuestExec(ctx, 60*time.Second); err != nil {
+		return nil, fmt.Errorf("virtual machine %q has not finished booting: %w", vmID, err)
 	}
 	return guest, nil
 }

@@ -39,17 +39,23 @@ jobs:
         include:
           # aws is split because it does not fit the 15-minute budget: it holds
           # roughly half of all targets, and one job running all of them takes
-          # about 21 minutes even with a warm cache. Halving it puts each shard
-          # alongside the other groups. The shared/ framework packages live
-          # inside each cloud module, so passing the module root covers them.
-          - group: aws-1of2
+          # about 21 minutes even with a warm cache. Two shards fit but with
+          # only about a minute of margin (13m48s and 11m41s observed), so aws
+          # runs as three shards to keep real headroom under the limit. The
+          # shared/ framework packages live inside each cloud module, so
+          # passing the module root covers them.
+          - group: aws-1of3
             modules: simulator-aws
             shard_index: 1
-            shard_total: 2
-          - group: aws-2of2
+            shard_total: 3
+          - group: aws-2of3
             modules: simulator-aws
             shard_index: 2
-            shard_total: 2
+            shard_total: 3
+          - group: aws-3of3
+            modules: simulator-aws
+            shard_index: 3
+            shard_total: 3
           - group: gcp
             modules: simulator-gcp
           - group: azure

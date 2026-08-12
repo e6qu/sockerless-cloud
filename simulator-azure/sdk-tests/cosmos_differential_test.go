@@ -24,9 +24,9 @@ import (
 // cosmosDiffKnownDivergences and asserted exactly — the sim is never regressed to
 // match the oracle.
 //
-// The emulator is large and slow to start, so this is Docker-gated: it runs for
-// real where Docker + the image are available (CI pre-pulls it) and skips with
-// diagnostics otherwise, never flaking the suite.
+// The emulator is required: the harness provisions it end to end (pulling the
+// image when the host does not have it — CI pre-pulls only to keep the job
+// budget predictable) and any provisioning failure fails the test loudly.
 
 type cosmosDiffResult struct {
 	value   string // canonical JSON of the observable (user fields only), or sentinel
@@ -448,27 +448,32 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	t.Helper()
 	const image = "mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview"
 	if exec.Command("docker", "image", "inspect", image).Run() != nil {
-		// Do not pull a ~GB image inline; CI pre-pulls it. Skip with diagnostics.
-		t.Skipf("Cosmos emulator image %s not present locally (CI pre-pulls it); skipping", image)
+		// CI pre-pulls the image so the job budget stays predictable; a host
+		// that lacks it pulls it here, once. The oracle is required, so a
+		// failed pull is a failure, never a skip.
+		if pullOut, perr := exec.Command("docker", "pull", image).CombinedOutput(); perr != nil {
+			t.Fatalf("pulling Cosmos emulator image %s: %v\n%s", image, perr, pullOut)
+		}
 	}
 
-	// The emulator advertises its data-plane endpoint as a hardcoded
-	// http://127.0.0.1:8081/ in the account-discovery response; the azcosmos
-	// global endpoint manager then routes every data-plane request there. So the
-	// host MUST publish the container on port 8081 (a random host port would let
-	// discovery succeed but every subsequent request would route to an unmapped
-	// 8081 and hang). Skip cleanly if 8081 is already taken.
-	const hostPort = 8081
-	if ln, lerr := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", hostPort)); lerr != nil {
-		t.Skipf("host port %d is in use (the Cosmos emulator advertises 127.0.0.1:%d for its data plane and requires it); skipping differential", hostPort, hostPort)
-	} else {
-		_ = ln.Close()
+	// The emulator advertises its data-plane endpoint back to the client in
+	// the account-discovery response, built from its configured --port; the
+	// azcosmos global endpoint manager then routes every data-plane request
+	// to that advertised coordinate. Container port, published host port, and
+	// advertised port must therefore be one number — so reserve an
+	// OS-selected free port and hand the same number to both docker -p and
+	// the emulator's --port, instead of contending for the default 8081.
+	ln, lerr := net.Listen("tcp", "127.0.0.1:0")
+	if lerr != nil {
+		t.Fatalf("reserving a host port for the Cosmos emulator: %v", lerr)
 	}
+	hostPort := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
 	runOut, err := exec.Command("docker", "run", "-d", "--rm",
-		"-p", fmt.Sprintf("127.0.0.1:%d:8081", hostPort),
-		image, "--protocol", "http").CombinedOutput()
+		"-p", fmt.Sprintf("127.0.0.1:%d:%d", hostPort, hostPort),
+		image, "--protocol", "http", "--port", fmt.Sprintf("%d", hostPort)).CombinedOutput()
 	if err != nil {
-		t.Skipf("could not start Cosmos emulator (skipping differential): %v\n%s", err, runOut)
+		t.Fatalf("starting Cosmos emulator: %v\n%s", err, runOut)
 	}
 	id := trimSpace(string(runOut))
 	stop = func() { _ = exec.Command("docker", "rm", "-f", id).Run() }
@@ -489,7 +494,7 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	}
 	logs, _ := exec.Command("docker", "logs", "--tail", "30", id).CombinedOutput()
 	stop()
-	t.Skipf("Cosmos emulator did not become ready at %s (skipping differential)\n%s", endpoint, logs)
+	t.Fatalf("Cosmos emulator did not become ready at %s\n%s", endpoint, logs)
 	return "", func() {}
 }
 

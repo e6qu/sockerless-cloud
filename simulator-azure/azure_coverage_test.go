@@ -115,16 +115,11 @@ var azureMethodFloor = map[string]int{
 	"monitor-dataplane-datacollectionrules-2023-01-01": 1,
 	"monitor-dataplane-operationalinsights-v1":         5,
 	"msi-arm-managedidentity-2024-11-30":               12,
-	// 21 of 22. ApplicationGateways_ListAvailableWafRuleSets is the one left
-	// out: its answer is the Core Rule Set catalog — every rule id, group and
-	// description of every OWASP and Microsoft managed rule set — which the
-	// simulator does not carry and cannot compute, and a partial catalog
-	// presented as the real one would be worse than an honest gap.
-	"network-arm-applicationgateway-2025-03-01":       21,
-	"network-arm-applicationsecuritygroup-2025-03-01": 6,
-	"network-arm-loadbalancer-2025-03-01":             27,
-	"network-arm-natgateway-2025-03-01":               6,
-	"network-arm-networkinterface-2025-03-01":         15,
+	"network-arm-applicationgateway-2025-03-01":        22,
+	"network-arm-applicationsecuritygroup-2025-03-01":  6,
+	"network-arm-loadbalancer-2025-03-01":              27,
+	"network-arm-natgateway-2025-03-01":                6,
+	"network-arm-networkinterface-2025-03-01":          15,
 	// Azure Virtual Network Manager's own resource, its commit and its
 	// deployment status. The configuration resources a commit deploys
 	// (network groups, connectivity and security-admin configurations) are

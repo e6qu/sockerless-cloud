@@ -4,11 +4,14 @@ import "testing"
 
 func TestScannerBoundsSafe(t *testing.T) {
 	sc := NewScanner("ab")
-	if sc.Peek() != 'a' || sc.PeekAt(1) != 'b' || sc.PeekAt(5) != 0 || sc.PeekAt(-3) != 0 {
-		t.Fatal("peek")
+	if sc.Peek() != 'a' || sc.Len() != 2 {
+		t.Fatal("peek/len")
 	}
 	if sc.Next() != 'a' || sc.Next() != 'b' {
 		t.Fatal("next")
+	}
+	if sc.Pos() != 2 {
+		t.Fatal("pos")
 	}
 	if !sc.Eof() || sc.Next() != 0 || sc.Peek() != 0 {
 		t.Fatal("eof must yield 0, never panic")
@@ -16,34 +19,6 @@ func TestScannerBoundsSafe(t *testing.T) {
 	// Slices clamp; inverted/out-of-range never panic.
 	if sc.Slice(-5, 100) != "ab" || sc.Slice(1, 0) != "" || sc.Slice(5, 9) != "" {
 		t.Fatalf("slice clamp: %q %q %q", sc.Slice(-5, 100), sc.Slice(1, 0), sc.Slice(5, 9))
-	}
-	sc.SetPos(-9)
-	if sc.Pos() != 0 {
-		t.Fatal("setpos clamp low")
-	}
-	sc.SetPos(99)
-	if sc.Pos() != 2 || sc.Rest() != "" {
-		t.Fatal("setpos clamp high + rest")
-	}
-}
-
-func TestScannerPrefixAndFold(t *testing.T) {
-	sc := NewScanner("WHERE x")
-	if !sc.HasPrefixFold("where") || sc.HasPrefix("where") {
-		t.Fatal("fold prefix")
-	}
-	if !sc.ConsumePrefix("WHERE") || sc.Pos() != 5 {
-		t.Fatal("consume")
-	}
-	sc.SkipSpace()
-	if sc.Peek() != 'x' {
-		t.Fatal("skipspace")
-	}
-	// HasPrefixFold past end must not panic.
-	end := NewScanner("ab")
-	end.SetPos(2)
-	if end.HasPrefixFold("anything") {
-		t.Fatal("fold past end")
 	}
 }
 

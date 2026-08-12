@@ -61,7 +61,7 @@ type OCIRegistry struct {
 	OnManifestPut func(repo, ref, contentType string, data []byte)
 	// HydrateManifest, if set, is invoked on a manifest GET/HEAD miss to let the
 	// cloud's pull-through cache populate the manifest (+ its blobs) via
-	// PutBlob/PutManifest. Returns true if it populated the requested manifest.
+	// PutBlob. Returns true if it populated the requested manifest.
 	HydrateManifest func(reg *OCIRegistry, repo, ref string) bool
 	// SkipPath, if set, returns true for `/v2/`-prefixed paths the surrounding
 	// mux serves elsewhere (e.g. GCP's `/v2/projects/` control-plane routes);
@@ -127,17 +127,6 @@ func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 // PutBlob stores a content-addressed blob (used by hydration hooks).
 func (reg *OCIRegistry) PutBlob(repo, digest, contentType string, data []byte) {
 	reg.Blobs.Put(repo+"@"+digest, OCIBlob{Digest: digest, ContentType: contentType, Data: data})
-}
-
-// PutManifest stores a manifest under both its tag/reference and its digest
-// (used by hydration hooks).
-func (reg *OCIRegistry) PutManifest(repo, ref, contentType string, data []byte) {
-	digest := ociDigest(data)
-	m := OCIManifest{ContentType: contentType, Digest: digest, Data: data, Repo: repo, Ref: ref}
-	reg.Manifests.Put(repo+":"+ref, m)
-	byDigest := m
-	byDigest.Ref = digest
-	reg.Manifests.Put(repo+":"+digest, byDigest)
 }
 
 func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request, repo, uploadID string) {

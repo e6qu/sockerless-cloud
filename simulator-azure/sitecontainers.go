@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	dockerclient "github.com/moby/moby/client"
 )
 
 // SiteContainer is the ARM resource
@@ -237,7 +238,7 @@ func cleanupSiteContainers(siteID, siteName string) {
 	}
 	if cli := sim.DockerClient(); cli != nil {
 		for v := range vols {
-			_ = cli.VolumeRemove(context.Background(), v, true)
+			_, _ = cli.VolumeRemove(context.Background(), v, dockerclient.VolumeRemoveOptions{Force: true})
 		}
 	}
 }

@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	dockercontainer "github.com/docker/docker/api/types/container"
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 	"github.com/gorilla/websocket"
+	dockerclient "github.com/moby/moby/client"
 )
 
 // Microsoft.ContainerInstance/containerGroups. Container groups are ARM
@@ -370,20 +370,20 @@ func handleACIContainerExecSession(w http.ResponseWriter, r *http.Request) {
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "command is required"))
 		return
 	}
-	execCfg := dockercontainer.ExecOptions{
+	execCfg := dockerclient.ExecCreateOptions{
 		Cmd:          command,
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
 	}
 	ctx := r.Context()
-	execResp, err := cli.ContainerExecCreate(ctx, session.ContainerID, execCfg)
+	execResp, err := cli.ExecCreate(ctx, session.ContainerID, execCfg)
 	if err != nil {
 		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
 		return
 	}
-	attach, err := cli.ContainerExecAttach(ctx, execResp.ID, dockercontainer.ExecAttachOptions{})
+	attach, err := cli.ExecAttach(ctx, execResp.ID, dockerclient.ExecAttachOptions{})
 	if err != nil {
 		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
@@ -603,7 +603,7 @@ func handleACIContainerAttachSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	attach, err := cli.ContainerAttach(ctx, session.ContainerID, dockercontainer.AttachOptions{
+	attach, err := cli.ContainerAttach(ctx, session.ContainerID, dockerclient.ContainerAttachOptions{
 		Stream: true,
 		Stdin:  true,
 		Stdout: true,

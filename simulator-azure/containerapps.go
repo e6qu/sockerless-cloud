@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	dockercontainer "github.com/docker/docker/api/types/container"
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 	"github.com/gorilla/websocket"
+	dockerclient "github.com/moby/moby/client"
 )
 
 // Container handle tracker for Container Apps Jobs real execution
@@ -857,20 +857,20 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 
 	// Run the command via `sh -c "<command>"` to match what real ACA's
 	// console exec does and to support arbitrary shell expressions.
-	execCfg := dockercontainer.ExecOptions{
+	execCfg := dockerclient.ExecCreateOptions{
 		Cmd:          []string{"sh", "-c", command},
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
 	}
 	ctx := r.Context()
-	execResp, err := cli.ContainerExecCreate(ctx, handle.ContainerID, execCfg)
+	execResp, err := cli.ExecCreate(ctx, handle.ContainerID, execCfg)
 	if err != nil {
 		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
 		return
 	}
-	attach, err := cli.ContainerExecAttach(ctx, execResp.ID, dockercontainer.ExecAttachOptions{})
+	attach, err := cli.ExecAttach(ctx, execResp.ID, dockerclient.ExecAttachOptions{})
 	if err != nil {
 		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))

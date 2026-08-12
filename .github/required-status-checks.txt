@@ -1,0 +1,58 @@
+# Required status checks for `main`.
+#
+# This file mirrors the required-status-check contexts configured on `main`'s
+# branch protection. It is the version-controlled contract that
+# scripts/check-required-status-checks.sh enforces: every context listed here
+# must be emittable by some job in .github/workflows/*.yml, so a job rename or
+# removal that would leave a required check unable to report fails the pull
+# request that causes it instead of silently stalling the merge queue.
+#
+# When a required check is added, renamed, or removed:
+#   1. update the workflow that emits it,
+#   2. update this file in the same pull request (the gate enforces the match),
+#   3. update `main`'s branch-protection required-status-checks to match.
+# `scripts/check-required-status-checks.sh --verify-branch-protection` (run with
+# GitHub admin credentials) checks this file against live branch protection.
+#
+# One context name per line, sorted. Lines starting with `#` and blank lines are
+# ignored.
+
+At most one PR open
+Branch rebased on origin/main
+browser (simulator-aws)
+browser (simulator-azure)
+browser (simulator-gcp)
+build-gates
+check-deps (deps + actions + scripts)
+firecracker (microVM arithmetic)
+lint (simulators)
+lint (support)
+sim (aws cli appdata)
+sim (aws cli appdata2)
+sim (aws cli appdata3)
+sim (aws cli appdata4)
+sim (aws cli compute)
+sim (aws cli ec2-a-m)
+sim (aws cli ec2-n-z)
+sim (aws cli ecs)
+sim (aws cli edge-delivery)
+sim (aws cli edge-routing)
+sim (aws cli glue-iam)
+sim (aws sdk compute)
+sim (aws sdk data)
+sim (aws sdk services-a-m)
+sim (aws sdk services-n-z)
+sim (azure cli)
+sim (azure sdk)
+sim (gcp cli)
+sim (gcp sdk)
+simulators (dead code + copy-paste)
+tf (aws Amazon ElastiCache)
+tf (aws Amazon RDS instance)
+tf (aws Amazon RDS restore)
+tf (aws Amazon RDS snapshot)
+tf (aws)
+tf (azure subscription)
+tf (azure)
+tf (gcp)
+ui

@@ -66,62 +66,6 @@ func (r *AWSRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	handler(w, req)
 }
 
-// GCPRouter routes GCP API requests based on URL path patterns.
-// GCP REST APIs use paths like /v2/projects/{project}/locations/{location}/jobs.
-type GCPRouter struct {
-	mux *http.ServeMux
-}
-
-// NewGCPRouter creates a new GCP request router.
-func NewGCPRouter() *GCPRouter {
-	return &GCPRouter{
-		mux: http.NewServeMux(),
-	}
-}
-
-// Handle registers a pattern (e.g., "POST /v2/projects/{project}/locations/{location}/jobs").
-func (r *GCPRouter) Handle(pattern string, handler http.HandlerFunc) {
-	r.mux.HandleFunc(pattern, handler)
-}
-
-// ServeHTTP dispatches to the matching path handler.
-func (r *GCPRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	r.mux.ServeHTTP(w, req)
-}
-
-// AzureRouter routes Azure ARM API requests based on resource provider paths.
-// Azure ARM uses paths like /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/jobs/{name}.
-type AzureRouter struct {
-	mux *http.ServeMux
-}
-
-// NewAzureRouter creates a new Azure request router.
-func NewAzureRouter() *AzureRouter {
-	return &AzureRouter{
-		mux: http.NewServeMux(),
-	}
-}
-
-// Handle registers a pattern for ARM resource paths.
-func (r *AzureRouter) Handle(pattern string, handler http.HandlerFunc) {
-	r.mux.HandleFunc(pattern, handler)
-}
-
-// ServeHTTP dispatches to the matching path handler.
-// It validates that the api-version query parameter is present.
-func (r *AzureRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// Skip api-version check for health and metadata endpoints
-	if !strings.HasPrefix(req.URL.Path, "/health") && !strings.HasPrefix(req.URL.Path, "/metadata") {
-		if req.URL.Query().Get("api-version") == "" {
-			AzureError(w, "MissingApiVersion",
-				"The api-version query parameter is required for all requests",
-				http.StatusBadRequest)
-			return
-		}
-	}
-	r.mux.ServeHTTP(w, req)
-}
-
 // AWSQueryRouter routes AWS Query Protocol requests based on the
 // (Version, Action) form parameter pair. Multiple AWS services
 // define an Action with the same name (`ListTagsForResource` exists

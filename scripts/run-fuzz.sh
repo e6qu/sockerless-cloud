@@ -81,21 +81,53 @@ run_target() {
 	} >"$log_file" 2>&1
 }
 
+# Go's fuzz coordinator suppresses the -fuzztime deadline error by comparing
+# it against its worker context's error — but the deadline context closes its
+# Done channel before cancellation propagates to that child context, so a
+# coordinator that wins the race reports the engine's own stop as the test
+# failure: a FAIL block whose only diagnostic is a bare
+# "context deadline exceeded", stamped with an elapsed time at or past the
+# -fuzztime budget, with no failing input written. golang.org/issue/72104
+# tracks Go's own test_fuzz_fuzztime flaking on the same signature. That shape
+# — and only that shape — is the engine racing its own shutdown, not a
+# crasher; requalify it as a pass. Any other failure (a written failing input,
+# a panic, a second FAIL block, an early deadline) still fails the run.
+is_fuzztime_shutdown_race() {
+	local log_file="$1" package_dir="$2" elapsed
+	[[ "$(grep -c '^--- FAIL: ' "$log_file")" == 1 ]] || return 1
+	grep -q '^--- FAIL: Fuzz' "$log_file" || return 1
+	grep -qx '    context deadline exceeded' "$log_file" || return 1
+	if grep -qE 'panic:|race detected|Failing input written to' "$log_file"; then
+		return 1
+	fi
+	elapsed="$(sed -nE 's/^--- FAIL: Fuzz[A-Za-z0-9_]+ \(([0-9]+\.[0-9]+)s\)$/\1/p' "$log_file")"
+	[[ -n "$elapsed" ]] || return 1
+	awk -v elapsed="$elapsed" -v budget="$seconds" \
+		'BEGIN { exit !(elapsed + 0 >= budget + 0) }' || return 1
+	[[ -z "$(git ls-files --others --exclude-standard -- "$package_dir/testdata/fuzz" 2>/dev/null)" ]] || return 1
+}
+
 wait_batch() {
-	local index pid label log_file
+	local index pid label log_file package_dir
 	for ((index = 0; index < ${#batch_pids[@]}; index += 1)); do
 		pid="${batch_pids[$index]}"
 		label="${batch_labels[$index]}"
 		log_file="${batch_logs[$index]}"
+		package_dir="${batch_package_dirs[$index]}"
 		if ! wait "$pid"; then
-			echo "!!! FUZZ TARGET FAILED: $label" >&2
-			status=1
+			if is_fuzztime_shutdown_race "$log_file" "$package_dir"; then
+				echo "~~~ fuzztime shutdown race (engine stopped itself at the -fuzztime boundary, no crasher): $label"
+			else
+				echo "!!! FUZZ TARGET FAILED: $label" >&2
+				status=1
+			fi
 		fi
 		cat "$log_file"
 	done
 	batch_pids=()
 	batch_labels=()
 	batch_logs=()
+	batch_package_dirs=()
 }
 
 # Compile each package's test binary once, serially, before any fuzzing starts.
@@ -157,10 +189,15 @@ prebuild_packages
 batch_pids=()
 batch_labels=()
 batch_logs=()
+batch_package_dirs=()
 task_index=0
 while IFS=$'\t' read -r dir relative function_name; do
 	[[ -n "$function_name" ]] || continue
 	log_file="$work_dir/target-$task_index.log"
+	package_dir="$dir"
+	if [[ "$relative" != "." ]]; then
+		package_dir="$dir/${relative#./}"
+	fi
 	# Announce before forking. Each target's own output is buffered to a file
 	# and only replayed once its whole batch has been waited on, so a job that
 	# dies mid-batch otherwise leaves no trace of how far it got -- which is
@@ -170,6 +207,7 @@ while IFS=$'\t' read -r dir relative function_name; do
 	batch_pids+=("$!")
 	batch_labels+=("$dir $relative $function_name")
 	batch_logs+=("$log_file")
+	batch_package_dirs+=("$package_dir")
 	task_index=$((task_index + 1))
 	if ((${#batch_pids[@]} >= target_concurrency)); then
 		wait_batch

@@ -1,7 +1,5 @@
 package simulator
 
-import "strings"
-
 // Shared bounds-safe scaffolding for the hand-rolled expression/DSL parsers
 // (DynamoDB expressions, CloudWatch Logs Insights/filter-pattern, GCP AIP-160
 // filter, Azure OData $filter, …). The grammars differ per cloud, but the
@@ -20,25 +18,11 @@ type Scanner struct {
 // NewScanner returns a Scanner positioned at the start of s.
 func NewScanner(s string) *Scanner { return &Scanner{s: s} }
 
-// Pos / Len / SetPos manage the cursor; SetPos clamps into [0, len].
+// Pos reports the cursor position.
 func (sc *Scanner) Pos() int { return sc.pos }
-func (sc *Scanner) Len() int { return len(sc.s) }
-func (sc *Scanner) SetPos(p int) {
-	switch {
-	case p < 0:
-		sc.pos = 0
-	case p > len(sc.s):
-		sc.pos = len(sc.s)
-	default:
-		sc.pos = p
-	}
-}
 
 // Eof reports whether the cursor is at or past the end.
 func (sc *Scanner) Eof() bool { return sc.pos >= len(sc.s) }
-
-// Rest returns the unconsumed suffix (never panics — pos is always clamped).
-func (sc *Scanner) Rest() string { return sc.s[sc.pos:] }
 
 // Peek returns the current byte without advancing, or 0 at EOF.
 func (sc *Scanner) Peek() byte {
@@ -80,38 +64,6 @@ func (sc *Scanner) Slice(start, end int) string {
 		return ""
 	}
 	return sc.s[start:end]
-}
-
-// SkipSpace advances over ASCII spaces and tabs.
-func (sc *Scanner) SkipSpace() {
-	for sc.pos < len(sc.s) {
-		c := sc.s[sc.pos]
-		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
-			return
-		}
-		sc.pos++
-	}
-}
-
-// HasPrefix reports whether the remaining input starts with p.
-func (sc *Scanner) HasPrefix(p string) bool { return strings.HasPrefix(sc.s[sc.pos:], p) }
-
-// HasPrefixFold is HasPrefix with ASCII-case-insensitive matching (byte-length
-// preserving via ASCIIFold, so it stays slice-safe).
-func (sc *Scanner) HasPrefixFold(p string) bool {
-	if sc.pos+len(p) > len(sc.s) {
-		return false
-	}
-	return ASCIIFold(sc.s[sc.pos:sc.pos+len(p)]) == ASCIIFold(p)
-}
-
-// ConsumePrefix advances past p when the remaining input starts with it.
-func (sc *Scanner) ConsumePrefix(p string) bool {
-	if sc.HasPrefix(p) {
-		sc.pos += len(p)
-		return true
-	}
-	return false
 }
 
 // DefaultMaxParseDepth / DefaultMaxParseNodes are sane caps for the sims'
@@ -156,6 +108,3 @@ func (g *ParseGuard) Leave() {
 		g.depth--
 	}
 }
-
-// Exceeded reports whether any budget has been blown.
-func (g *ParseGuard) Exceeded() bool { return g.depth > g.maxDepth || g.nodes > g.maxNodes }

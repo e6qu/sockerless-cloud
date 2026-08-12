@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	dockercontainer "github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/gorilla/websocket"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	dockerclient "github.com/moby/moby/client"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
@@ -542,14 +542,16 @@ func registerECS(r *sim.AWSRouter, srv *sim.Server) {
 		}
 
 		// Create target directory if it doesn't exist
-		mkdirExec, mkdirErr := cli.ContainerExecCreate(r.Context(), handle.ContainerID, dockercontainer.ExecOptions{
+		mkdirExec, mkdirErr := cli.ExecCreate(r.Context(), handle.ContainerID, dockerclient.ExecCreateOptions{
 			Cmd: []string{"mkdir", "-p", path},
 		})
 		if mkdirErr == nil {
-			_ = cli.ContainerExecStart(r.Context(), mkdirExec.ID, dockercontainer.ExecStartOptions{})
+			_, _ = cli.ExecStart(r.Context(), mkdirExec.ID, dockerclient.ExecStartOptions{})
 		}
 
-		err := cli.CopyToContainer(r.Context(), handle.ContainerID, path, r.Body, dockercontainer.CopyToContainerOptions{
+		_, err := cli.CopyToContainer(r.Context(), handle.ContainerID, dockerclient.CopyToContainerOptions{
+			DestinationPath:           path,
+			Content:                   r.Body,
 			AllowOverwriteDirWithFile: true,
 		})
 		if err != nil {
@@ -3300,19 +3302,19 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 				// double-wrapping is correct (the inner shell parses the
 				// outer script and dispatches the inner shell itself).
 				execCmd := []string{"sh", "-c", sess.command}
-				execCfg := dockercontainer.ExecOptions{
+				execCfg := dockerclient.ExecCreateOptions{
 					Cmd:          execCmd,
 					AttachStdin:  true,
 					AttachStdout: true,
 					AttachStderr: true,
 				}
-				execResp, err := cli.ContainerExecCreate(r.Context(), sess.dockerContainerID, execCfg)
+				execResp, err := cli.ExecCreate(r.Context(), sess.dockerContainerID, execCfg)
 				if err != nil {
 					_ = conn.WriteMessage(websocket.CloseMessage,
 						websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
 					return
 				}
-				attach, err := cli.ContainerExecAttach(r.Context(), execResp.ID, dockercontainer.ExecAttachOptions{})
+				attach, err := cli.ExecAttach(r.Context(), execResp.ID, dockerclient.ExecAttachOptions{})
 				if err != nil {
 					_ = conn.WriteMessage(websocket.CloseMessage,
 						websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
@@ -3368,7 +3370,7 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 				// exit code before the channel is closed. Match that so
 				// the backend decoder sees the true exit status.
 				exitCode := 0
-				if inspect, err := cli.ContainerExecInspect(r.Context(), execResp.ID); err == nil {
+				if inspect, err := cli.ExecInspect(r.Context(), execResp.ID, dockerclient.ExecInspectOptions{}); err == nil {
 					exitCode = inspect.ExitCode
 				}
 				writeMu.Lock()
