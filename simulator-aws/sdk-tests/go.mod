@@ -31,8 +31,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.58.6
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.48.5
 	github.com/aws/aws-sdk-go-v2/service/firehose v1.46.5
-	github.com/aws/aws-sdk-go-v2/service/glue v1.152.1
-	github.com/aws/aws-sdk-go-v2/service/iam v1.58.2
+	github.com/aws/aws-sdk-go-v2/service/glue v1.152.2
+	github.com/aws/aws-sdk-go-v2/service/iam v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.46.5
 	github.com/aws/aws-sdk-go-v2/service/kms v1.55.5
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.101.3
@@ -60,7 +60,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/image v0.45.0
-	golang.org/x/net v0.57.0
+	golang.org/x/net v0.58.0
 )
 
 replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil

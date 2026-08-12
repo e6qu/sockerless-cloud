@@ -21,7 +21,12 @@ trap cleanup EXIT
 archive="$tmpdir/firecracker-${version}-${arch}.tgz"
 url="https://github.com/firecracker-microvm/firecracker/releases/download/${version}/firecracker-${version}-${arch}.tgz"
 
-curl -fsSLo "$archive" "$url"
+# Bounded retries: the GitHub releases CDN answers transient 503s, and one
+# such blip once failed three CI jobs at their install step simultaneously.
+curl --fail --location --show-error --silent \
+  --retry 5 --retry-all-errors --retry-delay 5 \
+  --connect-timeout 20 --max-time 300 \
+  --output "$archive" "$url"
 tar -xzf "$archive" -C "$tmpdir"
 
 release_dir="$tmpdir/release-${version}-${arch}"

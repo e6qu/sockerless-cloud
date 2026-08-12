@@ -567,7 +567,10 @@ jobs:
           bash scripts/install-firecracker.sh
       - name: Install Session Manager plugin
         run: |
-          curl -fsSLo /tmp/session-manager-plugin.deb https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
+          curl --fail --location --show-error --silent \
+            --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 300 \
+            --output /tmp/session-manager-plugin.deb https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
           sudo dpkg -i /tmp/session-manager-plugin.deb
           session-manager-plugin --version
       - name: Install latest AWS CLI v2
@@ -575,7 +578,10 @@ jobs:
         # ECS Express Mode, launched 2025-11-21) need a current CLI. Install the
         # latest v2 so the cli-tests exercise every operation for real.
         run: |
-          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+          curl --fail --location --show-error --silent \
+            --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 300 \
+            "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
           unzip -q -o /tmp/awscliv2.zip -d /tmp
           sudo /tmp/aws/install --update
           hash -r
