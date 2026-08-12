@@ -1,5 +1,36 @@
 # WHAT WE DID
 
+## 2026-08-12 — Second polish pass: App Service Stage 1, derivation tail, release-pipeline gate
+
+Widened the Azure App Service surface from 161 to 238 of 692 served
+operations: the sitecontainers slot twins resolve the slot's own records, the
+site-scoped Logic Apps workflow surface (hostruntime bridge and the
+WebApps workflow operations) mounts on the standalone Logic stores with
+site-signed callback keys and a real resubmit LRO, the Key Vault
+configuration references derive from the stored appsettings/connection
+strings against the sim's own Key Vault, and four child-resource CRUD
+families landed (publicCertificates with real DER parsing and SHA-1
+thumbprints, domainOwnershipIdentifiers, premieraddons, pushsettings). Site
+and slot deletion now purges the whole child subtree, which previously
+survived deletion and leaked into a recreated site. SDK, CLI and Terraform
+coverage in the same commit; the wire-shape validator reported zero
+violations.
+
+Closed the remaining locally actionable bug work. BUG-2928 closed by its own
+criterion: the restarted local runtime ran the full Lambda invocation SDK
+suite green. The BUG-2909 state-resolving tail closed — Amazon SQS
+CancelMessageMoveTask resolves its task handle to the source queue, AWS
+Cloud Map GetOperation resolves through the operation record, AWS CloudTrail
+reads the ARN-valued ResourceId/ResourceIdList — raising derivation coverage
+1,779 → 1,784 of 1,974 with each resolution pinned.
+
+Gated the release pipeline against unparseable squash titles: PR #2's
+non-conventional title made release-please report "no user facing commits"
+and ship that pass in no release. scripts/check-pr-title.sh rejects any pull
+request whose title release-please cannot parse, as the required
+`PR title is a Conventional Commit` context (40 contexts, protection
+verified matching).
+
 ## 2026-08-12 — Polish pass: release verified, protection gated, nightly fuzz hardened
 
 Verified the v0.2.0 release end to end: binaries and console bundles on the

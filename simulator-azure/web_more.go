@@ -177,6 +177,63 @@ func registerWebMore(srv *sim.Server) {
 	registerAppServicePlanMore(srv)
 	registerWebGlobal(srv)
 	registerWebStaticSites(srv)
+	registerWebChildResources(srv)
+	registerWebConfigReferences(srv)
+	registerWebWorkflows(srv)
+}
+
+// webCleanupSiteResources removes every child record stored under a deleted
+// site or slot: deployment slots (a production-site delete removes its whole
+// subtree, as real Azure does), deployments, host-name bindings, source
+// controls, site extensions, sitecontainers, config sections, public
+// certificates, domain ownership identifiers, premier add-ons, push settings,
+// deployed workflow artifacts and the workflows they materialized. Without
+// this, a site recreated under the same name would inherit the deleted
+// site's children.
+func webCleanupSiteResources(resID string) {
+	ids := []string{resID}
+	slotPrefix := resID + "/slots/"
+	for _, s := range webSlots.Filter(func(row Site) bool { return strings.HasPrefix(row.ID, slotPrefix) }) {
+		ids = append(ids, s.ID)
+		webSlots.Delete(s.ID)
+	}
+	for _, id := range ids {
+		sub := id + "/"
+		for _, d := range webDeployments.Filter(func(d WebDeployment) bool { return strings.HasPrefix(d.ID, sub) }) {
+			webDeployments.Delete(d.ID)
+		}
+		for _, b := range webHostNameBindings.Filter(func(b WebHostNameBinding) bool { return strings.HasPrefix(b.ID, sub) }) {
+			webHostNameBindings.Delete(b.ID)
+		}
+		for _, sc := range webSourceControls.Filter(func(sc WebSourceControl) bool { return strings.HasPrefix(sc.ID, sub) }) {
+			webSourceControls.Delete(sc.ID)
+		}
+		for _, e := range webSiteExtensions.Filter(func(e WebSiteExtension) bool { return strings.HasPrefix(e.ID, sub) }) {
+			webSiteExtensions.Delete(e.ID)
+		}
+		for _, c := range azfSiteContainers.Filter(func(c SiteContainer) bool { return strings.HasPrefix(c.ID, sub) }) {
+			azfSiteContainers.Delete(c.ID)
+		}
+		for _, c := range webPublicCertificates.Filter(func(c WebPublicCertificate) bool { return strings.HasPrefix(c.ID, sub) }) {
+			webPublicCertificates.Delete(c.ID)
+		}
+		for _, d := range webDomainOwnershipIdentifiers.Filter(func(d WebDomainOwnershipIdentifier) bool { return strings.HasPrefix(d.ID, sub) }) {
+			webDomainOwnershipIdentifiers.Delete(d.ID)
+		}
+		for _, a := range webPremierAddOns.Filter(func(a WebPremierAddOn) bool { return strings.HasPrefix(a.ID, sub) }) {
+			webPremierAddOns.Delete(a.ID)
+		}
+		for _, p := range webPushSettings.Filter(func(p WebPushSettings) bool { return strings.HasPrefix(p.ID, sub) }) {
+			webPushSettings.Delete(p.ID)
+		}
+		webConfigExtras.Delete(id)
+		siteConfigStore.Delete(id)
+		webWorkflowFiles.Delete(id)
+		wfPrefix := id + webHostruntimeWorkflows + "/"
+		for _, wf := range logicWorkflows.Filter(func(wf LogicWorkflow) bool { return strings.HasPrefix(wf.ID, wfPrefix) }) {
+			webDeleteSiteWorkflow(wf.ID)
+		}
+	}
 }
 
 // webResourceID builds the canonical resource ID for the addressed site or

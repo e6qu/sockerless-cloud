@@ -315,6 +315,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		if sites.Delete(resourceID) {
 			stopAzureFunctionInstance(name)
 			cleanupSiteContainers(resourceID, name)
+			webCleanupSiteResources(resourceID)
 			// Clean up associated functions
 			funcs := functionConfigs.Filter(func(f FunctionEnvelope) bool {
 				return strings.HasPrefix(f.ID, resourceID+"/functions/")
@@ -687,7 +688,7 @@ func registerAzureFunctions(srv *sim.Server) {
 	})
 
 	registerSiteConfigHandlers(srv, armBase, sites)
-	registerSiteContainerHandlers(srv, armBase, sites)
+	registerSiteContainerHandlers(srv, armBase)
 	registerSiteVNetIntegration(srv, armBase, sites)
 }
 

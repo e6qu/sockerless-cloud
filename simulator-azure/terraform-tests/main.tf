@@ -640,6 +640,19 @@ resource "azurerm_linux_function_app" "az_fa" {
   site_config {}
 }
 
+# App Service public certificate — the Microsoft.Web/sites/publicCertificates
+# child resource. The provider PUTs the DER blob and reads the resource back
+# on every plan, so the sim must derive and round-trip the certificate's
+# SHA-1 thumbprint for the apply to stay idempotent. The blob is a
+# self-signed X.509 certificate in DER form, base64 encoded.
+resource "azurerm_app_service_public_certificate" "az_fa_pubcert" {
+  resource_group_name  = azurerm_resource_group.az_rg.name
+  app_service_name     = azurerm_linux_function_app.az_fa.name
+  certificate_name     = "tf-azrm-pubcert"
+  certificate_location = "CurrentUserMy"
+  blob                 = "MIIBODCB36ADAgECAgEBMAoGCCqGSM49BAMCMCUxIzAhBgNVBAMTGnNvY2tlcmxlc3Mtc2ltLXB1YmxpYy1jZXJ0MCAXDTI2MDEwMTAwMDAwMFoYDzIxMjYwMTAxMDAwMDAwWjAlMSMwIQYDVQQDExpzb2NrZXJsZXNzLXNpbS1wdWJsaWMtY2VydDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABIYJeLik0TOyqjYwfwDiqAkGzAbpepEjv4QKPOTTI7OH598l1LPkSwMNslhaMITB4V3UHtod+Y5SmGM1nJeCdZEwCgYIKoZIzj0EAwIDSAAwRQIhALwq3le+aDLA2FJZr4hYiJvJ1PNpq5PUlNdrn4t6XY9CAiBQKGsAY1MrTtkXxK0tuItu4cbF85xw7RQajq5/ubpXGg=="
+}
+
 # App Service regional VNet integration (the "swift" virtual network
 # connection) — the Microsoft.Web/sites/networkConfig/virtualNetwork endpoint
 # the azure-functions backend uses for cloud-dns service discovery. Regional
@@ -1193,6 +1206,10 @@ output "azrm_storage_share_directory_name" {
 
 output "azrm_function_app_id" {
   value = azurerm_linux_function_app.az_fa.id
+}
+
+output "azrm_public_certificate_thumbprint" {
+  value = azurerm_app_service_public_certificate.az_fa_pubcert.thumbprint
 }
 
 output "azrm_swift_subnet_id" {

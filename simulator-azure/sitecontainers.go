@@ -243,24 +243,26 @@ func cleanupSiteContainers(siteID, siteName string) {
 	}
 }
 
-func registerSiteContainerHandlers(srv *sim.Server, armBase string, sites sim.Store[Site]) {
+func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 	azfSiteContainers = sim.MakeStore[SiteContainer](srv.DB(), "azf_sitecontainers")
 
-	siteID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
-			sim.PathParam(r, "subscriptionId"),
-			sim.PathParam(r, "resourceGroupName"),
-			sim.PathParam(r, "siteName"))
+	// Every operation exists identically on a production site and on a
+	// deployment slot; the addressed level resolves through its own resource
+	// record (azfSites / webSlots) and its containers key under its own
+	// resource ID, so a slot's sitecontainers are never the production
+	// site's.
+	both := func(method, suffix string, h http.HandlerFunc) {
+		srv.HandleFunc(method+" "+armBase+"/sites/{siteName}"+suffix, h)
+		srv.HandleFunc(method+" "+armBase+"/sites/{siteName}/slots/{slot}"+suffix, h)
 	}
 	containerID := func(r *http.Request) string {
-		return siteID(r) + "/sitecontainers/" + sim.PathParam(r, "containerName")
+		return webResourceID(r) + "/sitecontainers/" + sim.PathParam(r, "containerName")
 	}
 
 	// PUT — create or update a sitecontainer. Real Azure returns 200 with
 	// the persisted resource.
-	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := sites.Get(siteID(r)); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "site %q not found", sim.PathParam(r, "siteName"))
+	both("PUT", "/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
+		if webMissing(w, r) {
 			return
 		}
 		name := sim.PathParam(r, "containerName")
@@ -287,7 +289,7 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string, sites sim.St
 		sc := SiteContainer{
 			ID:         id,
 			Name:       name,
-			Type:       "Microsoft.Web/sites/sitecontainers",
+			Type:       webChildType(r, "sitecontainers"),
 			Kind:       req.Kind,
 			Properties: req.Properties,
 		}
@@ -296,7 +298,7 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string, sites sim.St
 	})
 
 	// GET — read a single sitecontainer.
-	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
+	both("GET", "/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
 		sc, ok := azfSiteContainers.Get(containerID(r))
 		if !ok {
 			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -306,13 +308,12 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string, sites sim.St
 		sim.WriteJSON(w, http.StatusOK, sc)
 	})
 
-	// GET (collection) — list all sitecontainers on a site.
-	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/sitecontainers", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := sites.Get(siteID(r)); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "site %q not found", sim.PathParam(r, "siteName"))
+	// GET (collection) — list all sitecontainers on a site or slot.
+	both("GET", "/sitecontainers", func(w http.ResponseWriter, r *http.Request) {
+		if webMissing(w, r) {
 			return
 		}
-		list := siteContainersFor(siteID(r))
+		list := siteContainersFor(webResourceID(r))
 		if list == nil {
 			list = []SiteContainer{}
 		}
@@ -320,7 +321,7 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string, sites sim.St
 	})
 
 	// DELETE — remove a sitecontainer.
-	srv.HandleFunc("DELETE "+armBase+"/sites/{siteName}/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
+	both("DELETE", "/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
 		existed := azfSiteContainers.Delete(containerID(r))
 		if !existed {
 			w.WriteHeader(http.StatusNoContent)

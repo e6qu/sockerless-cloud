@@ -237,6 +237,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 
 	srv.HandleFunc("DELETE "+base+"/slots/{slot}", func(w http.ResponseWriter, r *http.Request) {
 		if webSlots.Delete(webResourceID(r)) {
+			webCleanupSiteResources(webResourceID(r))
 			w.WriteHeader(http.StatusOK)
 			return
 		}

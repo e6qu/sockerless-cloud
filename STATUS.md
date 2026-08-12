@@ -29,7 +29,7 @@ Current state of the sockerless-cloud repository.
   `Branch rebased on origin/main` jobs, and the nightly fuzz workflow (aws in
   three shards; `run-fuzz.sh` requalifies Go's fuzztime-boundary shutdown
   race and nothing else).
-- **Branch protection**: `main` requires the 38 contexts mirrored in
+- **Branch protection**: `main` requires the 40 contexts mirrored in
   `.github/required-status-checks.txt` (strict, linear history);
   `scripts/check-required-status-checks.sh` gates the manifest against the
   workflows in pre-commit and build-gates, and
@@ -37,9 +37,11 @@ Current state of the sockerless-cloud repository.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
-- **Measured floors**: IAM resource derivation 1,779 of 1,974 served
+- **Measured floors**: IAM resource derivation 1,784 of 1,974 served
   operations; `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
-  WAF rule-set catalog vendored).
+  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 238 of 692
+  (App Service Stage 1: child resources, site-scoped workflows, Key Vault
+  configuration references).
 
 ## Releases
 
