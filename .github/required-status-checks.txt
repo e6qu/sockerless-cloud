@@ -19,6 +19,7 @@
 
 At most one PR open
 Branch rebased on origin/main
+PR title is a Conventional Commit
 browser (simulator-aws)
 browser (simulator-azure)
 browser (simulator-gcp)

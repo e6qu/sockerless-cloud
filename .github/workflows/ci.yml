@@ -151,6 +151,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/check-single-open-pr.sh
 
+  # pr-title: the squash-merge commit's title is the pull request title, and
+  # release-please versions the repository by parsing main's history as
+  # Conventional Commits — a title it cannot parse makes the merged work ship
+  # in no release. The title arrives through env, never interpolated into the
+  # script, so a crafted title cannot inject shell.
+  pr-title:
+    name: PR title is a Conventional Commit
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: PR title parses as a Conventional Commit
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bash scripts/check-pr-title.sh "$PR_TITLE"
+
   # rebased-on-main: fail if the PR branch has fallen behind origin/main, so
   # every PR is tested (and merges) on top of the latest base.
   rebased-on-main:
