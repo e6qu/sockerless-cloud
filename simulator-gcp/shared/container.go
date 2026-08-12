@@ -653,17 +653,23 @@ func (s *lineCountingSink) delivered() map[string]int {
 }
 
 // lineSkippingSink drops the first skip[stream] lines of each stream and
-// forwards the rest. Used from the single-goroutine post-exit drain.
+// forwards the rest. The post-exit drain demuxes stdout and stderr in two
+// goroutines that share this sink, so the skip ledger takes a lock the same
+// way the counting sink's does.
 type lineSkippingSink struct {
+	mu   sync.Mutex
 	sink LogSink
 	skip map[string]int
 }
 
 func (s *lineSkippingSink) WriteLog(line LogLine) {
+	s.mu.Lock()
 	if s.skip[line.Stream] > 0 {
 		s.skip[line.Stream]--
+		s.mu.Unlock()
 		return
 	}
+	s.mu.Unlock()
 	s.sink.WriteLog(line)
 }
 
