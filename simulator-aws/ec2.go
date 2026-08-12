@@ -15,6 +15,7 @@ import (
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	dockerclient "github.com/moby/moby/client"
 )
 
 // EC2 types
@@ -4457,7 +4458,7 @@ func ebsRemoveDockerVolume(name string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = cli.VolumeRemove(ctx, name, false)
+	_, _ = cli.VolumeRemove(ctx, name, dockerclient.VolumeRemoveOptions{})
 }
 
 // ebsCopyDockerVolumes copies all content from srcVolume into dstVolume using a

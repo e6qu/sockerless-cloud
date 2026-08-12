@@ -12,12 +12,12 @@ func localImagePlatform(ctx context.Context, imageRef string) (string, error) {
 	if cli == nil {
 		return "", fmt.Errorf("docker client not initialized")
 	}
-	inspect, _, err := cli.ImageInspectWithRaw(ctx, imageRef)
+	inspect, err := cli.ImageInspect(ctx, imageRef)
 	if err != nil {
 		if pullErr := sim.PullImage(ctx, imageRef, ""); pullErr != nil {
 			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", imageRef, err, pullErr)
 		}
-		inspect, _, err = cli.ImageInspectWithRaw(ctx, imageRef)
+		inspect, err = cli.ImageInspect(ctx, imageRef)
 		if err != nil {
 			return "", fmt.Errorf("inspect pulled image %q platform: %w", imageRef, err)
 		}

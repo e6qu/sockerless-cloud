@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
+	"net/netip"
 	"os"
 	"sort"
 	"strconv"
@@ -14,13 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/docker/go-connections/nat"
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -127,17 +125,14 @@ var (
 func InitDocker(provider string, preserveWorkloads bool, stateDir string) *client.Client {
 	configureSimulatorIdentity(provider, stateDir)
 	dockerClientOnce.Do(func() {
-		dockerClient, dockerClientErr = client.NewClientWithOpts(
-			client.FromEnv,
-			client.WithAPIVersionNegotiation(),
-		)
+		dockerClient, dockerClientErr = client.New(client.FromEnv)
 		if dockerClientErr != nil {
 			return
 		}
 		// Verify connectivity
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, dockerClientErr = dockerClient.Ping(ctx)
+		_, dockerClientErr = dockerClient.Ping(ctx, client.PingOptions{})
 	})
 	if dockerClientErr != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: Docker/Podman not available: %v\n", dockerClientErr)
@@ -167,10 +162,11 @@ func ContainerPID(containerID string) (int, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	info, err := cli.ContainerInspect(ctx, containerID)
+	inspected, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return 0, err
 	}
+	info := inspected.Container
 	if info.State == nil || info.State.Pid <= 0 {
 		return 0, fmt.Errorf("container %s has no running PID", containerID)
 	}
@@ -198,52 +194,25 @@ func CleanupContainers() {
 			return true
 		}
 		timeout := 5
-		_ = dockerClient.ContainerStop(ctx, id, container.StopOptions{Timeout: &timeout})
-		_ = dockerClient.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+		_, _ = dockerClient.ContainerStop(ctx, id, client.ContainerStopOptions{Timeout: &timeout})
+		_, _ = dockerClient.ContainerRemove(ctx, id, client.ContainerRemoveOptions{Force: true})
 		return true
 	})
 
-	nets, err := dockerClient.NetworkList(ctx, network.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("label", "sockerless-sim-run="+simulatorRunID)),
+	nets, err := dockerClient.NetworkList(ctx, client.NetworkListOptions{
+		Filters: client.Filters{}.Add("label", "sockerless-sim-run="+simulatorRunID),
 	})
 	if err == nil {
-		for _, n := range nets {
-			_ = dockerClient.NetworkRemove(ctx, n.ID)
+		for _, n := range nets.Items {
+			_, _ = dockerClient.NetworkRemove(ctx, n.ID, client.NetworkRemoveOptions{})
 		}
 	}
 }
 
-// StartContainer pulls the image (if needed), creates and starts a container.
-// Returns a ContainerHandle immediately. Call handle.Wait() to block until exit.
-// Stdout/stderr are streamed to the LogSink.
-func StartContainer(cfg ContainerConfig, sink LogSink) *ContainerHandle {
-	resultCh := make(chan ProcessResult, 1)
-
-	cli := DockerClient()
-	if cli == nil {
-		resultCh <- ProcessResult{
-			ExitCode:  -1,
-			StartedAt: time.Now(),
-			StoppedAt: time.Now(),
-			Error:     fmt.Errorf("docker client not initialized"),
-		}
-		return &ContainerHandle{cancel: func() {}, done: resultCh, cli: cli}
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go func() {
-		result := runContainer(ctx, cli, cfg, sink)
-		resultCh <- result
-	}()
-
-	// Wait briefly for the container to start so we can capture the ID
-	// The ContainerHandle is returned immediately; the goroutine runs in background
-	return &ContainerHandle{cancel: cancel, done: resultCh, cli: cli}
-}
-
-// StartContainerSync is like StartContainer but returns the handle with ContainerID populated.
+// StartContainerSync pulls the image (if needed), creates and starts a
+// container, returning the handle with ContainerID populated.
 // Blocks until the container is created and started (but not until it exits).
+// Stdout/stderr are streamed to the LogSink; call handle.Wait() to block until exit.
 func StartContainerSync(cfg ContainerConfig, sink LogSink) (*ContainerHandle, error) {
 	cli := DockerClient()
 	if cli == nil {
@@ -268,7 +237,7 @@ func StartContainerSync(cfg ContainerConfig, sink LogSink) (*ContainerHandle, er
 		// Remove container after exit
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer rmCancel()
-		_ = cli.ContainerRemove(rmCtx, containerID, container.RemoveOptions{Force: true})
+		_, _ = cli.ContainerRemove(rmCtx, containerID, client.ContainerRemoveOptions{Force: true})
 		resultCh <- result
 	}()
 
@@ -298,7 +267,7 @@ func FindExistingContainers(labels map[string]string) ([]ExistingContainer, erro
 	if dockerClient == nil {
 		return nil, fmt.Errorf("docker client not initialized")
 	}
-	labelFilters := filters.NewArgs()
+	labelFilters := client.Filters{}
 	if simulatorStateID != "" {
 		labelFilters.Add("label", "sockerless-sim-state="+simulatorStateID)
 	}
@@ -311,19 +280,20 @@ func FindExistingContainers(labels map[string]string) ([]ExistingContainer, erro
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	summaries, err := dockerClient.ContainerList(ctx, container.ListOptions{
+	summaries, err := dockerClient.ContainerList(ctx, client.ContainerListOptions{
 		All:     true,
 		Filters: labelFilters,
 	})
 	if err != nil {
 		return nil, err
 	}
-	found := make([]ExistingContainer, 0, len(summaries))
-	for _, summary := range summaries {
-		inspection, err := dockerClient.ContainerInspect(ctx, summary.ID)
+	found := make([]ExistingContainer, 0, len(summaries.Items))
+	for _, summary := range summaries.Items {
+		inspected, err := dockerClient.ContainerInspect(ctx, summary.ID, client.ContainerInspectOptions{})
 		if err != nil {
 			return nil, err
 		}
+		inspection := inspected.Container
 		entry := ExistingContainer{
 			ID:             summary.ID,
 			Running:        inspection.State != nil && inspection.State.Running,
@@ -342,7 +312,7 @@ func FindExistingContainers(labels map[string]string) ([]ExistingContainer, erro
 				}
 				publicPort, err := strconv.Atoi(bindings[0].HostPort)
 				if err == nil {
-					entry.PublishedPorts[containerPort.Int()] = publicPort
+					entry.PublishedPorts[int(containerPort.Num())] = publicPort
 				}
 			}
 		}
@@ -367,8 +337,9 @@ func RemoveExistingContainer(containerID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	timeout := 5
-	_ = dockerClient.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout})
-	return dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+	_, _ = dockerClient.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout})
+	_, err := dockerClient.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true})
+	return err
 }
 
 // StartExistingContainer resumes an exited persistent workload container
@@ -380,7 +351,8 @@ func StartExistingContainer(containerID string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return dockerClient.ContainerStart(ctx, containerID, container.StartOptions{})
+	_, err := dockerClient.ContainerStart(ctx, containerID, client.ContainerStartOptions{})
+	return err
 }
 
 // AdoptContainer attaches lifecycle observation to a container created by an
@@ -398,7 +370,7 @@ func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*Con
 		managedContainers.Delete(containerID)
 		removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer removeCancel()
-		_ = dockerClient.ContainerRemove(removeCtx, containerID, container.RemoveOptions{Force: true})
+		_, _ = dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true})
 		resultCh <- result
 	}()
 	return &ContainerHandle{
@@ -417,7 +389,7 @@ func StopContainer(containerID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	timeout := 1
-	_ = dockerClient.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout})
+	_, _ = dockerClient.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout})
 }
 
 // WaitContainerRemoved waits until the runtime no longer owns containerID.
@@ -431,7 +403,7 @@ func WaitContainerRemoved(containerID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, err := dockerClient.ContainerInspect(ctx, containerID)
+		_, err := dockerClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 		cancel()
 		if containerNotFoundError(err) {
 			return nil
@@ -441,7 +413,7 @@ func WaitContainerRemoved(containerID string, timeout time.Duration) error {
 		}
 		if !time.Now().Before(deadline) {
 			removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			removeErr := dockerClient.ContainerRemove(removeCtx, containerID, container.RemoveOptions{Force: true})
+			_, removeErr := dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true})
 			removeCancel()
 			if removeErr == nil || containerNotFoundError(removeErr) {
 				return nil
@@ -459,7 +431,7 @@ func containerNotFoundError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if client.IsErrNotFound(err) {
+	if cerrdefs.IsNotFound(err) {
 		return true
 	}
 	message := strings.ToLower(err.Error())
@@ -476,30 +448,8 @@ func RemoveVolume(name string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return dockerClient.VolumeRemove(ctx, name, true)
-}
-
-func runContainer(ctx context.Context, cli *client.Client, cfg ContainerConfig, sink LogSink) ProcessResult {
-	containerID, err := createAndStartContainer(ctx, cli, cfg)
-	if err != nil {
-		return ProcessResult{
-			ExitCode:  -1,
-			StartedAt: time.Now(),
-			StoppedAt: time.Now(),
-			Error:     err,
-		}
-	}
-
-	managedContainers.Store(containerID, true)
-	defer func() {
-		managedContainers.Delete(containerID)
-		// Remove container after exit
-		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer rmCancel()
-		_ = cli.ContainerRemove(rmCtx, containerID, container.RemoveOptions{Force: true})
-	}()
-
-	return waitAndCaptureLogs(ctx, cli, containerID, cfg, sink)
+	_, err := dockerClient.VolumeRemove(ctx, name, client.VolumeRemoveOptions{Force: true})
+	return err
 }
 
 // drainImagePull consumes a docker image-pull response stream and
@@ -537,10 +487,18 @@ func drainImagePull(reader io.Reader, imageName string) error {
 // exponential backoff per the strict rate-limit rule; everything
 // non-transient fails immediately.
 func pullImage(ctx context.Context, cli *client.Client, imageName, platform string) error {
+	pullOpts := client.ImagePullOptions{}
+	if platform != "" {
+		parsed, err := parsePlatform(platform)
+		if err != nil {
+			return err
+		}
+		pullOpts.Platforms = []ocispec.Platform{*parsed}
+	}
 	backoff := 2 * time.Second
 	const maxAttempts = 5
 	for attempt := 1; ; attempt++ {
-		reader, err := cli.ImagePull(ctx, imageName, image.PullOptions{Platform: platform})
+		reader, err := cli.ImagePull(ctx, imageName, pullOpts)
 		var pullErr error
 		if err != nil {
 			pullErr = fmt.Errorf("image pull %s: %w", imageName, err)
@@ -595,7 +553,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 
 	shouldPull := pullPolicy == "always"
 	if pullPolicy == "if-not-present" {
-		_, _, err := cli.ImageInspectWithRaw(ctx, cfg.Image)
+		_, err := cli.ImageInspect(ctx, cfg.Image)
 		if err != nil {
 			shouldPull = true
 		}
@@ -612,7 +570,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	// a locally-built image inspects fine yet create reports "no such image".
 	// The image ID is unambiguous on both Docker and Podman, so create by ID.
 	imageRef := cfg.Image
-	if inspect, _, err := cli.ImageInspectWithRaw(ctx, cfg.Image); err == nil && inspect.ID != "" {
+	if inspect, err := cli.ImageInspect(ctx, cfg.Image); err == nil && inspect.ID != "" {
 		imageRef = inspect.ID
 	}
 
@@ -637,7 +595,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		WorkingDir:  cfg.WorkingDir,
 	}
 	if len(cfg.PublishPorts) > 0 {
-		containerCfg.ExposedPorts = nat.PortSet{}
+		containerCfg.ExposedPorts = network.PortSet{}
 	}
 
 	// Set entrypoint and command separately
@@ -651,7 +609,13 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	hostCfg := &container.HostConfig{
 		Binds:      cfg.Binds,
 		ExtraHosts: cfg.ExtraHosts,
-		DNS:        cfg.DNS,
+	}
+	for _, resolver := range cfg.DNS {
+		addr, err := netip.ParseAddr(resolver)
+		if err != nil {
+			return "", fmt.Errorf("dns resolver %q: %w", resolver, err)
+		}
+		hostCfg.DNS = append(hostCfg.DNS, addr)
 	}
 	// Apply the advertised resource limits to the container's cgroup so the
 	// workload is actually bounded the way the cloud product reports (e.g. a
@@ -667,19 +631,19 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		hostCfg.NetworkMode = container.NetworkMode(cfg.NetworkMode)
 	}
 	for containerPort, hostPort := range cfg.PublishPorts {
-		port, err := nat.NewPort("tcp", strconv.Itoa(containerPort))
+		port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
 		if err != nil {
 			return "", fmt.Errorf("publish port %d: %w", containerPort, err)
 		}
 		containerCfg.ExposedPorts[port] = struct{}{}
 		if hostCfg.PortBindings == nil {
-			hostCfg.PortBindings = nat.PortMap{}
+			hostCfg.PortBindings = network.PortMap{}
 		}
 		publicPort := ""
 		if hostPort > 0 {
 			publicPort = strconv.Itoa(hostPort)
 		}
-		hostCfg.PortBindings[port] = []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: publicPort}}
+		hostCfg.PortBindings[port] = []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: publicPort}}
 	}
 
 	// Enforce sandbox parity with the real cloud platform. Empty profile
@@ -695,7 +659,11 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		if cfg.IPAddress != "" {
 			// Pin the container to its VPC ENI IP so DescribeTasks's
 			// privateIPv4Address is the container's real, routable address.
-			endpoint.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: cfg.IPAddress}
+			eniIP, err := netip.ParseAddr(cfg.IPAddress)
+			if err != nil {
+				return "", fmt.Errorf("vpc eni ip %q: %w", cfg.IPAddress, err)
+			}
+			endpoint.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: eniIP}
 		}
 		networkCfg = &network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{
@@ -708,14 +676,20 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	if err != nil {
 		return "", err
 	}
-	resp, err := cli.ContainerCreate(ctx, containerCfg, hostCfg, networkCfg, platform, cfg.Name)
+	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:           containerCfg,
+		HostConfig:       hostCfg,
+		NetworkingConfig: networkCfg,
+		Platform:         platform,
+		Name:             cfg.Name,
+	})
 	if err != nil {
 		return "", fmt.Errorf("container create: %w", err)
 	}
 
-	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		// Cleanup on start failure
-		_ = cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		_, _ = cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
 		if hint := MissingNetfilterTableHint(err); hint != "" {
 			return "", fmt.Errorf("container start: %w (%s)", err, hint)
 		}
@@ -759,7 +733,7 @@ func waitAndCaptureLogs(ctx context.Context, cli *client.Client, containerID str
 	killCancelledContainer := func() {
 		killCtx, killCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer killCancel()
-		_ = cli.ContainerKill(killCtx, containerID, "KILL")
+		_, _ = cli.ContainerKill(killCtx, containerID, client.ContainerKillOptions{Signal: "KILL"})
 	}
 
 	// Stream logs live while the workload runs — the awslogs driver forwards
@@ -786,14 +760,15 @@ func waitAndCaptureLogs(ctx context.Context, cli *client.Client, containerID str
 				timeout := 5
 				stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer stopCancel()
-				_ = cli.ContainerStop(stopCtx, containerID, container.StopOptions{Timeout: &timeout})
+				_, _ = cli.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{Timeout: &timeout})
 			}
 		}()
 	}
 
 	// Wait for container to exit.
 	var result ProcessResult
-	statusCh, errCh := cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	wait := cli.ContainerWait(ctx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	statusCh, errCh := wait.Result, wait.Error
 	select {
 	case err := <-errCh:
 		if err != nil {
@@ -896,7 +871,7 @@ func (s *lineSkippingSink) WriteLog(line LogLine) {
 // they are produced; it returns when the container exits (Docker closes the
 // follow stream) or ctx is cancelled.
 func followContainerLogs(ctx context.Context, cli *client.Client, containerID string, sink LogSink) {
-	reader, err := cli.ContainerLogs(ctx, containerID, container.LogsOptions{
+	reader, err := cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
@@ -914,7 +889,7 @@ func followContainerLogs(ctx context.Context, cli *client.Client, containerID st
 // the container has exited; Docker keeps the log buffer around until
 // the container is removed.
 func drainContainerLogs(ctx context.Context, cli *client.Client, containerID string, sink LogSink) {
-	reader, err := cli.ContainerLogs(ctx, containerID, container.LogsOptions{
+	reader, err := cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     false,
@@ -1013,10 +988,10 @@ func EnsureDockerNetwork(name string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	// Idempotent: return existing network if present.
-	if existing, err := cli.NetworkInspect(ctx, name, network.InspectOptions{}); err == nil {
-		return existing.ID, nil
+	if existing, err := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); err == nil {
+		return existing.Network.ID, nil
 	}
-	resp, err := cli.NetworkCreate(ctx, name, network.CreateOptions{
+	resp, err := cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
 		Driver: "bridge",
 		Labels: simulatorLabels(nil),
 	})
@@ -1042,14 +1017,18 @@ func EnsureVPCNetwork(name, cidr string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if existing, err := cli.NetworkInspect(ctx, name, network.InspectOptions{}); err == nil {
-		return existing.ID, nil
+	if existing, err := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); err == nil {
+		return existing.Network.ID, nil
+	}
+	subnet, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return "", fmt.Errorf("vpc network create %s (%s): %w", name, cidr, err)
 	}
 	create := func() (string, error) {
-		resp, err := cli.NetworkCreate(ctx, name, network.CreateOptions{
+		resp, err := cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
 			Driver: "bridge",
 			IPAM: &network.IPAM{
-				Config: []network.IPAMConfig{{Subnet: cidr}},
+				Config: []network.IPAMConfig{{Subnet: subnet}},
 			},
 			Labels: simulatorLabels(map[string]string{"sockerless-sim-vpc": name}),
 		})
@@ -1089,24 +1068,24 @@ func EnsureVPCNetwork(name, cidr string) (string, error) {
 // sharing a CIDR still conflict; that is a separate problem, and silently
 // deleting a peer's network would not solve it.
 func reclaimOrphanedSubnet(ctx context.Context, cli *client.Client, cidr string) bool {
-	nets, err := cli.NetworkList(ctx, network.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("label", "sockerless-sim=true")),
+	nets, err := cli.NetworkList(ctx, client.NetworkListOptions{
+		Filters: client.Filters{}.Add("label", "sockerless-sim=true"),
 	})
 	if err != nil {
 		return false
 	}
 	reclaimed := false
-	for _, n := range nets {
+	for _, n := range nets.Items {
 		if n.Labels["sockerless-sim-run"] == simulatorRunID {
 			continue
 		}
-		details, err := cli.NetworkInspect(ctx, n.ID, network.InspectOptions{})
-		if err != nil || len(details.Containers) > 0 {
+		details, err := cli.NetworkInspect(ctx, n.ID, client.NetworkInspectOptions{})
+		if err != nil || len(details.Network.Containers) > 0 {
 			continue
 		}
 		holds := false
-		for _, cfg := range details.IPAM.Config {
-			if cfg.Subnet == cidr {
+		for _, cfg := range details.Network.IPAM.Config {
+			if cfg.Subnet.String() == cidr {
 				holds = true
 				break
 			}
@@ -1114,7 +1093,7 @@ func reclaimOrphanedSubnet(ctx context.Context, cli *client.Client, cidr string)
 		if !holds {
 			continue
 		}
-		if cli.NetworkRemove(ctx, n.ID) == nil {
+		if _, err := cli.NetworkRemove(ctx, n.ID, client.NetworkRemoveOptions{}); err == nil {
 			reclaimed = true
 		}
 	}
@@ -1133,12 +1112,12 @@ func RemoveDockerNetwork(name string) error {
 	var lastErr error
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, inspectErr := cli.NetworkInspect(ctx, name, network.InspectOptions{})
+		_, inspectErr := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
 		if inspectErr != nil {
 			cancel()
 			return nil // already gone
 		}
-		lastErr = cli.NetworkRemove(ctx, name)
+		_, lastErr = cli.NetworkRemove(ctx, name, client.NetworkRemoveOptions{})
 		cancel()
 		if lastErr == nil {
 			return nil
@@ -1160,9 +1139,13 @@ func ConnectContainerToNetwork(containerName, networkName string, aliases []stri
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return cli.NetworkConnect(ctx, networkName, containerName, &network.EndpointSettings{
-		Aliases: aliases,
+	_, err := cli.NetworkConnect(ctx, networkName, client.NetworkConnectOptions{
+		Container: containerName,
+		EndpointConfig: &network.EndpointSettings{
+			Aliases: aliases,
+		},
 	})
+	return err
 }
 
 // DisconnectContainerFromNetwork removes a running container from a
@@ -1174,7 +1157,8 @@ func DisconnectContainerFromNetwork(containerName, networkName string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return cli.NetworkDisconnect(ctx, networkName, containerName, true)
+	_, err := cli.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: containerName, Force: true})
+	return err
 }
 
 // DisconnectContainerNetworks detaches a running container from every Docker
@@ -1187,12 +1171,12 @@ func DisconnectContainerNetworks(containerID string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	info, err := cli.ContainerInspect(ctx, containerID)
+	inspected, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return err
 	}
-	for networkName := range info.NetworkSettings.Networks {
-		if err := cli.NetworkDisconnect(ctx, networkName, containerID, true); err != nil {
+	for networkName := range inspected.Container.NetworkSettings.Networks {
+		if _, err := cli.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: containerID, Force: true}); err != nil {
 			return err
 		}
 	}
@@ -1215,10 +1199,11 @@ func SyncContainerHostEntries(containerName, marker string, entries []HostEntry)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	info, err := cli.ContainerInspect(ctx, containerName)
+	inspected, err := cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 	if err != nil {
 		return err
 	}
+	info := inspected.Container
 	if info.HostsPath == "" {
 		return fmt.Errorf("container %s has no hosts path", containerName)
 	}
@@ -1259,7 +1244,7 @@ func RuntimeInfo() string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	info, err := dockerClient.ServerVersion(ctx)
+	info, err := dockerClient.ServerVersion(ctx, client.ServerVersionOptions{})
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
@@ -1289,19 +1274,19 @@ func DefaultContainerNetworkGatewayIPv4() (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	info, err := dockerClient.NetworkInspect(ctx, networkName, network.InspectOptions{})
+	info, err := dockerClient.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{})
 	if err != nil {
 		return "", fmt.Errorf("inspect default container network %s: %w", networkName, err)
 	}
-	if info.IPAM.Config == nil {
+	if info.Network.IPAM.Config == nil {
 		return "", fmt.Errorf("default container network %s has no IPAM configuration", networkName)
 	}
-	for _, config := range info.IPAM.Config {
-		ip := net.ParseIP(strings.TrimSpace(config.Gateway))
-		if ip == nil || ip.To4() == nil {
+	for _, config := range info.Network.IPAM.Config {
+		gateway := config.Gateway.Unmap()
+		if !gateway.Is4() {
 			continue
 		}
-		return ip.To4().String(), nil
+		return gateway.String(), nil
 	}
 	return "", fmt.Errorf("default container network %s has no IPv4 gateway", networkName)
 }

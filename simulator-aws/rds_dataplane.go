@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	dockercontainer "github.com/docker/docker/api/types/container"
 	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	dockerclient "github.com/moby/moby/client"
 )
 
 const rdsAWSOwnedKMSKeyID = "aws-owned-rds"
@@ -557,19 +557,19 @@ func rdsRotateBackendMasterPassword(runtime *rdsDataPlaneRuntime, newPassword st
 	}
 	execContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	created, err := sim.DockerClient().ContainerExecCreate(execContext, handle.ContainerID, dockercontainer.ExecOptions{
+	created, err := sim.DockerClient().ExecCreate(execContext, handle.ContainerID, dockerclient.ExecCreateOptions{
 		Cmd: command, AttachStdout: true, AttachStderr: true,
 	})
 	if err != nil {
 		return fmt.Errorf("create database password rotation command: %w", err)
 	}
-	attached, err := sim.DockerClient().ContainerExecAttach(execContext, created.ID, dockercontainer.ExecAttachOptions{})
+	attached, err := sim.DockerClient().ExecAttach(execContext, created.ID, dockerclient.ExecAttachOptions{})
 	if err != nil {
 		return fmt.Errorf("attach database password rotation command: %w", err)
 	}
 	_, _ = io.Copy(io.Discard, attached.Reader)
 	attached.Close()
-	inspected, err := sim.DockerClient().ContainerExecInspect(execContext, created.ID)
+	inspected, err := sim.DockerClient().ExecInspect(execContext, created.ID, dockerclient.ExecInspectOptions{})
 	if err != nil {
 		return fmt.Errorf("inspect database password rotation command: %w", err)
 	}

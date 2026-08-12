@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	dockerimage "github.com/docker/docker/api/types/image"
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	dockerclient "github.com/moby/moby/client"
 )
 
 // Cloud Functions v2 types
@@ -879,9 +879,9 @@ func localImagePlatform(ctx context.Context, image string) (string, error) {
 	if cli == nil {
 		return "", fmt.Errorf("docker client not initialized")
 	}
-	inspect, _, err := cli.ImageInspectWithRaw(ctx, image)
+	inspect, err := cli.ImageInspect(ctx, image)
 	if err != nil {
-		rc, pullErr := cli.ImagePull(ctx, image, dockerimage.PullOptions{})
+		rc, pullErr := cli.ImagePull(ctx, image, dockerclient.ImagePullOptions{})
 		if pullErr != nil {
 			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", image, err, pullErr)
 		}
@@ -892,7 +892,7 @@ func localImagePlatform(ctx context.Context, image string) (string, error) {
 		if closeErr := rc.Close(); closeErr != nil {
 			return "", fmt.Errorf("close image pull stream %q: %w", image, closeErr)
 		}
-		inspect, _, err = cli.ImageInspectWithRaw(ctx, image)
+		inspect, err = cli.ImageInspect(ctx, image)
 		if err != nil {
 			return "", fmt.Errorf("inspect pulled image %q platform: %w", image, err)
 		}
