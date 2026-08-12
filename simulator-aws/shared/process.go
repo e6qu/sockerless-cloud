@@ -40,21 +40,13 @@ type ProcessResult struct {
 	Error     error // non-nil if process failed to start
 }
 
-// ProcessHandle allows waiting on or cancellation of a running process.
+// ProcessHandle allows waiting on a running process.
 type ProcessHandle struct {
-	cancel context.CancelFunc
-	done   <-chan ProcessResult
-	pid    int // OS process ID (0 if failed to start)
+	done <-chan ProcessResult
 }
-
-// Pid returns the OS process ID.
-func (h *ProcessHandle) Pid() int { return h.pid }
 
 // Wait blocks until the process completes.
 func (h *ProcessHandle) Wait() ProcessResult { return <-h.done }
-
-// Cancel kills the process.
-func (h *ProcessHandle) Cancel() { h.cancel() }
 
 // NoopSink discards all log output.
 type NoopSink struct{}
@@ -65,25 +57,6 @@ func (NoopSink) WriteLog(LogLine) {}
 type FuncSink func(LogLine)
 
 func (f FuncSink) WriteLog(line LogLine) { f(line) }
-
-// StartTrackedProcess launches a process and tracks its PID for recovery.
-// The tracker may be nil (no persistence), in which case this is equivalent to StartProcess.
-func StartTrackedProcess(id string, cfg ProcessConfig, sink LogSink, tracker *ProcessTracker) *ProcessHandle {
-	h := StartProcess(cfg, sink)
-	if tracker != nil && h.pid > 0 {
-		tracker.Track(id, h.pid)
-		// Untrack when process completes
-		origDone := h.done
-		wrappedDone := make(chan ProcessResult, 1)
-		go func() {
-			result := <-origDone
-			tracker.Untrack(id)
-			wrappedDone <- result
-		}()
-		h.done = wrappedDone
-	}
-	return h
-}
 
 // StartProcess launches a command and streams output to the sink.
 // Returns a handle for waiting/cancellation. Non-blocking.
@@ -132,7 +105,7 @@ func StartProcess(cfg ProcessConfig, sink LogSink) *ProcessHandle {
 			StoppedAt: time.Now(),
 			Error:     fmt.Errorf("create process pipes: %w", err),
 		}
-		return &ProcessHandle{cancel: func() {}, done: resultCh}
+		return &ProcessHandle{done: resultCh}
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -143,7 +116,7 @@ func StartProcess(cfg ProcessConfig, sink LogSink) *ProcessHandle {
 			StoppedAt: time.Now(),
 			Error:     err,
 		}
-		return &ProcessHandle{cancel: func() {}, done: resultCh}
+		return &ProcessHandle{done: resultCh}
 	}
 
 	// Scan stdout and stderr in separate goroutines
@@ -191,5 +164,5 @@ func StartProcess(cfg ProcessConfig, sink LogSink) *ProcessHandle {
 		}
 	}()
 
-	return &ProcessHandle{cancel: cancel, done: resultCh, pid: cmd.Process.Pid}
+	return &ProcessHandle{done: resultCh}
 }

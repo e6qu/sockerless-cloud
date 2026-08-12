@@ -1,7 +1,6 @@
 package simulator
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -84,13 +83,4 @@ func isAlive(pid int) bool {
 	}
 	err = proc.Signal(syscall.Signal(0))
 	return err == nil
-}
-
-// KillProcess sends SIGTERM to a tracked process.
-func KillProcess(pid int) error {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("find process %d: %w", pid, err)
-	}
-	return proc.Signal(syscall.SIGTERM)
 }

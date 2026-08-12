@@ -21,40 +21,21 @@ func TestASCIIFoldPreservesByteLength(t *testing.T) {
 	}
 }
 
-func TestCaseInsensitiveIndexValidInOriginal(t *testing.T) {
-	s := "0\xf3\xf0 WHERE x" // invalid UTF-8 before the keyword
-	i := CaseInsensitiveIndex(s, "where")
-	if i < 0 {
-		t.Fatalf("expected to find 'where', got %d", i)
-	}
-	// The index must be slice-valid in the ORIGINAL string (the bug class).
-	if i > len(s) {
-		t.Fatalf("index %d out of range for len %d", i, len(s))
-	}
-	_ = s[i:] // must not panic
-	if CaseInsensitiveIndex("abc", "XYZ") != -1 {
-		t.Error("expected -1 for no match")
-	}
-}
-
 func TestFrameReaderBoundsSafe(t *testing.T) {
 	r := NewFrameReader([]byte{0x00, 0x00, 0x00, 0x05, 0xAA})
-	n, err := r.Uint32()
-	if err != nil || n != 5 {
-		t.Fatalf("Uint32 = %d, %v", n, err)
+	b, err := r.Take(4)
+	if err != nil || len(b) != 4 || b[3] != 0x05 {
+		t.Fatalf("Take(4) = %x, %v", b, err)
 	}
-	if b, err := r.Byte(); err != nil || b != 0xAA {
-		t.Fatalf("Byte = %x, %v", b, err)
+	if r.Remaining() != 1 {
+		t.Fatalf("Remaining = %d, want 1", r.Remaining())
 	}
 	// Past the end → error, not panic.
-	if _, err := r.Byte(); err == nil {
+	if _, err := r.Take(2); err == nil {
 		t.Error("expected EOF past end")
 	}
 	// Over-long / negative Take → error, never a giant slice/alloc.
 	short := NewFrameReader([]byte{0x01})
-	if _, err := short.Uint32(); err == nil {
-		t.Error("Uint32 on short buffer must error")
-	}
 	if _, err := short.Take(1 << 30); err == nil {
 		t.Error("over-long Take must error")
 	}

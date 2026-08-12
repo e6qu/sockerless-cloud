@@ -79,25 +79,6 @@ func TestStartProcess_Timeout(t *testing.T) {
 	}
 }
 
-func TestStartProcess_Cancel(t *testing.T) {
-	sink := &collectSink{}
-	h := StartProcess(ProcessConfig{
-		Command: []string{"sleep", "10"},
-	}, sink)
-
-	start := time.Now()
-	h.Cancel()
-	result := h.Wait()
-	elapsed := time.Since(start)
-
-	if elapsed > 2*time.Second {
-		t.Fatalf("cancel did not kill process in time: elapsed %v", elapsed)
-	}
-	if result.ExitCode == 0 {
-		t.Fatal("expected non-zero exit code after cancel")
-	}
-}
-
 func TestStartProcess_Env(t *testing.T) {
 	sink := &collectSink{}
 	h := StartProcess(ProcessConfig{
