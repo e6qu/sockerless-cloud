@@ -12,6 +12,19 @@ case "$arch" in
     ;;
 esac
 
+# The binaries live inside the Firecracker CI cache the workflow already
+# restores, so a cache hit installs without any network. One GitHub releases
+# CDN incident failed every Firecracker-dependent job at this download in the
+# same evening — twice, once straight through the bounded retries — and the
+# binaries are immutable per version, which is exactly what a cache is for.
+cache_dir="${FIRECRACKER_BIN_CACHE:-$HOME/.cache/sockerless/firecracker-ci}/bin-${version}-${arch}"
+if [ -x "$cache_dir/firecracker" ] && [ -x "$cache_dir/jailer" ]; then
+  sudo install -m 0755 "$cache_dir/firecracker" /usr/local/bin/firecracker
+  sudo install -m 0755 "$cache_dir/jailer" /usr/local/bin/jailer
+  firecracker --version
+  exit 0
+fi
+
 tmpdir="$(mktemp -d)"
 cleanup() {
   rm -rf "$tmpdir"
@@ -44,5 +57,11 @@ fi
 
 sudo install -m 0755 "$firecracker_bin" /usr/local/bin/firecracker
 sudo install -m 0755 "$jailer_bin" /usr/local/bin/jailer
+
+# Populate the cache so the dedicated Firecracker job's cache save carries the
+# binaries to every restore-only sibling job.
+mkdir -p "$cache_dir"
+install -m 0755 "$firecracker_bin" "$cache_dir/firecracker"
+install -m 0755 "$jailer_bin" "$cache_dir/jailer"
 
 firecracker --version
