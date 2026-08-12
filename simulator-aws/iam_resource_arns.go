@@ -411,6 +411,29 @@ func iamCloudMapResourceARNs(r *http.Request, types []string, region, account st
 		func(field string) []string { return fields[strings.ToLower(field)] }); len(arns) > 0 {
 		return arns
 	}
+	// GetOperation names only the operation's own id; which namespace or
+	// service the operation acted on is in the operation record, the
+	// simulator's own state, and the record's ARNs are the ones the resources
+	// were actually given.
+	if opID := iamFirstValue(func(f string) []string { return fields[strings.ToLower(f)] }, "OperationId"); opID != "" {
+		if op, ok := cmOperations.Get(opID); ok {
+			var out []string
+			if op.NamespaceId != "" {
+				if namespace, ok := cmNamespaces.Get(op.NamespaceId); ok && namespace.Arn != "" {
+					out = append(out, namespace.Arn)
+				}
+			}
+			if op.ServiceId != "" {
+				if service, ok := cmServices.Get(op.ServiceId); ok && service.Arn != "" {
+					out = append(out, service.Arn)
+				}
+			}
+			if len(out) > 0 {
+				sort.Strings(out)
+				return out
+			}
+		}
+	}
 	// The discovery operations address a namespace and a service by name, while
 	// their ARNs carry the identifiers AWS assigned. Neither can be assembled
 	// from the request, so both are read from the simulator's own state — the
@@ -508,6 +531,16 @@ func iamSQSResourceARNs(r *http.Request, types []string, region, account string)
 	}
 	if len(moved) > 0 {
 		return moved
+	}
+	// Cancelling a move names only the opaque handle its start returned; which
+	// queue the task drains is in the task record, the simulator's own state —
+	// the same resolution AWS Cloud Map uses for a name-addressed service —
+	// and the source queue is what the reference authorizes the cancel
+	// against.
+	if handle := first("TaskHandle"); handle != "" {
+		if task, ok := sqsMoveTasks.Get(handle); ok && strings.HasPrefix(task.SourceArn, "arn:") {
+			return []string{task.SourceArn}
+		}
 	}
 	name := first("QueueName")
 	if url := first("QueueUrl"); url != "" {
@@ -898,6 +931,21 @@ func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 // identifier, and an ARN needs no assembly, so it is taken as it stands.
 func iamCloudTrailResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
+	// The tagging operations name their target as ResourceId, and ListTags as
+	// ResourceIdList — each an ARN despite the name — and an ARN needs no
+	// assembly.
+	var tagged []string
+	for _, member := range []string{"resourceid", "resourceidlist"} {
+		for _, value := range fields[member] {
+			if strings.HasPrefix(value, "arn:") {
+				tagged = append(tagged, value)
+			}
+		}
+	}
+	if len(tagged) > 0 {
+		sort.Strings(tagged)
+		return tagged
+	}
 	return iamTableDrivenARNs("cloudtrail", types, region, account, iamCloudTrailFieldAliases,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
