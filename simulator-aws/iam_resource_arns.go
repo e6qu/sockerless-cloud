@@ -48,6 +48,8 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 		return []string{a}
 	}
 	switch service {
+	case "application-autoscaling":
+		return iamApplicationAutoScalingResourceARNs(r, types, region, account)
 	case "autoscaling":
 		return iamAutoScalingResourceARNs(r, types)
 	case "cloudtrail":
@@ -62,6 +64,8 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 		return iamElastiCacheResourceARNs(r, types, region, account)
 	case "events":
 		return iamEventBridgeResourceARNs(r, types, region, account)
+	case "firehose":
+		return iamFirehoseResourceARNs(r, types, region, account)
 	case "glue":
 		return iamGlueResourceARNs(r, types, region, account)
 	case "kms":
@@ -86,6 +90,8 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 		return iamKinesisResourceARNs(r, types, region, account)
 	case "states":
 		return iamStatesResourceARNs(r, types)
+	case "sts":
+		return iamSTSResourceARNs(r, types, account)
 	case "cloudwatch":
 		return iamCloudWatchResourceARNs(r, types, region, account)
 	case "elasticloadbalancing":
@@ -643,6 +649,43 @@ func iamStatesResourceARNs(r *http.Request, types []string) []string {
 	return out
 }
 
+// ===== AWS Security Token Service =====
+
+// iamSTSResourceARNs derives the ARNs an AWS Security Token Service request
+// names. STS is a global service whose resources are identities, so nothing
+// regional is assembled, and each of its three request shapes names its
+// resource differently. The assume-role family names the role by its full ARN,
+// which needs no assembly — an ARN-valued RoleArn is not a name to fill a
+// format with, so this is a hand-written read rather than a table-driven one.
+// AssumeRoot names the member account whose root user the call becomes, as the
+// bare twelve-digit account id the reference's "arn:aws:iam::${Account}:root"
+// format takes. GetFederationToken names the federated user the call mints,
+// whose ARN is the caller's own account plus the name the request supplies.
+func iamSTSResourceARNs(r *http.Request, types []string, account string) []string {
+	params := iamQueryRequestParameters(r)
+	first := func(field string) string {
+		return iamFirstValue(func(f string) []string { return params[strings.ToLower(f)] }, field)
+	}
+	if iamHasType(types, "role") {
+		if a := first("RoleArn"); strings.HasPrefix(a, "arn:") {
+			return []string{a}
+		}
+	}
+	if iamHasType(types, "root-user") {
+		// The same bare-twelve-digits shape AWS Organizations spells an account
+		// as; anything else is rejected by the service before authorization.
+		if target := first("TargetPrincipal"); iamOrganizationsAccountID.MatchString(target) {
+			return []string{"arn:aws:iam::" + target + ":root"}
+		}
+	}
+	if iamHasType(types, "federated-user") {
+		if name := first("Name"); name != "" {
+			return []string{"arn:aws:sts::" + account + ":federated-user/" + name}
+		}
+	}
+	return nil
+}
+
 // ===== Elastic Load Balancing =====
 
 // iamELBv2ResourceARNs derives the ARNs an Elastic Load Balancing request
@@ -784,6 +827,28 @@ var iamCloudWatchFieldAliases = map[string][]string{
 	"DatasetId":        {"DatasetIdentifier"},
 }
 
+// ===== Application Auto Scaling =====
+
+// iamApplicationAutoScalingResourceARNs derives the scalable-target ARNs an
+// Application Auto Scaling request names. The service declares one resource
+// type and publishes its ARN as "scalable-target/${ResourceId}" — ${ResourceId}
+// being the caller-chosen identifier like "service/default/web" that every
+// scaling operation sends under the member of the same name — so filling the
+// published format is all it takes. The tagging operations name the target by
+// its ARN instead — spelled ResourceARN — which needs no assembly; reading it
+// here by lower-cased key rather than by exact spelling keeps the derivation
+// independent of that, as Amazon ECR's does.
+func iamApplicationAutoScalingResourceARNs(r *http.Request, types []string, region, account string) []string {
+	fields := iamJSONRequestFields(r)
+	for _, value := range fields["resourcearn"] {
+		if strings.HasPrefix(value, "arn:") {
+			return []string{value}
+		}
+	}
+	return iamTableDrivenARNs("application-autoscaling", types, region, account, nil,
+		func(field string) []string { return fields[strings.ToLower(field)] })
+}
+
 // ===== Amazon EC2 Auto Scaling =====
 
 // iamAutoScalingResourceARNs derives the ARNs an Amazon EC2 Auto Scaling
@@ -857,7 +922,10 @@ var iamCloudTrailFieldAliases = map[string][]string{
 // "table/<name>/index/<index>" — and the table-driven derivation fills those
 // from the request. Four more are named by their own ARN rather than by a
 // table and a name: a backup, an export, an import and a stream, each under a
-// member of its own, which needs no assembly.
+// member of its own, which needs no assembly. The export and import family
+// names the table itself that way too — ExportTableToPointInTime, ListExports
+// and ListImports send TableArn where every other table operation sends
+// TableName — so that spelling is read alongside them.
 //
 // A transaction or a batch names no table at the top level at all: it carries
 // one per item. Those are read in iamResourceARNsForRequest instead, before the
@@ -865,8 +933,8 @@ var iamCloudTrailFieldAliases = map[string][]string{
 // TransactWriteItems nor TransactGetItems and so declares no type to drive them.
 func iamDynamoDBResourceARNs(r *http.Request, types []string, region, account string) []string {
 	// The operations that act on a backup, an export, an import or a stream
-	// name it by ARN outright.
-	for _, field := range []string{"BackupArn", "ExportArn", "ImportArn"} {
+	// name it by ARN outright, as the export and import family does the table.
+	for _, field := range []string{"BackupArn", "ExportArn", "ImportArn", "TableArn"} {
 		if a := iamJSONBodyField(r, field); strings.HasPrefix(a, "arn:") {
 			return []string{a}
 		}
@@ -1254,7 +1322,49 @@ func iamEventBridgeResourceARNs(r *http.Request, types []string, region, account
 		}
 		applicable = append(applicable, resourceType)
 	}
-	return iamTableDrivenARNs("events", applicable, region, account, nil, lookup)
+	return iamTableDrivenARNs("events", applicable, region, account, iamEventBridgeFieldAliases, lookup)
+}
+
+// iamEventBridgeFieldAliases maps an ARN format's identifier variable to the
+// request members Amazon EventBridge spells it as, where the two differ by more
+// than the mechanical prefix drop. The event-bus, event-source and
+// api-destination operations all address their resource simply as Name — a
+// spelling the drop cannot reach, since it removes only the leading word
+// (${EventBusName} drops to BusName) — and the rule-target operations address
+// the rule as Rule.
+//
+// Every Name entry is scoped to its resource type so it speaks only for the
+// actions that authorize against that type: CreateEventBus also carries an
+// EventSourceName, and an unscoped alias would let the event-source type claim
+// the bus's Name on any action declaring both. The connection's entry is the
+// ARN-valued member CreateApiDestination names its connection by — an ARN
+// needs no assembly and the table passes it through — which also keeps the
+// api-destination's claim on Name uncontested there.
+//
+// TestIAMEventBridgeFieldAliasesAreRealRequestMembers holds every entry to a
+// member the vendored model declares on an operation authorizing against that
+// resource type.
+var iamEventBridgeFieldAliases = map[string][]string{
+	"event-bus.EventBusName":             {"Name"},
+	"event-source.EventSourceName":       {"Name"},
+	"api-destination.ApiDestinationName": {"Name"},
+	"rule-on-default-event-bus.RuleName": {"Rule"},
+	"rule-on-custom-event-bus.RuleName":  {"Rule"},
+	"ConnectionName":                     {"ConnectionArn"},
+}
+
+// ===== Amazon Data Firehose =====
+
+// iamFirehoseResourceARNs derives the delivery-stream ARNs an Amazon Data
+// Firehose request names. The service declares one resource type, every
+// operation that authorizes against it addresses the stream as
+// DeliveryStreamName — creation included, where AWS authorizes against the ARN
+// the stream is about to have, exactly as Amazon SNS does for CreateTopic —
+// and the published format ends in that name, so filling it is all it takes.
+func iamFirehoseResourceARNs(r *http.Request, types []string, region, account string) []string {
+	fields := iamJSONRequestFields(r)
+	return iamTableDrivenARNs("firehose", types, region, account, nil,
+		func(field string) []string { return fields[strings.ToLower(field)] })
 }
 
 // ===== AWS Glue =====

@@ -896,12 +896,26 @@ func TestIAMResourceARNs_DynamoDBIndexNestsUnderItsTable(t *testing.T) {
 }
 
 // A backup, an export and an import are named by their own ARN rather than by
-// a table and a name, so the ARN is taken as it stands.
+// a table and a name, so the ARN is taken as it stands. The export and import
+// family names the table itself that way too — TableArn where every other
+// table operation sends TableName — a shape the coverage probe cannot express,
+// since it fills every member with one placeholder, so it is pinned here.
 func TestIAMResourceARNs_DynamoDBTakesTheARNTheRequestNames(t *testing.T) {
 	const backup = "arn:aws:dynamodb:us-east-1:123456789012:table/orders/backup/01700000000000-a1b2c3d4"
 	assertDerivedARNs(t,
 		iamDynamoDBRequest("DeleteBackup", `{"BackupArn":"`+backup+`"}`),
 		"dynamodb:DeleteBackup", backup)
+
+	const table = "arn:aws:dynamodb:us-east-1:123456789012:table/orders"
+	assertDerivedARNs(t,
+		iamDynamoDBRequest("ExportTableToPointInTime", `{"TableArn":"`+table+`","S3Bucket":"exports"}`),
+		"dynamodb:ExportTableToPointInTime", table)
+	assertDerivedARNs(t,
+		iamDynamoDBRequest("ListExports", `{"TableArn":"`+table+`"}`),
+		"dynamodb:ListExports", table)
+	assertDerivedARNs(t,
+		iamDynamoDBRequest("ListImports", `{"TableArn":"`+table+`"}`),
+		"dynamodb:ListImports", table)
 }
 
 // A transaction names its tables per item, and the AWS Service Reference lists
@@ -983,6 +997,75 @@ func TestIAMResourceARNs_EventBridgeResolvesTheAbbreviatedIdentifier(t *testing.
 	assertDerivedARNs(t,
 		iamEventBridgeRequest("DeleteConnection", `{"Name":"github"}`),
 		"events:DeleteConnection", "arn:aws:events:us-east-1:123456789012:connection/github")
+}
+
+// An event bus, an event source and an API destination are all addressed
+// simply as Name — a spelling the prefix drop cannot reach, so each is a
+// declared alias scoped to its resource type. An event source's ARN carries no
+// account, which filling the published format preserves.
+func TestIAMResourceARNs_EventBridgeResolvesTheNameEachTypeAbbreviatesTo(t *testing.T) {
+	const p = "arn:aws:events:us-east-1:123456789012:"
+	t.Run("an event bus is created and described by Name", func(t *testing.T) {
+		assertDerivedARNs(t, iamEventBridgeRequest("CreateEventBus", `{"Name":"orders"}`),
+			"events:CreateEventBus", p+"event-bus/orders")
+		assertDerivedARNs(t, iamEventBridgeRequest("DescribeEventBus", `{"Name":"orders"}`),
+			"events:DescribeEventBus", p+"event-bus/orders")
+	})
+	t.Run("a partner event source's ARN carries no account", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEventBridgeRequest("ActivateEventSource", `{"Name":"aws.partner/example.com/orders"}`),
+			"events:ActivateEventSource",
+			"arn:aws:events:us-east-1::event-source/aws.partner/example.com/orders")
+		assertDerivedARNs(t,
+			iamEventBridgeRequest("DescribePartnerEventSource", `{"Name":"aws.partner/example.com/orders"}`),
+			"events:DescribePartnerEventSource",
+			"arn:aws:events:us-east-1::event-source/aws.partner/example.com/orders")
+	})
+	t.Run("an API destination is deleted and updated by Name", func(t *testing.T) {
+		assertDerivedARNs(t, iamEventBridgeRequest("DeleteApiDestination", `{"Name":"webhook"}`),
+			"events:DeleteApiDestination", p+"api-destination/webhook")
+		assertDerivedARNs(t, iamEventBridgeRequest("UpdateApiDestination", `{"Name":"webhook"}`),
+			"events:UpdateApiDestination", p+"api-destination/webhook")
+	})
+}
+
+// CreateApiDestination authorizes against both the destination it creates and
+// the connection it references; the destination arrives as Name and the
+// connection by its own ARN, so both derive without contesting one member.
+// DescribeApiDestination declares both types too but names only the
+// destination, and the declared alias outranks the prefix drop that would have
+// read Name as the connection's — the call derives the resource it names and
+// invents nothing for the one it does not.
+func TestIAMResourceARNs_EventBridgeApiDestinationNamesItsConnectionByARN(t *testing.T) {
+	const p = "arn:aws:events:us-east-1:123456789012:"
+	const connection = p + "connection/github/1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+	assertDerivedARNs(t,
+		iamEventBridgeRequest("CreateApiDestination",
+			`{"Name":"webhook","ConnectionArn":"`+connection+`","InvocationEndpoint":"https://example.com","HttpMethod":"POST"}`),
+		"events:CreateApiDestination", p+"api-destination/webhook", connection)
+	assertDerivedARNs(t,
+		iamEventBridgeRequest("DescribeApiDestination", `{"Name":"webhook"}`),
+		"events:DescribeApiDestination", p+"api-destination/webhook")
+}
+
+// The rule-target operations address the rule as Rule rather than Name, and
+// the bus the request names steers which of the two published rule ARNs the
+// derivation fills, exactly as it does for the operations that send Name.
+func TestIAMResourceARNs_EventBridgeRuleTargetsAddressTheRuleAsRule(t *testing.T) {
+	const p = "arn:aws:events:us-east-1:123456789012:"
+	t.Run("no bus named is the flat default-bus ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEventBridgeRequest("PutTargets", `{"Rule":"nightly","Targets":[]}`),
+			"events:PutTargets", p+"rule/nightly")
+		assertDerivedARNs(t,
+			iamEventBridgeRequest("ListTargetsByRule", `{"Rule":"nightly"}`),
+			"events:ListTargetsByRule", p+"rule/nightly")
+	})
+	t.Run("a custom bus nests the rule under it", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEventBridgeRequest("RemoveTargets", `{"Rule":"nightly","EventBusName":"orders","Ids":["t1"]}`),
+			"events:RemoveTargets", p+"rule/orders/nightly")
+	})
 }
 
 // AWS Glue groups an identifier into a structure of its own rather than naming

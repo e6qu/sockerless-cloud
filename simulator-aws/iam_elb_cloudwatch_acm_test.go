@@ -169,6 +169,57 @@ func TestIAMResourceARNs_SecretsManagerTakesTheNameOrTheARN(t *testing.T) {
 		`{"Name":"db-password"}`), secret)
 }
 
+// A delivery stream is addressed by name on every operation, creation included
+// — AWS authorizes CreateDeliveryStream against the ARN the stream is about to
+// have, exactly as Amazon SNS does for CreateTopic — and the stream's ARN ends
+// in that name.
+func TestIAMResourceARNs_FirehoseFillsTheDeliveryStreamName(t *testing.T) {
+	const stream = "arn:aws:firehose:us-east-1:123456789012:deliverystream/clickstream"
+	iamAssertDerived(t, iamDeriveJSON("firehose", "PutRecord",
+		`{"DeliveryStreamName":"clickstream","Record":{"Data":"e30="}}`), stream)
+	iamAssertDerived(t, iamDeriveJSON("firehose", "CreateDeliveryStream",
+		`{"DeliveryStreamName":"clickstream","DeliveryStreamType":"DirectPut"}`), stream)
+	iamAssertDerived(t, iamDeriveJSON("firehose", "TagDeliveryStream",
+		`{"DeliveryStreamName":"clickstream","Tags":[{"Key":"env","Value":"dev"}]}`), stream)
+}
+
+// A scalable target's ARN ends in the caller-chosen ResourceId every scaling
+// operation sends — slashes and all — and the tagging operations name the
+// target by its ARN instead.
+func TestIAMResourceARNs_ApplicationAutoScalingFillsTheResourceId(t *testing.T) {
+	const target = "arn:aws:application-autoscaling:us-east-1:123456789012:scalable-target/service/default/web"
+	iamAssertDerived(t, iamDeriveJSON("application-autoscaling", "RegisterScalableTarget",
+		`{"ServiceNamespace":"ecs","ResourceId":"service/default/web","ScalableDimension":"ecs:service:DesiredCount","MinCapacity":1,"MaxCapacity":4}`),
+		target)
+	iamAssertDerived(t, iamDeriveJSON("application-autoscaling", "PutScalingPolicy",
+		`{"PolicyName":"cpu","ServiceNamespace":"ecs","ResourceId":"service/default/web","ScalableDimension":"ecs:service:DesiredCount"}`),
+		target)
+	iamAssertDerived(t, iamDeriveJSON("application-autoscaling", "TagResource",
+		`{"ResourceARN":"`+target+`","Tags":{"env":"dev"}}`), target)
+}
+
+// AWS Security Token Service resources are identities, each named its own way:
+// the assume-role family names the role by its full ARN, AssumeRoot names the
+// member account whose root user the call becomes, and GetFederationToken
+// names the federated user the call mints. The coverage probe cannot express
+// AssumeRoot's shape — it fills TargetPrincipal with a placeholder where a
+// real request carries a twelve-digit account id — so it is pinned here.
+func TestIAMResourceARNs_STSNamesTheIdentityEachCallIsAbout(t *testing.T) {
+	const role = "arn:aws:iam::123456789012:role/deploy"
+	iamAssertDerived(t, iamDeriveQueryFor("sts", "AssumeRole", "2011-06-15",
+		"RoleArn="+role+"&RoleSessionName=ci"), role)
+	iamAssertDerived(t, iamDeriveQueryFor("sts", "AssumeRoleWithWebIdentity", "2011-06-15",
+		"RoleArn="+role+"&RoleSessionName=ci&WebIdentityToken=probe"), role)
+	iamAssertDerived(t, iamDeriveQueryFor("sts", "AssumeRoot", "2011-06-15",
+		"TargetPrincipal=210987654321&TaskPolicyArn.arn=arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials"),
+		"arn:aws:iam::210987654321:root")
+	// A target that is not a bare twelve-digit account id names nothing.
+	iamAssertDerived(t, iamDeriveQueryFor("sts", "AssumeRoot", "2011-06-15",
+		"TargetPrincipal=not-an-account"))
+	iamAssertDerived(t, iamDeriveQueryFor("sts", "GetFederationToken", "2011-06-15",
+		"Name=ci-runner"), "arn:aws:sts::123456789012:federated-user/ci-runner")
+}
+
 // A certificate authority's ARN carries an identifier AWS assigned, which no
 // request supplies as a part — what a request carries is the whole ARN.
 func TestIAMResourceARNs_ACMPCATakesTheAuthorityARN(t *testing.T) {
