@@ -513,8 +513,15 @@ jobs:
             run: '^Test(ECS)'
             timeout: 1200s
             timeout_minutes: 15
+          # appdata split in two after the shard hit its 15-minute job budget
+          # on a cold Go build cache: the CLI test binary's cold compile takes
+          # about eight minutes, so a shard's suite must fit the remainder.
           - suite: appdata
-            run: '^Test(CloudWatch|EventBridge|Kinesis|KMS|Lambda|ElastiCache|Organizations|ResourceTags)'
+            run: '^Test(CloudWatch|EventBridge|Kinesis|ResourceTags)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: appdata4
+            run: '^Test(ElastiCache|KMS|Lambda|Organizations)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata2
