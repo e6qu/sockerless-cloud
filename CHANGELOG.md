@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/e6qu/sockerless-cloud/compare/v0.4.0...v0.5.0) (2026-08-13)
+
+
+### Features
+
+* **azure:** load-bearing Functions keys, real WebJobs, real deployments ([#7](https://github.com/e6qu/sockerless-cloud/issues/7)) ([569502a](https://github.com/e6qu/sockerless-cloud/commit/569502abe39c0f73b32e3939629ba973b8bf22f6))
+
 ## [0.4.0](https://github.com/e6qu/sockerless-cloud/compare/v0.3.0...v0.4.0) (2026-08-13)
 
 
