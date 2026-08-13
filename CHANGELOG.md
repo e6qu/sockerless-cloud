@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/e6qu/sockerless-cloud/compare/v0.6.0...v0.7.0) (2026-08-13)
+
+
+### Features
+
+* **azure:** complete App Service networking and dispatch resource moves per provider ([#11](https://github.com/e6qu/sockerless-cloud/issues/11)) ([5d26652](https://github.com/e6qu/sockerless-cloud/commit/5d2665236c8f067d19034839e7d573d2e6c0d787))
+
 ## [0.6.0](https://github.com/e6qu/sockerless-cloud/compare/v0.5.0...v0.6.0) (2026-08-13)
 
 
