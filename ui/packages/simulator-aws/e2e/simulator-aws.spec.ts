@@ -857,8 +857,11 @@ test.describe("Accessibility landmarks and keyboard operability", () => {
     // `outline` this console's hand-built links used to draw — still a
     // visible, non-colour-only indicator, just Cloudscape's real mechanism
     // for it.
-    const focusRing = await link.evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(focusRing).not.toBe("none");
+    // The polyfill arms asynchronously after the Tab press, so a one-shot
+    // computed-style read races it; poll until the ring is painted.
+    await expect
+      .poll(async () => link.evaluate((el) => getComputedStyle(el).boxShadow))
+      .not.toBe("none");
   });
 
   // Cloudscape's own `Modal` focus-locks to the first focusable element in
