@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -124,10 +125,14 @@ func TestAzureResources_MoveResources(t *testing.T) {
 	_, err = rgClient.CreateOrUpdate(ctx, "move-dst-rg", armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
+	// The move operates on the real stores, so the moved resource must
+	// exist: an App Service plan created under the source group.
+	planID := webMoreEnsurePlan(t, "move-src-rg", "move-plan")
+
 	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	move := armresources.MoveInfo{
-		Resources:           []*string{to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/move-src-rg/providers/Microsoft.Storage/storageAccounts/movesa")},
+		Resources:           []*string{to.Ptr(planID)},
 		TargetResourceGroup: to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/move-dst-rg"),
 	}
 
@@ -140,4 +145,24 @@ func TestAzureResources_MoveResources(t *testing.T) {
 	require.NoError(t, err)
 	_, err = movePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
+
+	// The plan now answers under the destination group and is gone from the
+	// source group.
+	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	moved, err := plans.Get(ctx, "move-dst-rg", "move-plan", nil)
+	require.NoError(t, err)
+	assert.Contains(t, *moved.ID, "/resourceGroups/move-dst-rg/")
+	if stale, err := plans.Get(ctx, "move-src-rg", "move-plan", nil); err == nil {
+		t.Fatalf("plan still resolves under the source group after the move: %+v", stale)
+	}
+
+	// A resource that does not exist refuses to validate — the same
+	// pre-flight real Azure Resource Manager runs.
+	missing := armresources.MoveInfo{
+		Resources:           []*string{to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/move-src-rg/providers/Microsoft.Web/serverfarms/never-created")},
+		TargetResourceGroup: to.Ptr("/subscriptions/" + subscriptionID + "/resourceGroups/move-dst-rg"),
+	}
+	_, err = client.BeginValidateMoveResources(ctx, "move-src-rg", missing, nil)
+	require.Error(t, err, "validating a move of an absent resource must fail")
 }

@@ -1,5 +1,29 @@
 # WHAT WE DID
 
+## 2026-08-13 — Fifth polish pass: App Service Stage 4
+
+Raised the web-arm surface 384 to 426 of 692. Microsoft.Web certificates
+parse the real PFX, PEM or DER payload — thumbprint, subject, issuer, SANs
+and validity all derived from the certificate itself, wrong passwords
+refused — and Key Vault-sourced certificates resolve against the sim's own
+vaults with the real keyVaultSecretStatus values; the secret blobs are
+write-only through the persistence sidecar. Site and slot certificates share
+the parsing. Custom-hostname analysis answers from real CNAME/TXT/A lookups
+against the sim's DNS record sets, and the global hostname lists assemble
+from the real binding stores. Every site-config write records a snapshot
+that recover restores exactly. Container logs serve the site container's
+real retained output, zip spelling included. Resource moves are real:
+sites relocate with their entire child subtree, plans re-point every
+referencing site, and the previously fake move test (it "moved" a
+nonexistent resource against a no-op handler) now proves relocation.
+Provider and global singletons answer truthfully — operations catalog from
+what the sim serves, validation against the real stores, empty collections
+only where the sim genuinely hosts none of the thing. Provider_*Stacks
+stays unserved with the vendored-catalog reason recorded beside the floor;
+BUG-3 records the cross-provider move gap. Official SDK, native az CLI and
+Terraform (real PFX certificate + DNS-backed hostname + SNI binding)
+exercise the surface with the wire-shape validator at zero violations.
+
 ## 2026-08-13 — Fourth polish pass: App Service Stage 3
 
 Raised the web-arm surface 307 to 384 of 692. The Functions key surface is

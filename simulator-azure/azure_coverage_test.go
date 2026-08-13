@@ -200,7 +200,12 @@ var azureMethodFloor = map[string]int{
 	// acceptance long-running operation and its status, the tenant and
 	// billing-account policies, and the provider operation catalog.
 	"subscription-arm-subscriptions-2021-10-01": 15,
-	"web-arm-openapi-2025-03-01":                384,
+	// The Provider_*Stacks operations (availableStacks, webAppStacks,
+	// functionAppStacks and their per-location spellings — 6 in all) stay
+	// unserved deliberately: the runtime-stack catalog is Microsoft-published
+	// data that would need a vendored catalog, like the WAF rule sets; the
+	// decision is recorded in DO_NEXT.md.
+	"web-arm-openapi-2025-03-01": 426,
 }
 
 // ---------------------------------------------------------------------------

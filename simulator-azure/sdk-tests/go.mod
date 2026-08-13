@@ -50,6 +50,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/oauth2 v0.36.0
+	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
 
 require (

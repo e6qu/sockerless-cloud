@@ -143,6 +143,7 @@ func registerWebMore(srv *sim.Server) {
 	initWebDeployStores(srv)
 	initWebJobStores(srv)
 
+	registerWebCertificates(srv)
 	registerWebSiteAndSlotHandlers(srv)
 	registerWebSlotCRUD(srv)
 	registerAppServicePlanMore(srv)
@@ -190,6 +191,12 @@ func webCleanupSiteResources(resID string) {
 		}
 		for _, c := range webPublicCertificates.Filter(func(c WebPublicCertificate) bool { return strings.HasPrefix(c.ID, sub) }) {
 			webPublicCertificates.Delete(c.ID)
+		}
+		for _, c := range webSiteCertificates.Filter(func(c WebCertificate) bool { return strings.HasPrefix(c.ID, sub) }) {
+			webSiteCertificates.Delete(c.ID)
+		}
+		for _, s := range webConfigSnapshots.Filter(func(s webConfigSnapshotRow) bool { return strings.HasPrefix(s.ID, sub) }) {
+			webConfigSnapshots.Delete(s.ID)
 		}
 		for _, d := range webDomainOwnershipIdentifiers.Filter(func(d WebDomainOwnershipIdentifier) bool { return strings.HasPrefix(d.ID, sub) }) {
 			webDomainOwnershipIdentifiers.Delete(d.ID)
@@ -279,6 +286,11 @@ func registerWebSiteAndSlotHandlers(srv *sim.Server) {
 	registerWebFunctionKeyHandlers(both)
 	registerWebJobHandlers(both)
 	registerWebDeploymentExtras(both, site)
+	registerWebSiteCertificates(both)
+	registerWebHostnameTruth(srv, both)
+	registerWebConfigSnapshots(srv, both)
+	registerWebContainerLogs(both)
+	registerWebProviderGlobal(srv, site)
 
 	// PATCH a production site — merge tags/properties. (Slot PATCH lives in
 	// registerWebSlotCRUD.)
@@ -518,6 +530,7 @@ func webConfigWebPut(w http.ResponseWriter, r *http.Request) {
 	row, _ := store.Get(webResourceID(r))
 	row.Properties.SiteConfig = &req.Properties
 	store.Put(webResourceID(r), row)
+	webRecordConfigSnapshot(webResourceID(r), row.Properties.SiteConfig)
 	sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "web", row.Properties.SiteConfig))
 }
 
@@ -937,6 +950,12 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 	applyIfPresent(props, "clientCertMode", &row.Properties.ClientCertMode)
 	if bad {
 		return
+	}
+
+	// The sku member derives from the associated App Service plan, so a
+	// patched serverFarmId re-derives it.
+	if _, present := props["serverFarmId"]; present {
+		row.Properties.SKU = webPlanSKUFor(row.Properties.ServerFarmID)
 	}
 
 	store.Put(id, row)
