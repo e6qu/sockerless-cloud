@@ -742,12 +742,15 @@ resource "azurerm_linux_function_app" "az_swift_fa" {
   storage_account_name       = azurerm_storage_account.az_st.name
   storage_account_access_key = azurerm_storage_account.az_st.primary_access_key
 
-  site_config {}
-}
+  # Regional VNet integration in the spelling azurerm 5 documents. The
+  # standalone azurerm_app_service_virtual_network_swift_connection resource
+  # is deprecated because the site reports its integration back as
+  # virtual_network_subnet_id: an app that does not declare the attribute
+  # plans the integration away on every refresh, which is a real conflict on
+  # Azure and not something the simulator should hide by omitting the member.
+  virtual_network_subnet_id = azurerm_subnet.az_swift_subnet.id
 
-resource "azurerm_app_service_virtual_network_swift_connection" "az_swift" {
-  app_service_id = azurerm_linux_function_app.az_swift_fa.id
-  subnet_id      = azurerm_subnet.az_swift_subnet.id
+  site_config {}
 }
 
 # Private endpoint terminating on the App Service site (group "sites") — the
@@ -1346,8 +1349,8 @@ output "azrm_swift_subnet_id" {
   value = azurerm_subnet.az_swift_subnet.id
 }
 
-output "azrm_swift_connection_id" {
-  value = azurerm_app_service_virtual_network_swift_connection.az_swift.id
+output "azrm_swift_integration_subnet_id" {
+  value = azurerm_linux_function_app.az_swift_fa.virtual_network_subnet_id
 }
 
 output "azrm_apim_id" {

@@ -301,9 +301,13 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmSwiftSubnet, "/virtualNetworks/tf-azrm-swift-vnet/subnets/tf-azrm-swift-subnet",
 		"azurerm App Service swift subnet id must include the canonical ARM path; got %s", azrmSwiftSubnet)
 
-	azrmSwift := outputs.must(t, "azrm_swift_connection_id")
-	require.Contains(t, azrmSwift, "/providers/Microsoft.Web/sites/tf-azrm-swift-fa/config/virtualNetwork",
-		"azurerm App Service VNet swift connection id must be the canonical config sub-resource path; got %s", azrmSwift)
+	// The site reports its regional integration back as
+	// virtual_network_subnet_id, which is what makes the modern spelling
+	// idempotent — and what made the deprecated standalone swift-connection
+	// resource conflict with the app that owns the site.
+	azrmSwiftIntegration := outputs.must(t, "azrm_swift_integration_subnet_id")
+	require.Equal(t, azrmSwiftSubnet, azrmSwiftIntegration,
+		"the site must report the subnet its regional integration uses; got %s", azrmSwiftIntegration)
 
 	azrmAPIM := outputs.must(t, "azrm_apim_id")
 	require.Contains(t, azrmAPIM, "/providers/Microsoft.ApiManagement/service/tf-azrm-apim",
