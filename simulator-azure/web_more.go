@@ -162,7 +162,9 @@ func registerWebMore(srv *sim.Server) {
 // certificates, domain ownership identifiers, premier add-ons, push settings,
 // Functions host and function keys, webjobs (their containers stopped) and
 // run history, deployed site content and deployment operation records,
-// deployed workflow artifacts and the workflows they materialized. Without
+// deployed workflow artifacts and the workflows they materialized, VNet
+// connections and their gateways, hybrid connections (both spellings),
+// private endpoint connections, and the private access record. Without
 // this, a site recreated under the same name would inherit the deleted
 // site's children.
 func webCleanupSiteResources(resID string) {
@@ -207,6 +209,22 @@ func webCleanupSiteResources(resID string) {
 		for _, p := range webPushSettings.Filter(func(p WebPushSettings) bool { return strings.HasPrefix(p.ID, sub) }) {
 			webPushSettings.Delete(p.ID)
 		}
+		for _, c := range webVnetConnections.Filter(func(c WebVnetConnection) bool { return strings.HasPrefix(c.ID, sub) }) {
+			webVnetConnections.Delete(c.ID)
+		}
+		for _, g := range webVnetGateways.Filter(func(g WebVnetGateway) bool { return strings.HasPrefix(g.ID, sub) }) {
+			webVnetGateways.Delete(g.ID)
+		}
+		for _, hc := range webHybridConnections.Filter(func(hc WebHybridConnection) bool { return strings.HasPrefix(hc.ID, sub) }) {
+			webHybridConnections.Delete(hc.ID)
+		}
+		for _, rc := range webRelayServiceConns.Filter(func(rc WebRelayServiceConnection) bool { return strings.HasPrefix(rc.ID, sub) }) {
+			webRelayServiceConns.Delete(rc.ID)
+		}
+		for _, pec := range webSitePECs.Filter(func(pec WebSitePrivateEndpointConnection) bool { return strings.HasPrefix(pec.ID, sub) }) {
+			webSitePECs.Delete(pec.ID)
+		}
+		webPrivateAccess.Delete(id)
 		webCleanupFunctionKeys(id)
 		webCleanupWebJobs(id)
 		webCleanupDeployments(id)
@@ -948,6 +966,7 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 	applyIfPresent(props, "httpsOnly", &row.Properties.HTTPSOnly)
 	applyIfPresent(props, "enabled", &row.Properties.Enabled)
 	applyIfPresent(props, "clientCertMode", &row.Properties.ClientCertMode)
+	applyIfPresent(props, "virtualNetworkSubnetId", &row.Properties.VirtualNetworkSubnetID)
 	if bad {
 		return
 	}
@@ -958,6 +977,25 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 		row.Properties.SKU = webPlanSKUFor(row.Properties.ServerFarmID)
 	}
 
+	// An explicit JSON null detaches the VNet integration (json.Unmarshal
+	// leaves the destination untouched on null, so it is handled here).
+	vnsRaw, vnsPresent := props["virtualNetworkSubnetId"]
+	if vnsPresent && string(vnsRaw) == "null" {
+		row.Properties.VirtualNetworkSubnetID = ""
+	}
+
 	store.Put(id, row)
+
+	// virtualNetworkSubnetId is the modern spelling of regional VNet
+	// integration: a patched value joins (or detaches) the site's containers
+	// for real, and the stored row ends up reflecting the resulting state.
+	if vnsPresent {
+		if err := applySiteVirtualNetworkSubnetID(r, row, row.Properties.VirtualNetworkSubnetID); err != nil {
+			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+				"failed to integrate site %q into VNet: %v", row.Name, err)
+			return
+		}
+		row, _ = store.Get(id)
+	}
 	sim.WriteJSON(w, http.StatusOK, row)
 }

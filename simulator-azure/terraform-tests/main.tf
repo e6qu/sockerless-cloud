@@ -750,6 +750,25 @@ resource "azurerm_app_service_virtual_network_swift_connection" "az_swift" {
   subnet_id      = azurerm_subnet.az_swift_subnet.id
 }
 
+# Private endpoint terminating on the App Service site (group "sites") — the
+# consumer half of the Microsoft.Web/sites privateEndpointConnections surface.
+# Creating it writes the connection into the site's own collection (the same
+# object the WebApps privateEndpointConnections API serves), auto-approved
+# because endpoint and site share the subscription.
+resource "azurerm_private_endpoint" "az_site_pe" {
+  name                = "tf-azrm-site-pe"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  subnet_id           = azurerm_subnet.az_pl_pe_subnet.id
+
+  private_service_connection {
+    name                           = "tf-azrm-site-pe"
+    is_manual_connection           = false
+    private_connection_resource_id = azurerm_linux_function_app.az_swift_fa.id
+    subresource_names              = ["sites"]
+  }
+}
+
 # Static Web App — the Microsoft.Web/staticSites ARM resource. The provider
 # PUTs the site (an LRO), then reads back the resource, its application
 # settings (POST listAppSettings) and its deployment secrets (POST

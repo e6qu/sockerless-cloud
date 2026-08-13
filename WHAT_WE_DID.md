@@ -1,5 +1,30 @@
 # WHAT WE DID
 
+## 2026-08-13 — Sixth polish pass: App Service Stage 5 and the move-hook table
+
+Raised the web-arm surface 426 to 503 of 692 by completing the networking
+families. The classic virtualNetworkConnections spelling extends the same
+real fabric the swift path established: a connection resolves its subnet
+against the Microsoft.Network stores and genuinely attaches the site's
+containers to the network — proven by a test that reaches a VNet-only
+resource from the site — and deleting it really disconnects; the two
+spellings describe one integration and agree. Private access, network
+features assembled from real connection state, site private endpoint
+connections and private link resources, and the App Service Plan tail
+(vnets and routes, gateways, hybrid connections and their keys, capabilities,
+SKUs, instance details) all answer from real stores, empty only where the
+simulator genuinely hosts none of the thing.
+
+Cross-resource-group moves gained the dispatch BUG-3 asked for: a
+per-provider hook table that Microsoft.Resources walks, with the existing
+Microsoft.Web logic as its first entries and Microsoft.Storage as the first
+new family. A moved storage account keeps its access keys (the derived
+material is pinned across the move rather than silently rotating), every
+resource-ID-keyed ARM projection re-keys, the data planes stay readable
+because they key on the account name a move never changes, and tags now
+follow every hooked move as real ARM does. BUG-3 stays open for the
+remaining providers.
+
 ## 2026-08-13 — Fifth polish pass: App Service Stage 4
 
 Raised the web-arm surface 384 to 426 of 692. Microsoft.Web certificates

@@ -229,6 +229,20 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		webSlots.Put(resourceID, slotSite)
 		// A slot carries its own Functions host key set, like a real slot.
 		ensureWebHostKeys(resourceID)
+		// virtualNetworkSubnetId on the envelope is regional VNet integration
+		// for the slot, exactly as on a production site; a PUT that omits it
+		// keeps an existing integration, and the stored row reflects the
+		// current integration either way.
+		if req.Properties.VirtualNetworkSubnetID != "" {
+			if err := applySiteVirtualNetworkSubnetID(r, slotSite, req.Properties.VirtualNetworkSubnetID); err != nil {
+				sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+					"failed to integrate slot %q into VNet: %v", slotSite.Name, err)
+				return
+			}
+		} else {
+			syncSiteVnetSubnetProperty(r)
+		}
+		slotSite, _ = webSlots.Get(resourceID)
 		sim.WriteJSON(w, http.StatusOK, slotSite)
 	})
 
@@ -322,12 +336,13 @@ func registerAppServicePlanMore(srv *sim.Server) {
 	})
 
 	// GET serverfarms/{planName}/virtualNetworkConnections — VNet
-	// integrations (response is a bare array of VnetInfoResource).
+	// integrations (response is a bare array of VnetInfoResource), assembled
+	// from the connections the plan's sites actually have.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}/virtualNetworkConnections", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, []any{})
+		sim.WriteJSON(w, http.StatusOK, webPlanVnetConnections(planID(r)))
 	})
 
 	// POST serverfarms/{planName}/restartSites — restart every app on the plan.
@@ -377,7 +392,10 @@ func registerWebGlobal(srv *sim.Server) {
 		var req struct {
 			Name string `json:"name"`
 		}
-		_ = sim.ReadJSON(r, &req)
+		if err := sim.ReadJSON(r, &req); err != nil {
+			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		suffix := "/providers/Microsoft.Web/sites/" + req.Name
 		taken := len(azfSites.Filter(func(s Site) bool { return strings.HasSuffix(s.ID, suffix) })) > 0
 		resp := map[string]any{"nameAvailable": !taken, "message": ""}

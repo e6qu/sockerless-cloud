@@ -265,6 +265,66 @@ func registerStorageAccounts(srv *sim.Server) {
 	// --- tableServices ---
 	srv.HandleFunc("GET "+acct+"/tableServices", storageServiceListHandler("tableServices", "Microsoft.Storage/storageAccounts/tableServices", serviceProperties))
 	srv.HandleFunc("PUT "+acct+"/tableServices/default", storageServiceSetHandler("tableServices", "Microsoft.Storage/storageAccounts/tableServices", serviceProperties))
+
+	// Cross-resource-group move. The Blob / Files / Queue / Table data planes
+	// address an account by its globally unique name, which a move never
+	// changes, so the stored bytes and data-plane rows stay untouched; what
+	// re-keys is every ARM-plane row addressed by the account's resource ID.
+	// The child stores that are locals of this register function ride along in
+	// the closure.
+	registerResourceMoveHook("Microsoft.Storage/storageAccounts", resourceMoveHook{
+		exists: func(id string) bool { _, ok := azStorageAccounts.Get(id); return ok },
+		move: func(oldID, newID, _ string) {
+			moveStorageAccountARM(oldID, newID,
+				managementPolicies, inventoryPolicies, privateEndpointConns,
+				objectReplicationPolicies, encryptionScopes, localUsers,
+				immutabilityPolicies, storageQueues)
+		},
+	})
+}
+
+// moveStorageAccountARM re-homes one storage account's ARM plane onto a new
+// resource ID: the account record itself, the blob-container / file-share /
+// table projections, every account-scoped ARM child collection, the
+// {blob,file,queue,table}Services service-properties documents, and the
+// access-key rotation state. Data-plane state is keyed by the account name
+// and needs no re-keying.
+func moveStorageAccountARM(oldID, newID string, childStores ...sim.Store[storageARMChild]) {
+	acct, ok := azStorageAccounts.Get(oldID)
+	if !ok {
+		return
+	}
+	azStorageAccounts.Delete(oldID)
+	acct.ID = newID
+	azStorageAccounts.Put(acct.ID, acct)
+
+	oldSub, newSub := oldID+"/", newID+"/"
+	rekeyRowsByPrefix(azBlobContainers, oldSub, newSub, func(c *BlobContainer) *string { return &c.ID })
+	rekeyRowsByPrefix(azFileShares, oldSub, newSub, func(s *FileShare) *string { return &s.ID })
+	rekeyRowsByPrefix(storageTables, oldSub, newSub, func(tb *StorageTable) *string { return &tb.ID })
+	for _, store := range childStores {
+		rekeyRowsByPrefix(store, oldSub, newSub, func(c *storageARMChild) *string { return &c.ID })
+	}
+	for _, service := range []string{"blobServices", "fileServices", "queueServices", "tableServices"} {
+		rekeyEntry(azStorageServiceProps, oldID+"/"+service, newID+"/"+service)
+	}
+	// The ARM blobServices/default property bag the control plane keeps for
+	// container soft delete is keyed by the bare account ID.
+	rekeyEntry(blobARMServiceProps, oldID, newID)
+
+	// The account's access keys are a property of the account, not of its
+	// resource group: listKeys must serve the same material after the move.
+	// Derived material is seeded by the resource ID, so the keys the account
+	// held are pinned verbatim onto the moved ID; the next regenerateKey
+	// clears the pin and derives fresh material, the same rotation contract
+	// as before the move.
+	for _, slot := range []string{"key1", "key2"} {
+		material := azureKeyMaterial64(oldID, slot)
+		gen, _ := azureKeyGens.Get(oldID + "|" + slot)
+		azureKeyGens.Delete(oldID + "|" + slot)
+		gen.Key = material
+		azureKeyGens.Put(newID+"|"+slot, gen)
+	}
 }
 
 // ---- generic account-scoped child resource CRUD ----
