@@ -191,10 +191,19 @@ func TestAzLogin_InstanceDiscoveryThroughCLI(t *testing.T) {
 	}
 }
 
-// startAzLoginSimulator runs a TLS-terminated simulator and returns the
-// coordinates the CLI needs to reach it. MSAL refuses a plain-http authority,
-// so this test cannot share the suite's http listener.
+// startAzLoginSimulator runs a TLS-terminated simulator (API-only: no
+// workload runtime) and returns the coordinates the CLI needs to reach it.
+// MSAL refuses a plain-http authority, so this test cannot share the suite's
+// http listener.
 func startAzLoginSimulator(t *testing.T) azLoginEnv {
+	return startAzTLSSimulator(t, "SIM_RUNTIME=process")
+}
+
+// startAzTLSSimulator runs a TLS-terminated simulator with the given extra
+// environment. Without a SIM_RUNTIME override it runs the full workload
+// runtime (Docker), which the native-az App Service tests need for real
+// webjob executions.
+func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 	t.Helper()
 	dir := t.TempDir()
 	certPath, keyPath := writeAzLoginTLSCert(t, dir)
@@ -214,8 +223,8 @@ func startAzLoginSimulator(t *testing.T) azLoginEnv {
 		"SIM_LISTEN_ADDR="+addr,
 		"SIM_TLS_CERT="+certPath,
 		"SIM_TLS_KEY="+keyPath,
-		"SIM_RUNTIME=process",
 	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -127,17 +125,17 @@ func webWriteAzureStorage(w http.ResponseWriter, resID string, props map[string]
 	})
 }
 
-// webPublishingCredentials returns the SCM publishing user/password (deterministic
-// per resource ID, stable across reads). Secret-bearing, so only via the POST
-// /list action — never echoed on a GET.
+// webPublishingCredentials returns the SCM publishing user/password
+// (deterministic per resource ID, stable across reads, rotated by POST
+// /newpassword). Secret-bearing, so only via the POST /list action — never
+// echoed on a GET.
 func webPublishingCredentials(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
 	}
 	name := sim.PathParam(r, "siteName")
 	user := "$" + name
-	sum := sha256.Sum256([]byte("sim-publishing-pwd:" + webResourceID(r)))
-	password := hex.EncodeToString(sum[:12])
+	password := webPublishingPassword(webResourceID(r))
 	scmURI := fmt.Sprintf("https://%s:%s@%s.scm.azurewebsites.net", user, password, name)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"id":   webResourceID(r) + "/config/publishingcredentials",
@@ -228,6 +226,8 @@ func registerWebSlotCRUD(srv *sim.Server) {
 			},
 		}
 		webSlots.Put(resourceID, slotSite)
+		// A slot carries its own Functions host key set, like a real slot.
+		ensureWebHostKeys(resourceID)
 		sim.WriteJSON(w, http.StatusOK, slotSite)
 	})
 

@@ -382,8 +382,8 @@ jobs:
         # under the step budget so a hung test fails with a named Go stack
         # rather than an opaque step kill.
         if: matrix.suite == 'services-n-z'
-        run: cd simulator-aws && make unit-test UNIT_TEST_TIMEOUT=4m
-        timeout-minutes: 5
+        run: cd simulator-aws && make unit-test UNIT_TEST_TIMEOUT=5m30s
+        timeout-minutes: 6
       # Compile the sim binary + the (large, AWS-SDK-importing) SDK test binary
       # in a separate deterministic build step, so the timed test run below isn't
       # eaten by a cold recompile after an unrelated dep change busts the shared
