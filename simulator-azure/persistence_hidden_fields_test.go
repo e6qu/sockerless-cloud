@@ -204,3 +204,64 @@ func TestEHEventHubPersistenceRoundTrip(t *testing.T) {
 		t.Fatalf("event hub wire shape leaks CreatedAt: %s", wire)
 	}
 }
+
+// TestStaticSiteCustomDomainPersistenceRoundTrip asserts a custom domain
+// keeps its write-only validation method across a store reopen — the
+// re-validation on later reads checks the DNS record kind the caller asked
+// for — while the wire shape never carries it.
+func TestStaticSiteCustomDomainPersistenceRoundTrip(t *testing.T) {
+	got := storeReopenRoundTrip(t, "web_static_site_custom_domains_test", StaticSiteCustomDomainOverviewARMResource{
+		ID:   "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/staticSites/x/customDomains/www.example.com",
+		Name: "www.example.com",
+		Type: "Microsoft.Web/staticSites/customDomains",
+		Properties: StaticSiteCustomDomainOverviewARMResourceProperties{
+			DomainName:      "www.example.com",
+			Status:          "Validating",
+			ValidationToken: "tok123",
+		},
+		ValidationMethod: "dns-txt-token",
+	})
+	if got.ValidationMethod != "dns-txt-token" {
+		t.Fatalf("validation method dropped on reopen: %+v", got)
+	}
+	if got.Properties.Status != "Validating" || got.Properties.ValidationToken != "tok123" {
+		t.Fatalf("domain payload drifted on reopen: %+v", got)
+	}
+	wire, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal wire shape: %v", err)
+	}
+	if strings.Contains(string(wire), "dns-txt-token") || strings.Contains(string(wire), "ValidationMethod") {
+		t.Fatalf("wire shape leaks the validation method: %s", wire)
+	}
+}
+
+// TestStaticSiteBasicAuthPersistenceRoundTrip asserts the basic-auth password
+// survives a store reopen through the persistence sidecar — real Azure keeps
+// the configured password while only reporting secretState — and never
+// appears on the wire.
+func TestStaticSiteBasicAuthPersistenceRoundTrip(t *testing.T) {
+	got := storeReopenRoundTrip(t, "web_static_site_basic_auth_test", StaticSiteBasicAuthPropertiesARMResource{
+		ID:   "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/staticSites/x/basicAuth/default",
+		Name: "default",
+		Type: "Microsoft.Web/staticSites/basicAuth",
+		Properties: StaticSiteBasicAuthPropertiesARMResourceProperties{
+			ApplicableEnvironmentsMode: "AllEnvironments",
+			SecretState:                "Password",
+		},
+		Password: "hunter2hunter2",
+	})
+	if got.Password != "hunter2hunter2" {
+		t.Fatalf("password dropped on reopen: %+v", got)
+	}
+	if got.Properties.SecretState != "Password" {
+		t.Fatalf("basic auth payload drifted on reopen: %+v", got)
+	}
+	wire, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal wire shape: %v", err)
+	}
+	if strings.Contains(string(wire), "hunter2hunter2") || strings.Contains(string(wire), "Password\":") {
+		t.Fatalf("wire shape leaks the password: %s", wire)
+	}
+}

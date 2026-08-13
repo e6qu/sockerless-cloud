@@ -707,6 +707,53 @@ resource "azurerm_app_service_virtual_network_swift_connection" "az_swift" {
   subnet_id      = azurerm_subnet.az_swift_subnet.id
 }
 
+# Static Web App — the Microsoft.Web/staticSites ARM resource. The provider
+# PUTs the site (an LRO), then reads back the resource, its application
+# settings (POST listAppSettings) and its deployment secrets (POST
+# listSecrets, which fills api_key), so all three surfaces must round-trip
+# for the apply to stay idempotent.
+resource "azurerm_static_web_app" "az_swa" {
+  name                = "tf-azrm-swa"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  sku_tier            = "Standard"
+  sku_size            = "Standard"
+
+  app_settings = {
+    PING = "pong"
+  }
+
+  tags = {
+    env = "terraform"
+  }
+}
+
+# Custom domain on the Static Web App, validated by CNAME delegation: the
+# record in the Azure DNS zone points the hostname at the app's default host
+# name, and the domain create validates truthfully against that record in the
+# simulator's DNS state.
+resource "azurerm_dns_cname_record" "az_swa_cname" {
+  name                = "swa"
+  zone_name           = azurerm_dns_zone.az_dns.name
+  resource_group_name = azurerm_resource_group.az_rg.name
+  ttl                 = 300
+  record              = azurerm_static_web_app.az_swa.default_host_name
+}
+
+resource "azurerm_static_web_app_custom_domain" "az_swa_domain" {
+  static_web_app_id = azurerm_static_web_app.az_swa.id
+  domain_name       = "${azurerm_dns_cname_record.az_swa_cname.name}.${azurerm_dns_zone.az_dns.name}"
+  validation_type   = "cname-delegation"
+}
+
+# User-provided function app registration ("bring your own Functions"):
+# links the EXISTING Linux Function App above to the static site; the
+# simulator resolves the function app against its real sites store.
+resource "azurerm_static_web_app_function_app_registration" "az_swa_fn" {
+  static_web_app_id = azurerm_static_web_app.az_swa.id
+  function_app_id   = azurerm_linux_function_app.az_fa.id
+}
+
 # Key Vault + a single secret. The secret resource is what fires the
 # challenge-then-retry handshake: terraform-provider-azurerm constructs
 # an azsecrets client, issues the unauthenticated PUT, parses the
@@ -1206,6 +1253,27 @@ output "azrm_storage_share_directory_name" {
 
 output "azrm_function_app_id" {
   value = azurerm_linux_function_app.az_fa.id
+}
+
+output "azrm_static_web_app_id" {
+  value = azurerm_static_web_app.az_swa.id
+}
+
+output "azrm_static_web_app_default_hostname" {
+  value = azurerm_static_web_app.az_swa.default_host_name
+}
+
+output "azrm_static_web_app_api_key" {
+  value     = azurerm_static_web_app.az_swa.api_key
+  sensitive = true
+}
+
+output "azrm_static_web_app_custom_domain_id" {
+  value = azurerm_static_web_app_custom_domain.az_swa_domain.id
+}
+
+output "azrm_static_web_app_function_registration_id" {
+  value = azurerm_static_web_app_function_app_registration.az_swa_fn.id
 }
 
 output "azrm_public_certificate_thumbprint" {

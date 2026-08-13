@@ -212,6 +212,9 @@ func AzurePathNormalizationMiddleware(next http.Handler) http.Handler {
 		"/microsoft.dbforpostgresql": "/Microsoft.DBforPostgreSQL",
 		"/microsoft.keyvault":        "/Microsoft.KeyVault",
 		"/microsoft.storage":         "/Microsoft.Storage",
+		// azure-mgmt-web (the az CLI's track2 SDK) spells the namespace
+		// "microsoft.Web" in several StaticSites operation URL templates.
+		"/microsoft.web": "/Microsoft.Web",
 
 		// Action verbs + sub-resource segments — canonicalize to
 		// lowercase to match handler registrations.

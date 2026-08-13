@@ -200,7 +200,7 @@ var azureMethodFloor = map[string]int{
 	// acceptance long-running operation and its status, the tenant and
 	// billing-account policies, and the provider operation catalog.
 	"subscription-arm-subscriptions-2021-10-01": 15,
-	"web-arm-openapi-2025-03-01":                238,
+	"web-arm-openapi-2025-03-01":                307,
 }
 
 // ---------------------------------------------------------------------------
