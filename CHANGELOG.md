@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/e6qu/sockerless-cloud/compare/v0.5.0...v0.6.0) (2026-08-13)
+
+
+### Features
+
+* **azure:** real certificates, DNS-truthful hostnames, real resource moves ([#9](https://github.com/e6qu/sockerless-cloud/issues/9)) ([3ef1917](https://github.com/e6qu/sockerless-cloud/commit/3ef19175b0c27103de5f4300fc3208b61eb64915))
+
 ## [0.5.0](https://github.com/e6qu/sockerless-cloud/compare/v0.4.0...v0.5.0) (2026-08-13)
 
 
