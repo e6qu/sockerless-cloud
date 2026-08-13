@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -246,6 +244,9 @@ func registerAzureFunctions(srv *sim.Server) {
 		}
 
 		sites.Put(resourceID, site)
+		// Real Azure provisions the Functions host key set (master key +
+		// "default" host function key) with the new site.
+		ensureWebHostKeys(resourceID)
 
 		// terraform-provider-azurerm sends app settings inside the site PUT's
 		// siteConfig.appSettings, then reads them back via POST
@@ -393,6 +394,16 @@ func registerAzureFunctions(srv *sim.Server) {
 		if matchedSite == nil {
 			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"no function app with DefaultHostName=%q (set Host header to <site>.azurewebsites.net)", host)
+			return
+		}
+
+		// The real Azure Functions authLevel contract: when the site declares
+		// the addressed function's config, the host demands the key its
+		// httpTrigger binding's authLevel requires (x-functions-key header or
+		// ?code= query) and answers 401 on a wrong or missing key. See
+		// azureFunctionInvokeAuthorized.
+		if !azureFunctionInvokeAuthorized(matchedSite, r) {
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
@@ -655,10 +666,10 @@ func registerAzureFunctions(srv *sim.Server) {
 	// console access. terraform-provider-azurerm reads via this endpoint
 	// on every plan refresh.
 	//
-	// The sim derives a deterministic password from the site name
-	// (so test assertions can be stable + same site keeps the same
-	// credentials across PUT cycles). Real Azure rotates these on
-	// `POST .../newpassword`, which the sim doesn't model.
+	// The password derives deterministically from the resource ID and the
+	// site's rotation counter: stable across reads, distinct per site, and
+	// rotated by `POST .../newpassword`
+	// (WebApps_GenerateNewSitePublishingPassword).
 	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/publishingcredentials/list", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -670,10 +681,7 @@ func registerAzureFunctions(srv *sim.Server) {
 			return
 		}
 		user := "$" + name
-		// Deterministic 24-char password derived from the site name —
-		// stable across reads, distinct per site, no PII.
-		sum := sha256.Sum256([]byte("sim-publishing-pwd:" + resourceID))
-		password := hex.EncodeToString(sum[:12])
+		password := webPublishingPassword(resourceID)
 		scmURI := fmt.Sprintf("https://%s:%s@%s.scm.azurewebsites.net", user, password, name)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"id":   resourceID + "/config/publishingcredentials",

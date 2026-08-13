@@ -138,11 +138,16 @@ func registerWebMore(srv *sim.Server) {
 	webSourceControls = sim.MakeStore[WebSourceControl](srv.DB(), "web_source_controls")
 	webSiteExtensions = sim.MakeStore[WebSiteExtension](srv.DB(), "web_site_extensions")
 	webConfigExtras = sim.MakeStore[webConfigExtra](srv.DB(), "web_config_extras")
+	webHostKeys = sim.MakeStore[WebHostKeysRow](srv.DB(), "web_host_keys")
+	webFunctionKeys = sim.MakeStore[WebFunctionKeysRow](srv.DB(), "web_function_keys")
+	initWebDeployStores(srv)
+	initWebJobStores(srv)
 
 	registerWebSiteAndSlotHandlers(srv)
 	registerWebSlotCRUD(srv)
 	registerAppServicePlanMore(srv)
 	registerWebGlobal(srv)
+	registerWebPublishingGlobals(srv)
 	registerWebStaticSites(srv)
 	registerWebChildResources(srv)
 	registerWebConfigReferences(srv)
@@ -154,6 +159,8 @@ func registerWebMore(srv *sim.Server) {
 // subtree, as real Azure does), deployments, host-name bindings, source
 // controls, site extensions, sitecontainers, config sections, public
 // certificates, domain ownership identifiers, premier add-ons, push settings,
+// Functions host and function keys, webjobs (their containers stopped) and
+// run history, deployed site content and deployment operation records,
 // deployed workflow artifacts and the workflows they materialized. Without
 // this, a site recreated under the same name would inherit the deleted
 // site's children.
@@ -193,6 +200,9 @@ func webCleanupSiteResources(resID string) {
 		for _, p := range webPushSettings.Filter(func(p WebPushSettings) bool { return strings.HasPrefix(p.ID, sub) }) {
 			webPushSettings.Delete(p.ID)
 		}
+		webCleanupFunctionKeys(id)
+		webCleanupWebJobs(id)
+		webCleanupDeployments(id)
 		webConfigExtras.Delete(id)
 		siteConfigStore.Delete(id)
 		webWorkflowFiles.Delete(id)
@@ -266,6 +276,9 @@ func registerWebSiteAndSlotHandlers(srv *sim.Server) {
 	registerWebSiteExtensions(both)
 	registerWebFunctionsRW(both, slot)
 	registerWebBasicPubCreds(both, slot)
+	registerWebFunctionKeyHandlers(both)
+	registerWebJobHandlers(both)
+	registerWebDeploymentExtras(both, site)
 
 	// PATCH a production site — merge tags/properties. (Slot PATCH lives in
 	// registerWebSlotCRUD.)
@@ -798,6 +811,8 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 		req.Type = "Microsoft.Web/sites/functions"
 		req.FunctionName = name
 		azfFunctionConfigs.Put(req.ID, req)
+		// Real Azure provisions a "default" function key with the function.
+		ensureWebFunctionKeys(req.ID)
 		sim.WriteJSON(w, http.StatusCreated, req)
 	})
 	both("DELETE", "/functions/{functionName}", func(w http.ResponseWriter, r *http.Request) {
@@ -805,6 +820,7 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 			return
 		}
 		azfFunctionConfigs.Delete(funcID(r))
+		webFunctionKeys.Delete(funcID(r))
 		w.WriteHeader(http.StatusNoContent)
 	})
 

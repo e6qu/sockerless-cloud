@@ -62,6 +62,20 @@ func registerAzureAsyncOperations(srv *sim.Server) {
 }
 
 func issueAzureAsyncOperation(complete func()) string {
+	return issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+		if complete != nil {
+			complete()
+		}
+		return nil
+	})
+}
+
+// issueAzureAsyncOperationOutcome is the failable form: the completion
+// callback decides the operation's terminal state. A nil return marks the
+// operation Succeeded; a non-nil error marks it Failed with ARM's
+// failed-operation error envelope, exactly as real Azure Resource Manager
+// reports a long-running operation whose backend work failed.
+func issueAzureAsyncOperationOutcome(complete func() *AsyncOperationError) string {
 	opID := generateUUID()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	azureAsyncOps.Put(opID, AsyncOperationStatus{
@@ -71,11 +85,16 @@ func issueAzureAsyncOperation(complete func()) string {
 	})
 	go func() {
 		time.Sleep(50 * time.Millisecond)
+		var opErr *AsyncOperationError
 		if complete != nil {
-			complete()
+			opErr = complete()
 		}
 		azureAsyncOps.Update(opID, func(op *AsyncOperationStatus) {
 			op.Status = "Succeeded"
+			if opErr != nil {
+				op.Status = "Failed"
+				op.Error = opErr
+			}
 			op.EndTime = time.Now().UTC().Format(time.RFC3339Nano)
 		})
 	}()

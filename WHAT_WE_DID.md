@@ -1,5 +1,25 @@
 # WHAT WE DID
 
+## 2026-08-13 — Fourth polish pass: App Service Stage 3
+
+Raised the web-arm surface 307 to 384 of 692. The Functions key surface is
+load-bearing: durable host/master/function key stores mint at site, slot and
+function creation, the admin token is a real HS256 JWT signed with the
+site's master key, and POST /api/function enforces the real authLevel
+contract — anonymous keyless, function accepting function/host/master keys
+via x-functions-key or ?code=, admin master-only, bare 401 otherwise — while
+container sites without function configs stay keyless as the real platform
+proxies them. WebJobs materialize from deployed packages exactly as the real
+platform's Kudu channel does and run as real containers with the site's own
+image and settings; histories record actual exit-derived status, continuous
+jobs honor WEBJOBS_STOPPED, and a simulator restart settles persisted
+Running jobs at PendingRestart. MSDeploy and OneDeploy fetch the package
+over HTTP, unzip and persist the content durably, discover webjobs, and
+report real provisioning transitions through Azure-AsyncOperation LROs with
+409 on concurrent deployments; publishing-password regeneration rotates what
+the credentials list actually returns. Official SDK and native az CLI flows
+cover every cluster with the wire-shape validator at zero violations.
+
 ## 2026-08-13 — Third polish pass: BUG-2924 implemented, Static Web Apps complete
 
 Implemented BUG-2924's approved design: every VPC network takes its Docker
