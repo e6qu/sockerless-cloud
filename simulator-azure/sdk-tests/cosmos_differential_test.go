@@ -481,6 +481,7 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	endpoint = fmt.Sprintf("http://127.0.0.1:%d/", hostPort)
 	probe := newCosmosSDKClient(t, endpoint)
 	deadline := time.Now().Add(280 * time.Second)
+	var lastProbeErr error
 	for i := 0; time.Now().Before(deadline); i++ {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		// A unique db id per attempt so a successful create on a slow first
@@ -490,11 +491,14 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 		if perr == nil {
 			return endpoint, stop
 		}
+		lastProbeErr = perr
 		time.Sleep(2 * time.Second)
 	}
 	logs, _ := exec.Command("docker", "logs", "--tail", "30", id).CombinedOutput()
 	stop()
-	t.Fatalf("Cosmos emulator did not become ready at %s\n%s", endpoint, logs)
+	// The emulator's own log said healthy once while the probe still could
+	// not reach it, and the probe's error was the half this message lacked.
+	t.Fatalf("Cosmos emulator did not become ready at %s\nlast probe error: %v\n%s", endpoint, lastProbeErr, logs)
 	return "", func() {}
 }
 
