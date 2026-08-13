@@ -8,13 +8,13 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.35
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.36
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.6.36
-	github.com/aws/aws-sdk-go-v2/service/acm v1.43.5
+	github.com/aws/aws-sdk-go-v2/service/acm v1.44.0
 	github.com/aws/aws-sdk-go-v2/service/acmpca v1.50.1
 	github.com/aws/aws-sdk-go-v2/service/amplify v1.41.5
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.42.5
 	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.37.5
 	github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.5
-	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.71.1
+	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.72.0
 	github.com/aws/aws-sdk-go-v2/service/batch v1.68.5
 	github.com/aws/aws-sdk-go-v2/service/budgets v1.46.5
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.67.5

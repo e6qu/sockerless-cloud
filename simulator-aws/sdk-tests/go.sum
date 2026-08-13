@@ -18,8 +18,8 @@ github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.36 h1:A4N2f4YPcST0v+dWtX
 github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.36/go.mod h1:B/Qr859uxWUEfZeGotK5KAEoof4Q9YWgNtPSwV6jcyk=
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.37 h1:oyd3ke4V9AhKcRR7rRgxk1VyI+DjK2CBQtbxh3OkdaA=
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.37/go.mod h1:aA9D7SqfG9IC1b7FLD7Iyc8Q4JN0a8gHhNjN4zPlIaI=
-github.com/aws/aws-sdk-go-v2/service/acm v1.43.5 h1:fFXaJQ0ubEr1Dp12OB86pOAy+0AYindyAqbqltF+knQ=
-github.com/aws/aws-sdk-go-v2/service/acm v1.43.5/go.mod h1:qbTn8jAJRPdsLH8KaFFKwH59Xhiy5qkkc/tMD7eCCWo=
+github.com/aws/aws-sdk-go-v2/service/acm v1.44.0 h1:xZ/H19H4RpfjOJpJBXSaOYgRy0DEBh5S+5u3sZAHpks=
+github.com/aws/aws-sdk-go-v2/service/acm v1.44.0/go.mod h1:qbTn8jAJRPdsLH8KaFFKwH59Xhiy5qkkc/tMD7eCCWo=
 github.com/aws/aws-sdk-go-v2/service/acmpca v1.50.1 h1:Si6LJG3Hr5jDDv/opoitI0r6IXxpj+MvDyIdG6klt+A=
 github.com/aws/aws-sdk-go-v2/service/acmpca v1.50.1/go.mod h1:wCigm+MfHm7GhSoHmWHncrSqSBZNlw2XBVLNsfORc5s=
 github.com/aws/aws-sdk-go-v2/service/amplify v1.41.5 h1:iqzd8NTGqcJbKitsfqnlOhRozzPUu6Us+dhhuWBrEAw=
@@ -30,8 +30,8 @@ github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.37.5 h1:C1fhx+HiMNSrHPVhIro
 github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.37.5/go.mod h1:E+G9vwbvE9o4kbFAgZZ+0IZ/xtV4RYSF9trTbSp3hjc=
 github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.5 h1:8EALf6Z62bMBQCxp0+uEd4hRypSG1A0AmnRPRc2OMjA=
 github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.5/go.mod h1:bVuK/p0/L+TRHrnG4+kK8sZ1wqsrSE9srB8Y6DDozQ0=
-github.com/aws/aws-sdk-go-v2/service/autoscaling v1.71.1 h1:DpVyqheZBS9LX1iuY1JHzbXCBjyQQV3acQSgiXJmZhM=
-github.com/aws/aws-sdk-go-v2/service/autoscaling v1.71.1/go.mod h1:CttKcJwdqoiKLmmfPTTDj3DoBGhwEKzl/1YNQgNjxjg=
+github.com/aws/aws-sdk-go-v2/service/autoscaling v1.72.0 h1:mf/fEohgDVAdn88jaJjw5Q706jvuImdNOeDo9GWo0+g=
+github.com/aws/aws-sdk-go-v2/service/autoscaling v1.72.0/go.mod h1:CttKcJwdqoiKLmmfPTTDj3DoBGhwEKzl/1YNQgNjxjg=
 github.com/aws/aws-sdk-go-v2/service/batch v1.68.5 h1:XVuCfeJCLvWtGQVUfh6Q2w15GN5Iypw5oUoOERoQBqo=
 github.com/aws/aws-sdk-go-v2/service/batch v1.68.5/go.mod h1:9OC7hIonKXRVtLkdULY0lWw39ZtBH/SSsybQq3Ut9zA=
 github.com/aws/aws-sdk-go-v2/service/budgets v1.46.5 h1:SUHBRJzX7usMT7+Pzsa/XB5uskdp5uY141icjBj0Y5Y=

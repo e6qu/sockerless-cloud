@@ -53,6 +53,12 @@ type SiteProperties struct {
 	LastModifiedTime string      `json:"lastModifiedTimeUtc,omitempty"`
 	HTTPSOnly        bool        `json:"httpsOnly,omitempty"`
 	ClientCertMode   string      `json:"clientCertMode,omitempty"`
+	// VirtualNetworkSubnetID is the modern spelling of regional VNet
+	// integration (`az webapp vnet-integration add`, terraform's
+	// virtual_network_subnet_id): writing it joins the site to the subnet's
+	// VNet exactly as a swift networkConfig/virtualNetwork PUT does, and it
+	// always reflects the site's current regional integration.
+	VirtualNetworkSubnetID string `json:"virtualNetworkSubnetId,omitempty"`
 }
 
 // SiteConfig holds the site configuration for a function app.
@@ -266,6 +272,22 @@ func registerAzureFunctions(srv *sim.Server) {
 			cfg.AppSettings = settings
 			siteConfigStore.Put(resourceID, cfg)
 		}
+
+		// virtualNetworkSubnetId on the envelope is regional VNet integration:
+		// join the subnet's VNet exactly as a swift PUT would. A PUT that
+		// omits it keeps an existing integration (the swift-connection flow
+		// re-PUTs the site without it); the stored row still reflects the
+		// current integration either way.
+		if req.Properties.VirtualNetworkSubnetID != "" {
+			if err := applySiteVirtualNetworkSubnetID(r, site, req.Properties.VirtualNetworkSubnetID); err != nil {
+				sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+					"failed to integrate site %q into VNet: %v", name, err)
+				return
+			}
+		} else {
+			syncSiteVnetSubnetProperty(r)
+		}
+		site, _ = sites.Get(resourceID)
 
 		// Always return 200 OK so the ARM SDK's BeginCreateOrUpdate poller
 		// treats this as an immediately completed operation.
@@ -699,7 +721,7 @@ func registerAzureFunctions(srv *sim.Server) {
 
 	registerSiteConfigHandlers(srv, armBase, sites)
 	registerSiteContainerHandlers(srv, armBase)
-	registerSiteVNetIntegration(srv, armBase, sites)
+	registerSiteVNetIntegration(srv)
 }
 
 // AzureSiteAppSettings is the canonical StringDictionary wire shape
@@ -1010,10 +1032,52 @@ type azureFunctionInstance struct {
 	sidecarHandles []*sim.ContainerHandle
 	rawHandle      *sim.ContainerHandle // non-HTTP service container (e.g. a redis `services:` site)
 	bootstrapURL   string               // "" for a raw service (no HTTP invoke)
-	// dockerNetwork is the App Service VNet-integration network (sim-vnet-<vnet>)
-	// the site joined, set by the swift virtualNetwork connection handler. The
-	// site container attaches to it with its identity aliases so peers resolve it.
-	dockerNetwork string
+	// dockerNetworks are the App Service VNet-integration networks
+	// (sim-vnet-<vnet>) the site joined, set by the virtualNetwork connection
+	// handlers (both the swift and the classic spelling). The site's containers
+	// attach to every one with the site's identity aliases so peers resolve it.
+	dockerNetworks []string
+}
+
+// addNetworkLocked records a VNet-integration network on the instance.
+// Caller holds inst.mu.
+func (inst *azureFunctionInstance) addNetworkLocked(network string) {
+	for _, n := range inst.dockerNetworks {
+		if n == network {
+			return
+		}
+	}
+	inst.dockerNetworks = append(inst.dockerNetworks, network)
+}
+
+// removeNetworkLocked forgets a VNet-integration network. Caller holds inst.mu.
+func (inst *azureFunctionInstance) removeNetworkLocked(network string) {
+	kept := inst.dockerNetworks[:0]
+	for _, n := range inst.dockerNetworks {
+		if n != network {
+			kept = append(kept, n)
+		}
+	}
+	inst.dockerNetworks = kept
+}
+
+// connectNetworksLocked attaches the instance's live container to every
+// recorded VNet-integration network with the site's identity aliases.
+// Re-connecting an already-attached endpoint is a harmless no-op error.
+// Caller holds inst.mu.
+func (inst *azureFunctionInstance) connectNetworksLocked(containerID string, site *Site) {
+	for _, network := range inst.dockerNetworks {
+		_ = sim.ConnectContainerToNetwork(containerID, network, siteNetAliases(site))
+	}
+}
+
+// instanceNetworks snapshots the recorded VNet-integration networks for a
+// site, for container launches that happen outside the instance lock.
+func instanceNetworks(siteName string) []string {
+	inst := azfInstanceFor(siteName)
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	return append([]string(nil), inst.dockerNetworks...)
 }
 
 var azureFunctionInstances = struct {
@@ -1093,11 +1157,7 @@ func invokeAzureFunctionHTTP(site *Site, body io.Reader, contentType string) ([]
 // `services:` redis that is never invoked).
 func (inst *azureFunctionInstance) ensureStarted(site *Site) error {
 	if inst.containerID != "" && sim.ContainerRunning(inst.containerID) {
-		if inst.dockerNetwork != "" {
-			// Idempotent: a re-connect of an already-attached endpoint is a
-			// harmless no-op error we ignore.
-			_ = sim.ConnectContainerToNetwork(inst.containerID, inst.dockerNetwork, siteNetAliases(site))
-		}
+		inst.connectNetworksLocked(inst.containerID, site)
 		return nil
 	}
 	if inst.containerID != "" {
@@ -1140,6 +1200,10 @@ func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
 		return err
 	}
 	sink := &funcLogSink{appName: site.Name}
+	var primaryNetwork string
+	if len(inst.dockerNetworks) > 0 {
+		primaryNetwork = inst.dockerNetworks[0]
+	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
 		Image:          localImage,
 		Architecture:   platform,
@@ -1147,12 +1211,19 @@ func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
 		Binds:          siteAzureStorageBinds(site),
 		Name:           fmt.Sprintf("sockerless-sim-azure-svc-%s-%s", site.Name, randomSuffix(6)),
 		Labels:         map[string]string{"sockerless-sim-type": "azure-service", "sockerless-site": site.Name},
-		Network:        inst.dockerNetwork,
+		Network:        primaryNetwork,
 		NetworkAliases: siteNetAliases(site),
 		Sandbox:        sim.SandboxAZF,
 	}, sink)
 	if err != nil {
 		return fmt.Errorf("start service container: %w", err)
+	}
+	// The launch config carries one network; a site integrated with several
+	// joins the rest post-start.
+	if len(inst.dockerNetworks) > 1 {
+		for _, network := range inst.dockerNetworks[1:] {
+			_ = sim.ConnectContainerToNetwork(handle.ContainerID, network, siteNetAliases(site))
+		}
 	}
 	inst.containerID = handle.ContainerID
 	inst.rawHandle = handle
@@ -1270,11 +1341,10 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	}
 
 	// VNet-integrated site: attach the (running) HTTP container to its App
-	// Service network so peers resolve it by name. The container's :8080 is for
-	// the function bootstrap; cross-site reachability is over this network.
-	if inst.dockerNetwork != "" {
-		_ = sim.ConnectContainerToNetwork(containerID, inst.dockerNetwork, siteNetAliases(site))
-	}
+	// Service networks so peers resolve it by name. The container's :8080 is
+	// for the function bootstrap; cross-site reachability is over these
+	// networks.
+	inst.connectNetworksLocked(containerID, site)
 
 	inst.containerID = containerID
 	inst.cancelLogs = cancelLogs
@@ -1554,6 +1624,18 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 		return []byte("{}"), -1
 	}
 
+	// A VNet-integrated site runs every one of its containers inside the
+	// integration network — the per-invocation container included, exactly
+	// like the persistent-site container, so the function reaches the VNet's
+	// other members by name.
+	networks := instanceNetworks(site.Name)
+	var primaryNetwork string
+	var networkAliases []string
+	if len(networks) > 0 {
+		primaryNetwork = networks[0]
+		networkAliases = siteNetAliases(site)
+	}
+
 	// Host metadata: route IMDS + identity reads via env.
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
 		Image:        localImage,
@@ -1567,13 +1649,22 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 			"sockerless-sim-type": "azure-function-invocation",
 			"sockerless-site":     site.Name,
 		},
-		ExtraHosts: hostMetadataExtraHosts(),
-		Sandbox:    sim.SandboxAZF,
+		ExtraHosts:     hostMetadataExtraHosts(),
+		Network:        primaryNetwork,
+		NetworkAliases: networkAliases,
+		Sandbox:        sim.SandboxAZF,
 	}, collectSink)
 	if err != nil {
 		injectAppTrace(site.Name,
 			fmt.Sprintf("Function execution error: container start failed: %v", err))
 		return []byte("{}"), -1
+	}
+	// The launch config carries one network; a site integrated with several
+	// joins the rest post-start.
+	if len(networks) > 1 {
+		for _, network := range networks[1:] {
+			_ = sim.ConnectContainerToNetwork(handle.ContainerID, network, siteNetAliases(site))
+		}
 	}
 	result := handle.Wait()
 

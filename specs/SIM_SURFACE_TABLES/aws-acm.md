@@ -18,22 +18,23 @@ Surface registered in `simulator-aws/acm.go` (and related files grouped under th
 | `Action CertificateManager.DescribeCertificate` | ✓ `simulator-aws/acm.go:260::handleACMDescribeCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CertificateManager.DeleteCertificate` | ✓ `simulator-aws/acm.go:261::handleACMDeleteCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CertificateManager.ListCertificates` | ✓ `simulator-aws/acm.go:262::handleACMListCertificates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.AddTagsToCertificate` | ✓ `simulator-aws/acm.go:263::handleACMAddTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.RemoveTagsFromCertificate` | ✓ `simulator-aws/acm.go:264::handleACMRemoveTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.ListTagsForCertificate` | ✓ `simulator-aws/acm.go:265::handleACMListTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.ImportCertificate` | ✓ `simulator-aws/acm.go:266::handleACMImportCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.UpdateCertificateOptions` | ✓ `simulator-aws/acm.go:267::handleACMUpdateOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.ResendValidationEmail` | ✓ `simulator-aws/acm.go:268::handleACMResendValidationEmail` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.RenewCertificate` | ✓ `simulator-aws/acm.go:269::handleACMRenewCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.GetCertificate` | ✓ `simulator-aws/acm.go:270::handleACMGetCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.ExportCertificate` | ✓ `simulator-aws/acm.go:271::handleACMExportCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.RevokeCertificate` | ✓ `simulator-aws/acm.go:272::handleACMRevokeCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.GetAccountConfiguration` | ✓ `simulator-aws/acm.go:273::handleACMGetAccountConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.PutAccountConfiguration` | ✓ `simulator-aws/acm.go:274::handleACMPutAccountConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.SearchCertificates` | ✓ `simulator-aws/acm.go:275::handleACMSearchCertificates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.TagResource` | ✓ `simulator-aws/acm.go:276::handleACMTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.UntagResource` | ✓ `simulator-aws/acm.go:277::handleACMUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CertificateManager.ListTagsForResource` | ✓ `simulator-aws/acm.go:278::handleACMListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.ListCertificateDomainValidations` | ✓ `simulator-aws/acm.go:263::handleACMListCertificateDomainValidations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.AddTagsToCertificate` | ✓ `simulator-aws/acm.go:264::handleACMAddTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.RemoveTagsFromCertificate` | ✓ `simulator-aws/acm.go:265::handleACMRemoveTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.ListTagsForCertificate` | ✓ `simulator-aws/acm.go:266::handleACMListTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.ImportCertificate` | ✓ `simulator-aws/acm.go:267::handleACMImportCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.UpdateCertificateOptions` | ✓ `simulator-aws/acm.go:268::handleACMUpdateOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.ResendValidationEmail` | ✓ `simulator-aws/acm.go:269::handleACMResendValidationEmail` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.RenewCertificate` | ✓ `simulator-aws/acm.go:270::handleACMRenewCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.GetCertificate` | ✓ `simulator-aws/acm.go:271::handleACMGetCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.ExportCertificate` | ✓ `simulator-aws/acm.go:272::handleACMExportCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.RevokeCertificate` | ✓ `simulator-aws/acm.go:273::handleACMRevokeCertificate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.GetAccountConfiguration` | ✓ `simulator-aws/acm.go:274::handleACMGetAccountConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.PutAccountConfiguration` | ✓ `simulator-aws/acm.go:275::handleACMPutAccountConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.SearchCertificates` | ✓ `simulator-aws/acm.go:276::handleACMSearchCertificates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.TagResource` | ✓ `simulator-aws/acm.go:277::handleACMTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.UntagResource` | ✓ `simulator-aws/acm.go:278::handleACMUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CertificateManager.ListTagsForResource` | ✓ `simulator-aws/acm.go:279::handleACMListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

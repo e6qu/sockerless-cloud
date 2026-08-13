@@ -117,6 +117,15 @@ func registerAppServicePlan(srv *sim.Server) {
 				sub, rg, planName)
 
 			plans.Delete(resourceID)
+			// The plan's own networking children go with it: VNet routes and
+			// plan-level connection gateways are stored under the plan id.
+			prefix := resourceID + "/"
+			for _, rt := range webPlanVnetRoutes.Filter(func(rt WebVnetRoute) bool { return strings.HasPrefix(rt.ID, prefix) }) {
+				webPlanVnetRoutes.Delete(rt.ID)
+			}
+			for _, gw := range webVnetGateways.Filter(func(gw WebVnetGateway) bool { return strings.HasPrefix(gw.ID, prefix) }) {
+				webVnetGateways.Delete(gw.ID)
+			}
 			w.WriteHeader(http.StatusOK)
 		})
 	}

@@ -1098,7 +1098,7 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // through the operation record to the namespace and service the operation
 // acted on — the simulator's own state, the same resolution Amazon RDS uses
 // for a custom engine version.
-const iamDerivationCoverageFloor = 1784
+const iamDerivationCoverageFloor = 1786
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

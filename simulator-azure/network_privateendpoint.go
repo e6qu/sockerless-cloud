@@ -455,6 +455,24 @@ var azurePrivateLinkTargets = []azurePrivateLinkTarget{
 		del: func(id string) { ehPrivateConns.Delete(id) },
 	},
 	{
+		armType:   "Microsoft.Web/sites",
+		childType: "Microsoft.Web/sites/privateEndpointConnections",
+		groupIDs:  []string{"sites"},
+		dnsSuffixes: func(string) (string, string) {
+			return "azurewebsites.net", "privatelink.azurewebsites.net"
+		},
+		put: func(id, name string, props map[string]any) {
+			webSitePECs.Put(id, WebSitePrivateEndpointConnection{
+				ID: id, Name: name, Type: webSitePECType(id), Properties: props,
+			})
+		},
+		get: func(id string) (map[string]any, bool) {
+			c, ok := webSitePECs.Get(id)
+			return c.Properties, ok
+		},
+		del: func(id string) { webSitePECs.Delete(id) },
+	},
+	{
 		armType:   "Microsoft.Network/privateLinkServices",
 		childType: azurePLSConnectionType,
 		// A private link service publishes no named groups: a consumer reaches

@@ -742,12 +742,34 @@ resource "azurerm_linux_function_app" "az_swift_fa" {
   storage_account_name       = azurerm_storage_account.az_st.name
   storage_account_access_key = azurerm_storage_account.az_st.primary_access_key
 
+  # Regional VNet integration in the spelling azurerm 5 documents. The
+  # standalone azurerm_app_service_virtual_network_swift_connection resource
+  # is deprecated because the site reports its integration back as
+  # virtual_network_subnet_id: an app that does not declare the attribute
+  # plans the integration away on every refresh, which is a real conflict on
+  # Azure and not something the simulator should hide by omitting the member.
+  virtual_network_subnet_id = azurerm_subnet.az_swift_subnet.id
+
   site_config {}
 }
 
-resource "azurerm_app_service_virtual_network_swift_connection" "az_swift" {
-  app_service_id = azurerm_linux_function_app.az_swift_fa.id
-  subnet_id      = azurerm_subnet.az_swift_subnet.id
+# Private endpoint terminating on the App Service site (group "sites") — the
+# consumer half of the Microsoft.Web/sites privateEndpointConnections surface.
+# Creating it writes the connection into the site's own collection (the same
+# object the WebApps privateEndpointConnections API serves), auto-approved
+# because endpoint and site share the subscription.
+resource "azurerm_private_endpoint" "az_site_pe" {
+  name                = "tf-azrm-site-pe"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  subnet_id           = azurerm_subnet.az_pl_pe_subnet.id
+
+  private_service_connection {
+    name                           = "tf-azrm-site-pe"
+    is_manual_connection           = false
+    private_connection_resource_id = azurerm_linux_function_app.az_swift_fa.id
+    subresource_names              = ["sites"]
+  }
 }
 
 # Static Web App — the Microsoft.Web/staticSites ARM resource. The provider
@@ -1327,8 +1349,8 @@ output "azrm_swift_subnet_id" {
   value = azurerm_subnet.az_swift_subnet.id
 }
 
-output "azrm_swift_connection_id" {
-  value = azurerm_app_service_virtual_network_swift_connection.az_swift.id
+output "azrm_swift_integration_subnet_id" {
+  value = azurerm_linux_function_app.az_swift_fa.virtual_network_subnet_id
 }
 
 output "azrm_apim_id" {

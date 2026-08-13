@@ -1,15 +1,13 @@
 # DO NEXT
 
-1. Watch the polish-pass-5 pull request's CI and fix failures for real.
-2. App Service Stage 5: networking across sites and plans (+~47) — the
-   virtualNetworkConnections family extending the real docker-network path,
-   privateAccess, networkFeatures, PECs, and the plan vnet/route/
-   hybrid-connection tail. The Provider_*Stacks vendored-catalog decision
-   (6 ops) remains open. BUG-3 tracks per-provider resource-move hooks. Deferred with reasons: processes/instances read
-   the live container (highest fidelity, highest complexity), backup/restore
-   wants a real Blob round-trip, App Service Environments + Kube
-   Environments are two new top-level resources, detector execution is data
-   the simulator cannot compute.
+1. Watch the polish-pass-6 pull request's CI and fix failures for real.
+2. App Service: Stages 1-5 are shipped (503 of 692). What remains in that
+   swagger is the recorded deferrals — processes and instances read from the
+   live container, backup and restore want a real Blob round-trip, App
+   Service Environments and Kube Environments are two new top-level
+   resources, detector execution is data the simulator cannot compute — plus
+   the Provider_*Stacks vendored-catalog decision (6 ops). BUG-3 continues
+   one provider family per pass.
 3. The two methods newly present in those specifications were real
 implementations: Bigtable memory layers retained enable/disable state and
 etags and returned durable operations, while Cloud Resource Manager returned

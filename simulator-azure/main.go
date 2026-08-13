@@ -143,6 +143,10 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	registerPrivateDNS(srv)
 	registerAzureFunctions(srv)
 	registerWebMore(srv)
+	registerWebHybridConnections(srv)
+	registerWebPrivateAccess(srv)
+	registerWebSitePrivateEndpoints(srv)
+	registerAppServicePlanNetworking(srv)
 	registerApplicationInsights(srv)
 
 	// Cloud metadata (for Terraform provider metadata_host)

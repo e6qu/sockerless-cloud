@@ -18,13 +18,24 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers because their provider credentials and delivery endpoints are not represented by an available public AWS contract. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
 
 - **BUG-3 (cross-resource-group move refuses types real ARM moves):** The
-  Microsoft.Resources move operation now really validates and really moves
-  Microsoft.Web sites (with their whole child subtree), plans, and
-  certificates — but a move naming any other movable type (a storage
-  account, a network resource) answers ARM's ResourceMoveNotSupported. Real
-  ARM moves most types. Fix shape: per-provider move hooks the resources
-  slice dispatches to, implemented family by family as their stores gain
-  re-keying support.
+  per-provider move-hook dispatch landed: Resources_MoveResources /
+  Resources_ValidateMoveResources walk a hook table (`resource_move.go`)
+  keyed by resource type, each hook carrying the existence check and the
+  re-keying move, and the dispatch re-homes the moved scope's
+  Microsoft.Resources/tags/default rows uniformly. Microsoft.Web sites
+  (whole child subtree), plans, and certificates became the first hooks,
+  behavior unchanged; Microsoft.Storage/storageAccounts moves end to end —
+  the account record, the blob-container / file-share / table projections,
+  the account-scoped ARM children, and the service-properties documents
+  re-key onto the new resource ID, while the access keys are pinned across
+  the move (a move never rotates keys) and the Blob/Files/Queue/Table data
+  planes, keyed by the globally unique account name, keep serving the same
+  bytes. A move naming any other movable type (a network resource, a Key
+  Vault) still answers ARM's ResourceMoveNotSupported, which stays truthful
+  only for the types real ARM refuses (Azure Container Instances container
+  groups). Remainder: hooks for the other providers' movable families,
+  implemented family by family as their stores gain re-keying support —
+  fix shape unchanged.
 
 ## Resolved history
 

@@ -254,7 +254,9 @@ func azureMoveErrorStatus(code string) int {
 
 // moveAzureResources validates (and, unless validateOnly, performs) a
 // cross-resource-group move. targetResourceGroup arrives either as a bare
-// name or as the full resource-group ID, as real clients send both.
+// name or as the full resource-group ID, as real clients send both. The
+// per-type work is dispatched through resourceMoveHooks (resource_move.go);
+// a type no provider slice has hooked answers ARM's ResourceMoveNotSupported.
 func moveAzureResources(sub, targetResourceGroup string, resources []string, validateOnly bool) *AsyncOperationError {
 	targetRG := targetResourceGroup
 	if i := strings.LastIndex(strings.ToLower(targetRG), "/resourcegroups/"); i >= 0 {
@@ -268,7 +270,8 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 			Message: fmt.Sprintf("Resource group '%s' could not be found.", targetRG)}
 	}
 	type plannedMove struct {
-		oldID, newID, typeKey string
+		oldID, newID string
+		hook         resourceMoveHook
 	}
 	var plan []plannedMove
 	for _, resID := range resources {
@@ -277,44 +280,24 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 			return &AsyncOperationError{Code: "InvalidResourceId",
 				Message: fmt.Sprintf("The resource id '%s' is not a valid resource-group-scoped resource ID.", resID)}
 		}
-		switch typeKey {
-		case "microsoft.web/sites", "microsoft.web/serverfarms", "microsoft.web/certificates":
-		default:
+		hook, supported := resourceMoveHooks[typeKey]
+		if !supported {
 			return &AsyncOperationError{Code: "ResourceMoveNotSupported",
 				Message: fmt.Sprintf("Resources of type '%s' do not support the move operation in this simulator.", typeKey)}
 		}
-		exists := false
-		switch typeKey {
-		case "microsoft.web/sites":
-			_, exists = azfSites.Get(resID)
-		case "microsoft.web/serverfarms":
-			_, exists = azureAppServicePlans.Get(resID)
-		case "microsoft.web/certificates":
-			_, exists = webCertificates.Get(resID)
-		}
-		if !exists {
+		if !hook.exists(resID) {
 			return &AsyncOperationError{Code: "ResourceNotFound",
 				Message: fmt.Sprintf("The resource '%s' was not found.", resID)}
 		}
 		newID := strings.Replace(resID, "/resourceGroups/"+rg+"/", "/resourceGroups/"+targetRG+"/", 1)
-		plan = append(plan, plannedMove{oldID: resID, newID: newID, typeKey: typeKey})
+		plan = append(plan, plannedMove{oldID: resID, newID: newID, hook: hook})
 	}
 	if validateOnly {
 		return nil
 	}
 	for _, m := range plan {
-		switch m.typeKey {
-		case "microsoft.web/sites":
-			webMoveSiteTree(m.oldID, m.newID, targetRG)
-		case "microsoft.web/serverfarms":
-			webMoveAppServicePlan(m.oldID, m.newID)
-		case "microsoft.web/certificates":
-			if cert, ok := webCertificates.Get(m.oldID); ok {
-				webCertificates.Delete(m.oldID)
-				cert.ID = m.newID
-				webCertificates.Put(cert.ID, cert)
-			}
-		}
+		m.hook.move(m.oldID, m.newID, targetRG)
+		moveScopedTags(m.oldID, m.newID)
 	}
 	return nil
 }

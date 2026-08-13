@@ -205,7 +205,7 @@ var azureMethodFloor = map[string]int{
 	// unserved deliberately: the runtime-stack catalog is Microsoft-published
 	// data that would need a vendored catalog, like the WAF rule sets; the
 	// decision is recorded in DO_NEXT.md.
-	"web-arm-openapi-2025-03-01": 426,
+	"web-arm-openapi-2025-03-01": 503,
 }
 
 // ---------------------------------------------------------------------------
