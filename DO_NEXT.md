@@ -1,11 +1,8 @@
 # DO NEXT
 
-1. Watch the polish-pass-2 pull request's CI and fix failures for real.
-2. BUG-2924 still awaits user sign-off on the proposed design (host-subnet
-   allocator decoupled from the VPC CIDR, ENI IP as a secondary interface
-   address via an ephemeral NET_ADMIN netns-join container).
-3. App Service Stages 2-5, one per pass: Static Web Apps completion (+~69),
-   function/host keys + webjobs + deployment extras (+~62, and wire the
+1. Watch the polish-pass-3 pull request's CI and fix failures for real.
+2. App Service Stages 3-5, one per pass: function/host keys + webjobs +
+   deployment extras (+~62, and wire the
    x-functions-key contract into POST /api/function so keys are
    load-bearing), certificates/hostnames/provider tail (+~44, with the six
    Provider_*Stacks operations needing a vendored-catalog decision like the

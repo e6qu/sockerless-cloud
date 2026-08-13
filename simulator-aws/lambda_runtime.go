@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,9 +254,12 @@ var (
 )
 
 type lambdaInvocationNetwork struct {
-	networkMode    string
-	network        string
-	ipAddress      string
+	networkMode string
+	network     string
+	// eniAddress is the invocation's elastic network interface IPv4 address in
+	// CIDR notation with the VPC CIDR's prefix length, plumbed as the
+	// container's secondary address (sim.ContainerConfig.ENIAddress).
+	eniAddress     string
 	runtimeAPIAddr string
 	metadataEnv    map[string]string
 	extraHosts     []string
@@ -416,13 +420,18 @@ func prepareLambdaInvocationNetwork(
 		out.cleanup()
 		return nil, fmt.Errorf("AWS Lambda VPC %s has no CIDR block", subnet.VpcId)
 	}
+	vpcPrefix, perr := netip.ParsePrefix(vpc.CidrBlock)
+	if perr != nil {
+		out.cleanup()
+		return nil, fmt.Errorf("AWS Lambda VPC %s CIDR %q: %w", subnet.VpcId, vpc.CidrBlock, perr)
+	}
 	networkName := ecsVPCNetworkName(subnet.VpcId)
-	if _, err := sim.EnsureVPCNetwork(networkName, vpc.CidrBlock); err != nil {
+	if _, err := sim.EnsureVPCNetwork(networkName); err != nil {
 		out.cleanup()
 		return nil, fmt.Errorf("provision AWS Lambda VPC network for %s: %w", subnet.VpcId, err)
 	}
 	out.network = networkName
-	out.ipAddress = privateIP
+	out.eniAddress = fmt.Sprintf("%s/%d", privateIP, vpcPrefix.Bits())
 	return out, nil
 }
 
@@ -722,7 +731,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 		Labels:      map[string]string{"sockerless-sim-lambda": requestID},
 		ExtraHosts:  invocationNetwork.extraHosts,
 		Network:     invocationNetwork.network,
-		IPAddress:   invocationNetwork.ipAddress,
+		ENIAddress:  invocationNetwork.eniAddress,
 		NetworkMode: invocationNetwork.networkMode,
 		Sandbox:     sim.SandboxLambda,
 		Binds:       binds,

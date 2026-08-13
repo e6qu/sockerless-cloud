@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/netip"
 	"os"
@@ -58,13 +59,25 @@ type ContainerConfig struct {
 	Timeout      time.Duration     // max execution time (0 = no limit)
 	Labels       map[string]string // container labels for tracking
 	Network      string            // Docker network to join (optional)
-	IPAddress    string            // static IPv4 within Network (optional; the VPC ENI IP)
-	NetworkMode  string            // Docker network mode (e.g. "container:<id>" for shared netns)
-	Name         string            // container name (optional, auto-generated if empty)
-	Tty          bool              // allocate a pseudo-TTY
-	OpenStdin    bool              // keep stdin open
-	Binds        []string          // bind mounts (e.g., "vol:/path")
-	ExtraHosts   []string          // --add-host entries (e.g., "host.docker.internal:host-gateway")
+	// ENIAddress is the workload's VPC elastic network interface IPv4 address
+	// in CIDR notation ("10.230.0.4/16"), its prefix length being the VPC
+	// CIDR's. The container's bridge-native primary address comes from the
+	// network's host-side allocator subnet (EnsureVPCNetwork), never from the
+	// VPC CIDR; after start, an ephemeral CAP_NET_ADMIN setup container adds
+	// ENIAddress as a secondary address on eth0, so the workload genuinely
+	// owns its VPC address while holding no network capability itself —
+	// matching real Amazon ECS, where the platform plumbs the ENI and the
+	// task gets no CAP_NET_ADMIN. The connected route the kernel derives from
+	// the prefix makes every same-VPC peer on the shared bridge reachable on
+	// its ENI address, while same-CIDR VPCs sit on different bridges and
+	// never see each other.
+	ENIAddress  string
+	NetworkMode string   // Docker network mode (e.g. "container:<id>" for shared netns)
+	Name        string   // container name (optional, auto-generated if empty)
+	Tty         bool     // allocate a pseudo-TTY
+	OpenStdin   bool     // keep stdin open
+	Binds       []string // bind mounts (e.g., "vol:/path")
+	ExtraHosts  []string // --add-host entries (e.g., "host.docker.internal:host-gateway")
 	// DNS are the resolvers written into the container's /etc/resolv.conf. A
 	// workload in its own network namespace cannot reach the embedded resolver
 	// Docker would otherwise configure, so the namespace's own resolver is named
@@ -545,6 +558,16 @@ func isTransientRegistryErr(err error) bool {
 }
 
 func createAndStartContainer(ctx context.Context, cli *client.Client, cfg ContainerConfig) (string, error) {
+	// Validate the ENI address before any resource is created.
+	var eniAddress netip.Prefix
+	if cfg.ENIAddress != "" {
+		parsed, err := netip.ParsePrefix(cfg.ENIAddress)
+		if err != nil {
+			return "", fmt.Errorf("vpc eni address %q: %w", cfg.ENIAddress, err)
+		}
+		eniAddress = parsed
+	}
+
 	// Pull image
 	pullPolicy := os.Getenv("SIM_PULL_POLICY")
 	if pullPolicy == "" {
@@ -655,19 +678,13 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 
 	var networkCfg *network.NetworkingConfig
 	if cfg.Network != "" && cfg.NetworkMode == "" {
-		endpoint := &network.EndpointSettings{}
-		if cfg.IPAddress != "" {
-			// Pin the container to its VPC ENI IP so DescribeTasks's
-			// privateIPv4Address is the container's real, routable address.
-			eniIP, err := netip.ParseAddr(cfg.IPAddress)
-			if err != nil {
-				return "", fmt.Errorf("vpc eni ip %q: %w", cfg.IPAddress, err)
-			}
-			endpoint.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: eniIP}
-		}
+		// The bridge-native primary address is the network's own (allocated by
+		// Docker IPAM from the host-side pool subnet); the VPC ENI address is
+		// plumbed as a secondary after start (cfg.ENIAddress), so DescribeTasks's
+		// privateIPv4Address remains the container's real, routable address.
 		networkCfg = &network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{
-				cfg.Network: endpoint,
+				cfg.Network: {},
 			},
 		}
 	}
@@ -696,7 +713,74 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		return "", fmt.Errorf("container start: %w", err)
 	}
 
+	if eniAddress.IsValid() {
+		if err := attachENIAddress(resp.ID, eniAddress, cfg.Architecture); err != nil {
+			// A workload that already ran to completion has no network
+			// namespace left to plumb — and no longer needs one: real Amazon
+			// ECS detaches the ENI when the task stops, so a short-lived task
+			// that exits before its address lands is a finished task, not a
+			// failed launch. Only a live workload missing its ENI address is
+			// a failure.
+			if inspected, inspectErr := cli.ContainerInspect(ctx, resp.ID, client.ContainerInspectOptions{}); inspectErr == nil &&
+				inspected.Container.State != nil && !inspected.Container.State.Running {
+				return resp.ID, nil
+			}
+			_, _ = cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
+			return "", fmt.Errorf("attach vpc eni address %s: %w", eniAddress, err)
+		}
+	}
+
 	return resp.ID, nil
+}
+
+// vpcENISetupImage runs the ephemeral network-setup container that plumbs a
+// workload's elastic network interface address — busybox from the Amazon ECR
+// Public Gallery (always carries the ip applet, avoids Docker Hub throttling).
+const vpcENISetupImage = "public.ecr.aws/docker/library/busybox:latest"
+
+// attachENIAddress adds the elastic network interface address as a secondary
+// IPv4 on a running container's eth0. A short-lived setup container joins the
+// workload's network namespace with CAP_NET_ADMIN and runs `ip addr add`; the
+// capability lives and dies with the setup container, so the workload keeps
+// its cloud-faithful, capability-free sandbox. The kernel derives the VPC's
+// connected route from the address's prefix, so no separate route needs to be
+// installed for same-VPC reachability.
+func attachENIAddress(containerID string, address netip.Prefix, architecture string) error {
+	var outputMu sync.Mutex
+	var output []string
+	sink := FuncSink(func(line LogLine) {
+		outputMu.Lock()
+		output = append(output, line.Text)
+		outputMu.Unlock()
+	})
+	handle, err := StartContainerSync(ContainerConfig{
+		Image:        vpcENISetupImage,
+		Architecture: architecture,
+		Command:      []string{"ip"},
+		Args:         []string{"addr", "add", address.String(), "dev", "eth0"},
+		NetworkMode:  "container:" + containerID,
+		Timeout:      30 * time.Second,
+		Sandbox: SandboxProfile{
+			CapDrop:          []string{"ALL"},
+			CapAdd:           []string{"NET_ADMIN"},
+			NoNewPrivileges:  true,
+			DenyDockerSocket: true,
+			DenyHostNetwork:  true,
+		},
+	}, sink)
+	if err != nil {
+		return err
+	}
+	result := handle.Wait()
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.ExitCode != 0 {
+		outputMu.Lock()
+		defer outputMu.Unlock()
+		return fmt.Errorf("ip addr add %s dev eth0 exited %d: %s", address, result.ExitCode, strings.Join(output, "; "))
+	}
+	return nil
 }
 
 // MissingNetfilterTableHint names the kernel dependency behind a container
@@ -1007,72 +1091,157 @@ func EnsureDockerNetwork(name string) (string, error) {
 	return resp.ID, nil
 }
 
-// EnsureVPCNetwork creates (idempotently) a user-defined bridge network whose
-// IPAM subnet is the VPC CIDR. Each VPC becomes a genuinely isolated L3 network:
-// the bridge enforces the VPC's implicit local route (intra-VPC routability) and
-// isolation across VPCs, and ECS tasks pinned to their ENI IP (within the CIDR)
-// expose that real, routable address via DescribeTasks. Returns the network ID.
+// vpcBridgePool is the reserved host-side pool VPC bridge subnets are carved
+// from. A VPC's Docker network never uses the VPC's own CIDR: an AWS CIDR is
+// private to its VPC — two live VPCs may legally share one — while a host
+// bridge subnet is exclusive, so the bridge subnet comes from this pool and
+// the VPC's addressing rides on top as secondary elastic-network-interface
+// addresses (ContainerConfig.ENIAddress). Each VPC network takes one /24: the
+// bridge carries only one primary address per running workload plus the
+// gateway (the VPC's own addressing needs never touch bridge IPAM), giving
+// 253 concurrent workloads per VPC and 256 concurrent VPC networks per host.
+// 10.213.0.0/16 sits outside the container runtimes' first auto-assignment
+// picks (Docker 172.17+/16 and 192.168.0.0/16 slices, Podman 10.88.0.0/16 and
+// netavark's low 10.89+ slices), outside the ECS helper-VPC test range
+// (10.225–10.249), and outside the fixed CIDRs the simulator suites use; any
+// slice something else on the host does hold is skipped dynamically.
+var vpcBridgePool = netip.MustParsePrefix("10.213.0.0/16")
+
+// vpcBridgeSubnet returns pool slice index (0–255) as a /24 prefix.
+func vpcBridgeSubnet(index int) netip.Prefix {
+	addr := vpcBridgePool.Addr().As4()
+	addr[2] = byte(index)
+	return netip.PrefixFrom(netip.AddrFrom4(addr), 24)
+}
+
 var vpcNetworkMu sync.Mutex
 
-func EnsureVPCNetwork(name, cidr string) (string, error) {
+// EnsureVPCNetwork creates (idempotently) the user-defined bridge network
+// backing a VPC. The bridge subnet is allocated from vpcBridgePool, never
+// from the VPC's CIDR, so two live VPCs sharing a CIDR coexist: a host
+// subnet's exclusivity stays a host concern, invisible in the AWS surface,
+// while workloads own their ENI address as a secondary on the shared bridge
+// (ContainerConfig.ENIAddress) and DescribeTasks/task metadata keep reporting
+// that real, same-VPC-routable address.
+//
+// The allocator's state is derived, never stored: the scan starts at a
+// name-derived slice (so concurrent simulator processes rarely contend for
+// the same slice), skips every subnet a network on the host already holds —
+// which is also exactly what makes a simulator restart safe — and frees a
+// slice only when a dead simulator run's leftover holds it. Returns the
+// network ID.
+func EnsureVPCNetwork(name string) (string, error) {
 	vpcNetworkMu.Lock()
 	defer vpcNetworkMu.Unlock()
 	cli := DockerClient()
 	if cli == nil {
 		return "", fmt.Errorf("docker client not initialized")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if existing, err := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); err == nil {
 		return existing.Network.ID, nil
 	}
-	subnet, err := netip.ParsePrefix(cidr)
+	inUse, err := hostSubnetsInUse(ctx, cli)
 	if err != nil {
-		return "", fmt.Errorf("vpc network create %s (%s): %w", name, cidr, err)
+		return "", fmt.Errorf("vpc network create %s: list host subnets: %w", name, err)
 	}
-	create := func() (string, error) {
-		resp, err := cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
+	const slices = 256
+	start := int(vpcNetworkNameHash(name) % slices)
+	var lastErr error
+	for n := 0; n < slices; n++ {
+		candidate := vpcBridgeSubnet((start + n) % slices)
+		if prefixOverlapsAny(inUse, candidate) {
+			// The slice may be held by a network an earlier simulator left
+			// behind: a VPC network is named for its VPC, so a later run never
+			// finds it by name, and without a reclaim the pool would silt up
+			// with slices nothing can use. Reclaiming frees the slice without
+			// touching anything live; a slice held by a live or foreign
+			// network is simply skipped.
+			if !reclaimOrphanedSubnet(ctx, cli, candidate.String()) {
+				continue
+			}
+		}
+		resp, createErr := cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
 			Driver: "bridge",
 			IPAM: &network.IPAM{
-				Config: []network.IPAMConfig{{Subnet: subnet}},
+				Config: []network.IPAMConfig{{Subnet: candidate}},
 			},
 			Labels: simulatorLabels(map[string]string{"sockerless-sim-vpc": name}),
 		})
-		if err != nil {
-			return "", err
+		if createErr == nil {
+			return resp.ID, nil
 		}
-		return resp.ID, nil
+		if !subnetInUseError(createErr) {
+			return "", fmt.Errorf("vpc network create %s (%s): %w", name, candidate, createErr)
+		}
+		// Lost the slice to a concurrent create between the scan and this
+		// call — the next slice is as good.
+		lastErr = createErr
 	}
-	id, err := create()
-	if err == nil {
-		return id, nil
+	if lastErr != nil {
+		return "", fmt.Errorf("vpc network create %s: reserved bridge pool %s exhausted: %w", name, vpcBridgePool, lastErr)
 	}
-	// The subnet may be held by a network an earlier simulator left behind. A
-	// VPC network is named for its VPC, so a run with a different VPC id does
-	// not find the old network by name and then cannot create its own: the
-	// subnet is taken under a name nothing looks for. Reclaiming it frees the
-	// subnet without touching anything live, and then the create is retried
-	// once.
-	if reclaimOrphanedSubnet(ctx, cli, cidr) {
-		if id, retryErr := create(); retryErr == nil {
-			return id, nil
+	return "", fmt.Errorf("vpc network create %s: reserved bridge pool %s exhausted", name, vpcBridgePool)
+}
+
+// vpcNetworkNameHash spreads VPC networks across the pool so simulator
+// processes sharing a host start their scans at different slices.
+func vpcNetworkNameHash(name string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	return h.Sum32()
+}
+
+// hostSubnetsInUse returns every IPv4 subnet any Docker network on the host
+// holds, whoever created it. The live networks are the allocator's only
+// ledger: a restarted simulator re-derives allocation state from them, and a
+// removed network returns its slice to the pool by ceasing to exist.
+func hostSubnetsInUse(ctx context.Context, cli *client.Client) ([]netip.Prefix, error) {
+	nets, err := cli.NetworkList(ctx, client.NetworkListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var used []netip.Prefix
+	for _, n := range nets.Items {
+		for _, cfg := range n.IPAM.Config {
+			if cfg.Subnet.IsValid() {
+				used = append(used, cfg.Subnet)
+			}
 		}
 	}
-	return "", fmt.Errorf("vpc network create %s (%s): %w", name, cidr, err)
+	return used, nil
+}
+
+func prefixOverlapsAny(used []netip.Prefix, candidate netip.Prefix) bool {
+	for _, p := range used {
+		if p.Overlaps(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+// subnetInUseError classifies a network-create failure as "this subnet is
+// taken": netavark reports "subnet … is already used on the host or by
+// another config", Docker "Pool overlaps with other one on this address
+// space". Anything else is a real daemon failure the caller must surface.
+func subnetInUseError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already used") || strings.Contains(msg, "overlap")
 }
 
 // reclaimOrphanedSubnet removes simulator networks holding the given subnet
 // that no container is attached to and that another simulator run created,
 // reporting whether it removed any.
 //
-// All three conditions are load-bearing. The simulator label keeps the sweep
+// All the conditions are load-bearing. The simulator label keeps the sweep
 // inside networks this project made. The exact subnet keeps it to the one
 // blocking the caller. No attached containers means nothing is using it, and a
 // different run id means the process that made it is not this one — together,
 // a network that only a dead run could still own. A live run's own empty
-// network is deliberately left alone, which is why two simultaneous VPCs
-// sharing a CIDR still conflict; that is a separate problem, and silently
-// deleting a peer's network would not solve it.
+// network is deliberately left alone: the pool allocator skips its slice and
+// takes another, so two live simulators never fight over a subnet.
 func reclaimOrphanedSubnet(ctx context.Context, cli *client.Client, cidr string) bool {
 	nets, err := cli.NetworkList(ctx, client.NetworkListOptions{
 		Filters: client.Filters{}.Add("label", "sockerless-sim=true"),

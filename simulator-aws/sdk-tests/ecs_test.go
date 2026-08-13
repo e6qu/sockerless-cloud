@@ -809,12 +809,14 @@ func createECSTestSubnet(t *testing.T, name string) string {
 func createECSTestVPCSubnet(t *testing.T, name string) (string, string) {
 	t.Helper()
 	ec2c := ec2Client()
-	// Keep ECS helper VPCs in 10.225.0.0/16 through 10.249.0.0/16. Fixed-CIDR
-	// SDK tests occupy ranges through 10.224.0.0/16 and resume at
-	// 10.250.0.0/16, so the old 10.20-119 range could collide with tests such
-	// as the 10.40.0.0/16 transit-gateway coverage. Cleanup below makes reuse
-	// after wrapping safe even though StopTask releases containers
-	// asynchronously.
+	// Keep ECS helper VPCs in 10.225.0.0/16 through 10.249.0.0/16, clear of
+	// the fixed CIDRs other SDK tests use (which occupy ranges through
+	// 10.224.0.0/16 and resume at 10.250.0.0/16). A VPC CIDR never reaches
+	// the host — bridge subnets come from the reserved allocator pool — but
+	// distinct ranges keep every concurrently running task's ENI address
+	// unique, so address-keyed assertions cannot cross-match. Cleanup below
+	// makes reuse after wrapping safe even though StopTask releases
+	// containers asynchronously.
 	n := ecsTestSubnetCounter.Add(1)
 	second := 225 + int(n%25)
 	third := int((n / 100) % 200)
