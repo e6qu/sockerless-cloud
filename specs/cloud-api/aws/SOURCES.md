@@ -28,7 +28,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `sqs.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/sqs.json` | Apache-2.0 | `b8a4fc132e65d8310e2de67e0600eec53e2f4b26` | 2026-07-26T18:39:23Z |
 | `ssm.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ssm.json` | Apache-2.0 | `f8598305ac9db1544afae331c09df396ee2f7b3e` | 2026-07-26T18:39:25Z |
 | `sts.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/sts.json` | Apache-2.0 | `b8a4fc132e65d8310e2de67e0600eec53e2f4b26` | 2026-07-26T18:39:27Z |
-| `acm.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/acm.json` | Apache-2.0 | `1529ead9d1a40beee31b0ad347cf082a5eb039a6` | 2026-07-26T20:02:45Z |
 | `firehose.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/firehose.json` | Apache-2.0 | `d701489126a33e148c96dc9f8fe0d08933bdadee` | 2026-07-28T18:04:05Z |
 | `lambda.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/lambda.json` | Apache-2.0 | `271e57f14b69291db0218257f35a643e11b61581` | 2026-08-02T17:35:43Z |
 | `rds.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/rds.json` | Apache-2.0 | `743701a43d851e1886fd6acafc98940d296492aa` | 2026-08-02T17:35:45Z |
@@ -39,9 +38,10 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `acm-pca.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/acm-pca.json` | Apache-2.0 | `8868ff7799c8f8ff772f921ab0e3b71d9117cb49` | 2026-08-05T20:18:21Z |
 | `s3.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/s3.json` | Apache-2.0 | `22a51fa09db7e4e07058e8e155d4ceb53bff992f` | 2026-08-06T20:54:06Z |
 | `cloudwatch-logs.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/cloudwatch-logs.json` | Apache-2.0 | `22a51fa09db7e4e07058e8e155d4ceb53bff992f` | 2026-08-06T20:54:07Z |
-| `auto-scaling.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/auto-scaling.json` | Apache-2.0 | `22a51fa09db7e4e07058e8e155d4ceb53bff992f` | 2026-08-06T20:54:10Z |
 | `amplify.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/amplify.json` | Apache-2.0 | `0c522bf377460ee85d2dad77a7e6c98a97a2f637` | 2026-08-07T19:39:56Z |
 | `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `0c522bf377460ee85d2dad77a7e6c98a97a2f637` | 2026-08-07T19:39:58Z |
 | `organizations.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/organizations.json` | Apache-2.0 | `99d67bbc264aface4816db1901432cc582fd77e4` | 2026-08-11T20:04:01Z |
 | `iam.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/iam.json` | Apache-2.0 | `701936ed8299116aa2d52d3d2651a1651f174a11` | 2026-08-12T19:34:44Z |
 | `glue.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/glue.json` | Apache-2.0 | `701936ed8299116aa2d52d3d2651a1651f174a11` | 2026-08-12T19:34:46Z |
+| `acm.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/acm.json` | Apache-2.0 | `f75a3c42cba93bf67e3bb698308cccf09ff26edd` | 2026-08-13T21:17:29Z |
+| `auto-scaling.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/auto-scaling.json` | Apache-2.0 | `f75a3c42cba93bf67e3bb698308cccf09ff26edd` | 2026-08-13T21:17:30Z |

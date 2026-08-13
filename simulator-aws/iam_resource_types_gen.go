@@ -31,6 +31,7 @@ var iamActionResourceTypes = map[string][]string{
 	"acm:ListAcmeAccounts":                                             {"acme-endpoint"},
 	"acm:ListAcmeDomainValidations":                                    {"acme-endpoint"},
 	"acm:ListAcmeExternalAccountBindings":                              {"acme-endpoint"},
+	"acm:ListCertificateDomainValidations":                             {"certificate"},
 	"acm:ListTagsForCertificate":                                       {"certificate"},
 	"acm:ListTagsForResource":                                          {"acme-domain-validation", "acme-endpoint", "acme-external-account-binding"},
 	"acm:RemoveTagsFromCertificate":                                    {"certificate"},

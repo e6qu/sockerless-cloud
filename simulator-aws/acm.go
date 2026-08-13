@@ -260,6 +260,7 @@ func registerACM(r *sim.AWSRouter, srv *sim.Server) {
 	r.Register("CertificateManager.DescribeCertificate", handleACMDescribeCertificate)
 	r.Register("CertificateManager.DeleteCertificate", handleACMDeleteCertificate)
 	r.Register("CertificateManager.ListCertificates", handleACMListCertificates)
+	r.Register("CertificateManager.ListCertificateDomainValidations", handleACMListCertificateDomainValidations)
 	r.Register("CertificateManager.AddTagsToCertificate", handleACMAddTags)
 	r.Register("CertificateManager.RemoveTagsFromCertificate", handleACMRemoveTags)
 	r.Register("CertificateManager.ListTagsForCertificate", handleACMListTags)
@@ -1483,4 +1484,76 @@ func acmCertExistsInRegion(arn, requireRegion string) (exists bool, regionMatch 
 		return true, false
 	}
 	return true, parts[3] == requireRegion
+}
+
+// handleACMListCertificateDomainValidations lists a certificate's domain
+// validations. AWS added the operation as a paginated read beside
+// DescribeCertificate, which carries the same validations inline: this answers
+// from the certificate's own DomainValidationOptions, so the two views can
+// never disagree. The summary splits each validation into the configuration
+// the request asked for and the one currently in force, which are the same
+// configuration for a certificate whose validation method has not been
+// changed.
+func handleACMListCertificateDomainValidations(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CertificateArn string `json:"CertificateArn"`
+		MaxItems       int    `json:"MaxItems"`
+		NextToken      string `json:"NextToken"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
+		return
+	}
+	if req.CertificateArn == "" {
+		acmWriteError(w, "InvalidParameterValueException", "CertificateArn is required")
+		return
+	}
+	id := acmARNToID(req.CertificateArn)
+	stored, ok := acmCertificates.Get(id)
+	if !ok {
+		acmWriteError(w, "ResourceNotFoundException", "Could not find certificate "+req.CertificateArn)
+		return
+	}
+	stored, err := acmReconcileIssuance(id, stored)
+	if err != nil {
+		acmWriteError(w, "InvalidParameterValueException", err.Error())
+		return
+	}
+
+	summaries := make([]map[string]any, 0, len(stored.Cert.DomainValidationOptions))
+	for _, option := range stored.Cert.DomainValidationOptions {
+		configuration := map[string]any{}
+		if option.ValidationMethod != "" {
+			configuration["ValidationMethod"] = option.ValidationMethod
+		}
+		if option.ValidationStatus != "" {
+			configuration["ValidationStatus"] = option.ValidationStatus
+		}
+		// The challenge is the method's own shape: a DNS validation carries
+		// the resource record the caller must publish, an email validation
+		// the domain the approval mail goes to.
+		switch {
+		case option.ResourceRecord != nil:
+			configuration["ValidationChallenge"] = map[string]any{
+				"DnsValidationChallenge": map[string]any{"ResourceRecord": option.ResourceRecord},
+			}
+		case strings.EqualFold(option.ValidationMethod, "EMAIL") && option.ValidationDomain != "":
+			configuration["ValidationChallenge"] = map[string]any{
+				"EmailValidationChallenge": map[string]any{"ValidationDomain": option.ValidationDomain},
+			}
+		}
+		summary := map[string]any{"DomainName": option.DomainName}
+		if len(configuration) > 0 {
+			summary["RequestedValidationConfiguration"] = configuration
+			summary["ActiveValidationConfiguration"] = configuration
+		}
+		summaries = append(summaries, summary)
+	}
+
+	page, next := awsPageExplicit(summaries, req.NextToken, req.MaxItems)
+	out := map[string]any{"DomainValidationSummaryList": page}
+	if next != "" {
+		out["NextToken"] = next
+	}
+	acmWriteJSON(w, http.StatusOK, out)
 }
