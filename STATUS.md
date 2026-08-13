@@ -39,9 +39,11 @@ Current state of the sockerless-cloud repository.
   module graphs; govulncheck clean).
 - **Measured floors**: IAM resource derivation 1,784 of 1,974 served
   operations; `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
-  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 238 of 692
-  (App Service Stage 1: child resources, site-scoped workflows, Key Vault
-  configuration references).
+  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 307 of 692
+  (App Service Stages 1-2: child resources, site-scoped workflows, Key Vault
+  configuration references, the complete Static Web Apps family). VPC
+  networks allocate bridge subnets from a host-side pool with ENI addresses
+  as real secondary interface addresses, so same-CIDR VPCs coexist.
 
 ## Releases
 

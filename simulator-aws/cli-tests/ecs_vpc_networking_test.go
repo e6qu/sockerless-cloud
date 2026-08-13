@@ -19,6 +19,13 @@ const vpcNetBusybox = "public.ecr.aws/docker/library/busybox:latest"
 // can test real TCP reachability/isolation between tasks.
 const vpcServerScript = "mkdir -p /www && echo ok > /www/index.html && httpd -f -p 80 -h /www"
 
+// vpcServerScriptServing is vpcServerScript with a caller-chosen body, so two
+// servers listening on the same ENI address in different VPCs are
+// distinguishable by content.
+func vpcServerScriptServing(body string) string {
+	return fmt.Sprintf("mkdir -p /www && echo %s > /www/index.html && httpd -f -p 80 -h /www", body)
+}
+
 // TestECSVPCNetworking proves the VPC task-networking contract end-to-end and
 // is tier-agnostic (works on both the netns and Docker-network fabrics, since it
 // probes via the task containers themselves): an ECS task's ENI
@@ -48,13 +55,15 @@ func TestECSVPCNetworking(t *testing.T) {
 	waitRunning(t, q, clientSame)
 	waitRunning(t, q, clientOther)
 
-	// #516: the reported ENI IP is the container's real eth0 address.
+	// The reported ENI IP is genuinely on the container's eth0 (the netns tier
+	// plumbs it as the interface's only address, the Docker-network tier as a
+	// secondary next to the allocator-assigned bridge primary).
 	eniIP := taskENIIP(q, server)
 	if !strings.HasPrefix(eniIP, vpcPrefix(octetA)) {
 		t.Fatalf("server ENI IP not in subnet-A CIDR: %q", eniIP)
 	}
-	if real := taskEth0IP(t, server); real != eniIP {
-		t.Fatalf("reported ENI IP %q != container's real eth0 IP %q (#516)", eniIP, real)
+	if ips := taskEth0IPs(t, server); !containsIP(ips, eniIP) {
+		t.Fatalf("reported ENI IP %q is not on the container's eth0 (addresses: %v)", eniIP, ips)
 	}
 
 	// Intra-VPC reachable; cross-VPC isolated.
@@ -100,8 +109,8 @@ func TestECSManagedEBSAwsvpcReachability(t *testing.T) {
 	waitRunning(t, q, client)
 
 	eniIP := taskENIIP(q, server)
-	if real := taskEth0IP(t, server); real != eniIP {
-		t.Fatalf("managed-EBS task reported ENI IP %q != real eth0 IP %q", eniIP, real)
+	if ips := taskEth0IPs(t, server); !containsIP(ips, eniIP) {
+		t.Fatalf("managed-EBS task reported ENI IP %q is not on eth0 (addresses: %v)", eniIP, ips)
 	}
 	out := q("ecs", "describe-tasks", "--cluster", "default", "--tasks", server, "--output", "json")
 	var desc struct {
@@ -219,24 +228,42 @@ func taskContainerID(t *testing.T, taskArn string) string {
 	return cid
 }
 
-// taskEth0IP reads the container's real eth0 IPv4 (works in both tiers).
-func taskEth0IP(t *testing.T, taskArn string) string {
+// taskEth0IPs reads every IPv4 address on the container's eth0 (works in both
+// tiers). The netns tier plumbs exactly the ENI address; the Docker-network
+// tier carries the bridge-native primary from the host-side allocator pool
+// plus the ENI address as a secondary — in both, the reported ENI IP must be
+// among them.
+func taskEth0IPs(t *testing.T, taskArn string) []string {
 	t.Helper()
 	cid := taskContainerID(t, taskArn)
-	// Retry: the netns veth is plumbed just as the task reaches RUNNING.
+	// Retry: the netns veth / secondary ENI address is plumbed just as the
+	// task reaches RUNNING.
 	for attempt := 0; attempt < 10; attempt++ {
+		var ips []string
 		out, _ := exec.Command("docker", "exec", cid, "ip", "-4", "-o", "addr", "show", "eth0").CombinedOutput()
 		for _, f := range strings.Fields(string(out)) {
 			if strings.HasPrefix(f, "inet") {
 				continue
 			}
 			if i := strings.Index(f, "/"); i > 0 && strings.Count(f[:i], ".") == 3 {
-				return f[:i]
+				ips = append(ips, f[:i])
 			}
+		}
+		if len(ips) > 0 {
+			return ips
 		}
 		time.Sleep(time.Second)
 	}
-	return ""
+	return nil
+}
+
+func containsIP(ips []string, want string) bool {
+	for _, ip := range ips {
+		if ip == want {
+			return true
+		}
+	}
+	return false
 }
 
 // taskWget fetches http://ip/index.html from inside a task container.
@@ -433,55 +460,77 @@ func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 		rmDockerNetworks(ecsVPCNet(vpc2))
 	})
 	waitRunning(t, q, task2)
-	if real := taskEth0IP(t, task2); !strings.HasPrefix(real, vpcPrefix(octet)) {
-		t.Fatalf("recreated VPC task should run in reused CIDR, got eth0 %q", real)
+	ips := taskEth0IPs(t, task2)
+	inReusedCIDR := false
+	for _, ip := range ips {
+		if strings.HasPrefix(ip, vpcPrefix(octet)) {
+			inReusedCIDR = true
+			break
+		}
+	}
+	if !inReusedCIDR {
+		t.Fatalf("recreated VPC task should own an ENI address in the reused CIDR, got eth0 addresses %v", ips)
 	}
 }
 
-// TestECSVPCOverlappingCIDR proves the netns fabric does what Docker bridges
-// can't: two VPCs with the SAME AWS CIDR (legal — VPCs are isolated) both run
-// tasks that get the SAME real ENI IP, with no remapping and full isolation.
-// Netns-tier only (the Docker-network tier can't host overlapping bridges).
+// TestECSVPCOverlappingCIDR proves — on both tiers — that two live VPCs with
+// the SAME AWS CIDR (legal: VPCs are isolated) both run tasks that get the
+// SAME real ENI IP, with no remapping and full isolation. The netns fabric
+// gives each VPC its own namespace; the Docker-network tier gives each VPC its
+// own bridge with an allocator-assigned subnet, the shared ENI address riding
+// as a per-container secondary, so neither bridge can see the other's.
 func TestECSVPCOverlappingCIDR(t *testing.T) {
-	if !ecsNetnsTierActive() {
-		t.Skip("overlapping VPC CIDRs require the netns fabric (Linux + CAP_NET_ADMIN)")
-	}
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	_, subnetA := mkVPCSubnet(t, q, "10.50.0.0/16", "10.50.0.0/24")
-	_, subnetB := mkVPCSubnet(t, q, "10.50.0.0/16", "10.50.0.0/24") // same CIDR
+	vpcA, subnetA := mkVPCSubnet(t, q, "10.50.0.0/16", "10.50.0.0/24")
+	vpcB, subnetB := mkVPCSubnet(t, q, "10.50.0.0/16", "10.50.0.0/24") // same CIDR
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
-	registerTaskDef(q, "ovl-server", vpcServerScript)
+	registerTaskDef(q, "ovl-server-a", vpcServerScriptServing("ok-vpc-a"))
+	registerTaskDef(q, "ovl-server-b", vpcServerScriptServing("ok-vpc-b"))
 	registerTaskDef(q, "ovl-client", "sleep 120")
 
-	serverA := runTask(q, "ovl-server", subnetA)
+	// The servers launch first in each VPC, so each subnet's deterministic
+	// allocator hands both the same first host address: the same ENI IP, live
+	// in two VPCs at once.
+	serverA := runTask(q, "ovl-server-a", subnetA)
+	serverB := runTask(q, "ovl-server-b", subnetB)
 	clientA := runTask(q, "ovl-client", subnetA)
 	clientB := runTask(q, "ovl-client", subnetB)
 	t.Cleanup(func() {
-		for _, task := range []string{serverA, clientA, clientB} {
+		for _, task := range []string{serverA, serverB, clientA, clientB} {
 			runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
 		}
+		waitTaskContainersGone(t, serverA, serverB, clientA, clientB)
+		rmDockerNetworks(ecsVPCNet(vpcA), ecsVPCNet(vpcB), ecsVPCNet(vpcA)+"-egress", ecsVPCNet(vpcB)+"-egress")
 	})
 	waitRunning(t, q, serverA)
+	waitRunning(t, q, serverB)
 	waitRunning(t, q, clientA)
 	waitRunning(t, q, clientB)
 
-	// Both VPCs keep the real CIDR — the server's ENI IP is its real eth0, and a
-	// task in VPC-B legitimately gets the same address (separate routing tables).
+	// Both VPCs keep the real CIDR — each server's ENI IP is on its real eth0,
+	// and the two servers legitimately hold the same address.
 	ip := taskENIIP(q, serverA)
 	if !strings.HasPrefix(ip, "10.50.0.") {
 		t.Fatalf("server should keep its real AWS CIDR (no remap): got %q", ip)
 	}
-	if real := taskEth0IP(t, serverA); real != ip {
-		t.Fatalf("reported ENI IP %q != real eth0 IP %q", ip, real)
+	if ipB := taskENIIP(q, serverB); ipB != ip {
+		t.Fatalf("both same-CIDR VPCs should allocate the same first ENI IP: VPC-A %q, VPC-B %q", ip, ipB)
+	}
+	if ips := taskEth0IPs(t, serverA); !containsIP(ips, ip) {
+		t.Fatalf("VPC-A server's reported ENI IP %q is not on its eth0 (addresses: %v)", ip, ips)
+	}
+	if ips := taskEth0IPs(t, serverB); !containsIP(ips, ip) {
+		t.Fatalf("VPC-B server's reported ENI IP %q is not on its eth0 (addresses: %v)", ip, ips)
 	}
 
-	// Same-VPC reaches the server; the same-CIDR VPC-B task is fully isolated.
-	if code, out := taskWget(t, clientA, ip); code != 0 || !strings.Contains(out, "ok") {
-		t.Fatalf("same-VPC task should reach %s: exit=%d out=%q", ip, code, out)
+	// Each client reaches its OWN VPC's server on the shared address and never
+	// the other's: the body proves which VPC answered.
+	if code, out := taskWget(t, clientA, ip); code != 0 || !strings.Contains(out, "ok-vpc-a") {
+		t.Fatalf("VPC-A task should reach VPC-A's server at %s: exit=%d out=%q", ip, code, out)
 	}
-	if code, _ := taskWget(t, clientB, ip); code == 0 {
-		t.Fatalf("overlapping-CIDR VPC-B task must be isolated from VPC-A's %s", ip)
+	if code, out := taskWget(t, clientB, ip); code != 0 || !strings.Contains(out, "ok-vpc-b") {
+		t.Fatalf("VPC-B task should reach VPC-B's server at %s: exit=%d out=%q", ip, code, out)
 	}
 }
 

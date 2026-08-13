@@ -7,6 +7,7 @@ import (
 	"fmt"
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -2032,8 +2033,10 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 	// task's VPC network namespace (a long-lived sleep, so the ENI is plumbed
 	// with no start-race), the ENI veth is attached into it, and every task
 	// container shares that netns — overlapping VPC CIDRs work natively with the
-	// real ENI IP. Otherwise the cross-platform Docker-network tier pins the
-	// first container to a per-VPC bridge at the ENI IP.
+	// real ENI IP. Otherwise the cross-platform Docker-network tier lands the
+	// first container on the VPC's bridge — whose subnet is allocator-assigned,
+	// never the VPC CIDR, so same-CIDR VPCs coexist — and plumbs the ENI IP as
+	// a secondary address on its interface.
 	networkMode := ecsEffectiveNetworkMode(td)
 	eniIP, subnetID, hasENI := ecsTaskENIInfo(taskID)
 	if networkMode == ecsNetworkModeAwsvpc && !hasENI {
@@ -2189,13 +2192,13 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			cfg.NetworkMode = "container:" + mainDockerID
 		case networkMode == ecsNetworkModeAwsvpc:
 			cfg.ExtraHosts = append(hostMetadataExtraHosts(), elbv2WorkloadExtraHosts()...)
-			netName, dockerIP, nerr := ecsTaskVPCNetwork(taskID)
+			netName, eniAddress, nerr := ecsTaskVPCNetwork(taskID)
 			if nerr != nil {
 				cleanupECSTaskProcesses(taskID, processes)
 				return nil, nerr
 			}
 			cfg.Network = netName
-			cfg.IPAddress = dockerIP
+			cfg.ENIAddress = eniAddress
 		default:
 			// bridge mode: each container gets its own address on the
 			// container instance's default Docker bridge.
@@ -2383,16 +2386,19 @@ func ecsContainerMetadataV4(taskID string) (map[string]any, bool) {
 	return ecsTaskContainerMetadata(taskID, task, td, td.ContainerDefinitions[0], eniIP)
 }
 
-// ecsTaskVPCNetwork resolves the VPC Docker network + ENI IP for an awsvpc task,
-// ensuring the network exists. Every failure is returned so an awsvpc launch
-// fails loudly rather than silently landing the task on the container
-// instance's default bridge with an address that is not its ENI's.
-func ecsTaskVPCNetwork(taskID string) (networkName, eniIP string, err error) {
+// ecsTaskVPCNetwork resolves the VPC Docker network + ENI address for an
+// awsvpc task, ensuring the network exists. The ENI address is returned in
+// CIDR notation with the VPC CIDR's prefix length, ready to be plumbed as the
+// container's secondary address (ContainerConfig.ENIAddress). Every failure
+// is returned so an awsvpc launch fails loudly rather than silently landing
+// the task on the container instance's default bridge with an address that is
+// not its ENI's.
+func ecsTaskVPCNetwork(taskID string) (networkName, eniAddress string, err error) {
 	task, found := ecsTasks.Get(taskID)
 	if !found {
 		return "", "", fmt.Errorf("task %s not found", taskID)
 	}
-	var subnetID string
+	var subnetID, eniIP string
 	for _, att := range task.Attachments {
 		if att.Type != "ElasticNetworkInterface" {
 			continue
@@ -2420,11 +2426,15 @@ func ecsTaskVPCNetwork(taskID string) (networkName, eniIP string, err error) {
 	if vpc.CidrBlock == "" {
 		return "", "", fmt.Errorf("vpc %s has no CIDR block", subnet.VpcId)
 	}
+	vpcPrefix, perr := netip.ParsePrefix(vpc.CidrBlock)
+	if perr != nil {
+		return "", "", fmt.Errorf("vpc %s CIDR %q: %w", subnet.VpcId, vpc.CidrBlock, perr)
+	}
 	name := ecsVPCNetworkName(subnet.VpcId)
-	if _, nerr := sim.EnsureVPCNetwork(name, vpc.CidrBlock); nerr != nil {
+	if _, nerr := sim.EnsureVPCNetwork(name); nerr != nil {
 		return "", "", fmt.Errorf("provision VPC network for %s: %w", subnet.VpcId, nerr)
 	}
-	return name, eniIP, nil
+	return name, fmt.Sprintf("%s/%d", eniIP, vpcPrefix.Bits()), nil
 }
 
 // ecsRequireCluster resolves a cluster ref (name or ARN; "" → "default") and,

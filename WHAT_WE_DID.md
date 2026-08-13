@@ -1,5 +1,30 @@
 # WHAT WE DID
 
+## 2026-08-13 — Third polish pass: BUG-2924 implemented, Static Web Apps complete
+
+Implemented BUG-2924's approved design: every VPC network takes its Docker
+bridge subnet from a host-side allocator over 10.213.0.0/16 (per-VPC /24
+slices, live networks as the only ledger so restarts cannot double-allocate,
+dead-run reclaim unchanged), and the ENI address is genuinely on the
+workload's interface — an ephemeral NET_ADMIN netns-join container adds it
+as a secondary address, while the workload keeps its capability-free
+sandbox, matching real Amazon ECS. Two live VPCs sharing a CIDR now coexist,
+holding even identical ENI addresses, with intra-VPC reachability on the ENI
+address and cross-VPC isolation pinned end to end. The audit surfaced and
+fixed a real cross-VPC defect: the Elastic Load Balancing target lookup
+keyed on the bare ENI address and now scopes by VPC.
+
+Completed the Static Web Apps family — all 75 StaticSites operations —
+raising the web-arm floor 238 → 307 of 692: builds, both app-settings bags
+at site and build scope, secrets and API-key rotation, users and roles,
+custom domains validated truthfully against the sim's Azure DNS records,
+basic auth, database connections, linked backends resolved against the real
+site/app stores, user-provided function apps linking existing Microsoft.Web
+sites, private endpoint connections, zip-deployment LROs, detach and
+workflow preview. Official SDK, az CLI (native az staticwebapp flow through
+az cloud update against the TLS sim), and Terraform in the same change; the
+wire-shape validator reported zero violations.
+
 ## 2026-08-12 — Second polish pass: App Service Stage 1, derivation tail, release-pipeline gate
 
 Widened the Azure App Service surface from 161 to 238 of 692 served

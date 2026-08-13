@@ -129,38 +129,6 @@ type webConfigExtra struct {
 
 var webConfigExtras sim.Store[webConfigExtra]
 
-// StaticSiteResource mirrors armappservice.StaticSiteARMResource.
-type StaticSiteResource struct {
-	ID         string                `json:"id,omitempty"`
-	Name       string                `json:"name,omitempty"`
-	Type       string                `json:"type"`
-	Location   string                `json:"location"`
-	Tags       map[string]string     `json:"tags,omitempty"`
-	Kind       string                `json:"kind,omitempty"`
-	Sku        *StaticSiteSku        `json:"sku,omitempty"`
-	Properties *StaticSiteProperties `json:"properties,omitempty"`
-}
-
-// StaticSiteSku mirrors armappservice.SKUDescription (the subset the
-// simulator round-trips).
-type StaticSiteSku struct {
-	Name string `json:"name,omitempty"`
-	Tier string `json:"tier,omitempty"`
-}
-
-// StaticSiteProperties mirrors armappservice.StaticSite (the subset the
-// simulator round-trips).
-type StaticSiteProperties struct {
-	DefaultHostname          string `json:"defaultHostname,omitempty"`
-	RepositoryURL            string `json:"repositoryUrl,omitempty"`
-	Branch                   string `json:"branch,omitempty"`
-	Provider                 string `json:"provider,omitempty"`
-	StagingEnvironmentPolicy string `json:"stagingEnvironmentPolicy,omitempty"`
-	AllowConfigFileUpdates   *bool  `json:"allowConfigFileUpdates,omitempty"`
-}
-
-var webStaticSites sim.Store[StaticSiteResource]
-
 const webProvider = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web"
 
 func registerWebMore(srv *sim.Server) {
@@ -170,7 +138,6 @@ func registerWebMore(srv *sim.Server) {
 	webSourceControls = sim.MakeStore[WebSourceControl](srv.DB(), "web_source_controls")
 	webSiteExtensions = sim.MakeStore[WebSiteExtension](srv.DB(), "web_site_extensions")
 	webConfigExtras = sim.MakeStore[webConfigExtra](srv.DB(), "web_config_extras")
-	webStaticSites = sim.MakeStore[StaticSiteResource](srv.DB(), "web_static_sites")
 
 	registerWebSiteAndSlotHandlers(srv)
 	registerWebSlotCRUD(srv)
