@@ -265,3 +265,39 @@ func TestStaticSiteBasicAuthPersistenceRoundTrip(t *testing.T) {
 		t.Fatalf("wire shape leaks the password: %s", wire)
 	}
 }
+
+// TestWebCertificatePersistenceRoundTrip asserts an App Service certificate's
+// uploaded PFX archive and password survive a store reopen through the
+// persistence sidecar — real App Service retains the uploaded material while
+// pfxBlob and password stay x-ms-secret — and never appear on the wire.
+func TestWebCertificatePersistenceRoundTrip(t *testing.T) {
+	valid := true
+	got := storeReopenRoundTrip(t, "web_certificates_test", WebCertificate{
+		ID:       "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/certificates/c1",
+		Name:     "c1",
+		Type:     "Microsoft.Web/certificates",
+		Location: "eastus",
+		Properties: WebCertificateProperties{
+			SubjectName: "persist.example.com",
+			Thumbprint:  "AABBCCDDEEFF00112233445566778899AABBCCDD",
+			Valid:       &valid,
+		},
+		PfxBlob:  []byte{0x30, 0x82, 0x01, 0x02},
+		Password: "pfx-secret",
+	})
+	if string(got.PfxBlob) != string([]byte{0x30, 0x82, 0x01, 0x02}) || got.Password != "pfx-secret" {
+		t.Fatalf("certificate secret material dropped on reopen: %+v", got)
+	}
+	if got.Properties.Thumbprint != "AABBCCDDEEFF00112233445566778899AABBCCDD" {
+		t.Fatalf("certificate payload drifted on reopen: %+v", got)
+	}
+	wire, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal wire shape: %v", err)
+	}
+	for _, leaked := range []string{"pfx-secret", "pfxBlob", "password", "PfxBlob", "Password"} {
+		if strings.Contains(string(wire), leaked) {
+			t.Fatalf("wire shape leaks certificate secret material %q: %s", leaked, wire)
+		}
+	}
+}

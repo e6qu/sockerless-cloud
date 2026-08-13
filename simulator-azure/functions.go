@@ -46,6 +46,7 @@ type SiteProperties struct {
 	Enabled          bool        `json:"enabled"`
 	EnabledHostNames []string    `json:"enabledHostNames,omitempty"`
 	ServerFarmID     string      `json:"serverFarmId,omitempty"`
+	SKU              string      `json:"sku,omitempty"`
 	Reserved         bool        `json:"reserved,omitempty"`
 	SiteConfig       *SiteConfig `json:"siteConfig,omitempty"`
 	ResourceGroup    string      `json:"resourceGroup,omitempty"`
@@ -234,6 +235,7 @@ func registerAzureFunctions(srv *sim.Server) {
 				Enabled:          true,
 				EnabledHostNames: []string{defaultHostName, name + ".scm.azurewebsites.net"},
 				ServerFarmID:     req.Properties.ServerFarmID,
+				SKU:              webPlanSKUFor(req.Properties.ServerFarmID),
 				Reserved:         req.Properties.Reserved,
 				SiteConfig:       siteConfig,
 				ResourceGroup:    rg,
@@ -941,6 +943,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		}
 		site.Properties.SiteConfig = &req.Properties
 		sites.Put(resourceID, site)
+		webRecordConfigSnapshot(resourceID, site.Properties.SiteConfig)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"id":         resourceID + "/config/web",
 			"name":       "web",

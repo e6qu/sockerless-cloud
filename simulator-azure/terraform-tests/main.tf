@@ -653,6 +653,49 @@ resource "azurerm_app_service_public_certificate" "az_fa_pubcert" {
   blob                 = "MIIBODCB36ADAgECAgEBMAoGCCqGSM49BAMCMCUxIzAhBgNVBAMTGnNvY2tlcmxlc3Mtc2ltLXB1YmxpYy1jZXJ0MCAXDTI2MDEwMTAwMDAwMFoYDzIxMjYwMTAxMDAwMDAwWjAlMSMwIQYDVQQDExpzb2NrZXJsZXNzLXNpbS1wdWJsaWMtY2VydDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABIYJeLik0TOyqjYwfwDiqAkGzAbpepEjv4QKPOTTI7OH598l1LPkSwMNslhaMITB4V3UHtod+Y5SmGM1nJeCdZEwCgYIKoZIzj0EAwIDSAAwRQIhALwq3le+aDLA2FJZr4hYiJvJ1PNpq5PUlNdrn4t6XY9CAiBQKGsAY1MrTtkXxK0tuItu4cbF85xw7RQajq5/ubpXGg=="
 }
 
+# App Service SSL certificate — the top-level Microsoft.Web/certificates
+# resource. The provider PUTs the PFX archive (base64) with its password and
+# reads the resource back on every plan, so the sim must parse the real
+# PKCS#12 payload and round-trip the derived thumbprint, subject name, host
+# names and validity dates for the apply to stay idempotent. The blob is a
+# self-signed certificate for tf.stage4.sockerless.test (valid 2026-2126,
+# SHA-1 thumbprint C573212158F1E07C7C6BC2370AFB84A17EDCDAFB), protected by
+# the password below.
+resource "azurerm_app_service_certificate" "az_fa_cert" {
+  name                = "tf-azrm-cert"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  pfx_blob            = "MIIEPgIBAzCCA+4GCSqGSIb3DQEHAaCCA98EggPbMIID1zCCAogGCSqGSIb3DQEHBqCCAnkwggJ1AgEAMIICbgYJKoZIhvcNAQcBMF0GCSqGSIb3DQEFDTBQMC8GCSqGSIb3DQEFDDAiBBBTHUD6XqhPmLm/BE9KutFZAgIIADAKBggqhkiG9w0CCTAdBglghkgBZQMEASoEEMtthVm+vmX0KBzz5aQDGXaAggIAr/GYJfmbTKh6RhrrNTVlIvRjvP43i0+qDQQUwulTBiCxxcd0fHE6mtCrIr4drogKhjoHLweM8Upi5V7xBc/ljIpEaOY9KOw+hAl36WA7Z+5+AYWmiTGwyIze+//GrzVN66u9bPPBxDevdCke/HjoWAs+XYTcy1En4ifVswtx/PKec4VFp45GWZPeCVgpfAM60AO//KnWl2emyn0PaDW6KX6x8+qOo76zkz+SQS2hrbiyegtP7J37TG2CaYAJzNbMW6K4T9ewIiC/rB+eOIhBxAmymkBEb790EPrFcmPyKRE1YcVRDOgfIuSUeCD8vCcvp3+JwjpTsLerrjCFC84rj141NK71XF2/P4gY8WhDJd4wI7RSOj2iEF52QBnh/fWPx0AtFJtg8mZUJW1hbVmHh7HN2YSfRYZMfwCcpTV+Ottz+5SAkDRoDDZFUPXL8ZygPcIkQYyepKhxLkKAxIkuEX5A3lAvVhbWjh4fCaKa6PGRnqctx+X38cLBwKjx+35tBX8aImZ9SLZfqje9C/V72lRWMddAiegm5iXwz8JymClmGeha7tIztJXukUolvvSEkRoH8MdqXnj3BTr7c1cp2XsEB6RM57qF1B5loDQC1QvKf2qbktUNkjBCOra8jqoRVwNCwJaz+VmGZis9tBnDvAb7sWxr5Zg3Q+EK/Rlxb+EwggFHBgkqhkiG9w0BBwGgggE4BIIBNDCCATAwggEsBgsqhkiG9w0BDAoBAqCB9TCB8jBdBgkqhkiG9w0BBQ0wUDAvBgkqhkiG9w0BBQwwIgQQ4uMr6sq0cwmwc1kSEAsYcwICCAAwCgYIKoZIhvcNAgkwHQYJYIZIAWUDBAEqBBDR53wNKCFWDO404+7T/LYXBIGQqMJ/FCAgt5cRG8asbNxTOuNEmHTDTuZflhNM/Z6C2WRsJtyOWCnKf2oJFID2N2AlLLypLcAclsEDL3T0q4ANB8zsScPWM5aMVaAk0j8IPide5mW9ZXQVgksZjuADCTz0SvFQiqtAzsIiSbOPTi8kivz4QkZz65G4tOtU6QsnlNloO0oVCIdA1O45tcS0Eq0eMSUwIwYJKoZIhvcNAQkVMRYEFMVzISFY8eB8fGvCNwr7hKF+3Nr7MEcwLzALBglghkgBZQMEAgEEICjLD5LMSOwqEqCggyCUXa5dZyJ7i8Q1L15fOIWs2GbzBBAqGwucn7r+L8oV4q56rkLDAgIIAA=="
+  password            = "sockerless"
+}
+
+# Custom hostname binding on the Function App, DNS-backed: the CNAME record
+# in the Azure DNS zone points the hostname at the app's default hostname —
+# the ownership proof WebApps_AnalyzeCustomHostname reads from the same DNS
+# state.
+resource "azurerm_dns_cname_record" "az_fa_cname" {
+  name                = "fa"
+  zone_name           = azurerm_dns_zone.az_dns.name
+  resource_group_name = azurerm_resource_group.az_rg.name
+  ttl                 = 300
+  record              = azurerm_linux_function_app.az_fa.default_hostname
+}
+
+resource "azurerm_app_service_custom_hostname_binding" "az_fa_hostname" {
+  hostname            = "${azurerm_dns_cname_record.az_fa_cname.name}.${azurerm_dns_zone.az_dns.name}"
+  app_service_name    = azurerm_linux_function_app.az_fa.name
+  resource_group_name = azurerm_resource_group.az_rg.name
+}
+
+# SSL binding tying the uploaded certificate to the custom hostname: the
+# provider re-PUTs the hostname binding with the certificate's thumbprint
+# and SNI state, then reads both the binding and the certificate back.
+resource "azurerm_app_service_certificate_binding" "az_fa_cert_binding" {
+  hostname_binding_id = azurerm_app_service_custom_hostname_binding.az_fa_hostname.id
+  certificate_id      = azurerm_app_service_certificate.az_fa_cert.id
+  ssl_state           = "SniEnabled"
+}
+
 # App Service regional VNet integration (the "swift" virtual network
 # connection) — the Microsoft.Web/sites/networkConfig/virtualNetwork endpoint
 # the azure-functions backend uses for cloud-dns service discovery. Regional

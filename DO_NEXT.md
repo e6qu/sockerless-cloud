@@ -1,10 +1,11 @@
 # DO NEXT
 
-1. Watch the polish-pass-4 pull request's CI and fix failures for real.
-2. App Service Stages 4-5, one per pass: certificates/hostnames/provider
-   tail (+~44, with the six Provider_*Stacks operations needing a
-   vendored-catalog decision like the WAF rule sets), then networking across
-   sites and plans (+~47). Deferred with reasons: processes/instances read
+1. Watch the polish-pass-5 pull request's CI and fix failures for real.
+2. App Service Stage 5: networking across sites and plans (+~47) — the
+   virtualNetworkConnections family extending the real docker-network path,
+   privateAccess, networkFeatures, PECs, and the plan vnet/route/
+   hybrid-connection tail. The Provider_*Stacks vendored-catalog decision
+   (6 ops) remains open. BUG-3 tracks per-provider resource-move hooks. Deferred with reasons: processes/instances read
    the live container (highest fidelity, highest complexity), backup/restore
    wants a real Blob round-trip, App Service Environments + Kube
    Environments are two new top-level resources, detector execution is data

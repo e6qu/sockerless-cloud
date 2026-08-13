@@ -218,6 +218,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 				Enabled:          true,
 				EnabledHostNames: []string{host, name + "-" + slot + ".scm.azurewebsites.net"},
 				ServerFarmID:     req.Properties.ServerFarmID,
+				SKU:              webPlanSKUFor(req.Properties.ServerFarmID),
 				Reserved:         req.Properties.Reserved,
 				SiteConfig:       siteConfig,
 				ResourceGroup:    sim.PathParam(r, "resourceGroupName"),

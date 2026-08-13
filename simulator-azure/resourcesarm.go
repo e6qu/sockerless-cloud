@@ -210,6 +210,15 @@ func handleResourceGroupExportTemplate(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"template": template})
 }
 
+// handleMoveResources serves both Resources_MoveResources and
+// Resources_ValidateMoveResources: the validate spelling runs every check the
+// move runs — the resources exist, the target resource group exists, the
+// resource type supports a cross-group move — without mutating anything,
+// while the move spelling re-homes the resources (and their whole child
+// subtree) into the target resource group in the real stores. The simulator
+// completes the work inside the request and answers 204 No Content, the
+// synchronous completion both move contracts document; a failed check
+// answers the ARM error envelope directly.
 func handleMoveResources(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	var req struct {
@@ -220,11 +229,106 @@ func handleMoveResources(w http.ResponseWriter, r *http.Request) {
 		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	opID := issueAzureAsyncOperation(nil)
-	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.Resources", "global", "operationStatuses", opID, r.URL.Query().Get("api-version"))
-	w.Header().Set("Azure-AsyncOperation", opURL)
-	w.Header().Set("Retry-After", "0")
-	w.WriteHeader(http.StatusAccepted)
+	validateOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/validateMoveResources")
+	if moveErr := moveAzureResources(sub, req.TargetResourceGroup, req.Resources, validateOnly); moveErr != nil {
+		sim.AzureError(w, moveErr.Code, moveErr.Message, azureMoveErrorStatus(moveErr.Code))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// azureMoveErrorStatus maps a move-validation error code onto the HTTP
+// status Azure Resource Manager pairs it with: absent resources and groups
+// are 404s, malformed input is a 400, and an unsupported move is the 409
+// Conflict a real move-validation failure reports.
+func azureMoveErrorStatus(code string) int {
+	switch code {
+	case "ResourceGroupNotFound", "ResourceNotFound":
+		return http.StatusNotFound
+	case "ResourceMoveNotSupported":
+		return http.StatusConflict
+	default:
+		return http.StatusBadRequest
+	}
+}
+
+// moveAzureResources validates (and, unless validateOnly, performs) a
+// cross-resource-group move. targetResourceGroup arrives either as a bare
+// name or as the full resource-group ID, as real clients send both.
+func moveAzureResources(sub, targetResourceGroup string, resources []string, validateOnly bool) *AsyncOperationError {
+	targetRG := targetResourceGroup
+	if i := strings.LastIndex(strings.ToLower(targetRG), "/resourcegroups/"); i >= 0 {
+		targetRG = targetRG[i+len("/resourcegroups/"):]
+	}
+	if targetRG == "" {
+		return &AsyncOperationError{Code: "InvalidRequestContent", Message: "The 'targetResourceGroup' member is required."}
+	}
+	if _, ok := azureResourceGroups.Get(fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, targetRG)); !ok {
+		return &AsyncOperationError{Code: "ResourceGroupNotFound",
+			Message: fmt.Sprintf("Resource group '%s' could not be found.", targetRG)}
+	}
+	type plannedMove struct {
+		oldID, newID, typeKey string
+	}
+	var plan []plannedMove
+	for _, resID := range resources {
+		typeKey, rg, ok := parseMovableResourceID(resID)
+		if !ok {
+			return &AsyncOperationError{Code: "InvalidResourceId",
+				Message: fmt.Sprintf("The resource id '%s' is not a valid resource-group-scoped resource ID.", resID)}
+		}
+		switch typeKey {
+		case "microsoft.web/sites", "microsoft.web/serverfarms", "microsoft.web/certificates":
+		default:
+			return &AsyncOperationError{Code: "ResourceMoveNotSupported",
+				Message: fmt.Sprintf("Resources of type '%s' do not support the move operation in this simulator.", typeKey)}
+		}
+		exists := false
+		switch typeKey {
+		case "microsoft.web/sites":
+			_, exists = azfSites.Get(resID)
+		case "microsoft.web/serverfarms":
+			_, exists = azureAppServicePlans.Get(resID)
+		case "microsoft.web/certificates":
+			_, exists = webCertificates.Get(resID)
+		}
+		if !exists {
+			return &AsyncOperationError{Code: "ResourceNotFound",
+				Message: fmt.Sprintf("The resource '%s' was not found.", resID)}
+		}
+		newID := strings.Replace(resID, "/resourceGroups/"+rg+"/", "/resourceGroups/"+targetRG+"/", 1)
+		plan = append(plan, plannedMove{oldID: resID, newID: newID, typeKey: typeKey})
+	}
+	if validateOnly {
+		return nil
+	}
+	for _, m := range plan {
+		switch m.typeKey {
+		case "microsoft.web/sites":
+			webMoveSiteTree(m.oldID, m.newID, targetRG)
+		case "microsoft.web/serverfarms":
+			webMoveAppServicePlan(m.oldID, m.newID)
+		case "microsoft.web/certificates":
+			if cert, ok := webCertificates.Get(m.oldID); ok {
+				webCertificates.Delete(m.oldID)
+				cert.ID = m.newID
+				webCertificates.Put(cert.ID, cert)
+			}
+		}
+	}
+	return nil
+}
+
+// parseMovableResourceID splits a resource-group-scoped ARM resource ID into
+// its lowercased provider/type key and its resource-group name.
+func parseMovableResourceID(resID string) (typeKey, rg string, ok bool) {
+	segs := strings.Split(strings.Trim(resID, "/"), "/")
+	// subscriptions/{sub}/resourceGroups/{rg}/providers/{ns}/{type}/{name}
+	if len(segs) < 8 || !strings.EqualFold(segs[0], "subscriptions") ||
+		!strings.EqualFold(segs[2], "resourceGroups") || !strings.EqualFold(segs[4], "providers") {
+		return "", "", false
+	}
+	return strings.ToLower(segs[5] + "/" + segs[6]), segs[3], true
 }
 
 // handleProviderRegisterAtMG registers a resource provider at management-group
