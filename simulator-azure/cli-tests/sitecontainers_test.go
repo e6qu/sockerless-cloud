@@ -76,4 +76,50 @@ func TestSiteContainers_CLI_CRUD(t *testing.T) {
 	for _, c := range list.Value {
 		assert.NotEqual(t, "redis", c.Name, "redis sidecar should be deleted")
 	}
+
+	// Deployment-slot twins: the slot's sitecontainers are its own records —
+	// created, read, listed and deleted at the slot's coordinate, invisible
+	// on the production site.
+	runCLI(t, azRest("PUT", scURL("sites/cli-sc-app/slots/staging"), `{
+		"location": "eastus",
+		"kind": "functionapp,linux,container"
+	}`))
+	defer runCLI(t, azRest("DELETE", scURL("sites/cli-sc-app/slots/staging"), ""))
+
+	slotURL := scURL("sites/cli-sc-app/slots/staging/sitecontainers/slotmain")
+	out = runCLI(t, azRest("PUT", slotURL, `{
+		"properties": {"image": "myapp:staging", "isMain": true}
+	}`))
+	var slotSC struct {
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		Properties struct {
+			Image string `json:"image"`
+		} `json:"properties"`
+	}
+	parseJSON(t, out, &slotSC)
+	assert.Equal(t, "slotmain", slotSC.Name)
+	assert.Equal(t, "Microsoft.Web/sites/slots/sitecontainers", slotSC.Type)
+	assert.Equal(t, "myapp:staging", slotSC.Properties.Image)
+
+	out = runCLI(t, azRest("GET", slotURL, ""))
+	parseJSON(t, out, &slotSC)
+	assert.Equal(t, "myapp:staging", slotSC.Properties.Image)
+
+	out = runCLI(t, azRest("GET", scURL("sites/cli-sc-app/slots/staging/sitecontainers"), ""))
+	parseJSON(t, out, &list)
+	require.Len(t, list.Value, 1)
+	assert.Equal(t, "slotmain", list.Value[0].Name)
+
+	// The production list must not carry the slot's container.
+	out = runCLI(t, azRest("GET", scURL("sites/cli-sc-app/sitecontainers"), ""))
+	parseJSON(t, out, &list)
+	for _, c := range list.Value {
+		assert.NotEqual(t, "slotmain", c.Name, "slot sitecontainer must not leak into the production list")
+	}
+
+	runCLI(t, azRest("DELETE", slotURL, ""))
+	out = runCLI(t, azRest("GET", scURL("sites/cli-sc-app/slots/staging/sitecontainers"), ""))
+	parseJSON(t, out, &list)
+	assert.Empty(t, list.Value, "deleted slot sitecontainer must disappear from the slot list")
 }

@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // Elastic Load Balancing, Amazon CloudWatch and AWS Certificate Manager address
@@ -258,4 +260,51 @@ func TestIAMResourceARNs_CloudMapTakesTheIdOrResolvesTheName(t *testing.T) {
 	// A name no namespace has derives nothing rather than an invented ARN.
 	iamAssertDerived(t, iamDeriveJSON("servicediscovery", "DiscoverInstances",
 		`{"NamespaceName":"absent","ServiceName":"absent"}`))
+}
+
+// Cancelling a message move names only the opaque handle its start returned;
+// the task record is what knows which queue the task drains, and the source
+// queue is what the reference authorizes the cancel against. An unknown
+// handle resolves to nothing rather than to an invented queue.
+func TestIAMResourceARNs_SQSResolvesACancelledMoveThroughItsTask(t *testing.T) {
+	sqsMoveTasks = sim.MakeStore[SQSMessageMoveTask](nil, "sqs_move_tasks")
+	const dead = "arn:aws:sqs:us-east-1:123456789012:orders-dlq"
+	sqsMoveTasks.Put("f81d4fae-7dec-11d0-a765-00a0c91e6bf6", SQSMessageMoveTask{
+		TaskHandle: "f81d4fae-7dec-11d0-a765-00a0c91e6bf6", Status: "RUNNING",
+		SourceArn:      dead,
+		DestinationArn: "arn:aws:sqs:us-east-1:123456789012:orders",
+	})
+	iamAssertDerived(t, iamDeriveQueryFor("sqs", "CancelMessageMoveTask", "2012-11-05",
+		"TaskHandle=f81d4fae-7dec-11d0-a765-00a0c91e6bf6"), dead)
+	iamAssertDerived(t, iamDeriveQueryFor("sqs", "CancelMessageMoveTask", "2012-11-05",
+		"TaskHandle=no-such-task"))
+}
+
+// GetOperation names only the operation's own id; the operation record is
+// what knows which namespace and service the operation acted on, and their
+// recorded ARNs are what the gate asks for.
+func TestIAMResourceARNs_CloudMapResolvesAnOperationToWhatItActedOn(t *testing.T) {
+	cmNamespaces = sim.MakeStore[CMNamespace](nil, "cloudmap_namespaces")
+	cmServices = sim.MakeStore[CMService](nil, "cloudmap_services")
+	cmOperations = sim.MakeStore[CMOperation](nil, "cloudmap_operations")
+	const nsARN = "arn:aws:servicediscovery:us-east-1:123456789012:namespace/ns-orders"
+	const svcARN = "arn:aws:servicediscovery:us-east-1:123456789012:service/srv-orders"
+	cmNamespaces.Put("ns-orders", CMNamespace{Id: "ns-orders", Name: "orders", Arn: nsARN})
+	cmServices.Put("srv-orders", CMService{Id: "srv-orders", Name: "orders",
+		NamespaceId: "ns-orders", Arn: svcARN})
+	cmOperations.Put("op-orders", CMOperation{OperationId: "op-orders", Status: "SUCCESS",
+		NamespaceId: "ns-orders", ServiceId: "srv-orders"})
+	iamAssertDerived(t, iamDeriveJSON("servicediscovery", "GetOperation",
+		`{"OperationId":"op-orders"}`), nsARN, svcARN)
+}
+
+// The CloudTrail tagging operations name their target as ResourceId, and
+// ListTags as ResourceIdList — each an ARN despite the name.
+func TestIAMResourceARNs_CloudTrailTakesTheARNsItsTagsName(t *testing.T) {
+	const trail = "arn:aws:cloudtrail:us-east-1:123456789012:trail/audit"
+	const store = "arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/1f4e9a3c-2b58-4d70-9e12-8c5b6a7d0f31"
+	iamAssertDerived(t, iamDeriveJSON("cloudtrail", "AddTags",
+		`{"ResourceId":"`+trail+`","TagsList":[{"Key":"team","Value":"audit"}]}`), trail)
+	iamAssertDerived(t, iamDeriveJSON("cloudtrail", "ListTags",
+		`{"ResourceIdList":["`+store+`","`+trail+`"]}`), store, trail)
 }

@@ -41,10 +41,14 @@ jobs:
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - name: Install golangci-lint
+        # Built from source through the Go module proxy rather than fetched
+        # from the GitHub releases CDN: the install script's own downloader
+        # has no retry knobs and a releases-CDN 503 failed this job even with
+        # the script fetch itself retried. The proxy is a different, immune
+        # distribution path, and the warm Go build cache makes the build fast.
         run: |
-          set -o pipefail
-          curl --fail --silent --show-error --location --retry 5 --retry-all-errors --connect-timeout 30 --max-time 180 https://golangci-lint.run/install.sh \
-            | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+          GOBIN="$(go env GOPATH)/bin" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          "$(go env GOPATH)/bin/golangci-lint" --version
       - name: Lint
         run: |
           set -e
@@ -151,6 +155,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/check-single-open-pr.sh
 
+  # pr-title: the squash-merge commit's title is the pull request title, and
+  # release-please versions the repository by parsing main's history as
+  # Conventional Commits — a title it cannot parse makes the merged work ship
+  # in no release. The title arrives through env, never interpolated into the
+  # script, so a crafted title cannot inject shell.
+  pr-title:
+    name: PR title is a Conventional Commit
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: PR title parses as a Conventional Commit
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bash scripts/check-pr-title.sh "$PR_TITLE"
+
   # rebased-on-main: fail if the PR branch has fallen behind origin/main, so
   # every PR is tested (and merges) on top of the latest base.
   rebased-on-main:
@@ -180,7 +201,7 @@ jobs:
       - uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - name: Install Firecracker test dependencies
         run: |
           bash scripts/ci-apt-update.sh
@@ -219,7 +240,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - name: Install gcloud CLI
         if: matrix.cloud == 'gcp'
         run: |
@@ -254,9 +275,11 @@ jobs:
           CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null ./shared
         timeout-minutes: 8
       - name: Run module unit tests
-        # Shard-independent; the sdk suite carries them so they run once per cloud.
+        # Shard-independent; the sdk suite carries them so they run once per
+        # cloud. The inner deadline sits under the step budget so a hung test
+        # fails with a named Go stack rather than an opaque step kill.
         if: matrix.suite == 'sdk'
-        run: cd simulator-${{ matrix.cloud }} && make unit-test
+        run: cd simulator-${{ matrix.cloud }} && make unit-test UNIT_TEST_TIMEOUT=2m30s
         timeout-minutes: 3
       # Pre-pull the Cosmos DB emulator (the differential-test oracle for
       # TestCosmos_DifferentialVsEmulator). The differential pulls the image
@@ -327,7 +350,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - name: Install real-execution tools
         # Firecracker and the netns toolchain back the Amazon EC2 real-execution
         # tests, which all live in the compute shard ('^Test[E]'); the other
@@ -355,9 +378,11 @@ jobs:
         # The module unit tests are shard-independent; one shard carries them
         # so they run exactly once per workflow. The shared/ suite carries a
         # real SQLite durability soak, so the run step's budget holds the
-        # suite alone — compilation happened above.
+        # suite alone — compilation happened above. The inner deadline sits
+        # under the step budget so a hung test fails with a named Go stack
+        # rather than an opaque step kill.
         if: matrix.suite == 'services-n-z'
-        run: cd simulator-aws && make unit-test
+        run: cd simulator-aws && make unit-test UNIT_TEST_TIMEOUT=4m
         timeout-minutes: 5
       # Compile the sim binary + the (large, AWS-SDK-importing) SDK test binary
       # in a separate deterministic build step, so the timed test run below isn't
@@ -542,7 +567,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - name: Install real-execution tools
         run: |
           bash scripts/ci-apt-update.sh
@@ -550,7 +575,10 @@ jobs:
           bash scripts/install-firecracker.sh
       - name: Install Session Manager plugin
         run: |
-          curl -fsSLo /tmp/session-manager-plugin.deb https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
+          curl --fail --location --show-error --silent \
+            --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 300 \
+            --output /tmp/session-manager-plugin.deb https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
           sudo dpkg -i /tmp/session-manager-plugin.deb
           session-manager-plugin --version
       - name: Install latest AWS CLI v2
@@ -558,7 +586,10 @@ jobs:
         # ECS Express Mode, launched 2025-11-21) need a current CLI. Install the
         # latest v2 so the cli-tests exercise every operation for real.
         run: |
-          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+          curl --fail --location --show-error --silent \
+            --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 300 \
+            "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
           unzip -q -o /tmp/awscliv2.zip -d /tmp
           sudo /tmp/aws/install --update
           hash -r
@@ -635,7 +666,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}
+          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - uses: hashicorp/setup-terraform@v4.0.1
         with:
           terraform_wrapper: false

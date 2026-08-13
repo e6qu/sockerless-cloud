@@ -1,23 +1,27 @@
 # DO NEXT
 
-1. Watch the polish-pass-1 pull request's CI — the first run under the new
-   required-check set (38 contexts) and the first Linux run of the widened
-   deadcode gate and the moby-client container suites.
-2. BUG-2924 awaits user sign-off on the proposed design (host-subnet
-   allocator decoupled from the VPC CIDR, ENI IP added as a secondary
-   interface address via an ephemeral NET_ADMIN netns-join container) before
-   any implementation.
-3. Surface ratchets, staged one service per pass: Azure App Service
-   (161/692), Cloud Spanner admin (82/198), Cloud Run v1 (100/152). Google
-   Cloud Billing (6/36) carries a data question first: `services.list` /
-   `services.skus.list` answer with Google's public SKU catalog, which would
-   need vendoring under the same no-partial-catalog rule as the WAF rule
-   sets.
-4. IAM derivation remainder: 195 operations, each classified in the
-   `iamDerivationCoverageFloor` comment. The thin derivable tail is
-   per-service state lookups — Amazon SQS `CancelMessageMoveTask` through the
-   move-task store, AWS Cloud Map `GetOperation` through the operation store,
-   AWS CloudTrail's `ResourceId`/`ResourceIdList` ARN members.
+1. Watch the polish-pass-2 pull request's CI and fix failures for real.
+2. BUG-2924 still awaits user sign-off on the proposed design (host-subnet
+   allocator decoupled from the VPC CIDR, ENI IP as a secondary interface
+   address via an ephemeral NET_ADMIN netns-join container).
+3. App Service Stages 2-5, one per pass: Static Web Apps completion (+~69),
+   function/host keys + webjobs + deployment extras (+~62, and wire the
+   x-functions-key contract into POST /api/function so keys are
+   load-bearing), certificates/hostnames/provider tail (+~44, with the six
+   Provider_*Stacks operations needing a vendored-catalog decision like the
+   WAF rule sets), networking across sites and plans (+~47). Deferred with
+   reasons: processes/instances read the live container (highest fidelity,
+   highest complexity), backup/restore wants a real Blob round-trip,
+   App Service Environments + Kube Environments are two new top-level
+   resources, detector execution is data the simulator cannot compute.
+4. Google Cloud Billing (6/36) still carries the data decision:
+   services.list / services.skus.list answer with Google's public SKU
+   catalog, which would need vendoring under the no-partial-catalog rule.
+5. Other measured ratchets, one service per pass: Cloud Spanner admin
+   (82/198), Cloud Run v1 (100/152).
+6. IAM derivation remainder: 190 operations, every service classified in the
+   floor comment; nothing derivable is left without either a new shape or a
+   state design.
 
 ## Simulator burn-downs (carried over from the sockerless monorepo)
 

@@ -793,6 +793,19 @@ func iamCloudMapProbeState() {
 	service := CMService{Id: "srv-probe", Name: "probe", NamespaceId: namespace.Id,
 		Arn: "arn:aws:servicediscovery:us-east-1:123456789012:service/srv-probe"}
 	cmServices.Put(service.Id, service)
+	// GetOperation resolves through the operation record, so the probe's
+	// OperationId ("probe", the value the JSON probe fills) must name one.
+	cmOperations.Put("probe", CMOperation{OperationId: "probe", Status: "SUCCESS",
+		NamespaceId: namespace.Id, ServiceId: service.Id})
+}
+
+// iamSQSProbeState seeds the move task the probe's TaskHandle names, because
+// cancelling a move is authorized against the source queue the task record —
+// not the request — knows.
+func iamSQSProbeState() {
+	sqsMoveTasks.Put("probe", SQSMessageMoveTask{TaskHandle: "probe", Status: "RUNNING",
+		SourceArn:      "arn:aws:sqs:us-east-1:123456789012:probe-dead-letter",
+		DestinationArn: "arn:aws:sqs:us-east-1:123456789012:probe"})
 }
 
 // iamQueryProbeDerives runs the production derivation against a query-protocol
@@ -873,14 +886,21 @@ func iamAutoScalingDerivesItsResource(operation string, params map[string]bool) 
 }
 
 // iamCloudTrailDerivesItsResource runs the production derivation against a
-// request carrying every member the model declares for the operation.
+// request carrying every member the model declares for the operation. The
+// tagging members ResourceId and ResourceIdList carry an ARN by definition,
+// so they carry one here, exactly as a real caller sends them.
 func iamCloudTrailDerivesItsResource(operation string, members map[string]bool) bool {
 	if len(iamActionResourceTypes["cloudtrail:"+operation]) == 0 {
 		return false
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = "probe"
+		switch strings.ToLower(name) {
+		case "resourceid", "resourceidlist":
+			body[name] = "arn:aws:cloudtrail:us-east-1:123456789012:trail/probe"
+		default:
+			body[name] = "probe"
+		}
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -1027,13 +1047,12 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // creates have no identifier yet, and the remainder are scoped by a path or an
 // operating system rather than by a resource.
 //
-// AWS CloudTrail's 10: its tagging operations name their target under
-// ResourceId and ResourceIdList — members that carry ARNs under a spelling the
-// gate does not read — the resource-policy operations name a ResourceArn a
+// AWS CloudTrail's 7: the resource-policy operations name a ResourceArn a
 // real caller supplies where the probe fills a placeholder, the creates have
 // no identifier yet, StartQuery names its event data store only inside the SQL
 // statement, and ListInsightsData filters by dimensions rather than naming a
-// store.
+// store. The tagging operations' ARN-valued ResourceId and ResourceIdList are
+// read now.
 //
 // Amazon ElastiCache's 6: the tagging operations name their target by an
 // ARN-valued ResourceName a real caller supplies where the probe fills a
@@ -1072,11 +1091,14 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // root user the call becomes as a bare twelve-digit account id, which the
 // probe fills with a placeholder no account can be read from —
 // TestIAMResourceARNs_STSNamesTheIdentityEachCallIsAbout pins the real shape.
-// Amazon SQS's 1: CancelMessageMoveTask names only the task handle, which
-// encodes its queue opaquely.
-// AWS Cloud Map's 1: GetOperation names an operation id, which identifies
-// neither of the two resource types the reference declares for it.
-const iamDerivationCoverageFloor = 1779
+//
+// Amazon SQS and AWS Cloud Map derive completely: CancelMessageMoveTask
+// resolves its opaque task handle through the move-task record to the source
+// queue it authorizes against, and GetOperation resolves its operation id
+// through the operation record to the namespace and service the operation
+// acted on — the simulator's own state, the same resolution Amazon RDS uses
+// for a custom engine version.
+const iamDerivationCoverageFloor = 1784
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1134,6 +1156,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	stsParameters := loadRequestFields(t, "sts", memberWireName)
 	appAutoScalingMembers := loadRequestFields(t, "application-auto-scaling", memberWireName)
 	iamCloudMapProbeState()
+	iamSQSProbeState()
 	organizationsIDs := iamOrganizationsProbeState()
 
 	covered := 0

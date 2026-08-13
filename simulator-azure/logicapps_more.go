@@ -487,7 +487,7 @@ func logicSnapshotWorkflowVersion(wf LogicWorkflow) {
 		}
 	}
 	logicWorkflowVersions.Put(id, LogicResource{
-		ID: id, Name: version, Type: "Microsoft.Logic/workflows/versions", Properties: props,
+		ID: id, Name: version, Type: wf.Type + "/versions", Properties: props,
 	})
 }
 
@@ -514,7 +514,7 @@ func logicSyncTriggers(wf LogicWorkflow) {
 		}
 		now := logicNow()
 		logicTriggers.Put(id, LogicResource{
-			ID: id, Name: tn, Type: "Microsoft.Logic/workflows/triggers",
+			ID: id, Name: tn, Type: wf.Type + "/triggers",
 			Properties: map[string]any{
 				"state":             state,
 				"status":            "NotSpecified",
@@ -522,7 +522,7 @@ func logicSyncTriggers(wf LogicWorkflow) {
 				"createdTime":       now,
 				"changedTime":       now,
 				"workflow": map[string]any{
-					"id": wf.ID, "name": wf.Name, "type": "Microsoft.Logic/workflows",
+					"id": wf.ID, "name": wf.Name, "type": wf.Type,
 				},
 			},
 		})
@@ -579,9 +579,17 @@ func handleLogicTriggerSchemaJSON(w http.ResponseWriter, r *http.Request) {
 // parent workflow's access key, so regenerateAccessKey invalidates it exactly
 // as it invalidates the workflow-level callback.
 func handleLogicTriggerListCallbackURL(w http.ResponseWriter, r *http.Request) {
+	logicWriteTriggerCallbackURL(w, r, logicWorkflowIDForPath(r))
+}
+
+// logicWriteTriggerCallbackURL writes the WorkflowTriggerCallbackUrl for the
+// addressed trigger, signed with the owning workflow's access key. The owning
+// workflow's resource ID is passed in because the trigger is addressable at
+// several spellings (Microsoft.Logic/workflows and the App Service hostruntime
+// bridge) that derive the owner differently.
+func logicWriteTriggerCallbackURL(w http.ResponseWriter, r *http.Request, workflowID string) {
 	scheme := azureRequestScheme(r)
 	id := strings.TrimSuffix(r.URL.Path, "/listCallbackUrl")
-	workflowID := logicWorkflowIDForPath(r)
 	basePath := scheme + "://" + r.Host + id
 	queries := logicCallbackQueries(workflowID, id+"/run")
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -662,7 +670,7 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	now := logicNow()
 	runID := wf.ID + "/runs/" + runName
 	logicRuns.Put(runID, LogicWorkflowRun{
-		ID: runID, Name: runName, Type: "Microsoft.Logic/workflows/runs",
+		ID: runID, Name: runName, Type: wf.Type + "/runs",
 		Properties: map[string]any{
 			"startTime":     now,
 			"endTime":       now,
@@ -672,7 +680,7 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 			"trigger": map[string]any{
 				"name": triggerName, "startTime": now, "endTime": now, "status": "Succeeded",
 			},
-			"workflow": map[string]any{"id": wf.ID, "name": wf.Name, "type": "Microsoft.Logic/workflows"},
+			"workflow": map[string]any{"id": wf.ID, "name": wf.Name, "type": wf.Type},
 			"outputs":  map[string]any{},
 		},
 	})
@@ -682,7 +690,7 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	for actionName := range actions {
 		actID := runID + "/actions/" + actionName
 		logicRunActions.Put(actID, LogicResource{
-			ID: actID, Name: actionName, Type: "Microsoft.Logic/workflows/runs/actions",
+			ID: actID, Name: actionName, Type: wf.Type + "/runs/actions",
 			Properties: map[string]any{
 				"status": "Succeeded", "code": "OK", "startTime": now, "endTime": now,
 			},
@@ -692,11 +700,11 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	histName := generateUUID()
 	histID := wf.ID + "/triggers/" + triggerName + "/histories/" + histName
 	logicTriggerHistories.Put(histID, LogicResource{
-		ID: histID, Name: histName, Type: "Microsoft.Logic/workflows/triggers/histories",
+		ID: histID, Name: histName, Type: wf.Type + "/triggers/histories",
 		Properties: map[string]any{
 			"status": "Succeeded", "code": "OK", "startTime": now, "endTime": now,
 			"scheduledTime": now, "fired": true,
-			"run": map[string]any{"id": runID, "name": runName, "type": "Microsoft.Logic/workflows/runs"},
+			"run": map[string]any{"id": runID, "name": runName, "type": wf.Type + "/runs"},
 		},
 	})
 	return runName
