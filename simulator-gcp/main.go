@@ -107,10 +107,12 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 
 	// Register GCP service routes (HTTP/REST)
 	registerCloudRunJobs(srv)
+	registerCloudRunV1Jobs(srv)
 	registerCloudRun(srv)
 	registerCloudRunServicesV2(srv)
 	registerCloudRunWorkerPoolsV2(srv)
 	registerCloudRunInstancesV2(srv)
+	registerCloudRunV1InstancesWorkerPools(srv)
 	registerCloudLogging(srv)
 	registerCloudDNS(srv)
 	registerGCS(srv)

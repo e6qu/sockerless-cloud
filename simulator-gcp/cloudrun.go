@@ -67,23 +67,44 @@ type CRServiceTemplate struct {
 }
 
 type CRTemplateSpec struct {
-	Containers         []CRContainer `json:"containers,omitempty"`
-	TimeoutSeconds     int64         `json:"timeoutSeconds,omitempty"`
-	ServiceAccountName string        `json:"serviceAccountName,omitempty"`
+	Containers         []CRContainer     `json:"containers,omitempty"`
+	Volumes            []CRVolume        `json:"volumes,omitempty"`
+	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
+	TimeoutSeconds     int64             `json:"timeoutSeconds,omitempty"`
+	ServiceAccountName string            `json:"serviceAccountName,omitempty"`
 }
 
 type CRContainer struct {
-	Name    string     `json:"name,omitempty"`
-	Image   string     `json:"image"`
-	Command []string   `json:"command,omitempty"`
-	Args    []string   `json:"args,omitempty"`
-	Env     []CREnvVar `json:"env,omitempty"`
-	Ports   []CRPort   `json:"ports,omitempty"`
+	Name         string                  `json:"name,omitempty"`
+	Image        string                  `json:"image"`
+	Command      []string                `json:"command,omitempty"`
+	Args         []string                `json:"args,omitempty"`
+	Env          []CREnvVar              `json:"env,omitempty"`
+	Ports        []CRPort                `json:"ports,omitempty"`
+	Resources    *CRResourceRequirements `json:"resources,omitempty"`
+	VolumeMounts []CRVolumeMount         `json:"volumeMounts,omitempty"`
+	WorkingDir   string                  `json:"workingDir,omitempty"`
 }
 
 type CREnvVar struct {
-	Name  string `json:"name"`
-	Value string `json:"value,omitempty"`
+	Name      string          `json:"name"`
+	Value     string          `json:"value,omitempty"`
+	ValueFrom *CREnvVarSource `json:"valueFrom,omitempty"`
+}
+
+// CREnvVarSource mirrors the Discovery EnvVarSource schema — where an
+// environment variable's value comes from when it is not a literal. Cloud Run
+// supports only secretKeyRef.
+type CREnvVarSource struct {
+	SecretKeyRef *CRSecretKeySelector `json:"secretKeyRef,omitempty"`
+}
+
+// CRSecretKeySelector mirrors the Discovery SecretKeySelector schema: `name`
+// is the Secret Manager secret and `key` the version, where v2's
+// SecretKeySelector calls them `secret` and `version`.
+type CRSecretKeySelector struct {
+	Name string `json:"name,omitempty"`
+	Key  string `json:"key,omitempty"`
 }
 
 type CRPort struct {

@@ -723,6 +723,10 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 // against the site — approval lifecycle and LRO delete included — plus the
 // site's private link resource catalog.
 func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
+	// The connection is opened by a real Microsoft.Network private endpoint,
+	// which the simulator provisions into a network namespace — the same host
+	// capability every other private-endpoint test requires.
+	requireNetworkHost(t)
 	rg := "stage5-pec-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pec-plan", "S1", "Standard")

@@ -897,7 +897,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		// google.longrunning.DeleteOperation returns google.protobuf.Empty.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
-	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/operations/{opAction}", func(w http.ResponseWriter, r *http.Request) {
+	waitOperation := func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		opAction := sim.PathParam(r, "opAction")
@@ -916,7 +916,12 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		// WaitOperation returns the (completed) operation immediately, as
 		// real Cloud Run does once the underlying resource has settled.
 		sim.WriteJSON(w, http.StatusOK, op)
-	})
+	}
+	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/operations/{opAction}", waitOperation)
+	// The Cloud Run Admin v1 API publishes the same google.longrunning
+	// WaitOperation over the operation records both API versions share
+	// (run.projects.locations.operations.wait). One operation, two spellings.
+	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/operations/{opAction}", waitOperation)
 
 	// Invoke handler. Real Cloud Run hosts the service URI as
 	// `https://<service>-<project>.run.app`; the sim's seedServiceV2Defaults

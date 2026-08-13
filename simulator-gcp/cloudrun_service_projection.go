@@ -25,34 +25,76 @@ func parseCloudRunV2ServiceName(name string) (project, location, service string,
 	return parts[1], parts[3], parts[5], true
 }
 
+// convertEach maps a container's list member through a converter. A container
+// converts the same way in both directions — only the element types differ —
+// so the mechanical part of both projections lives here once.
+func convertEach[S, D any](src []S, convert func(S) D) []D {
+	out := make([]D, 0, len(src))
+	for _, item := range src {
+		out = append(out, convert(item))
+	}
+	return out
+}
+
+// A secret-backed environment variable is the one member whose two spellings
+// are not a type conversion: v2 names the secret and version, Knative names
+// the secret and key.
+func cloudRunV2EnvToV1(value EnvVar) CREnvVar {
+	converted := CREnvVar{Name: value.Name, Value: value.Value}
+	if value.ValueSource != nil && value.ValueSource.SecretKeyRef != nil {
+		converted.Value = ""
+		converted.ValueFrom = &CREnvVarSource{SecretKeyRef: &CRSecretKeySelector{
+			Name: value.ValueSource.SecretKeyRef.Secret,
+			Key:  value.ValueSource.SecretKeyRef.Version,
+		}}
+	}
+	return converted
+}
+
+func cloudRunV1EnvToV2(value CREnvVar) EnvVar {
+	converted := EnvVar{Name: value.Name, Value: value.Value}
+	if value.ValueFrom != nil && value.ValueFrom.SecretKeyRef != nil {
+		converted.Value = ""
+		converted.ValueSource = &EnvVarSource{SecretKeyRef: &SecretKeySelector{
+			Secret:  value.ValueFrom.SecretKeyRef.Name,
+			Version: value.ValueFrom.SecretKeyRef.Key,
+		}}
+	}
+	return converted
+}
+
 func cloudRunV2ContainerToV1(container Container) CRContainer {
-	env := make([]CREnvVar, 0, len(container.Env))
-	for _, value := range container.Env {
-		env = append(env, CREnvVar{Name: value.Name, Value: value.Value})
-	}
-	ports := make([]CRPort, 0, len(container.Ports))
-	for _, port := range container.Ports {
-		ports = append(ports, CRPort(port))
-	}
-	return CRContainer{
+	env := convertEach(container.Env, cloudRunV2EnvToV1)
+	ports := convertEach(container.Ports, func(port ContainerPort) CRPort { return CRPort(port) })
+	mounts := convertEach(container.VolumeMounts, func(m VolumeMount) CRVolumeMount { return CRVolumeMount(m) })
+	converted := CRContainer{
 		Name: container.Name, Image: container.Image, Command: container.Command,
-		Args: container.Args, Env: env, Ports: ports,
+		Args: container.Args, Env: env, Ports: ports, WorkingDir: container.WorkingDir,
 	}
+	if len(mounts) > 0 {
+		converted.VolumeMounts = mounts
+	}
+	if container.Resources != nil {
+		converted.Resources = &CRResourceRequirements{Limits: container.Resources.Limits}
+	}
+	return converted
 }
 
 func cloudRunV1ContainerToV2(container CRContainer) Container {
-	env := make([]EnvVar, 0, len(container.Env))
-	for _, value := range container.Env {
-		env = append(env, EnvVar{Name: value.Name, Value: value.Value})
-	}
-	ports := make([]ContainerPort, 0, len(container.Ports))
-	for _, port := range container.Ports {
-		ports = append(ports, ContainerPort(port))
-	}
-	return Container{
+	env := convertEach(container.Env, cloudRunV1EnvToV2)
+	ports := convertEach(container.Ports, func(port CRPort) ContainerPort { return ContainerPort(port) })
+	mounts := convertEach(container.VolumeMounts, func(m CRVolumeMount) VolumeMount { return VolumeMount(m) })
+	converted := Container{
 		Name: container.Name, Image: container.Image, Command: container.Command,
-		Args: container.Args, Env: env, Ports: ports,
+		Args: container.Args, Env: env, Ports: ports, WorkingDir: container.WorkingDir,
 	}
+	if len(mounts) > 0 {
+		converted.VolumeMounts = mounts
+	}
+	if container.Resources != nil {
+		converted.Resources = &ResourceRequirements{Limits: container.Resources.Limits}
+	}
+	return converted
 }
 
 func cloudRunV2ToV1(service ServiceV2, project, serviceID string) CRService {

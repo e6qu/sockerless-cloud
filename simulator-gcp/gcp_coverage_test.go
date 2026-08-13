@@ -64,19 +64,26 @@ var gcpMethodFloor = map[string]int{
 	// is spelled at the v1 path, which the v1 routes already answer.
 	"cloudresourcemanager-v2": 24,
 	"bigtableadmin-v2":        164,
-	"cloudrun-v1":             100,
-	"dataflow-v1b3":           84,
-	"cloudrun-v2":             102,
-	"bigquery-v2":             94,
-	"dns-v1":                  74,
-	"cloudkms-v1":             168,
-	"eventarc-v1":             130,
-	"cloudfunctions-v2":       42,
-	"pubsub-v1":               92,
-	"apigateway-v1":           58,
-	"iamcredentials-v1":       14,
-	"vpcaccess-v1":            16,
-	"logging-v2":              500,
+
+	// Cloud Run Admin v1: every documented method is served. The Knative
+	// services family and its children, the jobs / executions / tasks family,
+	// and the instances and workerpools collections all address the same
+	// records the v2 collections own, projected into the Knative shape; the
+	// operations poll/delete/wait and the IAM reads complete the surface.
+	"cloudrun-v1": 152,
+
+	"dataflow-v1b3":     84,
+	"cloudrun-v2":       102,
+	"bigquery-v2":       94,
+	"dns-v1":            74,
+	"cloudkms-v1":       168,
+	"eventarc-v1":       130,
+	"cloudfunctions-v2": 42,
+	"pubsub-v1":         92,
+	"apigateway-v1":     58,
+	"iamcredentials-v1": 14,
+	"vpcaccess-v1":      16,
+	"logging-v2":        500,
 
 	// Cloud Billing: projects.getBillingInfo — the read
 	// terraform-provider-google issues on every google_project Read — and the

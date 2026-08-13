@@ -103,9 +103,20 @@ type InstanceSplit struct {
 	Percent  int32  `json:"percent,omitempty"`
 }
 
+// crv2WorkerPools and crv2WorkerPoolRevisions are the Cloud Run worker-pool
+// stores. A worker pool is one resource addressable through two API versions —
+// the v2 resource-oriented collection and the v1 Knative `workerpools`
+// collection — so the stores are package-scoped rather than closed over by the
+// v2 handlers alone.
+var (
+	crv2WorkerPools         sim.Store[WorkerPoolV2]
+	crv2WorkerPoolRevisions sim.Store[RevisionV2]
+)
+
 func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 	pools := sim.MakeStore[WorkerPoolV2](srv.DB(), "crv2_workerpools")
 	revisions := sim.MakeStore[RevisionV2](srv.DB(), "crv2_workerpool_revisions")
+	crv2WorkerPools, crv2WorkerPoolRevisions = pools, revisions
 	if crOperations == nil {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}

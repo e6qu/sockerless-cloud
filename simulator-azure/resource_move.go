@@ -31,11 +31,12 @@ type resourceMoveHook struct {
 // resourceMoveHooks maps the lowercased "provider/type" key of a movable
 // top-level resource type to its hook.
 //
-// Microsoft.Web's hooks are seeded statically: their stores are package-level
-// variables and the closures read them at request time, after every register
-// function has run. A slice whose stores are locals of its register function
-// registers its hook there via registerResourceMoveHook, as Microsoft.Storage
-// does in registerStorageAccounts.
+// The Microsoft.Web and Microsoft.KeyVault hooks are seeded statically: their
+// stores are package-level variables and the closures read them at request
+// time, after every register function has run. A slice whose stores are
+// locals of its register function registers its hook there via
+// registerResourceMoveHook, as Microsoft.Storage does in
+// registerStorageAccounts.
 var resourceMoveHooks = map[string]resourceMoveHook{
 	"microsoft.web/sites": {
 		exists: func(id string) bool { _, ok := azfSites.Get(id); return ok },
@@ -48,6 +49,10 @@ var resourceMoveHooks = map[string]resourceMoveHook{
 	"microsoft.web/certificates": {
 		exists: func(id string) bool { _, ok := webCertificates.Get(id); return ok },
 		move:   func(oldID, newID, _ string) { webMoveCertificate(oldID, newID) },
+	},
+	"microsoft.keyvault/vaults": {
+		exists: func(id string) bool { _, ok := keyVaults.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveKeyVaultARM(oldID, newID) },
 	},
 }
 
