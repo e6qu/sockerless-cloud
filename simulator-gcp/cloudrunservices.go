@@ -130,6 +130,7 @@ type ServiceV2 struct {
 	LatestReadyRevision   string               `json:"latestReadyRevision,omitempty"`
 	LatestCreatedRevision string               `json:"latestCreatedRevision,omitempty"`
 	URI                   string               `json:"uri,omitempty"`
+	Etag                  string               `json:"etag,omitempty"`
 	Reconciling           bool                 `json:"reconciling,omitempty"`
 }
 
@@ -242,6 +243,7 @@ type RevisionV2 struct {
 	Containers  []Container       `json:"containers,omitempty"`
 	Volumes     []Volume          `json:"volumes,omitempty"`
 	Conditions  []Condition       `json:"conditions,omitempty"`
+	Etag        string            `json:"etag,omitempty"`
 	Reconciling bool              `json:"reconciling,omitempty"`
 }
 
@@ -599,6 +601,9 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 		Conditions: []Condition{
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 		},
+		// A revision is immutable, but a fresh deploy replaces the record under
+		// the same name, so the fingerprint is minted with it.
+		Etag: generateUUID(),
 	}
 	if svc.Template != nil {
 		rev.Labels = svc.Template.Labels
@@ -654,6 +659,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		}
 
 		svc = seedServiceV2Defaults(svc, r.Host, project, location, serviceID)
+		svc.Etag = generateUUID()
 
 		services.Put(name, svc)
 		reconcileServiceRevision(revisions, name, serviceID+"-00001-abc", svc)
@@ -723,6 +729,9 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
 			return
 		}
+		if !cloudRunEtagOK(w, "service", svc.Name, svc.Etag, r.URL.Query().Get("etag")) {
+			return
+		}
 		services.Delete(name)
 		deleteCloudRunServiceProjections(project, location, serviceID)
 		deleteCloudRunServiceInstance(name)
@@ -755,6 +764,12 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		var update ServiceV2
 		if err := sim.ReadJSON(r, &update); err != nil {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		// The etag is read off the request as sent, before any mask merge
+		// rewrites the body, so a mask that does not name it cannot smuggle
+		// the condition away.
+		if !cloudRunEtagOK(w, "service", existing.Name, existing.Etag, update.Etag) {
 			return
 		}
 
@@ -803,6 +818,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
 		update.LatestReadyRevision = update.LatestCreatedRevision
 		update.URI = existing.URI
+		update.Etag = generateUUID()
 
 		services.Put(name, update)
 		reconcileServiceRevision(revisions, name, revName, update)
@@ -857,6 +873,9 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
 			return
 		}
+		if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
+			return
+		}
 		revisions.Delete(name)
 		lro := newLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -897,31 +916,45 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		// google.longrunning.DeleteOperation returns google.protobuf.Empty.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
-	waitOperation := func(w http.ResponseWriter, r *http.Request) {
+	// The colon-verb fan-in on the projects/{project}/locations/{location}
+	// operation collection. That URI is one collection for every service the
+	// simulator serves under it — Cloud Run, API Gateway, Artifact Registry,
+	// Cloud Build's regional operations, Eventarc, Memorystore for Redis and
+	// Cloud Logging's project scope all address their operations there — so
+	// this one handler dispatches both custom methods those documents declare
+	// on it: google.longrunning WaitOperation and CancelOperation.
+	operationVerb := func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		opAction := sim.PathParam(r, "opAction")
 		opID, action, found := strings.Cut(opAction, ":")
-		if !found || action != "wait" {
+		if !found {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)
 			return
 		}
-		name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID)
-		op, ok := crOperations.Get(name)
-		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
-			return
+		name := gcpLocationOperationName(project, location, opID)
+		switch action {
+		case "wait":
+			op, ok := gcpLookupOperation(name)
+			if !ok {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+				return
+			}
+			// The sim does no async work — every LRO is already done — so
+			// WaitOperation returns the (completed) operation immediately, as
+			// real Cloud Run does once the underlying resource has settled.
+			sim.WriteJSON(w, http.StatusOK, op)
+		case "cancel":
+			handleGCPCancelOperation(w, name)
+		default:
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)
 		}
-		// The sim does no async work — every LRO is already done — so
-		// WaitOperation returns the (completed) operation immediately, as
-		// real Cloud Run does once the underlying resource has settled.
-		sim.WriteJSON(w, http.StatusOK, op)
 	}
-	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/operations/{opAction}", waitOperation)
+	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/operations/{opAction}", operationVerb)
 	// The Cloud Run Admin v1 API publishes the same google.longrunning
-	// WaitOperation over the operation records both API versions share
-	// (run.projects.locations.operations.wait). One operation, two spellings.
-	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/operations/{opAction}", waitOperation)
+	// WaitOperation and CancelOperation over the operation records both API
+	// versions share. One collection, two spellings.
+	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/operations/{opAction}", operationVerb)
 
 	// Invoke handler. Real Cloud Run hosts the service URI as
 	// `https://<service>-<project>.run.app`; the sim's seedServiceV2Defaults

@@ -295,9 +295,11 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 	if validateOnly {
 		return nil
 	}
+	// A resource's tags live on the resource itself, so re-keying the record
+	// carries them into the destination group, which is what real Azure
+	// Resource Manager does with a moved resource's tags.
 	for _, m := range plan {
 		m.hook.move(m.oldID, m.newID, targetRG)
-		moveScopedTags(m.oldID, m.newID)
 	}
 	return nil
 }

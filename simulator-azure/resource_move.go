@@ -54,6 +54,10 @@ var resourceMoveHooks = map[string]resourceMoveHook{
 		exists: func(id string) bool { _, ok := keyVaults.Get(id); return ok },
 		move:   func(oldID, newID, _ string) { moveKeyVaultARM(oldID, newID) },
 	},
+	"microsoft.servicebus/namespaces": {
+		exists: func(id string) bool { _, ok := sbNamespaces.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveServiceBusNamespaceARM(oldID, newID) },
+	},
 }
 
 // registerResourceMoveHook adds one resource type's move hook to the dispatch
@@ -85,24 +89,5 @@ func rekeyEntry[T any](store sim.Store[T], oldKey, newKey string) {
 	if row, ok := store.Get(oldKey); ok {
 		store.Delete(oldKey)
 		store.Put(newKey, row)
-	}
-}
-
-// moveScopedTags re-homes the Microsoft.Resources/tags/default rows stored at
-// a moved resource's scope and at every child scope beneath it — real Azure
-// Resource Manager moves a resource's tags with the resource. The dispatch
-// runs it for every planned move, so tag coherence is uniform across the
-// hooked families rather than each hook's private concern.
-func moveScopedTags(oldID, newID string) {
-	oldScope, newScope := strings.ToLower(oldID), strings.ToLower(newID)
-	for _, row := range tagsStore.List() {
-		scope := strings.TrimSuffix(strings.ToLower(row.ID), tagsDefaultMarker)
-		if scope != oldScope && !strings.HasPrefix(scope, oldScope+"/") {
-			continue
-		}
-		tagsStore.Delete(scope)
-		moved := newScope + strings.TrimPrefix(scope, oldScope)
-		row.ID = moved + "/providers/Microsoft.Resources/tags/default"
-		tagsStore.Put(moved, row)
 	}
 }

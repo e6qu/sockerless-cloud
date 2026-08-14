@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -68,9 +69,28 @@ type azureStoredResource struct {
 // slice currently holds.
 type azureResourceEnumerator func() []azureResourceRow
 
+// azureTrackedResource is one resource type's participation in the registry:
+// the enumeration a resource list reads, and the reader and writer of the one
+// set of tags the resource holds. Azure Resource Manager keeps a single set of
+// tags per resource, reachable both through the resource's own API and through
+// Microsoft.Resources/tags/default at the resource's scope, so the tags surface
+// resolves a scope through this table rather than keeping a plane of its own.
+type azureTrackedResource struct {
+	// enumerate returns the generic rows for every resource the slice holds.
+	enumerate azureResourceEnumerator
+	// lookupTags returns the resource's canonical ARM ID — the spelling the
+	// slice stored, which is what ARM echoes back — and the tags it holds, or
+	// false when no such resource exists. ARM compares resource IDs
+	// case-insensitively and so does the lookup.
+	lookupTags func(resID string) (id string, tags map[string]string, ok bool)
+	// writeTags replaces the resource's tags, reporting whether the resource
+	// exists.
+	writeTags func(resID string, tags map[string]string) bool
+}
+
 // azureTrackedResources maps a tracked resource type — keyed by its lowercased
 // "provider/type" spelling, the same key shape resourceMoveHooks uses — to the
-// enumeration that reads it out of the slice that owns it.
+// registry entry that reads and writes it in the slice that owns it.
 //
 // The table holds only resources ARM tracks: those that carry a location and
 // therefore appear in a resource list. A provider's proxy children — a subnet,
@@ -82,100 +102,245 @@ type azureResourceEnumerator func() []azureResourceRow
 // read happens at request time, after each slice's register function has
 // assigned its store. That is the same reason resourceMoveHooks seeds its
 // package-variable-backed hooks statically.
-var azureTrackedResources = map[string]azureResourceEnumerator{
+var azureTrackedResources = map[string]azureTrackedResource{
 	// Microsoft.Web
-	"microsoft.web/sites":        azureRowsOf(func() sim.Store[Site] { return azfSites }),
-	"microsoft.web/sites/slots":  azureRowsOf(func() sim.Store[Site] { return webSlots }),
-	"microsoft.web/serverfarms":  azureRowsOf(func() sim.Store[AppServicePlan] { return azureAppServicePlans }),
-	"microsoft.web/certificates": azureRowsOf(func() sim.Store[WebCertificate] { return webCertificates }),
-	"microsoft.web/staticsites":  azureRowsOf(func() sim.Store[StaticSiteResource] { return webStaticSites }),
+	"microsoft.web/sites":        azureTracked(func() sim.Store[Site] { return azfSites }),
+	"microsoft.web/sites/slots":  azureTracked(func() sim.Store[Site] { return webSlots }),
+	"microsoft.web/serverfarms":  azureTracked(func() sim.Store[AppServicePlan] { return azureAppServicePlans }),
+	"microsoft.web/certificates": azureTracked(func() sim.Store[WebCertificate] { return webCertificates }),
+	"microsoft.web/staticsites":  azureTracked(func() sim.Store[StaticSiteResource] { return webStaticSites }),
 
 	// Microsoft.Storage
-	"microsoft.storage/storageaccounts": azureRowsOf(func() sim.Store[StorageAccount] { return azStorageAccounts }),
+	"microsoft.storage/storageaccounts": azureTracked(func() sim.Store[StorageAccount] { return azStorageAccounts }),
 
 	// Microsoft.KeyVault
-	"microsoft.keyvault/vaults":      azureRowsOf(func() sim.Store[KeyVault] { return keyVaults }),
-	"microsoft.keyvault/managedhsms": azureRowsOf(func() sim.Store[ManagedHSM] { return managedHSMs }),
+	"microsoft.keyvault/vaults":      azureTracked(func() sim.Store[KeyVault] { return keyVaults }),
+	"microsoft.keyvault/managedhsms": azureTracked(func() sim.Store[ManagedHSM] { return managedHSMs }),
 
 	// Microsoft.Network
-	"microsoft.network/virtualnetworks":                     azureRowsOf(func() sim.Store[VirtualNetwork] { return azureVnets }),
-	"microsoft.network/networksecuritygroups":               azureRowsOf(func() sim.Store[NetworkSecurityGroup] { return azureNSGs }),
-	"microsoft.network/natgateways":                         azureRowsOf(func() sim.Store[NatGateway] { return azureNatGateways }),
-	"microsoft.network/routetables":                         azureRowsOf(func() sim.Store[RouteTable] { return azureRouteTables }),
-	"microsoft.network/publicipaddresses":                   azureRowsOf(func() sim.Store[PublicIPAddress] { return azurePublicIPs }),
-	"microsoft.network/publicipprefixes":                    azureRowsOf(func() sim.Store[PublicIPPrefix] { return azurePublicIPPrefixes }),
-	"microsoft.network/loadbalancers":                       azureRowsOf(func() sim.Store[LoadBalancer] { return azureLBs }),
-	"microsoft.network/networkinterfaces":                   azureRowsOf(func() sim.Store[NetworkInterface] { return azureNICs }),
-	"microsoft.network/applicationsecuritygroups":           azureRowsOf(func() sim.Store[ApplicationSecurityGroup] { return azureASGs }),
-	"microsoft.network/privatelinkservices":                 azureRowsOf(func() sim.Store[PrivateLinkService] { return azurePrivateLinkServices }),
-	"microsoft.network/privateendpoints":                    azureRowsOf(func() sim.Store[PrivateEndpoint] { return azurePrivateEndpoints }),
-	"microsoft.network/networkprofiles":                     azureRowsOf(func() sim.Store[NetworkProfile] { return azureNetworkProfiles }),
-	"microsoft.network/virtualnetworktaps":                  azureRowsOf(func() sim.Store[VirtualNetworkTap] { return azureVirtualNetworkTaps }),
-	"microsoft.network/serviceendpointpolicies":             azureRowsOf(func() sim.Store[ServiceEndpointPolicy] { return azureServiceEndpointPolicies }),
-	"microsoft.network/applicationgateways":                 azureRowsOf(func() sim.Store[ApplicationGateway] { return azureApplicationGateways }),
-	"microsoft.network/networkmanagers":                     azureRowsOf(func() sim.Store[NetworkManager] { return azureNetworkManagers }),
-	"microsoft.network/networkwatchers":                     azureRowsOf(func() sim.Store[NetworkWatcher] { return azureNetworkWatchers }),
-	"microsoft.network/dnszones":                            azureRowsOf(func() sim.Store[PublicDnsZone] { return azurePublicDNSZones }),
-	"microsoft.network/privatednszones":                     azureRowsOf(func() sim.Store[PrivateDnsZone] { return azurePrivateDNSZones }),
-	"microsoft.network/privatednszones/virtualnetworklinks": azureRowsOf(func() sim.Store[VNetLink] { return azurePrivateDNSVNetLinks }),
+	"microsoft.network/virtualnetworks":                     azureTracked(func() sim.Store[VirtualNetwork] { return azureVnets }),
+	"microsoft.network/networksecuritygroups":               azureTracked(func() sim.Store[NetworkSecurityGroup] { return azureNSGs }),
+	"microsoft.network/natgateways":                         azureTracked(func() sim.Store[NatGateway] { return azureNatGateways }),
+	"microsoft.network/routetables":                         azureTracked(func() sim.Store[RouteTable] { return azureRouteTables }),
+	"microsoft.network/publicipaddresses":                   azureTracked(func() sim.Store[PublicIPAddress] { return azurePublicIPs }),
+	"microsoft.network/publicipprefixes":                    azureTracked(func() sim.Store[PublicIPPrefix] { return azurePublicIPPrefixes }),
+	"microsoft.network/loadbalancers":                       azureTracked(func() sim.Store[LoadBalancer] { return azureLBs }),
+	"microsoft.network/networkinterfaces":                   azureTracked(func() sim.Store[NetworkInterface] { return azureNICs }),
+	"microsoft.network/applicationsecuritygroups":           azureTracked(func() sim.Store[ApplicationSecurityGroup] { return azureASGs }),
+	"microsoft.network/privatelinkservices":                 azureTracked(func() sim.Store[PrivateLinkService] { return azurePrivateLinkServices }),
+	"microsoft.network/privateendpoints":                    azureTracked(func() sim.Store[PrivateEndpoint] { return azurePrivateEndpoints }),
+	"microsoft.network/networkprofiles":                     azureTracked(func() sim.Store[NetworkProfile] { return azureNetworkProfiles }),
+	"microsoft.network/virtualnetworktaps":                  azureTracked(func() sim.Store[VirtualNetworkTap] { return azureVirtualNetworkTaps }),
+	"microsoft.network/serviceendpointpolicies":             azureTracked(func() sim.Store[ServiceEndpointPolicy] { return azureServiceEndpointPolicies }),
+	"microsoft.network/applicationgateways":                 azureTracked(func() sim.Store[ApplicationGateway] { return azureApplicationGateways }),
+	"microsoft.network/networkmanagers":                     azureTracked(func() sim.Store[NetworkManager] { return azureNetworkManagers }),
+	"microsoft.network/networkwatchers":                     azureTracked(func() sim.Store[NetworkWatcher] { return azureNetworkWatchers }),
+	"microsoft.network/dnszones":                            azureTracked(func() sim.Store[PublicDnsZone] { return azurePublicDNSZones }),
+	"microsoft.network/privatednszones":                     azureTracked(func() sim.Store[PrivateDnsZone] { return azurePrivateDNSZones }),
+	"microsoft.network/privatednszones/virtualnetworklinks": azureTracked(func() sim.Store[VNetLink] { return azurePrivateDNSVNetLinks }),
 
 	// Microsoft.Compute
-	"microsoft.compute/virtualmachines":            azureRowsOf(func() sim.Store[VirtualMachine] { return azureVMs }),
-	"microsoft.compute/virtualmachines/extensions": azureRowsOf(func() sim.Store[VirtualMachineExtension] { return azureVMExtensions }),
+	"microsoft.compute/virtualmachines":            azureTracked(func() sim.Store[VirtualMachine] { return azureVMs }),
+	"microsoft.compute/virtualmachines/extensions": azureTracked(func() sim.Store[VirtualMachineExtension] { return azureVMExtensions }),
 
 	// Microsoft.App
-	"microsoft.app/managedenvironments":                     azureRowsOf(func() sim.Store[ContainerAppEnvironment] { return acaEnvironments }),
-	"microsoft.app/containerapps":                           azureRowsOf(func() sim.Store[ContainerApp] { return acaApps }),
-	"microsoft.app/jobs":                                    azureRowsOf(func() sim.Store[ContainerAppJob] { return acaJobs }),
-	"microsoft.app/managedenvironments/certificates":        azureRowsOf(func() sim.Store[Certificate] { return acaEnvCertificates }),
-	"microsoft.app/managedenvironments/managedcertificates": azureRowsOf(func() sim.Store[ManagedCertificate] { return acaEnvManagedCertificates }),
+	"microsoft.app/managedenvironments":                     azureTracked(func() sim.Store[ContainerAppEnvironment] { return acaEnvironments }),
+	"microsoft.app/containerapps":                           azureTracked(func() sim.Store[ContainerApp] { return acaApps }),
+	"microsoft.app/jobs":                                    azureTracked(func() sim.Store[ContainerAppJob] { return acaJobs }),
+	"microsoft.app/managedenvironments/certificates":        azureTracked(func() sim.Store[Certificate] { return acaEnvCertificates }),
+	"microsoft.app/managedenvironments/managedcertificates": azureTracked(func() sim.Store[ManagedCertificate] { return acaEnvManagedCertificates }),
 
 	// Microsoft.ContainerInstance / Microsoft.ContainerRegistry
-	"microsoft.containerinstance/containergroups": azureRowsOf(func() sim.Store[ACIContainerGroup] { return aciContainerGroups }),
-	"microsoft.containerregistry/registries":      azureRowsOf(func() sim.Store[Registry] { return acrRegistries }),
+	"microsoft.containerinstance/containergroups": azureTracked(func() sim.Store[ACIContainerGroup] { return aciContainerGroups }),
+	"microsoft.containerregistry/registries":      azureTracked(func() sim.Store[Registry] { return acrRegistries }),
 
 	// Messaging
-	"microsoft.servicebus/namespaces":           azureRowsOf(func() sim.Store[SBNamespace] { return sbNamespaces }),
-	"microsoft.eventhub/namespaces":             azureRowsOf(func() sim.Store[EHNamespace] { return ehNamespaces }),
-	"microsoft.eventgrid/topics":                azureRowsOf(func() sim.Store[EventGridTopic] { return eventGridTopics }),
-	"microsoft.eventgrid/domains":               azureRowsOf(func() sim.Store[EventGridTopic] { return eventGridDomains }),
-	"microsoft.eventgrid/systemtopics":          azureRowsOf(func() sim.Store[EventGridTopic] { return eventGridSystemTopics }),
-	"microsoft.eventgrid/partnertopics":         azureRowsOf(func() sim.Store[EventGridTopic] { return eventGridPartnerTopics }),
-	"microsoft.eventgrid/partnerregistrations":  azureRowsOf(func() sim.Store[EventGridTopic] { return eventGridPartnerRegistrations }),
-	"microsoft.eventgrid/partnernamespaces":     azureRowsOf(func() sim.Store[EventGridTopic] { return eventGridPartnerNamespaces }),
-	"microsoft.eventgrid/partnerconfigurations": azureRowsOf(func() sim.Store[EventGridTopic] { return eventGridPartnerConfigurations }),
+	"microsoft.servicebus/namespaces":           azureTracked(func() sim.Store[SBNamespace] { return sbNamespaces }),
+	"microsoft.eventhub/namespaces":             azureTracked(func() sim.Store[EHNamespace] { return ehNamespaces }),
+	"microsoft.eventgrid/topics":                azureTracked(func() sim.Store[EventGridTopic] { return eventGridTopics }),
+	"microsoft.eventgrid/domains":               azureTracked(func() sim.Store[EventGridTopic] { return eventGridDomains }),
+	"microsoft.eventgrid/systemtopics":          azureTracked(func() sim.Store[EventGridTopic] { return eventGridSystemTopics }),
+	"microsoft.eventgrid/partnertopics":         azureTracked(func() sim.Store[EventGridTopic] { return eventGridPartnerTopics }),
+	"microsoft.eventgrid/partnerregistrations":  azureTracked(func() sim.Store[EventGridTopic] { return eventGridPartnerRegistrations }),
+	"microsoft.eventgrid/partnernamespaces":     azureTracked(func() sim.Store[EventGridTopic] { return eventGridPartnerNamespaces }),
+	"microsoft.eventgrid/partnerconfigurations": azureTracked(func() sim.Store[EventGridTopic] { return eventGridPartnerConfigurations }),
 
 	// Data and observability
-	"microsoft.documentdb/databaseaccounts":            azureRowsOf(func() sim.Store[CosmosAccount] { return cosmosAccounts }),
-	"microsoft.dbforpostgresql/flexibleservers":        azureRowsOf(func() sim.Store[PGFlexibleServer] { return pgServers }),
-	"microsoft.cache/redis":                            azureRowsOf(func() sim.Store[RedisCache] { return redisCaches }),
-	"microsoft.operationalinsights/workspaces":         azureRowsOf(func() sim.Store[Workspace] { return azureMonitorWorkspaces }),
-	"microsoft.insights/components":                    azureRowsOf(func() sim.Store[AppInsightsComponent] { return azureAppInsightsComponents }),
-	"microsoft.managedidentity/userassignedidentities": azureRowsOf(func() sim.Store[UserAssignedIdentity] { return azureManagedIdentities }),
+	"microsoft.documentdb/databaseaccounts":            azureTracked(func() sim.Store[CosmosAccount] { return cosmosAccounts }),
+	"microsoft.dbforpostgresql/flexibleservers":        azureTracked(func() sim.Store[PGFlexibleServer] { return pgServers }),
+	"microsoft.cache/redis":                            azureTracked(func() sim.Store[RedisCache] { return redisCaches }),
+	"microsoft.operationalinsights/workspaces":         azureTracked(func() sim.Store[Workspace] { return azureMonitorWorkspaces }),
+	"microsoft.insights/components":                    azureTracked(func() sim.Store[AppInsightsComponent] { return azureAppInsightsComponents }),
+	"microsoft.managedidentity/userassignedidentities": azureTracked(func() sim.Store[UserAssignedIdentity] { return azureManagedIdentities }),
 
 	// Integration
-	"microsoft.apimanagement/service":                azureRowsOf(func() sim.Store[APIMService] { return apimServices }),
-	"microsoft.logic/workflows":                      azureRowsOf(func() sim.Store[LogicWorkflow] { return logicWorkflows }),
-	"microsoft.logic/integrationaccounts":            azureRowsOf(func() sim.Store[LogicResource] { return logicIntegrationAccts }),
-	"microsoft.logic/integrationserviceenvironments": azureRowsOf(func() sim.Store[LogicResource] { return logicServiceEnvs }),
+	"microsoft.apimanagement/service":                azureTracked(func() sim.Store[APIMService] { return apimServices }),
+	"microsoft.logic/workflows":                      azureTracked(func() sim.Store[LogicWorkflow] { return logicWorkflows }),
+	"microsoft.logic/integrationaccounts":            azureTracked(func() sim.Store[LogicResource] { return logicIntegrationAccts }),
+	"microsoft.logic/integrationserviceenvironments": azureTracked(func() sim.Store[LogicResource] { return logicServiceEnvs }),
 }
 
-// azureRowsOf adapts one slice's store into an enumerator. The store is read
-// through the accessor at request time so a package-level variable a register
-// function assigns later — or reassigns when the simulator is rebuilt in the
-// same process — is always the one enumerated.
-func azureRowsOf[T any](store func() sim.Store[T]) azureResourceEnumerator {
-	return func() []azureResourceRow {
+// azureTracked adapts one slice's store into a registry entry. The store is
+// read through the accessor at request time so a package-level variable a
+// register function assigns later — or reassigns when the simulator is rebuilt
+// in the same process — is always the one enumerated and written.
+//
+// The stored type is checked here, while the table initialises, for the ARM
+// `tags` member every tracked resource carries: a type that cannot hold tags
+// could be listed but never tagged through Microsoft.Resources/tags/default,
+// so the registry refuses it outright rather than answering a write that
+// silently lands nowhere.
+func azureTracked[T any](store func() sim.Store[T]) azureTrackedResource {
+	azureRequireTagsField(reflect.TypeOf((*T)(nil)).Elem())
+
+	// find locates one resource by ARM ID and returns the store, a snapshot of
+	// the row, and the key the store holds it under.
+	find := func(resID string) (sim.Store[T], T, string, bool) {
+		var zero T
 		s := store()
 		if s == nil {
-			return nil
+			return nil, zero, "", false
 		}
-		rows := make([]azureResourceRow, 0, s.Len())
+		if item, ok := s.Get(resID); ok {
+			return s, item, resID, true
+		}
+		// ARM compares resource IDs case-insensitively, and each slice keys its
+		// store by the ID spelling the creating request carried, so a lookup
+		// that misses on the exact key falls back to the case-folded scan.
 		for _, item := range s.List() {
-			rows = append(rows, azureProjectResource(item))
+			id := azureProjectResource(item).ID
+			if !strings.EqualFold(id, resID) {
+				continue
+			}
+			if _, ok := s.Get(id); !ok {
+				panic(fmt.Sprintf("azure resource registry: %T is stored under a key other than its ARM id %q", item, id))
+			}
+			return s, item, id, true
 		}
-		return rows
+		return nil, zero, "", false
 	}
+
+	return azureTrackedResource{
+		enumerate: func() []azureResourceRow {
+			s := store()
+			if s == nil {
+				return nil
+			}
+			rows := make([]azureResourceRow, 0, s.Len())
+			for _, item := range s.List() {
+				rows = append(rows, azureProjectResource(item))
+			}
+			return rows
+		},
+		lookupTags: func(resID string) (string, map[string]string, bool) {
+			_, item, _, ok := find(resID)
+			if !ok {
+				return "", nil, false
+			}
+			row := azureProjectResource(item)
+			return row.ID, row.Tags, true
+		},
+		writeTags: func(resID string, tags map[string]string) bool {
+			s, item, key, ok := find(resID)
+			if !ok {
+				return false
+			}
+			field := azureStoredTagsField(reflect.ValueOf(&item).Elem())
+			if len(tags) == 0 {
+				// A resource with no tags carries no `tags` member at all,
+				// which is how it reads before anything tags it.
+				field.Set(reflect.Zero(field.Type()))
+			} else {
+				field.Set(reflect.ValueOf(tags))
+			}
+			s.Put(key, item)
+			return true
+		},
+	}
+}
+
+// azureTagsMapType is the Go shape of the ARM `tags` member: every tracked
+// resource declares it as map[string]string.
+var azureTagsMapType = reflect.TypeOf(map[string]string(nil))
+
+// azureRequireTagsField panics unless the stored type declares a settable ARM
+// `tags` member. It runs while azureTrackedResources initialises, so a type
+// registered without one fails the process at start rather than at the first
+// tag write.
+func azureRequireTagsField(t reflect.Type) {
+	if _, ok := azureTagsFieldIndex(t); !ok {
+		panic(fmt.Sprintf("azure resource registry: %s declares no ARM `tags map[string]string` member", t))
+	}
+}
+
+// azureTagsFieldIndex returns the field-index path to a stored type's ARM
+// `tags` member, descending into the embedded envelope structs the
+// Microsoft.Network resources marshal inline — the same fields encoding/json
+// promotes.
+func azureTagsFieldIndex(t reflect.Type) ([]int, bool) {
+	if t.Kind() != reflect.Struct {
+		return nil, false
+	}
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if field.IsExported() && strings.EqualFold(name, "tags") && field.Type == azureTagsMapType {
+			return []int{i}, true
+		}
+		// An anonymous struct member with no json name of its own is inlined
+		// by encoding/json — including the unexported envelope structs the
+		// Microsoft.Network resources embed — so its `tags` member is the
+		// resource's own. reflect keeps the promoted exported field settable.
+		if field.Anonymous && name == "" && field.Type.Kind() == reflect.Struct {
+			if nested, ok := azureTagsFieldIndex(field.Type); ok {
+				return append([]int{i}, nested...), true
+			}
+		}
+	}
+	return nil, false
+}
+
+// azureStoredTagsField returns the addressable ARM `tags` member of a stored
+// resource. azureRequireTagsField has already proven the member exists for
+// every registered type, so a miss here is a corrupt value, not a missing
+// field.
+func azureStoredTagsField(item reflect.Value) reflect.Value {
+	index, ok := azureTagsFieldIndex(item.Type())
+	if !ok {
+		panic(fmt.Sprintf("azure resource registry: %s lost its ARM tags member", item.Type()))
+	}
+	return item.FieldByIndex(index)
+}
+
+// azureResourceTypeKeyOfID reads the lowercased "provider/type" registry key
+// out of an ARM resource ID, folding a nested type into the `parent/child`
+// spelling the table uses (`microsoft.web/sites/slots`). It returns false for
+// an ID that names no provider resource at all — a subscription or a resource
+// group. A management group is a provider resource by ID shape
+// (`microsoft.management/managementgroups`) and reads as one here; the tags
+// surface routes it separately because the simulator keeps no record for one.
+func azureResourceTypeKeyOfID(id string) (string, bool) {
+	segments := strings.Split(strings.Trim(id, "/"), "/")
+	providers := -1
+	for i, segment := range segments {
+		if strings.EqualFold(segment, "providers") {
+			providers = i
+		}
+	}
+	// providers/{namespace}/{type}/{name}, then /{childType}/{childName}…, so
+	// the tail is a namespace followed by an even number of segments.
+	if providers < 0 {
+		return "", false
+	}
+	rest := segments[providers+1:]
+	if len(rest) < 3 || len(rest)%2 == 0 {
+		return "", false
+	}
+	key := rest[0]
+	for i := 1; i < len(rest); i += 2 {
+		key += "/" + rest[i]
+	}
+	return strings.ToLower(key), true
 }
 
 // azureProjectResource renders one stored resource in the generic view. A row
@@ -235,8 +400,8 @@ func azureIDSegmentAfter(id, key string) string {
 // resource ID so a paged walk is stable.
 func azureEnumerateResources(sub, resourceGroup string) []azureResourceRow {
 	rows := make([]azureResourceRow, 0)
-	for _, enumerate := range azureTrackedResources {
-		for _, row := range enumerate() {
+	for _, tracked := range azureTrackedResources {
+		for _, row := range tracked.enumerate() {
 			if !strings.EqualFold(azureSubscriptionOfID(row.ID), sub) {
 				continue
 			}

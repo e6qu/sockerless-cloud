@@ -77,13 +77,13 @@ var gcpMethodFloor = map[string]int{
 	"bigquery-v2":       94,
 	"dns-v1":            74,
 	"cloudkms-v1":       168,
-	"eventarc-v1":       130,
+	"eventarc-v1":       132,
 	"cloudfunctions-v2": 42,
 	"pubsub-v1":         92,
-	"apigateway-v1":     58,
+	"apigateway-v1":     60,
 	"iamcredentials-v1": 14,
 	"vpcaccess-v1":      16,
-	"logging-v2":        500,
+	"logging-v2":        504,
 
 	// Cloud Billing: projects.getBillingInfo — the read
 	// terraform-provider-google issues on every google_project Read — and the
@@ -104,27 +104,30 @@ var gcpMethodFloor = map[string]int{
 	"storage-v1": 79,
 
 	// Artifact Registry: the Docker/Maven/npm/Python read surface, repository
-	// and rule CRUD are served. The package-format publish methods that ride
-	// the plain (non-/upload) path — aptArtifacts.create, genericArtifacts.create,
-	// goModules.create, googetArtifacts.create, kfpArtifacts.create,
-	// yumArtifacts.create, files.upload — the prewarmed-artifact family
-	// (prewarmArtifact, checkPrewarmedArtifact, removePrewarmedArtifact,
-	// exportArtifact) and operations.cancel are mux misses.
-	"artifactregistry-v1": 123,
+	// and rule CRUD are served, as is operations.cancel. The package-format
+	// publish methods that ride the plain (non-/upload) path —
+	// aptArtifacts.create, genericArtifacts.create, goModules.create,
+	// googetArtifacts.create, kfpArtifacts.create, yumArtifacts.create,
+	// files.upload — and the prewarmed-artifact family (prewarmArtifact,
+	// checkPrewarmedArtifact, removePrewarmedArtifact, exportArtifact) are
+	// mux misses.
+	"artifactregistry-v1": 125,
 
-	// Cloud Build: the global builds/triggers/worker-pools surface is served.
-	// The regional (locations/{location}) builds surface, builds.cancel /
-	// .retry on it, the webhook receivers (githubDotComWebhook.receive,
-	// webhook, regionalWebhook), connectedRepositories.batchCreate,
-	// removeGitLabConnectedRepository, removeBitbucketServerConnectedRepository
-	// and operations.cancel are mux misses.
-	"cloudbuild-v1": 92,
+	// Cloud Build: the global builds/triggers/worker-pools surface is served,
+	// as are both operations.cancel spellings and builds.cancel on the regional
+	// resource path as well as the legacy global one — one build record, so one
+	// cancel behind both. The rest of the regional (locations/{location}) builds
+	// surface including .retry, the webhook receivers
+	// (githubDotComWebhook.receive, webhook, regionalWebhook),
+	// connectedRepositories.batchCreate, removeGitLabConnectedRepository and
+	// removeBitbucketServerConnectedRepository are mux misses.
+	"cloudbuild-v1": 98,
 
-	// Memorystore for Redis: instance CRUD, upgrade and failover are served.
-	// ACL policy revision get/list are served from immutable policy snapshots;
-	// the instances fan-in rejects export, import and rescheduleMaintenance as
-	// unknown verbs, and operations.cancel is unmounted.
-	"redis-v1": 86,
+	// Memorystore for Redis: instance CRUD, upgrade, failover and
+	// operations.cancel are served. ACL policy revision get/list are served
+	// from immutable policy snapshots; the instances fan-in rejects export,
+	// import and rescheduleMaintenance as unknown verbs.
+	"redis-v1": 88,
 
 	// Firestore: document CRUD, runQuery, batchGet, batchWrite and the
 	// transaction verbs are served. documents.write, documents.listen,
@@ -149,9 +152,10 @@ var gcpMethodFloor = map[string]int{
 	// preserving the real managed-version lifecycle.
 	"secretmanager-v1": 72,
 
-	// Service Usage: services.list/.get/.enable/.disable/.batchEnable are
-	// served; services.batchGet and operations.cancel are mux misses.
-	"serviceusage-v1": 16,
+	// Service Usage: services.list/.get/.enable/.disable/.batchEnable and the
+	// operations collection's get/delete/cancel are served; services.batchGet
+	// is a mux miss.
+	"serviceusage-v1": 18,
 
 	// Cloud SQL Admin v1: instances, databases, users, backups, SSL certs,
 	// flags and tiers are served. connect.resolveConnectSettings is a mux

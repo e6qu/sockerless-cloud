@@ -2467,11 +2467,14 @@ func gcsWriteTestPermissions(w http.ResponseWriter, r *http.Request) {
 // gcsDoneOperation builds a completed storage#operation. When response is
 // non-nil it is placed in the operation's response member.
 func gcsDoneOperation(r *http.Request, bucket string, response map[string]any) map[string]any {
+	// One operation, so one id: the name and the selfLink must address the
+	// same record.
+	id := gcsRandHex(8)
 	op := map[string]any{
 		"kind":     "storage#operation",
-		"name":     "projects/_/buckets/" + bucket + "/operations/" + gcsRandHex(8),
+		"name":     "projects/_/buckets/" + bucket + "/operations/" + id,
 		"done":     true,
-		"selfLink": gcpSelfLink(r, "/storage/v1/b/"+bucket+"/operations/"+gcsRandHex(8)),
+		"selfLink": gcpSelfLink(r, "/storage/v1/b/"+bucket+"/operations/"+id),
 	}
 	if response != nil {
 		op["response"] = response

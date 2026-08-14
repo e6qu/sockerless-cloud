@@ -100,6 +100,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-iam`](gcp-iam.md)
 - [`gcp-logging`](gcp-logging.md)
 - [`gcp-memorystore_redis`](gcp-memorystore_redis.md)
+- [`gcp-operations_cancel`](gcp-operations_cancel.md)
 - [`gcp-pubsub`](gcp-pubsub.md)
 - [`gcp-secretmanager`](gcp-secretmanager.md)
 - [`gcp-spanner`](gcp-spanner.md)

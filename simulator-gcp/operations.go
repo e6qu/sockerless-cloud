@@ -13,6 +13,10 @@ func registerOperations(srv *sim.Server) {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
 
+	// The AIP-151 cancel spellings that sit outside the projects/locations
+	// operation collection.
+	registerOperationsCancel(srv)
+
 	// AIP-151 list operations across the sim. crOperations is the
 	// shared store every service writes its LROs into via newLRO,
 	// so a List over it projects every cross-service operation

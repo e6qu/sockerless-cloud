@@ -143,6 +143,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			return
 		}
 		pool = seedWorkerPoolV2Defaults(pool, project, location, poolID)
+		pool.Etag = generateUUID()
 		pools.Put(name, pool)
 		reconcileWorkerPoolRevision(revisions, name, poolID+"-00001-abc", pool)
 		lro := newLRO(project, location, pool, wpType)
@@ -209,6 +210,11 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
+		// The etag is read off the request as sent, before any mask merge
+		// rewrites the body.
+		if !cloudRunEtagOK(w, "worker pool", existing.Name, existing.Etag, update.Etag) {
+			return
+		}
 		// A mask naming an unknown or output-only field is rejected with
 		// 400 INVALID_ARGUMENT, matching real Cloud Run v2.
 		if mask := r.URL.Query().Get("updateMask"); mask != "" {
@@ -235,6 +241,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		revName := fmt.Sprintf("%s-%05d-abc", poolID, update.Generation)
 		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
 		update.LatestReadyRevision = update.LatestCreatedRevision
+		update.Etag = generateUUID()
 		pools.Put(name, update)
 		reconcileWorkerPoolRevision(revisions, name, revName, update)
 		lro := newLRO(project, location, update, wpType)
@@ -250,6 +257,9 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		pool, ok := pools.Get(name)
 		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
+			return
+		}
+		if !cloudRunEtagOK(w, "worker pool", pool.Name, pool.Etag, r.URL.Query().Get("etag")) {
 			return
 		}
 		pools.Delete(name)
@@ -304,6 +314,9 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		rev, ok := revisions.Get(name)
 		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
+			return
+		}
+		if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
 			return
 		}
 		revisions.Delete(name)
@@ -424,6 +437,7 @@ func reconcileWorkerPoolRevision(store sim.Store[RevisionV2], poolName, revName 
 		Conditions: []Condition{
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 		},
+		Etag: generateUUID(),
 	}
 	if pool.Template != nil {
 		rev.Labels = pool.Template.Labels

@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 10. Resolved: 8.
+Open: 11. Resolved: 11.
 
 ## Open
 
@@ -17,7 +17,10 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 1345 | P2 | AzureAD Terraform provider | upstream blocker | The `hashicorp/terraform-provider-azuread` provider still lacks a supported Microsoft Graph API endpoint override, so AzureAD/Entra Terraform resources cannot be tested against the Azure simulator until upstream adds it. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers because their provider credentials and delivery endpoints are not represented by an available public AWS contract. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
 
-- **BUG-3 (cross-resource-group move refuses types real ARM moves):** The
+- **BUG-3 (cross-resource-group move refuses types real ARM moves):** Five
+  families move today — Microsoft.Web (sites with their whole child
+  subtree, plans, certificates), Microsoft.Storage, Microsoft.KeyVault and
+  Microsoft.ServiceBus. The
   per-provider move-hook dispatch landed: Resources_MoveResources /
   Resources_ValidateMoveResources walk a hook table (`resource_move.go`)
   keyed by resource type, each hook carrying the existence check and the
@@ -50,53 +53,104 @@ the simulators from the sockerless monorepo, keeping their IDs
   the pre-move ID) — that lands with the Microsoft.Network work, since it is
   the same re-pointing pass. Fix shape unchanged.
 
-- **BUG-6 (the AIP-151 `operations.cancel` custom method is unserved):**
-  Twelve vendored Google Cloud Discovery documents declare a cancel method on
-  their long-running-operation collection — API Gateway, Artifact Registry,
-  Cloud Build (both the global and the regional spelling), Eventarc,
-  Firestore, Cloud Logging (five scope spellings), Memorystore for Redis,
-  Service Usage, Cloud Spanner (six spellings), Cloud SQL Admin (v1 and
-  v1beta4) and Cloud Storage. `simulator-gcp/operations.go` serves get and
-  list only, so a `…/operations/{op}:cancel` POST reaches whichever fan-in
-  owns the path and answers an honest unknown-action error rather than
-  cancelling. Each service's coverage floor already counts the method as
-  unserved. Fix shape: the operation records live in one store per service,
-  so cancel is a per-service handler that marks the record cancelled and
-  answers the empty body AIP-151 specifies — worth doing as one pass over
-  the twelve rather than one service at a time.
+- **BUG-9 (the Event Grid data plane authenticates nothing):**
+  `handleEventGridPublishEvents` / `publishEventGridTopic` in
+  `simulator-azure/eventgrid.go` accept any caller — no `aeg-sas-key`
+  header, no `aeg-sas-token` signature check, no Entra bearer path — where
+  real Azure Event Grid rejects an unauthenticated publish. The access keys
+  the control plane serves through `listKeys` and regenerates on request
+  are therefore decorative: nothing consumes them. Found while proving the
+  Service Bus move preserved a working credential, which the Event Grid
+  half of that work could not demonstrate for exactly this reason. Fix
+  shape: verify the key header and the SAS token the way
+  `verifyMessagingSAS` already does for Service Bus, with negative
+  coverage; that also unblocks Event Grid as a resource-move family, whose
+  other blocker (an event subscription naming its topic by resource ID) is
+  recorded under BUG-3.
 
-- **BUG-7 (Cloud Run v2 reports an etag for jobs only):** The Cloud Run v2
-  Job resource mints a fresh `etag` on every write and enforces it on
-  `jobs.run`, `jobs.patch` and `jobs.delete`. The other six resources the
-  Discovery document declares an `etag` on — Service, Revision, Execution,
-  Task, WorkerPool and Instance — never mint one, so the member is always
-  absent; the `etag` query parameter their six delete methods accept
-  (`services.delete`, `services.revisions.delete`, `jobs.executions.delete`,
-  `workerPools.delete`, `workerPools.revisions.delete`, `instances.delete`)
-  is unread; and so is the `etag` the CancelExecutionRequest,
-  StartInstanceRequest and StopInstanceRequest bodies carry. A client that
-  reads one of those resources therefore has nothing to send back, and one
-  that sends an etag anyway has its modification conflict ignored. Fix shape
-  is the Job's: mint the fingerprint at every store write and refuse a
-  mismatch with the 409 ABORTED Cloud Run answers a conflict with.
+- **BUG-10 (Knative v1 sets a resourceVersion nobody enforces):** The Cloud
+  Run v1 projections stamp `metadata.resourceVersion` from the resource's
+  generation on every read, and no v1 handler ever reads it back, so every
+  v1 replace is unconditional where real Cloud Run answers 409 on a stale
+  version. The v2 family's etags are enforced as of this pass; v1's
+  optimistic concurrency is the same contract in the spelling Knative uses.
+  Fix shape: check the supplied resourceVersion on the v1 replace paths and
+  answer the conflict the service answers.
 
-- **BUG-8 (`Microsoft.Resources/tags/default` writes a plane the resource
-  cannot see):** `simulator-azure/tags.go` keeps `tagsStore`, keyed by the
-  lowercased scope, entirely separate from each resource's own `tags`
-  member. A `PUT`/`PATCH` of `…/providers/Microsoft.Resources/tags/default`
-  at a resource scope therefore updates nothing the resource's own `GET`
-  reports, and a resource created with tags is invisible to a `GET` of its
-  `tags/default`. Real Azure Resource Manager has one set of tags per
-  resource reachable through both surfaces. The generic resource lists read
-  the resource's own tags, so a list agrees with the resource and disagrees
-  with `tags/default` in exactly the same way. Fix shape: make
-  `tags/default` at a resource scope read and write the tags the resource
-  itself holds — the scope-to-store mapping the resource registry
-  (`simulator-azure/resource_registry.go`) already keeps is the lookup that
-  makes it possible — and leave `tagsStore` owning only the subscription and
-  management-group scopes, which have no resource row of their own.
+- **BUG-11 (Cloud Storage operations are fabricated):** `gcsDoneOperation`
+  mints an operation name it never stores, `operations.list` answers an
+  empty collection whatever exists, `operations.get` invents `done: true`
+  for any identifier, and `operations.cancel` accepts any identifier for the
+  same reason. Real Cloud Storage records bucket relocation operations and
+  answers about the one named. Fix shape: give the slice a real operation
+  store like the one the other Google slices share, and make the relocation
+  path record into it — until then the collection reports success about work
+  it has no record of.
+
+- **BUG-12 (the Cloud Run executions verb fan-in accepts any verb):** The
+  `executions/{id}:{verb}` route discards the action and treats every verb
+  as cancel, so a request naming a verb the service does not publish is
+  answered rather than refused. Tightening it moves the cloudrun-v2 floor,
+  because the coverage probe reads an honest unknown-action error as
+  unserved — so the fix is the tightening plus the ratchet in one change.
 
 ## Resolved history
+
+- **BUG-8 (`Microsoft.Resources/tags/default` wrote a plane the resource
+  could not see):** Every scope now resolves to one holder of its tags. A
+  resource scope reads and writes the resource's own `tags` member through
+  the resource registry, which gained a tags reader and writer beside its
+  enumerator so no second lookup table exists; a resource-group scope
+  writes the group's own record, which had the same divergence; and the
+  subscription and management-group scopes keep `tagsStore` as their only
+  home, because the simulator holds no record for either. PATCH honours
+  Merge, Replace and Delete against the holder, the generic resource lists
+  report the same set either way, and a scope holding no resource answers
+  404 as Azure Resource Manager does. The registry's initialisation now
+  refuses a tracked type whose stored form has no settable tags member,
+  which caught the nine Microsoft.Network types that carry theirs in an
+  embedded envelope. The move dispatch's separate tag re-homing became dead
+  code and was deleted: a resource's tags travel with the record its hook
+  re-keys.
+- **BUG-6 (the operations cancel method was unserved):** The entry named
+  twelve documents; the coverage worklist showed five of them
+  (Cloud Spanner, Firestore, Cloud SQL Admin v1 and v1beta4, Cloud Storage)
+  already served cancel, so the real remainder was seven documents and
+  twenty method spellings, all now served with each service's own answer.
+  The nine services whose vendored description says a caller checks
+  GetOperation for "whether the cancellation succeeded or whether the
+  operation completed despite cancellation" answer 200 with the record
+  untouched, because a completed operation is a documented outcome there
+  rather than an error; Cloud SQL Admin answers the 400 FAILED_PRECONDITION
+  its own documentation shows, with the distinct message it gives for an
+  operation type it cannot cancel. An unknown operation name answers 404
+  everywhere, which Cloud Logging previously did not check at all. Every
+  long-running operation in this simulator is minted complete, so for
+  eleven services the already-done answer is the only honest one and no
+  unreachable cancellation branch was written; a new invariant test fails
+  if that ever stops being true. AWS Cloud Build was the exception: it runs
+  real processes, so its steps now execute under a cancellable context and
+  cancel really terminates the running build — proven by a control that
+  removes the termination and watches the test hang until its deadline.
+  Three defects surfaced with it: Service Usage named its operations under
+  a path its own get, delete and cancel could never resolve, Cloud Build
+  recorded no operation for its non-build long-running work and returned
+  the resource name where the operation name belonged, and Cloud Storage
+  minted two different identifiers for one operation's name and selfLink.
+
+- **BUG-7 (Cloud Run v2 minted an etag for Job alone):** Service, Revision,
+  Execution, Task, WorkerPool and Instance now mint an etag at every store
+  write, including the Knative v1 write paths and the Cloud Functions
+  backing service, and a supplied etag is enforced on all six deletes, on
+  the Service, WorkerPool and Instance patches — read before the update
+  mask merges, so a mask cannot smuggle the condition away — and on the
+  cancel-execution, start-instance and stop-instance requests, which were
+  not decoded at all before and now honour validateOnly too. An omitted
+  etag stays unconditional and a stale one answers 409 ABORTED, matching
+  the service. Knative v1 deliberately keeps no etag: its document declares
+  one only on the IAM policy, and its optimistic concurrency is
+  resourceVersion, tracked as BUG-10.
+
 
 - **BUG-4 (the subscription resource list answers only Key Vaults, and
   ignores `$filter`):** `GET /subscriptions/{sub}/resources` and

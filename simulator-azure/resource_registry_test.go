@@ -12,7 +12,7 @@ func TestAzureTrackedResourceKeys(t *testing.T) {
 	if len(azureTrackedResources) == 0 {
 		t.Fatal("the resource registry is empty")
 	}
-	for key, enumerate := range azureTrackedResources {
+	for key, tracked := range azureTrackedResources {
 		if key != strings.ToLower(key) {
 			t.Errorf("registry key %q is not lowercased", key)
 		}
@@ -22,8 +22,11 @@ func TestAzureTrackedResourceKeys(t *testing.T) {
 		if strings.Count(key, "/") < 1 {
 			t.Errorf("registry key %q is not a provider/type spelling", key)
 		}
-		if enumerate == nil {
+		if tracked.enumerate == nil {
 			t.Errorf("registry key %q has no enumerator", key)
+		}
+		if tracked.lookupTags == nil || tracked.writeTags == nil {
+			t.Errorf("registry key %q carries no tag accessors, so Microsoft.Resources/tags/default cannot reach it", key)
 		}
 	}
 	// The families the resource lists must cover, one per provider the

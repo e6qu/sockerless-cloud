@@ -238,6 +238,9 @@ func projectCloudRunV1ToV2(service CRService, project, location string) {
 		return
 	}
 	projection := cloudRunV1ToV2(service, project, location)
+	// The Knative v1 surface and the v2 collection address one service record,
+	// so a write through v1 mints the same fresh fingerprint a v2 write does.
+	projection.Etag = generateUUID()
 	crv2Services.Put(projection.Name, projection)
 	if crv2Revisions != nil {
 		revision := projection.LatestReadyRevision[strings.LastIndex(projection.LatestReadyRevision, "/")+1:]
