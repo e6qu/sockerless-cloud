@@ -1,5 +1,34 @@
 # WHAT WE DID
 
+## 2026-08-14 — Seventh polish pass: Cloud Run v1 complete, Key Vault moves
+
+Completed the Cloud Run v1 surface, 100 to 152 of 152 served spellings, as
+projections over the state the v2 surface already owns rather than a second
+bookkeeping layer: Knative jobs, executions, tasks, instances and worker
+pools read and write the same records the v2 API serves, the operations wait
+alias and the jobs IAM read fill the last strays, and the new collections
+honour labelSelector, limit and continue. The job execution engine was
+lifted to package scope in its own step so both API versions run and cancel
+through one implementation — a v1 run really starts containers and a v1
+cancel really stops them, pinned by a test that watches the container's own
+output stop rather than the record change. Instance start and stop flip
+conditions exactly as the v2 surface does, because no execution exists there
+on either version and inventing one would be a fidelity regression. Two real
+defects surfaced with the work: the v2 colon-verb fan-in ran the job on
+setIamPolicy, and RunJobRequest's overrides and validateOnly were silently
+ignored; both are fixed with regressions.
+
+Cross-resource-group moves gained Microsoft.KeyVault, chosen by surveying
+five candidate families' store layouts: vaults keep two resource-id-keyed
+stores while the whole data plane keys on the vault name, so the move
+re-keys the record and its private endpoint connections and touches nothing
+else. An RSA key created before a move still decrypts pre-move ciphertext
+after it — an implementation that re-derived material from the resource id
+could not pass that. The survey also recorded why Microsoft.Network is the
+wrong family to move next: its resources reference each other by resource
+id, so moving one without re-pointing every referrer would silently break
+the fabric.
+
 ## 2026-08-13 — Sixth polish pass: App Service Stage 5 and the move-hook table
 
 Raised the web-arm surface 426 to 503 of 692 by completing the networking

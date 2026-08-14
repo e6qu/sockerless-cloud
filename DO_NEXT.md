@@ -1,6 +1,6 @@
 # DO NEXT
 
-1. Watch the polish-pass-6 pull request's CI and fix failures for real.
+1. Watch the polish-pass-7 pull request's CI and fix failures for real.
 2. App Service: Stages 1-5 are shipped (503 of 692). What remains in that
    swagger is the recorded deferrals — processes and instances read from the
    live container, backup and restore want a real Blob round-trip, App
@@ -8,40 +8,22 @@
    resources, detector execution is data the simulator cannot compute — plus
    the Provider_*Stacks vendored-catalog decision (6 ops). BUG-3 continues
    one provider family per pass.
-3. The two methods newly present in those specifications were real
-implementations: Bigtable memory layers retained enable/disable state and
-etags and returned durable operations, while Cloud Resource Manager returned
-resource-semantics metadata through its published v3 route. Authenticated
-official-SDK transports exercised both methods, and generated surface coverage
-measured Bigtable at 164 of 164 and Cloud Resource Manager v3 at 126 of 126.
+3. Cloud Run v1 is complete at 152 of 152. The next measured Google
+   ratchets are Cloud Spanner admin (82/198) and Google Cloud Billing
+   (6/36) — Billing still carries the SKU-catalog decision, since
+   services.list and services.skus.list answer with Google's published
+   catalog and a partial one would be fabrication.
+4. BUG-3 moves one provider family per pass. Microsoft.Web, Microsoft.Storage
+   and Microsoft.KeyVault move today. Microsoft.ServiceBus and
+   Microsoft.EventGrid need their SAS/access keys pinned across a move first
+   (both derive key material from the resource id, so a naive move would
+   silently rotate every connection string); Microsoft.Network is last,
+   because its resources reference each other by resource id and moving one
+   without re-pointing every referrer would break the fabric silently.
+5. BUG-4 (the subscription resource list answers only Key Vaults and ignores
+   $filter) and BUG-5 (the older Knative collections ignore labelSelector,
+   limit and continue) are both locally actionable whenever a pass has room.
 
-AzureRM 5's complete external stack also converged after refresh.
-Microsoft.OperationalInsights workspaces returned Azure's default public
-network access values, and Microsoft.Storage File-share policies stayed
-consistent between the ARM resource and Azure Files data plane. The official
-Azure SDK round-tripped the share policy and Azure CLI round-tripped the
-workspace defaults. The external stack's post-plan assertions used AzureRM
-5's canonical Microsoft.Storage ARM IDs for Blob containers, Tables, and File
-shares instead of the removed legacy data-plane IDs.
-
-The pull-request CI freshness pass supplied the exact newer official Cloud
-Logging v2 revision 20260724 and IAM Service Account Credentials v1 revision
-20260723 Discovery documents. Their method, route, and schema-field sets were
-unchanged; the newer descriptions and provenance pins were retained, and the
-Google simulator route, specification, and measured-coverage suite passed.
-
-The publication repair preserved current public contracts across the failing
-client surfaces. Amazon SQS redrive used the normal enqueue path and therefore
-assigned a new message ID, millisecond enqueue timestamp, FIFO sequence, and
-destination delay; its validation audit used the current 1 MiB limit. An
-omitted Amazon ECS launch type selected EC2 capacity rather than an AWS Fargate
-sandbox. Azure Database for PostgreSQL flexible servers round-tripped their
-top-level SKU through create, update, get, list, the official Azure SDK, and
-the AzureRM provider. Google Cloud Run v1 collection validation located the
-projected resource within the real shared collection. The Azure console's
-embedded-root contract ran only in UI-bearing builds, while `noui` retained a
-real 404. Google Cloud DNS and Artifact Registry specifications were refreshed
-to Discovery revisions 20260723 and 20260724.
 
 ## Next Recommended Slice
 

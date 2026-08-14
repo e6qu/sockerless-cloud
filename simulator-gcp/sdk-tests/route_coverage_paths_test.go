@@ -517,3 +517,60 @@ package gcp_sdk_test
 //   DELETE /v3/projects/{project}
 //   POST /v3/projects/{projectAction}
 //   GET /v3/operations/{operation}
+
+// Cloud Run Admin v1 (Knative) Jobs family. These routes render the v2-owned
+// job / execution / task records in the Knative shape and are driven by the
+// canonical google.golang.org/api/run/v1 client in cloudrun_v1_jobs_test.go
+// (and, for the jobs IAM read, by `gcloud run jobs get-iam-policy` in
+// cli-tests/run_jobs_iam_test.go). The literal wire paths are recorded here so
+// the simulator-testing-contract hook can see the coverage.
+//
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{name}
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/executions
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/tasks/{name}
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/tasks
+//   GET /v1/projects/{project}/locations/{location}/jobs/{jobAction}
+//   POST /v1/projects/{project}/locations/{location}/operations/{opAction}
+//   POST /v2/projects/{project}/locations/{location}/operations/{opAction}
+
+// Cloud Run Admin v1 (Knative) instances and worker pools. These routes render
+// the v2-owned instance and worker-pool records in the Knative shape and are
+// driven by google.golang.org/api/run/v1 in
+// cloudrun_v1_instances_workerpools_test.go. `gcloud run worker-pools` and
+// `gcloud alpha run instances` reach these collections only at the regional
+// Cloud Run host, which no endpoint coordinate can point at a loopback
+// simulator (see cli-tests/run_workerpools_v2_test.go), so the SDK is the
+// client surface here.
+//
+//   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/instances
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/instances/{name}
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/instances
+//   PUT /apis/run.googleapis.com/v1/namespaces/{namespace}/instances/{name}
+//   DELETE /apis/run.googleapis.com/v1/namespaces/{namespace}/instances/{name}
+//   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/instances/{nameAction}
+//   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools/{name}
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools
+//   PUT /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools/{name}
+//   DELETE /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools/{name}
+
+// Cloud Run Admin v1 (Knative) jobs, and the v2 jobs colon-verb fan-in that
+// dispatches RunJob and the POST-side IAM verbs. The Knative jobs collection
+// writes and reads the same records the v2 collection owns and drives the same
+// container execution; both are driven by google.golang.org/api/run/v1 and raw
+// v2 wire calls in cloudrun_v1_jobs_lifecycle_test.go, including a real image
+// whose non-zero exit reaches status.failedCount and a cancel that stops the
+// running container. `gcloud run jobs create/execute/describe` reach these
+// collections only at the regional Cloud Run host, which no endpoint
+// coordinate can point at a loopback simulator; only the global-path IAM
+// commands are CLI-reachable (cli-tests/run_jobs_iam_test.go).
+//
+//   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs/{name}
+//   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs
+//   PUT /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs/{name}
+//   DELETE /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs/{name}
+//   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs/{nameAction}
+//   DELETE /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{name}
+//   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{nameAction}
+//   POST /v2/projects/{project}/locations/{location}/jobs/{jobAction}

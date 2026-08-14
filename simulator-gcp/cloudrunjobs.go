@@ -42,6 +42,32 @@ type ExecutionReference struct {
 	CompletionTime string `json:"completionTime,omitempty"`
 }
 
+// RunJobRequest mirrors google.cloud.run.v2.RunJobRequest — the body of
+// projects.locations.jobs.run.
+type RunJobRequest struct {
+	Etag         string     `json:"etag,omitempty"`
+	Overrides    *Overrides `json:"overrides,omitempty"`
+	ValidateOnly bool       `json:"validateOnly,omitempty"`
+}
+
+// Overrides mirrors google.cloud.run.v2.Overrides — the per-run replacements a
+// client applies on top of the job's execution template.
+type Overrides struct {
+	ContainerOverrides []ContainerOverride `json:"containerOverrides,omitempty"`
+	TaskCount          int32               `json:"taskCount,omitempty"`
+	Timeout            string              `json:"timeout,omitempty"`
+}
+
+// ContainerOverride mirrors google.cloud.run.v2.ContainerOverride. Args replace
+// the container's args, env is merged into the container's env, and clearArgs
+// empties the args list.
+type ContainerOverride struct {
+	Name      string   `json:"name,omitempty"`
+	Args      []string `json:"args,omitempty"`
+	Env       []EnvVar `json:"env,omitempty"`
+	ClearArgs bool     `json:"clearArgs,omitempty"`
+}
+
 // ExecutionTemplate holds the template for creating executions.
 type ExecutionTemplate struct {
 	Labels      map[string]string `json:"labels,omitempty"`
@@ -273,6 +299,7 @@ type Execution struct {
 	UID            string            `json:"uid"`
 	Generation     int64             `json:"generation,string"`
 	Labels         map[string]string `json:"labels,omitempty"`
+	Parallelism    int32             `json:"parallelism"`
 	CreateTime     string            `json:"createTime"`
 	StartTime      string            `json:"startTime,omitempty"`
 	CompletionTime string            `json:"completionTime,omitempty"`
@@ -527,10 +554,23 @@ func recoverCloudRunJobExecutions(jobs sim.Store[Job], executions sim.Store[Exec
 	}
 }
 
+// crjJobs, crjExecutions and crjTasks are the Cloud Run jobs stores. A job,
+// its executions and its tasks are each one resource addressable through two
+// API versions — the v2 resource-oriented surface and the v1 Knative
+// `namespaces` surface — so the stores are package-scoped rather than closed
+// over by the v2 handlers alone, and the v1 handlers project the same records
+// rather than keeping their own.
+var (
+	crjJobs       sim.Store[Job]
+	crjExecutions sim.Store[Execution]
+	crjTasks      sim.Store[Task]
+)
+
 func registerCloudRunJobs(srv *sim.Server) {
 	jobs := sim.MakeStore[Job](srv.DB(), "crj_jobs")
 	executions := sim.MakeStore[Execution](srv.DB(), "crj_executions")
 	tasks := sim.MakeStore[Task](srv.DB(), "crj_tasks")
+	crjJobs, crjExecutions, crjTasks = jobs, executions, tasks
 	if crOperations == nil {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
@@ -692,13 +732,28 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// Run job (create execution)
+	// RunJob and the POST-side IAM verbs all arrive as
+	// POST .../jobs/{job}:<verb>; the verb selects the method.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/jobs/{jobAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		jobAction := sim.PathParam(r, "jobAction")
-		jobID, _, _ := strings.Cut(jobAction, ":")
+		jobID, action, found := strings.Cut(jobAction, ":")
+		if !found {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on job %q", jobAction)
+			return
+		}
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
+
+		switch action {
+		case "setIamPolicy", "testIamPermissions":
+			cloudRunV1JobIAM(w, r, project, location, jobID, action)
+			return
+		case "run":
+		default:
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, jobID)
+			return
+		}
 
 		job, ok := jobs.Get(name)
 		if !ok {
@@ -706,192 +761,21 @@ func registerCloudRunJobs(srv *sim.Server) {
 			return
 		}
 
-		now := nowTimestamp()
-		execID := generateUUID()
-		execName := fmt.Sprintf("%s/executions/%s", name, execID)
-
-		var taskCount int32 = 1
-		var tmpl *TaskTemplate
-		if job.Template != nil {
-			taskCount = job.Template.TaskCount
-			if taskCount == 0 {
-				taskCount = 1
-			}
-			tmpl = job.Template.Template
+		var request RunJobRequest
+		if err := sim.ReadJSON(r, &request); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		if request.ValidateOnly {
+			// The request validated and nothing was created, so the operation
+			// carries no resource: reporting an Execution that does not exist
+			// would be the fake this simulator refuses to serve.
+			lro := newLRO(project, location, nil, "type.googleapis.com/google.cloud.run.v2.Execution")
+			sim.WriteJSON(w, http.StatusOK, lro)
+			return
 		}
 
-		exec := Execution{
-			Name:         execName,
-			UID:          generateUUID(),
-			Generation:   1,
-			Labels:       job.Labels,
-			CreateTime:   now,
-			StartTime:    now,
-			RunningCount: taskCount,
-			TaskCount:    taskCount,
-			Template:     tmpl,
-			Conditions: []Condition{
-				{Type: "Ready", State: "CONDITION_PENDING", LastTransitionTime: now},
-			},
-			Reconciling: true,
-		}
-
-		executions.Put(execName, exec)
-
-		// Materialize one Task per index, mirroring how Cloud Run creates
-		// TaskCount tasks when an execution starts.
-		for i := int32(0); i < taskCount; i++ {
-			taskID := generateUUID()
-			taskName := fmt.Sprintf("%s/tasks/%s", execName, taskID)
-			task := Task{
-				Name:       taskName,
-				UID:        generateUUID(),
-				Generation: 1,
-				Labels:     job.Labels,
-				CreateTime: now,
-				StartTime:  now,
-				Job:        name,
-				Execution:  execName,
-				Index:      i,
-				Conditions: []Condition{
-					{Type: "Started", State: "CONDITION_PENDING", LastTransitionTime: now},
-				},
-				Reconciling: true,
-			}
-			if tmpl != nil {
-				task.Containers = tmpl.Containers
-				task.Volumes = tmpl.Volumes
-				task.MaxRetries = tmpl.MaxRetries
-				task.Timeout = tmpl.Timeout
-				task.ServiceAccount = tmpl.ServiceAccount
-			}
-			tasks.Put(taskName, task)
-		}
-
-		// Inject log entries for the execution
-		injectCloudRunJobLog(project, jobID, "Container started")
-
-		// Auto-complete execution after task timeout or process exit
-		go func(id string, tc int32, proj, job string, taskTmpl *TaskTemplate) {
-			timeout := 600 * time.Second // GCP default
-			if taskTmpl != nil && taskTmpl.Timeout != "" {
-				if d, err := time.ParseDuration(taskTmpl.Timeout); err == nil {
-					timeout = d
-				}
-			}
-
-			succeeded := true
-			if taskTmpl != nil && len(taskTmpl.Containers) > 0 {
-				// Real container execution
-				sink := &crjLogSink{project: proj, jobName: job}
-				execShort := id
-				if parts := strings.Split(id, "/"); len(parts) > 0 {
-					last := parts[len(parts)-1]
-					if len(last) > 12 {
-						execShort = last[:12]
-					} else {
-						execShort = last
-					}
-				}
-				handle, sidecars, err := startCloudRunJobContainers(id, execShort, taskTmpl, timeout, sink)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "ERROR: failed to start containers for execution: err=%v\n", err)
-					succeeded = false
-				} else {
-					crjProcessHandles.Store(id, &cloudRunJobProcesses{Main: handle, Sidecars: sidecars})
-					result := handle.Wait()
-					crjProcessHandles.Delete(id)
-					for _, h := range sidecars {
-						h.Cancel()
-					}
-					succeeded = result.ExitCode == 0
-				}
-			}
-
-			completed := false
-			executions.Update(id, func(e *Execution) {
-				if e.RunningCount == 0 {
-					return
-				}
-				completed = true
-				completionTime := nowTimestamp()
-				e.CompletionTime = completionTime
-				e.RunningCount = 0
-				if succeeded {
-					e.SucceededCount = tc
-				} else {
-					e.FailedCount = tc
-				}
-				state := "CONDITION_SUCCEEDED"
-				reason := ""
-				if !succeeded {
-					state = "CONDITION_FAILED"
-					reason = "NonZeroExitCode"
-				}
-				e.Conditions = []Condition{
-					{Type: "Ready", State: enumString(state), LastTransitionTime: completionTime, Reason: reason},
-					{Type: "Completed", State: enumString(state), LastTransitionTime: completionTime, Reason: reason},
-				}
-				e.Reconciling = false
-			})
-			if completed {
-				// Settle each task to match the execution outcome.
-				taskState := "CONDITION_SUCCEEDED"
-				taskReason := ""
-				var exitCode int32
-				if !succeeded {
-					taskState = "CONDITION_FAILED"
-					taskReason = "NonZeroExitCode"
-					exitCode = 1
-				}
-				completionTime := nowTimestamp()
-				taskPrefix := id + "/tasks/"
-				for _, tk := range tasks.Filter(func(t Task) bool { return strings.HasPrefix(t.Name, taskPrefix) }) {
-					tasks.Update(tk.Name, func(t *Task) {
-						t.CompletionTime = completionTime
-						t.Conditions = []Condition{
-							{Type: "Started", State: "CONDITION_SUCCEEDED", LastTransitionTime: completionTime},
-							{Type: "Completed", State: enumString(taskState), LastTransitionTime: completionTime, Reason: taskReason},
-						}
-						t.LastAttemptResult = &TaskAttemptResult{
-							Status:   &RPCStatus{Code: exitCode},
-							ExitCode: exitCode,
-						}
-						t.Reconciling = false
-					})
-				}
-				// Update the job's latestCreatedExecution with completion time
-				if jobKey, _, ok := strings.Cut(id, "/executions/"); ok {
-					jobs.Update(jobKey, func(j *Job) {
-						if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == id {
-							j.LatestCreatedExecution.CompletionTime = nowTimestamp()
-						}
-					})
-				}
-				// Match the actual outcome (the previous behaviour
-				// always injected "Execution completed successfully"
-				// regardless of `succeeded`, masking failed jobs as
-				// fake-success in the log stream and breaking tests
-				// like TestCloudRunArithmeticInvalid that assert on
-				// the failure marker).
-				if succeeded {
-					injectCloudRunJobLog(proj, job, "Execution completed successfully")
-				} else {
-					injectCloudRunJobLog(proj, job, "Execution failed")
-				}
-			}
-		}(execName, taskCount, project, jobID, tmpl)
-
-		// Update job with execution count and latest execution reference
-		jobs.Update(name, func(j *Job) {
-			j.ExecutionCount++
-			j.UpdateTime = now
-			j.LatestCreatedExecution = &ExecutionReference{
-				Name:       execName,
-				CreateTime: now,
-			}
-		})
-
+		exec := runCloudRunJob(project, location, jobID, job, request.Overrides)
 		lro := newLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -945,42 +829,13 @@ func registerCloudRunJobs(srv *sim.Server) {
 		jobID := sim.PathParam(r, "job")
 		execAction := sim.PathParam(r, "execAction")
 		execID, _, _ := strings.Cut(execAction, ":")
-		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/executions/%s", project, location, jobID, execID)
 
-		// Cancel running container if any
-		if v, ok := crjProcessHandles.LoadAndDelete(name); ok {
-			if procs, ok := v.(*cloudRunJobProcesses); ok {
-				stopCloudRunJobProcesses(procs)
-			}
-		}
-
-		ok := executions.Update(name, func(e *Execution) {
-			now := nowTimestamp()
-			e.CompletionTime = now
-			e.CancelledCount = e.RunningCount
-			e.RunningCount = 0
-			e.Conditions = []Condition{
-				{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
-				{Type: "Completed", State: "CONDITION_SUCCEEDED", LastTransitionTime: now, Reason: "Cancelled"},
-			}
-			e.Reconciling = false
-		})
-		if ok {
-			// Update the job's latestCreatedExecution with completion time
-			jobName := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
-			jobs.Update(jobName, func(j *Job) {
-				if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == name {
-					j.LatestCreatedExecution.CompletionTime = nowTimestamp()
-				}
-			})
-			injectCloudRunJobLog(project, jobID, "Execution cancelled")
-		}
+		exec, ok := cancelCloudRunExecution(project, location, jobID, execID)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found",
+				fmt.Sprintf("projects/%s/locations/%s/jobs/%s/executions/%s", project, location, jobID, execID))
 			return
 		}
-
-		exec, _ := executions.Get(name)
 		lro := newLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -1095,6 +950,315 @@ func registerCloudRunJobs(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
+}
+
+// runCloudRunJob starts one execution of a Cloud Run job: it materializes the
+// Execution and the TaskCount Tasks the execution owns, launches the workload
+// containers, and settles the execution and its tasks from the real container
+// outcome. It returns the Execution as it exists the moment the run was
+// accepted — running, with the workload in flight — which is what both API
+// versions' run methods report.
+//
+// The Execution and Task records it writes are the ones every reader sees:
+// the v2 collection reads them directly and the v1 Knative surface projects
+// them, so there is exactly one execution lifecycle behind both spellings.
+func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrides) Execution {
+	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
+	now := nowTimestamp()
+	execName := fmt.Sprintf("%s/executions/%s", name, generateUUID())
+
+	var taskCount int32 = 1
+	var parallelism int32 = 1
+	var tmpl *TaskTemplate
+	if job.Template != nil {
+		taskCount = job.Template.TaskCount
+		if taskCount == 0 {
+			taskCount = 1
+		}
+		parallelism = job.Template.Parallelism
+		if parallelism == 0 {
+			parallelism = 1
+		}
+		tmpl = job.Template.Template
+	}
+	if overrides != nil {
+		if overrides.TaskCount > 0 {
+			taskCount = overrides.TaskCount
+		}
+		tmpl = applyCloudRunJobOverrides(tmpl, overrides)
+	}
+
+	exec := Execution{
+		Name:         execName,
+		UID:          generateUUID(),
+		Generation:   1,
+		Labels:       job.Labels,
+		Parallelism:  parallelism,
+		CreateTime:   now,
+		StartTime:    now,
+		RunningCount: taskCount,
+		TaskCount:    taskCount,
+		Template:     tmpl,
+		Conditions: []Condition{
+			{Type: "Ready", State: "CONDITION_PENDING", LastTransitionTime: now},
+		},
+		Reconciling: true,
+	}
+	crjExecutions.Put(execName, exec)
+
+	// Materialize one Task per index, mirroring how Cloud Run creates
+	// TaskCount tasks when an execution starts.
+	for i := int32(0); i < taskCount; i++ {
+		taskName := fmt.Sprintf("%s/tasks/%s", execName, generateUUID())
+		task := Task{
+			Name:       taskName,
+			UID:        generateUUID(),
+			Generation: 1,
+			Labels:     job.Labels,
+			CreateTime: now,
+			StartTime:  now,
+			Job:        name,
+			Execution:  execName,
+			Index:      i,
+			Conditions: []Condition{
+				{Type: "Started", State: "CONDITION_PENDING", LastTransitionTime: now},
+			},
+			Reconciling: true,
+		}
+		if tmpl != nil {
+			task.Containers = tmpl.Containers
+			task.Volumes = tmpl.Volumes
+			task.MaxRetries = tmpl.MaxRetries
+			task.Timeout = tmpl.Timeout
+			task.ServiceAccount = tmpl.ServiceAccount
+		}
+		crjTasks.Put(taskName, task)
+	}
+
+	injectCloudRunJobLog(project, jobID, "Container started")
+	go settleCloudRunJobExecution(execName, taskCount, project, jobID, tmpl)
+
+	crjJobs.Update(name, func(j *Job) {
+		j.ExecutionCount++
+		j.UpdateTime = now
+		j.LatestCreatedExecution = &ExecutionReference{
+			Name:       execName,
+			CreateTime: now,
+		}
+	})
+	return exec
+}
+
+// applyCloudRunJobOverrides returns the task template one run should use: the
+// job's own template with the request's per-run replacements applied. The job
+// resource is untouched — an override lasts for the execution it was sent
+// with, which is what makes it an override rather than an update.
+//
+// Per google.cloud.run.v2.ContainerOverride: args replace the container's
+// args, clearArgs empties them, and env is merged into the container's env
+// (a name present in both takes the override's value). A container override
+// with no name addresses the job's first container, the way a single-container
+// job is addressed everywhere else in the API.
+func applyCloudRunJobOverrides(template *TaskTemplate, overrides *Overrides) *TaskTemplate {
+	if template == nil || overrides == nil {
+		return template
+	}
+	merged := *template
+	merged.Containers = append([]Container(nil), template.Containers...)
+	if overrides.Timeout != "" {
+		merged.Timeout = overrides.Timeout
+	}
+	for _, override := range overrides.ContainerOverrides {
+		index := -1
+		for i, container := range merged.Containers {
+			if container.Name == override.Name {
+				index = i
+				break
+			}
+		}
+		if index < 0 && override.Name == "" && len(merged.Containers) > 0 {
+			index = 0
+		}
+		if index < 0 {
+			continue
+		}
+		container := merged.Containers[index]
+		switch {
+		case override.ClearArgs:
+			container.Args = nil
+		case len(override.Args) > 0:
+			container.Args = append([]string(nil), override.Args...)
+		}
+		if len(override.Env) > 0 {
+			env := append([]EnvVar(nil), container.Env...)
+			for _, entry := range override.Env {
+				replaced := false
+				for i := range env {
+					if env[i].Name == entry.Name {
+						env[i] = entry
+						replaced = true
+						break
+					}
+				}
+				if !replaced {
+					env = append(env, entry)
+				}
+			}
+			container.Env = env
+		}
+		merged.Containers[index] = container
+	}
+	return &merged
+}
+
+// settleCloudRunJobExecution runs the execution's workload containers to
+// completion and transitions the execution, its tasks and the owning job's
+// latest-execution reference from the real container outcome.
+func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID string, taskTmpl *TaskTemplate) {
+	timeout := 600 * time.Second // GCP default
+	if taskTmpl != nil && taskTmpl.Timeout != "" {
+		if d, err := time.ParseDuration(taskTmpl.Timeout); err == nil {
+			timeout = d
+		}
+	}
+
+	succeeded := true
+	if taskTmpl != nil && len(taskTmpl.Containers) > 0 {
+		sink := &crjLogSink{project: project, jobName: jobID}
+		execShort := execName
+		if parts := strings.Split(execName, "/"); len(parts) > 0 {
+			last := parts[len(parts)-1]
+			if len(last) > 12 {
+				execShort = last[:12]
+			} else {
+				execShort = last
+			}
+		}
+		handle, sidecars, err := startCloudRunJobContainers(execName, execShort, taskTmpl, timeout, sink)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: failed to start containers for execution: err=%v\n", err)
+			succeeded = false
+		} else {
+			crjProcessHandles.Store(execName, &cloudRunJobProcesses{Main: handle, Sidecars: sidecars})
+			result := handle.Wait()
+			crjProcessHandles.Delete(execName)
+			for _, h := range sidecars {
+				h.Cancel()
+			}
+			succeeded = result.ExitCode == 0
+		}
+	}
+
+	completed := false
+	crjExecutions.Update(execName, func(e *Execution) {
+		if e.RunningCount == 0 {
+			return
+		}
+		completed = true
+		completionTime := nowTimestamp()
+		e.CompletionTime = completionTime
+		e.RunningCount = 0
+		if succeeded {
+			e.SucceededCount = taskCount
+		} else {
+			e.FailedCount = taskCount
+		}
+		state := "CONDITION_SUCCEEDED"
+		reason := ""
+		if !succeeded {
+			state = "CONDITION_FAILED"
+			reason = "NonZeroExitCode"
+		}
+		e.Conditions = []Condition{
+			{Type: "Ready", State: enumString(state), LastTransitionTime: completionTime, Reason: reason},
+			{Type: "Completed", State: enumString(state), LastTransitionTime: completionTime, Reason: reason},
+		}
+		e.Reconciling = false
+	})
+	if !completed {
+		return
+	}
+
+	// Settle each task to match the execution outcome.
+	taskState := "CONDITION_SUCCEEDED"
+	taskReason := ""
+	var exitCode int32
+	if !succeeded {
+		taskState = "CONDITION_FAILED"
+		taskReason = "NonZeroExitCode"
+		exitCode = 1
+	}
+	completionTime := nowTimestamp()
+	taskPrefix := execName + "/tasks/"
+	for _, tk := range crjTasks.Filter(func(t Task) bool { return strings.HasPrefix(t.Name, taskPrefix) }) {
+		crjTasks.Update(tk.Name, func(t *Task) {
+			t.CompletionTime = completionTime
+			t.Conditions = []Condition{
+				{Type: "Started", State: "CONDITION_SUCCEEDED", LastTransitionTime: completionTime},
+				{Type: "Completed", State: enumString(taskState), LastTransitionTime: completionTime, Reason: taskReason},
+			}
+			t.LastAttemptResult = &TaskAttemptResult{
+				Status:   &RPCStatus{Code: exitCode},
+				ExitCode: exitCode,
+			}
+			t.Reconciling = false
+		})
+	}
+	if jobKey, _, ok := strings.Cut(execName, "/executions/"); ok {
+		crjJobs.Update(jobKey, func(j *Job) {
+			if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == execName {
+				j.LatestCreatedExecution.CompletionTime = nowTimestamp()
+			}
+		})
+	}
+	// The log line matches the actual outcome: a failed execution must not
+	// report success in the log stream a client tails.
+	if succeeded {
+		injectCloudRunJobLog(project, jobID, "Execution completed successfully")
+	} else {
+		injectCloudRunJobLog(project, jobID, "Execution failed")
+	}
+}
+
+// cancelCloudRunExecution cancels a running execution: it stops the workload
+// containers the execution owns and settles the execution record and the
+// owning job's latest-execution reference. Stopping the containers is the
+// point — a cancel that only rewrote the record would leave a container
+// running behind an execution both API versions report as cancelled.
+func cancelCloudRunExecution(project, location, jobID, execID string) (Execution, bool) {
+	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/executions/%s", project, location, jobID, execID)
+
+	if v, ok := crjProcessHandles.LoadAndDelete(name); ok {
+		if procs, ok := v.(*cloudRunJobProcesses); ok {
+			stopCloudRunJobProcesses(procs)
+		}
+	}
+
+	ok := crjExecutions.Update(name, func(e *Execution) {
+		now := nowTimestamp()
+		e.CompletionTime = now
+		e.CancelledCount = e.RunningCount
+		e.RunningCount = 0
+		e.Conditions = []Condition{
+			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
+			{Type: "Completed", State: "CONDITION_SUCCEEDED", LastTransitionTime: now, Reason: "Cancelled"},
+		}
+		e.Reconciling = false
+	})
+	if !ok {
+		return Execution{}, false
+	}
+
+	jobName := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
+	crjJobs.Update(jobName, func(j *Job) {
+		if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == name {
+			j.LatestCreatedExecution.CompletionTime = nowTimestamp()
+		}
+	})
+	injectCloudRunJobLog(project, jobID, "Execution cancelled")
+
+	exec, _ := crjExecutions.Get(name)
+	return exec, true
 }
 
 func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*sim.ContainerHandle, []*sim.ContainerHandle, error) {

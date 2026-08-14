@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 6.
+Open: 9. Resolved: 6.
 
 ## Open
 
@@ -30,12 +30,57 @@ the simulators from the sockerless monorepo, keeping their IDs
   re-key onto the new resource ID, while the access keys are pinned across
   the move (a move never rotates keys) and the Blob/Files/Queue/Table data
   planes, keyed by the globally unique account name, keep serving the same
-  bytes. A move naming any other movable type (a network resource, a Key
-  Vault) still answers ARM's ResourceMoveNotSupported, which stays truthful
-  only for the types real ARM refuses (Azure Container Instances container
-  groups). Remainder: hooks for the other providers' movable families,
-  implemented family by family as their stores gain re-keying support —
-  fix shape unchanged.
+  bytes. Microsoft.KeyVault/vaults moves the same way: the vault record and
+  its privateEndpointConnections children re-key onto the destination group,
+  while the whole data plane — secrets, keys and certificates, all addressed
+  through the vault's globally unique name — needs no re-keying at all, so
+  the vault URI is unchanged and the key created before a move still decrypts
+  a ciphertext produced before it. A move naming any other movable type (a
+  network resource, an Event Grid topic, a Service Bus namespace) still
+  answers ARM's ResourceMoveNotSupported, which stays truthful only for the
+  types real ARM refuses (Azure Container Instances container groups).
+  Remainder, in the order the store layouts allow: the families whose SAS or
+  access keys are derived from the resource ID (Service Bus, Event Grid,
+  Event Hubs, Azure Cache for Redis, Azure Container Registry) need their
+  material pinned across the move the way the storage keys are; Microsoft
+  .Network is last because its resources reference each other by resource ID,
+  so moving one without re-pointing every referrer would silently break the
+  fabric. No hook re-points an inbound reference held by a resource outside
+  the moved set either (a private endpoint's privateLinkServiceId still names
+  the pre-move ID) — that lands with the Microsoft.Network work, since it is
+  the same re-pointing pass. Fix shape unchanged.
+
+- **BUG-4 (the subscription resource list answers only Key Vaults, and
+  ignores `$filter`):** `GET /subscriptions/{sub}/resources`
+  (`simulator-azure/resourcegroups.go`) was added for one client behaviour —
+  the HashiCorp AzureRM provider's Key Vault cache — and enumerates only
+  Key Vaults across the whole subscription, ignoring the `$filter` query
+  real Azure honours. So `az resource list -g <rg>` reports vaults from
+  other resource groups and no resource of any other type, which reads as
+  an answer rather than as the partial view it is. Found while writing the
+  Key Vault move test: a first draft asserted through this route and the
+  assertion could never have failed. Fix shape: enumerate from a registry
+  every slice registers its resources into (the move-hook table is the
+  precedent for a cross-slice registry) and implement `$filter`'s
+  `resourceType eq` and `substringof(name)` forms; until then the route is
+  a Key Vault cache, not a resource list. Related: `GET
+  .../providers/Microsoft.KeyVault/managedHSMs` answers 404 where real
+  Azure answers an empty 200.
+
+- **BUG-5 (the older Knative collections ignore their list parameters):**
+  The Cloud Run v1 collections added for jobs, executions, tasks, instances
+  and worker pools honour `labelSelector`, `limit` and `continue` and carry
+  the `metadata`/`unreachable` members the Discovery document declares. The
+  five collections that predate them — services, revisions, routes,
+  configurations and domainmappings — ignore all three parameters and their
+  list structs lack those members, so a client that pages or selects by
+  label receives everything and cannot tell. Fix shape: five call sites move
+  to the existing `knativeLabelSelectorMatches` / `knativeListPage` helpers
+  and four list structs gain the two members. Related smaller gaps found
+  with it: `RunJobRequest.etag` is unread on both API versions, so RunJob
+  has no optimistic concurrency, and `POST /v1/.../operations/{op}:cancel`
+  is unserved (the fan-in answers an honest unknown-action error, and the
+  affected services' floors count it as unserved).
 
 ## Resolved history
 
