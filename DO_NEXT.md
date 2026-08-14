@@ -34,6 +34,23 @@
    resource's own `tags` member cannot see).
 
 
+## Declined catalog work
+
+Two surfaces were offered for vendoring across three passes and declined
+each time; they are recorded here so they stop being re-proposed. Neither
+is a defect — both are surfaces whose only faithful implementation is
+somebody else's published data, and a partial catalog would be fabrication:
+
+- **Microsoft.Web `Provider_*Stacks` (6 operations)** answer with
+  Microsoft's published runtime-stack catalog. Unserved, with the reason
+  recorded beside the `web-arm-openapi-2025-03-01` floor row.
+- **Google Cloud Billing (6 of 36)** — `services.list` and
+  `services.skus.list` answer with Google's public SKU catalog. The slice
+  stays at its current floor.
+
+Revisit either only if a consumer needs it; the Application Gateway WAF
+rule-set catalog is the precedent for how the vendoring would be done.
+
 ## Next Recommended Slice
 
 BUG-2798 and BUG-2799 closed. ECS services now drive durable AWS Cloud Map
