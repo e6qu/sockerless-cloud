@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/e6qu/sockerless-cloud/compare/v0.7.0...v0.8.0) (2026-08-14)
+
+
+### Features
+
+* complete Cloud Run v1 and move Key Vaults between resource groups ([#13](https://github.com/e6qu/sockerless-cloud/issues/13)) ([1a59bde](https://github.com/e6qu/sockerless-cloud/commit/1a59bdea34079d31e6de2840899b08222d58d5e8))
+
 ## [0.7.0](https://github.com/e6qu/sockerless-cloud/compare/v0.6.0...v0.7.0) (2026-08-13)
 
 
