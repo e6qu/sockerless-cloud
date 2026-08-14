@@ -22,11 +22,30 @@ type spannerInstance struct {
 }
 
 type spannerDatabase struct {
-	Name                   string `json:"name"`
-	State                  string `json:"state,omitempty"`
-	CreateTime             string `json:"createTime,omitempty"`
-	VersionRetentionPeriod string `json:"versionRetentionPeriod,omitempty"`
-	EarliestVersionTime    string `json:"earliestVersionTime,omitempty"`
+	Name                   string              `json:"name"`
+	State                  string              `json:"state,omitempty"`
+	CreateTime             string              `json:"createTime,omitempty"`
+	VersionRetentionPeriod string              `json:"versionRetentionPeriod,omitempty"`
+	EarliestVersionTime    string              `json:"earliestVersionTime,omitempty"`
+	DatabaseDialect        string              `json:"databaseDialect,omitempty"`
+	EnableDropProtection   bool                `json:"enableDropProtection,omitempty"`
+	Reconciling            bool                `json:"reconciling,omitempty"`
+	RestoreInfo            *spannerRestoreInfo `json:"restoreInfo,omitempty"`
+}
+
+// spannerRestoreInfo mirrors the Discovery RestoreInfo schema: how a database
+// that was created by RestoreDatabase came to be.
+type spannerRestoreInfo struct {
+	SourceType string             `json:"sourceType,omitempty"`
+	BackupInfo *spannerBackupInfo `json:"backupInfo,omitempty"`
+}
+
+// spannerBackupInfo mirrors the Discovery BackupInfo schema.
+type spannerBackupInfo struct {
+	Backup         string `json:"backup,omitempty"`
+	VersionTime    string `json:"versionTime,omitempty"`
+	CreateTime     string `json:"createTime,omitempty"`
+	SourceDatabase string `json:"sourceDatabase,omitempty"`
 }
 
 type spannerDatabaseDDL struct {
@@ -65,11 +84,16 @@ type spannerInstanceConfig struct {
 }
 
 var (
-	spannerInstances       sim.Store[spannerInstance]
-	spannerDatabases       sim.Store[spannerDatabase]
-	spannerDDLs            sim.Store[spannerDatabaseDDL]
-	spannerSessions        sim.Store[spannerSession]
-	spannerInstanceConfigs sim.Store[spannerInstanceConfig]
+	spannerInstances          sim.Store[spannerInstance]
+	spannerDatabases          sim.Store[spannerDatabase]
+	spannerDDLs               sim.Store[spannerDatabaseDDL]
+	spannerSessions           sim.Store[spannerSession]
+	spannerInstanceConfigs    sim.Store[spannerInstanceConfig]
+	spannerInstancePartitions sim.Store[spannerInstancePartition]
+	spannerBackups            sim.Store[spannerBackup]
+	spannerBackupImages       sim.Store[spannerBackupImage]
+	spannerBackupSchedules    sim.Store[spannerBackupSchedule]
+	spannerBackupScheduleRuns sim.Store[spannerBackupScheduleRun]
 )
 
 func registerSpanner(srv *sim.Server) {
@@ -78,6 +102,11 @@ func registerSpanner(srv *sim.Server) {
 	spannerDDLs = sim.MakeStore[spannerDatabaseDDL](srv.DB(), "spanner_database_ddls")
 	spannerSessions = sim.MakeStore[spannerSession](srv.DB(), "spanner_sessions")
 	spannerInstanceConfigs = sim.MakeStore[spannerInstanceConfig](srv.DB(), "spanner_instance_configs")
+	spannerInstancePartitions = sim.MakeStore[spannerInstancePartition](srv.DB(), "spanner_instance_partitions")
+	spannerBackups = sim.MakeStore[spannerBackup](srv.DB(), "spanner_backups")
+	spannerBackupImages = sim.MakeStore[spannerBackupImage](srv.DB(), "spanner_backup_images")
+	spannerBackupSchedules = sim.MakeStore[spannerBackupSchedule](srv.DB(), "spanner_backup_schedules")
+	spannerBackupScheduleRuns = sim.MakeStore[spannerBackupScheduleRun](srv.DB(), "spanner_backup_schedule_runs")
 
 	const base = "/spanner/v1/projects/{project}/instances"
 	srv.HandleFunc("POST "+base, handleSpannerCreateInstance)
@@ -99,9 +128,11 @@ func registerSpanner(srv *sim.Server) {
 	srv.HandleFunc("GET "+cfgBase+"/{config}/operations", handleSpannerListInstanceConfigOperations)
 	srv.HandleFunc("GET "+cfgBase+"/{config}/operations/{operation}", handleSpannerGetInstanceConfigOperation)
 	srv.HandleFunc("DELETE "+cfgBase+"/{config}/operations/{operation}", handleSpannerDeleteInstanceConfigOperation)
+	srv.HandleFunc("POST "+cfgBase+"/{config}/operations/{operation}", handleSpannerInstanceConfigOperationAction)
 	srv.HandleFunc("GET "+cfgBase+"/{config}/ssdCaches/{ssdCache}/operations", handleSpannerListInstanceConfigOperations)
 	srv.HandleFunc("GET "+cfgBase+"/{config}/ssdCaches/{ssdCache}/operations/{operation}", handleSpannerGetInstanceConfigOperation)
 	srv.HandleFunc("DELETE "+cfgBase+"/{config}/ssdCaches/{ssdCache}/operations/{operation}", handleSpannerDeleteInstanceConfigOperation)
+	srv.HandleFunc("POST "+cfgBase+"/{config}/ssdCaches/{ssdCache}/operations/{operation}", handleSpannerInstanceConfigOperationAction)
 
 	srv.HandleFunc("GET /spanner/v1/projects/{project}/instanceConfigOperations", handleSpannerListInstanceConfigOperationsCollection)
 	srv.HandleFunc("GET /spanner/v1/scans", handleSpannerListScans)
@@ -141,44 +172,322 @@ func handleSpannerSessions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSpannerInstanceChild is the sub-router for everything addressed below
+// projects/{project}/instances: the instance itself, its databases, backups,
+// backup schedules, instance partitions, sessions, and the four operation
+// collections. Each arm is keyed on the tail's segment count and shape.
+//
+// A tail whose last segment carries an AIP-136 ":verb" suffix reaches the
+// matching fan-in handler, which rejects a verb it does not implement as an
+// unknown action rather than pretending to serve it.
 func handleSpannerInstanceChild(w http.ResponseWriter, r *http.Request) {
 	parts := spannerRestParts(r)
-	switch {
-	case len(parts) == 1 && r.Method == http.MethodGet:
-		handleSpannerGetInstance(w, r)
-	case len(parts) == 1 && r.Method == http.MethodPatch:
-		handleSpannerUpdateInstance(w, r)
-	case len(parts) == 1 && r.Method == http.MethodDelete:
-		handleSpannerDeleteInstance(w, r)
-	case len(parts) == 3 && parts[1] == "operations" && r.Method == http.MethodGet:
-		handleSpannerGetOperation(w, r)
-	case len(parts) == 2 && parts[1] == "databases":
-		handleSpannerDatabases(w, r)
-	case len(parts) == 3 && parts[1] == "databases" && r.Method == http.MethodGet:
-		handleSpannerGetDatabase(w, r)
-	case len(parts) == 3 && parts[1] == "databases" && r.Method == http.MethodDelete:
-		handleSpannerDeleteDatabase(w, r)
-	case len(parts) == 4 && parts[1] == "databases" && parts[3] == "ddl" && r.Method == http.MethodPatch:
-		handleSpannerUpdateDatabaseDdl(w, r)
-	case len(parts) == 5 && parts[1] == "databases" && parts[3] == "operations" && r.Method == http.MethodGet:
-		handleSpannerGetOperation(w, r)
-	case len(parts) == 4 && parts[1] == "databases" && parts[3] == "sessions:batchCreate" && r.Method == http.MethodPost:
-		handleSpannerBatchCreateSessionsREST(w, r)
-	case len(parts) == 4 && parts[1] == "databases" && parts[3] == "sessions":
-		handleSpannerSessions(w, r)
-	case len(parts) == 5 && parts[1] == "databases" && parts[3] == "sessions" && strings.Contains(parts[4], ":") && r.Method == http.MethodPost:
-		handleSpannerSessionActionREST(w, r)
-	case len(parts) == 5 && parts[1] == "databases" && parts[3] == "sessions" && r.Method == http.MethodGet:
-		handleSpannerGetSession(w, r)
-	case len(parts) == 5 && parts[1] == "databases" && parts[3] == "sessions" && r.Method == http.MethodDelete:
-		handleSpannerDeleteSession(w, r)
-	default:
-		// The "{rest...}" mount routes the tail itself, so this arm is the
-		// sub-router's own miss: no Cloud Spanner method the simulator serves
-		// has this shape. Google's frontend answers an unmatched URI the same
-		// way.
-		gcpMethodNotFound(w)
+	var routed bool
+	switch len(parts) {
+	case 1:
+		routed = spannerRouteInstance(w, r, parts)
+	case 2:
+		routed = spannerRouteInstanceCollection(w, r, parts)
+	case 3:
+		routed = spannerRouteInstanceChildResource(w, r, parts)
+	case 4:
+		routed = spannerRouteDatabaseCollection(w, r, parts)
+	case 5:
+		routed = spannerRouteDatabaseChildResource(w, r, parts)
 	}
+	if routed {
+		return
+	}
+	// The "{rest...}" mount routes the tail itself, so this is the sub-router's
+	// own miss: no Cloud Spanner method the simulator serves has this shape.
+	// Google's frontend answers an unmatched URI the same way.
+	gcpMethodNotFound(w)
+}
+
+// spannerRouteInstance routes "{instance}" and "{instance}:verb".
+func spannerRouteInstance(w http.ResponseWriter, r *http.Request, parts []string) bool {
+	instance, verb := spannerColonVerb(parts[0])
+	if verb != "" {
+		if r.Method != http.MethodPost {
+			return false
+		}
+		handleSpannerInstanceAction(w, r, instance, verb)
+		return true
+	}
+	switch r.Method {
+	case http.MethodGet:
+		handleSpannerGetInstance(w, r)
+	case http.MethodPatch:
+		handleSpannerUpdateInstance(w, r)
+	case http.MethodDelete:
+		handleSpannerDeleteInstance(w, r)
+	default:
+		return false
+	}
+	return true
+}
+
+// spannerRouteInstanceCollection routes "{instance}/{collection}" and the
+// collection-level colon verbs ("databases:restore", "backups:copy").
+func spannerRouteInstanceCollection(w http.ResponseWriter, r *http.Request, parts []string) bool {
+	instance := parts[0]
+	collection, verb := spannerColonVerb(parts[1])
+	if verb != "" {
+		if r.Method != http.MethodPost {
+			return false
+		}
+		switch {
+		case collection == "databases" && verb == "restore":
+			handleSpannerRestoreDatabase(w, r, instance)
+		case collection == "backups" && verb == "copy":
+			handleSpannerCopyBackup(w, r, instance)
+		default:
+			return false
+		}
+		return true
+	}
+	switch collection {
+	case "databases":
+		handleSpannerDatabases(w, r)
+	case "backups":
+		switch r.Method {
+		case http.MethodPost:
+			handleSpannerCreateBackup(w, r, instance)
+		case http.MethodGet:
+			handleSpannerListBackups(w, r, instance)
+		default:
+			return false
+		}
+	case "instancePartitions":
+		switch r.Method {
+		case http.MethodPost:
+			handleSpannerCreateInstancePartition(w, r, instance)
+		case http.MethodGet:
+			handleSpannerListInstancePartitions(w, r, instance)
+		default:
+			return false
+		}
+	case "operations", "databaseOperations", "backupOperations", "instancePartitionOperations":
+		if r.Method != http.MethodGet {
+			return false
+		}
+		handleSpannerListInstanceScopedOperations(w, r, instance, collection)
+	default:
+		return false
+	}
+	return true
+}
+
+// spannerRouteInstanceChildResource routes "{instance}/{collection}/{id}" and
+// its colon verbs.
+func spannerRouteInstanceChildResource(w http.ResponseWriter, r *http.Request, parts []string) bool {
+	instance, collection := parts[0], parts[1]
+	id, verb := spannerColonVerb(parts[2])
+	project := sim.PathParam(r, "project")
+	switch collection {
+	case "operations":
+		return spannerRouteOperation(w, r, verb,
+			fmt.Sprintf("%s/operations/%s", spannerInstanceName(project, instance), id))
+	case "databases":
+		if verb != "" {
+			if r.Method != http.MethodPost {
+				return false
+			}
+			handleSpannerDatabaseAction(w, r, instance, id, verb)
+			return true
+		}
+		switch r.Method {
+		case http.MethodGet:
+			handleSpannerGetDatabase(w, r)
+		case http.MethodDelete:
+			handleSpannerDeleteDatabase(w, r)
+		case http.MethodPatch:
+			handleSpannerUpdateDatabase(w, r, instance, id)
+		default:
+			return false
+		}
+		return true
+	case "backups":
+		if verb != "" {
+			if r.Method != http.MethodPost {
+				return false
+			}
+			handleSpannerBackupIAM(w, r, instance, id, verb)
+			return true
+		}
+		switch r.Method {
+		case http.MethodGet:
+			handleSpannerGetBackup(w, r, instance, id)
+		case http.MethodPatch:
+			handleSpannerUpdateBackup(w, r, instance, id)
+		case http.MethodDelete:
+			handleSpannerDeleteBackup(w, r, instance, id)
+		default:
+			return false
+		}
+		return true
+	case "instancePartitions":
+		if verb != "" {
+			return false
+		}
+		switch r.Method {
+		case http.MethodGet:
+			handleSpannerGetInstancePartition(w, r, instance, id)
+		case http.MethodPatch:
+			handleSpannerUpdateInstancePartition(w, r, instance, id)
+		case http.MethodDelete:
+			handleSpannerDeleteInstancePartition(w, r, instance, id)
+		default:
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+// spannerRouteDatabaseCollection routes "{instance}/{collection}/{id}/{child}"
+// — the database's sessions, DDL, operations, roles and backup schedules, plus
+// the per-backup and per-instance-partition operation collections.
+func spannerRouteDatabaseCollection(w http.ResponseWriter, r *http.Request, parts []string) bool {
+	instance, collection, id := parts[0], parts[1], parts[2]
+	child, verb := spannerColonVerb(parts[3])
+	project := sim.PathParam(r, "project")
+	switch collection {
+	case "backups":
+		if child == "operations" && verb == "" && r.Method == http.MethodGet {
+			handleSpannerListOperationsUnder(w, r,
+				fmt.Sprintf("%s/backups/%s/operations/", spannerInstanceName(project, instance), id))
+			return true
+		}
+		return false
+	case "instancePartitions":
+		if child == "operations" && verb == "" && r.Method == http.MethodGet {
+			handleSpannerListOperationsUnder(w, r,
+				fmt.Sprintf("%s/instancePartitions/%s/operations/", spannerInstanceName(project, instance), id))
+			return true
+		}
+		return false
+	case "databases":
+	default:
+		return false
+	}
+	if verb != "" {
+		if child == "sessions" && verb == "batchCreate" && r.Method == http.MethodPost {
+			handleSpannerBatchCreateSessionsREST(w, r)
+			return true
+		}
+		return false
+	}
+	switch child {
+	case "ddl":
+		switch r.Method {
+		case http.MethodPatch:
+			handleSpannerUpdateDatabaseDdl(w, r)
+		case http.MethodGet:
+			handleSpannerGetDatabaseDdl(w, r, instance, id)
+		default:
+			return false
+		}
+	case "sessions":
+		handleSpannerSessions(w, r)
+	case "operations":
+		if r.Method != http.MethodGet {
+			return false
+		}
+		handleSpannerListOperationsUnder(w, r,
+			spannerDatabaseName(project, instance, id)+"/operations/")
+	case "databaseRoles":
+		if r.Method != http.MethodGet {
+			return false
+		}
+		handleSpannerListDatabaseRoles(w, r, instance, id)
+	case "backupSchedules":
+		switch r.Method {
+		case http.MethodPost:
+			handleSpannerCreateBackupSchedule(w, r, instance, id)
+		case http.MethodGet:
+			handleSpannerListBackupSchedules(w, r, instance, id)
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// spannerRouteDatabaseChildResource routes
+// "{instance}/{collection}/{id}/{child}/{childId}" and its colon verbs.
+func spannerRouteDatabaseChildResource(w http.ResponseWriter, r *http.Request, parts []string) bool {
+	instance, collection, id, child := parts[0], parts[1], parts[2], parts[3]
+	childID, verb := spannerColonVerb(parts[4])
+	project := sim.PathParam(r, "project")
+	switch {
+	case collection == "backups" && child == "operations":
+		return spannerRouteOperation(w, r, verb,
+			fmt.Sprintf("%s/backups/%s/operations/%s", spannerInstanceName(project, instance), id, childID))
+	case collection == "instancePartitions" && child == "operations":
+		return spannerRouteOperation(w, r, verb,
+			fmt.Sprintf("%s/instancePartitions/%s/operations/%s", spannerInstanceName(project, instance), id, childID))
+	case collection != "databases":
+		return false
+	}
+	database := spannerDatabaseName(project, instance, id)
+	switch child {
+	case "sessions":
+		if verb != "" {
+			if r.Method != http.MethodPost {
+				return false
+			}
+			handleSpannerSessionActionREST(w, r)
+			return true
+		}
+		switch r.Method {
+		case http.MethodGet:
+			handleSpannerGetSession(w, r)
+		case http.MethodDelete:
+			handleSpannerDeleteSession(w, r)
+		default:
+			return false
+		}
+		return true
+	case "operations":
+		return spannerRouteOperation(w, r, verb, database+"/operations/"+childID)
+	case "backupSchedules":
+		if verb != "" {
+			if r.Method != http.MethodPost {
+				return false
+			}
+			handleSpannerBackupScheduleIAM(w, r, database+"/backupSchedules/"+childID, verb)
+			return true
+		}
+		switch r.Method {
+		case http.MethodGet:
+			handleSpannerGetBackupSchedule(w, r, database, childID)
+		case http.MethodPatch:
+			handleSpannerUpdateBackupSchedule(w, r, database, childID)
+		case http.MethodDelete:
+			handleSpannerDeleteBackupSchedule(w, r, database, childID)
+		default:
+			return false
+		}
+		return true
+	case "databaseRoles":
+		if r.Method != http.MethodPost {
+			return false
+		}
+		handleSpannerDatabaseRoleIAM(w, r, database+"/databaseRoles/"+childID, verb)
+		return true
+	}
+	return false
+}
+
+// spannerColonVerb splits an AIP-136 URI segment into the resource id and the
+// custom-method verb that follows the colon ("db1:getIamPolicy" → "db1",
+// "getIamPolicy"). A segment without a colon yields an empty verb.
+func spannerColonVerb(segment string) (string, string) {
+	id, verb, _ := strings.Cut(segment, ":")
+	return id, verb
 }
 
 func spannerRestParts(r *http.Request) []string {
@@ -251,27 +560,6 @@ func newSpannerDatabaseLRO(project, instance, database string, resource any, typ
 	return renameGCPOperation(op, fmt.Sprintf("projects/%s/instances/%s/databases/%s/operations", project, instance, database))
 }
 
-func handleSpannerGetOperation(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	parts := spannerRestParts(r)
-	var name string
-	if len(parts) == 3 && parts[1] == "operations" {
-		name = fmt.Sprintf("projects/%s/instances/%s/operations/%s", project, parts[0], parts[2])
-	}
-	if len(parts) == 5 && parts[1] == "databases" && parts[3] == "operations" {
-		name = fmt.Sprintf("projects/%s/instances/%s/databases/%s/operations/%s", project, parts[0], parts[2], parts[4])
-	}
-	if name == "" {
-		sim.GCPError(w, http.StatusNotFound, "not found", "NOT_FOUND")
-		return
-	}
-	if op, ok := crOperations.Get(name); ok {
-		sim.WriteJSON(w, http.StatusOK, op)
-		return
-	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
-}
-
 func handleSpannerListInstances(w http.ResponseWriter, r *http.Request) {
 	prefix := fmt.Sprintf("projects/%s/instances/", sim.PathParam(r, "project"))
 	out := spannerInstances.Filter(func(inst spannerInstance) bool { return strings.HasPrefix(inst.Name, prefix) })
@@ -291,13 +579,36 @@ func handleSpannerGetInstance(w http.ResponseWriter, r *http.Request) {
 
 func handleSpannerDeleteInstance(w http.ResponseWriter, r *http.Request) {
 	name := spannerInstanceName(sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0))
-	if !spannerInstances.Delete(name) {
+	if _, ok := spannerInstances.Get(name); !ok {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
+	// Drop protection on any database in the instance blocks the delete, the
+	// way it does on the real service: the instance cannot go while a database
+	// it holds is protected.
+	for _, db := range spannerDatabases.List() {
+		if strings.HasPrefix(db.Name, name+"/databases/") && db.EnableDropProtection {
+			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				"database %q has drop protection enabled and must be updated before its instance can be deleted", db.Name)
+			return
+		}
+	}
+	spannerInstances.Delete(name)
 	for _, db := range spannerDatabases.List() {
 		if strings.HasPrefix(db.Name, name+"/databases/") {
 			spannerDatabases.Delete(db.Name)
+			spannerDDLs.Delete(db.Name)
+			spannerDeleteBackupSchedulesFor(db.Name)
+			if err := spannerDropBackend(db.Name); err != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", db.Name, err)
+				return
+			}
+		}
+	}
+	spannerDeleteBackupsUnder(name + "/backups/")
+	for _, partition := range spannerInstancePartitions.List() {
+		if strings.HasPrefix(partition.Name, name+"/instancePartitions/") {
+			spannerInstancePartitions.Delete(partition.Name)
 		}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -341,7 +652,10 @@ func handleSpannerCreateDatabase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		CreateStatement string `json:"createStatement"`
+		CreateStatement  string   `json:"createStatement"`
+		ExtraStatements  []string `json:"extraStatements"`
+		DatabaseDialect  string   `json:"databaseDialect"`
+		ProtoDescriptors string   `json:"protoDescriptors"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -352,15 +666,53 @@ func handleSpannerCreateDatabase(w http.ResponseWriter, r *http.Request) {
 		sim.GCPError(w, http.StatusBadRequest, "CREATE DATABASE statement is required", "INVALID_ARGUMENT")
 		return
 	}
+	name := spannerDatabaseName(project, instance, dbID)
+	if _, exists := spannerDatabases.Get(name); exists {
+		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "database %q already exists", name)
+		return
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	db := spannerDatabase{
-		Name:                   spannerDatabaseName(project, instance, dbID),
+		Name:                   name,
 		State:                  "READY",
 		CreateTime:             now,
 		VersionRetentionPeriod: "1h",
 		EarliestVersionTime:    now,
+		DatabaseDialect:        req.DatabaseDialect,
+	}
+	if db.DatabaseDialect == "" {
+		db.DatabaseDialect = "GOOGLE_STANDARD_SQL"
 	}
 	spannerDatabases.Put(db.Name, db)
+	// extraStatements is the database's initial schema. Applying it here — to
+	// the same backing engine the data plane queries — is what makes a database
+	// created through the admin API immediately usable: the tables exist in
+	// SQL as soon as the create operation reports done.
+	if len(req.ExtraStatements) > 0 {
+		if err := spannerApplyDDLStatements(db.Name, req.ExtraStatements); err != nil {
+			// The real service fails the create operation and leaves no
+			// database behind when its initial schema is rejected.
+			spannerDatabases.Delete(db.Name)
+			if dropErr := spannerDropBackend(db.Name); dropErr != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", db.Name, dropErr)
+				return
+			}
+			op := newSpannerDatabaseLRO(project, instance, dbID, nil, "type.googleapis.com/google.spanner.admin.database.v1.Database")
+			st := status.Convert(err)
+			op.Response = nil
+			op.Error = &OperationError{Code: int(st.Code()), Message: st.Message()}
+			crOperations.Put(op.Name, op)
+			sim.WriteJSON(w, http.StatusOK, op)
+			return
+		}
+		spannerDDLs.Put(db.Name, spannerDatabaseDDL{
+			Database:         db.Name,
+			Statements:       req.ExtraStatements,
+			ProtoDescriptors: req.ProtoDescriptors,
+		})
+	} else if req.ProtoDescriptors != "" {
+		spannerDDLs.Put(db.Name, spannerDatabaseDDL{Database: db.Name, ProtoDescriptors: req.ProtoDescriptors})
+	}
 	op := newSpannerDatabaseLRO(project, instance, dbID, db, "type.googleapis.com/google.spanner.admin.database.v1.Database")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -394,11 +746,19 @@ func handleSpannerGetDatabase(w http.ResponseWriter, r *http.Request) {
 
 func handleSpannerDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	name := spannerDatabaseName(sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0), spannerPathPart(r, "database", 2))
-	if !spannerDatabases.Delete(name) {
+	db, ok := spannerDatabases.Get(name)
+	if !ok {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
+	if db.EnableDropProtection {
+		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			"database %q has drop protection enabled and cannot be dropped", name)
+		return
+	}
+	spannerDatabases.Delete(name)
 	spannerDDLs.Delete(name)
+	spannerDeleteBackupSchedulesFor(name)
 	if err := spannerDropBackend(name); err != nil {
 		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", name, err)
 		return

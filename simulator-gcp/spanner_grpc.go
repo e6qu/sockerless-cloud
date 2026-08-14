@@ -204,8 +204,10 @@ func spannerBackendFor(dbName string) (*spannerBackend, error) {
 		if !ok {
 			return nil, status.Errorf(codes.Unimplemented, "Cloud Spanner DDL is not supported: %s", stmt)
 		}
-		if _, err := b.db.Exec(translated); err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "apply Cloud Spanner DDL %q: %v", stmt, err)
+		if translated != "" {
+			if _, err := b.db.Exec(translated); err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "apply Cloud Spanner DDL %q: %v", stmt, err)
+			}
 		}
 		b.appliedDDLCount++
 		if err := spannerWriteAppliedDDLCount(b.db, b.appliedDDLCount); err != nil {
@@ -249,10 +251,17 @@ var (
 // statement. Unsupported statements return ok=false and make UpdateDatabaseDdl
 // complete with an UNIMPLEMENTED operation error; schema updates are never
 // silently skipped.
+//
+// A statement that is valid Spanner DDL but shapes no SQLite object returns an
+// empty statement with ok=true: CREATE ROLE and DROP ROLE define the database's
+// fine-grained access-control roles, which the databaseRoles collection reads
+// straight out of this DDL history rather than out of the SQLite schema.
 func spannerTranslateDDL(stmt string) (string, bool) {
 	trimmed := strings.TrimSpace(stmt)
 	upper := strings.ToUpper(trimmed)
 	switch {
+	case spannerCreateRoleRe.MatchString(trimmed), spannerDropRoleRe.MatchString(trimmed):
+		return "", true
 	case strings.HasPrefix(upper, "CREATE TABLE"):
 		return spannerTranslateCreateTable(trimmed)
 	case strings.HasPrefix(upper, "DROP TABLE"),
@@ -291,6 +300,9 @@ func spannerApplyDDLStatements(dbName string, statements []string) error {
 		if !ok {
 			_ = tx.Rollback()
 			return status.Errorf(codes.Unimplemented, "Cloud Spanner DDL is not supported: %s", stmt)
+		}
+		if translated == "" {
+			continue
 		}
 		if _, err := tx.Exec(translated); err != nil {
 			_ = tx.Rollback()

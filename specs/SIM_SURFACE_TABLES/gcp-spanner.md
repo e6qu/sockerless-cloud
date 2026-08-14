@@ -13,8 +13,8 @@ Surface registered in `simulator-gcp/spanner.go` (and related files grouped unde
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /spanner/v1/projects/{project}/instanceConfigOperations` | ✓ `simulator-gcp/spanner.go:106::handleSpannerListInstanceConfigOperationsCollection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /spanner/v1/scans` | ✓ `simulator-gcp/spanner.go:107::handleSpannerListScans` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/projects/{project}/instanceConfigOperations` | ✓ `simulator-gcp/spanner.go:137::handleSpannerListInstanceConfigOperationsCollection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /spanner/v1/scans` | ✓ `simulator-gcp/spanner.go:138::handleSpannerListScans` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
@@ -22,15 +22,42 @@ Surface registered in `simulator-gcp/spanner.go` (and related files grouped unde
 - Missing public-cloud operations that are not registered by the simulator still require a concrete BUG and a row here when discovered by a community issue or periodic audit.
 
 <!-- HAND-WRITTEN BEGIN -->
-The session data plane is mounted by the dynamic Cloud Spanner child router,
-so the extractor cannot recover these custom-method paths from individual
-`HandleFunc` calls. The official Google Cloud SDK exercised both REST and gRPC;
+The session data plane and the whole instance-scoped administrative surface are
+mounted by the dynamic Cloud Spanner child router (`instances/{rest...}`), so
+the extractor cannot recover these paths from individual `HandleFunc` calls.
+The official Google Cloud SDK exercised both REST and gRPC;
 `gcloud spanner databases execute-sql` exercised SQL and partitioned DML over
-REST. Terraform covered the administrative instance/database/DDL surface; the
-official provider exposed no resource for session-scoped data-plane calls.
+REST. Terraform covered the administrative instance/database/DDL surface plus
+backup schedules, instance partitions and the IAM bindings; the official
+provider exposed no resource for session-scoped data-plane calls.
+
+Backups hold the database's real bytes: `CreateBackup` serializes the live
+SQLite engine the data plane executes against (`spannerCaptureBackupImage`,
+SQLite `VACUUM INTO`) and `RestoreDatabase` rebuilds a new engine from that
+image (`spannerMaterializeFromImage`), so a create → write → back up → drop →
+restore → read round trip returns the same rows. Backup schedules are executed:
+`spannerRunDueBackupSchedules` takes a real backup on every crontab occurrence.
+
+Five documented methods are deliberately unserved because the simulator holds
+nothing for them to report or act on — `databases.getScans` (no Key Visualizer
+traffic heatmap), `databases.addSplitPoints` (no key-space splits),
+`databases.changequorum` (one replica, no quorum), and `sessions.adapter` /
+`sessions.adaptMessage` (raw PostgreSQL and Cassandra wire protocols). The
+floor comment in `simulator-gcp/gcp_coverage_test.go` carries the same
+reasoning.
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
+| `GET .../databases/{database}/ddl`, `PATCH .../databases/{database}` | ✓ `simulator-gcp/spanner_admin.go::handleSpannerGetDatabaseDdl`, `handleSpannerUpdateDatabase` | ✓ `spanner_backup_admin_test.go` | ✓ `spanner_admin_test.go` | n/a | Drop protection enforced by DropDatabase and DeleteInstance |
+| `POST/GET/PATCH/DELETE .../backups[/{backup}]` | ✓ `simulator-gcp/spanner_backups.go::handleSpannerCreateBackup` + siblings | ✓ `spanner_backup_admin_test.go` | n/a | ✓ | Captures the database's real SQLite image |
+| `POST .../backups:copy` | ✓ `simulator-gcp/spanner_backups.go::handleSpannerCopyBackup` | ✓ `spanner_backup_admin_test.go` | n/a | n/a | The copy carries the source's captured bytes |
+| `POST .../databases:restore` | ✓ `simulator-gcp/spanner_backups.go::handleSpannerRestoreDatabase` | ✓ `spanner_backup_admin_test.go` | n/a | n/a | Rebuilds the engine from the backup image |
+| `POST/GET/PATCH/DELETE .../databases/{database}/backupSchedules[/{schedule}]` | ✓ `simulator-gcp/spanner_backups.go::handleSpannerCreateBackupSchedule` + siblings | ✓ `spanner_backup_admin_test.go` | ✓ `spanner_admin_test.go` | ✓ | Crontab occurrences take real backups |
+| `GET .../databases/{database}/databaseRoles` | ✓ `simulator-gcp/spanner_admin.go::handleSpannerListDatabaseRoles` | ✓ `spanner_backup_admin_test.go` | n/a | ✓ | Folded out of the database's CREATE ROLE / DROP ROLE DDL |
+| `POST/GET/PATCH/DELETE .../instancePartitions[/{partition}]` | ✓ `simulator-gcp/spanner_admin.go::handleSpannerCreateInstancePartition` + siblings | ✓ `spanner_backup_admin_test.go` | ✓ `spanner_admin_test.go` | ✓ | |
+| `POST .../instances/{instance}:move` | ✓ `simulator-gcp/spanner_admin.go::handleSpannerMoveInstance` | ✓ `spanner_backup_admin_test.go` | n/a | n/a | Relocates the instance to the target configuration |
+| `POST .../{resource}:getIamPolicy` / `:setIamPolicy` / `:testIamPermissions` | ✓ `simulator-gcp/spanner_admin.go` + `iam.go::handleResourceIAM` | ✓ `spanner_backup_admin_test.go` | ✓ `spanner_admin_test.go` | n/a | Instances, databases, backups, backup schedules, database roles |
+| `GET`/`DELETE`/`:cancel` on all five operation collections | ✓ `simulator-gcp/spanner_admin.go::spannerRouteOperation`, `handleSpannerListInstanceScopedOperations` | ✓ `spanner_backup_admin_test.go` | n/a | ✓ | instances, databases, backups, instancePartitions, instanceConfigs |
 | `POST .../sessions:batchCreate` | ✓ `simulator-gcp/spanner_rest.go::handleSpannerBatchCreateSessionsREST` | ✓ `spanner_rest_data_test.go` | n/a | n/a | Official REST SDK |
 | `POST .../sessions/{session}:executeSql` | ✓ `simulator-gcp/spanner_rest.go::handleSpannerSessionActionREST` | ✓ REST + gRPC | n/a | n/a | Real SQL query and DML execution |
 | `POST .../sessions/{session}:executeStreamingSql` | ✓ `simulator-gcp/spanner_rest.go::handleSpannerSessionActionREST` | ✓ REST + gRPC | n/a | n/a | Complete `PartialResultSet` stream |

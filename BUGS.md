@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 9. Resolved: 6.
+Open: 10. Resolved: 8.
 
 ## Open
 
@@ -50,39 +50,155 @@ the simulators from the sockerless monorepo, keeping their IDs
   the pre-move ID) — that lands with the Microsoft.Network work, since it is
   the same re-pointing pass. Fix shape unchanged.
 
-- **BUG-4 (the subscription resource list answers only Key Vaults, and
-  ignores `$filter`):** `GET /subscriptions/{sub}/resources`
-  (`simulator-azure/resourcegroups.go`) was added for one client behaviour —
-  the HashiCorp AzureRM provider's Key Vault cache — and enumerates only
-  Key Vaults across the whole subscription, ignoring the `$filter` query
-  real Azure honours. So `az resource list -g <rg>` reports vaults from
-  other resource groups and no resource of any other type, which reads as
-  an answer rather than as the partial view it is. Found while writing the
-  Key Vault move test: a first draft asserted through this route and the
-  assertion could never have failed. Fix shape: enumerate from a registry
-  every slice registers its resources into (the move-hook table is the
-  precedent for a cross-slice registry) and implement `$filter`'s
-  `resourceType eq` and `substringof(name)` forms; until then the route is
-  a Key Vault cache, not a resource list. Related: `GET
-  .../providers/Microsoft.KeyVault/managedHSMs` answers 404 where real
-  Azure answers an empty 200.
+- **BUG-6 (the AIP-151 `operations.cancel` custom method is unserved):**
+  Twelve vendored Google Cloud Discovery documents declare a cancel method on
+  their long-running-operation collection — API Gateway, Artifact Registry,
+  Cloud Build (both the global and the regional spelling), Eventarc,
+  Firestore, Cloud Logging (five scope spellings), Memorystore for Redis,
+  Service Usage, Cloud Spanner (six spellings), Cloud SQL Admin (v1 and
+  v1beta4) and Cloud Storage. `simulator-gcp/operations.go` serves get and
+  list only, so a `…/operations/{op}:cancel` POST reaches whichever fan-in
+  owns the path and answers an honest unknown-action error rather than
+  cancelling. Each service's coverage floor already counts the method as
+  unserved. Fix shape: the operation records live in one store per service,
+  so cancel is a per-service handler that marks the record cancelled and
+  answers the empty body AIP-151 specifies — worth doing as one pass over
+  the twelve rather than one service at a time.
 
-- **BUG-5 (the older Knative collections ignore their list parameters):**
-  The Cloud Run v1 collections added for jobs, executions, tasks, instances
-  and worker pools honour `labelSelector`, `limit` and `continue` and carry
-  the `metadata`/`unreachable` members the Discovery document declares. The
-  five collections that predate them — services, revisions, routes,
-  configurations and domainmappings — ignore all three parameters and their
-  list structs lack those members, so a client that pages or selects by
-  label receives everything and cannot tell. Fix shape: five call sites move
-  to the existing `knativeLabelSelectorMatches` / `knativeListPage` helpers
-  and four list structs gain the two members. Related smaller gaps found
-  with it: `RunJobRequest.etag` is unread on both API versions, so RunJob
-  has no optimistic concurrency, and `POST /v1/.../operations/{op}:cancel`
-  is unserved (the fan-in answers an honest unknown-action error, and the
-  affected services' floors count it as unserved).
+- **BUG-7 (Cloud Run v2 reports an etag for jobs only):** The Cloud Run v2
+  Job resource mints a fresh `etag` on every write and enforces it on
+  `jobs.run`, `jobs.patch` and `jobs.delete`. The other six resources the
+  Discovery document declares an `etag` on — Service, Revision, Execution,
+  Task, WorkerPool and Instance — never mint one, so the member is always
+  absent; the `etag` query parameter their six delete methods accept
+  (`services.delete`, `services.revisions.delete`, `jobs.executions.delete`,
+  `workerPools.delete`, `workerPools.revisions.delete`, `instances.delete`)
+  is unread; and so is the `etag` the CancelExecutionRequest,
+  StartInstanceRequest and StopInstanceRequest bodies carry. A client that
+  reads one of those resources therefore has nothing to send back, and one
+  that sends an etag anyway has its modification conflict ignored. Fix shape
+  is the Job's: mint the fingerprint at every store write and refuse a
+  mismatch with the 409 ABORTED Cloud Run answers a conflict with.
+
+- **BUG-8 (`Microsoft.Resources/tags/default` writes a plane the resource
+  cannot see):** `simulator-azure/tags.go` keeps `tagsStore`, keyed by the
+  lowercased scope, entirely separate from each resource's own `tags`
+  member. A `PUT`/`PATCH` of `…/providers/Microsoft.Resources/tags/default`
+  at a resource scope therefore updates nothing the resource's own `GET`
+  reports, and a resource created with tags is invisible to a `GET` of its
+  `tags/default`. Real Azure Resource Manager has one set of tags per
+  resource reachable through both surfaces. The generic resource lists read
+  the resource's own tags, so a list agrees with the resource and disagrees
+  with `tags/default` in exactly the same way. Fix shape: make
+  `tags/default` at a resource scope read and write the tags the resource
+  itself holds — the scope-to-store mapping the resource registry
+  (`simulator-azure/resource_registry.go`) already keeps is the lookup that
+  makes it possible — and leave `tagsStore` owning only the subscription and
+  management-group scopes, which have no resource row of their own.
 
 ## Resolved history
+
+- **BUG-4 (the subscription resource list answers only Key Vaults, and
+  ignores `$filter`):** `GET /subscriptions/{sub}/resources` and
+  `GET /subscriptions/{sub}/resourceGroups/{rg}/resources` are answered from
+  a cross-slice registry (`simulator-azure/resource_registry.go`): a
+  package-level table keyed by lowercased `provider/type` — the key shape
+  `resourceMoveHooks` uses — maps each tracked resource type to the store the
+  slice that owns it keeps its rows in, read through a closure at request
+  time so a store assigned or reassigned by a register function is always the
+  one enumerated. Fifty-six types are registered, spanning Microsoft.Web,
+  Storage, KeyVault, Network, Compute, App, ContainerInstance,
+  ContainerRegistry, ServiceBus, EventHub, EventGrid, DocumentDB,
+  DBforPostgreSQL, Cache, OperationalInsights, Insights, ManagedIdentity,
+  ApiManagement and Logic. Only resources ARM tracks are listed: a provider's
+  locationless proxy children — a subnet, a Service Bus queue, a DNS record
+  set, a role assignment — are reached through their parent's API and are
+  absent from the list, as they are from real ARM's. Each row is rendered
+  from the stored resource's own wire form into the GenericResourceExpanded
+  members (`id`/`name`/`type`/`location`/`kind`/`managedBy`/`sku`/`identity`/
+  `plan`/`tags`), so a slice needs no per-type projection and a resource that
+  cannot be read back through its own JSON fails loudly instead of vanishing
+  from a list that claims to be complete. Real ARM does not return a
+  resource's provider-specific `properties` document from a list and neither
+  does the simulator; `terraform-provider-azurerm`'s Key Vault cache reads
+  only `id` and `name` from it before reading each vault through the Key
+  Vault provider.
+
+  Both routes honour the `$filter` grammar the operation documents and real
+  clients send: `eq`/`ne` over `name`, `resourceGroup`, `resourceType`,
+  `location`, `tagname` and `tagvalue`; `substringof(value, property)` over
+  `name` and `resourceGroup`; `startswith(tagname, prefix)`; conjunctions
+  and disjunctions with `and`/`or`, `and` binding tighter. A filter naming
+  anything else — or carrying grouping parentheses — is refused with the
+  400 `InvalidFilterInQueryString` real ARM answers, because a silently
+  ignored filter answers with everything and reads as a result. Filtering on
+  a tag name or value suppresses the rows' tags, as ARM's documentation
+  states. `$expand` accepts the three documented members and reports
+  `provisioningState` from the state each resource recorded for itself;
+  `createdTime` and `changedTime` are absent because no slice records either,
+  which is the same answer ARM gives for a resource it holds no such metadata
+  for. `$top`/`$skiptoken` page through the shared `armPage`/`armNextLink`
+  helpers. This is what `az resource list -g <rg>` needed: the Azure CLI
+  reaches every scoping it offers — `-g`, `--name`, `--location`,
+  `--resource-type`, `--tag` — through this one route's `$filter` rather than
+  the resource-group-scoped route, so the group-scoped listing was previously
+  the whole subscription's vaults.
+
+  The related Managed HSM gap closed with it. `Microsoft.KeyVault/managedHSMs`
+  became a real slice (`simulator-azure/keyvault_managedhsm.go`) serving
+  ManagedHsms_CreateOrUpdate, _Update, _Get, _Delete, _ListByResourceGroup
+  and _ListBySubscription over its own store, so a scope holding no pool
+  answers the empty collection real Azure answers rather than the 404 an
+  unrouted path returns, and a provisioned pool round-trips through its own
+  API and appears in the generic resource list. `managedHsm.json` (2023-07-01)
+  is vendored and `keyvault-arm-managedhsm-2023-07-01` entered
+  `azureMethodFloor` at 6 — the only coverage floor that moved, and it moved
+  because six operations are now genuinely served.
+
+  Covered by `TestResourcesList_ScopesAndFilters`,
+  `TestResourcesListByResourceGroup_ScopeExpandAndPaging` and
+  `TestManagedHSMs_ListIsEmptyNotMissing` through the canonical armresources
+  and armkeyvault clients; by `TestResourceListCLI`, which proves
+  `az resource list -g <rg>` reports that group's resources only and reports
+  more than one provider's; and by the unit tests
+  `TestAzureTrackedResourceKeys`, `TestParseAzureResourceFilter` and
+  `TestAzureIDSegmentAfter`, which pin the registry's key shape, every
+  accepted and refused filter form, and the scope reading both the list's
+  scoping and its `resourceGroup` filter rest on.
+
+- **BUG-5 (the older Knative collections ignore their list parameters):**
+  The five Cloud Run Admin v1 collections that predate the jobs family —
+  services, revisions, routes, configurations and domainmappings — honour
+  `labelSelector`, `limit` and `continue` like the rest. Every list call site
+  goes through `knativeCollectionPage` (`simulator-gcp/cloudrun.go`), which
+  narrows the stored collection to the request's namespace, applies the
+  selector through the shared `knativeLabelSelectorMatches`, orders what is
+  left by resource name so a cursor is stable across requests, and pages it
+  through the shared `knativeListPage`; a malformed cursor is refused rather
+  than silently reset. `CRServiceList`, `CRConfigurationList`, `CRRevisionList`,
+  `CRRouteList` and `CRDomainMappingList` carry the `metadata` (a `CRListMeta`
+  holding the continue cursor) and `unreachable` members the Discovery
+  document declares — `CRServiceList` previously typed `metadata` as a free
+  map and the other four omitted both.
+
+  The etag half closed for the resource that named it. The Cloud Run v2 `Job`
+  reports the `etag` the Discovery document declares — a fresh fingerprint at
+  every write, including the execution-count and completion-time updates a
+  run makes — and `jobs.run` refuses a `RunJobRequest.etag` the job has moved
+  past with the 409 ABORTED Cloud Run answers a modification conflict with,
+  as do `jobs.patch` for a body etag and `jobs.delete` for the query
+  parameter. An omitted etag is unconditional, so a client that does not
+  track the fingerprint is unaffected. The Knative RunJobRequest declares no
+  etag at all — the entry's "unread on both API versions" was wrong about v1,
+  which carries only `overrides` — so there was nothing to read there.
+
+  Covered by `TestCloudRunV1_ServicesList_LabelSelectorAndPaging`,
+  `TestCloudRunV1_ReconciledChildrenList_LabelSelectorAndPaging`,
+  `TestCloudRunV1_DomainMappingsList_LabelSelectorAndPaging` and
+  `TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency`, which page each
+  collection into disjoint pages covering it exactly once and select by
+  label through the canonical `google.golang.org/api/run/v1` and `/run/v2`
+  clients.
 
 - **BUG-2924 (two live VPCs sharing a CIDR conflicted as Docker networks):**
   The AWS simulator stopped making a VPC network's bridge subnet the VPC's own

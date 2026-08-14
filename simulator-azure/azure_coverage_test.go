@@ -108,6 +108,7 @@ var azureMethodFloor = map[string]int{
 	"eventhub-arm-networkrulessets-2024-01-01":         3,
 	"imds-dataplane-imds-2021-02-01":                   2,
 	"keyvault-arm-keyvault-2023-07-01":                 17,
+	"keyvault-arm-managedhsm-2023-07-01":               6,
 	"keyvault-dataplane-certificates-2025-07-01":       24,
 	"keyvault-dataplane-keys-2025-07-01":               22,
 	"keyvault-dataplane-secrets-2025-07-01":            12,

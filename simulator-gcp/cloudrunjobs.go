@@ -32,6 +32,7 @@ type Job struct {
 	Conditions             []Condition         `json:"conditions,omitempty"`
 	LatestCreatedExecution *ExecutionReference `json:"latestCreatedExecution,omitempty"`
 	ExecutionCount         int32               `json:"executionCount"`
+	Etag                   string              `json:"etag,omitempty"`
 	Reconciling            bool                `json:"reconciling"`
 }
 
@@ -48,6 +49,19 @@ type RunJobRequest struct {
 	Etag         string     `json:"etag,omitempty"`
 	Overrides    *Overrides `json:"overrides,omitempty"`
 	ValidateOnly bool       `json:"validateOnly,omitempty"`
+}
+
+// cloudRunJobEtagOK enforces the optimistic concurrency an etag-bearing
+// request asks for. An omitted etag acts unconditionally; a supplied one must
+// match the stored job's, and a stale one is refused with the ABORTED status
+// Cloud Run answers a modification conflict with.
+func cloudRunJobEtagOK(w http.ResponseWriter, job Job, etag string) bool {
+	if etag == "" || etag == job.Etag {
+		return true
+	}
+	sim.GCPErrorf(w, http.StatusConflict, "ABORTED",
+		"etag %q does not match the current etag of job %q", etag, job.Name)
+	return false
 }
 
 // Overrides mirrors google.cloud.run.v2.Overrides — the per-run replacements a
@@ -634,6 +648,9 @@ func registerCloudRunJobs(srv *sim.Server) {
 				job.Template.TaskCount = 1
 			}
 		}
+		// The etag is the fingerprint of this version of the resource, so a
+		// fresh one is minted for every version the store holds.
+		job.Etag = generateUUID()
 
 		jobs.Put(name, job)
 
@@ -711,6 +728,9 @@ func registerCloudRunJobs(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
 			return
 		}
+		if !cloudRunJobEtagOK(w, job, r.URL.Query().Get("etag")) {
+			return
+		}
 
 		jobs.Delete(name)
 
@@ -764,6 +784,9 @@ func registerCloudRunJobs(srv *sim.Server) {
 		var request RunJobRequest
 		if err := sim.ReadJSON(r, &request); err != nil {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		if !cloudRunJobEtagOK(w, job, request.Etag) {
 			return
 		}
 		if request.ValidateOnly {
@@ -856,6 +879,9 @@ func registerCloudRunJobs(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
+		if !cloudRunJobEtagOK(w, existing, update.Etag) {
+			return
+		}
 		// UpdateJob has no updateMask parameter — the full mutable resource is
 		// replaced. Preserve identity + server-owned fields.
 		update.Name = existing.Name
@@ -886,6 +912,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 		}
 		update.Reconciling = false
+		update.Etag = generateUUID()
 		jobs.Put(name, update)
 		lro := newLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Job")
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -1045,6 +1072,7 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 			Name:       execName,
 			CreateTime: now,
 		}
+		j.Etag = generateUUID()
 	})
 	return exec
 }
@@ -1208,6 +1236,7 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 		crjJobs.Update(jobKey, func(j *Job) {
 			if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == execName {
 				j.LatestCreatedExecution.CompletionTime = nowTimestamp()
+				j.Etag = generateUUID()
 			}
 		})
 	}
@@ -1253,6 +1282,7 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 	crjJobs.Update(jobName, func(j *Job) {
 		if j.LatestCreatedExecution != nil && j.LatestCreatedExecution.Name == name {
 			j.LatestCreatedExecution.CompletionTime = nowTimestamp()
+			j.Etag = generateUUID()
 		}
 	})
 	injectCloudRunJobLog(project, jobID, "Execution cancelled")
