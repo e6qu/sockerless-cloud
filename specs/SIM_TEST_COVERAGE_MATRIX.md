@@ -64,6 +64,7 @@ Legend:
 | `azure-eventhubs` | direct | direct | direct | `simulator-azure/sdk-tests/eventhub_test.go`; `simulator-azure/cli-tests/eventhub_test.go`; `simulator-azure/terraform-tests/main.tf` |
 | `azure-functions` | direct | direct | direct | `simulator-azure/sdk-tests/functions_test.go`; `simulator-azure/cli-tests/functions_test.go`; `simulator-azure/terraform-tests/main.tf` |
 | `azure-keyvault` | direct | direct | direct | `simulator-azure/sdk-tests/keyvault_test.go`; `simulator-azure/cli-tests/arm_foundation_test.go`; `simulator-azure/terraform-tests/main.tf` |
+| `azure-keyvault_managedhsm` | direct | none | none | `simulator-azure/sdk-tests/resources_list_test.go` (the managed HSM slice is reached by the official Azure SDK; az exposes `az keyvault` only for vaults, and the AzureRM provider's managed-HSM resource needs a purge-protection lifecycle the slice does not model yet) |
 | `azure-kv-data-plane` | direct | direct | direct | `simulator-azure/sdk-tests/keyvault_sdk_test.go`; `simulator-azure/cli-tests/keyvault_dataplane_test.go`; `simulator-azure/terraform-tests/main.tf` |
 | `azure-logicapps` | direct | direct | direct | `simulator-azure/sdk-tests/logicapps_containerinstance_test.go`; `simulator-azure/cli-tests/logicapps_containerinstance_test.go`; `simulator-azure/terraform-tests/main.tf` |
 | `azure-monitor` | direct | direct | direct | `simulator-azure/sdk-tests/monitor_test.go`; `simulator-azure/cli-tests/monitor_test.go`; `simulator-azure/terraform-tests/main.tf` |

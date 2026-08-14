@@ -233,6 +233,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 				job.Template.TaskCount = 1
 			}
 		}
+		job.Etag = generateUUID()
 		if !dryRun {
 			crjJobs.Put(name, job)
 		}
@@ -319,6 +320,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 				update.Template.TaskCount = 1
 			}
 		}
+		update.Etag = generateUUID()
 		if !dryRun {
 			crjJobs.Put(name, update)
 		}

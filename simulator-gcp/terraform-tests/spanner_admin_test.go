@@ -60,8 +60,53 @@ resource "google_spanner_database" "main" {
   ]
 }
 
+resource "google_spanner_backup_schedule" "nightly" {
+  instance = google_spanner_instance.main.name
+  database = google_spanner_database.main.name
+  name     = "tf-nightly"
+
+  retention_duration = "172800s"
+
+  spec {
+    cron_spec {
+      text = "0 2 * * *"
+    }
+  }
+
+  full_backup_spec {}
+}
+
+resource "google_spanner_instance_partition" "shard" {
+  instance     = google_spanner_instance.main.name
+  name         = "tf-shard"
+  config       = "regional-us-east1"
+  display_name = "tf-shard"
+  node_count   = 1
+}
+
+resource "google_spanner_database_iam_binding" "reader" {
+  instance = google_spanner_instance.main.name
+  database = google_spanner_database.main.name
+  role     = "roles/spanner.databaseReader"
+  members  = ["user:tf-reader@example.com"]
+}
+
+resource "google_spanner_instance_iam_binding" "viewer" {
+  instance = google_spanner_instance.main.name
+  role     = "roles/spanner.viewer"
+  members  = ["user:tf-viewer@example.com"]
+}
+
 output "database_id" {
   value = google_spanner_database.main.id
+}
+
+output "backup_schedule_id" {
+  value = google_spanner_backup_schedule.nightly.id
+}
+
+output "instance_partition_id" {
+  value = google_spanner_instance_partition.shard.id
 }
 `), 0o644))
 
@@ -76,6 +121,9 @@ output "database_id" {
 	require.NoError(t, err, "%s", out)
 	outputs := readOutputsInDir(t, dir)
 	require.Equal(t, "tf-spanner-focused/application", outputs.must(t, "database_id"))
+	require.Equal(t, "tf-spanner-focused/application/tf-nightly", outputs.must(t, "backup_schedule_id"))
+	require.Equal(t, "projects/test-project/instances/tf-spanner-focused/instancePartitions/tf-shard",
+		outputs.must(t, "instance_partition_id"))
 
 	out, err = runTimed(t, "terraform plan Cloud Spanner", terraformCmdInDir(dir, "plan", "-detailed-exitcode"))
 	require.NoError(t, err, "Cloud Spanner plan showed drift after apply:\n%s", out)

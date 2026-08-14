@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -151,12 +152,13 @@ type CRCondition struct {
 	LastTransitionTime string `json:"lastTransitionTime,omitempty"`
 }
 
-// CRServiceList is the Knative list-response shape.
+// CRServiceList mirrors the Discovery ListServicesResponse schema.
 type CRServiceList struct {
-	APIVersion string         `json:"apiVersion"`
-	Kind       string         `json:"kind"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-	Items      []CRService    `json:"items"`
+	APIVersion  string      `json:"apiVersion"`
+	Kind        string      `json:"kind"`
+	Metadata    *CRListMeta `json:"metadata,omitempty"`
+	Items       []CRService `json:"items"`
+	Unreachable []string    `json:"unreachable,omitempty"`
 }
 
 // CRConfiguration is the Knative Configuration resource. Cloud Run
@@ -262,31 +264,74 @@ type CRResourceRecord struct {
 	Type   string `json:"type,omitempty"`
 }
 
-// Knative list-response shapes (items + apiVersion/kind, no nextPageToken —
-// the serving.knative.dev List responses page via the `metadata.continue`
-// field, which the sim leaves empty since it returns the full set).
+// Knative list-response shapes. There is no nextPageToken: the
+// serving.knative.dev List responses carry their paging cursor in
+// `metadata.continue`, and the regions a partial list could not reach in
+// `unreachable`.
 type CRConfigurationList struct {
-	APIVersion string            `json:"apiVersion"`
-	Kind       string            `json:"kind"`
-	Items      []CRConfiguration `json:"items"`
+	APIVersion  string            `json:"apiVersion"`
+	Kind        string            `json:"kind"`
+	Metadata    *CRListMeta       `json:"metadata,omitempty"`
+	Items       []CRConfiguration `json:"items"`
+	Unreachable []string          `json:"unreachable,omitempty"`
 }
 
 type CRRevisionList struct {
-	APIVersion string       `json:"apiVersion"`
-	Kind       string       `json:"kind"`
-	Items      []CRRevision `json:"items"`
+	APIVersion  string       `json:"apiVersion"`
+	Kind        string       `json:"kind"`
+	Metadata    *CRListMeta  `json:"metadata,omitempty"`
+	Items       []CRRevision `json:"items"`
+	Unreachable []string     `json:"unreachable,omitempty"`
 }
 
 type CRRouteList struct {
-	APIVersion string    `json:"apiVersion"`
-	Kind       string    `json:"kind"`
-	Items      []CRRoute `json:"items"`
+	APIVersion  string      `json:"apiVersion"`
+	Kind        string      `json:"kind"`
+	Metadata    *CRListMeta `json:"metadata,omitempty"`
+	Items       []CRRoute   `json:"items"`
+	Unreachable []string    `json:"unreachable,omitempty"`
 }
 
 type CRDomainMappingList struct {
-	APIVersion string            `json:"apiVersion"`
-	Kind       string            `json:"kind"`
-	Items      []CRDomainMapping `json:"items"`
+	APIVersion  string            `json:"apiVersion"`
+	Kind        string            `json:"kind"`
+	Metadata    *CRListMeta       `json:"metadata,omitempty"`
+	Items       []CRDomainMapping `json:"items"`
+	Unreachable []string          `json:"unreachable,omitempty"`
+}
+
+// knativeResource is implemented by the serving.knative.dev and
+// domains.cloudrun.com resources whose collections share the Knative list
+// envelope: each carries the ObjectMeta that names it, places it in a
+// namespace, and holds the labels a `labelSelector` selects on.
+type knativeResource interface {
+	knativeMeta() CRServiceMetadata
+}
+
+func (s CRService) knativeMeta() CRServiceMetadata        { return s.Metadata }
+func (c CRConfiguration) knativeMeta() CRServiceMetadata  { return c.Metadata }
+func (rev CRRevision) knativeMeta() CRServiceMetadata     { return rev.Metadata }
+func (rt CRRoute) knativeMeta() CRServiceMetadata         { return rt.Metadata }
+func (dm CRDomainMapping) knativeMeta() CRServiceMetadata { return dm.Metadata }
+
+// knativeCollectionPage narrows a stored Knative collection to one namespace,
+// applies the request's `labelSelector`, orders what is left by resource name
+// so the cursor is stable across requests, and applies the `limit`/`continue`
+// cursor. It returns the page and the token that continues it.
+func knativeCollectionPage[T knativeResource](w http.ResponseWriter, r *http.Request, all []T, namespace string) ([]T, string, bool) {
+	selector := r.URL.Query().Get("labelSelector")
+	items := make([]T, 0, len(all))
+	for _, item := range all {
+		meta := item.knativeMeta()
+		if meta.Namespace != namespace || !knativeLabelSelectorMatches(selector, meta.Labels) {
+			continue
+		}
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].knativeMeta().Name < items[j].knativeMeta().Name
+	})
+	return knativeListPage(w, r, items)
 }
 
 // CRAuthorizedDomain mirrors the Discovery `AuthorizedDomain` schema.
@@ -463,19 +508,15 @@ func registerCloudRun(srv *sim.Server) {
 
 	// ListServices: GET /apis/serving.knative.dev/v1/namespaces/{namespace}/services
 	srv.HandleFunc("GET /apis/serving.knative.dev/v1/namespaces/{namespace}/services", func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := namespace + "/"
-		all := services.List()
-		items := make([]CRService, 0, len(all))
-		for _, s := range all {
-			if strings.HasPrefix(svcKey(s.Metadata.Namespace, s.Metadata.Name), prefix) {
-				items = append(items, s)
-			}
+		page, next, ok := knativeCollectionPage(w, r, services.List(), sim.PathParam(r, "namespace"))
+		if !ok {
+			return
 		}
 		sim.WriteJSON(w, http.StatusOK, CRServiceList{
 			APIVersion: "serving.knative.dev/v1",
 			Kind:       "ServiceList",
-			Items:      items,
+			Metadata:   knativeListMeta(next),
+			Items:      page,
 		})
 	})
 
@@ -567,16 +608,13 @@ func registerCloudRun(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, cfg)
 	}
 	listConfigurations := func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := namespace + "/"
-		items := make([]CRConfiguration, 0)
-		for _, c := range configurations.List() {
-			if strings.HasPrefix(svcKey(c.Metadata.Namespace, c.Metadata.Name), prefix) {
-				items = append(items, c)
-			}
+		page, next, ok := knativeCollectionPage(w, r, configurations.List(), sim.PathParam(r, "namespace"))
+		if !ok {
+			return
 		}
 		sim.WriteJSON(w, http.StatusOK, CRConfigurationList{
-			APIVersion: "serving.knative.dev/v1", Kind: "ConfigurationList", Items: items,
+			APIVersion: "serving.knative.dev/v1", Kind: "ConfigurationList",
+			Metadata: knativeListMeta(next), Items: page,
 		})
 	}
 	srv.HandleFunc("GET /apis/serving.knative.dev/v1/namespaces/{namespace}/configurations/{name}", getConfiguration)
@@ -598,16 +636,13 @@ func registerCloudRun(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, rev)
 	}
 	listRevisions := func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := namespace + "/"
-		items := make([]CRRevision, 0)
-		for _, rev := range revisions.List() {
-			if strings.HasPrefix(svcKey(rev.Metadata.Namespace, rev.Metadata.Name), prefix) {
-				items = append(items, rev)
-			}
+		page, next, ok := knativeCollectionPage(w, r, revisions.List(), sim.PathParam(r, "namespace"))
+		if !ok {
+			return
 		}
 		sim.WriteJSON(w, http.StatusOK, CRRevisionList{
-			APIVersion: "serving.knative.dev/v1", Kind: "RevisionList", Items: items,
+			APIVersion: "serving.knative.dev/v1", Kind: "RevisionList",
+			Metadata: knativeListMeta(next), Items: page,
 		})
 	}
 	deleteRevision := func(w http.ResponseWriter, r *http.Request) {
@@ -641,16 +676,13 @@ func registerCloudRun(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, rt)
 	}
 	listRoutes := func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := namespace + "/"
-		items := make([]CRRoute, 0)
-		for _, rt := range routes.List() {
-			if strings.HasPrefix(svcKey(rt.Metadata.Namespace, rt.Metadata.Name), prefix) {
-				items = append(items, rt)
-			}
+		page, next, ok := knativeCollectionPage(w, r, routes.List(), sim.PathParam(r, "namespace"))
+		if !ok {
+			return
 		}
 		sim.WriteJSON(w, http.StatusOK, CRRouteList{
-			APIVersion: "serving.knative.dev/v1", Kind: "RouteList", Items: items,
+			APIVersion: "serving.knative.dev/v1", Kind: "RouteList",
+			Metadata: knativeListMeta(next), Items: page,
 		})
 	}
 	srv.HandleFunc("GET /apis/serving.knative.dev/v1/namespaces/{namespace}/routes/{name}", getRoute)
@@ -713,16 +745,13 @@ func registerCloudRun(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, dm)
 	}
 	listDomainMappings := func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := namespace + "/"
-		items := make([]CRDomainMapping, 0)
-		for _, dm := range domainmappings.List() {
-			if strings.HasPrefix(svcKey(dm.Metadata.Namespace, dm.Metadata.Name), prefix) {
-				items = append(items, dm)
-			}
+		page, next, ok := knativeCollectionPage(w, r, domainmappings.List(), sim.PathParam(r, "namespace"))
+		if !ok {
+			return
 		}
 		sim.WriteJSON(w, http.StatusOK, CRDomainMappingList{
-			APIVersion: "domains.cloudrun.com/v1", Kind: "DomainMappingList", Items: items,
+			APIVersion: "domains.cloudrun.com/v1", Kind: "DomainMappingList",
+			Metadata: knativeListMeta(next), Items: page,
 		})
 	}
 	deleteDomainMapping := func(w http.ResponseWriter, r *http.Request) {
@@ -818,16 +847,13 @@ func registerCloudRun(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, svc)
 	})
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/services", func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := namespace + "/"
-		items := make([]CRService, 0)
-		for _, s := range services.List() {
-			if strings.HasPrefix(svcKey(s.Metadata.Namespace, s.Metadata.Name), prefix) {
-				items = append(items, s)
-			}
+		page, next, ok := knativeCollectionPage(w, r, services.List(), sim.PathParam(r, "namespace"))
+		if !ok {
+			return
 		}
 		sim.WriteJSON(w, http.StatusOK, CRServiceList{
-			APIVersion: "serving.knative.dev/v1", Kind: "ServiceList", Items: items,
+			APIVersion: "serving.knative.dev/v1", Kind: "ServiceList",
+			Metadata: knativeListMeta(next), Items: page,
 		})
 	})
 	srv.HandleFunc("PUT /v1/projects/{project}/locations/{namespace}/services/{name}", func(w http.ResponseWriter, r *http.Request) {

@@ -41,9 +41,18 @@ Current state of the sockerless-cloud repository.
   operations; `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
   WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 503 of 692; `cloudrun-v1` 152 of 152
   (App Service Stages 1-5: child resources, site-scoped workflows, Key Vault
-  configuration references, the complete Static Web Apps family). VPC
-  networks allocate bridge subnets from a host-side pool with ENI addresses
-  as real secondary interface addresses, so same-CIDR VPCs coexist.
+  configuration references, the complete Static Web Apps family);
+  `keyvault-arm-managedhsm-2023-07-01` 6 of 16 (the Managed HSM pool's own
+  lifecycle and both list scopes). VPC networks allocate bridge subnets from
+  a host-side pool with ENI addresses as real secondary interface addresses,
+  so same-CIDR VPCs coexist.
+- **Azure Resource Manager resource lists**: `Resources_List` and
+  `Resources_ListByResourceGroup` enumerate 56 tracked resource types from
+  the cross-slice registry in `simulator-azure/resource_registry.go` — a
+  table keyed the way `resourceMoveHooks` is keyed, reading each owning
+  slice's store at request time — and honour the `$filter`, `$expand` and
+  `$top` forms the Azure CLI and terraform-provider-azurerm send, refusing a
+  filter naming anything ARM does not filter on.
 
 ## Releases
 

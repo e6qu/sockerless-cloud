@@ -20,9 +20,18 @@
    silently rotate every connection string); Microsoft.Network is last,
    because its resources reference each other by resource id and moving one
    without re-pointing every referrer would break the fabric silently.
-5. BUG-4 (the subscription resource list answers only Key Vaults and ignores
-   $filter) and BUG-5 (the older Knative collections ignore labelSelector,
-   limit and continue) are both locally actionable whenever a pass has room.
+5. BUG-4 and BUG-5 closed. The subscription and resource-group resource lists
+   enumerate 56 tracked types from the cross-slice registry in
+   `simulator-azure/resource_registry.go` and honour `$filter`, `$expand` and
+   `$top`, and Microsoft.KeyVault/managedHSMs became a real slice; the five
+   older Knative collections honour `labelSelector`, `limit` and `continue`,
+   and the Cloud Run v2 Job reports the etag `jobs.run` enforces. Their
+   remainders were split out and stay locally actionable: BUG-6 (the AIP-151
+   `operations.cancel` custom method is unserved across twelve Google Cloud
+   services), BUG-7 (Cloud Run v2 mints an `etag` for jobs only, so the other
+   five resources' etags and the six delete methods' `etag` parameter go
+   unread), and BUG-8 (`Microsoft.Resources/tags/default` writes a store the
+   resource's own `tags` member cannot see).
 
 
 ## Next Recommended Slice

@@ -162,16 +162,28 @@ var gcpMethodFloor = map[string]int{
 	"sqladmin-v1":      146,
 	"sqladmin-v1beta4": 146,
 
-	// Cloud Spanner: instances, instance configs, databases (create, get,
-	// list, delete, DDL update), sessions, and the complete public session data
-	// plane except adapter/adaptMessage are served over REST. The same data
-	// plane is served over gRPC. Backups, backup schedules, instance
-	// partitions, database roles, the IAM verbs, and several operations
-	// collections are not served. The "instances/{rest...}" mount that routes
-	// this surface has the shape of every path in the document, so only its
-	// answer — a method-not-found for each tail it does not route —
-	// distinguishes the two.
-	"spanner-v1": 82,
+	// Cloud Spanner: instances, instance configs, instance partitions,
+	// databases, backups, backup schedules, database roles, the IAM triple on
+	// every resource that exposes it, all five operation collections, and the
+	// complete public session data plane except adapter/adaptMessage are served
+	// over REST; the same data plane is served over gRPC. Five methods are
+	// deliberately unserved because the simulator holds nothing for them to
+	// report or act on, and a served answer would have to be invented:
+	//   - databases.getScans — Key Visualizer scan data is a read/write heatmap
+	//     the service derives from production traffic; the simulator measures no
+	//     per-key traffic, so it has no scan to return.
+	//   - databases.addSplitPoints — split points partition a database's key
+	//     space across servers; the backing engine is a single SQLite database
+	//     with no key-range splits to add them to.
+	//   - databases.changequorum — the quorum type of a dual-region database;
+	//     the simulator keeps one replica and models no quorum.
+	//   - sessions.adapter / sessions.adaptMessage — the adapter tunnels raw
+	//     PostgreSQL and Cassandra wire-protocol messages, which the simulator
+	//     does not speak.
+	// The "instances/{rest...}" mount that routes this surface has the shape of
+	// every path in the document, so only its answer — a method-not-found for
+	// each tail it does not route — distinguishes the two.
+	"spanner-v1": 188,
 }
 
 // gcpProbePrincipal is the subject of the access token every probe presents.

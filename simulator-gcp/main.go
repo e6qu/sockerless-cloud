@@ -76,6 +76,12 @@ func main() {
 	}
 	go startGRPCServer(grpcPort)
 
+	// Cloud Spanner backup schedules produce real backups on their crontab
+	// occurrences. The clock runs only in the serving process — building the
+	// route table in-process (route conformance, coverage probing) must not
+	// start one.
+	go spannerRunBackupScheduleLoop()
+
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
