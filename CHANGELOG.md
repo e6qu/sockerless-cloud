@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/e6qu/sockerless-cloud/compare/v0.8.0...v0.9.0) (2026-08-14)
+
+
+### Features
+
+* back Spanner admin with the real engine, and answer the resource list for real ([#15](https://github.com/e6qu/sockerless-cloud/issues/15)) ([418e0c8](https://github.com/e6qu/sockerless-cloud/commit/418e0c8482f25e9a27b27a55ac2727cda08ace9a))
+
 ## [0.8.0](https://github.com/e6qu/sockerless-cloud/compare/v0.7.0...v0.8.0) (2026-08-14)
 
 
