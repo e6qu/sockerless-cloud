@@ -4473,7 +4473,16 @@ func ebsCopyDockerVolumes(ctx context.Context, srcVolume, dstVolume string) erro
 			srcVolume + ":/src:ro",
 			dstVolume + ":/dst",
 		},
-		Timeout: 60 * time.Second,
+		// No wall-clock cap: the copy's duration is a function of how much data
+		// the volume holds, which the simulator does not get to choose. A fixed
+		// timeout here (this was 60s) fails a large but perfectly healthy
+		// restore -- an 8 GiB workspace copies in roughly 40s on an idle host
+		// and longer under load -- and reports it as an error the caller cannot
+		// act on. Real EBS has no equivalent deadline: a volume created from a
+		// snapshot is usable immediately and hydrates lazily. Callers bound this
+		// instead by the lifecycle they own (a task's transition, which can be
+		// stopped), not by a guess made here.
+		Timeout: 0,
 	}, discardLogSink{})
 	if err != nil {
 		return fmt.Errorf("start volume copy container: %w", err)
