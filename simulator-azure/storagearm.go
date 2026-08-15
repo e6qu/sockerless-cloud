@@ -314,17 +314,7 @@ func moveStorageAccountARM(oldID, newID string, childStores ...sim.Store[storage
 
 	// The account's access keys are a property of the account, not of its
 	// resource group: listKeys must serve the same material after the move.
-	// Derived material is seeded by the resource ID, so the keys the account
-	// held are pinned verbatim onto the moved ID; the next regenerateKey
-	// clears the pin and derives fresh material, the same rotation contract
-	// as before the move.
-	for _, slot := range []string{"key1", "key2"} {
-		material := azureKeyMaterial64(oldID, slot)
-		gen, _ := azureKeyGens.Get(oldID + "|" + slot)
-		azureKeyGens.Delete(oldID + "|" + slot)
-		gen.Key = material
-		azureKeyGens.Put(newID+"|"+slot, gen)
-	}
+	pinAzureKeySlots(oldID, newID, azureKeyMaterial64, "key1", "key2")
 }
 
 // ---- generic account-scoped child resource CRUD ----

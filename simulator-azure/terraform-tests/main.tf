@@ -104,13 +104,15 @@ resource "azurerm_resource_group" "az_rg" {
 
 # Container Registry — ACA + AZF runner backends both pull container
 # images from a private ACR. Standard SKU is the cheapest tier that
-# azurerm accepts (Basic / Standard / Premium).
+# azurerm accepts (Basic / Standard / Premium). The admin user is enabled
+# so the provider surfaces the registry's admin credential, which is the
+# credential its data plane authenticates.
 resource "azurerm_container_registry" "az_acr" {
   name                = "tfazrmacr"
   resource_group_name = azurerm_resource_group.az_rg.name
   location            = azurerm_resource_group.az_rg.location
   sku                 = "Standard"
-  admin_enabled       = false
+  admin_enabled       = true
 }
 
 resource "azurerm_redis_cache" "az_redis" {
@@ -1178,6 +1180,19 @@ output "azrm_postgresql_flexible_server_firewall_rule_id" {
 
 output "azrm_acr_id" {
   value = azurerm_container_registry.az_acr.id
+}
+
+output "azrm_acr_login_server" {
+  value = azurerm_container_registry.az_acr.login_server
+}
+
+output "azrm_acr_admin_username" {
+  value = azurerm_container_registry.az_acr.admin_username
+}
+
+output "azrm_acr_admin_password" {
+  value     = azurerm_container_registry.az_acr.admin_password
+  sensitive = true
 }
 
 output "azrm_redis_cache_hostname" {

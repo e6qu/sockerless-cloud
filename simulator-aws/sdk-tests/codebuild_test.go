@@ -20,6 +20,17 @@ func codebuildClient() *codebuild.Client {
 	})
 }
 
+// cbBuildCompletionBudget bounds every wait for an AWS CodeBuild build to reach
+// a terminal state. A build is real container work — the build environment image
+// is created, the buildspec commands run inside it, and the build settles when
+// that container exits — so the budget is really a budget for the container
+// engine's create/start/wait/remove alongside whatever else is running on the
+// host, and it stretches by an order of magnitude when the engine is busy.
+// Real AWS CodeBuild builds take minutes; the API promises nothing faster, so a
+// ceiling of seconds would be asserting on host speed rather than on the
+// service's behavior.
+const cbBuildCompletionBudget = 4 * time.Minute
+
 func TestCodeBuild_ProjectCRUD_SDK(t *testing.T) {
 	c := codebuildClient()
 
@@ -136,7 +147,7 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 		require.Len(t, builds.Builds, 1)
 		build = builds.Builds[0]
 		return build.BuildStatus == cbtypes.StatusTypeSucceeded
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
 	assert.Equal(t, buildID, aws.ToString(build.Id))
 	assert.NotEmpty(t, build.Phases)
 	// Log enablement is the real LogsLocation member cloudWatchLogs.status
@@ -218,7 +229,7 @@ phases:
 		builds, getErr := c.BatchGetBuilds(testContext, &codebuild.BatchGetBuildsInput{Ids: []string{buildID}})
 		return getErr == nil && len(builds.Builds) == 1 &&
 			builds.Builds[0].BuildStatus == cbtypes.StatusTypeSucceeded
-	}, 4*time.Minute, 100*time.Millisecond)
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
 
 	const (
 		secretsToken = "codebuild-secrets-manager-source-token"
@@ -278,7 +289,7 @@ phases:
 		})
 		return getErr == nil && len(builds.Builds) == 1 &&
 			builds.Builds[0].BuildStatus == cbtypes.StatusTypeSucceeded
-	}, 4*time.Minute, 100*time.Millisecond)
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
 }
 
 // TestCodeBuild_ListBuildsSortOrder_SDK pins that ListBuildsForProject honors
@@ -365,7 +376,7 @@ func TestCodeBuild_FailedBuildPhaseContext_SDK(t *testing.T) {
 		require.Len(t, builds.Builds, 1)
 		build = builds.Builds[0]
 		return build.BuildStatus == cbtypes.StatusTypeFailed
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
 
 	var buildPhase *cbtypes.BuildPhase
 	for i := range build.Phases {
@@ -482,7 +493,7 @@ func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
 		}
 		reportArn = b.ReportArns[0]
 		return true
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
 	require.NotEmpty(t, reportArn)
 
 	lr, err := c.ListReports(ctx, &codebuild.ListReportsInput{})

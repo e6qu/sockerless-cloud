@@ -72,6 +72,17 @@ func webMoveSiteTree(oldID, newID, targetRG string) {
 		rekeyEntry(webConfigExtras, pair[0], pair[1])
 		rekeyEntry(siteConfigStore, pair[0], pair[1])
 		rekeyEntry(webWorkflowFiles, pair[0], pair[1])
+		// The publishing password is derived from the site's resource ID, so
+		// it is pinned across the move the way every other resource-ID-derived
+		// credential is: a move never rotates a site's deployment credential.
+		pinAzureKeySlots(pair[0], pair[1], azureKeyMaterial32, "publishingPassword")
+	}
+
+	// A workflow hosted by the site signs its callback URLs with an access key
+	// derived from the workflow's resource ID, which the site's move rewrote.
+	for _, wf := range logicWorkflows.Filter(func(wf LogicWorkflow) bool { return strings.HasPrefix(wf.ID, newSub) }) {
+		pinAzureKeySlots(oldID+strings.TrimPrefix(wf.ID, newID), wf.ID, azureKeyMaterial32,
+			"logic-access-primary", "logic-access-secondary")
 	}
 }
 

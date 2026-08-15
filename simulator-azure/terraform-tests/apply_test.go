@@ -1,7 +1,10 @@
 package azure_tf_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +130,15 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	azrmACR := outputs.must(t, "azrm_acr_id")
 	require.Contains(t, azrmACR, "/providers/Microsoft.ContainerRegistry/registries/tfazrmacr",
 		"azurerm ACR id must include canonical ARM path; got %s", azrmACR)
+
+	// The registry's data plane authenticates the admin credential the
+	// provider surfaces: an unauthenticated read is refused with the Docker
+	// Registry v2 Bearer challenge naming this registry's token service, and
+	// the admin_username/admin_password pair is accepted.
+	assertACRDataPlaneAuthenticates(t,
+		outputs.must(t, "azrm_acr_login_server"),
+		outputs.must(t, "azrm_acr_admin_username"),
+		outputs.must(t, "azrm_acr_admin_password"))
 
 	azrmRedisHost := outputs.must(t, "azrm_redis_cache_hostname")
 	require.Contains(t, azrmRedisHost, "tfazrmredis.redis.cache.",
@@ -403,6 +415,47 @@ func TestTerraformApplyDestroy(t *testing.T) {
 
 	out, err = runTimed(t, "terraform destroy", terraformCmd(dir, "destroy", "-auto-approve"))
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
+}
+
+// assertACRDataPlaneAuthenticates drives the container registry's own data
+// plane at the login server the provider recorded. The registry answers an
+// unauthenticated request with the Docker Registry v2 Bearer challenge and
+// serves the same request once it carries the admin credential the provider
+// exposes as admin_username / admin_password.
+func assertACRDataPlaneAuthenticates(t *testing.T, loginServer, username, password string) {
+	t.Helper()
+	require.Equal(t, "tfazrmacr", username, "the admin username is the registry name")
+	client, err := trustedHTTPClient(caCertFile)
+	require.NoError(t, err)
+
+	get := func(authorization string) *http.Response {
+		req, err := http.NewRequest(http.MethodGet, "https://"+loginServer+"/v2/", nil)
+		require.NoError(t, err)
+		if authorization != "" {
+			req.Header.Set("Authorization", authorization)
+		}
+		resp, err := client.Do(req)
+		require.NoError(t, err, "GET the registry data plane at %s", loginServer)
+		return resp
+	}
+
+	unauthenticated := get("")
+	body, _ := io.ReadAll(unauthenticated.Body)
+	unauthenticated.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, unauthenticated.StatusCode,
+		"an unauthenticated registry read must be refused; body: %s", body)
+	require.Contains(t, unauthenticated.Header.Get("Www-Authenticate"),
+		`service="`+loginServer+`"`, "the challenge must name this registry")
+
+	authenticated := get("Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password)))
+	authenticated.Body.Close()
+	require.Equal(t, http.StatusOK, authenticated.StatusCode,
+		"the admin credential the provider surfaced must authenticate the data plane")
+
+	wrong := get("Basic " + base64.StdEncoding.EncodeToString([]byte(username+":not-the-password")))
+	wrong.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, wrong.StatusCode,
+		"a wrong password must be refused")
 }
 
 func requireTerraformNetworkHost(t *testing.T) {

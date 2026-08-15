@@ -46,6 +46,7 @@ var (
 )
 
 func registerEventGrid(srv *sim.Server) {
+	makeAzureKeyGens(srv)
 	eventGridTopics = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_topics")
 	eventGridDomains = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_domains")
 	eventGridDomainTopics = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_domain_topics")
@@ -694,26 +695,70 @@ func handleEventGridListEventSubscriptions(w http.ResponseWriter, r *http.Reques
 }
 
 func handleEventGridPublishEvents(w http.ResponseWriter, r *http.Request) {
-	topic, ok := eventGridTopicFromHost(r.Host)
+	scope, ok := eventGridPublishScopeFromHost(r.Host)
 	if !ok {
 		sim.AzureErrorf(w, "TopicNotFound", http.StatusNotFound, "event grid topic host %q not found", r.Host)
 		return
 	}
-	publishEventGridTopic(w, r, topic)
+	publishEventGridScope(w, r, scope)
 }
 
-func publishEventGridTopic(w http.ResponseWriter, r *http.Request, topic EventGridTopic) {
+// eventGridPublishScope is a resource that accepts an /api/events publish. A
+// custom topic and a domain advertise the same endpoint shape and serve the
+// same two access keys, so they authenticate identically; they differ in how a
+// published event is routed — a custom topic fans out to its own event
+// subscriptions, while a domain routes each event to the domain topic the
+// event's `topic` member names.
+type eventGridPublishScope struct {
+	resource EventGridTopic
+	isDomain bool
+}
+
+func publishEventGridScope(w http.ResponseWriter, r *http.Request, scope eventGridPublishScope) {
+	if !eventGridAuthorizePublish(w, r, scope.resource.ID, scope.resource.Properties) {
+		return
+	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "failed to read request body: %v", err)
 		return
 	}
-	if err := validateEventGridPublishBody(body); err != nil {
+	events, err := validateEventGridPublishBody(body, scope.isDomain)
+	if err != nil {
 		sim.AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "%v", err)
 		return
 	}
+	if !scope.isDomain {
+		deliverEventGridBatch(scope.resource.ID, body)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	// A domain fans each event out to its own domain topic. A domain-scoped
+	// event subscription receives every event published to the domain, which
+	// falls out of routing each event to the domain scope as well.
+	for i, event := range events {
+		single, marshalErr := json.Marshal([]json.RawMessage{rawEventGridEvent(body, i)})
+		if marshalErr != nil {
+			sim.AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "event %d could not be re-encoded: %v", i, marshalErr)
+			return
+		}
+		deliverEventGridBatch(eventGridDomainTopicScopeID(scope.resource.ID, event.Topic), single)
+		deliverEventGridBatch(scope.resource.ID, single)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// eventGridDomainTopicScopeID is the resource ID of a domain topic beneath a
+// domain, which is the scope a domain-published event's subscriptions hang off.
+func eventGridDomainTopicScopeID(domainID, topic string) string {
+	return domainID + "/topics/" + topic
+}
+
+// deliverEventGridBatch posts a publish batch to every webhook subscription of
+// one scope.
+func deliverEventGridBatch(scopeID string, body []byte) {
 	for _, es := range eventGridSubscriptions.List() {
-		if !eventGridSubscriptionBelongsToTopic(es, topic.ID) {
+		if !eventGridSubscriptionBelongsToTopic(es, scopeID) {
 			continue
 		}
 		if endpoint := eventGridWebhookEndpoint(es); endpoint != "" {
@@ -723,7 +768,17 @@ func publishEventGridTopic(w http.ResponseWriter, r *http.Request, topic EventGr
 			}
 		}
 	}
-	w.WriteHeader(http.StatusOK)
+}
+
+// rawEventGridEvent returns the i-th event of a publish batch exactly as the
+// publisher encoded it, so a domain delivery carries the operator's own JSON
+// rather than a re-serialisation of the fields the validator models.
+func rawEventGridEvent(body []byte, i int) json.RawMessage {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil || i >= len(raw) {
+		return json.RawMessage("null")
+	}
+	return raw[i]
 }
 
 type eventGridPublishEvent struct {
@@ -733,36 +788,46 @@ type eventGridPublishEvent struct {
 	EventTime   string          `json:"eventTime"`
 	Data        json.RawMessage `json:"data"`
 	DataVersion string          `json:"dataVersion"`
+	// Topic names the domain topic an event published to a domain belongs to.
+	// It is the publisher's choice on a domain and the service's own value on
+	// a custom topic.
+	Topic string `json:"topic"`
 }
 
-func validateEventGridPublishBody(body []byte) error {
+// validateEventGridPublishBody checks a publish batch against the
+// EventGridEvent schema and returns the parsed events. A domain additionally
+// requires each event to name the domain topic it belongs to, because that
+// member is what routes it.
+func validateEventGridPublishBody(body []byte, isDomain bool) ([]eventGridPublishEvent, error) {
 	var events []eventGridPublishEvent
 	if err := json.Unmarshal(body, &events); err != nil {
-		return fmt.Errorf("request body must be a JSON array of Event Grid events: %w", err)
+		return nil, fmt.Errorf("request body must be a JSON array of Event Grid events: %w", err)
 	}
 	if len(events) == 0 {
-		return fmt.Errorf("request body must contain at least one event")
+		return nil, fmt.Errorf("request body must contain at least one event")
 	}
 	for i, event := range events {
 		switch {
 		case event.ID == "":
-			return fmt.Errorf("event %d is missing required field id", i)
+			return nil, fmt.Errorf("event %d is missing required field id", i)
 		case event.Subject == "":
-			return fmt.Errorf("event %d is missing required field subject", i)
+			return nil, fmt.Errorf("event %d is missing required field subject", i)
 		case event.EventType == "":
-			return fmt.Errorf("event %d is missing required field eventType", i)
+			return nil, fmt.Errorf("event %d is missing required field eventType", i)
 		case event.EventTime == "":
-			return fmt.Errorf("event %d is missing required field eventTime", i)
+			return nil, fmt.Errorf("event %d is missing required field eventTime", i)
 		case len(event.Data) == 0:
-			return fmt.Errorf("event %d is missing required field data", i)
+			return nil, fmt.Errorf("event %d is missing required field data", i)
 		case event.DataVersion == "":
-			return fmt.Errorf("event %d is missing required field dataVersion", i)
+			return nil, fmt.Errorf("event %d is missing required field dataVersion", i)
+		case isDomain && event.Topic == "":
+			return nil, fmt.Errorf("event %d is missing required field topic, which names the domain topic it is published to", i)
 		}
 		if _, err := time.Parse(time.RFC3339Nano, event.EventTime); err != nil {
-			return fmt.Errorf("event %d has invalid eventTime: %w", i, err)
+			return nil, fmt.Errorf("event %d has invalid eventTime: %w", i, err)
 		}
 	}
-	return nil
+	return events, nil
 }
 
 func eventGridSubscriptionBelongsToTopic(es EventGridEventSubscription, topicID string) bool {
@@ -775,7 +840,11 @@ func eventGridSubscriptionBelongsToTopic(es EventGridEventSubscription, topicID 
 	return false
 }
 
-func eventGridTopicFromHost(host string) (EventGridTopic, bool) {
+// eventGridPublishScopeFromHost resolves the publishing resource an
+// /api/events request addresses. Both a custom topic and a domain advertise an
+// endpoint whose first host label is the resource's globally unique name, so
+// the label selects between the two stores.
+func eventGridPublishScopeFromHost(host string) (eventGridPublishScope, bool) {
 	hostname := host
 	if i := strings.LastIndex(hostname, ":"); i >= 0 {
 		hostname = hostname[:i]
@@ -783,10 +852,15 @@ func eventGridTopicFromHost(host string) (EventGridTopic, bool) {
 	name := strings.Split(hostname, ".")[0]
 	for _, topic := range eventGridTopics.List() {
 		if topic.Name == name {
-			return topic, true
+			return eventGridPublishScope{resource: topic}, true
 		}
 	}
-	return EventGridTopic{}, false
+	for _, domain := range eventGridDomains.List() {
+		if domain.Name == name {
+			return eventGridPublishScope{resource: domain, isDomain: true}, true
+		}
+	}
+	return eventGridPublishScope{}, false
 }
 
 func eventGridWebhookEndpoint(es EventGridEventSubscription) string {

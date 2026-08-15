@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -366,20 +367,127 @@ func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 	assert.Equal(t, "disabled", disabled.State)
 }
 
-func TestGCS_BucketOperations_ListAndGet(t *testing.T) {
+// The bucket's operations collection reports the long-running work the bucket's
+// own methods started, and nothing else: an operation identifier no method
+// minted is NOT_FOUND, from get, from cancel and from advanceRelocateBucket
+// alike.
+func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 	svc := storageService(t)
 	mustCreateBucket(t, svc, "ops-bucket")
 
-	list, err := svc.Operations.List("ops-bucket").Do()
+	// A bucket that has started no long-running work has no operations.
+	empty, err := svc.Operations.List("ops-bucket").Do()
 	require.NoError(t, err)
-	assert.Equal(t, "storage#operations", list.Kind)
+	assert.Equal(t, "storage#operations", empty.Kind)
+	assert.Empty(t, empty.Operations)
 
-	op, err := svc.Operations.Get("ops-bucket", "op-123").Do()
+	// An identifier the service never minted is not an operation.
+	_, err = svc.Operations.Get("ops-bucket", "op-123").Do()
+	require.Error(t, err, "a get must not invent an operation")
+	assert.Contains(t, err.Error(), "404")
+	err = svc.Operations.Cancel("ops-bucket", "op-123").Do()
+	require.Error(t, err, "a cancel must not accept an identifier the service has no record of")
+	assert.Contains(t, err.Error(), "404")
+	err = svc.Operations.AdvanceRelocateBucket("ops-bucket", "op-123",
+		&storageapi.AdvanceRelocateBucketOperationRequest{Ttl: "3600s"}).Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+
+	// A relocation records its operation, and the collection answers about it.
+	started, err := svc.Buckets.Relocate("ops-bucket", &storageapi.RelocateBucketRequest{
+		DestinationLocation: "us-east1",
+	}).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "storage#operation", op.Kind)
-	require.NoError(t, svc.Operations.Cancel("ops-bucket", "op-123").Do())
+	require.NotEmpty(t, started.Name)
+	id := started.Name[strings.LastIndex(started.Name, "/")+1:]
+	assert.Equal(t, "projects/_/buckets/ops-bucket/operations/"+id, started.Name)
+	assert.Equal(t, "storage#operation", started.Kind)
+	assert.True(t, started.Done)
+	assert.Contains(t, started.SelfLink, "/storage/v1/b/ops-bucket/operations/"+id)
+
+	got, err := svc.Operations.Get("ops-bucket", id).Do()
+	require.NoError(t, err)
+	assert.Equal(t, started.Name, got.Name)
+	assert.Equal(t, "storage#operation", got.Kind)
+	assert.True(t, got.Done)
+
+	listed, err := svc.Operations.List("ops-bucket").Do()
+	require.NoError(t, err)
+	require.Len(t, listed.Operations, 1)
+	assert.Equal(t, started.Name, listed.Operations[0].Name)
+
+	// The AIP-160 term the collection filters on — the one
+	// `gcloud storage operations list --server-filter` documents.
+	done, err := svc.Operations.List("ops-bucket").Filter("done = true").Do()
+	require.NoError(t, err)
+	require.Len(t, done.Operations, 1)
+	running, err := svc.Operations.List("ops-bucket").Filter("done = false").Do()
+	require.NoError(t, err)
+	assert.Empty(t, running.Operations)
+
+	// Cancel and advance are best effort against a recorded operation; both
+	// resolve the name rather than accepting anything.
+	require.NoError(t, svc.Operations.Cancel("ops-bucket", id).Do())
+	require.NoError(t, svc.Operations.AdvanceRelocateBucket("ops-bucket", id,
+		&storageapi.AdvanceRelocateBucketOperationRequest{Ttl: "3600s"}).Do())
+
+	// A bucket the service does not hold has no operations collection.
+	_, err = svc.Operations.List("no-such-ops-bucket").Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
 }
 
+// Operations are parented by their bucket: one bucket's relocation is not in
+// another bucket's collection.
+func TestGCS_BucketOperations_AreParentedByTheirBucket(t *testing.T) {
+	svc := storageService(t)
+	mustCreateBucket(t, svc, "ops-parent-a")
+	mustCreateBucket(t, svc, "ops-parent-b")
+
+	op, err := svc.Buckets.Relocate("ops-parent-a", &storageapi.RelocateBucketRequest{
+		DestinationLocation: "us-west1",
+	}).Do()
+	require.NoError(t, err)
+	id := op.Name[strings.LastIndex(op.Name, "/")+1:]
+
+	other, err := svc.Operations.List("ops-parent-b").Do()
+	require.NoError(t, err)
+	assert.Empty(t, other.Operations)
+
+	_, err = svc.Operations.Get("ops-parent-b", id).Do()
+	require.Error(t, err, "an operation belongs to the bucket that started it")
+	assert.Contains(t, err.Error(), "404")
+}
+
+// The folder and Anywhere Cache long-running methods record their operations
+// in the same collection the relocation does.
+func TestGCS_BucketOperations_RecordEveryLongRunningMethod(t *testing.T) {
+	svc := storageService(t)
+	mustCreateBucket(t, svc, "ops-lro-bucket")
+
+	_, err := svc.Folders.Insert("ops-lro-bucket", &storageapi.Folder{Name: "src/"}).Do()
+	require.NoError(t, err)
+	renamed, err := svc.Folders.Rename("ops-lro-bucket", "src/", "dst/").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "storage#operation", renamed.Kind)
+
+	cache, err := svc.AnywhereCaches.Insert("ops-lro-bucket", &storageapi.AnywhereCache{
+		Zone: "us-central1-a",
+	}).Do()
+	require.NoError(t, err)
+
+	listed, err := svc.Operations.List("ops-lro-bucket").Do()
+	require.NoError(t, err)
+	names := make([]string, 0, len(listed.Operations))
+	for _, op := range listed.Operations {
+		names = append(names, op.Name)
+	}
+	assert.Contains(t, names, renamed.Name)
+	assert.Contains(t, names, cache.Name)
+}
+
+// buckets.relocate moves the bucket; validateOnly checks the request and
+// leaves it where it is.
 func TestGCS_BucketRelocate(t *testing.T) {
 	svc := storageService(t)
 	mustCreateBucket(t, svc, "relocate-bucket")
@@ -390,6 +498,29 @@ func TestGCS_BucketRelocate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "storage#operation", op.Kind)
 	assert.True(t, op.Done)
+
+	moved, err := svc.Buckets.Get("relocate-bucket").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "US-EAST1", moved.Location, "the relocation moved the bucket it reported moving")
+
+	validated, err := svc.Buckets.Relocate("relocate-bucket", &storageapi.RelocateBucketRequest{
+		DestinationLocation: "EUROPE-WEST1",
+		ValidateOnly:        true,
+	}).Do()
+	require.NoError(t, err)
+	assert.True(t, validated.Done)
+
+	stayed, err := svc.Buckets.Get("relocate-bucket").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "US-EAST1", stayed.Location, "validateOnly must not move the bucket")
+
+	// "If no location is provided, Cloud Storage will use the default
+	// location, which is us."
+	_, err = svc.Buckets.Relocate("relocate-bucket", &storageapi.RelocateBucketRequest{}).Do()
+	require.NoError(t, err)
+	defaulted, err := svc.Buckets.Get("relocate-bucket").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "US", defaulted.Location)
 }
 
 func TestGCS_ChannelsStop(t *testing.T) {

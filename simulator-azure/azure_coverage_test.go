@@ -79,8 +79,12 @@ var azureMethodFloor = map[string]int{
 	"containerregistry-arm-registrytasks-2019-06-01-preview":          25,
 	// Raised from 13: the "/acr/v1/{path...}" registry routes do serve these,
 	// which shape matching missed where a route parameter sat under a spec
-	// literal.
-	"containerregistry-dataplane-containerregistry-2021-07-01": 19,
+	// literal. Raised again from 19 by the registry's token service growing
+	// the spec's "GET /oauth2/token"
+	// (Authentication_GetAcrAccessTokenFromLogin) — the Docker Registry v2
+	// token endpoint that trades a Basic admin credential for the scoped
+	// access token the data plane now requires.
+	"containerregistry-dataplane-containerregistry-2021-07-01": 20,
 	"cosmos-db-arm-cosmos-db-2021-10-15":                       121,
 	"cosmos-db-arm-cosmos-db-2024-08-15":                       124,
 	"cosmos-db-arm-privateendpointconnection-2021-10-15":       4,

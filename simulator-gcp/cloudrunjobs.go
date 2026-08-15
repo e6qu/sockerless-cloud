@@ -397,13 +397,19 @@ type Condition struct {
 	Reason             string     `json:"reason,omitempty"`
 }
 
-// Operation represents a long-running operation.
+// Operation represents a long-running operation. Kind and SelfLink are the two
+// members Cloud Storage adds to google.longrunning.Operation in its own
+// GoogleLongrunningOperation schema ("storage#operation" and the link to the
+// record); every other service's document declares neither, so they are omitted
+// there.
 type Operation struct {
 	Name     string          `json:"name"`
 	Metadata map[string]any  `json:"metadata,omitempty"`
 	Done     bool            `json:"done"`
 	Response any             `json:"response,omitempty"`
 	Error    *OperationError `json:"error,omitempty"`
+	Kind     string          `json:"kind,omitempty"`
+	SelfLink string          `json:"selfLink,omitempty"`
 }
 
 // OperationError represents an error from a long-running operation.
@@ -867,13 +873,22 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Cancel execution (note: also used for stop by the backend)
+	// The custom methods the executions collection publishes. Cloud Run v2
+	// declares exactly one — executions.cancel — so every other verb reaching
+	// this fan-in names a method the service does not serve and is refused as
+	// such rather than silently cancelling the execution.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		jobID := sim.PathParam(r, "job")
-		execAction := sim.PathParam(r, "execAction")
-		execID, _, _ := strings.Cut(execAction, ":")
+		execID, action, _ := strings.Cut(sim.PathParam(r, "execAction"), ":")
+		switch action {
+		case "cancel":
+		default:
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				"unknown action %q on execution %q", action, execID)
+			return
+		}
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/executions/%s", project, location, jobID, execID)
 
 		var request CancelExecutionRequest
@@ -1318,9 +1333,14 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 		e.CompletionTime = now
 		e.CancelledCount = e.RunningCount
 		e.RunningCount = 0
+		// A cancelled execution did not complete successfully: its terminal
+		// condition is the failed one, carrying the reason that says why. A
+		// client polling the cancel — `gcloud run jobs executions cancel`
+		// does exactly this — reads a succeeded terminal condition as "the
+		// execution finished before the cancel landed".
 		e.Conditions = []Condition{
-			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
-			{Type: "Completed", State: "CONDITION_SUCCEEDED", LastTransitionTime: now, Reason: "Cancelled"},
+			{Type: "Ready", State: "CONDITION_FAILED", LastTransitionTime: now, Reason: "Cancelled"},
+			{Type: "Completed", State: "CONDITION_FAILED", LastTransitionTime: now, Reason: "Cancelled"},
 		}
 		e.Reconciling = false
 		e.Etag = generateUUID()

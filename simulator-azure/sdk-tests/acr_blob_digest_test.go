@@ -1,12 +1,13 @@
 package azure_sdk_test
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,10 +17,12 @@ import (
 func TestACR_BlobUploadRejectsWrongDigest(t *testing.T) {
 	const repo = "audit-blob-repo"
 	body := []byte("audit-blob-content")
+	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrblobdigestregistry",
+		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
+	auth := fixture.basic(fixture.passwords[0])
 
 	initUpload := func() string {
-		resp, err := http.Post(baseURL+"/v2/"+repo+"/blobs/uploads/", "", nil)
-		require.NoError(t, err)
+		resp := acrDo(t, http.MethodPost, fixture.endpoint()+"/v2/"+repo+"/blobs/uploads/", nil, "", auth)
 		defer resp.Body.Close()
 		require.Equal(t, http.StatusAccepted, resp.StatusCode)
 		loc := resp.Header.Get("Location")
@@ -28,11 +31,7 @@ func TestACR_BlobUploadRejectsWrongDigest(t *testing.T) {
 	}
 
 	putBlob := func(loc, digest string) int {
-		req, err := http.NewRequest(http.MethodPut, baseURL+loc+"?digest="+digest, bytes.NewReader(body))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/octet-stream")
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
+		resp := acrDo(t, http.MethodPut, fixture.endpoint()+loc+"?digest="+digest, body, "application/octet-stream", auth)
 		_ = resp.Body.Close()
 		return resp.StatusCode
 	}

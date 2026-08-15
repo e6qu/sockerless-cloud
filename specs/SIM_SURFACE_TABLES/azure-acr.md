@@ -13,13 +13,14 @@ Surface registered in `simulator-azure/acr.go` (and related files grouped under 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /subscriptions/{subscriptionId}/providers/Microsoft.ContainerRegistry/checknameavailability` | ✓ `simulator-azure/acr.go:93::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerRegistry/registries` | ✓ `simulator-azure/acr.go:217::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /acr/v1/_catalog` | ✓ `simulator-azure/acr.go:414::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /acr/v1/{path...}` | ✓ `simulator-azure/acr.go:441::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /oauth2/exchange` | ✓ `simulator-azure/acr.go:487::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /oauth2/token` | ✓ `simulator-azure/acr.go:504::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.ContainerRegistry/operations` | ✓ `simulator-azure/acr.go:1002::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /subscriptions/{subscriptionId}/providers/Microsoft.ContainerRegistry/checknameavailability` | ✓ `simulator-azure/acr.go:99::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerRegistry/registries` | ✓ `simulator-azure/acr.go:223::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /acr/v1/_catalog` | ✓ `simulator-azure/acr.go:422::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /acr/v1/{path...}` | ✓ `simulator-azure/acr.go:452::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /oauth2/exchange` | ✓ `simulator-azure/acr.go:512::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /oauth2/token` | ✓ `simulator-azure/acr.go:534::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /oauth2/token` | ✓ `simulator-azure/acr.go:577::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.ContainerRegistry/operations` | ✓ `simulator-azure/acr.go:1198::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

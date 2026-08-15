@@ -1,5 +1,70 @@
 # WHAT WE DID
 
+## 2026-08-15 — Tenth polish pass: registry and publish authentication, engine readiness, six more move families
+
+Both simulator data planes that authenticated nobody now authenticate
+everybody. Azure Event Grid's publish endpoint accepts an `aeg-sas-key` in a
+header or query parameter, an `aeg-sas-token` or
+`Authorization: SharedAccessSignature` verified as base64 HMAC-SHA256 over the
+token's own `r=…&e=…` prefix under the base64-decoded key, or a Microsoft Entra
+bearer for the `eventgrid.azure.net` audience, with `disableLocalAuth` — until
+now a declared but inert property — leaving only the last. The signature is
+Event Grid's own, not the Service Bus one beside it, which signs a different
+string with a differently encoded key. The domain publish path, which used to
+answer 404 against its own advertised endpoint because host resolution searched
+only topics, routes each event to the domain topic its `topic` member names.
+
+The Azure Container Registry data plane answers the Docker Bearer challenge and
+verifies what comes back: `GET /oauth2/token` checks the admin Basic credential
+and only while the admin user is enabled, `POST /oauth2/exchange` checks a
+Microsoft Entra token for the `containerregistry.azure.net` audience, and
+`POST /oauth2/token` checks the refresh token or password grant. Tokens are real
+JWTs issued for one registry, and their `access` claims are checked against the
+access record each request implies. Rotating an admin credential invalidates the
+tokens derived from it. `podman login`, push and pull prove it end to end, and
+the official SDK drives the documented challenge → exchange → token → retry
+flow. The shared `/v2/` subtree gained a nil-able per-registry `Authorize` hook
+rather than any cloud-aware branch, so the Amazon ECR and Google Artifact
+Registry copies are byte-identical and unaffected.
+
+Cross-resource-group moves went from five families to eleven — Event Hubs,
+Azure Cache for Redis, Container Registry and Event Grid topics and domains
+joined Web, Storage, Key Vault and Service Bus — each pinning the credential
+material its resource ID derives, so a move never rotates a key. An Event Hubs
+connection string captured before a move still sends and receives over AMQP
+after it. The shipped Microsoft.Web hook had pinned nothing, silently rotating
+every moved site's publishing password and its hosted workflows' access keys;
+it pins them now, and the three hand-rolled pin loops became one shared helper
+so a new family cannot forget the step.
+
+Cloud Run v1's five replace methods enforce `metadata.resourceVersion` —
+omitted is unconditional, stale is 409 ABORTED — coherently with the v2 etags,
+since every v2 write bumps the generation the v1 spelling reports. Cloud
+Storage records its long-running operations in the shared operation store
+instead of inventing them, and `buckets.relocate`, which drained its request
+body and reported a relocation it never performed, actually moves the bucket.
+The Cloud Run executions fan-in switches on the verb and refuses one the
+service does not publish.
+
+An Amazon RDS instance no longer hands out connections its engine cannot serve.
+The readiness probe had accepted any PostgreSQL `ErrorResponse` as proof of
+life, and `FATAL: the database system is starting up` is an `ErrorResponse`, so
+the gate opened as soon as the postmaster bound its port; it now classifies by
+SQLSTATE the way `pg_isready` does. The adopt path taken after a restart had no
+gate at all, and the 90-second engine budget destroyed the instance when it
+expired — a real MySQL cold start measured 253 seconds under load, so a slow
+host bricked a database. Both paths share one gate with a ten-minute budget
+that fails fast on a dead container.
+
+The AWS CodeBuild completion waits were a container-engine latency budget with
+10 seconds of headroom against a measured p50 of 2.1 seconds; four concurrent
+test processes failed 21 of 32 runs at exactly that ceiling. They share one
+documented four-minute budget now, matching sibling waits in the same files.
+The simulator itself adds a few hundred milliseconds and was not at fault.
+
+The `simulator-aws/sdk-tests` module moved to the current aws-sdk-go-v2 service
+modules (46 of them), verified by running the suite rather than by compiling.
+
 ## 2026-08-14 — Ninth polish pass: the locally actionable bug sweep
 
 Closed the four locally actionable bugs and recorded what closing them

@@ -232,7 +232,7 @@ func installAzureSDKTestResolver(simPort int) {
 	}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
-		if err == nil && port == fmt.Sprint(simPort) && (host == "eventgrid.localhost" || strings.HasSuffix(host, ".eventgrid.localhost")) {
+		if err == nil && port == fmt.Sprint(simPort) && simAdvertisedDataPlaneHost(host) {
 			address = net.JoinHostPort("127.0.0.1", port)
 		}
 		return dialer.DialContext(ctx, network, address)
@@ -241,6 +241,23 @@ func installAzureSDKTestResolver(simPort int) {
 	http.DefaultClient.Transport = transport
 	os.Setenv("NO_PROXY", mergeNoProxy(os.Getenv("NO_PROXY"), "localhost", "127.0.0.1", "::1", ".localhost", "*.localhost"))
 	os.Setenv("no_proxy", mergeNoProxy(os.Getenv("no_proxy"), "localhost", "127.0.0.1", "::1", ".localhost", "*.localhost"))
+}
+
+// simAdvertisedDataPlaneHost reports whether a host is one of the per-resource
+// data-plane hosts the simulator advertises through
+// SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON. Those hosts are the coordinates
+// a client dials — an Event Grid topic endpoint, a container registry's login
+// server — and only their resolution differs from the real cloud: `.localhost`
+// names do not resolve on every platform, so the test dialer sends them to the
+// loopback listener the simulator is on. The request itself, host header
+// included, is the one a client sends to the real service.
+func simAdvertisedDataPlaneHost(host string) bool {
+	for _, suffix := range []string{"eventgrid.localhost", "azurecr.shim.localhost"} {
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeNoProxy(existing string, entries ...string) string {

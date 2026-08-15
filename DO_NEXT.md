@@ -1,40 +1,66 @@
 # DO NEXT
 
-1. Watch the polish-pass-7 pull request's CI and fix failures for real.
-2. App Service: Stages 1-5 are shipped (503 of 692). What remains in that
-   swagger is the recorded deferrals — processes and instances read from the
-   live container, backup and restore want a real Blob round-trip, App
-   Service Environments and Kube Environments are two new top-level
-   resources, detector execution is data the simulator cannot compute — plus
-   the Provider_*Stacks vendored-catalog decision (6 ops). BUG-3 continues
-   one provider family per pass.
-3. Cloud Run v1 is complete at 152 of 152. The next measured Google
-   ratchets are Cloud Spanner admin (82/198) and Google Cloud Billing
-   (6/36) — Billing still carries the SKU-catalog decision, since
-   services.list and services.skus.list answer with Google's published
-   catalog and a partial one would be fabrication.
-4. BUG-3 moves one provider family per pass. Microsoft.Web, Microsoft.Storage
-   and Microsoft.KeyVault move today. Microsoft.ServiceBus and
-   Microsoft.EventGrid need their SAS/access keys pinned across a move first
-   (both derive key material from the resource id, so a naive move would
-   silently rotate every connection string); Microsoft.Network is last,
-   because its resources reference each other by resource id and moving one
-   without re-pointing every referrer would break the fabric silently.
-5. BUG-4 and BUG-5 closed. The subscription and resource-group resource lists
-   enumerate 56 tracked types from the cross-slice registry in
-   `simulator-azure/resource_registry.go` and honour `$filter`, `$expand` and
-   `$top`, and Microsoft.KeyVault/managedHSMs became a real slice; the five
-   older Knative collections honour `labelSelector`, `limit` and `continue`,
-   and the Cloud Run v2 Job reports the etag `jobs.run` enforces. Their
-   remainders were split out and stay locally actionable: BUG-6 (the AIP-151
-   `operations.cancel` custom method is unserved across twelve Google Cloud
-   services), BUG-7 (Cloud Run v2 mints an `etag` for jobs only, so the other
-   five resources' etags and the six delete methods' `etag` parameter go
-   unread), and BUG-8 (`Microsoft.Resources/tags/default` writes a store the
-   resource's own `tags` member cannot see).
+1. BUG-3 continues one provider family per pass. Eleven type keys move
+   today; still unhooked, all with resource-ID-derived credentials, are
+   Microsoft.ApiManagement/service, standalone Microsoft.Logic/workflows,
+   Microsoft.DocumentDB/databaseAccounts, and the remaining Event Grid types
+   (partnerNamespaces is the key-bearing one). Microsoft.Network is last,
+   because its resources reference each other by resource ID and the same
+   pass has to rewrite every inbound reference — a private endpoint's
+   privateLinkServiceId, a Redis linked server's linkedRedisCacheId, a system
+   topic's source and metricResourceId, an event subscription's destination
+   and deadLetterDestination.
+2. BUG-18: Amazon ECR and Google Artifact Registry authenticate nothing. The
+   shared registry's per-registry `Authorize` hook makes both tractable, but
+   each needs verifying against its own published contract — ECR's Basic
+   credential from `GetAuthorizationToken`, Artifact Registry's Docker Bearer
+   flow — rather than a copy of the Azure implementation.
+3. BUG-17: the Azure Container Registry manifest and blob stores are global,
+   so two registries share content by repository name. Authentication is
+   per-registry now; storage is the remaining half.
+4. BUG-19: the AWS Lambda invocation timer starts before the runtime
+   bootstrap, so a slow INIT eats the function's timeout. Suspected rather
+   than demonstrated — reproduce it with a deliberately slow initialiser.
+5. BUG-16: a release tag is pushed before the artifacts it names exist, so a
+   stalled build leaves a published release that lies about itself. Either
+   tag after the artifact run succeeds, or reconcile the expected asset set
+   and all three image indexes against the tag and fail loudly.
+6. App Service: Stages 1-5 shipped (503 of 692). What remains in that swagger
+   is the recorded deferrals — processes and instances read from the live
+   container, backup and restore wanting a real Blob round-trip, App Service
+   Environments and Kube Environments as new top-level resources, detector
+   execution being data the simulator cannot compute — plus the declined
+   Provider_*Stacks catalog below.
+7. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+   Google Cloud Billing (6 of 36), the latter still carrying the declined
+   SKU-catalog decision below.
 
+## Consumer follow-ups in the sockerless repository
+
+- `backends/azure-common/acr_auth.go` asks Microsoft Entra for the
+  `https://<registry>.azurecr.io/.default` scope and puts that raw token on
+  `/v2/` as a Bearer. Real Azure Container Registry refuses it: the Entra
+  token must be exchanged at `/oauth2/exchange` for a refresh token and then
+  at `/oauth2/token` for an access token, and the audience is
+  `https://containerregistry.azure.net`. The simulator now enforces this, so
+  the two agree about what is wrong. Nothing fails in CI today because no
+  harness sets `SOCKERLESS_AZURE_ACR_ENDPOINT`, but Azure Container Apps and
+  Azure Functions image operations would fail against a real registry. Fix it
+  in the sockerless repository alongside the next pin bump, not here.
 
 ## Tooling quirks that are not simulator defects
+
+- This host's Podman container store can acquire a dangling entry that makes
+  every `ContainerList(All: true)` fail with `container not known`, which is
+  the call `sim.FindExistingContainers` uses for workload recovery. It
+  presents as unrelated Lambda, Step Functions and container-reaper failures
+  that all pass in isolation. Clear it with `docker rm -f <dangling id>`; it
+  is not a simulator defect.
+- Microsoft's Cosmos DB emulator container can fail to become ready inside the
+  differential tests' 280-second budget when several test suites run at once
+  (`pgcosmos extension is still starting`). The budget and its probe are
+  sound; the machine was starved. Re-run on a quiet host before suspecting the
+  simulator.
 
 - Azure CLI 2.88's `az keyvault update --set tags.<k>=<v>` issues a vault
   GET followed by a PUT that does not carry the changed tags, and

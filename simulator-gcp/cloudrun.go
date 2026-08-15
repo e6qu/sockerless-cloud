@@ -538,6 +538,10 @@ func registerCloudRun(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
 			return
 		}
+		if !knativeReplaceAllowed(w, "service", name, namespace,
+			knativeResourceVersion(existing.Metadata.Generation), update.Metadata.ResourceVersion) {
+			return
+		}
 		update.APIVersion = "serving.knative.dev/v1"
 		update.Kind = "Service"
 		update.Metadata.Name = name
@@ -869,6 +873,10 @@ func registerCloudRun(srv *sim.Server) {
 		var update CRService
 		if err := sim.ReadJSON(r, &update); err != nil {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
+			return
+		}
+		if !knativeReplaceAllowed(w, "service", name, namespace,
+			knativeResourceVersion(existing.Metadata.Generation), update.Metadata.ResourceVersion) {
 			return
 		}
 		update.APIVersion = "serving.knative.dev/v1"

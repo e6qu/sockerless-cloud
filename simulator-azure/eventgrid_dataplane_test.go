@@ -138,6 +138,7 @@ func TestEventGridAdvertisedEndpointPublishesThroughSharedHostDataPlane(t *testi
 		t.Fatalf("parse endpoint %q: %v", endpoint, err)
 	}
 	req := eventGridTestRequest(http.MethodPost, publishURL.String(), `[{"id":"evt-1","eventType":"sockerless.test","subject":"/topic","eventTime":"2026-06-02T00:00:00Z","data":{"ok":true},"dataVersion":"1"}]`)
+	req.Header.Set(eventGridKeyHeader, eventGridTestListKeys(t, srv, topic.ID)["key1"])
 	serveEventGridTestRequest(t, srv, req, http.StatusOK)
 
 	select {
@@ -151,6 +152,23 @@ func TestEventGridAdvertisedEndpointPublishesThroughSharedHostDataPlane(t *testi
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for published event delivery")
 	}
+}
+
+// eventGridTestListKeys reads a publishing resource's two access keys through
+// the control plane's listKeys action, the way an operator obtains the
+// credential a publish carries.
+func eventGridTestListKeys(t *testing.T, srv *sim.Server, resourceID string) map[string]string {
+	t.Helper()
+	url := "http://localhost:4568" + resourceID + "/listKeys?api-version=2021-12-01"
+	data := serveEventGridTestRequest(t, srv, eventGridTestRequest(http.MethodPost, url, ""), http.StatusOK)
+	var keys map[string]string
+	if err := json.Unmarshal(data, &keys); err != nil {
+		t.Fatalf("decode listKeys: %v", err)
+	}
+	if keys["key1"] == "" || keys["key2"] == "" {
+		t.Fatalf("listKeys returned an empty slot: %v", keys)
+	}
+	return keys
 }
 
 func assertNoEventGridLocalListenerEndpoint(t *testing.T, endpoint string) {

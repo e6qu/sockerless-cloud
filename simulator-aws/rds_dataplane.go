@@ -29,6 +29,21 @@ import (
 const rdsAWSOwnedKMSKeyID = "aws-owned-rds"
 const rdsEmptyPayloadSHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
+// rdsEngineInitializationBudget bounds the wait for a database engine to accept
+// clients. Bringing an Amazon RDS instance to "available" takes minutes on the
+// real service, and a real engine's first boot lays down its whole data
+// directory before it listens — a busy host stretches that well past the minute
+// mark, and a tighter bound would report a slow host as a broken engine. The
+// wait ends the moment the engine container stops, so a genuinely broken engine
+// still fails immediately rather than burning this budget.
+const rdsEngineInitializationBudget = 10 * time.Minute
+
+// rdsEngineLivenessInterval is how often the wait re-reads the engine
+// container's real state. The readiness probe already runs every 100ms; asking
+// the container engine as often would add API load without telling us anything
+// the next probe would not.
+const rdsEngineLivenessInterval = 2 * time.Second
+
 type rdsDataPlaneRuntime struct {
 	mu       sync.RWMutex
 	instance RDSInstance
@@ -124,7 +139,6 @@ func rdsAdoptDataPlaneBackend(instance RDSInstance) error {
 		return err
 	}
 	runtime.update(instance, net.JoinHostPort("127.0.0.1", strconv.Itoa(backendPort)), handle)
-	runtime.start.Do(func() {})
 	return nil
 }
 
@@ -217,8 +231,18 @@ func (runtime *rdsDataPlaneRuntime) serve() {
 	}
 }
 
+// ensureBackend brings the instance's database engine up — starting its
+// container the first time a client reaches the endpoint, or picking up the
+// container an earlier control-plane process left running — and does not return
+// until that engine accepts client connections. An endpoint that forwarded a
+// client before then would answer with the engine's own startup rejection,
+// which an Amazon RDS instance reporting "available" never does.
 func (runtime *rdsDataPlaneRuntime) ensureBackend() error {
 	runtime.start.Do(func() {
+		if _, _, handle := runtime.snapshot(); handle != nil {
+			runtime.startErr = runtime.awaitDatabaseEngine()
+			return
+		}
 		runtime.startErr = runtime.startBackend()
 	})
 	return runtime.startErr
@@ -304,31 +328,72 @@ func (runtime *rdsDataPlaneRuntime) startBackend() error {
 	}
 	backend := net.JoinHostPort("127.0.0.1", strconv.Itoa(backendPort))
 	runtime.update(instance, backend, handle)
-	deadline := time.Now().Add(90 * time.Second)
-	for time.Now().Before(deadline) {
-		if rdsDatabaseEngineReady(engine, backend, instance.MasterUsername, database) {
-			if !bytes.Equal(instance.BackendMasterUserSecret, instance.MasterUserSecret) {
-				_, desiredPassword, decrypted := kmsDecryptBytes(instance.MasterUserSecret)
-				if !decrypted {
-					handle.Cancel()
-					return fmt.Errorf("decrypt pending Amazon RDS master-user credential")
-				}
-				if err := rdsRotateBackendMasterPassword(runtime, string(desiredPassword)); err != nil {
-					handle.Cancel()
-					return fmt.Errorf("apply pending Amazon RDS master-user password: %w", err)
-				}
-				instance.BackendMasterUserSecret = append([]byte(nil), instance.MasterUserSecret...)
-				runtime.update(instance, backend, handle)
-				rdsInstances.Update(instance.DBInstanceIdentifier, func(stored *RDSInstance) {
-					stored.BackendMasterUserSecret = append([]byte(nil), instance.MasterUserSecret...)
-				})
+	return runtime.awaitDatabaseEngine()
+}
+
+// awaitDatabaseEngine blocks until the engine container accepts client
+// connections, then applies the master-user password the control plane recorded
+// while the engine was not running. Both callers need it: a freshly started
+// container is still initialising, and a container reclaimed from an earlier
+// control-plane process is still replaying its write-ahead log.
+func (runtime *rdsDataPlaneRuntime) awaitDatabaseEngine() error {
+	instance, backend, handle := runtime.snapshot()
+	engine := strings.ToLower(instance.Engine)
+	database := instance.DBName
+	if database == "" {
+		database = instance.MasterUsername
+	}
+	deadline := time.Now().Add(rdsEngineInitializationBudget)
+	nextLivenessCheck := time.Now().Add(rdsEngineLivenessInterval)
+	for !rdsDatabaseEngineReady(engine, backend, instance.MasterUsername, database) {
+		now := time.Now()
+		if !now.Before(nextLivenessCheck) {
+			if err := rdsEngineContainerRunning(handle.ContainerID); err != nil {
+				handle.Cancel()
+				return fmt.Errorf("%s database engine stopped before accepting connections: %w", instance.Engine, err)
 			}
-			return nil
+			nextLivenessCheck = now.Add(rdsEngineLivenessInterval)
+		}
+		if !now.Before(deadline) {
+			handle.Cancel()
+			return fmt.Errorf("%s database engine did not become ready", instance.Engine)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	handle.Cancel()
-	return fmt.Errorf("%s database engine did not become ready", instance.Engine)
+	if bytes.Equal(instance.BackendMasterUserSecret, instance.MasterUserSecret) {
+		return nil
+	}
+	_, desiredPassword, decrypted := kmsDecryptBytes(instance.MasterUserSecret)
+	if !decrypted {
+		handle.Cancel()
+		return fmt.Errorf("decrypt pending Amazon RDS master-user credential")
+	}
+	if err := rdsRotateBackendMasterPassword(runtime, string(desiredPassword)); err != nil {
+		handle.Cancel()
+		return fmt.Errorf("apply pending Amazon RDS master-user password: %w", err)
+	}
+	instance.BackendMasterUserSecret = append([]byte(nil), instance.MasterUserSecret...)
+	runtime.update(instance, backend, handle)
+	rdsInstances.Update(instance.DBInstanceIdentifier, func(stored *RDSInstance) {
+		stored.BackendMasterUserSecret = append([]byte(nil), instance.MasterUserSecret...)
+	})
+	return nil
+}
+
+// rdsEngineContainerRunning reports the engine container's real state so that a
+// readiness wait ends as soon as the engine dies instead of running out its
+// initialization budget.
+func rdsEngineContainerRunning(containerID string) error {
+	inspectContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	inspected, err := sim.DockerClient().ContainerInspect(inspectContext, containerID, dockerclient.ContainerInspectOptions{})
+	if err != nil {
+		return err
+	}
+	if inspected.Container.State == nil || !inspected.Container.State.Running {
+		return fmt.Errorf("container %s exited", containerID)
+	}
+	return nil
 }
 
 func rdsDatabaseEngineReady(engine, address, username, database string) bool {
@@ -339,20 +404,63 @@ func rdsDatabaseEngineReady(engine, address, username, database string) bool {
 	defer connection.Close()
 	_ = connection.SetDeadline(time.Now().Add(500 * time.Millisecond))
 	if strings.HasPrefix(engine, "postgres") {
-		parameters := []byte("user\x00" + username + "\x00database\x00" + database + "\x00\x00")
-		packet := make([]byte, 8+len(parameters))
-		binary.BigEndian.PutUint32(packet[:4], uint32(len(packet)))
-		binary.BigEndian.PutUint32(packet[4:8], 196608)
-		copy(packet[8:], parameters)
-		if _, err := connection.Write(packet); err != nil {
-			return false
-		}
-		header := make([]byte, 5)
-		_, err := io.ReadFull(connection, header)
-		return err == nil && (header[0] == 'R' || header[0] == 'E')
+		return rdsPostgreSQLAcceptsConnections(connection, username, database)
 	}
+	// MySQL and MariaDB bind their client port only once the server is serving,
+	// and greet every accepted connection with the initial handshake packet
+	// (protocol version 10). Anything else — a connection the port forwarder
+	// accepted before the engine listened, or an error packet — is not a server
+	// ready for clients.
 	_, payload, err := mysqlReadPacket(connection)
 	return err == nil && len(payload) > 0 && payload[0] == 10
+}
+
+// rdsPostgreSQLAcceptsConnections classifies a startup-packet exchange the way
+// libpq's PQping — and therefore pg_isready — classifies it. A server that
+// answers is up even when it rejects the credentials, with one exception: while
+// the postmaster is listening but the startup process has not finished
+// recovery, it answers every client with "the database system is starting up"
+// (SQLSTATE 57P03) and accepts none of them.
+func rdsPostgreSQLAcceptsConnections(connection net.Conn, username, database string) bool {
+	parameters := []byte("user\x00" + username + "\x00database\x00" + database + "\x00\x00")
+	packet := make([]byte, 8+len(parameters))
+	binary.BigEndian.PutUint32(packet[:4], uint32(len(packet)))
+	binary.BigEndian.PutUint32(packet[4:8], 196608)
+	copy(packet[8:], parameters)
+	if _, err := connection.Write(packet); err != nil {
+		return false
+	}
+	header := make([]byte, 5)
+	if _, err := io.ReadFull(connection, header); err != nil {
+		return false
+	}
+	switch header[0] {
+	case 'R':
+		return true
+	case 'E':
+		return rdsPostgreSQLErrorFieldC(connection, header) != "57P03"
+	default:
+		return false
+	}
+}
+
+// rdsPostgreSQLErrorFieldC returns the SQLSTATE carried by an ErrorResponse
+// whose five-byte header has already been read.
+func rdsPostgreSQLErrorFieldC(connection net.Conn, header []byte) string {
+	length := int(binary.BigEndian.Uint32(header[1:5]))
+	if length < 4 || length > 1<<16 {
+		return ""
+	}
+	body := make([]byte, length-4)
+	if _, err := io.ReadFull(connection, body); err != nil {
+		return ""
+	}
+	for _, field := range strings.Split(string(body), "\x00") {
+		if strings.HasPrefix(field, "C") {
+			return field[1:]
+		}
+	}
+	return ""
 }
 
 func (runtime *rdsDataPlaneRuntime) serveConnection(client net.Conn) {

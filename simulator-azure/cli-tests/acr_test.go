@@ -56,11 +56,9 @@ func TestACR_CreateAndShow(t *testing.T) {
 
 	// The advertised loginServer must actually resolve to this simulator: a
 	// direct HTTP request to the loopback base URL carrying that host in the
-	// Host header must reach the ACR data plane and see the same catalog a
-	// request without the Host-header trick would (the OCI /v2/ and
-	// /acr/v1/ routes are mounted without a host component, so any Host
-	// reaches them — but the value must not be the never-resolvable
-	// "*.azurecr.io" real-cloud host it used to be).
+	// Host header must reach that registry's data plane, which answers an
+	// unauthenticated read with its own Bearer challenge — naming this
+	// registry's token service, not some other registry's.
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/acr/v1/_catalog", nil)
 	if err != nil {
 		t.Fatalf("build catalog request: %v", err)
@@ -71,8 +69,12 @@ func TestACR_CreateAndShow(t *testing.T) {
 		t.Fatalf("GET catalog via loginServer coordinate: %v", err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("catalog via loginServer coordinate returned %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("catalog via loginServer coordinate returned %d, want 401", resp.StatusCode)
+	}
+	if challenge := resp.Header.Get("Www-Authenticate"); !strings.Contains(challenge,
+		`service="`+registry.Properties.LoginServer+`"`) {
+		t.Fatalf("challenge %q must name this registry's login server", challenge)
 	}
 
 	// Cleanup
@@ -145,18 +147,33 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 		imageTag     = "stable"
 	)
 
-	// Create the ACR registry via ARM
+	// Create the ACR registry via ARM, with the admin user its data plane
+	// authenticates enabled.
 	regURL := acrURL("registries/" + registryName)
-	runCLI(t, azRest("PUT", regURL, `{"location":"eastus","sku":{"name":"Basic"},"properties":{}}`))
+	createOut := runCLI(t, azRest("PUT", regURL,
+		`{"location":"eastus","sku":{"name":"Basic"},"properties":{"adminUserEnabled":true}}`))
 	defer runCLI(t, azRest("DELETE", regURL, ""))
+	var registry struct {
+		ID         string `json:"id"`
+		Properties struct {
+			LoginServer string `json:"loginServer"`
+		} `json:"properties"`
+	}
+	parseJSON(t, createOut, &registry)
+	username, passwords := acrCLICredentials(t,
+		baseURL+registry.ID+"/listcredentials?api-version="+acrAPIVersion)
+	authorization := acrCLIBasic(username, passwords[0])
 
-	// Push a minimal manifest via OCI distribution PUT
+	// Push a minimal manifest via OCI distribution PUT, authenticated with the
+	// admin credential a `docker login` presents.
 	manifestJSON := `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":7,"digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"layers":[]}`
 	putPath := fmt.Sprintf("/v2/%s/manifests/%s", imageName, imageTag)
 	req, err := http.NewRequest(http.MethodPut, baseURL+putPath, bytes.NewBufferString(manifestJSON))
 	if err != nil {
 		t.Fatalf("build PUT request: %v", err)
 	}
+	req.Host = registry.Properties.LoginServer
+	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Content-Type", "application/vnd.docker.distribution.manifest.v2+json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -168,7 +185,7 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 	}
 
 	// GET /acr/v1/_catalog — list repositories, must include imageName
-	catResp, err := http.Get(baseURL + "/acr/v1/_catalog")
+	catResp, err := acrCLIDataPlaneGet(baseURL+"/acr/v1/_catalog", registry.Properties.LoginServer, authorization)
 	if err != nil {
 		t.Fatalf("GET catalog: %v", err)
 	}
@@ -189,7 +206,8 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 	assert.True(t, found, "expected catalog to include %q, got %v", imageName, catalog.Repositories)
 
 	// GET /acr/v1/{name}/_tags — list tags for imageName
-	tagsResp, err := http.Get(fmt.Sprintf("%s/acr/v1/%s/_tags", baseURL, imageName))
+	tagsResp, err := acrCLIDataPlaneGet(fmt.Sprintf("%s/acr/v1/%s/_tags", baseURL, imageName),
+		registry.Properties.LoginServer, authorization)
 	if err != nil {
 		t.Fatalf("GET tags: %v", err)
 	}
@@ -210,6 +228,19 @@ func TestACR_ImageCatalogAndTags(t *testing.T) {
 		}
 	}
 	assert.True(t, foundTag, "expected tags list to include %q, got %v", imageTag, tagList.Tags)
+}
+
+// acrCLIDataPlaneGet reads a registry data-plane endpoint at the loopback base
+// URL while carrying the registry's login server as the Host and the admin
+// credential the data plane authenticates.
+func acrCLIDataPlaneGet(rawURL, loginServer, authorization string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = loginServer
+	req.Header.Set("Authorization", authorization)
+	return http.DefaultClient.Do(req)
 }
 
 // readBody reads and returns the body of an HTTP response as a string.

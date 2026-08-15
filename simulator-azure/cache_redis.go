@@ -131,8 +131,11 @@ func redisCacheID(sub, rg, name string) string {
 	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
 }
 
-func redisFirewallRuleKey(sub, rg, cache, rule string) string {
-	return sub + "/" + rg + "/" + cache + "/" + rule
+// redisFirewallRuleID is the firewall rule's ARM resource ID, which is also
+// the key its store uses — the same shape as every other Redis child store, so
+// a cross-resource-group move re-keys them all the same way.
+func redisFirewallRuleID(sub, rg, cache, rule string) string {
+	return redisCacheID(sub, rg, cache) + "/firewallRules/" + rule
 }
 
 func handleRedisCacheCreateFirewallRule(w http.ResponseWriter, r *http.Request) {
@@ -153,12 +156,12 @@ func handleRedisCacheCreateFirewallRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	fr := RedisFirewallRule{
-		ID:         redisCacheID(sub, rg, cache) + "/firewallRules/" + rule,
+		ID:         redisFirewallRuleID(sub, rg, cache, rule),
 		Name:       rule,
 		Type:       "Microsoft.Cache/Redis/firewallRules",
 		Properties: req.Properties,
 	}
-	redisFirewallRules.Put(redisFirewallRuleKey(sub, rg, cache, rule), fr)
+	redisFirewallRules.Put(fr.ID, fr)
 	sim.WriteJSON(w, http.StatusOK, fr)
 }
 
@@ -167,7 +170,7 @@ func handleRedisCacheGetFirewallRule(w http.ResponseWriter, r *http.Request) {
 	rg := sim.PathParam(r, "resourceGroupName")
 	cache := sim.PathParam(r, "name")
 	rule := sim.PathParam(r, "rule")
-	fr, ok := redisFirewallRules.Get(redisFirewallRuleKey(sub, rg, cache, rule))
+	fr, ok := redisFirewallRules.Get(redisFirewallRuleID(sub, rg, cache, rule))
 	if !ok {
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Firewall rule %q not found on cache %q", rule, cache)
@@ -181,7 +184,7 @@ func handleRedisCacheDeleteFirewallRule(w http.ResponseWriter, r *http.Request) 
 	rg := sim.PathParam(r, "resourceGroupName")
 	cache := sim.PathParam(r, "name")
 	rule := sim.PathParam(r, "rule")
-	if !redisFirewallRules.Delete(redisFirewallRuleKey(sub, rg, cache, rule)) {
+	if !redisFirewallRules.Delete(redisFirewallRuleID(sub, rg, cache, rule)) {
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Firewall rule %q not found on cache %q", rule, cache)
 		return
