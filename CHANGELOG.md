@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/e6qu/sockerless-cloud/compare/v0.9.1...v0.9.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **aws/ecs:** restore managed-EBS snapshots off the RunTask request path ([#19](https://github.com/e6qu/sockerless-cloud/issues/19)) ([3cd009f](https://github.com/e6qu/sockerless-cloud/commit/3cd009fbecb02b27ec7163b09f4436cc5fd3515a))
+
 ## [0.9.1](https://github.com/e6qu/sockerless-cloud/compare/v0.9.0...v0.9.1) (2026-08-15)
 
 
