@@ -20,7 +20,7 @@ import (
 //
 // — wired in cosmos_throughput.go.
 func TestCosmos_ThroughputOffers(t *testing.T) {
-	client := newCosmosSDKClient(t, baseURL+"/")
+	client := cosmosSimClient(t, cosmosDataPlaneAccount)
 
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "thrudb"}, nil)
 	require.NoError(t, err, "CreateDatabase")
@@ -77,7 +77,7 @@ func TestCosmos_ThroughputOffers(t *testing.T) {
 // round-trips through the same offers data plane (DatabaseClient.ReadThroughput /
 // ReplaceThroughput key off the database `_rid`).
 func TestCosmos_DatabaseThroughputOffers(t *testing.T) {
-	client := newCosmosSDKClient(t, baseURL+"/")
+	client := cosmosSimClient(t, cosmosDataPlaneAccount)
 	dbThroughput := azcosmos.NewManualThroughputProperties(400)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "thrudb2"},
 		&azcosmos.CreateDatabaseOptions{ThroughputProperties: &dbThroughput})
@@ -106,7 +106,7 @@ func TestCosmos_DatabaseThroughputOffers(t *testing.T) {
 // more than a point read of the same item — the core invariant of the RU model
 // in cosmos_throughput.go (writes ~5x reads).
 func TestCosmos_RequestCharge(t *testing.T) {
-	client := newCosmosSDKClient(t, baseURL+"/")
+	client := cosmosSimClient(t, cosmosDataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "rudb"}, nil)
 	require.NoError(t, err)
 	db, _ := client.NewDatabase("rudb")

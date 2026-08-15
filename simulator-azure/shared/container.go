@@ -87,6 +87,38 @@ var (
 	dockerClientErr  error
 )
 
+// Container-engine readiness probe timings. One short probe is not a
+// readiness test: a busy engine — a Podman virtual machine serving several
+// test suites at once, or one that has only just started — takes seconds to
+// answer its first ping while being perfectly available, and reading that
+// single timeout as proof of absence exits the process with a message that is
+// not true. The probe retries for a budget, and only the exhausted budget is
+// an answer about the engine.
+const (
+	dockerPingAttemptTimeout = 5 * time.Second
+	dockerPingBudget         = 30 * time.Second
+	dockerPingRetryDelay     = 500 * time.Millisecond
+)
+
+// pingContainerEngine reports whether the container engine answers, retrying
+// until the readiness budget is spent. It returns the last failure so the
+// operator sees why the engine never answered.
+func pingContainerEngine(cli *client.Client) error {
+	deadline := time.Now().Add(dockerPingBudget)
+	for attempt := 1; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), dockerPingAttemptTimeout)
+		_, err := cli.Ping(ctx, client.PingOptions{})
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("no answer after %d attempts over %s: %w", attempt, dockerPingBudget, err)
+		}
+		time.Sleep(dockerPingRetryDelay)
+	}
+}
+
 // InitDocker initializes the shared Docker client and verifies connectivity.
 // Must be called at simulator startup. Fatally exits if Docker is not available.
 func InitDocker(provider string) *client.Client {
@@ -95,10 +127,7 @@ func InitDocker(provider string) *client.Client {
 		if dockerClientErr != nil {
 			return
 		}
-		// Verify connectivity
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, dockerClientErr = dockerClient.Ping(ctx, client.PingOptions{})
+		dockerClientErr = pingContainerEngine(dockerClient)
 	})
 	if dockerClientErr != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: Docker/Podman not available: %v\n", dockerClientErr)

@@ -55,6 +55,7 @@ func cosmosScript(t *testing.T, method, account, path, body string, headers map[
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp

@@ -19,9 +19,17 @@ import (
 // behaviour (control-plane image-row registration, pull-through hydration,
 // non-OCI `/v2/` routes) is injected via the hooks on OCIRegistry.
 
-// OCIManifest is a stored image manifest, keyed by `repo:reference` (tag or
-// digest).
+// A registry's content is its own. Two registries served by one simulator hold
+// unrelated repositories, so every stored manifest, blob and upload records the
+// registry it belongs to and is keyed within it — the Scope, resolved per
+// request by the mounting cloud (see OCIRegistry.Scope). Without it,
+// `regA.example.com/foo` and `regB.example.com/foo` would resolve to the same
+// content, which no real registry does.
+
+// OCIManifest is a stored image manifest, keyed by
+// `scope/repo:reference` (tag or digest).
 type OCIManifest struct {
+	Scope       string
 	ContentType string
 	Digest      string
 	Data        []byte
@@ -30,19 +38,21 @@ type OCIManifest struct {
 }
 
 // OCIBlob is a stored content-addressed blob (image config or layer), keyed by
-// `repo@digest`.
+// `scope/repo@digest`.
 type OCIBlob struct {
+	Scope       string
 	Digest      string
 	ContentType string
 	Data        []byte
 }
 
-// OCIUpload tracks an in-progress (possibly chunked) blob upload, keyed by its
-// upload UUID.
+// OCIUpload tracks an in-progress (possibly chunked) blob upload, keyed by
+// `scope/uuid`.
 type OCIUpload struct {
-	UUID string
-	Repo string
-	Data []byte
+	Scope string
+	UUID  string
+	Repo  string
+	Data  []byte
 }
 
 // OCIRegistry serves the OCI Distribution data plane from a trio of stores.
@@ -57,12 +67,14 @@ type OCIRegistry struct {
 	manifestMu sync.Mutex
 
 	// OnManifestPut, if set, is invoked after a manifest is stored so the cloud
-	// can register a control-plane image row.
-	OnManifestPut func(repo, ref, contentType string, data []byte)
+	// can register a control-plane image row against the registry the request
+	// addressed.
+	OnManifestPut func(scope, repo, ref, contentType string, data []byte)
 	// HydrateManifest, if set, is invoked on a manifest GET/HEAD miss to let the
 	// cloud's pull-through cache populate the manifest (+ its blobs) via
-	// PutBlob. Returns true if it populated the requested manifest.
-	HydrateManifest func(reg *OCIRegistry, repo, ref string) bool
+	// PutBlob, in the scope of the registry the request addressed. Returns true
+	// if it populated the requested manifest.
+	HydrateManifest func(reg *OCIRegistry, scope, repo, ref string) bool
 	// SkipPath, if set, returns true for `/v2/`-prefixed paths the surrounding
 	// mux serves elsewhere (e.g. GCP's `/v2/projects/` control-plane routes);
 	// those get a 404 here so the cloud handler can take them.
@@ -79,6 +91,18 @@ type OCIRegistry struct {
 	// the protocol under `/v2/` is identical everywhere, the authority that
 	// issues tokens for it is not.
 	Authorize func(w http.ResponseWriter, r *http.Request, repo string) bool
+	// Scope, if set, returns the identity of the registry a request addresses,
+	// which every stored manifest, blob and upload is keyed within. The
+	// mounting cloud owns it because only that cloud knows how a request names
+	// a registry — Azure Container Registry resolves the Host header against
+	// the login server its control plane advertises, and the identity it
+	// returns is the registry's ARM resource ID, the same key the rest of the
+	// Azure stores use.
+	//
+	// A registry mounted without one keys its content in a single unnamed
+	// scope, which is correct only for a cloud that serves exactly one
+	// registry per simulator.
+	Scope func(r *http.Request) string
 }
 
 // Register mounts the data plane on the /v2/ subtree for every method, then
@@ -127,36 +151,57 @@ func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 
 	// Order matters: `/blobs/uploads/` must be matched before `/blobs/`.
 	// Authorization runs after the repository is parsed and before the handler,
-	// so a refused request never reads or writes a store.
+	// so a refused request never reads or writes a store. The scope is resolved
+	// only after authorization has established that the request addresses a
+	// registry this simulator serves.
 	switch {
 	case strings.Contains(rest, "/blobs/uploads/"):
 		idx := strings.Index(rest, "/blobs/uploads/")
 		if !reg.authorized(w, r, rest[:idx]) {
 			return
 		}
-		reg.handleBlobUpload(w, r, rest[:idx], rest[idx+len("/blobs/uploads/"):])
+		reg.handleBlobUpload(w, r, reg.scope(r), rest[:idx], rest[idx+len("/blobs/uploads/"):])
 	case strings.Contains(rest, "/blobs/"):
 		idx := strings.Index(rest, "/blobs/")
 		if !reg.authorized(w, r, rest[:idx]) {
 			return
 		}
-		reg.handleBlob(w, r, rest[:idx], rest[idx+len("/blobs/"):])
+		reg.handleBlob(w, r, reg.scope(r), rest[:idx], rest[idx+len("/blobs/"):])
 	case strings.Contains(rest, "/manifests/"):
 		idx := strings.Index(rest, "/manifests/")
 		if !reg.authorized(w, r, rest[:idx]) {
 			return
 		}
-		reg.handleManifest(w, r, rest[:idx], rest[idx+len("/manifests/"):])
+		reg.handleManifest(w, r, reg.scope(r), rest[:idx], rest[idx+len("/manifests/"):])
 	case strings.HasSuffix(rest, "/tags/list"):
 		repo := strings.TrimSuffix(rest, "/tags/list")
 		if !reg.authorized(w, r, repo) {
 			return
 		}
-		reg.handleTagsList(w, r, repo)
+		reg.handleTagsList(w, r, reg.scope(r), repo)
 	default:
 		http.NotFound(w, r)
 	}
 }
+
+// scope resolves the registry a request addresses. A registry mounted without
+// a Scope hook serves one unnamed scope.
+func (reg *OCIRegistry) scope(r *http.Request) string {
+	if reg.Scope == nil {
+		return ""
+	}
+	return reg.Scope(r)
+}
+
+// ociManifestKey, ociBlobKey and ociUploadKey compose the store keys of a
+// registry's content. The scope is a full registry identity and the separator
+// is `/`, so no two registries can ever compose the same key: a registry
+// identity never ends in a segment another identity extends.
+func ociManifestKey(scope, repo, ref string) string { return scope + "/" + repo + ":" + ref }
+
+func ociBlobKey(scope, repo, digest string) string { return scope + "/" + repo + "@" + digest }
+
+func ociUploadKey(scope, uploadID string) string { return scope + "/" + uploadID }
 
 // authorized applies the mounting cloud's Authorize hook. A registry mounted
 // without one serves its data plane unauthenticated.
@@ -167,12 +212,14 @@ func (reg *OCIRegistry) authorized(w http.ResponseWriter, r *http.Request, repo 
 	return reg.Authorize(w, r, repo)
 }
 
-// PutBlob stores a content-addressed blob (used by hydration hooks).
-func (reg *OCIRegistry) PutBlob(repo, digest, contentType string, data []byte) {
-	reg.Blobs.Put(repo+"@"+digest, OCIBlob{Digest: digest, ContentType: contentType, Data: data})
+// PutBlob stores a content-addressed blob in one registry's scope (used by
+// hydration hooks).
+func (reg *OCIRegistry) PutBlob(scope, repo, digest, contentType string, data []byte) {
+	reg.Blobs.Put(ociBlobKey(scope, repo, digest),
+		OCIBlob{Scope: scope, Digest: digest, ContentType: contentType, Data: data})
 }
 
-func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request, repo, uploadID string) {
+func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request, scope, repo, uploadID string) {
 	switch r.Method {
 	case http.MethodPost:
 		// POST /v2/{repo}/blobs/uploads/ — initiate (or monolithic if ?digest=).
@@ -182,7 +229,7 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 				ociError(w, "UNSUPPORTED", err.Error(), http.StatusUnsupportedMediaType)
 				return
 			}
-			if !reg.storeBlob(w, repo, digest, data) {
+			if !reg.storeBlob(w, scope, repo, digest, data) {
 				return
 			}
 			w.Header().Set("Docker-Content-Digest", digest)
@@ -191,7 +238,7 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		uuid := ociUUID()
-		reg.Uploads.Put(uuid, OCIUpload{UUID: uuid, Repo: repo})
+		reg.Uploads.Put(ociUploadKey(scope, uuid), OCIUpload{Scope: scope, UUID: uuid, Repo: repo})
 		w.Header().Set("Location", fmt.Sprintf("/v2/%s/blobs/uploads/%s", repo, uuid))
 		w.Header().Set("Docker-Upload-UUID", uuid)
 		w.Header().Set("Range", "0-0")
@@ -207,7 +254,7 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 		// Atomic append: concurrent chunk PATCHes for the same upload must not
 		// race a Get→append→Put (a lost chunk → DIGEST_INVALID on finalize).
 		var end int
-		ok := reg.Uploads.Update(uploadID, func(u *OCIUpload) {
+		ok := reg.Uploads.Update(ociUploadKey(scope, uploadID), func(u *OCIUpload) {
 			u.Data = append(u.Data, data...)
 			end = len(u.Data)
 		})
@@ -223,7 +270,7 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 	case http.MethodPut:
 		// PUT /v2/{repo}/blobs/uploads/{uuid}?digest=… — finalize. Any trailing
 		// chunk may ride along in the PUT body.
-		upload, ok := reg.Uploads.Get(uploadID)
+		upload, ok := reg.Uploads.Get(ociUploadKey(scope, uploadID))
 		if !ok {
 			ociError(w, "BLOB_UPLOAD_UNKNOWN", "upload not found", http.StatusNotFound)
 			return
@@ -244,11 +291,11 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 		// Get/Update. Allocate a fresh buffer so the finalize is independent.
 		full := make([]byte, 0, len(upload.Data)+len(data))
 		full = append(append(full, upload.Data...), data...)
-		if !reg.storeBlob(w, upload.Repo, digest, full) {
-			reg.Uploads.Delete(uploadID)
+		if !reg.storeBlob(w, scope, upload.Repo, digest, full) {
+			reg.Uploads.Delete(ociUploadKey(scope, uploadID))
 			return
 		}
-		reg.Uploads.Delete(uploadID)
+		reg.Uploads.Delete(ociUploadKey(scope, uploadID))
 		w.Header().Set("Docker-Content-Digest", digest)
 		w.Header().Set("Location", fmt.Sprintf("/v2/%s/blobs/%s", upload.Repo, digest))
 		w.Header().Set("Content-Length", "0")
@@ -256,7 +303,7 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 
 	case http.MethodGet:
 		// Upload status.
-		upload, ok := reg.Uploads.Get(uploadID)
+		upload, ok := reg.Uploads.Get(ociUploadKey(scope, uploadID))
 		if !ok {
 			ociError(w, "BLOB_UPLOAD_UNKNOWN", "upload not found", http.StatusNotFound)
 			return
@@ -274,7 +321,7 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 // storeBlob verifies the content hashes to the asserted digest (real OCI rejects
 // a mismatch with DIGEST_INVALID rather than storing under a wrong digest) and
 // persists it. Returns false if it already wrote an error response.
-func (reg *OCIRegistry) storeBlob(w http.ResponseWriter, repo, digest string, data []byte) bool {
+func (reg *OCIRegistry) storeBlob(w http.ResponseWriter, scope, repo, digest string, data []byte) bool {
 	if strings.HasPrefix(digest, "sha256:") {
 		if actual := ociDigest(data); actual != digest {
 			ociError(w, "DIGEST_INVALID",
@@ -283,14 +330,14 @@ func (reg *OCIRegistry) storeBlob(w http.ResponseWriter, repo, digest string, da
 			return false
 		}
 	}
-	reg.PutBlob(repo, digest, "application/octet-stream", data)
+	reg.PutBlob(scope, repo, digest, "application/octet-stream", data)
 	return true
 }
 
-func (reg *OCIRegistry) handleBlob(w http.ResponseWriter, r *http.Request, repo, digest string) {
+func (reg *OCIRegistry) handleBlob(w http.ResponseWriter, r *http.Request, scope, repo, digest string) {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		blob, ok := reg.Blobs.Get(repo + "@" + digest)
+		blob, ok := reg.Blobs.Get(ociBlobKey(scope, repo, digest))
 		if !ok {
 			if r.Method == http.MethodHead {
 				w.WriteHeader(http.StatusNotFound)
@@ -316,12 +363,12 @@ func (reg *OCIRegistry) handleBlob(w http.ResponseWriter, r *http.Request, repo,
 	}
 }
 
-func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, repo, ref string) {
+func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, scope, repo, ref string) {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		m, ok := reg.Manifests.Get(repo + ":" + ref)
-		if !ok && reg.HydrateManifest != nil && reg.HydrateManifest(reg, repo, ref) {
-			m, ok = reg.Manifests.Get(repo + ":" + ref)
+		m, ok := reg.Manifests.Get(ociManifestKey(scope, repo, ref))
+		if !ok && reg.HydrateManifest != nil && reg.HydrateManifest(reg, scope, repo, ref) {
+			m, ok = reg.Manifests.Get(ociManifestKey(scope, repo, ref))
 		}
 		if !ok {
 			if r.Method == http.MethodHead {
@@ -352,7 +399,7 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, r
 		// putManifestRaw fires OnManifestPut under manifestMu so a concurrent
 		// DELETE of the same digest can't race the control-plane row
 		// registration against the data-plane alias writes.
-		reg.putManifestRaw(repo, ref, contentType, data)
+		reg.putManifestRaw(scope, repo, ref, contentType, data)
 		w.Header().Set("Docker-Content-Digest", ociDigest(data))
 		w.Header().Set("Location", fmt.Sprintf("/v2/%s/manifests/%s", repo, ociDigest(data)))
 		w.Header().Set("Content-Length", "0")
@@ -360,7 +407,7 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, r
 
 	case http.MethodDelete:
 		reg.manifestMu.Lock()
-		entry, ok := reg.Manifests.Get(repo + ":" + ref)
+		entry, ok := reg.Manifests.Get(ociManifestKey(scope, repo, ref))
 		if !ok {
 			reg.manifestMu.Unlock()
 			ociError(w, "MANIFEST_UNKNOWN", fmt.Sprintf("manifest %q is not found", ref), http.StatusNotFound)
@@ -370,11 +417,11 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, r
 		// deleting by digest must also drop the tags that point at it, and
 		// vice-versa.
 		for _, m := range reg.Manifests.Filter(func(m OCIManifest) bool {
-			return m.Repo == repo && m.Digest == entry.Digest
+			return m.Scope == scope && m.Repo == repo && m.Digest == entry.Digest
 		}) {
-			reg.Manifests.Delete(repo + ":" + m.Ref)
+			reg.Manifests.Delete(ociManifestKey(scope, repo, m.Ref))
 		}
-		reg.Manifests.Delete(repo + ":" + ref)
+		reg.Manifests.Delete(ociManifestKey(scope, repo, ref))
 		reg.manifestMu.Unlock()
 		w.WriteHeader(http.StatusAccepted)
 
@@ -386,25 +433,25 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, r
 
 // putManifestRaw stores the manifest under its tag/reference and (using the
 // content digest) under its digest, with the given content type.
-func (reg *OCIRegistry) putManifestRaw(repo, ref, contentType string, data []byte) {
+func (reg *OCIRegistry) putManifestRaw(scope, repo, ref, contentType string, data []byte) {
 	digest := ociDigest(data)
-	m := OCIManifest{ContentType: contentType, Digest: digest, Data: data, Repo: repo, Ref: ref}
+	m := OCIManifest{Scope: scope, ContentType: contentType, Digest: digest, Data: data, Repo: repo, Ref: ref}
 	reg.manifestMu.Lock()
 	defer reg.manifestMu.Unlock()
-	reg.Manifests.Put(repo+":"+ref, m)
+	reg.Manifests.Put(ociManifestKey(scope, repo, ref), m)
 	byDigest := m
 	byDigest.Ref = digest
-	reg.Manifests.Put(repo+":"+digest, byDigest)
+	reg.Manifests.Put(ociManifestKey(scope, repo, digest), byDigest)
 	// Fire the control-plane hook while still holding manifestMu so it is
 	// serialized against a concurrent DELETE of the same digest (which also
 	// takes manifestMu). OnManifestPut registers a cloud image row and must not
 	// re-enter the manifest store under this lock.
 	if reg.OnManifestPut != nil {
-		reg.OnManifestPut(repo, ref, contentType, data)
+		reg.OnManifestPut(scope, repo, ref, contentType, data)
 	}
 }
 
-func (reg *OCIRegistry) handleTagsList(w http.ResponseWriter, r *http.Request, repo string) {
+func (reg *OCIRegistry) handleTagsList(w http.ResponseWriter, r *http.Request, scope, repo string) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -412,7 +459,7 @@ func (reg *OCIRegistry) handleTagsList(w http.ResponseWriter, r *http.Request, r
 	}
 	var tags []string
 	for _, m := range reg.Manifests.List() {
-		if m.Repo == repo && m.Ref != "" && !strings.HasPrefix(m.Ref, "sha256:") {
+		if m.Scope == scope && m.Repo == repo && m.Ref != "" && !strings.HasPrefix(m.Ref, "sha256:") {
 			tags = append(tags, m.Ref)
 		}
 	}

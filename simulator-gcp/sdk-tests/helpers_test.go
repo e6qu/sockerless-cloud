@@ -31,7 +31,14 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	binaryPath, _ = filepath.Abs("../simulator-gcp")
+	// Each suite builds the simulator it runs into a path of its own. The
+	// three suites share one working tree, so a single `../simulator-gcp`
+	// would have one suite's `go build -o` overwrite the binary another is
+	// executing the moment they run at the same time.
+	binaryPath, _ = filepath.Abs("../.build/sdk-tests/simulator-gcp")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		log.Fatalf("Failed to create simulator build dir: %v", err)
+	}
 
 	simDir, _ := filepath.Abs("..")
 	build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
@@ -44,15 +51,15 @@ func TestMain(m *testing.M) {
 	workloadPlatform := nativeDockerPlatform()
 
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
-	evalImageName = "sockerless-eval-arithmetic:test"
+	evalImageName = "sockerless-eval-arithmetic:gcp-sdk"
 	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
 
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
-	commandImageName = "sockerless-container-command:test"
+	commandImageName = "sockerless-container-command:gcp-sdk"
 	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
 
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
-	httpProbeImageName = "sockerless-http-localhost-probe:test"
+	httpProbeImageName = "sockerless-http-localhost-probe:gcp-sdk"
 	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
 
 	if _, err := exec.LookPath("docker"); err == nil {

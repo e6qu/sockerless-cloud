@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 18.
+Open: 14. Resolved: 36.
 
 ## Open
 
@@ -10,130 +10,411 @@ the simulators from the sockerless monorepo, keeping their IDs
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
-| 2909 | P2 | AWS simulator IAM enforcement leaves 190 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,784 of the 1,974 served operations that authorize against a resource type derive it; the remaining 190 still request a literal `"*"`. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (55), AWS Glue (35), Amazon RDS (27), Amazon DynamoDB (18), AWS Systems Manager (17). What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. |
+| 2909 | P2 | AWS simulator IAM enforcement leaves 190 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,788 of the 1,975 served operations that authorize against a resource type derive it; the remaining 187 still request a literal `"*"`. AWS Step Functions state-machine and activity creation joined the table — their ARNs are name-determined, so the create request already carries everything the ARN needs, and the older comment calling every create underivable was wrong for them. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (55), AWS Glue (35), Amazon RDS (27), Amazon DynamoDB (18), AWS Systems Manager (17). What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. |
 | 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. |
-| 2764 | P2 | Google Compute Engine Terraform validation on macOS | the guest does not finish booting on a macOS host | Two causes previously hidden behind this entry were separate defects and are fixed: the poisoned asset cache (BUG-2911) and the architecture-blind kernel check that rejected every arm64 image (BUG-2912). With both closed, an arm64 container on this host downloads the correct kernel and Firecracker boots it — the console log reaches the ARM64 hardware-breakpoint and ASID-allocator lines — and the apply then fails on the boot not completing within its period, with no `/dev/kvm` in the macOS Podman virtual machine. The full real Compute Engine apply therefore remains a mandatory capable-Linux CI gate rather than a locally executable macOS gate, but the failure it reports is now the real one. The packet mirroring resources are validated by their own Terraform test, which needs no booted guest. |
-| 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260717, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
-| 1345 | P2 | AzureAD Terraform provider | upstream blocker | The `hashicorp/terraform-provider-azuread` provider still lacks a supported Microsoft Graph API endpoint override, so AzureAD/Entra Terraform resources cannot be tested against the Azure simulator until upstream adds it. |
-| 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers because their provider credentials and delivery endpoints are not represented by an available public AWS contract. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
+| 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
+| 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
 
-- **BUG-3 (cross-resource-group move refuses types real ARM moves):** Five
-  families move today — Microsoft.Web (sites with their whole child
-  subtree, plans, certificates), Microsoft.Storage, Microsoft.KeyVault and
-  Microsoft.ServiceBus. The
-  per-provider move-hook dispatch landed: Resources_MoveResources /
-  Resources_ValidateMoveResources walk a hook table (`resource_move.go`)
-  keyed by resource type, each hook carrying the existence check and the
-  re-keying move, and the dispatch re-homes the moved scope's
-  Microsoft.Resources/tags/default rows uniformly. Microsoft.Web sites
-  (whole child subtree), plans, and certificates became the first hooks,
-  behavior unchanged; Microsoft.Storage/storageAccounts moves end to end —
-  the account record, the blob-container / file-share / table projections,
-  the account-scoped ARM children, and the service-properties documents
-  re-key onto the new resource ID, while the access keys are pinned across
-  the move (a move never rotates keys) and the Blob/Files/Queue/Table data
-  planes, keyed by the globally unique account name, keep serving the same
-  bytes. Microsoft.KeyVault/vaults moves the same way: the vault record and
-  its privateEndpointConnections children re-key onto the destination group,
-  while the whole data plane — secrets, keys and certificates, all addressed
-  through the vault's globally unique name — needs no re-keying at all, so
-  the vault URI is unchanged and the key created before a move still decrypts
-  a ciphertext produced before it. A move naming any other movable type (a
-  network resource, an Event Grid topic, a Service Bus namespace) still
-  answers ARM's ResourceMoveNotSupported, which stays truthful only for the
-  types real ARM refuses (Azure Container Instances container groups).
-  Eleven type keys move: Microsoft.Web (sites with their whole child
-  subtree, plans, certificates), Microsoft.Storage, Microsoft.KeyVault,
-  Microsoft.ServiceBus, Microsoft.EventHub, Microsoft.Cache/redis,
-  Microsoft.ContainerRegistry, and Microsoft.EventGrid topics and domains.
-  Each pins the credential material its resource ID derives, so a move never
-  rotates a key: an Event Hubs connection string captured before a move still
-  sends and receives over AMQP after it, and an Event Grid key captured
-  before a move still publishes after it. Two of those proofs are bounded by
-  the data plane rather than by the move — Azure Cache for Redis has no data
-  plane in this simulator at all, so `listKeys` parity is as far as its proof
-  reaches, and the Azure Container Registry data plane authenticated nothing
-  until BUG-13. Still unhooked, all with resource-ID-derived credentials:
-  Microsoft.ApiManagement/service (subscription keys),
-  Microsoft.Logic/workflows standalone (the site-hosted ones move with their
-  site), Microsoft.DocumentDB/databaseAccounts, and the remaining Event Grid
-  types — partnerNamespaces, which is key-bearing, plus systemTopics,
-  partnerTopics, partnerRegistrations and partnerConfigurations.
-  Microsoft.Network is last because its resources reference each other by
-  resource ID, so moving one without re-pointing every referrer would
-  silently break the fabric. Rewriting an inbound reference held from outside
-  the moved set lands with that same pass; the named instances are a private
-  endpoint's privateLinkServiceId, an Azure Cache for Redis linked server's
-  linkedRedisCacheId, an Event Grid system topic's source and
-  metricResourceId, and an event subscription's destination and
-  deadLetterDestination resourceId. Event Grid's own properties.topic is the
-  first inbound reference any hook rewrites. Fix shape unchanged.
+- **BUG-20 (the container reaper leaves workload containers running for
+  days):** Simulator workload containers outlive the simulator that created
+  them. Observed on the development host as 22 `sockerless-sim-azure-func`
+  containers, five of them still *running* between 2 and 25 hours after the
+  runs that created them ended, alongside exited workloads up to 47 hours old
+  — 41 containers in total. The containers are not mislabelled: a leaked
+  sidecar carries `sockerless-sim-provider=azure` and
+  `sockerless-sim-run=<id>`, which is exactly the filter pair
+  `shared/container_reaper.go` lists on, so the reaper would match them if it
+  ran. The reaper is a detached child that watches its parent's process
+  identifier, so the suspected cause is that a harness killing the simulator's
+  process group takes the reaper with it, leaving nothing to collect the run —
+  that needs confirming rather than assuming, and the same reaper ships in all
+  three simulators, so a leak here is a leak everywhere. This is not cosmetic:
+  long-lived leaked containers consume the host continuously and are a
+  plausible contributor to the load-sensitive test failures chased repeatedly
+  across recent passes, and they accumulate into the container-store state that
+  makes `ContainerList(All: true)` fail with `container not known`. Fix shape:
+  make reaping survive the simulator's death by any signal — a run's
+  containers must be collectable from their labels alone by a subsequent run
+  or a startup sweep — and prove it by killing a simulator with SIGKILL and
+  asserting the run's containers are gone.
 
-- **BUG-16 (a release tag exists before the artifacts it names):**
-  release-please creates and pushes the `vX.Y.Z` tag when the release pull
-  request merges, and `release.yml` then builds the binaries, console bundles
-  and per-architecture images against that tag. Nothing reconciles the two, so
-  a stalled or failed artifact build leaves a tagged, published release whose
-  assets are missing or partial, and a consumer that pins the tag resolves it
-  to something incomplete. Observed concretely at v0.9.1, which
-  eventually published in full: the artifact run wedged on the GHCR login and
-  buildx push steps — jobs that declare `timeout-minutes: 15` but sat
-  `in_progress` for more than two hours, so the enforcement gap is GitHub's,
-  not the workflow's — while the remaining nine jobs waited for a runner. For
-  roughly three hours the tag and the GitHub release existed and looked
-  ordinary while carrying 8 of their 30 assets and none of the three
-  multi-architecture indexes; anyone pinning the tag in that window would have
-  resolved it to an incomplete release. The queue drained on its own and the
-  run finished green, all 30 assets and all three indexes live. The `manifest`
-  job verifies index shape per image, so a *failing* build is caught; a
-  *hanging* one is not, and neither is the window between tag and artifacts.
-  Owner boundary: the stall itself is GitHub infrastructure and outside this
-  repository, but the tag-before-artifacts ordering is ours, and it is what
-  turns an upstream stall into a published release that lies about itself. Fix
-  shape: either publish the tag only after the artifact run succeeds, or add a
-  post-release reconciliation that asserts the expected asset set and all three
-  indexes exist for the tag and fails loudly when they do not — the check
-  performed by hand after every release this far.
+- **BUG-22 (the Artifact Registry data plane accepts chunked uploads the real
+  service refuses):** Google documents that monolithic uploads are required
+  when pushing container images to Artifact Registry, and the real service
+  rejects a chunked `PATCH` sequence. The simulator accepts chunking, and
+  `TestArtifactRegistry_OCIChunkedPush` asserts that acceptance, so the test
+  pins behaviour the service does not have. Fixing it needs coordination
+  rather than a straight refusal: the sockerless push path may rely on the
+  laxity, so the consumer has to be checked in the same change.
 
-- **BUG-17 (the Azure Container Registry manifest and blob stores are global,
-  not per-registry):** Two registries in the same simulator share content, so
-  `regA.azurecr.io/foo` and `regB.azurecr.io/foo` resolve to the same manifests
-  and blobs. Authentication is now scoped per registry (BUG-13), which makes the
-  storage conflation the remaining half: a caller authorized for one registry
-  reaches another registry's content by name. Real Azure Container Registry
-  isolates content per registry. Fix shape: key the manifest, tag and blob
-  stores by the registry's resource ID the way the other Azure stores are, and
-  cover it with a two-registry test asserting a repository pushed to one is
-  absent from the other.
+- **BUG-24 (the `/v2/` base endpoint returns a body the registries do not
+  send):** The shared OCI registry answers `GET /v2/` with `{}`, while the real
+  registries answer with an empty body and `content-length: 0`. Cosmetic, but
+  it is shared by all three clouds' copies of `oci.go`, so it should be fixed
+  once across them rather than in one cloud.
 
-- **BUG-18 (the Amazon ECR and Google Artifact Registry data planes
-  authenticate nothing):** Both real services authenticate every registry
-  request — Amazon ECR with the Basic credential `GetAuthorizationToken`
-  issues, Google Artifact Registry with the same Docker Bearer challenge flow
-  at `<region>-docker.pkg.dev`. Neither simulator checks anything, so the
-  credentials their control planes mint are decorative, exactly as Azure's were
-  before BUG-13. The shared registry now carries a per-registry `Authorize`
-  hook injected by whichever cloud mounts the subtree, so the mechanism exists
-  and each cloud needs its own verification pass against its own published
-  contract rather than a copy of Azure's. Note the AWS and GCP copies of
-  `shared/oci.go` are byte-identical to their pre-BUG-13 state; the hook lives
-  only in the Azure copy today.
+- **BUG-27 (a virtual network ignores the subnets declared inline on it):**
+  Real Azure creates subnets supplied in the `subnets` member of a virtual
+  network PUT — it is what `az network vnet create --subnet-name` sends — while
+  the simulator only re-collects rows that already exist, so an inline subnet
+  is silently dropped and a later read 404s. Persisting it must also realise
+  the network-namespace fabric, which cannot run on a non-Linux host, so this
+  lands with a Linux CI test pass rather than as a store-only change.
 
-- **BUG-19 (the AWS Lambda invocation timeout may include the runtime INIT
-  phase):** `lambda_runtime.go` starts the function's `Timeout` timer once
-  `StartContainerSync` returns, so container create and start are correctly
-  outside the window — but the runtime bootstrap that follows, a Python
-  interpreter starting and importing `boto3`, runs inside it. Real AWS Lambda
-  bills and bounds the INIT phase separately from the invocation timeout, so a
-  cold start that spends seconds in initialisation should not consume the
-  function's three-second budget. Observed as `Task timed out after 3.00
-  seconds` on a host whose container engine was degraded, and not reproducible
-  on a healthy one, so the divergence is suspected rather than demonstrated.
-  Fix shape: start the invocation timer when the runtime reports itself
-  initialised rather than when the container starts, and cover it with a
-  function whose initialisation is deliberately slower than its timeout.
+- **BUG-35 (an Amazon ECR pull through a cache rule is not hydrated):** The ECR
+  registry has never implemented pull-through cache hydration, and closing
+  BUG-32 made that visible: a pull for a repository covered by a pull-through
+  cache rule now answers `NAME_UNKNOWN` where it previously answered
+  `MANIFEST_UNKNOWN`. Real Amazon ECR creates the repository from the
+  pull-through-cache template and fetches the image from the upstream registry.
+  No behaviour was lost — one 404 replaced another — but the gap is real. Fix
+  shape: hydrate on a miss for a repository matching a pull-through cache rule,
+  fetching from the rule's upstream registry, which is the same hydration hook
+  the registry already exposes and leaves unset for this cloud.
+
+- **BUG-36 (each cloud's test suites build the simulator to one shared path):**
+  The AWS and Azure sdk, cli and terraform suites all build their simulator
+  binary to `../simulator-<cloud>`, so one suite's `go build -o` can overwrite a
+  binary another suite is currently executing. The Google suites had the same
+  collision and now build to per-suite paths. It is the same class as BUG-29's
+  shared image tags and produces the same kind of failure — an `exec format
+  error` or a vanished binary in a suite that built its own.
+
+- **BUG-37 (the Artifact Registry token service never refuses a scope):** The
+  simulator's token service issues a token for any scope requested, and says so
+  in a comment. The live service does not: an unauthenticated request for a
+  scope naming a repository it cannot reach is refused with `DENIED` and a
+  message naming the IAM permission and resource. Captured from the real
+  service while fixing BUG-23. Fix shape: evaluate the requested scope when
+  minting, refusing what the service refuses, without making the simulator
+  stricter than it — note the separate finding that Artifact Registry
+  re-evaluates access per request rather than trusting the token's scope.
+
+- **BUG-38 (the shared registry-trust helper leaves other clouds' harnesses
+  unconfigured):** `testutil/registrytrust` no longer silently no-ops, which
+  makes two latent defects visible elsewhere. The Google Cloud build push test
+  still uses the insecure-HTTP path and will now fail loudly rather than
+  quietly doing nothing — it was already failing at the push. The AWS and
+  Google harness makefiles also lack the shared engine-host temporary
+  directory, so any bind-mounted workload there mounts a directory the engine
+  created on its own host rather than the one the simulator wrote, which is the
+  cause BUG-34 found for two Azure tests.
+
+- **BUG-39 (`x-ms-cosmos-account` is a header the cloud does not have):** The
+  Cosmos data plane honours a sockerless-invented routing header to
+  disambiguate accounts. That is the synthetic disambiguation the project
+  forbids, and it is now removable: the faithful coordinate — the account's
+  advertised `documentEndpoint` host — works, so the header can be retired
+  along with whatever still sends it.
+
+- **BUG-40 (two Cosmos DB accounts may share a name):** The create path allows
+  the same account name in two resource groups, which real Azure cannot have,
+  the name being a hostname. Data-plane resolution was made deterministic
+  rather than order-dependent as a stopgap, but the duplicate should be refused
+  at creation the way the service refuses it.
 
 ## Resolved history
+
+- **BUG-26 (the Azure Cosmos DB data plane authenticated nothing):** A
+  middleware verifies the shared-key token on every data-plane path, so a new
+  route cannot skip it. The canonicalisation is Microsoft's published one —
+  verb, resource type, resource link and date newline-joined with the trailing
+  blank line the documentation calls out, verb and type and date lowercased,
+  resource names case-sensitive — pinned by a unit test against Microsoft's own
+  published encoding vector. Offers are the documented exception, signing the
+  lowercased resource identifier only. All four keys authorize reads and only
+  the read-write pair authorizes writes, a query POST counting as a read.
+  Resource tokens and Entra tokens are refused rather than accepted unchecked,
+  because Microsoft publishes the resource token's shape but not its
+  construction. Every Cosmos test now provisions through ARM and signs with
+  real key material, so the resource-move proof that previously could not
+  demonstrate a working credential now does.
+
+- **BUG-28 (a resource move onto an occupied identifier overwrote it):** The
+  move refuses the collision. The shape is as attested as it can be and no
+  further: nothing published states the constraint, but the reference does
+  state that validation answers 409 with an error message, and one real failed
+  move in Microsoft's own support corpus supplies both the code
+  `ResourceMoveProviderValidationFailed` and the sentence naming resources
+  "which have the same name as a resource in the target resource group". None
+  of the plausible-sounding codes searched for exists anywhere. The nested
+  detail therefore carries the attested sentence with no leaf code, because
+  inventing one would put a code on the wire no client could ever have seen.
+
+- **BUG-30 (a Logic Apps callback URL embedded the resource group):** A
+  workflow is issued a 32-hex identifier at creation, preserved across updates
+  and carried through a move, and its access endpoint is built from that rather
+  than from the resource identifier — matching the real shape, whose published
+  example response is generated for a named resource group and contains neither
+  the group, the subscription nor the workflow name. A callback URL issued
+  before a move is byte-identical after it. Stated as inference rather than
+  fact: whether the real identifier itself survives a move is not published.
+
+- **BUG-34 (three Microsoft Azure SDK tests failed on this host):** Two root
+  causes, both measured rather than reasoned about. The registry test failed
+  because the shared trust helper was a **no-op** inside the Linux harness, on
+  the false premise that the engine already treats loopback registries as
+  insecure; a bare push reproduced the exact reported error, and writing the
+  configuration made it succeed. Two further measurements shaped the repair:
+  the engine parses its registry configuration once per API-service lifetime,
+  and the harness pins that service for its whole run, so the configuration can
+  never be reloaded mid-run — while the per-registry certificate directory is
+  read per operation. Trust is therefore installed as a certificate authority
+  through real channels, the insecure-HTTP path no longer silently no-ops
+  anywhere, and where it cannot take effect it fails loudly instead. The other
+  two tests were one cause: the simulator handed the engine bind-mount sources
+  that the engine resolves on its own host rather than inside the harness
+  container, so every workload mounted an empty directory — the harness now
+  shares one engine-host directory as the simulator's temporary root. Its path
+  is deliberately short, because a longer one overflowed the Firecracker API
+  socket's `SUN_LEN` limit and broke all nine Compute tests.
+
+- **BUG-21 (`generateAccessToken` ignored the lifetime it was asked for):** The
+  method honours the requested lifetime, and the rule turned out to be
+  narrower than "up to twelve hours": the discovery document says the maximum
+  is one hour by default, and twelve only for a service account allowed by an
+  Organization Policy enforcing
+  `constraints/iam.allowServiceAccountCredentialLifetimeExtension`, with
+  43200 seconds the absolute ceiling. The simulator already modelled
+  Organization Policy, so the constraint joined the catalog with Google's own
+  description and a list-constraint evaluator beside the existing boolean one,
+  defaulting to deny — an allow default would silently grant every account
+  twelve hours and contradict the documented behaviour. Doing so exposed an
+  over-broad existing assertion that every catalog entry defaults to allow.
+  The Artifact Registry expired-credential case moved onto the real API path
+  as a result: a token is minted with a one-second lifetime through the real
+  method and presented after it expires, instead of being forged in-package.
+  Unattested: Google publishes no verbatim message for an over-long lifetime
+  and none could be captured, since authentication precedes argument
+  validation; the status and canonical code are grounded, the wording is not.
+
+- **BUG-23 (Artifact Registry invented a location):** The location is no longer
+  manufactured. Checked against the live service rather than reasoned about:
+  real Artifact Registry takes the location from the registry endpoint host, so
+  the same repository path reports `locations/us-central1`, `locations/us`,
+  `locations/europe-west1` or `locations/asia` depending only on which host was
+  addressed, and a host that is not a regional registry is not a registry at
+  all. The data plane derives the location the same way and reproduces the live
+  denial exactly; at the simulator's own coordinate, which names no location and
+  has no real-service equivalent, the repository the control plane created
+  supplies it. When neither can, it answers `NAME_UNKNOWN` — the code OCI
+  Distribution defines and Artifact Registry implements — rather than inventing
+  a region.
+
+- **BUG-29 (test suites shared global container image tags):** Every cloud's
+  harness images are namespaced per suite, so concurrent suites can no longer
+  clobber each other's tag mid-run. The latent defect this was expected to
+  unmask was real and live: the Google Cloud CLI harness used plain
+  `docker build`, which on this host's default `docker-container` builder exits
+  zero while leaving the image only in the build cache — proven by a control
+  showing the image absent from the store after a successful build and present
+  after `buildx build --load`. Two more defects surfaced with it: two tests
+  pulled a hardcoded tag and so depended on another suite having populated the
+  store, and all three Google suites built the simulator binary to one shared
+  path where a build could overwrite a binary another suite was executing.
+  Proven by running two suites concurrently against one daemon.
+
+- **BUG-31 (Compute Engine booted the instance inside the insert request):**
+  Insert records the instance provisioning, returns a running zone operation
+  immediately, and boots behind it on a context detached from the request with
+  its own budget deliberately longer than a client's wait, so a client that
+  gives up no longer destroys the machine it asked for. `zoneOperations.wait`
+  implements the documented two-minute contract instead of answering a
+  fabricated completion. Adjacent synthetic behaviour went with it: operation
+  reads on all three scopes rendered an invented `DONE`, the operation lists
+  returned a hardcoded empty set, and the aggregated list an empty map — all
+  now read the record. Restart recovery settles a provisioning instance and any
+  operation left running, so a client cannot poll forever. Exercised on Linux
+  rather than accepting the macOS kernel skip.
+
+- **BUG-32 (the Amazon ECR data plane created repositories implicitly):** Every
+  repository-scoped route passes through one admission chokepoint after
+  authentication and before any store access, and a repository the registry has
+  no record of answers 404 with the Docker Registry v2 envelope and
+  `NAME_UNKNOWN`, the code and message confirmed from real client captures
+  rather than assumed. AWS is explicit that this is the difference from Docker
+  Hub: "With Amazon ECR, new repositories must be explicitly created before
+  they can be used." The one documented exception is implemented with it,
+  because the refusal is over-broad without it: a push whose repository matches
+  a repository creation template applied for `CREATE_ON_PUSH` creates the
+  repository from that template — most-specific prefix first, `ROOT` last —
+  carrying its tag mutability, encryption, tags and policies. Reads never
+  create. Three existing tests were pushing to repositories they had never
+  created and passed only because nothing checked; they create them through the
+  real API now.
+
+- **BUG-33 (an AWS Lambda REPORT line invented its memory figure):** The
+  reported maximum memory is measured from the execution environment's own
+  container instead of being half the configured size. What the engine can
+  actually provide was measured rather than assumed: this host's engine reports
+  only `usage` and `limit` under cgroup v2 — no `max_usage`, no `peak` — and
+  its streaming stats endpoint samples about every five seconds, which for a
+  sub-second invocation is one reading taken before the handler allocates
+  anything. The container observer therefore polls every 50 milliseconds for
+  the container's life and keeps the highest figure the engine reports,
+  including `max_usage` where an engine keeps that counter. When the engine
+  reports nothing the member is omitted entirely rather than substituted — an
+  absent field is honest, an invented one is not. An idle function reports
+  78–82 MB and one holding a 384 MB buffer reports 466–469 MB.
+
+- **BUG-1345 (AzureAD Terraform resources could not be tested):** Never an
+  upstream blocker. The `hashicorp/azuread` provider has supported a Microsoft
+  Graph endpoint override since v2.35.0 through `metadata_host`, and v3.9.0 now
+  drives a real Entra stack against the simulator with that as the only
+  coordinate — application, service principal, application password, users with
+  a manager, group and group member — through apply, an idempotent
+  `plan -detailed-exitcode` of 0, and destroy, on its own CI shard. The gap was
+  measured off the wire rather than guessed, and it was not the advanced-query
+  behaviour suspected when this was reopened: the provider sends no
+  `ConsistencyLevel` header for these resources at all. What was missing was
+  the whole Microsoft Graph `beta` endpoint, which the provider uses
+  deliberately to work around documented v1.0 omissions — `oauth2RequirePostResponse`
+  on applications, `showInAddressList` on users, `samlMetadataUrl` on service
+  principals, and the entire group family — together with owner and member
+  reference collections, the `manager` navigation property with a real 404 when
+  unset, polymorphic `directoryObjects` carrying a concrete `@odata.type` so the
+  provider can sort by type, `$select`, and round-tripping every property the
+  client writes rather than the handful previously stored, which would
+  otherwise have shown as plan drift. Entra is modelled as directory objects
+  and mounted under both `/v1.0` and `/beta`. `$count` is implemented as
+  documented and gated on `ConsistencyLevel: eventual`, with both states
+  asserted.
+
+- **BUG-19 (the AWS Lambda invocation timeout included the runtime INIT
+  phase):** The suspicion was right and the divergence was real. AWS documents
+  that the Init phase ends when the runtime signals readiness by requesting its
+  first invocation, that Init is separately limited to ten seconds, and that
+  the function's timeout bounds the Invoke phase — its own worked example shows
+  a three-second function reporting `Duration: 3004.92 ms` beside
+  `Init Duration: 111.23 ms`, the initialisation sitting outside the duration
+  rather than inside it. The invocation timer now starts when the runtime first
+  requests work, not when the container starts, and the runtime deadline header
+  is computed at delivery. A ten-second Init limit is enforced, with the
+  documented `INIT_REPORT … Phase: init Status: timeout` and a re-created
+  execution environment whose retried init is bounded by the configured timeout,
+  as the real service does. Container create and start remain outside both
+  budgets, being the sandbox provisioning that precedes Init. The REPORT line
+  now carries a real `Init Duration` and a `Billed Duration` derived as the
+  ceiling of duration plus the ceiling of init, a formula that reproduces all
+  three of AWS's published examples exactly. Proven by a function whose
+  module-level initialisation blocks five seconds under a three-second timeout:
+  it succeeds, and the negative control restoring the old timer reproduces the
+  original `Task timed out after 3.00 seconds`.
+
+- **BUG-18 (the Amazon ECR and Google Artifact Registry data planes
+  authenticated nothing):** Both authenticate now, each against its own
+  published contract rather than a copy of Azure's, and the differences are the
+  point. Amazon ECR answers **Basic**, not a Bearer challenge — captured from a
+  real registry as `Www-Authenticate: Basic realm="…",service="ecr.amazonaws.com"`
+  with a 15-byte `Not Authorized` body — and the whole `authorizationToken` is
+  the Basic parameter, as AWS's own `curl` example shows.
+  `GetAuthorizationToken` was itself decorative, returning a constant; it now
+  mints random material recorded under its password with the documented
+  twelve-hour expiry, and an expired token is refused with the `DENIED`
+  envelope a Docker client renders as "Your authorization token has expired".
+  Deliberately NOT implemented: refusing a token used against another registry.
+  AWS states a token "can be used to access any Amazon ECR registry that your
+  IAM principal has access to", so that refusal would reject requests the real
+  service accepts; the older per-registry wording belongs to the deprecated
+  `registryIds` era. Google Artifact Registry differs again, verified by
+  probing the live service: an absent credential gets a challenge, a *rejected*
+  one gets 401 with no challenge, and an authenticated caller who cannot reach
+  a repository gets `403 DENIED` naming the IAM permission — not Azure's
+  `insufficient_scope`. Its token scope was proved by experiment NOT to be the
+  gate (a token minted for one repository serves another, because the service
+  re-evaluates per request), so scope enforcement was deliberately not added:
+  it would have made the simulator stricter than the real registry. Both clouds
+  use the same nil-able per-registry `Authorize` hook, so no cloud-aware branch
+  exists in the shared registry. Proven with real clients — go-containerregistry
+  pushing and pulling a three-layer image against ECR, podman login, push and
+  pull against Artifact Registry — each with the full refusal set.
+
+- **BUG-2764 (a Google Compute Engine guest never finished booting):** The
+  cause was neither the one recorded here — no nested KVM on the macOS host —
+  nor the boot deadline it was later suspected to be. `realexec` launched every
+  microVM with `--enable-pci`, opting into Firecracker's PCI transport instead
+  of its default virtio-MMIO. On aarch64 the guest never receives the
+  completion interrupt for its first virtio-blk request, so the boot stops at
+  the hand-off to the root filesystem, with the console frozen after `Key type
+  encrypted registered` and zero bytes ever read from the root filesystem image
+  while the vcpu thread spins. Raising the budget to fifteen minutes produced no
+  further console output at all, which settled by measurement that the guest
+  hangs rather than boots slowly. Removing the flag — one transport for every
+  host, and Firecracker's own default — takes the same kernel and root
+  filesystem to `Run /sbin/init` and a reachable guest in 31 seconds, and the
+  whole Google Cloud Terraform suite passes. The same flag was removed from the
+  Firecracker CI boot harness. It survived because CI runs on x86_64, where the
+  PCI transport works, and no CI leg boots a guest on aarch64; hosted arm64
+  runners expose no `/dev/kvm`, so that coverage is the local Firecracker and
+  Terraform gates until a self-hosted arm64 runner exists. Two causes
+  previously hidden behind this entry were separate defects and were fixed
+  earlier: the poisoned asset cache and the architecture-blind kernel check.
+
+
+- **BUG-3 (cross-resource-group move refused types real ARM moves):**
+  Twenty-nine Azure type keys move, up from five when this was filed — API
+  Management, standalone Logic Apps workflows, Cosmos DB accounts, Event Grid
+  system, partner and partner-namespace topics, and thirteen
+  Microsoft.Network types joined the earlier families. What made the network
+  family possible is a general inbound-reference repointing pass rather than a
+  hand-listed set: every store a build creates is now recorded, and after a
+  hook runs the mover walks all of them, rewriting both keys beneath the moved
+  identifier and any string naming it at a resource-identifier boundary, so an
+  identifier embedded in a URL is caught too. Scanning every store is
+  deliberate — a hand-maintained list rots silently. Confirmed rewrites include
+  an Azure Cache for Redis linked server, an Event Grid system topic's source,
+  a private DNS zone's virtual-network links, a Logic Apps access endpoint and
+  the container registry's content. Each family's credential is pinned across
+  the move, and where a data plane exists the proof is a real call rather than
+  a key comparison; where one does not, the entry says so instead of
+  downgrading quietly. The types Azure itself refuses stay refused and are
+  pinned by tests at unit, SDK and CLI level — partner registrations, private
+  link services, application gateways, NAT gateways, network profiles and
+  virtual network taps are all published as unmovable, and private endpoints
+  are conditional on the linked resource's type, implemented against the
+  published allow-list. Verified against Azure's move-support tables as
+  published on 2026-05-26. Fixed beside it: a Logic Apps callback signature
+  covered the workflow's full resource identifier, so a move invalidated every
+  outstanding callback URL; it signs the relative path now, as the real service
+  does.
+
+- **BUG-17 (the Azure Container Registry content stores were global):** The
+  manifest, blob and upload stores carry a scope, and the Azure registry
+  supplies its ARM resource identifier as that scope, so two registries can no
+  longer resolve the same repository name to the same content. The catalog and
+  tag listings filter by scope too. Because the scope is the resource
+  identifier, a moved registry's content is re-keyed by the same repointing
+  pass that closed BUG-3, and a test proves login server, admin credential,
+  manifest, blob, tag list and catalog all survive a cross-group move.
+
+- **BUG-25 (the specification validator judged registry responses against
+  unrelated schemas, and a push test proved nothing):** Two defects found while
+  arming the validator for the Artifact Registry work. The validator carried
+  its own copy of the "is this an OCI data-plane path" predicate, which had
+  drifted from the one `token_signing.go` uses, so `GET /v2/token` matched
+  Cloud Logging v2's `GET v2/{+name}` template and its perfectly valid `token`
+  and `expires_in` members were reported as fields Cloud Logging's
+  `LogExclusion` does not define. The duplicate is gone and both callers share
+  one predicate, so they cannot disagree again. Beside it, the existing OCI
+  push test pushed to a repository that was never created and passed only
+  because nothing checked; it now creates the repository through the real SDK
+  first.
+
+- **BUG-16 (a release tag existed before the artifacts it named):** The Release
+  workflow ends in a reconciliation job that asserts the finished release
+  matches what its tag promises: all thirty assets the build matrix produces —
+  three simulators across linux and darwin on amd64 and arm64, plus the three
+  console bundles, each with its checksum — and all three multi-architecture
+  image indexes resolving to an OCI index carrying linux/amd64 and linux/arm64.
+  An asset the matrix no longer produces fails it too, so the workflow and the
+  release cannot drift apart silently. A failing build was always caught by the
+  job that failed; what this closes is the hanging build, which left a tagged,
+  published release that looked entirely ordinary while carrying part of its
+  contents. `scripts/verify-release-complete.sh` runs standalone against any
+  tag, so a release can be checked before a consumer pins it. Proven in both
+  directions: it passes v0.9.1 and v0.9.2, and it fails for a tag with no
+  release, for an expected asset that is not published, and for an image index
+  that does not exist.
 
 - **BUG-15 (an Amazon RDS instance served connections before its engine was
   ready):** The lazy data-plane start always did wait for the engine — the

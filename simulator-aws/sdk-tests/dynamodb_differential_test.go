@@ -9,6 +9,7 @@ import (
 	"net"
 	"os/exec"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -452,6 +453,32 @@ func awsErrCode(err error) string {
 
 // ── DynamoDB Local lifecycle ─────────────────────────────────────────────────
 
+// dynamoDBLocalLabel marks the DynamoDB Local containers this suite starts, so
+// one left behind by a killed run can be found and removed by the next one.
+const dynamoDBLocalLabel = "sockerless-aws-sdk-test=dynamodb-local"
+
+// reapStaleDynamoDBLocal removes DynamoDB Local containers left over from an
+// earlier run of this suite. A survivor holds the published port and the
+// container name, so the next run fails to start until it is gone.
+func reapStaleDynamoDBLocal(t *testing.T) {
+	t.Helper()
+	listCtx, cancelList := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelList()
+	listed, err := exec.CommandContext(listCtx, "docker", "ps", "--all", "--quiet",
+		"--filter", "label="+dynamoDBLocalLabel).CombinedOutput()
+	if err != nil {
+		t.Fatalf("list stale DynamoDB Local containers: %v\n%s", err, listed)
+	}
+	for _, id := range strings.Fields(string(listed)) {
+		removeCtx, cancelRemove := context.WithTimeout(context.Background(), 30*time.Second)
+		out, removeErr := exec.CommandContext(removeCtx, "docker", "rm", "-f", id).CombinedOutput()
+		cancelRemove()
+		if removeErr != nil {
+			t.Fatalf("remove stale DynamoDB Local container %s: %v\n%s", id, removeErr, out)
+		}
+	}
+}
+
 // startDynamoDBLocal launches Amazon's DynamoDB Local in a throwaway Docker
 // container and returns its endpoint plus a stop func. Docker is a required
 // dependency for this oracle-backed test; a missing binary or pull/start failure
@@ -480,8 +507,16 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 
 	// -inMemory keeps it fast and stateless; each run starts clean.
 	containerName := fmt.Sprintf("sockerless-dynamodb-local-%d", port)
+	// `--rm` only removes the container when it exits, so a test binary that is
+	// killed — a timeout, an interrupt, a crashed run — leaves DynamoDB Local
+	// running with its port held for as long as the machine stays up. The label
+	// makes those survivors findable, and every run reaps them before starting
+	// its own: this helper is the only thing that carries the label, and it
+	// starts exactly one container per run.
+	reapStaleDynamoDBLocal(t)
 	runCtx, cancelRun := context.WithTimeout(context.Background(), 2*time.Minute)
 	runOut, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--rm", "--name", containerName,
+		"--label", dynamoDBLocalLabel,
 		"-p", fmt.Sprintf("127.0.0.1:%d:8000", port),
 		image, "-jar", "DynamoDBLocal.jar", "-inMemory").CombinedOutput()
 	cancelRun()

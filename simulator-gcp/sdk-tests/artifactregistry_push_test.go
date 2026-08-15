@@ -37,7 +37,13 @@ func arDo(t *testing.T, method, url string, body []byte, contentType string) *ht
 // TestArtifactRegistry_OCIChunkedPush covers the OCI Distribution
 // chunked blob upload (POST → PATCH → PUT) that previously 405'd on PATCH, then
 // a manifest push + pull round-trip.
+//
+// The requests carry the access token the suite's shared transport attaches, so
+// the whole exchange is authenticated the way Artifact Registry requires; the
+// repository is created through the control plane first because the data plane
+// refuses a repository that does not exist.
 func TestArtifactRegistry_OCIChunkedPush(t *testing.T) {
+	arCreateRepository(t, "test-project", "us-central1", "my-repo")
 	repo := "test-project/my-repo/app"
 
 	resp := arDo(t, http.MethodGet, baseURL+"/v2/", nil, "")

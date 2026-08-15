@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -346,6 +347,13 @@ func logicAccessKeySlot(keyType string) string {
 // regenerating that key invalidates every previously issued callback URL —
 // which is exactly what a caller observes here: listCallbackUrl returns a
 // different signature after regenerateAccessKey.
+//
+// path is the callback path *relative to the workflow*, never the workflow's
+// own resource ID: the key is already the workflow's, and signing the resource
+// ID as well would make a cross-resource-group move invalidate every callback
+// URL the workflow has already issued, which real Logic Apps does not do — its
+// callback host addresses the workflow by an identifier the resource group
+// does not appear in.
 func logicCallbackSignature(workflowID, path string) string {
 	key := azureKeyMaterial32(workflowID, "logic-access-primary")
 	mac := hmac.New(sha256.New, []byte(key))
@@ -353,13 +361,15 @@ func logicCallbackSignature(workflowID, path string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// logicCallbackQueries is the query set a Logic Apps callback URL carries:
-// the API version, the signed permission + signature version, and the
+// logicCallbackQueries is the query set a Logic Apps callback URL carries: the
+// API version, the signed permission ("the SAS permissions" — the run path the
+// signature authorizes, URL-encoded, as in the published
+// `sp=%2Ftriggers%2FrequestTrigger%2Frun`), the signature version, and the
 // access-key-derived signature.
 func logicCallbackQueries(workflowID, path string) map[string]any {
 	return map[string]any{
 		"api-version": "2016-10-01",
-		"sp":          "%2Ftriggers%2Fmanual%2Frun",
+		"sp":          url.QueryEscape(path),
 		"sv":          "1.0",
 		"sig":         logicCallbackSignature(workflowID, path),
 	}
@@ -388,13 +398,17 @@ func handleLogicWorkflowListCallbackURL(w http.ResponseWriter, r *http.Request) 
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
+	// The workflow's accessEndpoint is the base path, exactly as the published
+	// response carries it (`"basePath": "https://prod-03.westus.logic.azure.com/workflows/{identifier}"`),
+	// and the invoke path of the workflow's manual trigger hangs off it.
 	endpoint, _ := wf.Properties["accessEndpoint"].(string)
-	queries := logicCallbackQueries(id, id+"/triggers/manual/paths/invoke")
+	const invoke = "/triggers/manual/paths/invoke"
+	queries := logicCallbackQueries(id, "/triggers/manual/run")
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"value":        logicCallbackURL(endpoint, queries),
+		"value":        logicCallbackURL(endpoint+invoke, queries),
 		"method":       "POST",
 		"basePath":     endpoint,
-		"relativePath": "/triggers/manual/paths/invoke",
+		"relativePath": invoke,
 		"queries":      queries,
 	})
 }
@@ -452,11 +466,13 @@ func handleLogicWorkflowMove(w http.ResponseWriter, r *http.Request) {
 		if ref.ID == "" || ref.ID == id {
 			return
 		}
-		moved := wf
-		moved.ID = ref.ID
-		moved.Name = logicLastSeg(ref.ID)
-		logicWorkflows.Put(ref.ID, moved)
-		logicWorkflows.Delete(id)
+		// Workflows_Move re-homes the same workflow the Resources_MoveResources
+		// spelling does, so it runs the same move: the access keys are pinned so
+		// an outstanding callback URL keeps its valid signature, and the child
+		// subtree, the advertised accessEndpoint and every reference held to the
+		// workflow follow it.
+		moveLogicWorkflowARM(id, ref.ID)
+		azureRepointMovedResource(id, ref.ID)
 	})
 	// Move is a POST long-running operation with no result resource: advertise
 	// only the Azure-AsyncOperation status URL (no Location), so the SDK poller
@@ -588,17 +604,38 @@ func handleLogicTriggerListCallbackURL(w http.ResponseWriter, r *http.Request) {
 // several spellings (Microsoft.Logic/workflows and the App Service hostruntime
 // bridge) that derive the owner differently.
 func logicWriteTriggerCallbackURL(w http.ResponseWriter, r *http.Request, workflowID string) {
-	scheme := azureRequestScheme(r)
 	id := strings.TrimSuffix(r.URL.Path, "/listCallbackUrl")
-	basePath := scheme + "://" + r.Host + id
-	queries := logicCallbackQueries(workflowID, id+"/run")
+	relative := strings.TrimPrefix(id, workflowID)
+	// The callback is addressed on the service host, under the workflow's own
+	// identifier and the addressed trigger's invoke path —
+	// `/workflows/{identifier}/triggers/{trigger}/paths/invoke`, and
+	// `/workflows/{identifier}/versions/{version}/triggers/{trigger}/paths/invoke`
+	// for a version's trigger, as the published responses carry them. Nothing
+	// in that address names the resource group, so a callback URL survives a
+	// move between them.
+	basePath := logicWorkflowAccessEndpoint(r, workflowID) + relative + "/paths/invoke"
+	queries := logicCallbackQueries(workflowID, relative+"/run")
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"value":        logicCallbackURL(basePath+"/run", queries),
+		"value":        logicCallbackURL(basePath, queries),
 		"method":       "POST",
 		"basePath":     basePath,
-		"relativePath": "/run",
+		"relativePath": "/paths/invoke",
 		"queries":      queries,
 	})
+}
+
+// logicWorkflowAccessEndpoint is the addressed workflow's advertised endpoint.
+// A workflow that exists is addressed by the identifier it was issued at
+// creation; a trigger under a workflow that does not exist has no endpoint to
+// answer for, and the handlers that reach here have already established the
+// workflow.
+func logicWorkflowAccessEndpoint(r *http.Request, workflowID string) string {
+	if workflow, ok := logicWorkflows.Get(workflowID); ok {
+		if endpoint, ok := workflow.Properties["accessEndpoint"].(string); ok && endpoint != "" {
+			return endpoint
+		}
+	}
+	return logicAccessEndpoint(r, logicNewWorkflowAccessIdentifier())
 }
 
 // logicWorkflowIDForPath returns the ARM resource ID of the workflow that

@@ -17,13 +17,18 @@ import (
 
 // EntraUser is a Microsoft Entra directory user, provisioned via the standard
 // Microsoft Graph surface (POST /v1.0/users). Tokens the sim mints carry the
-// user's oid/sub, and group claims resolve through the membership store.
+// user's oid/sub, and group claims resolve through the membership store. Props
+// holds every other member of the Graph user the client wrote — accountEnabled,
+// mailNickname, jobTitle, usageLocation and the rest — so a read answers with
+// what was written rather than a fixed subset.
 type EntraUser struct {
 	OID               string `json:"oid"`
 	Sub               string `json:"sub"`
 	PreferredUsername string `json:"preferredUsername"`
 	Name              string `json:"name"`
 	Email             string `json:"email,omitempty"`
+
+	Props map[string]json.RawMessage `json:"props,omitempty"`
 }
 
 // EntraGraphGroup is a standalone group created via POST /v1.0/groups.
@@ -34,25 +39,34 @@ type EntraGraphGroup struct {
 	MailNickname    string `json:"mailNickname"`
 	SecurityEnabled bool   `json:"securityEnabled"`
 	MailEnabled     bool   `json:"mailEnabled"`
+
+	Props map[string]json.RawMessage `json:"props,omitempty"`
 }
 
-// entraGroupMembership records one user being a member of one group.
+// entraGroupMembership records one directory object being a member of one
+// group. Graph's group `members` collection admits users, service principals,
+// groups and devices alike, so the member is held by object ID rather than by
+// a user-specific reference.
 type entraGroupMembership struct {
-	GroupID string
-	UserID  string
+	GroupID  string
+	MemberID string
 }
 
 // EntraApplication is an Entra (Azure AD) application registration created via
 // POST /v1.0/applications. The application's appId is the client identifier a
 // service principal references. PasswordCredentials are the client secrets the
 // v2.0 token endpoint validates for the client_credentials grant — exactly the
-// role app-registration secrets play on real Microsoft Entra.
+// role app-registration secrets play on real Microsoft Entra. Props holds every
+// other member of the Graph application the client wrote — api, web, spa,
+// requiredResourceAccess, identifierUris and the rest.
 type EntraApplication struct {
 	ID                  string                    `json:"id"`
 	AppID               string                    `json:"appId"`
 	DisplayName         string                    `json:"displayName"`
 	SignInAudience      string                    `json:"signInAudience,omitempty"`
 	PasswordCredentials []EntraPasswordCredential `json:"passwordCredentials,omitempty"`
+
+	Props map[string]json.RawMessage `json:"props,omitempty"`
 }
 
 // EntraServicePrincipal is the directory object that materializes an
@@ -64,6 +78,8 @@ type EntraServicePrincipal struct {
 	DisplayName          string                    `json:"displayName"`
 	ServicePrincipalType string                    `json:"servicePrincipalType"`
 	PasswordCredentials  []EntraPasswordCredential `json:"passwordCredentials,omitempty"`
+
+	Props map[string]json.RawMessage `json:"props,omitempty"`
 }
 
 // EntraPasswordCredential is one client secret minted via addPassword. Real
@@ -101,6 +117,32 @@ var (
 
 	entraApplicationStore      sim.Store[EntraApplication]
 	entraServicePrincipalStore sim.Store[EntraServicePrincipal]
+)
+
+// The members the simulator models on its own typed records, plus the members
+// Microsoft Graph owns (the object identifiers it assigns) and the write-only
+// members it never echoes back (passwordProfile). A write never puts these in
+// the generic property bag: they are either applied to the typed record or
+// dropped.
+var (
+	entraApplicationServiceOwned = map[string]bool{
+		"id": true, "appId": true, "displayName": true, "signInAudience": true,
+		"passwordCredentials": true, "keyCredentials": true,
+		"createdDateTime": true, "deletedDateTime": true, "publisherDomain": true,
+	}
+	entraServicePrincipalServiceOwned = map[string]bool{
+		"id": true, "appId": true, "displayName": true, "servicePrincipalType": true,
+		"passwordCredentials": true, "keyCredentials": true, "deletedDateTime": true,
+	}
+	entraGroupServiceOwned = map[string]bool{
+		"id": true, "displayName": true, "description": true, "mailNickname": true,
+		"securityEnabled": true, "mailEnabled": true,
+		"createdDateTime": true, "deletedDateTime": true,
+	}
+	entraUserServiceOwned = map[string]bool{
+		"id": true, "displayName": true, "userPrincipalName": true, "mail": true,
+		"passwordProfile": true, "createdDateTime": true, "deletedDateTime": true,
+	}
 )
 
 // entraRegisterServicePrincipal records a service principal in the directory.
@@ -191,6 +233,18 @@ func getEntraSimUser(oid string) EntraUser {
 	return entraDefaultUser
 }
 
+// entraLookupUser resolves a directory user by object ID, including the
+// built-in default identity, without substituting one for the other.
+func entraLookupUser(oid string) (EntraUser, bool) {
+	if u, ok := entraUsersStore.Get(oid); ok {
+		return u, true
+	}
+	if oid == entraDefaultUser.OID {
+		return entraDefaultUser, true
+	}
+	return EntraUser{}, false
+}
+
 func findEntraUserByUPN(upn string) (EntraUser, bool) {
 	upn = strings.TrimSpace(upn)
 	if upn == "" {
@@ -251,199 +305,11 @@ func registerEntra(srv *sim.Server) {
 	// live bearers nor invalidate issued refresh tokens.
 	registerAzureAuthState(srv)
 
-	// Microsoft Graph group management — standard provisioning surface.
-	// Real URL base: https://graph.microsoft.com/v1.0
-	srv.HandleFunc("POST /v1.0/groups", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			DisplayName     string `json:"displayName"`
-			MailNickname    string `json:"mailNickname"`
-			Description     string `json:"description,omitempty"`
-			SecurityEnabled bool   `json:"securityEnabled"`
-			MailEnabled     bool   `json:"mailEnabled"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		if req.DisplayName == "" {
-			sim.AzureError(w, "Request_BadRequest", "displayName is required", http.StatusBadRequest)
-			return
-		}
-		grp := EntraGraphGroup{
-			ID:              newGraphID(),
-			DisplayName:     req.DisplayName,
-			Description:     req.Description,
-			MailNickname:    req.MailNickname,
-			SecurityEnabled: req.SecurityEnabled,
-			MailEnabled:     req.MailEnabled,
-		}
-		entraGraphGroupStore.Put(grp.ID, grp)
-		sim.WriteJSON(w, http.StatusCreated, entraGraphGroupJSON(grp))
-	})
-
-	srv.HandleFunc("GET /v1.0/groups/{groupId}", func(w http.ResponseWriter, r *http.Request) {
-		groupID := sim.PathParam(r, "groupId")
-		grp, ok := entraGraphGroupStore.Get(groupID)
-		if !ok {
-			sim.AzureError(w, "Request_ResourceNotFound", "group not found", http.StatusNotFound)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, entraGraphGroupJSON(grp))
-	})
-
-	srv.HandleFunc("DELETE /v1.0/groups/{groupId}", func(w http.ResponseWriter, r *http.Request) {
-		groupID := sim.PathParam(r, "groupId")
-		if !entraGraphGroupStore.Delete(groupID) {
-			sim.AzureError(w, "Request_ResourceNotFound", "group not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	// Group membership management.
-	srv.HandleFunc("POST /v1.0/groups/{groupId}/members/$ref", func(w http.ResponseWriter, r *http.Request) {
-		groupID := sim.PathParam(r, "groupId")
-		if _, ok := entraGraphGroupStore.Get(groupID); !ok {
-			sim.AzureError(w, "Request_ResourceNotFound", "group not found", http.StatusNotFound)
-			return
-		}
-		var req struct {
-			ODataID string `json:"@odata.id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		// Extract user ID from the @odata.id URL (final path segment).
-		parts := strings.Split(strings.TrimRight(req.ODataID, "/"), "/")
-		userID := parts[len(parts)-1]
-		key := groupID + "/" + userID
-		entraGroupMembershipStore.Put(key, entraGroupMembership{GroupID: groupID, UserID: userID})
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	srv.HandleFunc("GET /v1.0/groups/{groupId}/members", func(w http.ResponseWriter, r *http.Request) {
-		groupID := sim.PathParam(r, "groupId")
-		if _, ok := entraGraphGroupStore.Get(groupID); !ok {
-			sim.AzureError(w, "Request_ResourceNotFound", "group not found", http.StatusNotFound)
-			return
-		}
-		memberships := entraGroupMembershipStore.Filter(func(m entraGroupMembership) bool {
-			return m.GroupID == groupID
-		})
-		baseURL := azureAuthBaseURL(r)
-		values := make([]map[string]any, 0, len(memberships))
-		for _, m := range memberships {
-			u := getEntraSimUser(m.UserID)
-			values = append(values, map[string]any{
-				"@odata.type":       "#microsoft.graph.user",
-				"@odata.id":         fmt.Sprintf("%s/v1.0/directoryObjects/%s", baseURL, m.UserID),
-				"id":                m.UserID,
-				"displayName":       u.Name,
-				"userPrincipalName": u.PreferredUsername,
-			})
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"@odata.context": "$metadata#directoryObjects",
-			"value":          values,
-		})
-	})
-
-	srv.HandleFunc("DELETE /v1.0/groups/{groupId}/members/{userId}/$ref", func(w http.ResponseWriter, r *http.Request) {
-		groupID := sim.PathParam(r, "groupId")
-		userID := sim.PathParam(r, "userId")
-		key := groupID + "/" + userID
-		if !entraGroupMembershipStore.Delete(key) {
-			sim.AzureError(w, "Request_ResourceNotFound", "membership not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	// Microsoft Graph user management.
-	srv.HandleFunc("POST /v1.0/users", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			DisplayName       string `json:"displayName"`
-			UserPrincipalName string `json:"userPrincipalName"`
-			MailNickname      string `json:"mailNickname"`
-			Mail              string `json:"mail,omitempty"`
-			AccountEnabled    bool   `json:"accountEnabled"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		if req.DisplayName == "" || req.UserPrincipalName == "" {
-			sim.AzureError(w, "Request_BadRequest", "displayName and userPrincipalName are required", http.StatusBadRequest)
-			return
-		}
-		if _, exists := findEntraUserByUPN(req.UserPrincipalName); exists {
-			sim.AzureError(w, "Request_BadRequest", fmt.Sprintf("Another object with the same value for property userPrincipalName already exists: %s", req.UserPrincipalName), http.StatusBadRequest)
-			return
-		}
-		oid := newGraphID()
-		user := EntraUser{
-			OID:               oid,
-			Sub:               oid,
-			PreferredUsername: req.UserPrincipalName,
-			Name:              req.DisplayName,
-			Email:             req.Mail,
-		}
-		entraUsersStore.Put(oid, user)
-		sim.WriteJSON(w, http.StatusCreated, entraGraphUserJSON(oid, req.DisplayName, req.UserPrincipalName, req.Mail, req.AccountEnabled))
-	})
-
-	srv.HandleFunc("GET /v1.0/users/{userId}", func(w http.ResponseWriter, r *http.Request) {
-		userID := sim.PathParam(r, "userId")
-		u, ok := entraUsersStore.Get(userID)
-		if !ok {
-			sim.AzureError(w, "Request_ResourceNotFound", "user not found", http.StatusNotFound)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, entraGraphUserJSON(u.OID, u.Name, u.PreferredUsername, u.Email, true))
-	})
-
-	// PATCH applies an incremental update to a user. Real Graph PATCH only
-	// touches the fields present in the body and returns 204 No Content.
-	srv.HandleFunc("PATCH /v1.0/users/{userId}", func(w http.ResponseWriter, r *http.Request) {
-		userID := sim.PathParam(r, "userId")
-		var req map[string]json.RawMessage
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		updated := entraUsersStore.Update(userID, func(u *EntraUser) {
-			if raw, ok := req["displayName"]; ok {
-				var v string
-				if json.Unmarshal(raw, &v) == nil {
-					u.Name = v
-				}
-			}
-			if raw, ok := req["mail"]; ok {
-				var v string
-				if json.Unmarshal(raw, &v) == nil {
-					u.Email = v
-				}
-			}
-		})
-		if !updated {
-			sim.AzureError(w, "Request_ResourceNotFound", "user not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	srv.HandleFunc("DELETE /v1.0/users/{userId}", func(w http.ResponseWriter, r *http.Request) {
-		userID := sim.PathParam(r, "userId")
-		if !entraUsersStore.Delete(userID) {
-			sim.AzureError(w, "Request_ResourceNotFound", "user not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-
+	registerEntraGroups(srv)
+	registerEntraUsers(srv)
 	registerEntraApplications(srv)
 	registerEntraServicePrincipals(srv)
+	registerEntraDirectory(srv)
 	entraSeedBootstrap()
 
 	// Microsoft Graph delegated read endpoints.
@@ -453,272 +319,859 @@ func registerEntra(srv *sim.Server) {
 	// group memberships are read from the membership store.
 	srv.HandleFunc("GET /v1.0/me/memberOf", handleGraphMemberOf)
 	srv.HandleFunc("GET /v1.0/me/transitiveMemberOf", handleGraphMemberOf)
+	srv.HandleFunc("GET /beta/me/memberOf", handleGraphMemberOf)
+	srv.HandleFunc("GET /beta/me/transitiveMemberOf", handleGraphMemberOf)
 }
 
+// ---------------------------------------------------------------------------
+// groups
+// ---------------------------------------------------------------------------
+
+// registerEntraGroups mounts the Microsoft Graph group surface — the group
+// itself, its members and owners reference collections, and the groups it
+// belongs to. Real URL base: https://graph.microsoft.com/v1.0/groups.
+// terraform-provider-azuread drives the whole family through the beta
+// endpoint, so both versions are mounted over the same store.
+func registerEntraGroups(srv *sim.Server) {
+	srv.HandleFunc("POST /v1.0/groups", handleGraphCreateGroup)
+	srv.HandleFunc("POST /beta/groups", handleGraphCreateGroup)
+	srv.HandleFunc("GET /v1.0/groups", handleGraphListGroups)
+	srv.HandleFunc("GET /beta/groups", handleGraphListGroups)
+	srv.HandleFunc("GET /v1.0/groups/{groupId}", handleGraphGetGroup)
+	srv.HandleFunc("GET /beta/groups/{groupId}", handleGraphGetGroup)
+	srv.HandleFunc("PATCH /v1.0/groups/{groupId}", handleGraphUpdateGroup)
+	srv.HandleFunc("PATCH /beta/groups/{groupId}", handleGraphUpdateGroup)
+	srv.HandleFunc("DELETE /v1.0/groups/{groupId}", handleGraphDeleteGroup)
+	srv.HandleFunc("DELETE /beta/groups/{groupId}", handleGraphDeleteGroup)
+
+	srv.HandleFunc("GET /v1.0/groups/{groupId}/members", handleGraphListGroupMembers)
+	srv.HandleFunc("GET /beta/groups/{groupId}/members", handleGraphListGroupMembers)
+	srv.HandleFunc("POST /v1.0/groups/{groupId}/members/$ref", handleGraphAddGroupMemberRef)
+	srv.HandleFunc("POST /beta/groups/{groupId}/members/$ref", handleGraphAddGroupMemberRef)
+	srv.HandleFunc("DELETE /v1.0/groups/{groupId}/members/{memberId}/$ref", handleGraphRemoveGroupMemberRef)
+	srv.HandleFunc("DELETE /beta/groups/{groupId}/members/{memberId}/$ref", handleGraphRemoveGroupMemberRef)
+
+	srv.HandleFunc("GET /v1.0/groups/{groupId}/owners", handleGraphListGroupOwners)
+	srv.HandleFunc("GET /beta/groups/{groupId}/owners", handleGraphListGroupOwners)
+	srv.HandleFunc("POST /v1.0/groups/{groupId}/owners/$ref", handleGraphAddGroupOwnerRef)
+	srv.HandleFunc("POST /beta/groups/{groupId}/owners/$ref", handleGraphAddGroupOwnerRef)
+	srv.HandleFunc("DELETE /v1.0/groups/{groupId}/owners/{ownerId}/$ref", handleGraphRemoveGroupOwnerRef)
+	srv.HandleFunc("DELETE /beta/groups/{groupId}/owners/{ownerId}/$ref", handleGraphRemoveGroupOwnerRef)
+
+	srv.HandleFunc("GET /v1.0/groups/{groupId}/memberOf", handleGraphGroupMemberOf)
+	srv.HandleFunc("GET /beta/groups/{groupId}/memberOf", handleGraphGroupMemberOf)
+}
+
+// entraGroupDoc renders a group in Graph's wire shape.
+func entraGroupDoc(r *http.Request, grp EntraGraphGroup) map[string]any {
+	return graphDoc(r, "groups", map[string]any{
+		"id":              grp.ID,
+		"displayName":     grp.DisplayName,
+		"description":     grp.Description,
+		"mailNickname":    grp.MailNickname,
+		"securityEnabled": grp.SecurityEnabled,
+		"mailEnabled":     grp.MailEnabled,
+	}, grp.Props)
+}
+
+func handleGraphCreateGroup(w http.ResponseWriter, r *http.Request) {
+	body, err := graphDecodeBody(r)
+	if err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		DisplayName     string `json:"displayName"`
+		MailNickname    string `json:"mailNickname"`
+		Description     string `json:"description,omitempty"`
+		SecurityEnabled bool   `json:"securityEnabled"`
+		MailEnabled     bool   `json:"mailEnabled"`
+	}
+	if err := graphDecodeProps(body.Props, &req); err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.DisplayName == "" {
+		sim.AzureError(w, "Request_BadRequest", "displayName is required", http.StatusBadRequest)
+		return
+	}
+	grp := EntraGraphGroup{
+		ID:              newGraphID(),
+		DisplayName:     req.DisplayName,
+		Description:     req.Description,
+		MailNickname:    req.MailNickname,
+		SecurityEnabled: req.SecurityEnabled,
+		MailEnabled:     req.MailEnabled,
+		Props:           graphMergeProps(nil, body.Props, entraGroupServiceOwned),
+	}
+	// Graph resolves the owners and members navigation-property bindings the
+	// create request carries before it answers, so the reference collections
+	// are populated by the time the client reads them back.
+	for _, ownerID := range body.Binds["owners"] {
+		if _, ok := entraDirectoryObjectDoc(r, ownerID); !ok {
+			entraGraphNotFound(w, ownerID)
+			return
+		}
+	}
+	for _, memberID := range body.Binds["members"] {
+		if _, ok := entraDirectoryObjectDoc(r, memberID); !ok {
+			entraGraphNotFound(w, memberID)
+			return
+		}
+	}
+	entraGraphGroupStore.Put(grp.ID, grp)
+	entraAddOwners(grp.ID, body.Binds["owners"])
+	for _, memberID := range body.Binds["members"] {
+		entraAddGroupMember(grp.ID, memberID)
+	}
+	doc := entraGroupDoc(r, grp)
+	doc["@odata.context"] = "$metadata#groups/$entity"
+	sim.WriteJSON(w, http.StatusCreated, doc)
+}
+
+func handleGraphListGroups(w http.ResponseWriter, r *http.Request) {
+	groups := entraGraphGroupStore.List()
+	docs := make([]map[string]any, 0, len(groups))
+	for _, grp := range groups {
+		docs = append(docs, entraGroupDoc(r, grp))
+	}
+	docs, ok := graphFilterDocs(w, r, docs)
+	if !ok {
+		return
+	}
+	graphCollection(w, r, "$metadata#groups", docs)
+}
+
+func handleGraphGetGroup(w http.ResponseWriter, r *http.Request) {
+	groupID := sim.PathParam(r, "groupId")
+	grp, ok := entraGraphGroupStore.Get(groupID)
+	if !ok {
+		entraGraphNotFound(w, groupID)
+		return
+	}
+	doc := entraGroupDoc(r, grp)
+	doc["@odata.context"] = "$metadata#groups/$entity"
+	sim.WriteJSON(w, http.StatusOK, graphApplySelect(r, doc))
+}
+
+func handleGraphUpdateGroup(w http.ResponseWriter, r *http.Request) {
+	groupID := sim.PathParam(r, "groupId")
+	body, err := graphDecodeBody(r)
+	if err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	updated := entraGraphGroupStore.Update(groupID, func(g *EntraGraphGroup) {
+		graphSetString(body.Props, "displayName", &g.DisplayName)
+		graphSetString(body.Props, "description", &g.Description)
+		graphSetString(body.Props, "mailNickname", &g.MailNickname)
+		graphSetBool(body.Props, "securityEnabled", &g.SecurityEnabled)
+		graphSetBool(body.Props, "mailEnabled", &g.MailEnabled)
+		g.Props = graphMergeProps(g.Props, body.Props, entraGroupServiceOwned)
+	})
+	if !updated {
+		entraGraphNotFound(w, groupID)
+		return
+	}
+	entraAddOwners(groupID, body.Binds["owners"])
+	for _, memberID := range body.Binds["members"] {
+		entraAddGroupMember(groupID, memberID)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	groupID := sim.PathParam(r, "groupId")
+	if !entraGraphGroupStore.Delete(groupID) {
+		entraGraphNotFound(w, groupID)
+		return
+	}
+	entraDropOwners(groupID)
+	for _, m := range entraGroupMembershipStore.Filter(func(m entraGroupMembership) bool {
+		return m.GroupID == groupID || m.MemberID == groupID
+	}) {
+		entraGroupMembershipStore.Delete(entraGroupMemberKey(m.GroupID, m.MemberID))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func entraGroupMemberKey(groupID, memberID string) string { return groupID + "/" + memberID }
+
+func entraAddGroupMember(groupID, memberID string) {
+	if memberID == "" {
+		return
+	}
+	entraGroupMembershipStore.Put(entraGroupMemberKey(groupID, memberID),
+		entraGroupMembership{GroupID: groupID, MemberID: memberID})
+}
+
+func handleGraphAddGroupMemberRef(w http.ResponseWriter, r *http.Request) {
+	groupID := sim.PathParam(r, "groupId")
+	if _, ok := entraGraphGroupStore.Get(groupID); !ok {
+		entraGraphNotFound(w, groupID)
+		return
+	}
+	var req struct {
+		ODataID string `json:"@odata.id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	memberID := graphRefObjectID(req.ODataID)
+	if memberID == "" {
+		sim.AzureError(w, "Request_BadRequest", "@odata.id is required", http.StatusBadRequest)
+		return
+	}
+	entraAddGroupMember(groupID, memberID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphListGroupMembers(w http.ResponseWriter, r *http.Request) {
+	groupID := sim.PathParam(r, "groupId")
+	if _, ok := entraGraphGroupStore.Get(groupID); !ok {
+		entraGraphNotFound(w, groupID)
+		return
+	}
+	memberships := entraGroupMembershipStore.Filter(func(m entraGroupMembership) bool {
+		return m.GroupID == groupID
+	})
+	baseURL := azureAuthBaseURL(r)
+	version := graphVersionPrefix(r)
+	docs := make([]map[string]any, 0, len(memberships))
+	for _, m := range memberships {
+		doc, ok := entraDirectoryObjectDoc(r, m.MemberID)
+		if !ok {
+			// A membership recorded against an object the directory no longer
+			// holds still names the object, exactly as Graph's reference
+			// collection does before the reference is cleaned up.
+			doc = map[string]any{
+				"@odata.type": "#microsoft.graph.directoryObject",
+				"id":          m.MemberID,
+			}
+		}
+		doc["@odata.id"] = fmt.Sprintf("%s%s/directoryObjects/%s", baseURL, version, m.MemberID)
+		docs = append(docs, doc)
+	}
+	graphCollection(w, r, "$metadata#directoryObjects", docs)
+}
+
+func handleGraphRemoveGroupMemberRef(w http.ResponseWriter, r *http.Request) {
+	groupID := sim.PathParam(r, "groupId")
+	memberID := sim.PathParam(r, "memberId")
+	if !entraGroupMembershipStore.Delete(entraGroupMemberKey(groupID, memberID)) {
+		entraGraphNotFound(w, memberID)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphListGroupOwners(w http.ResponseWriter, r *http.Request) {
+	handleGraphListOwners(w, r, sim.PathParam(r, "groupId"))
+}
+
+func handleGraphAddGroupOwnerRef(w http.ResponseWriter, r *http.Request) {
+	handleGraphAddOwnerRef(w, r, sim.PathParam(r, "groupId"))
+}
+
+func handleGraphRemoveGroupOwnerRef(w http.ResponseWriter, r *http.Request) {
+	handleGraphRemoveOwnerRef(w, r, sim.PathParam(r, "groupId"), sim.PathParam(r, "ownerId"))
+}
+
+// handleGraphGroupMemberOf answers the groups a group is itself a member of.
+func handleGraphGroupMemberOf(w http.ResponseWriter, r *http.Request) {
+	groupID := sim.PathParam(r, "groupId")
+	if _, ok := entraGraphGroupStore.Get(groupID); !ok {
+		entraGraphNotFound(w, groupID)
+		return
+	}
+	memberships := entraGroupMembershipStore.Filter(func(m entraGroupMembership) bool {
+		return m.MemberID == groupID
+	})
+	docs := make([]map[string]any, 0, len(memberships))
+	for _, m := range memberships {
+		grp, ok := entraGraphGroupStore.Get(m.GroupID)
+		if !ok {
+			continue
+		}
+		doc := entraGroupDoc(r, grp)
+		doc["@odata.type"] = "#microsoft.graph.group"
+		docs = append(docs, doc)
+	}
+	graphCollection(w, r, "$metadata#directoryObjects", docs)
+}
+
+// ---------------------------------------------------------------------------
+// users
+// ---------------------------------------------------------------------------
+
+// registerEntraUsers mounts the Microsoft Graph user surface. Real URL base:
+// https://graph.microsoft.com/v1.0/users.
+func registerEntraUsers(srv *sim.Server) {
+	srv.HandleFunc("POST /v1.0/users", handleGraphCreateUser)
+	srv.HandleFunc("POST /beta/users", handleGraphCreateUser)
+	srv.HandleFunc("GET /v1.0/users", handleGraphListUsers)
+	srv.HandleFunc("GET /beta/users", handleGraphListUsers)
+	srv.HandleFunc("GET /v1.0/users/{userId}", handleGraphGetUser)
+	srv.HandleFunc("GET /beta/users/{userId}", handleGraphGetUser)
+	srv.HandleFunc("PATCH /v1.0/users/{userId}", handleGraphUpdateUser)
+	srv.HandleFunc("PATCH /beta/users/{userId}", handleGraphUpdateUser)
+	srv.HandleFunc("DELETE /v1.0/users/{userId}", handleGraphDeleteUser)
+	srv.HandleFunc("DELETE /beta/users/{userId}", handleGraphDeleteUser)
+	srv.HandleFunc("GET /v1.0/users/{userId}/memberOf", handleGraphUserMemberOf)
+	srv.HandleFunc("GET /beta/users/{userId}/memberOf", handleGraphUserMemberOf)
+}
+
+// entraUserDoc renders a user in Graph's wire shape.
+func entraUserDoc(r *http.Request, u EntraUser) map[string]any {
+	return graphDoc(r, "users", map[string]any{
+		"id":                u.OID,
+		"displayName":       u.Name,
+		"userPrincipalName": u.PreferredUsername,
+		"mail":              u.Email,
+	}, u.Props)
+}
+
+func handleGraphCreateUser(w http.ResponseWriter, r *http.Request) {
+	body, err := graphDecodeBody(r)
+	if err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		DisplayName       string `json:"displayName"`
+		UserPrincipalName string `json:"userPrincipalName"`
+		Mail              string `json:"mail,omitempty"`
+	}
+	if err := graphDecodeProps(body.Props, &req); err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.DisplayName == "" || req.UserPrincipalName == "" {
+		sim.AzureError(w, "Request_BadRequest", "displayName and userPrincipalName are required", http.StatusBadRequest)
+		return
+	}
+	if _, exists := findEntraUserByUPN(req.UserPrincipalName); exists {
+		sim.AzureError(w, "Request_BadRequest", fmt.Sprintf("Another object with the same value for property userPrincipalName already exists: %s", req.UserPrincipalName), http.StatusBadRequest)
+		return
+	}
+	oid := newGraphID()
+	user := EntraUser{
+		OID:               oid,
+		Sub:               oid,
+		PreferredUsername: req.UserPrincipalName,
+		Name:              req.DisplayName,
+		Email:             req.Mail,
+		Props:             graphMergeProps(nil, body.Props, entraUserServiceOwned),
+	}
+	entraUsersStore.Put(oid, user)
+	doc := entraUserDoc(r, user)
+	doc["@odata.context"] = "$metadata#users/$entity"
+	sim.WriteJSON(w, http.StatusCreated, doc)
+}
+
+func handleGraphListUsers(w http.ResponseWriter, r *http.Request) {
+	users := entraUsersStore.List()
+	docs := make([]map[string]any, 0, len(users))
+	for _, u := range users {
+		docs = append(docs, entraUserDoc(r, u))
+	}
+	docs, ok := graphFilterDocs(w, r, docs)
+	if !ok {
+		return
+	}
+	graphCollection(w, r, "$metadata#users", docs)
+}
+
+func handleGraphGetUser(w http.ResponseWriter, r *http.Request) {
+	userID := sim.PathParam(r, "userId")
+	u, ok := entraLookupUser(userID)
+	if !ok {
+		entraGraphNotFound(w, userID)
+		return
+	}
+	doc := entraUserDoc(r, u)
+	doc["@odata.context"] = "$metadata#users/$entity"
+	sim.WriteJSON(w, http.StatusOK, graphApplySelect(r, doc))
+}
+
+// handleGraphUpdateUser applies an incremental update. Real Graph PATCH only
+// touches the members present in the body and returns 204 No Content.
+func handleGraphUpdateUser(w http.ResponseWriter, r *http.Request) {
+	userID := sim.PathParam(r, "userId")
+	body, err := graphDecodeBody(r)
+	if err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	updated := entraUsersStore.Update(userID, func(u *EntraUser) {
+		graphSetString(body.Props, "displayName", &u.Name)
+		graphSetString(body.Props, "mail", &u.Email)
+		graphSetString(body.Props, "userPrincipalName", &u.PreferredUsername)
+		u.Props = graphMergeProps(u.Props, body.Props, entraUserServiceOwned)
+	})
+	if !updated {
+		entraGraphNotFound(w, userID)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphDeleteUser(w http.ResponseWriter, r *http.Request) {
+	userID := sim.PathParam(r, "userId")
+	if !entraUsersStore.Delete(userID) {
+		entraGraphNotFound(w, userID)
+		return
+	}
+	entraUserManagerStore.Delete(userID)
+	for _, m := range entraGroupMembershipStore.Filter(func(m entraGroupMembership) bool {
+		return m.MemberID == userID
+	}) {
+		entraGroupMembershipStore.Delete(entraGroupMemberKey(m.GroupID, m.MemberID))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGraphUserMemberOf answers the groups a named user belongs to. The /me
+// spelling reads the same collection for the bearer's own object ID.
+func handleGraphUserMemberOf(w http.ResponseWriter, r *http.Request) {
+	userID := sim.PathParam(r, "userId")
+	if _, ok := entraLookupUser(userID); !ok {
+		entraGraphNotFound(w, userID)
+		return
+	}
+	graphCollection(w, r, "$metadata#directoryObjects", entraMemberOfDocs(r, userID))
+}
+
+// ---------------------------------------------------------------------------
+// applications
+// ---------------------------------------------------------------------------
+
 // registerEntraApplications mounts the Microsoft Graph application-registration
-// CRUD surface. Real URL base: https://graph.microsoft.com/v1.0/applications
+// surface. Real URL base: https://graph.microsoft.com/v1.0/applications
 func registerEntraApplications(srv *sim.Server) {
 	entraApplicationStore = sim.MakeStore[EntraApplication](srv.DB(), "entra_applications")
 
-	srv.HandleFunc("POST /v1.0/applications", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			DisplayName    string `json:"displayName"`
-			SignInAudience string `json:"signInAudience"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		if req.DisplayName == "" {
-			sim.AzureError(w, "Request_BadRequest", "displayName is required", http.StatusBadRequest)
-			return
-		}
-		app := EntraApplication{
-			ID:             newGraphID(),
-			AppID:          newGraphID(),
-			DisplayName:    req.DisplayName,
-			SignInAudience: req.SignInAudience,
-		}
-		entraApplicationStore.Put(app.ID, app)
-		sim.WriteJSON(w, http.StatusCreated, entraApplicationJSON(app))
-	})
-
-	srv.HandleFunc("GET /v1.0/applications", func(w http.ResponseWriter, r *http.Request) {
-		apps := entraApplicationStore.List()
-		values := make([]map[string]any, 0, len(apps))
-		for _, a := range apps {
-			values = append(values, entraApplicationJSON(a))
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"@odata.context": "$metadata#applications",
-			"value":          values,
-		})
-	})
-
-	srv.HandleFunc("GET /v1.0/applications/{appObjectId}", func(w http.ResponseWriter, r *http.Request) {
-		app, ok := entraApplicationStore.Get(sim.PathParam(r, "appObjectId"))
-		if !ok {
-			sim.AzureError(w, "Request_ResourceNotFound", "application not found", http.StatusNotFound)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, entraApplicationJSON(app))
-	})
-
-	srv.HandleFunc("PATCH /v1.0/applications/{appObjectId}", func(w http.ResponseWriter, r *http.Request) {
-		id := sim.PathParam(r, "appObjectId")
-		var req map[string]json.RawMessage
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		updated := entraApplicationStore.Update(id, func(a *EntraApplication) {
-			if raw, ok := req["displayName"]; ok {
-				var v string
-				if json.Unmarshal(raw, &v) == nil {
-					a.DisplayName = v
-				}
-			}
-			if raw, ok := req["signInAudience"]; ok {
-				var v string
-				if json.Unmarshal(raw, &v) == nil {
-					a.SignInAudience = v
-				}
-			}
-		})
-		if !updated {
-			sim.AzureError(w, "Request_ResourceNotFound", "application not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	srv.HandleFunc("DELETE /v1.0/applications/{appObjectId}", func(w http.ResponseWriter, r *http.Request) {
-		if !entraApplicationStore.Delete(sim.PathParam(r, "appObjectId")) {
-			sim.AzureError(w, "Request_ResourceNotFound", "application not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
+	srv.HandleFunc("POST /v1.0/applications", handleGraphCreateApplication)
+	srv.HandleFunc("POST /beta/applications", handleGraphCreateApplication)
+	srv.HandleFunc("GET /v1.0/applications", handleGraphListApplications)
+	srv.HandleFunc("GET /beta/applications", handleGraphListApplications)
+	srv.HandleFunc("GET /v1.0/applications/{appObjectId}", handleGraphGetApplication)
+	srv.HandleFunc("GET /beta/applications/{appObjectId}", handleGraphGetApplication)
+	srv.HandleFunc("PATCH /v1.0/applications/{appObjectId}", handleGraphUpdateApplication)
+	srv.HandleFunc("PATCH /beta/applications/{appObjectId}", handleGraphUpdateApplication)
+	srv.HandleFunc("DELETE /v1.0/applications/{appObjectId}", handleGraphDeleteApplication)
+	srv.HandleFunc("DELETE /beta/applications/{appObjectId}", handleGraphDeleteApplication)
 
 	// Client secrets live on the application object — the Certificates &
 	// secrets blade of a real app registration calls exactly this route, and
 	// the minted secret is what the v2.0 client_credentials grant validates.
-	srv.HandleFunc("POST /v1.0/applications/{appObjectId}/addPassword", func(w http.ResponseWriter, r *http.Request) {
-		id := sim.PathParam(r, "appObjectId")
-		cred, ok := entraParseAddPassword(w, r)
-		if !ok {
-			return
-		}
-		updated := entraApplicationStore.Update(id, func(a *EntraApplication) {
-			a.PasswordCredentials = append(a.PasswordCredentials, entraStoredCredential(cred))
-		})
-		if !updated {
-			sim.AzureError(w, "Request_ResourceNotFound", "application not found", http.StatusNotFound)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, entraPasswordCredentialJSON(cred, true))
-	})
+	srv.HandleFunc("POST /v1.0/applications/{appObjectId}/addPassword", handleGraphApplicationAddPassword)
+	srv.HandleFunc("POST /beta/applications/{appObjectId}/addPassword", handleGraphApplicationAddPassword)
+	srv.HandleFunc("POST /v1.0/applications/{appObjectId}/removePassword", handleGraphApplicationRemovePassword)
+	srv.HandleFunc("POST /beta/applications/{appObjectId}/removePassword", handleGraphApplicationRemovePassword)
 
-	srv.HandleFunc("POST /v1.0/applications/{appObjectId}/removePassword", func(w http.ResponseWriter, r *http.Request) {
-		id := sim.PathParam(r, "appObjectId")
-		keyID, ok := entraParseRemovePassword(w, r)
-		if !ok {
-			return
-		}
-		removed := false
-		updated := entraApplicationStore.Update(id, func(a *EntraApplication) {
-			a.PasswordCredentials, removed = entraDropCredential(a.PasswordCredentials, keyID)
-		})
-		if !updated {
-			sim.AzureError(w, "Request_ResourceNotFound", "application not found", http.StatusNotFound)
-			return
-		}
-		if !removed {
-			sim.AzureError(w, "Request_ResourceNotFound",
-				fmt.Sprintf("No password credential found with keyId %s", keyID), http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
+	srv.HandleFunc("GET /v1.0/applications/{appObjectId}/owners", handleGraphListApplicationOwners)
+	srv.HandleFunc("GET /beta/applications/{appObjectId}/owners", handleGraphListApplicationOwners)
+	srv.HandleFunc("POST /v1.0/applications/{appObjectId}/owners/$ref", handleGraphAddApplicationOwnerRef)
+	srv.HandleFunc("POST /beta/applications/{appObjectId}/owners/$ref", handleGraphAddApplicationOwnerRef)
+	srv.HandleFunc("DELETE /v1.0/applications/{appObjectId}/owners/{ownerId}/$ref", handleGraphRemoveApplicationOwnerRef)
+	srv.HandleFunc("DELETE /beta/applications/{appObjectId}/owners/{ownerId}/$ref", handleGraphRemoveApplicationOwnerRef)
 }
 
+// entraApplicationDoc renders an application registration in Graph's wire shape.
+func entraApplicationDoc(r *http.Request, a EntraApplication) map[string]any {
+	return graphDoc(r, "applications", map[string]any{
+		"id":                  a.ID,
+		"appId":               a.AppID,
+		"displayName":         a.DisplayName,
+		"signInAudience":      a.SignInAudience,
+		"passwordCredentials": entraPasswordCredentialsJSON(a.PasswordCredentials),
+	}, a.Props)
+}
+
+func handleGraphCreateApplication(w http.ResponseWriter, r *http.Request) {
+	body, err := graphDecodeBody(r)
+	if err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		DisplayName    string `json:"displayName"`
+		SignInAudience string `json:"signInAudience"`
+	}
+	if err := graphDecodeProps(body.Props, &req); err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.DisplayName == "" {
+		sim.AzureError(w, "Request_BadRequest", "displayName is required", http.StatusBadRequest)
+		return
+	}
+	for _, ownerID := range body.Binds["owners"] {
+		if _, ok := entraDirectoryObjectDoc(r, ownerID); !ok {
+			entraGraphNotFound(w, ownerID)
+			return
+		}
+	}
+	app := EntraApplication{
+		ID:             newGraphID(),
+		AppID:          newGraphID(),
+		DisplayName:    req.DisplayName,
+		SignInAudience: req.SignInAudience,
+		Props:          graphMergeProps(nil, body.Props, entraApplicationServiceOwned),
+	}
+	entraApplicationStore.Put(app.ID, app)
+	entraAddOwners(app.ID, body.Binds["owners"])
+	doc := entraApplicationDoc(r, app)
+	doc["@odata.context"] = "$metadata#applications/$entity"
+	sim.WriteJSON(w, http.StatusCreated, doc)
+}
+
+func handleGraphListApplications(w http.ResponseWriter, r *http.Request) {
+	apps := entraApplicationStore.List()
+	docs := make([]map[string]any, 0, len(apps))
+	for _, a := range apps {
+		docs = append(docs, entraApplicationDoc(r, a))
+	}
+	docs, ok := graphFilterDocs(w, r, docs)
+	if !ok {
+		return
+	}
+	graphCollection(w, r, "$metadata#applications", docs)
+}
+
+func handleGraphGetApplication(w http.ResponseWriter, r *http.Request) {
+	app, ok := entraApplicationStore.Get(sim.PathParam(r, "appObjectId"))
+	if !ok {
+		entraGraphNotFound(w, sim.PathParam(r, "appObjectId"))
+		return
+	}
+	doc := entraApplicationDoc(r, app)
+	doc["@odata.context"] = "$metadata#applications/$entity"
+	sim.WriteJSON(w, http.StatusOK, graphApplySelect(r, doc))
+}
+
+func handleGraphUpdateApplication(w http.ResponseWriter, r *http.Request) {
+	id := sim.PathParam(r, "appObjectId")
+	body, err := graphDecodeBody(r)
+	if err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	updated := entraApplicationStore.Update(id, func(a *EntraApplication) {
+		graphSetString(body.Props, "displayName", &a.DisplayName)
+		graphSetString(body.Props, "signInAudience", &a.SignInAudience)
+		a.Props = graphMergeProps(a.Props, body.Props, entraApplicationServiceOwned)
+	})
+	if !updated {
+		entraGraphNotFound(w, id)
+		return
+	}
+	entraAddOwners(id, body.Binds["owners"])
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphDeleteApplication(w http.ResponseWriter, r *http.Request) {
+	id := sim.PathParam(r, "appObjectId")
+	if !entraApplicationStore.Delete(id) {
+		entraGraphNotFound(w, id)
+		return
+	}
+	entraDropOwners(id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphApplicationAddPassword(w http.ResponseWriter, r *http.Request) {
+	id := sim.PathParam(r, "appObjectId")
+	cred, ok := entraParseAddPassword(w, r)
+	if !ok {
+		return
+	}
+	updated := entraApplicationStore.Update(id, func(a *EntraApplication) {
+		a.PasswordCredentials = append(a.PasswordCredentials, entraStoredCredential(cred))
+	})
+	if !updated {
+		entraGraphNotFound(w, id)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, entraPasswordCredentialJSON(cred, true))
+}
+
+func handleGraphApplicationRemovePassword(w http.ResponseWriter, r *http.Request) {
+	id := sim.PathParam(r, "appObjectId")
+	keyID, ok := entraParseRemovePassword(w, r)
+	if !ok {
+		return
+	}
+	removed := false
+	updated := entraApplicationStore.Update(id, func(a *EntraApplication) {
+		a.PasswordCredentials, removed = entraDropCredential(a.PasswordCredentials, keyID)
+	})
+	if !updated {
+		entraGraphNotFound(w, id)
+		return
+	}
+	if !removed {
+		sim.AzureError(w, "Request_ResourceNotFound",
+			fmt.Sprintf("No password credential found with keyId %s", keyID), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphListApplicationOwners(w http.ResponseWriter, r *http.Request) {
+	handleGraphListOwners(w, r, sim.PathParam(r, "appObjectId"))
+}
+
+func handleGraphAddApplicationOwnerRef(w http.ResponseWriter, r *http.Request) {
+	handleGraphAddOwnerRef(w, r, sim.PathParam(r, "appObjectId"))
+}
+
+func handleGraphRemoveApplicationOwnerRef(w http.ResponseWriter, r *http.Request) {
+	handleGraphRemoveOwnerRef(w, r, sim.PathParam(r, "appObjectId"), sim.PathParam(r, "ownerId"))
+}
+
+// ---------------------------------------------------------------------------
+// service principals
+// ---------------------------------------------------------------------------
+
 // registerEntraServicePrincipals mounts the Microsoft Graph service-principal
-// CRUD + addPassword surface. Real URL base:
-// https://graph.microsoft.com/v1.0/servicePrincipals
+// surface. Real URL base: https://graph.microsoft.com/v1.0/servicePrincipals
 func registerEntraServicePrincipals(srv *sim.Server) {
 	entraServicePrincipalStore = sim.MakeStore[EntraServicePrincipal](srv.DB(), "entra_service_principals")
 
-	srv.HandleFunc("POST /v1.0/servicePrincipals", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			AppID       string `json:"appId"`
-			DisplayName string `json:"displayName"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		if req.AppID == "" {
-			sim.AzureError(w, "Request_BadRequest", "appId is required", http.StatusBadRequest)
-			return
-		}
-		displayName := req.DisplayName
-		// Graph resolves displayName from the backing application when omitted.
-		if displayName == "" {
-			apps := entraApplicationStore.Filter(func(a EntraApplication) bool {
-				return strings.EqualFold(a.AppID, req.AppID)
-			})
-			if len(apps) > 0 {
-				displayName = apps[0].DisplayName
-			}
-		}
-		sp := EntraServicePrincipal{
-			ID:                   newGraphID(),
-			AppID:                req.AppID,
-			DisplayName:          displayName,
-			ServicePrincipalType: "Application",
-		}
-		entraServicePrincipalStore.Put(sp.ID, sp)
-		sim.WriteJSON(w, http.StatusCreated, entraServicePrincipalJSON(sp))
-	})
+	srv.HandleFunc("POST /v1.0/servicePrincipals", handleGraphCreateServicePrincipal)
+	srv.HandleFunc("POST /beta/servicePrincipals", handleGraphCreateServicePrincipal)
+	srv.HandleFunc("GET /v1.0/servicePrincipals", handleGraphListServicePrincipals)
+	srv.HandleFunc("GET /beta/servicePrincipals", handleGraphListServicePrincipals)
+	srv.HandleFunc("GET /v1.0/servicePrincipals/{spId}", handleGraphGetServicePrincipal)
+	srv.HandleFunc("GET /beta/servicePrincipals/{spId}", handleGraphGetServicePrincipal)
+	srv.HandleFunc("PATCH /v1.0/servicePrincipals/{spId}", handleGraphUpdateServicePrincipal)
+	srv.HandleFunc("PATCH /beta/servicePrincipals/{spId}", handleGraphUpdateServicePrincipal)
+	srv.HandleFunc("DELETE /v1.0/servicePrincipals/{spId}", handleGraphDeleteServicePrincipal)
+	srv.HandleFunc("DELETE /beta/servicePrincipals/{spId}", handleGraphDeleteServicePrincipal)
 
-	srv.HandleFunc("GET /v1.0/servicePrincipals", func(w http.ResponseWriter, r *http.Request) {
-		appIDFilter := parseGraphEqFilter(r.URL.Query().Get("$filter"), "appId")
-		var sps []EntraServicePrincipal
-		if appIDFilter != "" {
-			sps = entraServicePrincipalStore.Filter(func(sp EntraServicePrincipal) bool {
-				return strings.EqualFold(sp.AppID, appIDFilter)
-			})
-		} else {
-			sps = entraServicePrincipalStore.List()
-		}
-		values := make([]map[string]any, 0, len(sps))
-		for _, sp := range sps {
-			values = append(values, entraServicePrincipalJSON(sp))
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"@odata.context": "$metadata#servicePrincipals",
-			"value":          values,
-		})
-	})
+	srv.HandleFunc("POST /v1.0/servicePrincipals/{spId}/addPassword", handleGraphServicePrincipalAddPassword)
+	srv.HandleFunc("POST /beta/servicePrincipals/{spId}/addPassword", handleGraphServicePrincipalAddPassword)
+	srv.HandleFunc("POST /v1.0/servicePrincipals/{spId}/removePassword", handleGraphServicePrincipalRemovePassword)
+	srv.HandleFunc("POST /beta/servicePrincipals/{spId}/removePassword", handleGraphServicePrincipalRemovePassword)
 
-	srv.HandleFunc("GET /v1.0/servicePrincipals/{spId}", func(w http.ResponseWriter, r *http.Request) {
-		sp, ok := entraServicePrincipalStore.Get(sim.PathParam(r, "spId"))
-		if !ok {
-			sim.AzureError(w, "Request_ResourceNotFound", "service principal not found", http.StatusNotFound)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, entraServicePrincipalJSON(sp))
-	})
+	srv.HandleFunc("GET /v1.0/servicePrincipals/{spId}/owners", handleGraphListServicePrincipalOwners)
+	srv.HandleFunc("GET /beta/servicePrincipals/{spId}/owners", handleGraphListServicePrincipalOwners)
+	srv.HandleFunc("POST /v1.0/servicePrincipals/{spId}/owners/$ref", handleGraphAddServicePrincipalOwnerRef)
+	srv.HandleFunc("POST /beta/servicePrincipals/{spId}/owners/$ref", handleGraphAddServicePrincipalOwnerRef)
+	srv.HandleFunc("DELETE /v1.0/servicePrincipals/{spId}/owners/{ownerId}/$ref", handleGraphRemoveServicePrincipalOwnerRef)
+	srv.HandleFunc("DELETE /beta/servicePrincipals/{spId}/owners/{ownerId}/$ref", handleGraphRemoveServicePrincipalOwnerRef)
+}
 
-	srv.HandleFunc("PATCH /v1.0/servicePrincipals/{spId}", func(w http.ResponseWriter, r *http.Request) {
-		id := sim.PathParam(r, "spId")
-		var req map[string]json.RawMessage
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		updated := entraServicePrincipalStore.Update(id, func(sp *EntraServicePrincipal) {
-			if raw, ok := req["displayName"]; ok {
-				var v string
-				if json.Unmarshal(raw, &v) == nil {
-					sp.DisplayName = v
-				}
-			}
-		})
-		if !updated {
-			sim.AzureError(w, "Request_ResourceNotFound", "service principal not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
+// entraServicePrincipalDoc renders a service principal in Graph's wire shape.
+func entraServicePrincipalDoc(r *http.Request, sp EntraServicePrincipal) map[string]any {
+	return graphDoc(r, "servicePrincipals", map[string]any{
+		"id":                   sp.ID,
+		"appId":                sp.AppID,
+		"displayName":          sp.DisplayName,
+		"servicePrincipalType": sp.ServicePrincipalType,
+		"passwordCredentials":  entraPasswordCredentialsJSON(sp.PasswordCredentials),
+	}, sp.Props)
+}
 
-	srv.HandleFunc("DELETE /v1.0/servicePrincipals/{spId}", func(w http.ResponseWriter, r *http.Request) {
-		if !entraServicePrincipalStore.Delete(sim.PathParam(r, "spId")) {
-			sim.AzureError(w, "Request_ResourceNotFound", "service principal not found", http.StatusNotFound)
+func handleGraphCreateServicePrincipal(w http.ResponseWriter, r *http.Request) {
+	body, err := graphDecodeBody(r)
+	if err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		AppID       string `json:"appId"`
+		DisplayName string `json:"displayName"`
+	}
+	if err := graphDecodeProps(body.Props, &req); err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.AppID == "" {
+		sim.AzureError(w, "Request_BadRequest", "appId is required", http.StatusBadRequest)
+		return
+	}
+	// Graph refuses a service principal whose appId names no application in
+	// the tenant, and terraform-provider-azuread retries on exactly that
+	// message while the application replicates.
+	app, ok := entraFindApplicationByAppID(req.AppID)
+	if !ok {
+		sim.AzureError(w, "Request_BadRequest",
+			fmt.Sprintf("The appId '%s' of the service principal does not reference a valid application object.", req.AppID),
+			http.StatusBadRequest)
+		return
+	}
+	displayName := req.DisplayName
+	// Graph resolves displayName from the backing application when omitted.
+	if displayName == "" {
+		displayName = app.DisplayName
+	}
+	for _, ownerID := range body.Binds["owners"] {
+		if _, ok := entraDirectoryObjectDoc(r, ownerID); !ok {
+			entraGraphNotFound(w, ownerID)
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
-	})
+	}
+	sp := EntraServicePrincipal{
+		ID:                   newGraphID(),
+		AppID:                req.AppID,
+		DisplayName:          displayName,
+		ServicePrincipalType: "Application",
+		Props:                graphMergeProps(nil, body.Props, entraServicePrincipalServiceOwned),
+	}
+	entraServicePrincipalStore.Put(sp.ID, sp)
+	entraAddOwners(sp.ID, body.Binds["owners"])
+	doc := entraServicePrincipalDoc(r, sp)
+	doc["@odata.context"] = "$metadata#servicePrincipals/$entity"
+	sim.WriteJSON(w, http.StatusCreated, doc)
+}
 
-	srv.HandleFunc("POST /v1.0/servicePrincipals/{spId}/addPassword", func(w http.ResponseWriter, r *http.Request) {
-		id := sim.PathParam(r, "spId")
-		cred, ok := entraParseAddPassword(w, r)
-		if !ok {
-			return
-		}
-		// Persist the credential without its secretText — Graph only returns
-		// secretText on the addPassword response, never on later reads.
-		updated := entraServicePrincipalStore.Update(id, func(sp *EntraServicePrincipal) {
-			sp.PasswordCredentials = append(sp.PasswordCredentials, entraStoredCredential(cred))
-		})
-		if !updated {
-			sim.AzureError(w, "Request_ResourceNotFound", "service principal not found", http.StatusNotFound)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, entraPasswordCredentialJSON(cred, true))
-	})
+func handleGraphListServicePrincipals(w http.ResponseWriter, r *http.Request) {
+	sps := entraServicePrincipalStore.List()
+	docs := make([]map[string]any, 0, len(sps))
+	for _, sp := range sps {
+		docs = append(docs, entraServicePrincipalDoc(r, sp))
+	}
+	docs, ok := graphFilterDocs(w, r, docs)
+	if !ok {
+		return
+	}
+	graphCollection(w, r, "$metadata#servicePrincipals", docs)
+}
 
-	srv.HandleFunc("POST /v1.0/servicePrincipals/{spId}/removePassword", func(w http.ResponseWriter, r *http.Request) {
-		id := sim.PathParam(r, "spId")
-		keyID, ok := entraParseRemovePassword(w, r)
-		if !ok {
-			return
-		}
-		removed := false
-		updated := entraServicePrincipalStore.Update(id, func(sp *EntraServicePrincipal) {
-			sp.PasswordCredentials, removed = entraDropCredential(sp.PasswordCredentials, keyID)
-		})
-		if !updated {
-			sim.AzureError(w, "Request_ResourceNotFound", "service principal not found", http.StatusNotFound)
-			return
-		}
-		if !removed {
-			sim.AzureError(w, "Request_ResourceNotFound",
-				fmt.Sprintf("No password credential found with keyId %s", keyID), http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+func handleGraphGetServicePrincipal(w http.ResponseWriter, r *http.Request) {
+	sp, ok := entraServicePrincipalStore.Get(sim.PathParam(r, "spId"))
+	if !ok {
+		entraGraphNotFound(w, sim.PathParam(r, "spId"))
+		return
+	}
+	doc := entraServicePrincipalDoc(r, sp)
+	doc["@odata.context"] = "$metadata#servicePrincipals/$entity"
+	sim.WriteJSON(w, http.StatusOK, graphApplySelect(r, doc))
+}
+
+func handleGraphUpdateServicePrincipal(w http.ResponseWriter, r *http.Request) {
+	id := sim.PathParam(r, "spId")
+	body, err := graphDecodeBody(r)
+	if err != nil {
+		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	updated := entraServicePrincipalStore.Update(id, func(sp *EntraServicePrincipal) {
+		graphSetString(body.Props, "displayName", &sp.DisplayName)
+		sp.Props = graphMergeProps(sp.Props, body.Props, entraServicePrincipalServiceOwned)
 	})
+	if !updated {
+		entraGraphNotFound(w, id)
+		return
+	}
+	entraAddOwners(id, body.Binds["owners"])
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphDeleteServicePrincipal(w http.ResponseWriter, r *http.Request) {
+	id := sim.PathParam(r, "spId")
+	if !entraServicePrincipalStore.Delete(id) {
+		entraGraphNotFound(w, id)
+		return
+	}
+	entraDropOwners(id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphServicePrincipalAddPassword(w http.ResponseWriter, r *http.Request) {
+	id := sim.PathParam(r, "spId")
+	cred, ok := entraParseAddPassword(w, r)
+	if !ok {
+		return
+	}
+	// Persist the credential without its secretText — Graph only returns
+	// secretText on the addPassword response, never on later reads.
+	updated := entraServicePrincipalStore.Update(id, func(sp *EntraServicePrincipal) {
+		sp.PasswordCredentials = append(sp.PasswordCredentials, entraStoredCredential(cred))
+	})
+	if !updated {
+		entraGraphNotFound(w, id)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, entraPasswordCredentialJSON(cred, true))
+}
+
+func handleGraphServicePrincipalRemovePassword(w http.ResponseWriter, r *http.Request) {
+	id := sim.PathParam(r, "spId")
+	keyID, ok := entraParseRemovePassword(w, r)
+	if !ok {
+		return
+	}
+	removed := false
+	updated := entraServicePrincipalStore.Update(id, func(sp *EntraServicePrincipal) {
+		sp.PasswordCredentials, removed = entraDropCredential(sp.PasswordCredentials, keyID)
+	})
+	if !updated {
+		entraGraphNotFound(w, id)
+		return
+	}
+	if !removed {
+		sim.AzureError(w, "Request_ResourceNotFound",
+			fmt.Sprintf("No password credential found with keyId %s", keyID), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGraphListServicePrincipalOwners(w http.ResponseWriter, r *http.Request) {
+	handleGraphListOwners(w, r, sim.PathParam(r, "spId"))
+}
+
+func handleGraphAddServicePrincipalOwnerRef(w http.ResponseWriter, r *http.Request) {
+	handleGraphAddOwnerRef(w, r, sim.PathParam(r, "spId"))
+}
+
+func handleGraphRemoveServicePrincipalOwnerRef(w http.ResponseWriter, r *http.Request) {
+	handleGraphRemoveOwnerRef(w, r, sim.PathParam(r, "spId"), sim.PathParam(r, "ownerId"))
+}
+
+// ---------------------------------------------------------------------------
+// shared helpers
+// ---------------------------------------------------------------------------
+
+// graphDecodeProps re-encodes the entity's own properties and decodes them into
+// the typed shape a handler models, so a handler reads the members it owns
+// without a second pass over the request body.
+func graphDecodeProps(props map[string]json.RawMessage, out any) error {
+	encoded, err := json.Marshal(props)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(encoded, out)
+}
+
+// graphSetString applies a PATCH member to a typed string field, leaving it
+// untouched when the member is absent from the body.
+func graphSetString(props map[string]json.RawMessage, key string, dst *string) {
+	raw, ok := props[key]
+	if !ok {
+		return
+	}
+	var v string
+	if json.Unmarshal(raw, &v) == nil {
+		*dst = v
+	}
+}
+
+// graphSetBool applies a PATCH member to a typed bool field.
+func graphSetBool(props map[string]json.RawMessage, key string, dst *bool) {
+	raw, ok := props[key]
+	if !ok {
+		return
+	}
+	var v bool
+	if json.Unmarshal(raw, &v) == nil {
+		*dst = v
+	}
 }
 
 // entraParseAddPassword reads an addPassword request body and mints the new
@@ -850,42 +1303,6 @@ func entraClientSecretMatches(app EntraApplication, secret string) bool {
 	return false
 }
 
-// parseGraphEqFilter extracts the value from a Graph OData filter of the form
-// "<field> eq 'value'". Returns "" when the filter doesn't target field.
-func parseGraphEqFilter(filter, field string) string {
-	if !strings.Contains(strings.ToLower(filter), strings.ToLower(field)) {
-		return ""
-	}
-	if idx := strings.Index(filter, "'"); idx >= 0 {
-		if end := strings.IndexByte(filter[idx+1:], '\''); end >= 0 {
-			return filter[idx+1 : idx+1+end]
-		}
-	}
-	return ""
-}
-
-func entraApplicationJSON(a EntraApplication) map[string]any {
-	return map[string]any{
-		"@odata.context":      "$metadata#applications/$entity",
-		"id":                  a.ID,
-		"appId":               a.AppID,
-		"displayName":         a.DisplayName,
-		"signInAudience":      a.SignInAudience,
-		"passwordCredentials": entraPasswordCredentialsJSON(a.PasswordCredentials),
-	}
-}
-
-func entraServicePrincipalJSON(sp EntraServicePrincipal) map[string]any {
-	return map[string]any{
-		"@odata.context":       "$metadata#servicePrincipals/$entity",
-		"id":                   sp.ID,
-		"appId":                sp.AppID,
-		"displayName":          sp.DisplayName,
-		"servicePrincipalType": sp.ServicePrincipalType,
-		"passwordCredentials":  entraPasswordCredentialsJSON(sp.PasswordCredentials),
-	}
-}
-
 // entraPasswordCredentialJSON emits a password credential in Graph's wire
 // shape. secretText is included only on the addPassword response
 // (withSecret=true); every later read serves it as null, exactly as real
@@ -914,23 +1331,14 @@ func entraPasswordCredentialsJSON(creds []EntraPasswordCredential) []map[string]
 	return out
 }
 
-func handleGraphMemberOf(w http.ResponseWriter, r *http.Request) {
-	// Real Microsoft Graph resolves /me from the bearer token's oid claim and
-	// answers a tokenless request with 401 InvalidAuthenticationToken — there
-	// is no anonymous /me.
-	oid, ok := parseOIDFromBearer(r)
-	if !ok {
-		sim.AzureError(w, "InvalidAuthenticationToken",
-			"Access token is empty or carries no oid claim.", http.StatusUnauthorized)
-		return
-	}
-
-	baseURL := azureAuthBaseURL(r)
-	values := []map[string]any{}
-
+// entraMemberOfDocs renders the groups one directory object belongs to.
+func entraMemberOfDocs(r *http.Request, objectID string) []map[string]any {
 	memberships := entraGroupMembershipStore.Filter(func(m entraGroupMembership) bool {
-		return m.UserID == oid
+		return m.MemberID == objectID
 	})
+	baseURL := azureAuthBaseURL(r)
+	version := graphVersionPrefix(r)
+	docs := make([]map[string]any, 0, len(memberships))
 	seen := map[string]bool{}
 	for _, m := range memberships {
 		if seen[m.GroupID] {
@@ -941,39 +1349,23 @@ func handleGraphMemberOf(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue
 		}
-		values = append(values, map[string]any{
-			"@odata.type": "#microsoft.graph.group",
-			"@odata.id":   fmt.Sprintf("%s/v1.0/directoryObjects/%s", baseURL, grp.ID),
-			"id":          grp.ID,
-			"displayName": grp.DisplayName,
-		})
+		doc := entraGroupDoc(r, grp)
+		doc["@odata.type"] = "#microsoft.graph.group"
+		doc["@odata.id"] = fmt.Sprintf("%s%s/directoryObjects/%s", baseURL, version, grp.ID)
+		docs = append(docs, doc)
 	}
-
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"@odata.context": "$metadata#directoryObjects",
-		"value":          values,
-	})
+	return docs
 }
 
-func entraGraphGroupJSON(grp EntraGraphGroup) map[string]any {
-	return map[string]any{
-		"@odata.context":  "$metadata#groups/$entity",
-		"id":              grp.ID,
-		"displayName":     grp.DisplayName,
-		"description":     grp.Description,
-		"mailNickname":    grp.MailNickname,
-		"securityEnabled": grp.SecurityEnabled,
-		"mailEnabled":     grp.MailEnabled,
+func handleGraphMemberOf(w http.ResponseWriter, r *http.Request) {
+	// Real Microsoft Graph resolves /me from the bearer token's oid claim and
+	// answers a tokenless request with 401 InvalidAuthenticationToken — there
+	// is no anonymous /me.
+	oid, ok := parseOIDFromBearer(r)
+	if !ok {
+		sim.AzureError(w, "InvalidAuthenticationToken",
+			"Access token is empty or carries no oid claim.", http.StatusUnauthorized)
+		return
 	}
-}
-
-func entraGraphUserJSON(id, displayName, userPrincipalName, mail string, accountEnabled bool) map[string]any {
-	return map[string]any{
-		"@odata.context":    "$metadata#users/$entity",
-		"id":                id,
-		"displayName":       displayName,
-		"userPrincipalName": userPrincipalName,
-		"mail":              mail,
-		"accountEnabled":    accountEnabled,
-	}
+	graphCollection(w, r, "$metadata#directoryObjects", entraMemberOfDocs(r, oid))
 }

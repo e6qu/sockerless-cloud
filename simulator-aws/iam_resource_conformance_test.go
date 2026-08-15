@@ -1077,8 +1077,12 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // AWS Budgets' 3: its reference is vendored for the PassRole table and it has
 // no derivation case at all; the three are its tagging operations, and closing
 // them means giving the service a generated table and an extractor.
-// AWS Step Functions' 3: creating a state machine, an activity or an alias
-// names an object that has no ARN yet.
+// AWS Step Functions' 1: creating an alias names the alias, while the type the
+// call authorizes against is the state machine the alias points at, which the
+// request carries only inside a routing entry's version ARN. Creating a state
+// machine or an activity derives instead of falling back — both ARN formats
+// end in the name the create request supplies and carry nothing AWS assigns,
+// so the ARN is fully determined before the resource exists.
 // AWS Organizations' 2: CreatePolicy names a policy that does not exist yet,
 // and DescribeEffectivePolicy takes a target that may be a root, an
 // organizational unit or an account while the reference declares only the
@@ -1098,7 +1102,7 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // through the operation record to the namespace and service the operation
 // acted on — the simulator's own state, the same resolution Amazon RDS uses
 // for a custom engine version.
-const iamDerivationCoverageFloor = 1786
+const iamDerivationCoverageFloor = 1788
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

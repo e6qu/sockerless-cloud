@@ -101,6 +101,7 @@ table_for_file() {
     azure:insights|azure:monitor) echo "azure-monitor" ;;
     azure:subscription|azure:subscription_alias) echo "azure-subscription" ;;
     azure:cosmos*) echo "azure-cosmos" ;;
+    azure:entra*) echo "azure-entra" ;;
     azure:eventgrid*) echo "azure-eventgrid" ;;
     azure:logicapps*) echo "azure-logicapps" ;;
     azure:postgres*) echo "azure-postgresql-flexible-server" ;;

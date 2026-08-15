@@ -1,5 +1,113 @@
 # WHAT WE DID
 
+## 2026-08-15 — Eleventh polish pass: every registry authenticates, moves reach twenty-nine families, and the "flaky" tests were real bugs
+
+Every container registry in the project now authenticates, each against its own
+published contract rather than a copy of another cloud's. Amazon ECR answers
+Basic — captured from a real registry as `Www-Authenticate: Basic
+realm="…",service="ecr.amazonaws.com"` — with the whole authorization token as
+the Basic parameter, and `GetAuthorizationToken`, which had returned a
+constant, mints real material with the documented twelve-hour expiry. Google
+Artifact Registry answers a Bearer challenge for an absent credential but 401
+with no challenge for a rejected one, and `403 DENIED` naming the IAM
+permission when an authenticated caller cannot reach a repository. Two things
+were deliberately not built: ECR does not refuse a token used against another
+registry, because AWS documents one token for every registry the principal can
+reach; and Artifact Registry does not enforce token scope, because a token
+minted for one repository was proved by experiment to serve another. Either
+would have made a simulator stricter than the service it imitates. The Azure
+registry's content stores became per-registry, so two registries no longer
+share a repository name.
+
+Cross-resource-group moves went from eleven type keys to twenty-nine, reaching
+Microsoft.Network. What made that family possible is a general
+inbound-reference repointing pass: every store a build creates is recorded, and
+after a hook runs the mover rewrites both keys beneath the moved identifier and
+any string naming it at an identifier boundary, so identifiers embedded in URLs
+are caught too. Scanning every store beats a hand-listed set, which rots
+silently. The types Azure itself refuses stay refused, pinned by tests at three
+levels — partner registrations, private link services, application gateways,
+NAT gateways, network profiles and virtual network taps are documented
+unmovable, and private endpoints are conditional on the linked resource's type.
+
+An AWS Lambda function's initialisation no longer eats its timeout. AWS
+documents that Init ends when the runtime requests its first invocation and
+that the timeout bounds Invoke; its own example shows a three-second function
+reporting a duration of 3004.92 ms beside an init duration of 111.23 ms. The
+invocation timer starts when the runtime asks for work, a ten-second Init limit
+is enforced with the documented timeout report and a re-created execution
+environment, and billed duration is derived by a formula that reproduces all
+three published examples exactly.
+
+A Google Compute Engine guest that never finished booting turned out to be
+neither the recorded missing nested virtualisation nor a deadline too short.
+Firecracker was launched with `--enable-pci`, and on aarch64 the guest never
+receives the completion interrupt for its first block request — zero bytes were
+ever read from the root filesystem while the vcpu spun. Raising the budget to
+fifteen minutes produced no further console output, which settled by
+measurement that it hangs rather than boots slowly. Removing the flag reaches
+userspace in 31 seconds.
+
+The Microsoft Entra Terraform surface works against the real `azuread`
+provider through one coordinate, closing a bug whose premise had been false
+since 2023: the provider has supported a Graph endpoint override all along. The
+gap was read off the wire rather than guessed — the provider sends no
+consistency header at all for these resources; what was missing was the whole
+Graph `beta` endpoint it deliberately uses to work around documented v1.0
+omissions, owner and member reference collections, the manager navigation
+property, polymorphic directory objects, and round-tripping every property the
+client writes.
+
+App Service instances and processes are read from the live workload container —
+the container is the instance and the engine's process table is the process
+list — taking that surface from 503 to 519 of 692. Sixteen operations are
+deliberately unserved with a demonstrated reason rather than zero-filled: the
+engine exposes exactly one process-inspection primitive, which reports no
+loaded modules and no dumps and can signal only the main process.
+
+Three registry and data-plane authorities went in beside those. Amazon ECR
+stopped creating repositories implicitly, refusing a repository it has no
+record of the way the real service does while honouring the one documented
+exception that makes the refusal correct rather than over-broad. Azure Cosmos
+DB verifies the shared-key signature on every data-plane path through a
+middleware a new route cannot skip, pinned against Microsoft's own published
+encoding vector, with resource tokens refused rather than accepted unchecked
+because their construction is not published. An AWS Lambda invocation reports
+the memory it actually used, measured by polling the container engine, and
+omits the figure entirely when the engine cannot supply one.
+
+Google Compute Engine's insert became asynchronous, returning a running
+operation and booting behind a context detached from the request, so a client
+that gives up no longer destroys the machine it asked for; the operation reads
+and lists that had been rendering invented completions and hardcoded empty sets
+now read the record. A Logic Apps callback URL survives a resource-group move
+byte-identical, and a move onto an occupied identifier is refused with the only
+error shape any real failed move attests.
+
+Two harness defects that had been quietly disabling coverage were also found by
+measurement. The shared registry-trust helper was a no-op inside the Linux
+harness, on the false premise that the engine already treated loopback
+registries as insecure — it does not, and the engine reads its registry
+configuration once per service lifetime while the harness pins that service for
+its whole run, so trust is installed as a certificate authority through a path
+the engine reads per operation, and the insecure path now fails loudly rather
+than silently doing nothing. Separately, the simulator was handing the engine
+bind-mount sources that the engine resolves on its own host rather than inside
+the harness container, so workloads mounted empty directories; the harness now
+shares one engine-host directory as the simulator's temporary root, at a
+deliberately short path because a longer one overflows the Firecracker API
+socket's address limit.
+
+Finally, the test failures repeatedly dismissed as load-sensitive flakiness
+were three real defects. All six suites built harness images under global tags
+in one daemon, so concurrent suites clobbered each other mid-run and a test
+failed on an image its own setup had built. A harness used plain `docker build`
+on a driver that leaves the image in the build cache only, and appeared to work
+solely because another suite populated the store. And `docker run --rm` leaks
+its container when the test binary is killed, so a stale Cosmos emulator
+starved every later run — removing one three-hour-old leak turned a repeated
+280-second failure into a 13-second pass.
+
 ## 2026-08-15 — Tenth polish pass: registry and publish authentication, engine readiness, six more move families
 
 Both simulator data planes that authenticated nobody now authenticate

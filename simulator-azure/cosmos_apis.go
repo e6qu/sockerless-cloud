@@ -36,9 +36,14 @@ type CosmosResource struct {
 }
 
 // cosmosKeyGenRow tracks how many times a given account key role has been
-// regenerated so RegenerateKey yields genuinely new key material.
+// regenerated so RegenerateKey yields genuinely new key material. Key holds
+// material pinned onto the role rather than derived from the account's
+// resource ID, which is what carries an account's keys unchanged across a
+// cross-resource-group move; the next RegenerateKey clears the pin and returns
+// the role to derived material.
 type cosmosKeyGenRow struct {
-	N int `json:"n"`
+	N   int    `json:"n"`
+	Key string `json:"key,omitempty"`
 }
 
 var (
@@ -491,6 +496,10 @@ func handleCosmosRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// cosmosKeyRoles are the four master-key roles a Cosmos DB account serves
+// through listKeys and rotates individually through regenerateKey.
+var cosmosKeyRoles = []string{"primary", "secondary", "primary-readonly", "secondary-readonly"}
+
 // cosmosKeyRole maps the KeyKind enum the SDK sends to the internal key role.
 func cosmosKeyRole(kind string) string {
 	switch strings.ToLower(kind) {
@@ -510,6 +519,9 @@ func cosmosBumpKeyGen(accountID, role string) {
 	key := accountID + "|" + role
 	g, _ := cosmosKeyGens.Get(key)
 	g.N++
+	// A regenerate always yields derived material: it clears any pin a
+	// cross-resource-group move left on the role.
+	g.Key = ""
 	cosmosKeyGens.Put(key, g)
 }
 
@@ -517,10 +529,28 @@ func cosmosBumpKeyGen(accountID, role string) {
 // seed each time the role has been regenerated.
 func cosmosKeyMaterial(accountID, role string) string {
 	g, _ := cosmosKeyGens.Get(accountID + "|" + role)
+	if g.Key != "" {
+		return g.Key
+	}
 	if g.N == 0 {
 		return simListKey32(accountID, role)
 	}
 	return simListKey32(accountID, fmt.Sprintf("%s-gen%d", role, g.N))
+}
+
+// pinCosmosKeys carries an account's four key roles onto the resource ID a
+// cross-resource-group move is about to create. The material is seeded by the
+// account's resource ID, which embeds the resource group, so a move that only
+// re-keyed the record would silently rotate every master key an application
+// holds — which real Azure Cosmos DB never does.
+func pinCosmosKeys(oldID, newID string) {
+	for _, role := range cosmosKeyRoles {
+		pinned := cosmosKeyMaterial(oldID, role)
+		row, _ := cosmosKeyGens.Get(oldID + "|" + role)
+		cosmosKeyGens.Delete(oldID + "|" + role)
+		row.Key = pinned
+		cosmosKeyGens.Put(newID+"|"+role, row)
+	}
 }
 
 // handleCosmosCheckNameExists serves HEAD .../databaseAccountNames/{accountName}

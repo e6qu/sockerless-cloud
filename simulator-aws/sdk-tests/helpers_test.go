@@ -192,7 +192,7 @@ var (
 
 const (
 	terraformECSBaseImage = "docker.io/hashicorp/terraform:1.15.8"
-	terraformECSImage     = "sockerless-terraform-aws:test"
+	terraformECSImage     = "sockerless-terraform-aws:aws-sdk"
 )
 
 func sdkConfig() aws.Config {
@@ -316,15 +316,15 @@ func TestMain(m *testing.M) {
 	workloadPlatform := nativeDockerPlatform()
 
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
-	evalImageName = "sockerless-eval-arithmetic:test"
+	evalImageName = "sockerless-eval-arithmetic:aws-sdk"
 	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
 
 	lambdaHandlerDir, _ := filepath.Abs("../../testdata/lambda-runtime-handler")
-	lambdaHandlerImageName = "sockerless-lambda-runtime-handler:test"
+	lambdaHandlerImageName = "sockerless-lambda-runtime-handler:aws-sdk"
 	buildGoScratchImage(lambdaHandlerImageName, lambdaHandlerDir, "lambda-runtime-handler", workloadPlatform)
 
 	containerCommandDir, _ := filepath.Abs("../../testdata/container-command")
-	containerCommandImage = "sockerless-container-command:test"
+	containerCommandImage = "sockerless-container-command:aws-sdk"
 	buildGoScratchImage(containerCommandImage, containerCommandDir, "container-command", workloadPlatform)
 
 	// Pre-pull busybox up front (with retry) — it backs the awsvpc netns

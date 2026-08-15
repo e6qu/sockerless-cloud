@@ -10,7 +10,7 @@
 # BUG-2646 — Cloud Run WorkerPoolScaling automatic-scaling members. Google has
 # not published scalingMode / minInstanceCount / maxInstanceCount in the Cloud
 # Run v2 Discovery document or the REST reference (checked through revision
-# 20260717), but the API serves them: gcloud's own generated Cloud Run v2
+# 20260807), but the API serves them: gcloud's own generated Cloud Run v2
 # client and the google Terraform provider both send and read them, and
 # `manual_instance_count` sits at proto field 6 with 1-5 unpublished. The
 # simulator models what the official clients speak, so the validator sees three

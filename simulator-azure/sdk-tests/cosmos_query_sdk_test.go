@@ -35,6 +35,7 @@ func cosmosDoc(t *testing.T, method, account, path, body string, headers map[str
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
@@ -52,6 +53,7 @@ func cosmosQuery(t *testing.T, account, coll, query string, params []map[string]
 	req.Header.Set("x-ms-cosmos-account", account)
 	req.Header.Set("Content-Type", "application/query+json")
 	req.Header.Set("x-ms-documentdb-isquery", "true")
+	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()

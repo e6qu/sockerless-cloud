@@ -86,6 +86,7 @@ func registerACR(srv *sim.Server) {
 		Blobs:     sim.MakeStore[sim.OCIBlob](srv.DB(), "acr_blobs"),
 		Uploads:   sim.MakeStore[sim.OCIUpload](srv.DB(), "acr_uploads"),
 		Authorize: acrAuthorizeV2,
+		Scope:     acrDataPlaneScope,
 	}
 	// cacheRules stores pull-through cache rules keyed by ARM resource ID.
 	cacheRules := sim.MakeStore[ACRCacheRule](srv.DB(), "acr_cache_rules")
@@ -423,11 +424,14 @@ func registerACR(srv *sim.Server) {
 		if !acrAuthorize(w, r, acrRegistryCatalogResource(acrActionAll)) {
 			return
 		}
+		// A registry's catalog is its own: only the manifests stored in the
+		// scope of the registry the Host addresses are enumerated.
+		scope := acrDataPlaneScope(r)
 		all := reg.Manifests.List()
 		seen := map[string]bool{}
 		var repos []string
 		for _, m := range all {
-			if m.Repo != "" && !seen[m.Repo] {
+			if m.Scope == scope && m.Repo != "" && !seen[m.Repo] {
 				seen[m.Repo] = true
 				repos = append(repos, m.Repo)
 			}
@@ -466,8 +470,9 @@ func registerACR(srv *sim.Server) {
 		if !acrAuthorize(w, r, acrRepositoryResource(repoName, acrActionMetadataRead, acrActionMetadataRead)) {
 			return
 		}
+		scope := acrDataPlaneScope(r)
 		tags := reg.Manifests.Filter(func(m sim.OCIManifest) bool {
-			return m.Repo == repoName && m.Ref != "" && !strings.HasPrefix(m.Ref, "sha256:")
+			return m.Scope == scope && m.Repo == repoName && m.Ref != "" && !strings.HasPrefix(m.Ref, "sha256:")
 		})
 		tagList := make([]map[string]any, 0, len(tags))
 		for _, m := range tags {

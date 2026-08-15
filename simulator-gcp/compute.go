@@ -98,11 +98,35 @@ var gcpAutoModeSubnetCIDRs = map[string]string{
 	"us-west4":                "10.182.0.0/20",
 }
 
-// ComputeOperationRecord is one operation the sim has handed out, retained so
-// an operations GET/wait for an unknown name 404s instead of fabricating DONE.
+// ComputeOperationRecord is one operation the sim has handed out. It carries
+// the operation's whole observable state, so a GET or a wait reports what the
+// operation is actually doing rather than a fabricated verdict, and so an
+// operation issued before a restart still resolves.
+//
+// The members are the `compute#operation` resource's own, from the Compute
+// Engine v1 Discovery document: status is one of `PENDING`, `RUNNING` or
+// `DONE`; progress "ranges from 0 to 100"; endTime is "the time that this
+// operation was completed"; and error, httpErrorStatusCode and
+// httpErrorMessage are populated only "if errors are generated during
+// processing of the operation".
 type ComputeOperationRecord struct {
-	Name       string `json:"name"`
-	TargetLink string `json:"targetLink,omitempty"`
+	Name          string `json:"name"`
+	ID            string `json:"id,omitempty"`
+	Project       string `json:"project,omitempty"`
+	Scope         string `json:"scope,omitempty"` // "global", "zones/{zone}" or "regions/{region}"
+	TargetLink    string `json:"targetLink,omitempty"`
+	TargetID      string `json:"targetId,omitempty"`
+	OperationType string `json:"operationType,omitempty"`
+	Status        string `json:"status,omitempty"`
+	Progress      int    `json:"progress"`
+	InsertTime    string `json:"insertTime,omitempty"`
+	StartTime     string `json:"startTime,omitempty"`
+	EndTime       string `json:"endTime,omitempty"`
+
+	ErrorCode           string `json:"errorCode,omitempty"`
+	ErrorMessage        string `json:"errorMessage,omitempty"`
+	HTTPErrorStatusCode int    `json:"httpErrorStatusCode,omitempty"`
+	HTTPErrorMessage    string `json:"httpErrorMessage,omitempty"`
 }
 
 // computeOpRegistry records every operation the sim hands out, in the same
@@ -110,42 +134,170 @@ type ComputeOperationRecord struct {
 // issued before a restart still resolves. registerCompute wires it.
 var computeOpRegistry sim.Store[ComputeOperationRecord]
 
-func recordComputeOp(name, targetLink string) {
-	computeOpRegistry.Put(name, ComputeOperationRecord{Name: name, TargetLink: targetLink})
+func recordComputeOp(rec ComputeOperationRecord) {
+	computeOpRegistry.Put(rec.Name, rec)
 }
 
 func computeOpKnown(name string) bool { _, ok := computeOpRegistry.Get(name); return ok }
+
+// computeOpFinish moves a running operation to DONE. A nil err completes it
+// successfully; a non-nil one populates the error members Compute Engine
+// reports for an operation that failed while it was being processed.
+//
+// `INTERNAL_ERROR` is the error type identifier Compute Engine reports when
+// the work behind an operation does not complete. Google's Compute Engine
+// known-issues page describes the shape exactly — an operation that "gets
+// stuck in a RUNNING state at 0% progress and eventually fails with an
+// INTERNAL_ERROR" — which is also the state an operation starts in here. The
+// accompanying HTTP status is the one the simulator answers when it cannot
+// bring a machine up.
+func computeOpFinish(name string, err error) {
+	computeOpRegistry.Update(name, func(rec *ComputeOperationRecord) {
+		rec.Status = "DONE"
+		rec.Progress = 100
+		rec.EndTime = time.Now().UTC().Format(time.RFC3339)
+		if err == nil {
+			return
+		}
+		rec.ErrorCode = "INTERNAL_ERROR"
+		rec.ErrorMessage = err.Error()
+		rec.HTTPErrorStatusCode = http.StatusServiceUnavailable
+		rec.HTTPErrorMessage = "SERVICE UNAVAILABLE"
+	})
+}
+
+// computeOpJSON renders a recorded operation as the `compute#operation`
+// resource, which is the identical shape whether it is returned by the method
+// that started the operation or by a later poll of it.
+func computeOpJSON(rec ComputeOperationRecord) map[string]any {
+	path := fmt.Sprintf("projects/%s/%s/operations/%s", rec.Project, rec.Scope, rec.Name)
+	op := map[string]any{
+		"kind":       "compute#operation",
+		"id":         rec.ID,
+		"name":       rec.Name,
+		"status":     rec.Status,
+		"selfLink":   "https://www.googleapis.com/compute/v1/" + path,
+		"progress":   rec.Progress,
+		"insertTime": rec.InsertTime,
+		"startTime":  rec.StartTime,
+	}
+	if rec.OperationType != "" {
+		op["operationType"] = rec.OperationType
+	}
+	if rec.TargetLink != "" {
+		op["targetLink"] = rec.TargetLink
+	}
+	if rec.TargetID != "" {
+		op["targetId"] = rec.TargetID
+	}
+	if rec.EndTime != "" {
+		op["endTime"] = rec.EndTime
+	}
+	if region, ok := strings.CutPrefix(rec.Scope, "regions/"); ok {
+		op["region"] = fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/regions/%s", rec.Project, region)
+	}
+	if zone, ok := strings.CutPrefix(rec.Scope, "zones/"); ok {
+		op["zone"] = fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/zones/%s", rec.Project, zone)
+	}
+	if rec.ErrorCode != "" {
+		op["error"] = map[string]any{
+			"errors": []map[string]any{{"code": rec.ErrorCode, "message": rec.ErrorMessage}},
+		}
+		op["httpErrorStatusCode"] = rec.HTTPErrorStatusCode
+		op["httpErrorMessage"] = rec.HTTPErrorMessage
+	}
+	return op
+}
+
+// computeWriteOperation answers an operations GET from the record. An
+// operation name the sim never handed out is not found, rather than answered
+// with a fabricated verdict.
+func computeWriteOperation(w http.ResponseWriter, name string) {
+	rec, ok := computeOpRegistry.Get(name)
+	if !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, computeOpJSON(rec))
+}
+
+// computeOperationWaitBudget is how long a `wait` call blocks before returning
+// the operation's current state. Compute Engine documents that
+// zoneOperations.wait "waits for the specified Operation resource to return as
+// DONE or for the request to approach the 2 minute deadline, and retrieves the
+// specified Operation resource", and that it "waits for no more than the 2
+// minutes and then returns the current state of the operation, which might be
+// DONE or still in progress".
+const computeOperationWaitBudget = 2 * time.Minute
+
+// computeInstanceBootBudget is how long the boot behind an insert operation is
+// given before it is abandoned and the operation reports the failure. It is
+// deliberately longer than computeOperationWaitBudget: a boot that overruns a
+// client's patience must still reach a verdict the next poll can read, rather
+// than being cut short by whoever stopped waiting first.
+const computeInstanceBootBudget = 5 * time.Minute
+
+// computeWaitOperation implements that contract: it polls the record until the
+// operation is DONE, the budget runs out, or the client goes away, then answers
+// with whatever state the operation is in.
+func computeWaitOperation(w http.ResponseWriter, r *http.Request, name string) {
+	deadline := time.Now().Add(computeOperationWaitBudget)
+	for {
+		rec, ok := computeOpRegistry.Get(name)
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
+			return
+		}
+		if rec.Status == "DONE" || time.Now().After(deadline) {
+			sim.WriteJSON(w, http.StatusOK, computeOpJSON(rec))
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
 
 func newComputeOp(project, scope string, targetLink string) map[string]any {
 	return newComputeOpWithType(project, scope, targetLink, "operation")
 }
 
+// newComputeOpWithType records and renders an operation whose work the request
+// that produced it already completed, so it is DONE the moment it is handed
+// out — which is what Compute Engine returns for the resource writes that do
+// not have to bring anything up.
 func newComputeOpWithType(project, scope string, targetLink string, operationType string) map[string]any {
-	opID := generateUUID()[:8]
+	rec := newComputeOpRecord(project, scope, targetLink, operationType)
 	now := time.Now().UTC().Format(time.RFC3339)
-	path := fmt.Sprintf("projects/%s/%s/operations/operation-%s", project, scope, opID)
-	recordComputeOp("operation-"+opID, targetLink)
-	op := map[string]any{
-		"kind":          "compute#operation",
-		"id":            computeNumericID(),
-		"name":          "operation-" + opID,
-		"operationType": operationType,
-		"status":        "DONE",
-		"selfLink":      "https://www.googleapis.com/compute/v1/" + path,
-		"targetLink":    targetLink,
-		"targetId":      computeNumericID(),
-		"progress":      100,
-		"insertTime":    now,
-		"startTime":     now,
-		"endTime":       now,
+	rec.Status = "DONE"
+	rec.Progress = 100
+	rec.EndTime = now
+	recordComputeOp(rec)
+	return computeOpJSON(rec)
+}
+
+// newComputeOpRecord mints an operation record in the state Compute Engine
+// starts one in: RUNNING, with no end time and no progress yet. A caller that
+// completes the work inside the request marks it DONE before handing it out;
+// one that continues behind the response leaves it running and calls
+// computeOpFinish when the work settles.
+func newComputeOpRecord(project, scope, targetLink, operationType string) ComputeOperationRecord {
+	now := time.Now().UTC().Format(time.RFC3339)
+	return ComputeOperationRecord{
+		Name:          "operation-" + generateUUID()[:8],
+		ID:            computeNumericID(),
+		Project:       project,
+		Scope:         scope,
+		TargetLink:    targetLink,
+		TargetID:      computeNumericID(),
+		OperationType: operationType,
+		Status:        "RUNNING",
+		Progress:      0,
+		InsertTime:    now,
+		StartTime:     now,
 	}
-	if region, ok := strings.CutPrefix(scope, "regions/"); ok {
-		op["region"] = fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/regions/%s", project, region)
-	}
-	if zone, ok := strings.CutPrefix(scope, "zones/"); ok {
-		op["zone"] = fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/zones/%s", project, zone)
-	}
-	return op
 }
 
 // computeConflict writes the 409 ALREADY_EXISTS response real GCP returns
@@ -1368,57 +1520,15 @@ func registerCompute(srv *sim.Server) {
 
 	// Global operations (for network creates, deletes, etc.)
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/operations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		name := sim.PathParam(r, "name")
-		if !computeOpKnown(name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":     "compute#operation",
-			"id":       computeNumericID(),
-			"name":     name,
-			"status":   "DONE",
-			"selfLink": fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/global/operations/%s", project, name),
-			"progress": 100,
-		})
+		computeWriteOperation(w, sim.PathParam(r, "name"))
 	})
 
 	// Regional operations (for subnetwork creates, deletes, etc.)
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/operations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		region := sim.PathParam(r, "region")
-		name := sim.PathParam(r, "name")
-		if !computeOpKnown(name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":     "compute#operation",
-			"id":       computeNumericID(),
-			"name":     name,
-			"status":   "DONE",
-			"selfLink": fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/regions/%s/operations/%s", project, region, name),
-			"progress": 100,
-		})
+		computeWriteOperation(w, sim.PathParam(r, "name"))
 	})
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/operations/{name}/wait", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		region := sim.PathParam(r, "region")
-		name := sim.PathParam(r, "name")
-		if !computeOpKnown(name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":     "compute#operation",
-			"id":       computeNumericID(),
-			"name":     name,
-			"status":   "DONE",
-			"selfLink": fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/regions/%s/operations/%s", project, region, name),
-			"region":   fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/regions/%s", project, region),
-			"progress": 100,
-		})
+		computeWaitOperation(w, r, sim.PathParam(r, "name"))
 	})
 
 	registerComputeCatalog(srv)
@@ -2051,44 +2161,34 @@ func registerComputeCatalog(srv *sim.Server) {
 	})
 }
 
+// computeZoneOp records and renders a zonal operation whose work is already
+// complete when the response is written.
 func computeZoneOp(project, zone, target, opType string) map[string]any {
-	opID := generateUUID()[:8]
-	now := time.Now().UTC().Format(time.RFC3339)
-	path := fmt.Sprintf("projects/%s/zones/%s/operations/operation-%s", project, zone, opID)
-	recordComputeOp("operation-"+opID, target)
-	return map[string]any{
-		"kind":          "compute#operation",
-		"id":            computeNumericID(),
-		"name":          "operation-" + opID,
-		"operationType": opType,
-		"status":        "DONE",
-		"selfLink":      "https://www.googleapis.com/compute/v1/" + path,
-		"targetLink":    target,
-		"targetId":      computeNumericID(),
-		"zone":          fmt.Sprintf("projects/%s/zones/%s", project, zone),
-		"progress":      100,
-		"insertTime":    now,
-		"startTime":     now,
-		"endTime":       now,
-	}
+	return newComputeOpWithType(project, "zones/"+zone, target, opType)
+}
+
+// computeInstancePreRunning is the set of statuses an instance holds while an
+// insert operation is still bringing it up, before it reaches RUNNING.
+func computeInstancePreRunning(status ComputeInstanceStatus) bool {
+	return status == ComputeInstanceProvisioning || status == ComputeInstanceStaging
 }
 
 // recoverComputeInstances transitions persisted instances that claim to be
-// running (or still staging) to TERMINATED when their real backing — the
-// Firecracker VM, its tap NIC, and the metadata IP mapping — did not survive
-// the control-plane restart. Real Compute Engine reports an instance whose VM
-// is gone as TERMINATED with a human-readable statusMessage; the sim does the
-// same and never re-adopts a lost VM.
+// running, or that a restart caught mid-boot, to TERMINATED when their real
+// backing — the Firecracker VM, its tap NIC, and the metadata IP mapping — did
+// not survive the control-plane restart. Real Compute Engine reports an
+// instance whose VM is gone as TERMINATED with a human-readable statusMessage;
+// the sim does the same and never re-adopts a lost VM.
 func recoverComputeInstances(instances sim.Store[ComputeInstance]) {
 	for _, inst := range instances.List() {
-		if inst.Status != ComputeInstanceRunning && inst.Status != ComputeInstanceStaging {
+		if inst.Status != ComputeInstanceRunning && !computeInstancePreRunning(inst.Status) {
 			continue
 		}
 		if gcpRealVMAlive(inst.SelfLink) {
 			continue
 		}
 		instances.Update(inst.SelfLink, func(in *ComputeInstance) {
-			if in.Status != ComputeInstanceRunning && in.Status != ComputeInstanceStaging {
+			if in.Status != ComputeInstanceRunning && !computeInstancePreRunning(in.Status) {
 				return
 			}
 			in.Status = ComputeInstanceTerminated
@@ -2097,10 +2197,26 @@ func recoverComputeInstances(instances sim.Store[ComputeInstance]) {
 	}
 }
 
+// recoverComputeOperations settles every operation a restart caught still
+// running. The goroutine that was carrying the work out died with the previous
+// process, so nothing will ever finish it; leaving it RUNNING would have a
+// client poll it forever. Compute Engine's own contract is that an operation
+// reaches DONE, carrying the error when the work did not complete, so each one
+// is finished that way rather than left to hang.
+func recoverComputeOperations() {
+	for _, rec := range computeOpRegistry.List() {
+		if rec.Status == "DONE" {
+			continue
+		}
+		computeOpFinish(rec.Name, fmt.Errorf("operation did not complete before the control plane restarted"))
+	}
+}
+
 func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork], subnetworks sim.Store[ComputeSubnetwork]) {
 	instances := sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances")
 	gcpInstances = instances
 	recoverComputeInstances(instances)
+	recoverComputeOperations()
 	logger := srv.Logger()
 
 	instanceSelfLink := func(project, zone, name string) string {
@@ -2246,23 +2362,47 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to attach real instance network interface: %v", err)
 			return
 		}
-		if err := gcpStartRealVM(r.Context(), &inst); err != nil {
-			logger.Error().
-				Err(err).
-				Str("project", project).
-				Str("zone", zone).
-				Str("instance", inst.Name).
-				Msg("failed to boot real Compute Engine instance")
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to boot real Compute Engine instance: %v", err)
-			return
-		}
-		inst.Status = ComputeInstanceRunning
+
+		// Compute Engine does not boot the instance inside the insert request.
+		// It records the instance as PROVISIONING, answers with a RUNNING zone
+		// operation, and brings the virtual machine up behind it; the client
+		// polls zoneOperations.get or zoneOperations.wait for the verdict. The
+		// boot therefore runs on a context of its own — a client that stops
+		// waiting must not take the machine down with it, and the request's
+		// context dies with the response.
+		inst.Status = ComputeInstanceProvisioning
 		instances.Put(inst.SelfLink, inst)
-		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, inst.SelfLink, "insert"))
+
+		op := newComputeOpRecord(project, "zones/"+zone, inst.SelfLink, "insert")
+		recordComputeOp(op)
+
+		booting := inst
+		go func() {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), computeInstanceBootBudget)
+			defer cancel()
+			err := gcpStartRealVM(ctx, &booting)
+			if err == nil {
+				err = gcpReapplyRealFirewalls(ctx)
+			}
+			if err != nil {
+				logger.Error().
+					Err(err).
+					Str("project", project).
+					Str("zone", zone).
+					Str("instance", booting.Name).
+					Msg("failed to boot real Compute Engine instance")
+				// An insert whose machine never came up leaves no instance
+				// behind, and the verdict lives on the operation.
+				instances.Delete(booting.SelfLink)
+				computeOpFinish(op.Name, err)
+				return
+			}
+			booting.Status = ComputeInstanceRunning
+			instances.Put(booting.SelfLink, booting)
+			computeOpFinish(op.Name, nil)
+		}()
+
+		sim.WriteJSON(w, http.StatusOK, computeOpJSON(op))
 	})
 
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -2635,31 +2775,14 @@ func registerComputeDisks(srv *sim.Server) {
 		})
 	})
 
-	// Zonal operations endpoint (disks return zonal ops the SDK polls).
-	writeZonalOperation := func(w http.ResponseWriter, project, zone, name string) {
-		if !computeOpKnown(name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":     "compute#operation",
-			"id":       computeNumericID(),
-			"name":     name,
-			"status":   "DONE",
-			"selfLink": fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/zones/%s/operations/%s", project, zone, name),
-			"progress": 100,
-		})
-	}
+	// Zonal operations endpoint. An instance insert leaves its operation
+	// RUNNING while the virtual machine boots behind it, so both methods
+	// report the operation's real state: the GET answers immediately with
+	// whatever it is, and the wait blocks for it the way Compute Engine's does.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/operations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		zone := sim.PathParam(r, "zone")
-		name := sim.PathParam(r, "name")
-		writeZonalOperation(w, project, zone, name)
+		computeWriteOperation(w, sim.PathParam(r, "name"))
 	})
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/operations/{name}/wait", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		zone := sim.PathParam(r, "zone")
-		name := sim.PathParam(r, "name")
-		writeZonalOperation(w, project, zone, name)
+		computeWaitOperation(w, r, sim.PathParam(r, "name"))
 	})
 }

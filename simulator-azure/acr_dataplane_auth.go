@@ -316,6 +316,23 @@ func acrRegistryForHost(host string) (Registry, bool) {
 	return Registry{}, false
 }
 
+// acrDataPlaneScope is the OCIRegistry.Scope hook: it names the registry a
+// data-plane request addresses by its ARM resource ID, which is the key every
+// other Azure store uses and the key the registry's manifests, blobs and
+// uploads are stored under. Two registries served by one simulator therefore
+// hold unrelated content, exactly as two real registries do.
+//
+// The hook runs only after acrAuthorizeV2 has accepted the request, and that
+// accepts only a Host naming a registry this simulator serves, so an
+// unresolvable Host never reaches a store.
+func acrDataPlaneScope(r *http.Request) string {
+	reg, ok := acrRegistryForHost(r.Host)
+	if !ok {
+		return ""
+	}
+	return reg.ID
+}
+
 // acrBareHost strips the port and any scheme from a host value so a login
 // server advertised with a port matches the Host a client sends without one.
 func acrBareHost(host string) string {

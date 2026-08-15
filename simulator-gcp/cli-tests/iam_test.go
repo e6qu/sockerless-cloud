@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -307,4 +310,77 @@ func generateUnregisteredKeyPEM(t *testing.T) string {
 	der, err := x509.MarshalPKCS8PrivateKey(priv)
 	require.NoError(t, err)
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+}
+
+// TestIAMCredentialsPrintAccessTokenLifetimeCLI drives the IAM Service Account
+// Credentials `generateAccessToken` method through the vendor CLI, which is
+// `gcloud auth print-access-token --impersonate-service-account` — the flag
+// gcloud documents for it says the rule the API publishes:
+//
+//	--lifetime=LIFETIME
+//	  Access token lifetime. The default access token lifetime is 3600
+//	  seconds, but you can use this flag to reduce the lifetime or extend it
+//	  up to 43200 seconds (12 hours). The org policy constraint
+//	  constraints/iam.allowServiceAccountCredentialLifetimeExtension must be
+//	  set if you want to extend the lifetime beyond 3600 seconds.
+//
+// A reduced lifetime must produce a token that is genuinely short-lived, and
+// an extension the org policy has not granted must be refused.
+func TestIAMCredentialsPrintAccessTokenLifetimeCLI(t *testing.T) {
+	const accountID = "cli-lifetime-sa"
+	email := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", accountID, project)
+
+	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,
+		"--project="+project, "--format=json"))
+
+	// A reduced lifetime is honoured: the token comes back, and it stops
+	// working once the lifetime the CLI asked for has passed.
+	token := lastLine(runCLI(t, gcloudCLI("auth", "print-access-token",
+		"--impersonate-service-account="+email, "--lifetime=1")))
+	require.NotEmpty(t, token, "gcloud printed no token for a one-second lifetime")
+
+	live := httpGetStatusWithBearer(t, baseURL+"/v1/projects/"+project+"/serviceAccounts", token)
+	require.Equal(t, 200, live, "the freshly minted token must be accepted while it lives")
+
+	time.Sleep(3 * time.Second)
+	expired := httpGetStatusWithBearer(t, baseURL+"/v1/projects/"+project+"/serviceAccounts", token)
+	assert.Equal(t, 401, expired, "a one-second token must stop being accepted once it expires")
+
+	// The extension beyond the default hour needs the org policy constraint,
+	// which nothing has set, so the CLI's own maximum is refused.
+	out, err := gcloudCLI("auth", "print-access-token",
+		"--impersonate-service-account="+email, "--lifetime=43200").CombinedOutput()
+	require.Error(t, err, "an unlisted account may not hold a twelve-hour token: %s", out)
+	assert.Contains(t, string(out), "3600",
+		"the refusal names the one-hour maximum in force: %s", out)
+}
+
+// httpGetStatusWithBearer performs a GET carrying exactly the given bearer
+// token and returns the status code, so a token's acceptance can be measured
+// directly rather than inferred from a CLI exit code.
+func httpGetStatusWithBearer(t *testing.T, url, token string) int {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
+}
+
+// lastLine returns the final non-empty line of a CLI invocation's combined
+// output. `gcloud auth print-access-token --impersonate-service-account`
+// prints an impersonation warning on stderr before the token, and runCLI
+// merges the two streams, so the token is the last line rather than the whole
+// output.
+func lastLine(out string) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
 }

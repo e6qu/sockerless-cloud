@@ -157,10 +157,39 @@ func TestOrgPolicy_ConstraintCatalogIsTheAcceptedSet(t *testing.T) {
 		byName[c.Name] = c
 		assert.NotEmpty(t, c.DisplayName, "%s: constraint carries its display name", c.Name)
 		assert.NotEmpty(t, c.Description, "%s: constraint carries its description", c.Name)
-		assert.Equal(t, "ALLOW", c.ConstraintDefault, "%s", c.Name)
+		// constraintDefault is the behaviour in force where no policy is set,
+		// and Organization Policy declares exactly two values for it.
+		assert.Contains(t, []string{"ALLOW", "DENY"}, c.ConstraintDefault, "%s", c.Name)
 		assert.True(t, c.BooleanConstraint != nil || c.ListConstraint != nil,
 			"%s: a constraint is boolean-valued or list-valued", c.Name)
 	}
+
+	// The default each constraint declares is the one Google's Organization
+	// Policy constraints reference states for it. Most of this catalog permits
+	// the behaviour it governs until a policy restricts it; the access-token
+	// lifetime extension is the exception, because "by default, the maximum
+	// lifetime for these access tokens is 1 hour" means no service account
+	// holds a twelve-hour token until a policy names it.
+	for name, want := range map[string]string{
+		"constraints/iam.disableServiceAccountCreation":                  "ALLOW",
+		"constraints/iam.disableServiceAccountKeyCreation":               "ALLOW",
+		"constraints/iam.disableServiceAccountKeyUpload":                 "ALLOW",
+		"constraints/compute.requireOsLogin":                             "ALLOW",
+		"constraints/compute.vmExternalIpAccess":                         "ALLOW",
+		"constraints/gcp.resourceLocations":                              "ALLOW",
+		"constraints/iam.allowServiceAccountCredentialLifetimeExtension": "DENY",
+	} {
+		require.Contains(t, byName, name)
+		assert.Equal(t, want, byName[name].ConstraintDefault, "%s", name)
+	}
+
+	// The lifetime-extension constraint is list-valued and takes service
+	// account email addresses; it declares no "under:" subtree support.
+	lifetimeExtension := byName["constraints/iam.allowServiceAccountCredentialLifetimeExtension"]
+	require.NotNil(t, lifetimeExtension.ListConstraint)
+	assert.False(t, lifetimeExtension.ListConstraint.SupportsUnder)
+	assert.Equal(t, "Allow extending lifetime of OAuth 2.0 access tokens to up to 12 hours",
+		lifetimeExtension.DisplayName)
 	require.Contains(t, byName, orgPolicyBooleanConstraint)
 	require.NotNil(t, byName[orgPolicyBooleanConstraint].BooleanConstraint)
 	require.Contains(t, byName, orgPolicyListConstraint)

@@ -30,6 +30,10 @@ type AsyncOperationStatus struct {
 type AsyncOperationError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Details carries the nested per-resource reasons an Azure Resource
+	// Manager error can hold, which is how a move validation failure reports
+	// which resource it refused and why.
+	Details []map[string]any `json:"details,omitempty"`
 }
 
 var azureAsyncOps sim.Store[AsyncOperationStatus]

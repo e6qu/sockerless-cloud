@@ -4,10 +4,20 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -42,16 +52,30 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 		ctr     = "build-context"
 		regPort = "5099"
 	)
-	// A real registry the build host can push to / the test can read.
-	startThrowawayRegistry(t, regPort)
-	cleanupTrust, err := registrytrust.ConfigureLoopbackHTTPRegistry(ctx, "127.0.0.1:"+regPort)
+	// A real registry the build host can push to / the test can read, served
+	// over TLS the way every Azure Container Registry login server is, so the
+	// push exercises the certificate-verifying client path a real registry
+	// gets.
+	coordinate := "127.0.0.1:" + regPort
+	authority := startThrowawayRegistry(t, regPort)
+
+	// Negative control for the trust installed below: until the authority is
+	// installed the engine must refuse the registry on its certificate. A
+	// registry the engine would have accepted anyway makes the installation
+	// unfalsifiable, and the push would then prove nothing about it.
+	untrusted, err := exec.Command("docker", "pull", coordinate+"/sockerless-overlay/aca:absent").CombinedOutput()
+	require.Error(t, err, "engine must not trust the registry before its authority is installed: %s", untrusted)
+	assert.Contains(t, string(untrusted), "certificate signed by unknown authority",
+		"the refusal before trust is installed must be the certificate one")
+
+	cleanupTrust, err := registrytrust.ConfigureTrustedRegistryCA(ctx, coordinate, authority)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cleanupTrust()) })
 	// Pre-pull the build's base image so the sim's `docker build` uses the
 	// local cache instead of racing a fresh (throttle-prone) public-mirror
 	// pull mid-build.
 	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
-	imageName := fmt.Sprintf("127.0.0.1:%s/sockerless-overlay/aca:test-%d", regPort, time.Now().UnixNano())
+	imageName := fmt.Sprintf("%s/sockerless-overlay/aca:test-%d", coordinate, time.Now().UnixNano())
 
 	// 1. Upload a build context (Dockerfile + a file COPY'd in, mirroring
 	// the bootstrap overlay shape) to the sim's blob storage.
@@ -100,10 +124,10 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	// via /v2/), NOT on the build host's local daemon.
 	t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", "-f", imageName).Run() })
 	tagOnly := imageName[strings.LastIndex(imageName, ":")+1:]
-	manifestURL := fmt.Sprintf("http://127.0.0.1:%s/v2/sockerless-overlay/aca/manifests/%s", regPort, tagOnly)
+	manifestURL := fmt.Sprintf("https://%s/v2/sockerless-overlay/aca/manifests/%s", coordinate, tagOnly)
 	mreq, _ := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 	mreq.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json")
-	mresp, err := http.DefaultClient.Do(mreq)
+	mresp, err := registryClient(t, authority).Do(mreq)
 	require.NoError(t, err)
 	defer mresp.Body.Close()
 	require.Equal(t, http.StatusOK, mresp.StatusCode, "built image must be present in the registry (/v2/ manifest)")
@@ -160,14 +184,23 @@ func pullImageWithRetry(t *testing.T, image string) {
 }
 
 // startThrowawayRegistry runs a real registry:2 on 127.0.0.1:<port> for the
-// duration of the test — a reachable, auto-insecure stand-in for the ACR
-// `/v2/` endpoint the sim's ACR Tasks pushes to.
-func startThrowawayRegistry(t *testing.T, port string) {
+// duration of the test, serving HTTPS from a certificate this test issues — a
+// reachable stand-in for the ACR `/v2/` login server the sim's ACR Tasks pushes
+// to, which is HTTPS in every region. It returns the certificate authority the
+// engine and the test have to trust to reach it.
+//
+// The certificate and key are staged into the container with `docker cp`
+// rather than a bind mount, because the engine resolves a mount source on the
+// host it runs on, which is not the filesystem this test process sees when it
+// runs inside the Linux harness container.
+func startThrowawayRegistry(t *testing.T, port string) []byte {
 	t.Helper()
 	const regImage = "public.ecr.aws/docker/library/registry:2"
 	// Pull the registry image up front with retries so `docker run` doesn't
 	// inline-pull (and exit 125) on a transient public-mirror throttle.
 	pullImageWithRetry(t, regImage)
+
+	authority, serving := issueRegistryCertificate(t)
 	name := "acr-tasks-sdktest-reg-" + port
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -175,28 +208,104 @@ func startThrowawayRegistry(t *testing.T, port string) {
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt) * time.Second)
 		}
-		out, err := exec.Command("docker", "run", "-d", "--rm", "--name", name,
-			"-p", port+":5000", regImage).CombinedOutput()
-		if err == nil {
-			lastErr = nil
-			break
+		out, err := exec.Command("docker", "create", "--name", name,
+			"-p", port+":5000",
+			"-e", "REGISTRY_HTTP_TLS_CERTIFICATE=/certs/registry.crt",
+			"-e", "REGISTRY_HTTP_TLS_KEY=/certs/registry.key",
+			regImage).CombinedOutput()
+		if err != nil {
+			lastErr = fmt.Errorf("create: %v: %s", err, out)
+			continue
 		}
-		lastErr = fmt.Errorf("%v: %s", err, out)
+		if out, err := exec.Command("docker", "cp", serving, name+":/certs").CombinedOutput(); err != nil {
+			lastErr = fmt.Errorf("stage certificate: %v: %s", err, out)
+			continue
+		}
+		if out, err := exec.Command("docker", "start", name).CombinedOutput(); err != nil {
+			lastErr = fmt.Errorf("start: %v: %s", err, out)
+			continue
+		}
+		lastErr = nil
+		break
 	}
 	require.NoError(t, lastErr, "start throwaway registry")
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+
+	client := registryClient(t, authority)
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, derr := http.Get(fmt.Sprintf("http://127.0.0.1:%s/v2/", port))
+		resp, derr := client.Get(fmt.Sprintf("https://127.0.0.1:%s/v2/", port))
 		if derr == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				return
+				return authority
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	t.Fatalf("throwaway registry on :%s did not become ready", port)
+	return nil
+}
+
+// issueRegistryCertificate mints a certificate authority and a serving
+// certificate for the loopback registry, and returns the authority's PEM plus
+// a directory holding registry.crt and registry.key for the registry to serve.
+func issueRegistryCertificate(t *testing.T) ([]byte, string) {
+	t.Helper()
+	authorityKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	authorityTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "sockerless acr-tasks test authority"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	authorityDER, err := x509.CreateCertificate(rand.Reader, authorityTemplate, authorityTemplate, &authorityKey.PublicKey, authorityKey)
+	require.NoError(t, err)
+	authority, err := x509.ParseCertificate(authorityDER)
+	require.NoError(t, err)
+
+	servingKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	servingTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "127.0.0.1"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:     []string{"localhost"},
+	}
+	servingDER, err := x509.CreateCertificate(rand.Reader, servingTemplate, authority, &servingKey.PublicKey, authorityKey)
+	require.NoError(t, err)
+
+	directory := t.TempDir()
+	certFile, err := os.Create(filepath.Join(directory, "registry.crt"))
+	require.NoError(t, err)
+	require.NoError(t, pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: servingDER}))
+	require.NoError(t, certFile.Close())
+	keyFile, err := os.OpenFile(filepath.Join(directory, "registry.key"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	require.NoError(t, err)
+	require.NoError(t, pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(servingKey)}))
+	require.NoError(t, keyFile.Close())
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: authorityDER}), directory
+}
+
+// registryClient returns an HTTP client that verifies the throwaway registry's
+// certificate against the authority that issued it — the same verification the
+// container engine performs, rather than a skipped one.
+func registryClient(t *testing.T, authority []byte) *http.Client {
+	t.Helper()
+	pool := x509.NewCertPool()
+	require.True(t, pool.AppendCertsFromPEM(authority), "certificate authority must parse")
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}
+	t.Cleanup(transport.CloseIdleConnections)
+	return &http.Client{Transport: transport, Timeout: 60 * time.Second}
 }
 
 // TestACRTasks_ScheduleRunMissingContextFails asserts the build fails

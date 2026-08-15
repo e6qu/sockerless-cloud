@@ -78,6 +78,25 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, diskLink, "/zones/us-central1-a/disks/tf-test-disk",
 		"compute disk self_link must round-trip the zone+name; got %s", diskLink)
 
+	// `instances.insert` answers with a RUNNING zone operation and boots the
+	// virtual machine behind it, so the provider reaches these values only by
+	// polling zoneOperations through to DONE and re-reading the instance.
+	vmLink := outputs.must(t, "compute_instance_self_link")
+	require.Contains(t, vmLink, "/zones/us-central1-a/instances/tf-test-vm",
+		"compute instance self_link must round-trip the zone+name; got %s", vmLink)
+	require.Equal(t, "RUNNING", outputs.must(t, "compute_instance_current_status"),
+		"the instance the asynchronous insert booted must be running once its operation is DONE")
+
+	// The IAM Service Account Credentials mint, driven by the provider's
+	// google_service_account_access_token data source with a reduced lifetime.
+	tokenID := outputs.must(t, "service_account_access_token_id")
+	require.Contains(t, tokenID, "projects/-/serviceAccounts/tf-test-runner-sa@",
+		"the access-token data source names the impersonated account; got %s", tokenID)
+	require.Equal(t, "600s", outputs.must(t, "service_account_access_token_lifetime"),
+		"the reduced lifetime must survive the round trip")
+	require.Equal(t, true, outputs.mustValue(t, "service_account_access_token_minted"),
+		"a reduced lifetime must still mint a token")
+
 	dnsRecordID := outputs.must(t, "dns_record_set_id")
 	require.Contains(t, dnsRecordID, "projects/test-project/managedZones/tf-test-zone/rrsets/www.tf-test.example.com./A",
 		"DNS record-set id must include managed zone, FQDN, and type; got %s", dnsRecordID)

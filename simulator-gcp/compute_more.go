@@ -579,16 +579,31 @@ func registerComputeCatalogMore(srv *sim.Server) {
 
 // registerComputeOperationsMore adds the operations list + delete + the
 // global wait/aggregated variants the existing per-scope GET handlers
-// don't cover. The sim does not retain a queryable operation history
-// (every op completes synchronously as DONE), so list returns an empty
-// set and delete acknowledges with the 204 real GCP returns.
+// don't cover. Every operation the sim hands out is recorded with its scope
+// and state, so a list reports the operations that scope actually holds and
+// delete acknowledges with the 204 real GCP returns.
 func registerComputeOperationsMore(srv *sim.Server) {
-	emptyList := func(w http.ResponseWriter) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#operationList", "items": []map[string]any{}})
+	listScope := func(w http.ResponseWriter, project, scope string) {
+		items := []map[string]any{}
+		for _, rec := range computeOpRegistry.List() {
+			if rec.Project == project && rec.Scope == scope {
+				items = append(items, computeOpJSON(rec))
+			}
+		}
+		sort.Slice(items, func(i, j int) bool {
+			return fmt.Sprint(items[i]["name"]) < fmt.Sprint(items[j]["name"])
+		})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#operationList", "items": items})
 	}
-	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/operations", func(w http.ResponseWriter, r *http.Request) { emptyList(w) })
-	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/operations", func(w http.ResponseWriter, r *http.Request) { emptyList(w) })
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/operations", func(w http.ResponseWriter, r *http.Request) { emptyList(w) })
+	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/operations", func(w http.ResponseWriter, r *http.Request) {
+		listScope(w, sim.PathParam(r, "project"), "zones/"+sim.PathParam(r, "zone"))
+	})
+	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/operations", func(w http.ResponseWriter, r *http.Request) {
+		listScope(w, sim.PathParam(r, "project"), "regions/"+sim.PathParam(r, "region"))
+	})
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/operations", func(w http.ResponseWriter, r *http.Request) {
+		listScope(w, sim.PathParam(r, "project"), "global")
+	})
 
 	delOp := func(w http.ResponseWriter, r *http.Request) {
 		if !computeOpKnown(sim.PathParam(r, "name")) {
@@ -602,23 +617,25 @@ func registerComputeOperationsMore(srv *sim.Server) {
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/global/operations/{name}", delOp)
 
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/operations/{name}/wait", func(w http.ResponseWriter, r *http.Request) {
-		project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
-		if !computeOpKnown(name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":     "compute#operation",
-			"id":       computeNumericID(),
-			"name":     name,
-			"status":   "DONE",
-			"selfLink": computeSelfLink(fmt.Sprintf("projects/%s/global/operations/%s", project, name)),
-			"progress": 100,
-		})
+		computeWaitOperation(w, r, sim.PathParam(r, "name"))
 	})
 
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/operations", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#operationAggregatedList", "items": map[string]any{}})
+		project := sim.PathParam(r, "project")
+		grouped := map[string]map[string]any{}
+		for _, rec := range computeOpRegistry.List() {
+			if rec.Project != project {
+				continue
+			}
+			entry, ok := grouped[rec.Scope]
+			if !ok {
+				entry = map[string]any{"operations": []map[string]any{}}
+				grouped[rec.Scope] = entry
+			}
+			list, _ := entry["operations"].([]map[string]any)
+			entry["operations"] = append(list, computeOpJSON(rec))
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#operationAggregatedList", "items": grouped})
 	})
 }
 

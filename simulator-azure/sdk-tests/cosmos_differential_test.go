@@ -8,6 +8,7 @@ import (
 	"net"
 	"os/exec"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,8 +47,8 @@ func TestCosmos_DifferentialVsEmulator(t *testing.T) {
 	emuEndpoint, stop := startCosmosEmulator(t)
 	defer stop()
 
-	simC := newCosmosSDKClient(t, baseURL+"/")
-	oracle := newCosmosSDKClient(t, emuEndpoint)
+	simC := cosmosSimClient(t, cosmosDataPlaneAccount)
+	oracle := newCosmosSDKClient(t, emuEndpoint, cosmosEmulatorKey, "")
 
 	for _, sc := range cosmosDiffScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
@@ -469,7 +470,21 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	}
 	hostPort := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
+	// Reap a leaked emulator before starting one. `docker run --rm` removes a
+	// container when it EXITS, so a test binary that is killed — a timeout, a
+	// cancelled run — leaves the emulator running forever, and a second
+	// emulator on the same host starves the new one's pgcosmos extension: it
+	// answers "pgcosmos extension is still starting" until the readiness budget
+	// runs out, and every later run of this test fails until someone removes
+	// the leak by hand. The label makes the leak identifiable and this run
+	// removes it, so the suite recovers on its own.
+	const emulatorLabel = "sockerless-sim-azure-cosmos-emulator=differential"
+	stale, _ := exec.Command("docker", "ps", "-aq", "--filter", "label="+emulatorLabel).Output()
+	for _, id := range strings.Fields(string(stale)) {
+		_ = exec.Command("docker", "rm", "-f", id).Run()
+	}
 	runOut, err := exec.Command("docker", "run", "-d", "--rm",
+		"--label", emulatorLabel,
 		"-p", fmt.Sprintf("127.0.0.1:%d:%d", hostPort, hostPort),
 		image, "--protocol", "http", "--port", fmt.Sprintf("%d", hostPort)).CombinedOutput()
 	if err != nil {
@@ -479,7 +494,7 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	stop = func() { _ = exec.Command("docker", "rm", "-f", id).Run() }
 
 	endpoint = fmt.Sprintf("http://127.0.0.1:%d/", hostPort)
-	probe := newCosmosSDKClient(t, endpoint)
+	probe := newCosmosSDKClient(t, endpoint, cosmosEmulatorKey, "")
 	deadline := time.Now().Add(280 * time.Second)
 	var lastProbeErr error
 	for i := 0; time.Now().Before(deadline); i++ {

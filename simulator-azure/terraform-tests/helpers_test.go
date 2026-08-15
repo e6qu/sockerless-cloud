@@ -501,10 +501,46 @@ func trustedHTTPClient(caCert string) (*http.Client, error) {
 }
 
 // tfStackDir is the shared-stack configuration (this package directory);
-// tfSubscriptionDir is the standalone Microsoft.Subscription configuration
-// that runs as its own CI shard (see TestTerraformSubscriptionApplyDestroy).
+// tfSubscriptionDir is the standalone Microsoft.Subscription configuration and
+// tfEntraDir the standalone Microsoft Entra ID configuration, each of which
+// runs as its own CI shard (see TestTerraformSubscriptionApplyDestroy and
+// TestTerraformEntraApplyDestroy).
 func tfStackDir() string        { return filepath.Dir(mustAbs("main.tf")) }
 func tfSubscriptionDir() string { return mustAbs("subscription") }
+func tfEntraDir() string        { return mustAbs("entra") }
+
+// tfWorkspaceFrom copies a standalone configuration into a working directory
+// private to this run.
+//
+// Terraform keeps its working state — terraform.tfstate, the state lock, the
+// .terraform plugin directory, errored.tfstate — next to the configuration it
+// runs, so running in the checked-in configuration directory makes that
+// directory shared mutable state between every terraform process on the
+// machine. Two overlapping runs of the same round trip (the CI shard alongside
+// a local run, or two local runs) then corrupt each other: the second run
+// wipes the working directory while the first is mid-apply, and the first
+// run's subsequent plan reads an empty state and reports every resource as a
+// fresh create, which reads as a simulator idempotency failure. A per-run
+// directory keeps the round trip hermetic, and takes the state files out of
+// the checked-in tree entirely.
+func tfWorkspaceFrom(t *testing.T, src string) string {
+	t.Helper()
+	dst := t.TempDir()
+	entries, err := os.ReadDir(src)
+	require.NoError(t, err, "read the configuration at %s", src)
+	copied := 0
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".tf" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(src, entry.Name()))
+		require.NoError(t, err, "read %s", entry.Name())
+		require.NoError(t, os.WriteFile(filepath.Join(dst, entry.Name()), data, 0o600), "write %s", entry.Name())
+		copied++
+	}
+	require.NotZero(t, copied, "no .tf files found in the configuration at %s", src)
+	return dst
+}
 
 // terraformCmd builds a terraform command for the configuration in dir; the
 // endpoint, trust anchor, and service-principal coordinates are identical for

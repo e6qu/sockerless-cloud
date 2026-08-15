@@ -171,6 +171,28 @@ func (s *SQLiteStore[T]) Delete(id string) bool {
 	return n > 0
 }
 
+// keys returns every key the table holds, for the cross-cutting passes in
+// store_scan.go that must address rows they did not compose the key of.
+func (s *SQLiteStore[T]) keys() []string {
+	rows, err := s.db.Query(fmt.Sprintf(`SELECT key FROM %q`, s.table))
+	if err != nil {
+		s.fatalDBErr("keys", "", err)
+	}
+	defer func() { _ = rows.Close() }()
+	result := make([]string, 0)
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			s.fatalDBErr("keys scan", "", err)
+		}
+		result = append(result, key)
+	}
+	if err := rows.Err(); err != nil {
+		s.fatalDBErr("keys rows", "", err)
+	}
+	return result
+}
+
 func (s *SQLiteStore[T]) List() []T {
 	rows, err := s.db.Query(fmt.Sprintf(`SELECT value FROM %q`, s.table))
 	if err != nil {
@@ -258,6 +280,14 @@ func (s *SQLiteStore[T]) Update(id string, fn func(*T)) bool {
 // equivalent of a startup error — operator sees the message and the
 // failing table name immediately, no degraded-mode running.
 func MakeStore[T any](db *sql.DB, table string) Store[T] {
+	store := newStore[T](db, table)
+	// Every store joins the tracked set (store_scan.go) so a cross-cutting
+	// pass reaches exactly the stores this build created.
+	trackStore(table, store)
+	return store
+}
+
+func newStore[T any](db *sql.DB, table string) Store[T] {
 	if db != nil {
 		s, err := NewSQLiteStore[T](db, table)
 		if err == nil {

@@ -484,11 +484,12 @@ func isAuthExempt(r *http.Request) bool {
 // Distribution registry rather than a Google control-plane API. Most of the
 // simulator's /v2/ surface is real Google data plane (Cloud Run, Cloud
 // Functions v2, Bigtable admin, Cloud Logging) under /v2/projects/... or
-// /v2/entries...; only registry blob/manifest/tag traffic belongs to the OCI
-// registry. This mirrors the dispatch in the shared OCI registry's serve
-// method, including its skip of /v2/projects/.
+// /v2/entries...; only registry blob/manifest/tag traffic, the base endpoint
+// and the Docker token service belong to the OCI registry. This mirrors the
+// dispatch in the shared OCI registry's serve method, including its skip of
+// /v2/projects/.
 func isOCIRegistryPath(p string) bool {
-	if p == "/v2" || p == "/v2/" {
+	if p == "/v2" || p == "/v2/" || p == arTokenPath {
 		return true
 	}
 	if !strings.HasPrefix(p, "/v2/") || strings.HasPrefix(p, "/v2/projects/") {

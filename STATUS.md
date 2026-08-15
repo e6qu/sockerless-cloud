@@ -39,7 +39,7 @@ Current state of the sockerless-cloud repository.
   module graphs; govulncheck clean).
 - **Measured floors**: IAM resource derivation 1,784 of 1,974 served
   operations; `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
-  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 503 of 692; `cloudrun-v1` 152 of 152; `spanner-v1` 188 of 198;
+  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 519 of 692; `cloudrun-v1` 152 of 152; `spanner-v1` 188 of 198;
   `containerregistry-dataplane-containerregistry-2021-07-01` 20 of 29
   (App Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family);
@@ -47,16 +47,24 @@ Current state of the sockerless-cloud repository.
   lifecycle and both list scopes). VPC networks allocate bridge subnets from
   a host-side pool with ENI addresses as real secondary interface addresses,
   so same-CIDR VPCs coexist.
-- **Data-plane authentication**: Azure Event Grid publish and the Azure
-  Container Registry `/v2/` and `/acr/v1/` surfaces authenticate every caller
-  against the credentials their control planes mint and rotate. The shared OCI
-  registry carries a nil-able per-registry `Authorize` hook injected by the
-  cloud that mounts it; the Amazon ECR and Google Artifact Registry copies are
-  byte-identical to their unauthenticated state and are tracked as BUG-18.
-- **Cross-resource-group moves**: eleven Azure type keys move, each pinning the
-  credential material its resource ID derives so a move never rotates a key.
-  Microsoft.Network is last because its resources reference each other by
-  resource ID.
+- **Data-plane authentication**: Azure Event Grid publish and all three
+  container registries authenticate every caller against the credentials their
+  control planes mint and rotate — Amazon ECR with Basic and a real twelve-hour
+  authorization token, Google Artifact Registry and Azure Container Registry
+  with each service's own Bearer challenge and refusal shapes. Each cloud
+  injects its own authenticator into the shared registry through a nil-able
+  hook, so no cloud-aware branch exists in the shared code.
+- **Cross-resource-group moves**: twenty-nine Azure type keys move, including
+  Microsoft.Network, each pinning the credential material its resource ID
+  derives so a move never rotates a key. A general repointing pass rewrites
+  inbound references held from outside the moved set, and the types Azure
+  publishes as unmovable stay refused.
+- **Data-plane authorization**: the Azure Cosmos DB data plane verifies the
+  shared-key signature on every path through a middleware, and Amazon ECR
+  refuses a repository it has no record of rather than creating it implicitly.
+- **Asynchronous cloud operations**: Google Compute Engine's instance insert
+  returns a running operation and boots behind it, and its operation reads and
+  lists answer from the record rather than rendering invented completions.
 - **Real engine readiness**: an Amazon RDS data plane serves a connection only
   once the engine accepts one, classified by SQLSTATE rather than by any byte
   arriving on the socket, on both the fresh-start and post-restart paths.

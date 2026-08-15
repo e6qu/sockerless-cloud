@@ -59,6 +59,26 @@ func registerLogicApps(srv *sim.Server) {
 	registerLogicAppsMore(srv)
 }
 
+// logicNewWorkflowAccessIdentifier mints the identifier a workflow is addressed
+// by on the Logic Apps service host. Real Logic Apps addresses a Consumption
+// workflow as `/workflows/{identifier}` — a 32-character hexadecimal handle
+// that carries neither the subscription, the resource group nor the workflow
+// name (`https://prod-03.westus.logic.azure.com/workflows/d4690301f3b340de9330256bb2e83974/triggers/requestTrigger/paths/invoke`,
+// the response Microsoft publishes for Workflows - List Callback Url). Because
+// nothing about the resource's address is encoded in it, a callback URL issued
+// before a move keeps working after one.
+func logicNewWorkflowAccessIdentifier() string {
+	return strings.ReplaceAll(generateUUID(), "-", "")
+}
+
+// logicAccessEndpoint is the workflow's advertised endpoint: the service host
+// and the workflow's identifier, with no trigger path and no query string,
+// which is what real Logic Apps serves as properties.accessEndpoint and as the
+// base path of a callback URL.
+func logicAccessEndpoint(r *http.Request, identifier string) string {
+	return fmt.Sprintf("%s://%s/workflows/%s", azureRequestScheme(r), r.Host, identifier)
+}
+
 func logicWorkflowID(sub, rg, name string) string {
 	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Logic/workflows/%s", sub, rg, name)
 }
@@ -84,11 +104,18 @@ func handleLogicWorkflowPut(w http.ResponseWriter, r *http.Request) {
 		"createdTime":       now,
 		"changedTime":       now,
 		"version":           generateUUID(),
-		"accessEndpoint":    fmt.Sprintf("%s://%s%s/triggers/manual/paths/invoke", azureRequestScheme(r), r.Host, id),
+		"accessEndpoint":    logicAccessEndpoint(r, logicNewWorkflowAccessIdentifier()),
 	}
 	if existing, ok := logicWorkflows.Get(id); ok && existing.Properties != nil {
 		if created, ok := existing.Properties["createdTime"]; ok {
 			props["createdTime"] = created
+		}
+		// The access endpoint is the workflow's own identity on the service
+		// host and is issued once, when the workflow is created: every callback
+		// URL already handed out is addressed through it, and an update must
+		// not move them.
+		if endpoint, ok := existing.Properties["accessEndpoint"].(string); ok && endpoint != "" {
+			props["accessEndpoint"] = endpoint
 		}
 	}
 	for k, v := range req.Properties {

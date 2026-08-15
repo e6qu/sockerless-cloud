@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,11 +47,29 @@ func TestContainerReaperAbnormalExit(t *testing.T) {
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
+	// The child is itself a `go test` process, so anything that goes wrong in
+	// it — a refused image pull, a container create the engine rejects — lands
+	// on its stdout as test output rather than as the one JSON line this test
+	// is waiting for. Read line by line and keep the transcript, so a child
+	// that failed reports why instead of surfacing as an opaque decode error.
 	var resources containerReaperTestResources
-	if err := json.NewDecoder(bufio.NewReader(stdout)).Decode(&resources); err != nil {
+	var transcript []string
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		transcript = append(transcript, line)
+		if !strings.HasPrefix(strings.TrimSpace(line), "{") {
+			continue
+		}
+		if err := json.Unmarshal([]byte(line), &resources); err == nil && resources.RunID != "" {
+			break
+		}
+	}
+	if resources.RunID == "" {
 		_ = command.Process.Kill()
 		_ = command.Wait()
-		t.Fatalf("read child resources: %v", err)
+		t.Fatalf("simulator child did not report the resources it created (scan error: %v):\n%s",
+			scanner.Err(), strings.Join(transcript, "\n"))
 	}
 	if err := command.Process.Kill(); err != nil {
 		t.Fatalf("kill simulator child: %v", err)
@@ -63,9 +83,15 @@ func TestContainerReaperAbnormalExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dockerClient.Close()
+	// Poll until the reaper has removed both resources. A single query that
+	// does not come back inside its own budget is a busy engine, not a verdict
+	// on the reaper — the 20-second deadline is what decides this test, so an
+	// attempt that errors is retried and only the last error is reported if the
+	// deadline runs out.
 	deadline := time.Now().Add(20 * time.Second)
+	var lastErr error
 	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		containers, containerErr := dockerClient.ContainerList(ctx, client.ContainerListOptions{
 			All:     true,
 			Filters: client.Filters{}.Add("label", "sockerless-sim-run="+resources.RunID),
@@ -74,13 +100,15 @@ func TestContainerReaperAbnormalExit(t *testing.T) {
 			Filters: client.Filters{}.Add("label", "sockerless-sim-run="+resources.RunID),
 		})
 		cancel()
-		if containerErr != nil || networkErr != nil {
-			t.Fatalf("query reaper resources: containers=%v networks=%v", containerErr, networkErr)
-		}
-		if len(containers.Items) == 0 && len(networks.Items) == 0 {
+		lastErr = errors.Join(containerErr, networkErr)
+		if lastErr == nil && len(containers.Items) == 0 && len(networks.Items) == 0 {
 			return
 		}
 		time.Sleep(250 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Fatalf("could not confirm the detached reaper removed container %s and network %s: %v",
+			resources.ContainerID, resources.NetworkID, lastErr)
 	}
 	t.Fatalf("detached reaper did not remove container %s and network %s after SIGKILL", resources.ContainerID, resources.NetworkID)
 }

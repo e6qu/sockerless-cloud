@@ -205,12 +205,32 @@ var azureMethodFloor = map[string]int{
 	// acceptance long-running operation and its status, the tenant and
 	// billing-account policies, and the provider operation catalog.
 	"subscription-arm-subscriptions-2021-10-01": 15,
+	// Raised from 503 by the App Service instance and process family: the
+	// site's running workload container is the instance, and the container
+	// engine's process table is the site's process list, so
+	// ListInstanceIdentifiers, GetInstanceInfo, ListProcesses, GetProcess and
+	// ListProcessThreads are served at both the site and the per-instance
+	// scope, in both the production and the slot spelling (16 operations).
+	//
+	// Three families of that swagger stay unserved for a demonstrated reason
+	// rather than a deferral, and are named here so the gap is visible beside
+	// the number: GetProcessDump, ListProcessModules and GetProcessModule (12
+	// operations across both scopes and both spellings) plus DeleteProcess (4).
+	// The container engine exposes exactly one process-inspection primitive
+	// over its HTTP API — `GET /containers/{id}/top`, the `ps` output for the
+	// container's processes — which reports no loaded modules and no core
+	// dumps, and it can terminate only the container's main process, not an
+	// arbitrary one inside it. Reading modules or writing a dump needs
+	// `/proc/<pid>` from inside the container, which requires either a shell
+	// in the workload image (a scratch image has none) or the engine host's
+	// own `/proc` (unreachable when the engine runs in a virtual machine).
+	//
 	// The Provider_*Stacks operations (availableStacks, webAppStacks,
 	// functionAppStacks and their per-location spellings — 6 in all) stay
 	// unserved deliberately: the runtime-stack catalog is Microsoft-published
 	// data that would need a vendored catalog, like the WAF rule sets; the
 	// decision is recorded in DO_NEXT.md.
-	"web-arm-openapi-2025-03-01": 503,
+	"web-arm-openapi-2025-03-01": 519,
 }
 
 // ---------------------------------------------------------------------------

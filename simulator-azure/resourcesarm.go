@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
@@ -231,6 +233,10 @@ func handleMoveResources(w http.ResponseWriter, r *http.Request) {
 	}
 	validateOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/validateMoveResources")
 	if moveErr := moveAzureResources(sub, req.TargetResourceGroup, req.Resources, validateOnly); moveErr != nil {
+		if len(moveErr.Details) > 0 {
+			writeAzureMoveValidationError(w, sub, moveErr)
+			return
+		}
 		sim.AzureError(w, moveErr.Code, moveErr.Message, azureMoveErrorStatus(moveErr.Code))
 		return
 	}
@@ -239,17 +245,40 @@ func handleMoveResources(w http.ResponseWriter, r *http.Request) {
 
 // azureMoveErrorStatus maps a move-validation error code onto the HTTP
 // status Azure Resource Manager pairs it with: absent resources and groups
-// are 404s, malformed input is a 400, and an unsupported move is the 409
-// Conflict a real move-validation failure reports.
+// are 404s, malformed input is a 400, and an unsupported move or a failed
+// provider validation is the 409 Conflict a real move-validation failure
+// reports — "if validation fails, it returns HTTP response code 409
+// (Conflict) with an error message" (Resources - Validate Move Resources).
 func azureMoveErrorStatus(code string) int {
 	switch code {
 	case "ResourceGroupNotFound", "ResourceNotFound":
 		return http.StatusNotFound
-	case "ResourceMoveNotSupported":
+	case "ResourceMoveNotSupported", azureMoveProviderValidationFailed:
 		return http.StatusConflict
 	default:
 		return http.StatusBadRequest
 	}
+}
+
+// writeAzureMoveValidationError writes the nested error a provider validation
+// failure carries. Azure Resource Manager reports one of these as a
+// ResourceMoveProviderValidationFailed whose message states only that
+// validation failed and carries the diagnostic coordinates of the attempt,
+// with the per-resource reason in a `details` entry targeted at the resource
+// type — the shape of the failed-move bodies Azure returns.
+func writeAzureMoveValidationError(w http.ResponseWriter, sub string, moveErr *AsyncOperationError) {
+	message := fmt.Sprintf(
+		"Resource move validation failed. Please see details. Diagnostic information: timestamp '%s', subscription id '%s', tracking id '%s', request correlation id '%s'.",
+		time.Now().UTC().Format("20060102T150405Z"), sub, generateUUID(), generateUUID())
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(azureMoveErrorStatus(moveErr.Code))
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{
+			"code":    moveErr.Code,
+			"message": message,
+			"details": moveErr.Details,
+		},
+	})
 }
 
 // moveAzureResources validates (and, unless validateOnly, performs) a
@@ -289,7 +318,23 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 			return &AsyncOperationError{Code: "ResourceNotFound",
 				Message: fmt.Sprintf("The resource '%s' was not found.", resID)}
 		}
+		// A few types are movable only for some of their instances, which ARM
+		// can only decide once it has the resource in front of it.
+		if hook.supported != nil {
+			if ok, reason := hook.supported(resID); !ok {
+				return &AsyncOperationError{Code: "ResourceMoveNotSupported",
+					Message: fmt.Sprintf("The resource '%s' does not support the move operation: %s", resID, reason)}
+			}
+		}
 		newID := strings.Replace(resID, "/resourceGroups/"+rg+"/", "/resourceGroups/"+targetRG+"/", 1)
+		// A resource keeps its name across a move, so the destination group
+		// must not already hold one of the same type under that name: the
+		// destination identifier would address two resources, and re-homing
+		// onto it would destroy the one already there. Azure Resource Manager
+		// refuses the whole request instead.
+		if !strings.EqualFold(newID, resID) && hook.exists(newID) {
+			return azureMoveNameConflict(resID)
+		}
 		plan = append(plan, plannedMove{oldID: resID, newID: newID, hook: hook})
 	}
 	if validateOnly {
@@ -298,10 +343,65 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 	// A resource's tags live on the resource itself, so re-keying the record
 	// carries them into the destination group, which is what real Azure
 	// Resource Manager does with a moved resource's tags.
+	//
+	// Each hook re-homes what its own slice addresses by name and pins the
+	// credential material the resource ID derives; the repointing pass then
+	// re-homes everything stored beneath the moved ID anywhere else and
+	// re-points every reference held to it from outside the moved set.
 	for _, m := range plan {
 		m.hook.move(m.oldID, m.newID, targetRG)
+		azureRepointMovedResource(m.oldID, m.newID)
 	}
 	return nil
+}
+
+// azureMoveProviderValidationFailed is the code Azure Resource Manager reports
+// a move that a resource provider's validation refused under.
+const azureMoveProviderValidationFailed = "ResourceMoveProviderValidationFailed"
+
+// azureMoveNameConflict is the refusal for a move whose destination group
+// already holds a resource of the same type and name.
+//
+// Microsoft publishes no error code for this case: the move-support and
+// move-resource-group documentation never states the constraint, and the REST
+// reference documents only that a failed validation "returns HTTP response
+// code 409 (Conflict) with an error message" in the CloudError envelope. What
+// the service answers is attested by a report of a real failed move
+// (learn.microsoft.com/answers/questions/2080196), which carries the
+// ResourceMoveProviderValidationFailed code and the message below naming the
+// resources that "have the same name as a resource in the target resource
+// group". That message is reproduced verbatim, in the nesting Azure's failed
+// moves use — the provider-validation code outside, a CannotMoveResource entry
+// targeted at the resource type, and the reason inside it. The innermost entry
+// carries no code of its own because none is published or attested, and
+// inventing one would put a code on the wire that no client could have seen
+// from the service.
+func azureMoveNameConflict(resID string) *AsyncOperationError {
+	return &AsyncOperationError{
+		Code:    azureMoveProviderValidationFailed,
+		Message: "Resource move validation failed. Please see details.",
+		Details: []map[string]any{{
+			"code":    "CannotMoveResource",
+			"target":  azureResourceTypeOf(resID),
+			"message": "Cannot move one or more resources in the request. Please check details for information about each resource.",
+			"details": []map[string]any{{
+				"message": fmt.Sprintf(
+					"The move resources request contains resources like '%s' which have the same name as a resource in the target resource group.",
+					resID),
+			}},
+		}},
+	}
+}
+
+// azureResourceTypeOf is the fully qualified type of a resource-group-scoped
+// resource ID, in the casing the identifier carries — the target a move
+// failure names.
+func azureResourceTypeOf(resID string) string {
+	segs := strings.Split(strings.Trim(resID, "/"), "/")
+	if len(segs) < 7 {
+		return ""
+	}
+	return segs[5] + "/" + segs[6]
 }
 
 // parseMovableResourceID splits a resource-group-scoped ARM resource ID into

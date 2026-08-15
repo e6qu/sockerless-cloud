@@ -190,3 +190,35 @@ jobs:
             --format '{{range .Manifest.Manifests}}{{printf "%s/%s\n" .Platform.OS .Platform.Architecture}}{{end}}' \
             "$TAG" | sort)
           test "$PLATFORMS" = "$(printf 'linux/amd64\nlinux/arm64')"
+
+  # The tag is pushed when the release pull request merges and the artifacts are
+  # built against it afterwards, so a stalled build leaves a published release
+  # that looks ordinary while carrying part of its contents. A failing build is
+  # caught by the job that failed; this reconciles the finished release against
+  # what the tag promises, so a hanging or skipped leg cannot pass unnoticed.
+  verify:
+    name: release is complete
+    needs: [binaries, console-bundles, manifest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.tag_name }}
+
+      - uses: docker/setup-buildx-action@v4.2.0
+
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reconcile assets and image indexes against the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/verify-release-complete.sh "${{ inputs.tag_name }}"

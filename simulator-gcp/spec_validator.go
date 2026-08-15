@@ -466,21 +466,6 @@ func (idx *discoveryIndex) match(httpMethod, escapedPath string) []specMatch {
 	return best
 }
 
-// isOCIDataPlanePath mirrors the OCI registry's dispatch
-// (shared/oci.go serve): any /v2/ request carrying a blob, manifest, or
-// tag-list marker is served by the Docker/OCI distribution data plane,
-// which is not a Discovery surface — Discovery's own /v2/ methods
-// (cloudrun-v2, cloudfunctions-v2, bigtableadmin-v2, logging-v2) never
-// carry these markers.
-func isOCIDataPlanePath(escapedPath string) bool {
-	if !strings.HasPrefix(escapedPath, "/v2/") {
-		return false
-	}
-	return strings.Contains(escapedPath, "/blobs/") ||
-		strings.Contains(escapedPath, "/manifests/") ||
-		strings.HasSuffix(escapedPath, "/tags/list")
-}
-
 // armSpecValidator wires runtime shape validation onto the server when
 // SOCKERLESS_SPEC_VALIDATE is set. Hard failure when the spec dir is
 // missing: the operator asked for validation.
@@ -504,8 +489,13 @@ func armSpecValidator(srv *sim.Server) error {
 		if ct != "" && !strings.Contains(ct, "json") {
 			return nil // non-JSON payload (media, OCI blobs, ...)
 		}
-		if isOCIDataPlanePath(req.URL.EscapedPath()) {
-			return nil // Docker/OCI distribution data plane, not a Discovery surface
+		// The Docker/OCI distribution data plane is not a Discovery surface, and
+		// Cloud Logging v2's `GET v2/{+name}` template matches any /v2/ path, so
+		// an unskipped registry response would be validated against a
+		// LogExclusion. The same predicate the bearer middleware uses to exempt
+		// the registry decides it here, so the two cannot drift apart.
+		if isOCIRegistryPath(req.URL.EscapedPath()) {
+			return nil
 		}
 		matches := idx.match(req.Method, req.URL.EscapedPath())
 		if len(matches) == 0 {

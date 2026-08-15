@@ -57,8 +57,8 @@ func TestCosmosScripts_DifferentialVsEmulator(t *testing.T) {
 
 	for _, sc := range cosmosScriptDiffScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
-			simRes := cosmosCapture(sc.run(t, baseURL+"/", "sim-"+sc.name))
-			oracleRes := cosmosCapture(sc.run(t, emuEndpoint, "emu-"+sc.name))
+			simRes := cosmosCapture(sc.run(t, cosmosSimCoordinate(t), "sim-"+sc.name))
+			oracleRes := cosmosCapture(sc.run(t, cosmosCoordinate{url: emuEndpoint, key: cosmosEmulatorKey}, "emu-"+sc.name))
 			if div, ok := cosmosScriptDiffKnownDivergences[sc.name]; ok {
 				cosmosAssertEqual(t, "sim (documented divergence: "+div.reason+")", div.sim, simRes)
 				cosmosAssertEqual(t, "emulator (documented divergence: "+div.reason+")", div.oracle, oracleRes)
@@ -75,7 +75,7 @@ func TestCosmosScripts_DifferentialVsEmulator(t *testing.T) {
 
 type cosmosScriptDiffScenario struct {
 	name string
-	run  func(t *testing.T, endpoint, dbID string) (map[string]any, error)
+	run  func(t *testing.T, endpoint cosmosCoordinate, dbID string) (map[string]any, error)
 }
 
 // ── Cosmos shared-key signing (the real algorithm; the emulator validates it) ──
@@ -85,8 +85,28 @@ type cosmosScriptDiffScenario struct {
 // resourceType is the child resource type ("sprocs"/"docs"/"colls"/"dbs"),
 // resourceLink is the resource (point op) or parent (feed/create) link with no
 // leading slash, xmsDate is the RFC1123-GMT date echoed in the x-ms-date header.
-func cosmosSign(method, resourceType, resourceLink, xmsDate string) string {
-	key, _ := base64.StdEncoding.DecodeString(cosmosEmulatorKey)
+// cosmosCoordinate is everything that differs between the simulator and the
+// emulator for these raw-REST scenarios: the endpoint the request is sent to
+// and the account key that signs it. The scenario code below is otherwise
+// identical for both.
+type cosmosCoordinate struct {
+	url string
+	key string
+}
+
+// cosmosSimCoordinate addresses the simulator the way a client does: the
+// document endpoint Azure Resource Manager advertises for the account, signed
+// with the key listKeys serves for it.
+func cosmosSimCoordinate(t *testing.T) cosmosCoordinate {
+	t.Helper()
+	return cosmosCoordinate{
+		url: cosmosDocumentEndpoint(t, cosmosDataPlaneAccount),
+		key: cosmosAccountKey(t, cosmosDataPlaneAccount),
+	}
+}
+
+func cosmosSign(accountKey, method, resourceType, resourceLink, xmsDate string) string {
+	key, _ := base64.StdEncoding.DecodeString(accountKey)
 	stringToSign := strings.ToLower(method) + "\n" +
 		strings.ToLower(resourceType) + "\n" +
 		resourceLink + "\n" +
@@ -118,7 +138,7 @@ func urlQueryEscape(s string) string {
 
 // cosmosRESTReq issues a signed Cosmos REST request against endpoint and returns
 // the decoded body (for a JSON object response), the raw body, and the status.
-func cosmosRESTReq(t *testing.T, endpoint, method, path, resourceType, resourceLink, body string, extra map[string]string) (map[string]any, int) {
+func cosmosRESTReq(t *testing.T, endpoint cosmosCoordinate, method, path, resourceType, resourceLink, body string, extra map[string]string) (map[string]any, int) {
 	t.Helper()
 	xmsDate := time.Now().UTC().Format(http.TimeFormat)
 
@@ -132,13 +152,13 @@ func cosmosRESTReq(t *testing.T, endpoint, method, path, resourceType, resourceL
 		if body != "" {
 			br = strings.NewReader(body)
 		}
-		req, err := http.NewRequest(method, strings.TrimRight(endpoint, "/")+path, br)
+		req, err := http.NewRequest(method, strings.TrimRight(endpoint.url, "/")+path, br)
 		if err != nil {
 			t.Fatalf("new request: %v", err)
 		}
 		req.Header.Set("x-ms-date", xmsDate)
 		req.Header.Set("x-ms-version", "2018-12-31")
-		req.Header.Set("Authorization", cosmosSign(method, resourceType, resourceLink, xmsDate))
+		req.Header.Set("Authorization", cosmosSign(endpoint.key, method, resourceType, resourceLink, xmsDate))
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
 		}
@@ -183,7 +203,7 @@ func cosmosTransientErr(err error) bool {
 
 // cosmosDiffMakeContainer creates a database + a /pk-partitioned container over
 // REST against endpoint (idempotent across the two endpoints' runs).
-func cosmosDiffMakeContainer(t *testing.T, endpoint, dbID, coll string) {
+func cosmosDiffMakeContainer(t *testing.T, endpoint cosmosCoordinate, dbID, coll string) {
 	t.Helper()
 	cosmosRESTReq(t, endpoint, "POST", "/dbs", "dbs", "",
 		fmt.Sprintf(`{"id":%q}`, dbID), nil)
@@ -193,7 +213,7 @@ func cosmosDiffMakeContainer(t *testing.T, endpoint, dbID, coll string) {
 
 func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 	return []cosmosScriptDiffScenario{
-		{"sproc-crud", func(t *testing.T, endpoint, dbID string) (map[string]any, error) {
+		{"sproc-crud", func(t *testing.T, endpoint cosmosCoordinate, dbID string) (map[string]any, error) {
 			coll := "c"
 			cosmosDiffMakeContainer(t, endpoint, dbID, coll)
 			collLink := "dbs/" + dbID + "/colls/" + coll
@@ -214,7 +234,7 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 				"getAfterDelete": g2,
 			}, nil
 		}},
-		{"sproc-create-and-execute", func(t *testing.T, endpoint, dbID string) (map[string]any, error) {
+		{"sproc-create-and-execute", func(t *testing.T, endpoint cosmosCoordinate, dbID string) (map[string]any, error) {
 			coll := "c"
 			cosmosDiffMakeContainer(t, endpoint, dbID, coll)
 			collLink := "dbs/" + dbID + "/colls/" + coll
@@ -243,7 +263,7 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 				"pk":         got["pk"],
 			}, nil
 		}},
-		{"sproc-missing-404", func(t *testing.T, endpoint, dbID string) (map[string]any, error) {
+		{"sproc-missing-404", func(t *testing.T, endpoint cosmosCoordinate, dbID string) (map[string]any, error) {
 			coll := "c"
 			cosmosDiffMakeContainer(t, endpoint, dbID, coll)
 			collLink := "dbs/" + dbID + "/colls/" + coll
@@ -252,7 +272,7 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 				map[string]string{"x-ms-documentdb-partitionkey": `["p"]`})
 			return map[string]any{"status": st}, nil
 		}},
-		{"changefeed-incremental", func(t *testing.T, endpoint, dbID string) (map[string]any, error) {
+		{"changefeed-incremental", func(t *testing.T, endpoint cosmosCoordinate, dbID string) (map[string]any, error) {
 			coll := "c"
 			cosmosDiffMakeContainer(t, endpoint, dbID, coll)
 			collLink := "dbs/" + dbID + "/colls/" + coll
@@ -277,7 +297,7 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 
 			return map[string]any{"firstReadIDs": firstIDs, "incrementalIDs": incrIDs}, nil
 		}},
-		{"conflictfeed-empty", func(t *testing.T, endpoint, dbID string) (map[string]any, error) {
+		{"conflictfeed-empty", func(t *testing.T, endpoint cosmosCoordinate, dbID string) (map[string]any, error) {
 			coll := "c"
 			cosmosDiffMakeContainer(t, endpoint, dbID, coll)
 			collLink := "dbs/" + dbID + "/colls/" + coll
@@ -291,16 +311,16 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 // cosmosChangeFeedRead issues a signed change-feed read (optionally with a
 // continuation in If-None-Match) and returns the decoded body, the status, and
 // the response etag (the advanced continuation). A 304 yields a nil body.
-func cosmosChangeFeedRead(t *testing.T, endpoint, base, collLink string, feed map[string]string, continuation string) (map[string]any, int, string) {
+func cosmosChangeFeedRead(t *testing.T, endpoint cosmosCoordinate, base, collLink string, feed map[string]string, continuation string) (map[string]any, int, string) {
 	t.Helper()
 	xmsDate := time.Now().UTC().Format(http.TimeFormat)
-	req, err := http.NewRequest("GET", strings.TrimRight(endpoint, "/")+base+"/docs", nil)
+	req, err := http.NewRequest("GET", strings.TrimRight(endpoint.url, "/")+base+"/docs", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
 	req.Header.Set("x-ms-date", xmsDate)
 	req.Header.Set("x-ms-version", "2018-12-31")
-	req.Header.Set("Authorization", cosmosSign("GET", "docs", collLink, xmsDate))
+	req.Header.Set("Authorization", cosmosSign(endpoint.key, "GET", "docs", collLink, xmsDate))
 	for k, v := range feed {
 		req.Header.Set(k, v)
 	}

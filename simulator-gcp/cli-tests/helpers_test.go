@@ -77,7 +77,14 @@ func TestMain(m *testing.M) {
 	}
 
 	// Build simulator
-	binaryPath, _ = filepath.Abs("../simulator-gcp")
+	// Each suite builds the simulator it runs into a path of its own. The
+	// three suites share one working tree, so a single `../simulator-gcp`
+	// would have one suite's `go build -o` overwrite the binary another is
+	// executing the moment they run at the same time.
+	binaryPath, _ = filepath.Abs("../.build/cli-tests/simulator-gcp")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		log.Fatalf("Failed to create simulator build dir: %v", err)
+	}
 	simDir, _ := filepath.Abs("..")
 	build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
 	build.Dir = simDir
@@ -89,11 +96,11 @@ func TestMain(m *testing.M) {
 	workloadPlatform := nativeDockerPlatform()
 
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
-	evalImageName = "sockerless-eval-arithmetic:test"
+	evalImageName = "sockerless-eval-arithmetic:gcp-cli"
 	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
 
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
-	commandImageName = "sockerless-container-command:test"
+	commandImageName = "sockerless-container-command:gcp-cli"
 	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
 
 	// Find free ports for HTTP and gRPC
@@ -290,6 +297,7 @@ func gcloudCLI(args ...string) *exec.Cmd {
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDBUILD="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDRESOURCEMANAGER="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_IAM="+baseURL+"/",
+		"CLOUDSDK_API_ENDPOINT_OVERRIDES_IAMCREDENTIALS="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_PUBSUB="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_LOGGING="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDFUNCTIONS="+baseURL+"/",
@@ -422,10 +430,20 @@ func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
 COPY %s /usr/local/bin/%s
 ENTRYPOINT ["/usr/local/bin/%s"]
 `, binaryName, binaryName, binaryName)
-	dockerBuild := exec.Command("docker", "build",
-		"--platform", platform,
-		"-t", imageName,
-		"-f", "-", buildDir)
+	// On a docker-container buildx driver (the default on many dev machines),
+	// `docker build -t` leaves the image in the build cache only — never the
+	// daemon store — so the sim's container start can't find it. `docker buildx
+	// build --load` materializes it into the daemon store. The legacy builder
+	// builds into the store natively and rejects the buildx-only `--load`, so
+	// omit it there.
+	var args []string
+	if exec.Command("docker", "buildx", "version").Run() == nil {
+		args = []string{"buildx", "build", "--load"}
+	} else {
+		args = []string{"build"}
+	}
+	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
+	dockerBuild := exec.Command("docker", args...)
 	dockerBuild.Stdin = strings.NewReader(dockerfile)
 	if out, err := dockerBuild.CombinedOutput(); err != nil {
 		log.Fatalf("Failed to build %s Docker image: %v\n%s", imageName, err, out)

@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"sort"
@@ -123,6 +122,7 @@ func registerECR(r *sim.AWSRouter, srv *sim.Server) {
 	ecrImages = sim.MakeStore[ECRImageDetail](srv.DB(), "ecr_images")
 	ecrLifecyclePolicies = sim.MakeStore[ECRLifecyclePolicy](srv.DB(), "ecr_lifecycle_policies")
 	ecrPullThroughCacheRules = sim.MakeStore[ECRPullThroughCacheRule](srv.DB(), "ecr_pull_through_cache_rules")
+	ecrAuthorizationTokens = sim.MakeStore[ECRAuthorizationToken](srv.DB(), "ecr_authorization_tokens")
 
 	r.Register("AmazonEC2ContainerRegistry_V20150921.CreateRepository", handleECRCreateRepository)
 	r.Register("AmazonEC2ContainerRegistry_V20150921.DescribeRepositories", handleECRDescribeRepositories)
@@ -405,8 +405,13 @@ func handleECRGetAuthorizationToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := base64.StdEncoding.EncodeToString([]byte("AWS:password"))
-	expiresAt := time.Now().Add(12 * time.Hour).Unix()
+	token, expires, err := ecrIssueAuthorizationToken()
+	if err != nil {
+		sim.AWSErrorf(w, "ServerException", http.StatusInternalServerError,
+			"failed to issue an authorization token: %v", err)
+		return
+	}
+	expiresAt := expires.Unix()
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"authorizationData": []map[string]any{

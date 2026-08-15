@@ -1,11 +1,14 @@
 package gcp_sdk_test
 
 import (
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/compute/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -218,9 +221,9 @@ func TestCompute_Firewall_DefaultsToIngressPriority1000(t *testing.T) {
 // TestCompute_Disks_CRUD covers the GCP `pd-ephemeral` storage-driver
 // prereq: zonal Compute Disks insert / get / list /
 // resize / setLabels / delete + aggregated list across zones. Real
-// GCP returns zonal operations for every mutation; the sim's ops
-// endpoint always reports DONE so the SDK's polling loop completes
-// in one round.
+// GCP returns zonal operations for every mutation; a disk write completes
+// inside its request, so its operation is DONE when the client receives it
+// and the SDK's polling loop finishes in one round.
 func TestCompute_Disks_CRUD(t *testing.T) {
 	svc := computeService(t)
 	const project = "test-project"
@@ -497,9 +500,21 @@ func TestCompute_Instances_Lifecycle(t *testing.T) {
 		Tags:   &compute.Tags{Items: []string{"runner"}},
 	}
 
+	// Compute Engine answers instances.insert with a zone operation that is
+	// still RUNNING and boots the machine behind it; the client polls
+	// zoneOperations for the verdict. That poll is the whole reason the boot is
+	// not bounded by this one call's request timeout.
 	op, err := svc.Instances.Insert(project, zone, inst).Context(ctx).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "DONE", op.Status)
+	assert.Equal(t, "RUNNING", op.Status,
+		"insert must answer with a running operation, not a finished one")
+	assert.Equal(t, "insert", op.OperationType)
+	assert.Empty(t, op.EndTime, "an operation still running carries no end time")
+
+	done := awaitZoneOperation(t, svc, project, zone, op.Name)
+	require.Nil(t, done.Error, "the insert operation failed: %+v", done.Error)
+	assert.Equal(t, int64(100), done.Progress)
+	assert.NotEmpty(t, done.EndTime, "a finished operation carries its end time")
 
 	got, err := svc.Instances.Get(project, zone, "sdk-vm-1").Context(ctx).Do()
 	require.NoError(t, err)
@@ -670,4 +685,114 @@ func TestCompute_ListSubnetworks_EmptyRegion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "compute#subnetworkList", resp.Kind)
 	assert.Empty(t, resp.Items)
+}
+
+// awaitZoneOperation polls a zone operation to DONE the way a Compute Engine
+// client does, through zoneOperations.wait — which Compute Engine documents as
+// waiting "for the specified Operation resource to return as DONE or for the
+// request to approach the 2 minute deadline", so a boot longer than one wait
+// takes another wait rather than failing.
+func awaitZoneOperation(t *testing.T, svc *compute.Service, project, zone, name string) *compute.Operation {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Minute)
+	for {
+		op, err := svc.ZoneOperations.Wait(project, zone, name).Context(ctx).Do()
+		require.NoError(t, err)
+		if op.Status == "DONE" {
+			return op
+		}
+		require.True(t, time.Now().Before(deadline),
+			"zone operation %s never reached DONE (last status %s)", name, op.Status)
+	}
+}
+
+// TestCompute_InsertReturnsARunningOperation is the asynchronous contract on
+// its own: instances.insert answers immediately with a RUNNING zone operation
+// naming the instance it is bringing up, the instance is already visible in a
+// pre-RUNNING state while the boot proceeds, and only the operation reaching
+// DONE means the machine is up. A simulator that booted inside the request
+// could not show the instance in PROVISIONING or STAGING at all, because the
+// response would not exist until the boot had finished.
+func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
+	requireNetworkHost(t)
+	svc := computeService(t)
+	const project = "test-project"
+	const zone = "us-central1-a"
+	const region = "us-central1"
+
+	_, err := svc.Networks.Insert(project,
+		&compute.Network{Name: "sdk-async-network", AutoCreateSubnetworks: false}).Context(ctx).Do()
+	require.NoError(t, err)
+	_, err = svc.Subnetworks.Insert(project, region, &compute.Subnetwork{
+		Name:        "sdk-async-subnet",
+		IpCidrRange: "10.29.0.0/24",
+		Network:     "projects/test-project/global/networks/sdk-async-network",
+		Region:      region,
+	}).Context(ctx).Do()
+	require.NoError(t, err)
+
+	inst := &compute.Instance{
+		Name:        "sdk-async-vm",
+		MachineType: "e2-micro",
+		Disks: []*compute.AttachedDisk{{
+			Boot:       true,
+			AutoDelete: true,
+			InitializeParams: &compute.AttachedDiskInitializeParams{
+				SourceImage: "projects/debian-cloud/global/images/debian-12",
+				DiskSizeGb:  10,
+			},
+		}},
+		NetworkInterfaces: []*compute.NetworkInterface{{
+			Network:    "projects/test-project/global/networks/sdk-async-network",
+			Subnetwork: "projects/test-project/regions/us-central1/subnetworks/sdk-async-subnet",
+		}},
+	}
+	t.Cleanup(func() { _, _ = svc.Instances.Delete(project, zone, inst.Name).Do() })
+
+	started := time.Now()
+	op, err := svc.Instances.Insert(project, zone, inst).Context(ctx).Do()
+	require.NoError(t, err)
+	insertTook := time.Since(started)
+
+	assert.Equal(t, "RUNNING", op.Status)
+	assert.Equal(t, "insert", op.OperationType)
+	assert.Contains(t, op.TargetLink, "/zones/"+zone+"/instances/"+inst.Name)
+	assert.NotEmpty(t, op.InsertTime)
+	assert.NotEmpty(t, op.StartTime)
+	assert.Empty(t, op.EndTime)
+	assert.Less(t, insertTook, 30*time.Second,
+		"the insert must return before the boot finishes, not after it")
+
+	// The instance exists while its operation is still running, in a state
+	// that precedes RUNNING.
+	booting, err := svc.Instances.Get(project, zone, inst.Name).Context(ctx).Do()
+	require.NoError(t, err)
+	assert.Contains(t, []string{"PROVISIONING", "STAGING", "RUNNING"}, booting.Status)
+
+	// A GET of the operation reports the same operation, not a fabricated
+	// verdict, and eventually settles DONE.
+	polled, err := svc.ZoneOperations.Get(project, zone, op.Name).Context(ctx).Do()
+	require.NoError(t, err)
+	assert.Equal(t, op.Name, polled.Name)
+	assert.Contains(t, []string{"RUNNING", "DONE"}, polled.Status)
+
+	done := awaitZoneOperation(t, svc, project, zone, op.Name)
+	require.Nil(t, done.Error, "the insert operation failed: %+v", done.Error)
+	assert.Equal(t, int64(100), done.Progress)
+
+	up, err := svc.Instances.Get(project, zone, inst.Name).Context(ctx).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", up.Status)
+}
+
+// TestCompute_ZoneOperationGetIsNotFoundForAnUnknownName is the negative
+// control for the operation registry: a name the simulator never handed out is
+// not answered with an invented DONE.
+func TestCompute_ZoneOperationGetIsNotFoundForAnUnknownName(t *testing.T) {
+	svc := computeService(t)
+	_, err := svc.ZoneOperations.Get("test-project", "us-central1-a", "operation-never-issued").Context(ctx).Do()
+	require.Error(t, err)
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Code)
 }

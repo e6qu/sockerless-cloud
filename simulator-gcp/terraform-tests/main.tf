@@ -66,6 +66,11 @@ provider "google" {
   # org-policy verbs, which resource_manager_custom_endpoint routes.
   resource_manager_v3_custom_endpoint = "${var.endpoint}/v3/"
 
+  # iam_credentials_custom_endpoint routes the handwritten IAM Service Account
+  # Credentials client that backs the `google_service_account_access_token`
+  # data source (projects.serviceAccounts.generateAccessToken).
+  iam_credentials_custom_endpoint = "${var.endpoint}/v1/"
+
 }
 
 provider "google-beta" {
@@ -984,6 +989,18 @@ output "compute_disk_self_link" {
   value = google_compute_disk.tf_disk.self_link
 }
 
+# The virtual machine's status after apply. `instances.insert` answers with a
+# RUNNING zone operation and boots behind it, so the provider only reads this
+# once it has polled zoneOperations through to DONE — a status of RUNNING here
+# is the whole asynchronous insert working end to end.
+output "compute_instance_self_link" {
+  value = google_compute_instance.tf_vm.self_link
+}
+
+output "compute_instance_current_status" {
+  value = google_compute_instance.tf_vm.current_status
+}
+
 output "dns_zone_name_servers" {
   value = google_dns_managed_zone.main.name_servers
 }
@@ -1262,4 +1279,27 @@ output "organization_org_policy_constraint" {
 
 output "resource_manager_lien_name" {
   value = google_resource_manager_lien.tf_lien.name
+}
+
+# The IAM Service Account Credentials `generateAccessToken` method, reached the
+# way Terraform reaches it. The data source's `lifetime` is the request member
+# the API honours up to the ceiling in force for the account — one hour by
+# default — so a reduced lifetime here must mint a token rather than be
+# ignored in favour of a fixed hour.
+data "google_service_account_access_token" "tf_sa_token" {
+  target_service_account = google_service_account.tf_sa.email
+  scopes                 = ["https://www.googleapis.com/auth/cloud-platform"]
+  lifetime               = "600s"
+}
+
+output "service_account_access_token_id" {
+  value = data.google_service_account_access_token.tf_sa_token.id
+}
+
+output "service_account_access_token_lifetime" {
+  value = data.google_service_account_access_token.tf_sa_token.lifetime
+}
+
+output "service_account_access_token_minted" {
+  value = nonsensitive(length(data.google_service_account_access_token.tf_sa_token.access_token) > 0)
 }

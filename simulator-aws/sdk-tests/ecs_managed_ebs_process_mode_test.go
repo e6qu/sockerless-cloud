@@ -2,7 +2,6 @@ package aws_sdk_test
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"testing"
@@ -22,34 +21,62 @@ import (
 // TestMain already built. Killed on test cleanup.
 func startProcessModeSim(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	dnsListener, err := net.ListenPacket("udp", "127.0.0.1:0")
-	require.NoError(t, err)
-	dnsPort := dnsListener.LocalAddr().(*net.UDPAddr).Port
-	require.NoError(t, dnsListener.Close())
+	// The coordinates come from freeSimulatorPortPair, which probes TCP and UDP
+	// together — the Route 53 listener the simulator binds needs both — and
+	// cannot hand back the port the HTTP listener is about to take.
+	//
+	// A probe only holds a port until it returns it, so another process can
+	// still take it in the window before the simulator binds. The simulator
+	// then exits on the bind, and waiting on its health endpoint would spend
+	// its whole budget reporting a refused connection instead of the bind that
+	// actually failed. Watch the process instead: if it exits before it is
+	// healthy, start again on fresh coordinates.
+	const attempts = 5
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		port, dnsPort, err := freeSimulatorPortPair()
+		require.NoError(t, err)
 
-	cmd := exec.Command(binaryPath)
-	cmd.Env = append(
-		os.Environ(),
-		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
-		fmt.Sprintf("SIM_DNS_PORT=%d", dnsPort),
-		"SIM_RUNTIME=process",
-		"SIM_LOG_LEVEL=warn",
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	require.NoError(t, cmd.Start())
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	})
+		cmd := exec.Command(binaryPath)
+		cmd.Env = append(
+			os.Environ(),
+			fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
+			fmt.Sprintf("SIM_DNS_PORT=%d", dnsPort),
+			"SIM_RUNTIME=process",
+			"SIM_LOG_LEVEL=warn",
+		)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		require.NoError(t, cmd.Start())
 
-	url := fmt.Sprintf("http://127.0.0.1:%d", port)
-	require.NoError(t, waitForHealth(url+"/health"))
-	return url
+		exited := make(chan error, 1)
+		go func() { exited <- cmd.Wait() }()
+
+		url := fmt.Sprintf("http://127.0.0.1:%d", port)
+		healthy := make(chan error, 1)
+		go func() { healthy <- waitForHealth(url + "/health") }()
+
+		select {
+		case waitErr := <-exited:
+			lastErr = fmt.Errorf("process-mode simulator exited before serving on :%d (Route 53 on :%d): %v", port, dnsPort, waitErr)
+			continue
+		case healthErr := <-healthy:
+			if healthErr != nil {
+				_ = cmd.Process.Kill()
+				<-exited
+				lastErr = healthErr
+				continue
+			}
+		}
+
+		t.Cleanup(func() {
+			_ = cmd.Process.Kill()
+			<-exited
+		})
+		return url
+	}
+	t.Fatalf("process-mode simulator did not start after %d attempts: %v", attempts, lastErr)
+	return ""
 }
 
 // TestECS_ManagedEBSRunTaskProcessMode covers issue #569: a managed-EBS
