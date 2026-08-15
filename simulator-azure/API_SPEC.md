@@ -952,6 +952,29 @@ grant_type=refresh_token&service={registryName}.azurecr.io&scope=repository:{nam
 
 Use the `access_token` as: `Authorization: Bearer {access_token}`
 
+**Get Scope Token with admin credentials (the `docker login` exchange):**
+
+```
+GET https://{registryName}.azurecr.io/oauth2/token?service={registryName}.azurecr.io&scope=repository:{name}:pull,push
+Authorization: Basic base64({username}:{password})
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJ..."
+}
+```
+
+The admin credential authenticates only while the registry's `adminUserEnabled`
+property is set, and only against the passwords `listCredentials` currently
+serves — a `regenerateCredential` invalidates the old password and the access
+tokens minted from it. An access token authorizes exactly the access records of
+its `access` claim; a request needing a scope the token does not carry is
+answered with the challenge again, carrying `error="insufficient_scope"`. A
+registry whose `anonymousPullEnabled` property is set also serves pulls to a
+caller with no credential at all.
+
 **Alternatively, Basic auth with admin credentials:**
 ```
 Authorization: Basic base64({username}:{password})

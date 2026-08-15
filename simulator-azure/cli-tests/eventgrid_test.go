@@ -79,7 +79,7 @@ func TestEventGridCLI_TopicSubscriptionPublish(t *testing.T) {
 	ep, err := url.Parse(topic.Properties.Endpoint)
 	require.NoError(t, err)
 	runCLI(t, azRest("POST", baseURL+ep.Path+"?api-version=2018-01-01", publishBody,
-		"--headers", "Content-Type=application/json", "Host="+ep.Host))
+		"--headers", "Content-Type=application/json", "Host="+ep.Host, "aeg-sas-key="+keys.Key1))
 
 	select {
 	case events := <-deliveries:

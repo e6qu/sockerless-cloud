@@ -67,6 +67,18 @@ type OCIRegistry struct {
 	// mux serves elsewhere (e.g. GCP's `/v2/projects/` control-plane routes);
 	// those get a 404 here so the cloud handler can take them.
 	SkipPath func(path string) bool
+	// Authorize, if set, authenticates every `/v2/` request before the data
+	// plane acts on it. repo is the repository the request addresses — empty
+	// for the `/v2/` base ping, which addresses the registry itself. The hook
+	// returns true to let the request through; on false it has already written
+	// the registry's own refusal (the Docker Registry HTTP API v2 challenge and
+	// error body), so the caller must return without touching the stores.
+	//
+	// The hook belongs to the cloud that mounts the registry because the
+	// credentials, the token service and the challenge realm are that cloud's:
+	// the protocol under `/v2/` is identical everywhere, the authority that
+	// issues tokens for it is not.
+	Authorize func(w http.ResponseWriter, r *http.Request, repo string) bool
 }
 
 // Register mounts the data plane on the /v2/ subtree for every method, then
@@ -97,6 +109,13 @@ func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 	// otherwise reject a bare 404 that doesn't look like a registry response.
 	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
 	if path == "/v2/" || path == "/v2" {
+		// The base endpoint is the one a client probes to discover both API
+		// support and the token service, so it is authenticated like any other
+		// registry route: the challenge it answers with is how the client
+		// learns where to get a token.
+		if !reg.authorized(w, r, "") {
+			return
+		}
 		WriteJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
@@ -107,21 +126,45 @@ func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(path, "/v2/")
 
 	// Order matters: `/blobs/uploads/` must be matched before `/blobs/`.
+	// Authorization runs after the repository is parsed and before the handler,
+	// so a refused request never reads or writes a store.
 	switch {
 	case strings.Contains(rest, "/blobs/uploads/"):
 		idx := strings.Index(rest, "/blobs/uploads/")
+		if !reg.authorized(w, r, rest[:idx]) {
+			return
+		}
 		reg.handleBlobUpload(w, r, rest[:idx], rest[idx+len("/blobs/uploads/"):])
 	case strings.Contains(rest, "/blobs/"):
 		idx := strings.Index(rest, "/blobs/")
+		if !reg.authorized(w, r, rest[:idx]) {
+			return
+		}
 		reg.handleBlob(w, r, rest[:idx], rest[idx+len("/blobs/"):])
 	case strings.Contains(rest, "/manifests/"):
 		idx := strings.Index(rest, "/manifests/")
+		if !reg.authorized(w, r, rest[:idx]) {
+			return
+		}
 		reg.handleManifest(w, r, rest[:idx], rest[idx+len("/manifests/"):])
 	case strings.HasSuffix(rest, "/tags/list"):
-		reg.handleTagsList(w, r, strings.TrimSuffix(rest, "/tags/list"))
+		repo := strings.TrimSuffix(rest, "/tags/list")
+		if !reg.authorized(w, r, repo) {
+			return
+		}
+		reg.handleTagsList(w, r, repo)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// authorized applies the mounting cloud's Authorize hook. A registry mounted
+// without one serves its data plane unauthenticated.
+func (reg *OCIRegistry) authorized(w http.ResponseWriter, r *http.Request, repo string) bool {
+	if reg.Authorize == nil {
+		return true
+	}
+	return reg.Authorize(w, r, repo)
 }
 
 // PutBlob stores a content-addressed blob (used by hydration hooks).

@@ -50,7 +50,7 @@ func TestCodeBuild_BuildBatches_SDK(t *testing.T) {
 			lastBatchStatus = bg.BuildBatches[0].BuildBatchStatus
 		}
 		return len(bg.BuildBatches) == 1 && bg.BuildBatches[0].BuildBatchStatus == cbtypes.StatusTypeSucceeded
-	}, 60*time.Second, 100*time.Millisecond)
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
 	require.True(t, batchSucceeded, "build batch did not reach SUCCEEDED; last status: %s", lastBatchStatus)
 
 	lb, err := c.ListBuildBatches(ctx, &codebuild.ListBuildBatchesInput{})
@@ -260,7 +260,7 @@ func TestCodeBuild_ReportInsights_SDK(t *testing.T) {
 		}
 		reportArn = builds.Builds[0].ReportArns[0]
 		return true
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
 	require.NotEmpty(t, reportArn)
 
 	tc, err := c.DescribeTestCases(ctx, &codebuild.DescribeTestCasesInput{ReportArn: aws.String(reportArn)})

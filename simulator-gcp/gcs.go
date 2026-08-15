@@ -637,6 +637,11 @@ func registerGCS(srv *sim.Server) {
 	gcsObjects = sim.MakeStore[GCSObject](srv.DB(), "gcs_objects")
 	gcsResumableSessions = sim.MakeStore[gcsResumableSession](srv.DB(), "gcs_resumable_sessions")
 	objects := gcsObjects
+	// Cloud Storage's long-running methods record into the operation store
+	// every Google slice shares, whichever register function reaches it first.
+	if crOperations == nil {
+		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
+	}
 
 	// Create bucket
 	srv.HandleFunc("POST /storage/v1/b", func(w http.ResponseWriter, r *http.Request) {
@@ -1896,7 +1901,7 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", name, bucket)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, gcsDoneOperation(r, bucket, nil))
+		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, nil))
 	})
 
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/folders/{sourceFolder}/renameTo/folders/{destinationFolder}", func(w http.ResponseWriter, r *http.Request) {
@@ -1913,7 +1918,7 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 		f.SelfLink = gcpSelfLink(r, "/storage/v1/b/"+bucket+"/folders/"+dst)
 		f.UpdateTime = gcsTimestamp()
 		gcsFolders.Put(key(bucket, dst), f)
-		sim.WriteJSON(w, http.StatusOK, gcsDoneOperation(r, bucket, gcsStructToMap(f)))
+		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(f)))
 	})
 }
 
@@ -2289,7 +2294,7 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 			AdmissionPolicy: in.AdmissionPolicy,
 		}
 		caches.Put(key(bucket, id), c)
-		sim.WriteJSON(w, http.StatusOK, gcsDoneOperation(r, bucket, gcsStructToMap(c)))
+		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(c)))
 	})
 
 	srv.HandleFunc("PATCH /storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}", func(w http.ResponseWriter, r *http.Request) {
@@ -2312,7 +2317,7 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		}
 		c.UpdateTime = gcsTimestamp()
 		caches.Put(key(bucket, id), c)
-		sim.WriteJSON(w, http.StatusOK, gcsDoneOperation(r, bucket, gcsStructToMap(c)))
+		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(c)))
 	})
 
 	stateVerb := func(state string) http.HandlerFunc {
@@ -2373,39 +2378,110 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/lockRetentionPolicy", returnBucket)
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/restore", returnBucket)
 
-	// relocate returns a GoogleLongrunningOperation.
+	// buckets.relocate moves the bucket to the requested location and answers
+	// with the operation that did it. validateOnly checks the request and
+	// leaves the bucket where it is, which is what the member says it does.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/relocate", func(w http.ResponseWriter, r *http.Request) {
-		bucket := sim.PathParam(r, "bucket")
-		if !bucketExists(w, bucket) {
+		name := sim.PathParam(r, "bucket")
+		bucket, ok := buckets.Get(name)
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
 			return
 		}
-		// drain the RelocateBucketRequest body
-		_ = sim.ReadJSON(r, &map[string]any{})
-		sim.WriteJSON(w, http.StatusOK, gcsDoneOperation(r, bucket, nil))
+		var request GCSRelocateBucketRequest
+		if err := sim.ReadJSON(r, &request); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		destination := request.DestinationLocation
+		if destination == "" {
+			// "If no location is provided, Cloud Storage will use the default
+			// location, which is us" — the same default the create path
+			// applies to a bucket that names none.
+			destination = "US"
+		}
+		if !request.ValidateOnly {
+			// GCS normalizes a bucket's location to upper case, the same way
+			// the create path does.
+			bucket.Data["location"] = strings.ToUpper(destination)
+			if request.DestinationCustomPlacementConfig != nil {
+				bucket.Data["customPlacementConfig"] = map[string]any{
+					"dataLocations": request.DestinationCustomPlacementConfig.DataLocations,
+				}
+			}
+			if request.DestinationKmsKeyName != "" {
+				bucket.Data["encryption"] = map[string]any{
+					"defaultKmsKeyName": request.DestinationKmsKeyName,
+				}
+			}
+			bucket.Data["updated"] = gcsTimestamp()
+			buckets.Put(name, bucket)
+		}
+		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, name, nil))
 	})
 
-	// Bucket operations: list / get / cancel / advanceRelocateBucket.
+	// Bucket operations: list / get / cancel / advanceRelocateBucket. Every
+	// answer here is about a record the bucket's long-running methods wrote —
+	// an identifier no method minted is NOT_FOUND, as it is in real Cloud
+	// Storage.
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/operations", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		if !bucketExists(w, bucket) {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":       "storage#operations",
-			"operations": []any{},
+		done, filtered, ok := gcsOperationFilter(w, r)
+		if !ok {
+			return
+		}
+		prefix := gcsOperationName(bucket, "")
+		items := crOperations.Filter(func(op Operation) bool {
+			if !strings.HasPrefix(op.Name, prefix) {
+				return false
+			}
+			return !filtered || op.Done == done
 		})
+		sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+		page, next, ok := paginateList(w, r, items)
+		if !ok {
+			return
+		}
+		response := map[string]any{"kind": "storage#operations", "operations": page}
+		if next != "" {
+			response["nextPageToken"] = next
+		}
+		sim.WriteJSON(w, http.StatusOK, response)
 	})
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/operations/{operationId}", func(w http.ResponseWriter, r *http.Request) {
-		bucket, opID := sim.PathParam(r, "bucket"), sim.PathParam(r, "operationId")
-		op := gcsDoneOperation(r, bucket, nil)
-		op["name"] = "projects/_/buckets/" + bucket + "/operations/" + opID
+		op, ok := gcsLookupOperation(w, r, bucketExists)
+		if !ok {
+			return
+		}
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
+	// The method's own description is that cancellation is best effort and
+	// that a client polls the operation to learn whether it succeeded or the
+	// operation completed anyway. Every operation this simulator records is
+	// already complete when its name reaches a client, so the completed
+	// outcome is the honest one: the record stands and the empty body the
+	// document declares comes back.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/operations/{operationId}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := gcsLookupOperation(w, r, bucketExists); !ok {
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	})
+	// Advancing a relocation is best effort for the same reason: the write
+	// downtime it schedules belongs to a relocation still in flight, and this
+	// simulator's relocations finish inside the request that starts them.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/operations/{operationId}/advanceRelocateBucket", func(w http.ResponseWriter, r *http.Request) {
-		_ = sim.ReadJSON(r, &map[string]any{})
+		if _, ok := gcsLookupOperation(w, r, bucketExists); !ok {
+			return
+		}
+		var request GCSAdvanceRelocateBucketOperationRequest
+		if err := sim.ReadJSON(r, &request); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -2464,22 +2540,98 @@ func gcsWriteTestPermissions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// gcsDoneOperation builds a completed storage#operation. When response is
-// non-nil it is placed in the operation's response member.
-func gcsDoneOperation(r *http.Request, bucket string, response map[string]any) map[string]any {
+// GCSRelocateBucketRequest mirrors the Discovery RelocateBucketRequest schema.
+type GCSRelocateBucketRequest struct {
+	DestinationLocation              string                         `json:"destinationLocation,omitempty"`
+	DestinationCustomPlacementConfig *GCSCustomPlacementDestination `json:"destinationCustomPlacementConfig,omitempty"`
+	ValidateOnly                     bool                           `json:"validateOnly,omitempty"`
+	DestinationKmsKeyName            string                         `json:"destinationKmsKeyName,omitempty"`
+}
+
+// GCSCustomPlacementDestination mirrors the RelocateBucketRequest's
+// destinationCustomPlacementConfig member — the regions a custom dual-region
+// bucket places its data in.
+type GCSCustomPlacementDestination struct {
+	DataLocations []string `json:"dataLocations,omitempty"`
+}
+
+// GCSAdvanceRelocateBucketOperationRequest mirrors the Discovery
+// AdvanceRelocateBucketOperationRequest schema.
+type GCSAdvanceRelocateBucketOperationRequest struct {
+	Ttl        string `json:"ttl,omitempty"`
+	ExpireTime string `json:"expireTime,omitempty"`
+}
+
+// gcsOperationName is the resource name of a Cloud Storage long-running
+// operation. Operations are parented by the bucket, under the `projects/_`
+// wildcard project the service uses for them, and the name is what
+// `gcloud storage operations describe` is given.
+func gcsOperationName(bucket, id string) string {
+	return "projects/_/buckets/" + bucket + "/operations/" + id
+}
+
+// gcsRecordDoneOperation records the operation for work a request just
+// performed and returns it. Cloud Storage answers its long-running methods with
+// an operation the bucket's operations collection can then be asked about, so
+// the record has to outlive the request that minted it — it goes into the same
+// store every other Google slice writes its operations to.
+func gcsRecordDoneOperation(r *http.Request, bucket string, response map[string]any) Operation {
 	// One operation, so one id: the name and the selfLink must address the
 	// same record.
 	id := gcsRandHex(8)
-	op := map[string]any{
-		"kind":     "storage#operation",
-		"name":     "projects/_/buckets/" + bucket + "/operations/" + id,
-		"done":     true,
-		"selfLink": gcpSelfLink(r, "/storage/v1/b/"+bucket+"/operations/"+id),
+	op := Operation{
+		Kind:     "storage#operation",
+		Name:     gcsOperationName(bucket, id),
+		Done:     true,
+		SelfLink: gcpSelfLink(r, "/storage/v1/b/"+bucket+"/operations/"+id),
 	}
 	if response != nil {
-		op["response"] = response
+		op.Response = response
 	}
+	crOperations.Put(op.Name, op)
 	return op
+}
+
+// gcsLookupOperation resolves the {bucket}/{operationId} pair the operations
+// methods address into the recorded operation, answering NOT_FOUND for a bucket
+// or an operation the service holds no record of.
+func gcsLookupOperation(w http.ResponseWriter, r *http.Request, bucketExists func(http.ResponseWriter, string) bool) (Operation, bool) {
+	bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "operationId")
+	if !bucketExists(w, bucket) {
+		return Operation{}, false
+	}
+	name := gcsOperationName(bucket, id)
+	op, ok := crOperations.Get(name)
+	if !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+		return Operation{}, false
+	}
+	return op, true
+}
+
+// gcsOperationFilter reads the operations.list `filter` parameter. The
+// filtering language is AIP-160, and the term the collection is asked for —
+// the one `gcloud storage operations list --server-filter` documents — is
+// `done = true` / `done = false`. A filter naming anything else is refused
+// rather than ignored: a silently dropped filter answers with every operation
+// in the bucket and reads as a result.
+func gcsOperationFilter(w http.ResponseWriter, r *http.Request) (done, filtered, ok bool) {
+	filter := strings.TrimSpace(r.URL.Query().Get("filter"))
+	if filter == "" {
+		return false, false, true
+	}
+	field, value, found := strings.Cut(filter, "=")
+	if found && strings.TrimSpace(field) == "done" {
+		switch strings.TrimSpace(value) {
+		case "true":
+			return true, true, true
+		case "false":
+			return false, true, true
+		}
+	}
+	sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		"unsupported filter %q: the operations collection filters on `done = true` or `done = false`", filter)
+	return false, false, false
 }
 
 // gcsStructToMap round-trips a resource struct through JSON so list/response

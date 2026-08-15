@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 11.
+Open: 11. Resolved: 18.
 
 ## Open
 
@@ -42,59 +42,221 @@ the simulators from the sockerless monorepo, keeping their IDs
   network resource, an Event Grid topic, a Service Bus namespace) still
   answers ARM's ResourceMoveNotSupported, which stays truthful only for the
   types real ARM refuses (Azure Container Instances container groups).
-  Remainder, in the order the store layouts allow: the families whose SAS or
-  access keys are derived from the resource ID (Service Bus, Event Grid,
-  Event Hubs, Azure Cache for Redis, Azure Container Registry) need their
-  material pinned across the move the way the storage keys are; Microsoft
-  .Network is last because its resources reference each other by resource ID,
-  so moving one without re-pointing every referrer would silently break the
-  fabric. No hook re-points an inbound reference held by a resource outside
-  the moved set either (a private endpoint's privateLinkServiceId still names
-  the pre-move ID) — that lands with the Microsoft.Network work, since it is
-  the same re-pointing pass. Fix shape unchanged.
+  Eleven type keys move: Microsoft.Web (sites with their whole child
+  subtree, plans, certificates), Microsoft.Storage, Microsoft.KeyVault,
+  Microsoft.ServiceBus, Microsoft.EventHub, Microsoft.Cache/redis,
+  Microsoft.ContainerRegistry, and Microsoft.EventGrid topics and domains.
+  Each pins the credential material its resource ID derives, so a move never
+  rotates a key: an Event Hubs connection string captured before a move still
+  sends and receives over AMQP after it, and an Event Grid key captured
+  before a move still publishes after it. Two of those proofs are bounded by
+  the data plane rather than by the move — Azure Cache for Redis has no data
+  plane in this simulator at all, so `listKeys` parity is as far as its proof
+  reaches, and the Azure Container Registry data plane authenticated nothing
+  until BUG-13. Still unhooked, all with resource-ID-derived credentials:
+  Microsoft.ApiManagement/service (subscription keys),
+  Microsoft.Logic/workflows standalone (the site-hosted ones move with their
+  site), Microsoft.DocumentDB/databaseAccounts, and the remaining Event Grid
+  types — partnerNamespaces, which is key-bearing, plus systemTopics,
+  partnerTopics, partnerRegistrations and partnerConfigurations.
+  Microsoft.Network is last because its resources reference each other by
+  resource ID, so moving one without re-pointing every referrer would
+  silently break the fabric. Rewriting an inbound reference held from outside
+  the moved set lands with that same pass; the named instances are a private
+  endpoint's privateLinkServiceId, an Azure Cache for Redis linked server's
+  linkedRedisCacheId, an Event Grid system topic's source and
+  metricResourceId, and an event subscription's destination and
+  deadLetterDestination resourceId. Event Grid's own properties.topic is the
+  first inbound reference any hook rewrites. Fix shape unchanged.
 
-- **BUG-9 (the Event Grid data plane authenticates nothing):**
-  `handleEventGridPublishEvents` / `publishEventGridTopic` in
-  `simulator-azure/eventgrid.go` accept any caller — no `aeg-sas-key`
-  header, no `aeg-sas-token` signature check, no Entra bearer path — where
-  real Azure Event Grid rejects an unauthenticated publish. The access keys
-  the control plane serves through `listKeys` and regenerates on request
-  are therefore decorative: nothing consumes them. Found while proving the
-  Service Bus move preserved a working credential, which the Event Grid
-  half of that work could not demonstrate for exactly this reason. Fix
-  shape: verify the key header and the SAS token the way
-  `verifyMessagingSAS` already does for Service Bus, with negative
-  coverage; that also unblocks Event Grid as a resource-move family, whose
-  other blocker (an event subscription naming its topic by resource ID) is
-  recorded under BUG-3.
+- **BUG-16 (a release tag exists before the artifacts it names):**
+  release-please creates and pushes the `vX.Y.Z` tag when the release pull
+  request merges, and `release.yml` then builds the binaries, console bundles
+  and per-architecture images against that tag. Nothing reconciles the two, so
+  a stalled or failed artifact build leaves a tagged, published release whose
+  assets are missing or partial, and a consumer that pins the tag resolves it
+  to something incomplete. Observed concretely at v0.9.1, which
+  eventually published in full: the artifact run wedged on the GHCR login and
+  buildx push steps — jobs that declare `timeout-minutes: 15` but sat
+  `in_progress` for more than two hours, so the enforcement gap is GitHub's,
+  not the workflow's — while the remaining nine jobs waited for a runner. For
+  roughly three hours the tag and the GitHub release existed and looked
+  ordinary while carrying 8 of their 30 assets and none of the three
+  multi-architecture indexes; anyone pinning the tag in that window would have
+  resolved it to an incomplete release. The queue drained on its own and the
+  run finished green, all 30 assets and all three indexes live. The `manifest`
+  job verifies index shape per image, so a *failing* build is caught; a
+  *hanging* one is not, and neither is the window between tag and artifacts.
+  Owner boundary: the stall itself is GitHub infrastructure and outside this
+  repository, but the tag-before-artifacts ordering is ours, and it is what
+  turns an upstream stall into a published release that lies about itself. Fix
+  shape: either publish the tag only after the artifact run succeeds, or add a
+  post-release reconciliation that asserts the expected asset set and all three
+  indexes exist for the tag and fails loudly when they do not — the check
+  performed by hand after every release this far.
 
-- **BUG-10 (Knative v1 sets a resourceVersion nobody enforces):** The Cloud
-  Run v1 projections stamp `metadata.resourceVersion` from the resource's
-  generation on every read, and no v1 handler ever reads it back, so every
-  v1 replace is unconditional where real Cloud Run answers 409 on a stale
-  version. The v2 family's etags are enforced as of this pass; v1's
-  optimistic concurrency is the same contract in the spelling Knative uses.
-  Fix shape: check the supplied resourceVersion on the v1 replace paths and
-  answer the conflict the service answers.
+- **BUG-17 (the Azure Container Registry manifest and blob stores are global,
+  not per-registry):** Two registries in the same simulator share content, so
+  `regA.azurecr.io/foo` and `regB.azurecr.io/foo` resolve to the same manifests
+  and blobs. Authentication is now scoped per registry (BUG-13), which makes the
+  storage conflation the remaining half: a caller authorized for one registry
+  reaches another registry's content by name. Real Azure Container Registry
+  isolates content per registry. Fix shape: key the manifest, tag and blob
+  stores by the registry's resource ID the way the other Azure stores are, and
+  cover it with a two-registry test asserting a repository pushed to one is
+  absent from the other.
 
-- **BUG-11 (Cloud Storage operations are fabricated):** `gcsDoneOperation`
-  mints an operation name it never stores, `operations.list` answers an
-  empty collection whatever exists, `operations.get` invents `done: true`
-  for any identifier, and `operations.cancel` accepts any identifier for the
-  same reason. Real Cloud Storage records bucket relocation operations and
-  answers about the one named. Fix shape: give the slice a real operation
-  store like the one the other Google slices share, and make the relocation
-  path record into it — until then the collection reports success about work
-  it has no record of.
+- **BUG-18 (the Amazon ECR and Google Artifact Registry data planes
+  authenticate nothing):** Both real services authenticate every registry
+  request — Amazon ECR with the Basic credential `GetAuthorizationToken`
+  issues, Google Artifact Registry with the same Docker Bearer challenge flow
+  at `<region>-docker.pkg.dev`. Neither simulator checks anything, so the
+  credentials their control planes mint are decorative, exactly as Azure's were
+  before BUG-13. The shared registry now carries a per-registry `Authorize`
+  hook injected by whichever cloud mounts the subtree, so the mechanism exists
+  and each cloud needs its own verification pass against its own published
+  contract rather than a copy of Azure's. Note the AWS and GCP copies of
+  `shared/oci.go` are byte-identical to their pre-BUG-13 state; the hook lives
+  only in the Azure copy today.
 
-- **BUG-12 (the Cloud Run executions verb fan-in accepts any verb):** The
-  `executions/{id}:{verb}` route discards the action and treats every verb
-  as cancel, so a request naming a verb the service does not publish is
-  answered rather than refused. Tightening it moves the cloudrun-v2 floor,
-  because the coverage probe reads an honest unknown-action error as
-  unserved — so the fix is the tightening plus the ratchet in one change.
+- **BUG-19 (the AWS Lambda invocation timeout may include the runtime INIT
+  phase):** `lambda_runtime.go` starts the function's `Timeout` timer once
+  `StartContainerSync` returns, so container create and start are correctly
+  outside the window — but the runtime bootstrap that follows, a Python
+  interpreter starting and importing `boto3`, runs inside it. Real AWS Lambda
+  bills and bounds the INIT phase separately from the invocation timeout, so a
+  cold start that spends seconds in initialisation should not consume the
+  function's three-second budget. Observed as `Task timed out after 3.00
+  seconds` on a host whose container engine was degraded, and not reproducible
+  on a healthy one, so the divergence is suspected rather than demonstrated.
+  Fix shape: start the invocation timer when the runtime reports itself
+  initialised rather than when the container starts, and cover it with a
+  function whose initialisation is deliberately slower than its timeout.
 
 ## Resolved history
+
+- **BUG-15 (an Amazon RDS instance served connections before its engine was
+  ready):** The lazy data-plane start always did wait for the engine — the
+  defect was that its probe read any PostgreSQL `ErrorResponse` as proof of
+  readiness, and `FATAL: the database system is starting up` (SQLSTATE 57P03)
+  is an `ErrorResponse`, so the gate opened the moment the postmaster bound its
+  port and the proxy forwarded clients into a server refusing all of them. The
+  probe now parses the error's SQLSTATE and treats only 57P03 as not-ready, the
+  classification `pg_isready` makes; MySQL and MariaDB were already correct,
+  reporting ready only on a real protocol handshake, and the reason is
+  documented beside them. Two defects in the same path went with it: the adopt
+  path taken after a restart or `StartDBInstance` marked the lazy start
+  complete without probing at all, so the first client met an engine still
+  replaying its write-ahead log — which is what the 57P03 wait in
+  `sdk-tests/persistence_dataplane_restart_test.go` had been papering over, and
+  that wait is now removed so the test guards the bug instead of hiding it —
+  and the 90-second engine budget both under-provisioned a real first boot
+  (a `mysql:8.0` cold start measured 253 seconds under load) and destroyed the
+  instance when it expired, with the error cached permanently, so a slow host
+  bricked a database. The budget is ten minutes and re-reads the container's
+  real state every two seconds, so a genuinely dead engine still fails fast.
+  Reproduced deliberately under contention before the fix (three of three runs
+  failed on 57P03), verified under the same contention after (three of three
+  passed), and guarded by a wire-level unit test with the negative control
+  confirming the old classification fails it.
+
+- **BUG-13 (the Azure Container Registry data plane authenticated nothing):**
+  Every registry request is authenticated. An unauthenticated call answers the
+  Docker Bearer challenge ACR publishes — `Www-Authenticate: Bearer
+  realm="…/oauth2/token",service="…",scope="…"`, the form the official
+  `azcontainerregistry` policy requires both `service` and `scope` from — and
+  the token service behind it is real: `GET /oauth2/token` verifies the admin
+  Basic credential and only while `adminUserEnabled` is set, `POST
+  /oauth2/exchange` verifies a Microsoft Entra token for the
+  `https://containerregistry.azure.net` audience, and `POST /oauth2/token`
+  verifies the refresh token or password grant. Tokens are real JWTs because
+  the Azure SDK decodes `exp` out of them, they are issued for one registry,
+  and their `access` claims are checked against the access record the request
+  implies, following distribution's own method mapping. A credential-less
+  caller reaches only a `pull` on a registry with `anonymousPullEnabled`, and
+  the granted scope is filtered by what the credential authorizes. Regenerating
+  an admin credential invalidates both the password and the tokens derived from
+  it, through a fingerprint recomputed at verification time. Proven with a real
+  client end to end — `podman login` refuses the wrong password and accepts the
+  right one, push and pull succeed, and both stop working after logout and
+  after rotation — and with the official SDK performing the documented
+  401 → exchange → token → retry flow. The shared `/v2/` subtree gained a
+  nil-able per-registry `Authorize` hook rather than any cloud-aware branch, so
+  Amazon ECR and Google Artifact Registry are byte-identical to before and
+  unaffected (their own gap is BUG-18). The registry's method floor ratcheted
+  from 19 to 20 for the `GET /oauth2/token` the specification declares. The
+  Terraform assertion added beside this runs only on a capable Linux host, so
+  it is exercised by CI rather than locally.
+
+- **BUG-9 (the Event Grid data plane authenticated nothing):** The publish
+  data plane authenticates every caller. A custom topic or domain accepts an
+  `aeg-sas-key` matching either current slot as a header or a query
+  parameter, an `aeg-sas-token` or `Authorization: SharedAccessSignature`
+  verified as base64 HMAC-SHA256 of the token's own `r=…&e=…` prefix under
+  the base64-decoded key — the format Event Grid publishes, which differs
+  from the Service Bus signature beside it in both the signed string and the
+  key encoding, so it was implemented from Event Grid's own generators rather
+  than copied — with the expiry and the signed resource prefix honoured, or a
+  Microsoft Entra bearer for the `https://eventgrid.azure.net` audience.
+  `properties.disableLocalAuth`, declared in both vendored swaggers and
+  previously inert, leaves only the last. Anything else answers Event Grid's
+  401 `Unauthorized` envelope with its mirrored `details` array; the real
+  service also appends a support-report identifier, which the simulator omits
+  rather than mint a tracking ID referencing an organisation it has no
+  relationship with. Event Grid's keys moved onto the shared rotation store,
+  so `regenerateKey` invalidates the key and every signature derived from it.
+  The domain publish path, which previously 404'd against its own advertised
+  endpoint because host resolution searched only topics, routes each event to
+  the domain topic its `topic` member names.
+
+- **BUG-14 (a Microsoft.Web/sites move silently rotated the site's
+  credentials):** The shipped move hook pinned nothing, so every move
+  rotated the site's `publishingPassword` and the
+  `logic-access-primary`/`secondary` keys of any workflow hosted under it,
+  invalidating publish profiles and already-issued Logic Apps callback URL
+  signatures. The hook now pins that material the way the storage and
+  Service Bus hooks do, and `TestWebSiteMovePinsSiteDerivedCredentials`
+  asserts a callback signature is identical across the move. The three
+  hand-rolled pin loops were folded into one shared helper so a new family
+  cannot forget the step, and `redisFirewallRules` — the only Azure Cache for
+  Redis store keyed by name segments rather than by resource ID, which made
+  the cache unmovable — is keyed like its siblings.
+
+- **BUG-10 (Knative v1 set a resourceVersion nobody enforced):** All five
+  Cloud Run v1 replace methods the document publishes now enforce
+  `metadata.resourceVersion` — omitted is unconditional, as the document's
+  own wording says, matching proceeds, and stale answers 409 ABORTED in the
+  Google error envelope the service uses. The Knative `Status` object the
+  document declares is the delete methods' response shape, not an error
+  shape, which is why the conflict is not spelled that way. resourceVersion
+  is the resource's generation and every v2 write bumps it while every v1
+  write mints a fresh v2 etag, so neither spelling can land a write the
+  other would have refused.
+
+- **BUG-11 (Cloud Storage operations were fabricated):** The slice records
+  its long-running operations into the shared operation store, parented by
+  the bucket: bucket relocation, recursive folder deletion, folder rename
+  and both Anywhere Cache writes all record, and get, list, cancel and the
+  relocation advance answer about records that exist and 404 about ones
+  that do not. The list pages and honours the documented `done` filter,
+  refusing any other term loudly rather than ignoring it. Found with it:
+  `buckets.relocate` drained its request body and reported a relocation it
+  never performed — it now applies the destination location, placement and
+  key, honours validateOnly, and defaults an absent location the way the
+  service documents.
+
+- **BUG-12 (the Cloud Run executions verb fan-in accepted any verb):** The
+  fan-in switches on the verb and answers an unpublished one with the
+  service's method-not-found, matching the spelling the v1 fan-ins already
+  used. The cloudrun-v2 floor did not move and stays 102: cancel is the only
+  POST custom method the document publishes on that collection, so no
+  documented spelling changed verdict. Measured with the probe and a
+  negative control rather than assumed — the expected decrease recorded in
+  this entry never materialised, and no comment claiming one was added.
+  Fixed beside it: a cancelled execution reported its terminal condition as
+  succeeded, so the real `gcloud run jobs executions cancel` failed with
+  "has completed successfully before it could be cancelled"; the cancel
+  path now writes the failed condition with reason Cancelled.
 
 - **BUG-8 (`Microsoft.Resources/tags/default` wrote a plane the resource
   could not see):** Every scope now resolves to one holder of its tags. A

@@ -294,6 +294,10 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
 			return
 		}
+		if !knativeReplaceAllowed(w, "job", id, namespace,
+			knativeResourceVersion(existing.Generation), body.Metadata.ResourceVersion) {
+			return
+		}
 		// ReplaceJob replaces the whole mutable resource; identity, launch
 		// stage and the execution history carry over from the stored record.
 		update := cloudRunV1JobToV2(body)

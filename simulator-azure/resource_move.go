@@ -31,11 +31,10 @@ type resourceMoveHook struct {
 // resourceMoveHooks maps the lowercased "provider/type" key of a movable
 // top-level resource type to its hook.
 //
-// The Microsoft.Web and Microsoft.KeyVault hooks are seeded statically: their
-// stores are package-level variables and the closures read them at request
-// time, after every register function has run. A slice whose stores are
-// locals of its register function registers its hook there via
-// registerResourceMoveHook, as Microsoft.Storage does in
+// Most hooks are seeded statically: their stores are package-level variables
+// and the closures read them at request time, after every register function
+// has run. A slice whose stores are locals of its register function registers
+// its hook there via registerResourceMoveHook, as Microsoft.Storage does in
 // registerStorageAccounts.
 var resourceMoveHooks = map[string]resourceMoveHook{
 	"microsoft.web/sites": {
@@ -57,6 +56,26 @@ var resourceMoveHooks = map[string]resourceMoveHook{
 	"microsoft.servicebus/namespaces": {
 		exists: func(id string) bool { _, ok := sbNamespaces.Get(id); return ok },
 		move:   func(oldID, newID, _ string) { moveServiceBusNamespaceARM(oldID, newID) },
+	},
+	"microsoft.eventhub/namespaces": {
+		exists: func(id string) bool { _, ok := ehNamespaces.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveEventHubNamespaceARM(oldID, newID) },
+	},
+	"microsoft.cache/redis": {
+		exists: func(id string) bool { _, ok := redisCaches.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveRedisCacheARM(oldID, newID) },
+	},
+	"microsoft.containerregistry/registries": {
+		exists: func(id string) bool { _, ok := acrRegistries.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveACRRegistryARM(oldID, newID) },
+	},
+	"microsoft.eventgrid/topics": {
+		exists: func(id string) bool { _, ok := eventGridTopics.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveEventGridTopicARM(oldID, newID) },
+	},
+	"microsoft.eventgrid/domains": {
+		exists: func(id string) bool { _, ok := eventGridDomains.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveEventGridDomainARM(oldID, newID) },
 	},
 }
 

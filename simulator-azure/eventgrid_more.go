@@ -8,28 +8,18 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
-// eventGridKeyGenRow tracks how many times a resource's SAS key has been
-// regenerated so repeated regenerateKey calls yield distinct keys and listKeys
-// returns the rotated key afterwards — exactly what real EventGrid does. The
-// store is keyed "<resourceID>|<keyName>" (mirroring the Cosmos key-generation
-// store) and durable, so a rotation is not silently undone by a SIM_PERSIST
-// restart. Generation counts are kept out of the resource's spec-visible
-// properties (the EventGrid schemas declare no such field), so they never leak
-// into a GET/LIST response.
-type eventGridKeyGenRow struct {
-	N int `json:"n"`
-}
+// eventGridKeySlots are the two access-key slots every Event Grid publishing
+// resource — a custom topic, a domain, a partner namespace — serves through
+// listKeys and rotates through regenerateKey.
+var eventGridKeySlots = []string{"key1", "key2"}
 
-var eventGridKeyGens sim.Store[eventGridKeyGenRow]
-
-// eventGridKeyMaterial returns the current SAS key for a resource's key name,
-// advancing the deterministic seed once per completed rotation.
+// eventGridKeyMaterial returns the current access key for a resource's key
+// slot. Event Grid's keys live in the rotation store every other Azure key
+// surface shares (key_rotation.go), so a rotation and a cross-resource-group
+// key pin behave identically here and on Storage, Service Bus, Event Hubs,
+// Azure Cache for Redis and Azure Container Registry.
 func eventGridKeyMaterial(id, keyName string) string {
-	g, _ := eventGridKeyGens.Get(id + "|" + keyName)
-	if g.N == 0 {
-		return simListKey32(id, keyName)
-	}
-	return simListKey32(id, fmt.Sprintf("%s-gen%d", keyName, g.N))
+	return azureKeyMaterial32(id, keyName)
 }
 
 // eventGridListKeysResponse is the {key1,key2} body listKeys and
@@ -41,12 +31,10 @@ func eventGridListKeysResponse(id string) map[string]string {
 	}
 }
 
-// eventGridDropKeyGens removes a deleted resource's rotation counters so a
-// later resource created under the same id starts from fresh key material,
-// the same cleanup the Cosmos key-generation store performs on account delete.
+// eventGridDropKeyGens removes a deleted resource's rotation state so a later
+// resource created under the same id starts from fresh key material.
 func eventGridDropKeyGens(id string) {
-	eventGridKeyGens.Delete(id + "|key1")
-	eventGridKeyGens.Delete(id + "|key2")
+	azureDropKeyGens(id, eventGridKeySlots...)
 }
 
 // Microsoft.EventGrid ARM control plane — operations, topic types, resource
@@ -60,7 +48,6 @@ var eventGridPrivateEndpointConnections sim.Store[EventGridTopic]
 
 func registerEventGridMore(srv *sim.Server) {
 	eventGridPrivateEndpointConnections = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_private_endpoint_connections")
-	eventGridKeyGens = sim.MakeStore[eventGridKeyGenRow](srv.DB(), "eventgrid_key_generations")
 
 	const topicsBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/topics"
 	const domainsBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/domains"
@@ -206,10 +193,7 @@ func eventGridRegenerateKeyResponse(w http.ResponseWriter, r *http.Request, stor
 	if rotated != "key1" && rotated != "key2" {
 		rotated = "key1"
 	}
-	genKey := id + "|" + rotated
-	g, _ := eventGridKeyGens.Get(genKey)
-	g.N++
-	eventGridKeyGens.Put(genKey, g)
+	azureBumpKeyGen(id, rotated, "")
 	sim.WriteJSON(w, http.StatusOK, eventGridListKeysResponse(id))
 }
 

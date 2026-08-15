@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/containers/azcontainerregistry"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
@@ -14,15 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// acrDataPlaneClient creates an azcontainerregistry.Client pointed at the simulator.
-func acrDataPlaneClient(t *testing.T) *azcontainerregistry.Client {
+// acrDataPlaneClient creates an azcontainerregistry.Client for a registry's
+// data plane. The endpoint is the registry's own login server — the coordinate
+// the control plane advertises — so the client runs the same challenge,
+// token-exchange and retry it runs against a real registry.
+func acrDataPlaneClient(t *testing.T, loginServer string) *azcontainerregistry.Client {
 	t.Helper()
-	opts := &azcontainerregistry.ClientOptions{
-		ClientOptions: azcore.ClientOptions{
-			InsecureAllowCredentialWithHTTP: true,
-		},
-	}
-	client, err := azcontainerregistry.NewClient(baseURL, &fakeCredential{}, opts)
+	client, err := azcontainerregistry.NewClient("http://"+loginServer, &fakeCredential{}, acrClientOptions())
 	require.NoError(t, err)
 	return client
 }
@@ -57,10 +54,12 @@ func TestACR_ImageManifestPushGetDelete(t *testing.T) {
 		SKU:      &armcontainerregistry.SKU{Name: ptrSKU(armcontainerregistry.SKUNameBasic)},
 	}, nil)
 	require.NoError(t, err)
-	_, err = regPoller.PollUntilDone(ctx, nil)
+	created, err := regPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
+	require.NotNil(t, created.Properties)
+	require.NotNil(t, created.Properties.LoginServer)
 
-	dp := acrDataPlaneClient(t)
+	dp := acrDataPlaneClient(t, *created.Properties.LoginServer)
 
 	// Push manifest — UploadManifest requires io.ReadSeekCloser
 	uploadResp, err := dp.UploadManifest(ctx, imageName, imageTag,
@@ -281,15 +280,18 @@ func TestACR_LoginServerIsSimulatorCoordinate(t *testing.T) {
 		"loginServer must not be the unreachable real-cloud host, got %q", loginServer)
 	assert.Contains(t, loginServer, registryName+".azurecr.shim.localhost")
 
-	// The advertised coordinate must actually reach this simulator's ACR data
-	// plane, proving it differs from real Azure only in coordinates.
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/acr/v1/_catalog", nil)
+	// The advertised coordinate must actually reach this registry's data
+	// plane, proving it differs from real Azure only in coordinates: the
+	// registry answers a request dialled at that host with the Bearer
+	// challenge naming its own token service.
+	req, err := http.NewRequest(http.MethodGet, "http://"+loginServer+"/acr/v1/_catalog", nil)
 	require.NoError(t, err)
-	req.Host = loginServer
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Contains(t, resp.Header.Get("Www-Authenticate"),
+		`service="`+loginServer+`"`, "the challenge must name this registry")
 }
 
 func ptrSKU(s armcontainerregistry.SKUName) *armcontainerregistry.SKUName { return &s }

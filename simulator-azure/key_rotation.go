@@ -83,3 +83,23 @@ func azureDropKeyGens(id string, slots ...string) {
 		azureKeyGens.Delete(id + "|" + slot)
 	}
 }
+
+// pinAzureKeySlots carries a resource's current key material onto the resource
+// ID a cross-resource-group move is about to create. Derived material is
+// seeded by the resource ID, which embeds the resource group, so a move that
+// only re-keyed the record would silently rotate every credential an operator
+// holds — which real Azure never does. Pinning writes the value the slot
+// serves today as the moved slot's explicit material; the next regenerateKey
+// clears the pin and derives fresh material, so the rotation contract is
+// unchanged by the move. material reads the slot in the width its surface
+// serves (azureKeyMaterial32 for the SAS-key shape, azureKeyMaterial64 for the
+// Storage account-key shape).
+func pinAzureKeySlots(oldID, newID string, material func(id, slot string) string, slots ...string) {
+	for _, slot := range slots {
+		pinned := material(oldID, slot)
+		gen, _ := azureKeyGens.Get(oldID + "|" + slot)
+		azureKeyGens.Delete(oldID + "|" + slot)
+		gen.Key = pinned
+		azureKeyGens.Put(newID+"|"+slot, gen)
+	}
+}

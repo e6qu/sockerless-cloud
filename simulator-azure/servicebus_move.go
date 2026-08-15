@@ -64,13 +64,6 @@ func pinServiceBusAuthRuleKeys(oldID, newID string) {
 		if !strings.HasPrefix(rule.ID, oldID+"/") {
 			continue
 		}
-		moved := newID + strings.TrimPrefix(rule.ID, oldID)
-		for _, slot := range []string{"primary", "secondary"} {
-			material := azureKeyMaterial32(rule.ID, slot)
-			gen, _ := azureKeyGens.Get(rule.ID + "|" + slot)
-			azureKeyGens.Delete(rule.ID + "|" + slot)
-			gen.Key = material
-			azureKeyGens.Put(moved+"|"+slot, gen)
-		}
+		pinAzureKeySlots(rule.ID, newID+strings.TrimPrefix(rule.ID, oldID), azureKeyMaterial32, "primary", "secondary")
 	}
 }

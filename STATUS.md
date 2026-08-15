@@ -39,13 +39,27 @@ Current state of the sockerless-cloud repository.
   module graphs; govulncheck clean).
 - **Measured floors**: IAM resource derivation 1,784 of 1,974 served
   operations; `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
-  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 503 of 692; `cloudrun-v1` 152 of 152; `spanner-v1` 188 of 198
+  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 503 of 692; `cloudrun-v1` 152 of 152; `spanner-v1` 188 of 198;
+  `containerregistry-dataplane-containerregistry-2021-07-01` 20 of 29
   (App Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family);
   `keyvault-arm-managedhsm-2023-07-01` 6 of 16 (the Managed HSM pool's own
   lifecycle and both list scopes). VPC networks allocate bridge subnets from
   a host-side pool with ENI addresses as real secondary interface addresses,
   so same-CIDR VPCs coexist.
+- **Data-plane authentication**: Azure Event Grid publish and the Azure
+  Container Registry `/v2/` and `/acr/v1/` surfaces authenticate every caller
+  against the credentials their control planes mint and rotate. The shared OCI
+  registry carries a nil-able per-registry `Authorize` hook injected by the
+  cloud that mounts it; the Amazon ECR and Google Artifact Registry copies are
+  byte-identical to their unauthenticated state and are tracked as BUG-18.
+- **Cross-resource-group moves**: eleven Azure type keys move, each pinning the
+  credential material its resource ID derives so a move never rotates a key.
+  Microsoft.Network is last because its resources reference each other by
+  resource ID.
+- **Real engine readiness**: an Amazon RDS data plane serves a connection only
+  once the engine accepts one, classified by SQLSTATE rather than by any byte
+  arriving on the socket, on both the fresh-start and post-restart paths.
 - **Azure Resource Manager resource lists**: `Resources_List` and
   `Resources_ListByResourceGroup` enumerate 56 tracked resource types from
   the cross-slice registry in `simulator-azure/resource_registry.go` — a

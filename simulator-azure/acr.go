@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -73,17 +71,25 @@ var acrRegistries sim.Store[Registry]
 
 func registerACR(srv *sim.Server) {
 	makeAzureKeyGens(srv)
+	// A second buildSimulator in the same process re-collects its own child
+	// stores rather than inheriting the previous build's.
+	acrMovableChildStores = nil
 	registries := sim.MakeStore[Registry](srv.DB(), "acr_registries")
 	acrRegistries = registries
 	// OCI Distribution data plane (shared registry library). ACR has no
 	// pull-through hydration here; the catalog API below reads reg.Manifests.
+	// Every /v2/ request authenticates against the registry its Host addresses,
+	// with the Docker Registry v2 Bearer challenge and the scope enforcement
+	// acr_dataplane_auth.go implements.
 	reg := &sim.OCIRegistry{
 		Manifests: sim.MakeStore[sim.OCIManifest](srv.DB(), "acr_manifests"),
 		Blobs:     sim.MakeStore[sim.OCIBlob](srv.DB(), "acr_blobs"),
 		Uploads:   sim.MakeStore[sim.OCIUpload](srv.DB(), "acr_uploads"),
+		Authorize: acrAuthorizeV2,
 	}
 	// cacheRules stores pull-through cache rules keyed by ARM resource ID.
 	cacheRules := sim.MakeStore[ACRCacheRule](srv.DB(), "acr_cache_rules")
+	acrCacheRules = cacheRules
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerRegistry"
 
@@ -410,8 +416,13 @@ func registerACR(srv *sim.Server) {
 	// OCI Distribution data plane — mounted from the shared registry library.
 	reg.Register(srv)
 
-	// GET /acr/v1/_catalog - List all repositories (ACR data-plane catalog API)
+	// GET /acr/v1/_catalog - List all repositories (ACR data-plane catalog API).
+	// Reading the catalog needs the registry-wide `registry:catalog:*` access
+	// the Bearer challenge asks for.
 	srv.HandleFunc("GET /acr/v1/_catalog", func(w http.ResponseWriter, r *http.Request) {
+		if !acrAuthorize(w, r, acrRegistryCatalogResource(acrActionAll)) {
+			return
+		}
 		all := reg.Manifests.List()
 		seen := map[string]bool{}
 		var repos []string
@@ -450,6 +461,11 @@ func registerACR(srv *sim.Server) {
 			http.NotFound(w, r)
 			return
 		}
+		// Listing a repository's tags needs the repository's metadata_read
+		// access — the action ACR names in the challenge for this API.
+		if !acrAuthorize(w, r, acrRepositoryResource(repoName, acrActionMetadataRead, acrActionMetadataRead)) {
+			return
+		}
 		tags := reg.Manifests.Filter(func(m sim.OCIManifest) bool {
 			return m.Repo == repoName && m.Ref != "" && !strings.HasPrefix(m.Ref, "sha256:")
 		})
@@ -475,52 +491,236 @@ func registerACR(srv *sim.Server) {
 	registerACROAuth2(srv)
 }
 
-// registerACROAuth2 mounts ACR's registry-token auth endpoints. Real ACR clients
-// do the Docker Bearer challenge → POST /oauth2/exchange (Entra access token →
-// ACR refresh token) → POST /oauth2/token (refresh token + scope → scoped Bearer
-// access token) before the /v2/ data-plane calls. The sim keeps a deterministic
-// local-token model; the data plane ignores auth, so any minted token is
-// accepted. Without these endpoints an ACR-shaped client 404s before reaching
-// the registry.
+// registerACROAuth2 mounts a registry's token service — the realm the Docker
+// Registry v2 Bearer challenge points at. A client that follows the challenge
+// reaches it one of two ways:
+//
+//   - `docker login <loginServer>` and every Docker-protocol client present the
+//     admin credential as HTTP Basic on
+//     `GET /oauth2/token?service=<registry>&scope=<scope>` and receive the
+//     scoped access token (Azure/acr `docs/Token-BasicAuth.md`);
+//   - a Microsoft Entra client exchanges its access token for an ACR refresh
+//     token at `POST /oauth2/exchange`, then trades that refresh token and the
+//     challenge scope for an access token at `POST /oauth2/token`
+//     (Azure/acr `docs/AAD-OAuth.md`).
+//
+// Every credential on those routes is verified, and the access token carries
+// only the scopes the credential authorizes, because the data plane enforces
+// the token's `access` claim on each request.
 func registerACROAuth2(srv *sim.Server) {
-	// POST /oauth2/exchange — Entra access token → ACR refresh token.
+	// POST /oauth2/exchange — Microsoft Entra token → ACR refresh token.
 	srv.HandleFunc("POST /oauth2/exchange", func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
-		grant := r.PostFormValue("grant_type")
-		if grant != "access_token" && grant != "access_token_refresh_token" {
-			acrOAuthError(w, "unsupported_grant_type", "grant_type must be access_token")
+		if err := r.ParseForm(); err != nil {
+			acrOAuthError(w, "invalid_request", "failed to parse request body: "+err.Error())
 			return
 		}
-		if r.PostFormValue("access_token") == "" {
-			acrOAuthError(w, "invalid_request", "access_token is required")
+		reg, ok := acrTokenServiceRegistry(w, r)
+		if !ok {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"refresh_token": acrMintToken("refresh", r.PostFormValue("service"), ""),
-		})
+		subject, ok := acrExchangeIdentity(w, r)
+		if !ok {
+			return
+		}
+		refreshToken, err := acrMintRefreshToken(reg, subject)
+		if err != nil {
+			sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"refresh_token": refreshToken})
 	})
 
-	// POST /oauth2/token — ACR refresh token + scope → scoped Bearer access token.
+	// POST /oauth2/token — ACR refresh token + scope → scoped access token.
 	srv.HandleFunc("POST /oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
-		// ACR accepts both grant_type=refresh_token (refresh-token flow) and
-		// grant_type=password (basic admin creds); either yields a Bearer.
-		switch r.PostFormValue("grant_type") {
+		if err := r.ParseForm(); err != nil {
+			acrOAuthError(w, "invalid_request", "failed to parse request body: "+err.Error())
+			return
+		}
+		reg, ok := acrTokenServiceRegistry(w, r)
+		if !ok {
+			return
+		}
+		var identity acrTokenIdentity
+		switch grant := r.PostFormValue("grant_type"); grant {
 		case "refresh_token":
-			if r.PostFormValue("refresh_token") == "" {
+			refreshToken := r.PostFormValue("refresh_token")
+			if refreshToken == "" {
+				// The Azure SDK for Go asks for an anonymous token with the
+				// password grant and an empty refresh token; an empty refresh
+				// token under the refresh-token grant is a malformed request.
 				acrOAuthError(w, "invalid_request", "refresh_token is required")
 				return
 			}
-		case "password", "":
-			// admin-credential flow — accepted deterministically
+			verified, err := acrVerifyRefreshToken(refreshToken, reg)
+			if err != nil {
+				acrOAuthUnauthorized(w, fmt.Sprintf("the refresh token is not valid: %v", err))
+				return
+			}
+			identity = acrTokenIdentity{subject: verified.Subject, owner: true}
+		case "password":
+			authenticated, ok := acrPasswordGrantIdentity(w, r, reg)
+			if !ok {
+				return
+			}
+			identity = authenticated
 		default:
-			acrOAuthError(w, "unsupported_grant_type", "grant_type must be refresh_token or password")
+			acrOAuthError(w, "unsupported_grant_type",
+				fmt.Sprintf("grant_type %q is not supported; use refresh_token or password", grant))
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"access_token": acrMintToken("access", r.PostFormValue("service"), r.PostFormValue("scope")),
-		})
+		acrWriteAccessToken(w, reg, identity, r.Form["scope"])
 	})
+
+	// GET /oauth2/token — the Docker Registry v2 token endpoint: HTTP Basic
+	// admin credentials plus the challenge's service and scope, in exchange for
+	// the scoped access token.
+	srv.HandleFunc("GET /oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		reg, ok := acrTokenServiceRegistry(w, r)
+		if !ok {
+			return
+		}
+		identity, ok := acrPasswordGrantIdentity(w, r, reg)
+		if !ok {
+			return
+		}
+		acrWriteAccessToken(w, reg, identity, r.URL.Query()["scope"])
+	})
+}
+
+// acrTokenServiceRegistry resolves the registry whose token service a request
+// reached. A registry's token service is served on its own login server, so
+// the Host names it; the `service` parameter the challenge told the client to
+// send must name the same registry.
+func acrTokenServiceRegistry(w http.ResponseWriter, r *http.Request) (Registry, bool) {
+	reg, ok := acrRegistryForHost(r.Host)
+	if !ok {
+		acrHostNotARegistry(w, r)
+		return Registry{}, false
+	}
+	service := r.FormValue("service")
+	if service != "" && !strings.EqualFold(acrBareHost(service), acrBareHost(acrLoginServer(reg))) {
+		acrOAuthError(w, "invalid_request",
+			fmt.Sprintf("service %q does not name the registry at %q", service, r.Host))
+		return Registry{}, false
+	}
+	return reg, true
+}
+
+// acrExchangeIdentity verifies the Microsoft Entra credential an
+// /oauth2/exchange request carries and returns the subject the ACR refresh
+// token is issued for. The grant decides which credential is mandatory: the
+// access-token grants require the Entra access token, the refresh-token grant
+// requires the Entra refresh token.
+func acrExchangeIdentity(w http.ResponseWriter, r *http.Request) (string, bool) {
+	grant := r.PostFormValue("grant_type")
+	switch grant {
+	case "access_token", "access_token_refresh_token":
+		accessToken := r.PostFormValue("access_token")
+		if accessToken == "" {
+			acrOAuthError(w, "invalid_request", "access_token is required")
+			return "", false
+		}
+		claims, err := verifyAzureSimJWT(accessToken)
+		if err != nil {
+			acrOAuthUnauthorized(w, fmt.Sprintf("the access token is not valid: %v", err))
+			return "", false
+		}
+		if audience := azureTokenAudience(claims); !acrEntraAudienceValid(audience) {
+			acrOAuthUnauthorized(w, fmt.Sprintf(
+				"the access token was issued for audience %q, which is not the Azure Container Registry audience (%s). Acquire the token with scope %s/.default.",
+				audience, acrEntraAudience, acrEntraAudience))
+			return "", false
+		}
+		return acrTokenSubject(claims), true
+	case "refresh_token":
+		refreshToken := r.PostFormValue("refresh_token")
+		if refreshToken == "" {
+			acrOAuthError(w, "invalid_request", "refresh_token is required")
+			return "", false
+		}
+		stored, ok := lookupAzureRefreshToken(refreshToken)
+		if !ok {
+			acrOAuthUnauthorized(w, "the refresh token is not valid")
+			return "", false
+		}
+		return stored.UserOID, true
+	default:
+		acrOAuthError(w, "unsupported_grant_type",
+			fmt.Sprintf("grant_type %q is not supported; use access_token, access_token_refresh_token or refresh_token", grant))
+		return "", false
+	}
+}
+
+// acrEntraAudienceValid reports whether a Microsoft Entra token's audience is
+// the container-registry audience, in either spelling the directory mints.
+func acrEntraAudienceValid(audience string) bool {
+	return audience == acrEntraAudience || audience == acrEntraAudience+"/"
+}
+
+// acrTokenSubject reads the identity of a verified Microsoft Entra token.
+func acrTokenSubject(claims map[string]any) string {
+	for _, claim := range []string{"preferred_username", "upn", "oid", "sub"} {
+		if value, _ := claims[claim].(string); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// acrTokenIdentity is the identity a token request authenticated as. owner
+// distinguishes the registry's own admin (or an authenticated Microsoft Entra
+// principal), which is granted every scope it asks for, from the anonymous
+// caller a registry with anonymous pull serves. credential and slot fingerprint
+// the admin password the identity came from, so regenerating that password
+// invalidates the tokens it produced.
+type acrTokenIdentity struct {
+	subject    string
+	credential string
+	slot       string
+	owner      bool
+}
+
+// acrPasswordGrantIdentity authenticates the password grant: an HTTP Basic
+// admin credential, or — when the request carries none — the anonymous
+// identity a registry with anonymous pull enabled serves. It writes the
+// refusal and reports false when neither authenticates.
+func acrPasswordGrantIdentity(w http.ResponseWriter, r *http.Request, reg Registry) (acrTokenIdentity, bool) {
+	basic := acrSchemeValue(strings.TrimSpace(r.Header.Get("Authorization")), "Basic")
+	if basic == "" {
+		if acrAnonymousPullEnabled(reg) {
+			return acrTokenIdentity{subject: "anonymous"}, true
+		}
+		acrOAuthUnauthorized(w, "authentication required")
+		return acrTokenIdentity{}, false
+	}
+	username, password, decoded := acrBasicCredential(basic)
+	if !decoded {
+		acrOAuthUnauthorized(w, "the Basic credential is malformed")
+		return acrTokenIdentity{}, false
+	}
+	matched, valid := acrAdminCredentialSlot(reg, username, password)
+	if !valid {
+		acrOAuthUnauthorized(w, "the credential is not valid for this registry")
+		return acrTokenIdentity{}, false
+	}
+	return acrTokenIdentity{
+		subject:    username,
+		credential: acrCredentialFingerprint(reg.ID, matched),
+		slot:       matched,
+		owner:      true,
+	}, true
+}
+
+// acrWriteAccessToken mints the access token for the scopes the credential
+// authorizes and writes the token service's response.
+func acrWriteAccessToken(w http.ResponseWriter, reg Registry, identity acrTokenIdentity, scopes []string) {
+	granted := acrGrantScopes(acrParseScopes(scopes), identity.owner)
+	accessToken, err := acrMintAccessToken(reg, identity.subject, granted, identity.credential, identity.slot)
+	if err != nil {
+		sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"access_token": accessToken})
 }
 
 // writeACRRegistryList emits a paginated {value, nextLink} envelope of the
@@ -538,13 +738,6 @@ func writeACRRegistryList(w http.ResponseWriter, r *http.Request, registries sim
 		out["nextLink"] = armNextLink(r, next)
 	}
 	sim.WriteJSON(w, http.StatusOK, out)
-}
-
-// acrMintToken builds a deterministic, opaque token. The data plane never
-// validates it; the value just has to be non-empty and stable per inputs.
-func acrMintToken(kind, service, scope string) string {
-	sum := sha256.Sum256([]byte(kind + "|" + service + "|" + scope))
-	return "acr-" + kind + "-" + hex.EncodeToString(sum[:16])
 }
 
 // acrOAuthError writes an ACR-shaped OAuth2 error envelope.
@@ -605,8 +798,10 @@ func (k acrChildKind) resourceID(r *http.Request) string {
 	return fmt.Sprintf("%s/%s/%s", regID, k.seg, sim.PathParam(r, k.nameParam))
 }
 
-// registerACRChild mounts PUT/GET/list/PATCH/DELETE for one child kind.
+// registerACRChild mounts PUT/GET/list/PATCH/DELETE for one child kind, and
+// enrols its store in the set a cross-resource-group move re-keys.
 func registerACRChild(srv *sim.Server, k acrChildKind) {
+	acrMovableChildStores = append(acrMovableChildStores, k.store)
 	base := acrARMBase + "/registries/{registryName}/" + k.seg
 	srv.HandleFunc("PUT "+base+"/{"+k.nameParam+"}", k.handlePut)
 	srv.HandleFunc("GET "+base+"/{"+k.nameParam+"}", k.handleGet)
@@ -862,6 +1057,7 @@ type acrWebhookCreateParams struct {
 
 func registerACRWebhooks(srv *sim.Server) {
 	webhooks := sim.MakeStore[acrWebhookStored](srv.DB(), "acr_webhooks")
+	acrWebhooks = webhooks
 	const typeName = "Microsoft.ContainerRegistry/registries/webhooks"
 	base := acrARMBase + "/registries/{registryName}/webhooks"
 

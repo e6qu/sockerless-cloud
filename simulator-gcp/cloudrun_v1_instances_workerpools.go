@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
@@ -345,6 +346,38 @@ func knativeDeleteStatus(w http.ResponseWriter) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"status": "Success"})
 }
 
+// knativeResourceVersion is the opaque optimistic-concurrency token the Knative
+// v1 surface stamps on a resource. It is the resource's generation: every v1
+// projection renders metadata.resourceVersion from the same counter the v2
+// collections bump on a write, so a write through either spelling invalidates a
+// resourceVersion read before it.
+func knativeResourceVersion(generation int64) string {
+	return strconv.FormatInt(generation, 10)
+}
+
+// knativeReplaceAllowed enforces the optimistic concurrency the Cloud Run v1
+// replace methods document: "May provide metadata.resourceVersion to enforce
+// update from last read for optimistic concurrency control." An omitted
+// resourceVersion is unconditional, a matching one proceeds, and a stale one is
+// refused.
+//
+// Cloud Run answers a conflict the way every Google API does — the Knative
+// Status object the document declares is the response shape of the delete
+// methods, not the error shape; the service's own errors arrive as
+// google.rpc.Status ("googleapi: Error 409: …"), and the canonical code for a
+// read-modify-write conflict is ABORTED. That is the same answer the v2 etag
+// check gives for the same record, so neither spelling accepts a write the
+// other would refuse.
+func knativeReplaceAllowed(w http.ResponseWriter, kind, name, namespace, current, supplied string) bool {
+	if supplied == "" || supplied == current {
+		return true
+	}
+	sim.GCPErrorf(w, http.StatusConflict, "ABORTED",
+		"metadata.resourceVersion %q does not match the current resourceVersion %q of %s %q in namespace %q",
+		supplied, current, kind, name, namespace)
+	return false
+}
+
 func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 	// --- namespaces.instances ---
 
@@ -429,6 +462,10 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		var body CRInstance
 		if err := sim.ReadJSON(r, &body); err != nil {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid instance body: %v", err)
+			return
+		}
+		if !knativeReplaceAllowed(w, "instance", id, namespace,
+			knativeResourceVersion(existing.Generation), body.Metadata.ResourceVersion) {
 			return
 		}
 		// ReplaceInstance replaces the whole mutable resource; identity and
@@ -599,6 +636,10 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		var body CRWorkerPool
 		if err := sim.ReadJSON(r, &body); err != nil {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid worker pool body: %v", err)
+			return
+		}
+		if !knativeReplaceAllowed(w, "worker pool", id, namespace,
+			knativeResourceVersion(existing.Generation), body.Metadata.ResourceVersion) {
 			return
 		}
 		update := cloudRunV1WorkerPoolToV2(body)
