@@ -5010,24 +5010,30 @@ func handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	if vol.DockerVolumeName != "" {
 		snap.DockerVolumeName = ebsSnapshotDockerVolumeName(snap.SnapshotId)
-		if err := ebsCopyDockerVolumes(r.Context(), vol.DockerVolumeName, snap.DockerVolumeName); err != nil {
-			ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not snapshot volume data: %v", err), http.StatusInternalServerError)
-			return
-		}
 	} else {
 		snap.HostPath = ebsSnapshotHostDirPath(snap.SnapshotId)
 		if err := ebsPrepareVolumeHostPath(&vol); err != nil {
 			ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not access volume data path: %v", err), http.StatusInternalServerError)
 			return
 		}
-		if err := ebsCopyDir(snap.HostPath, vol.HostPath); err != nil {
-			ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not snapshot volume data: %v", err), http.StatusInternalServerError)
-			return
-		}
 	}
+	// The data is captured behind the response, not inside it. CreateSnapshot
+	// returns as soon as the snapshot is registered on real EC2 -- that is what
+	// the pending state and the Progress field are for -- and callers poll
+	// DescribeSnapshots until it reports completed. Copying in the handler
+	// instead held the simulator's HTTP server for the length of the copy: an
+	// EDD workspace volume took about eight minutes, and for that whole window
+	// every request went unanswered, including /health, so callers timed out
+	// against a simulator that looked dead but was only busy.
+	//
+	// Completion is driven by the capture goroutine rather than the elapsed
+	// CompletionDue clock, so the due time is pushed out of reach: a lazy settle
+	// from DescribeSnapshots must never report completed while bytes are still
+	// being copied, or a restore would read a half-written snapshot.
+	snap.CompletionDue = now.Add(ec2SnapshotCaptureNotBefore).Format(time.RFC3339Nano)
 	ec2Volumes.Put(vol.VolumeId, vol)
 	ec2Snapshots.Put(snap.SnapshotId, snap)
-	go ec2TransitionSnapshotToCompleted(snap.SnapshotId)
+	go ec2CaptureSnapshotData(snap.SnapshotId, vol.DockerVolumeName, snap.DockerVolumeName, vol.HostPath, snap.HostPath)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateSnapshotResponse %s><requestId>%s</requestId>%s</CreateSnapshotResponse>`,
 		ec2Xmlns(), generateUUID(), ec2SnapshotFieldsXML(snap))
@@ -5070,22 +5076,55 @@ func handleCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	if src.DockerVolumeName != "" {
 		snap.DockerVolumeName = ebsSnapshotDockerVolumeName(snap.SnapshotId)
-		if err := ebsCopyDockerVolumes(r.Context(), src.DockerVolumeName, snap.DockerVolumeName); err != nil {
-			ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not copy snapshot data: %v", err), http.StatusInternalServerError)
-			return
-		}
 	} else if src.HostPath != "" {
 		snap.HostPath = ebsSnapshotHostDirPath(snap.SnapshotId)
-		if err := ebsCopyDir(snap.HostPath, src.HostPath); err != nil {
-			ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not copy snapshot data: %v", err), http.StatusInternalServerError)
-			return
-		}
 	}
+	// Asynchronous for the same reason as CreateSnapshot: copying a snapshot's
+	// bytes inside the handler stalls every other request for the duration.
+	snap.CompletionDue = now.Add(ec2SnapshotCaptureNotBefore).Format(time.RFC3339Nano)
 	ec2Snapshots.Put(snap.SnapshotId, snap)
-	go ec2TransitionSnapshotToCompleted(snap.SnapshotId)
+	go ec2CaptureSnapshotData(snap.SnapshotId, src.DockerVolumeName, snap.DockerVolumeName, src.HostPath, snap.HostPath)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CopySnapshotResponse %s><requestId>%s</requestId><snapshotId>%s</snapshotId></CopySnapshotResponse>`,
 		ec2Xmlns(), generateUUID(), snap.SnapshotId)
+}
+
+// ec2SnapshotCaptureNotBefore parks a capturing snapshot's CompletionDue far
+// enough ahead that no lazy settle can declare it completed. The capture
+// goroutine completes it explicitly once the bytes are actually there.
+const ec2SnapshotCaptureNotBefore = 100 * 365 * 24 * time.Hour
+
+// ec2CaptureSnapshotData copies a source's contents into a snapshot and then
+// completes it. It runs off the request path: see handleCreateSnapshot for why
+// the copy must not happen inside the handler. The source is a volume for
+// CreateSnapshot and another snapshot for CopySnapshot; both are asynchronous
+// on real EC2.
+func ec2CaptureSnapshotData(snapshotID, dockerSrc, dockerDst, hostSrc, hostDst string) {
+	var err error
+	switch {
+	case dockerDst != "":
+		err = ebsCopyDockerVolumes(context.Background(), dockerSrc, dockerDst)
+	case hostDst != "":
+		err = ebsCopyDir(hostDst, hostSrc)
+	}
+	if err != nil {
+		// Real EC2 reports a snapshot that could not be captured as error, and
+		// leaves it discoverable; failing silently would let a later restore
+		// mount an empty volume and call it success.
+		fmt.Fprintf(os.Stderr, "[sim-ec2] snapshot %s: could not capture volume data: %v\n", snapshotID, err)
+		ec2Snapshots.Update(snapshotID, func(s *EC2Snapshot) {
+			s.State = "error"
+			s.Progress = "0%"
+		})
+		return
+	}
+	ec2Snapshots.Update(snapshotID, func(s *EC2Snapshot) {
+		if s.State == "pending" {
+			s.State = "completed"
+			s.Progress = "100%"
+			s.CompletionDue = time.Now().UTC().Format(time.RFC3339Nano)
+		}
+	})
 }
 
 func ec2TransitionSnapshotToCompleted(snapshotID string) {
