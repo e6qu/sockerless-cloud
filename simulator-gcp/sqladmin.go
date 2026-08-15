@@ -1268,14 +1268,42 @@ func handleSQLConnectGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// sqlCancellableOperationTypes are the operation types Cloud SQL supports
+// cancelling. The service's cancellation documentation is explicit that only
+// an import or an export can be cancelled; every other type is refused by
+// name.
+var sqlCancellableOperationTypes = map[string]bool{"IMPORT": true, "EXPORT": true}
+
+// handleSQLCancelOperation implements sql.operations.cancel. This is Cloud
+// SQL's own method — "Cancels an instance operation that has been performed on
+// an instance" — not the google.longrunning custom method the other services
+// spell, and it does not share that method's best-effort, always-Empty answer.
+// Cloud SQL refuses a cancel of an operation that is not in progress and a
+// cancel of an operation type it cannot cancel, reporting each with the
+// message the service publishes for it. A cancel it accepts returns Empty.
 func handleSQLCancelOperation(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	name := sim.PathParam(r, "operation")
-	if _, ok := sqlOperations.Get(sqlOperationKey(project, name)); !ok {
+	op, ok := sqlOperations.Get(sqlOperationKey(project, name))
+	if !ok {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation not found: %s", name)
 		return
 	}
-	// operations.cancel returns Empty ({}).
+	if op.Status == "DONE" {
+		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			"You can't cancel operation %s because this operation isn't in progress.", name)
+		return
+	}
+	if !sqlCancellableOperationTypes[op.OperationType] {
+		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			"You can't cancel operation %s because Cloud SQL doesn't support the cancellation of an %s operation.",
+			name, op.OperationType)
+		return
+	}
+	sqlOperations.Update(sqlOperationKey(project, name), func(o *SQLOperation) {
+		o.Status = "DONE"
+		o.EndTime = nowTimestamp()
+	})
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 

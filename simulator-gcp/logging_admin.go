@@ -1088,13 +1088,17 @@ func handleLoggingGetOperation(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
+// handleLoggingOperationCancel serves CancelOperation on the folder,
+// organization and billing-account operation collections. The project scope's
+// operations share their URI with the Cloud Run collection and are dispatched
+// by the fan-in that owns it, which resolves names across this store too.
 func handleLoggingOperationCancel(w http.ResponseWriter, r *http.Request) {
-	_, verb := splitColonVerb(sim.PathParam(r, "operationAction"))
+	id, verb := splitColonVerb(sim.PathParam(r, "operationAction"))
 	if verb != "cancel" {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unknown operation verb %q", verb)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+	handleGCPCancelOperation(w, loggingLocationParent(r)+"/operations/"+id)
 }
 
 // ---- Entries copy/tail ----

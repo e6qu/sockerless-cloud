@@ -51,6 +51,14 @@ type InstanceV2 struct {
 	Reconciling                   bool                 `json:"reconciling,omitempty"`
 }
 
+// InstanceLifecycleRequest is the body of instances.start and instances.stop.
+// google.cloud.run.v2.StartInstanceRequest and StopInstanceRequest declare the
+// identical two members, so one shape decodes both.
+type InstanceLifecycleRequest struct {
+	Etag         string `json:"etag,omitempty"`
+	ValidateOnly bool   `json:"validateOnly,omitempty"`
+}
+
 // crv2Instances is the Cloud Run instances store. The Cloud Run Admin v1 IAM
 // aliases address the same resource under a different API version and reach it
 // from the shared `/v1/projects/{p}/locations/{l}/instances/…` prefix, so the
@@ -86,6 +94,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			return
 		}
 		inst = seedInstanceV2Defaults(inst, r.Host, project, location, instanceID)
+		inst.Etag = generateUUID()
 		instances.Put(name, inst)
 		lro := newLRO(project, location, inst, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -151,6 +160,11 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
+		// The etag is read off the request as sent, before any mask merge
+		// rewrites the body.
+		if !cloudRunEtagOK(w, "instance", existing.Name, existing.Etag, update.Etag) {
+			return
+		}
 		// A mask naming an unknown or output-only field is rejected with
 		// 400 INVALID_ARGUMENT, matching real Cloud Run v2.
 		if mask := r.URL.Query().Get("updateMask"); mask != "" {
@@ -179,6 +193,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		update.Conditions = []Condition{
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 		}
+		update.Etag = generateUUID()
 		instances.Put(name, update)
 		lro := newLRO(project, location, update, instType)
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -193,6 +208,9 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		inst, ok := instances.Get(name)
 		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+			return
+		}
+		if !cloudRunEtagOK(w, "instance", inst.Name, inst.Etag, r.URL.Query().Get("etag")) {
 			return
 		}
 		instances.Delete(name)
@@ -217,8 +235,26 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			return
 		case "start", "stop":
 			name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, id)
-			if _, ok := instances.Get(name); !ok {
+			// StartInstanceRequest and StopInstanceRequest carry the same two
+			// members, so one shape decodes both.
+			var request InstanceLifecycleRequest
+			if err := sim.ReadJSON(r, &request); err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			existing, ok := instances.Get(name)
+			if !ok {
 				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+				return
+			}
+			if !cloudRunEtagOK(w, "instance", existing.Name, existing.Etag, request.Etag) {
+				return
+			}
+			if request.ValidateOnly {
+				// The request validated and nothing changed, so the operation
+				// carries no resource.
+				lro := newLRO(project, location, nil, instType)
+				sim.WriteJSON(w, http.StatusOK, lro)
 				return
 			}
 			now := nowTimestamp()
@@ -231,6 +267,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			instances.Update(name, func(i *InstanceV2) {
 				i.UpdateTime = now
 				i.TerminalCondition = &Condition{Type: "Ready", State: state, LastTransitionTime: now, Reason: reason}
+				i.Etag = generateUUID()
 			})
 			inst, _ := instances.Get(name)
 			lro := newLRO(project, location, inst, instType)

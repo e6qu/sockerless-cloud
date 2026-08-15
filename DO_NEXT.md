@@ -34,6 +34,16 @@
    resource's own `tags` member cannot see).
 
 
+## Tooling quirks that are not simulator defects
+
+- Azure CLI 2.88's `az keyvault update --set tags.<k>=<v>` issues a vault
+  GET followed by a PUT that does not carry the changed tags, and
+  `az keyvault show` reported a stale tag set after a server-side change.
+  Verified by hand against the simulator that the server is correct in both
+  cases, and that the same sequence through `az servicebus` behaves
+  correctly — so this is client-side. The Key Vault CLI tests avoid those
+  two commands; do not chase it as a simulator bug.
+
 ## Declined catalog work
 
 Two surfaces were offered for vendoring across three passes and declined

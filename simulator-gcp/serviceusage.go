@@ -22,7 +22,11 @@ type ServiceUsageState struct {
 func registerServiceUsage(srv *sim.Server) {
 	services := sim.MakeStore[ServiceUsageState](srv.DB(), "service_usage")
 
-	// Enable/disable service
+	// Enable/disable service. Service Usage names its long-running operations
+	// in the top-level `operations/{id}` collection — the collection its own
+	// operations.get, operations.delete and operations.cancel address — so the
+	// shared LRO record is renamed into it rather than left under the
+	// projects/locations shape most other services use.
 	srv.HandleFunc("POST /v1/projects/{project}/services/{serviceAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		serviceAction := sim.PathParam(r, "serviceAction")
@@ -41,14 +45,18 @@ func registerServiceUsage(srv *sim.Server) {
 			svc.Config.Title = service
 			services.Put(name, svc)
 
-			op := newLRO(project, "global", svc, "type.googleapis.com/google.api.serviceusage.v1.EnableServiceResponse")
+			op := renameGCPOperation(
+				newLRO(project, "global", svc, "type.googleapis.com/google.api.serviceusage.v1.EnableServiceResponse"),
+				"operations")
 			sim.WriteJSON(w, http.StatusOK, op)
 		case "disable":
 			services.Update(name, func(s *ServiceUsageState) {
 				s.State = "DISABLED"
 			})
 
-			op := newLRO(project, "global", nil, "type.googleapis.com/google.api.serviceusage.v1.DisableServiceResponse")
+			op := renameGCPOperation(
+				newLRO(project, "global", nil, "type.googleapis.com/google.api.serviceusage.v1.DisableServiceResponse"),
+				"operations")
 			sim.WriteJSON(w, http.StatusOK, op)
 		default:
 			http.NotFound(w, r)
@@ -139,7 +147,9 @@ func registerServiceUsage(srv *sim.Server) {
 			services.Put(name, svc)
 		}
 
-		op := newLRO(project, "global", nil, "type.googleapis.com/google.api.serviceusage.v1.BatchEnableServicesResponse")
+		op := renameGCPOperation(
+			newLRO(project, "global", nil, "type.googleapis.com/google.api.serviceusage.v1.BatchEnableServicesResponse"),
+			"operations")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
 }

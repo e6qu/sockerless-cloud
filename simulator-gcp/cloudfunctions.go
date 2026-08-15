@@ -187,6 +187,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			return
 		}
 		fn.ServiceConfig.Service = backingService.Name
+		backingService.Etag = generateUUID()
 		crv2Services.Put(backingService.Name, backingService)
 		projectCloudRunV2ToV1(backingService)
 

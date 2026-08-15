@@ -14,16 +14,16 @@ Surface registered in `simulator-gcp/cloudfunctions.go` (and related files group
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
 | `POST /v2/projects/{project}/locations/{location}/functions` | ✓ `simulator-gcp/cloudfunctions.go:117::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/locations/{location}/{functionsVerb}` | ✓ `simulator-gcp/cloudfunctions.go:204::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:229::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:255::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations/{location}/functions` | ✓ `simulator-gcp/cloudfunctions.go:282::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2-functions-invoke/{functionID}` | ✓ `simulator-gcp/cloudfunctions.go:313::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:353::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/locations/{location}/functions/{functionAction}` | ✓ `simulator-gcp/cloudfunctions.go:376::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations` | ✓ `simulator-gcp/cloudfunctions.go:452::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations/{location}/operations` | ✓ `simulator-gcp/cloudfunctions.go:476::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/locations/{location}/runtimes` | ✓ `simulator-gcp/cloudfunctions.go:501::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/locations/{location}/{functionsVerb}` | ✓ `simulator-gcp/cloudfunctions.go:205::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:230::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:256::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations/{location}/functions` | ✓ `simulator-gcp/cloudfunctions.go:283::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2-functions-invoke/{functionID}` | ✓ `simulator-gcp/cloudfunctions.go:314::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:354::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/locations/{location}/functions/{functionAction}` | ✓ `simulator-gcp/cloudfunctions.go:377::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations` | ✓ `simulator-gcp/cloudfunctions.go:453::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations/{location}/operations` | ✓ `simulator-gcp/cloudfunctions.go:477::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/locations/{location}/runtimes` | ✓ `simulator-gcp/cloudfunctions.go:502::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

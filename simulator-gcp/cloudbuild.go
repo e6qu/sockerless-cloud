@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
@@ -165,6 +166,14 @@ type BitbucketServerConfig struct {
 }
 
 var cbBuilds sim.Store[Build]
+
+// cbRunning holds the cancel function of the context a build's steps execute
+// under, keyed by build ID, for as long as those steps are running. Cancelling
+// a build is not a status flag: the entry is what lets CancelBuild and the
+// build operation's cancel reach the `docker` process a step is running and
+// terminate it, which is what "cancels a build in progress" means.
+var cbRunning sync.Map
+
 var cbTriggers sim.Store[BuildTrigger]
 var cbWorkerPools sim.Store[WorkerPool]
 var cbGHEConfigs sim.Store[GitHubEnterpriseConfig]
@@ -199,9 +208,10 @@ func registerCloudBuild(srv *sim.Server) {
 		// Execute synchronously — real Cloud Build is async with
 		// status transitions QUEUED → WORKING → SUCCESS/FAILURE; the
 		// simulator compresses this into one call so `op.Wait()` on
-		// the backend returns the final state immediately.
-		result := executeBuild(r.Context(), build)
-		cbBuilds.Put(result.ID, result)
+		// the backend returns the final state immediately. The steps
+		// still run under a cancellable context registered against the
+		// build ID, so a concurrent CancelBuild terminates them.
+		result := executeCancellableBuild(r.Context(), build)
 
 		// Return LRO wrapper with done=true so `op.Wait(ctx)` resolves.
 		op := CloudBuildOperation{
@@ -215,7 +225,7 @@ func registerCloudBuild(srv *sim.Server) {
 				op.Response[k] = v
 			}
 		} else {
-			op.Error = &BuildError{Code: 13, Message: result.StatusDetail}
+			op.Error = cloudBuildOperationError(result)
 		}
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
@@ -253,29 +263,27 @@ func registerCloudBuild(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, build)
 	})
 
-	// CancelBuild: POST /v1/projects/{project}/builds/{id}:cancel.
-	// Go ServeMux doesn't allow `{id}:cancel`; use a single wildcard
-	// and parse the colon suffix in the handler.
-	srv.HandleFunc("POST /v1/projects/{project}/builds/{idAction}", func(w http.ResponseWriter, r *http.Request) {
+	// CancelBuild. The document declares it twice — on the legacy global
+	// resource path projects/{project}/builds/{id}:cancel and on the regional
+	// path projects/{project}/locations/{location}/builds/{id}:cancel — and
+	// both name the same build. Go ServeMux doesn't allow `{id}:cancel`, so
+	// each mount takes a single wildcard and parses the colon suffix.
+	cancelBuild := func(w http.ResponseWriter, r *http.Request) {
 		idAction := sim.PathParam(r, "idAction")
 		id, action, found := strings.Cut(idAction, ":")
 		if !found || action != "cancel" {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown build action %q", idAction)
 			return
 		}
-		cbBuilds.Update(id, func(b *Build) {
-			if b.Status == "QUEUED" || b.Status == "WORKING" {
-				b.Status = "CANCELLED"
-				b.FinishTime = time.Now().UTC().Format(time.RFC3339)
-			}
-		})
-		build, ok := cbBuilds.Get(id)
+		build, ok := cancelCloudBuild(id)
 		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, build)
-	})
+	}
+	srv.HandleFunc("POST /v1/projects/{project}/builds/{idAction}", cancelBuild)
+	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/builds/{idAction}", cancelBuild)
 
 	// GetOperation for cloudbuild LROs:
 	// GET /v1/{name=operations/**}  — Go SDK uses this path.
@@ -298,7 +306,7 @@ func registerCloudBuild(srv *sim.Server) {
 					op.Response[k] = v
 				}
 			} else {
-				op.Error = &BuildError{Code: 13, Message: build.StatusDetail}
+				op.Error = cloudBuildOperationError(build)
 			}
 		}
 		sim.WriteJSON(w, http.StatusOK, op)
@@ -385,6 +393,22 @@ func registerCloudBuild(srv *sim.Server) {
 // LROs; the Go SDK returns the *Operation without auto-polling, so the
 // simulator resolves it synchronously and embeds the resource so callers can
 // read it straight from operation.response.
+// cbConfigOperationName is the operations-collection name of the long-running
+// operation a source-host config mutation returns, matching the name its
+// create counterpart mints. The path parameter naming the config differs per
+// family, so the caller supplies the prefix and the id comes from whichever
+// parameter the matched route populated.
+func cbConfigOperationName(r *http.Request, prefix string) string {
+	return fmt.Sprintf("projects/%s/locations/%s/operations/%s-%s",
+		sim.PathParam(r, "project"), buildTriggerLocation(r), prefix, sim.PathParam(r, "config"))
+}
+
+// cbDoneOperation records a settled Cloud Build long-running operation and
+// returns it. Cloud Build's worker-pool and source-host operations live in the
+// regional operations collection every service the simulator serves under that
+// URI shares, so the record goes into that store: a client can then poll it
+// with operations.get and address it with operations.cancel, and a name no
+// operation was minted under is NOT_FOUND rather than a fabricated success.
 func cbDoneOperation(name, typeURL string, resource any) CloudBuildOperation {
 	resp := map[string]any{"@type": typeURL}
 	if b, err := json.Marshal(resource); err == nil {
@@ -395,7 +419,11 @@ func cbDoneOperation(name, typeURL string, resource any) CloudBuildOperation {
 			}
 		}
 	}
-	return CloudBuildOperation{Name: name, Done: true, Response: resp}
+	op := CloudBuildOperation{Name: name, Done: true, Response: resp}
+	if crOperations != nil {
+		crOperations.Put(name, Operation{Name: name, Done: true, Response: resp})
+	}
+	return op
 }
 
 func handleCloudBuildGetOperation(w http.ResponseWriter, r *http.Request) {
@@ -420,7 +448,7 @@ func handleCloudBuildGetOperation(w http.ResponseWriter, r *http.Request) {
 					op.Response[k] = v
 				}
 			} else {
-				op.Error = &BuildError{Code: 13, Message: build.StatusDetail}
+				op.Error = cloudBuildOperationError(build)
 			}
 		}
 		sim.WriteJSON(w, http.StatusOK, op)
@@ -533,11 +561,10 @@ func handleDeleteWorkerPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cbWorkerPools.Delete(key)
-	sim.WriteJSON(w, http.StatusOK, CloudBuildOperation{
-		Name: fmt.Sprintf("projects/%s/locations/%s/operations/workerpool-%s",
+	sim.WriteJSON(w, http.StatusOK, cbDoneOperation(
+		fmt.Sprintf("projects/%s/locations/%s/operations/workerpool-%s",
 			sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "pool")),
-		Done: true,
-	})
+		"type.googleapis.com/google.protobuf.Empty", nil))
 }
 
 // ---- GitHub Enterprise configs ----
@@ -612,7 +639,10 @@ func handlePatchGHEConfig(w http.ResponseWriter, r *http.Request) {
 		prior.SslCa = update.SslCa
 	}
 	cbGHEConfigs.Put(key, prior)
-	op := cbDoneOperation(key, "type.googleapis.com/google.devtools.cloudbuild.v1.GitHubEnterpriseConfig", prior)
+	// The operation a patch returns is named in the operations collection, as
+	// its create counterpart's is — never the resource's own name.
+	op := cbDoneOperation(cbConfigOperationName(r, "ghe"),
+		"type.googleapis.com/google.devtools.cloudbuild.v1.GitHubEnterpriseConfig", prior)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -693,7 +723,8 @@ func handlePatchGitLabConfig(w http.ResponseWriter, r *http.Request) {
 		prior.EnterpriseConfig = update.EnterpriseConfig
 	}
 	cbGitLabConfigs.Put(key, prior)
-	op := cbDoneOperation(key, "type.googleapis.com/google.devtools.cloudbuild.v1.GitLabConfig", prior)
+	op := cbDoneOperation(cbConfigOperationName(r, "gitlab"),
+		"type.googleapis.com/google.devtools.cloudbuild.v1.GitLabConfig", prior)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -795,7 +826,8 @@ func handlePatchBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 		prior.SslCa = update.SslCa
 	}
 	cbBitbucketConfigs.Put(key, prior)
-	op := cbDoneOperation(key, "type.googleapis.com/google.devtools.cloudbuild.v1.BitbucketServerConfig", prior)
+	op := cbDoneOperation(cbConfigOperationName(r, "bitbucket"),
+		"type.googleapis.com/google.devtools.cloudbuild.v1.BitbucketServerConfig", prior)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -985,6 +1017,85 @@ func handleDeleteBuildTrigger(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
+// executeCancellableBuild runs a build's steps under a context registered in
+// cbRunning against the build ID, so CancelBuild — arriving on another
+// connection while the steps run — terminates the running `docker` process
+// instead of only relabelling the record. The build's own verdict is
+// subordinate to a cancellation: a step killed mid-flight reports a failure,
+// and reporting that failure would erase the cancel the client asked for, so
+// the record the cancel wrote wins.
+func executeCancellableBuild(ctx context.Context, b Build) Build {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cbRunning.Store(b.ID, cancel)
+	defer cbRunning.Delete(b.ID)
+
+	result := executeBuild(ctx, b)
+
+	// Settle the record in one update so a cancel landing between reading the
+	// stored build and writing the result cannot be lost: a build the cancel
+	// already settled keeps the cancel's verdict, and the step's own failure —
+	// which is what a terminated step reports — never overwrites it.
+	cbBuilds.Update(b.ID, func(stored *Build) {
+		if stored.Status == "CANCELLED" {
+			result.Status = stored.Status
+			result.StatusDetail = stored.StatusDetail
+			result.FinishTime = stored.FinishTime
+		}
+		*stored = result
+	})
+	return result
+}
+
+// cancelCloudBuild implements CancelBuild: it moves a build that has not
+// settled to CANCELLED and terminates the steps it is running. Cancelling a
+// build that has already finished leaves its recorded verdict alone, which is
+// what "cancels a build in progress" leaves for a build that is not.
+func cancelCloudBuild(id string) (Build, bool) {
+	cbBuilds.Update(id, func(b *Build) {
+		if b.Status == "QUEUED" || b.Status == "WORKING" {
+			b.Status = "CANCELLED"
+			b.FinishTime = time.Now().UTC().Format(time.RFC3339)
+		}
+	})
+	build, ok := cbBuilds.Get(id)
+	if !ok {
+		return Build{}, false
+	}
+	if build.Status == "CANCELLED" {
+		if v, loaded := cbRunning.LoadAndDelete(id); loaded {
+			if cancel, isFunc := v.(context.CancelFunc); isFunc {
+				cancel()
+			}
+		}
+	}
+	return build, true
+}
+
+// handleCloudBuildCancelOperation answers cloudbuild.operations.cancel for a
+// build operation (operations/build/{project}/{id}). Cloud Build's build
+// operations are a projection of the build record, so cancelling the operation
+// is cancelling the build: the steps stop and the record settles CANCELLED.
+// google.longrunning CancelOperation answers google.protobuf.Empty.
+func handleCloudBuildCancelOperation(w http.ResponseWriter, id string) {
+	if _, ok := cancelCloudBuild(id); !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// cloudBuildOperationError is the error a settled build's operation carries.
+// A cancelled build reports google.rpc.Code.CANCELLED, which is the code
+// AIP-151 says a successfully cancelled operation ends up with; any other
+// unsuccessful build reports INTERNAL with the build's own status detail.
+func cloudBuildOperationError(b Build) *BuildError {
+	if b.Status == "CANCELLED" {
+		return &BuildError{Code: 1, Message: "The operation was cancelled."}
+	}
+	return &BuildError{Code: 13, Message: b.StatusDetail}
+}
+
 // executeBuild runs the build steps against the source context and
 // returns the final build record with status + finishTime populated.
 // Matches the real Cloud Build behavior: downloads source from GCS,
@@ -993,6 +1104,15 @@ func handleDeleteBuildTrigger(w http.ResponseWriter, r *http.Request) {
 func executeBuild(ctx context.Context, b Build) Build {
 	b.StartTime = time.Now().UTC().Format(time.RFC3339)
 	b.Status = "WORKING"
+	// Real Cloud Build moves a build QUEUED → WORKING before its first step
+	// runs, and that transition is what tells a client the build is live and
+	// cancellable. Record it, but never over a cancel that already landed.
+	cbBuilds.Update(b.ID, func(stored *Build) {
+		if stored.Status == "QUEUED" {
+			stored.Status = "WORKING"
+			stored.StartTime = b.StartTime
+		}
+	})
 
 	fail := func(msg string) Build {
 		b.Status = "FAILURE"

@@ -1,5 +1,37 @@
 # WHAT WE DID
 
+## 2026-08-14 — Ninth polish pass: the locally actionable bug sweep
+
+Closed the four locally actionable bugs and recorded what closing them
+found. The operations cancel method is served across every Google document
+that publishes it: nine answer a completed operation with success and an
+untouched record, because their own descriptions call completion a
+documented outcome of cancelling, while Cloud SQL answers the failed
+precondition its documentation shows. Every long-running operation in this
+simulator is minted complete, so for eleven services that answer is the
+only honest one — an invariant test now fails if that changes — and Cloud
+Build, which runs real processes, really terminates a running build, proven
+by removing the termination and watching the test hang. The Cloud Run v2
+family mints and enforces etags everywhere the document declares them, with
+the cancel-execution, start-instance and stop-instance requests decoded for
+the first time.
+
+Tags became one set per scope: a resource scope reads and writes the
+resource's own tags through the pass-eight registry, a resource group
+writes its own record, and the subscription and management-group scopes
+keep the tags store as their only home. A scope holding no resource answers
+404 as Azure Resource Manager does, the registry refuses at startup to
+track a type whose stored form has no settable tags member, and the move
+dispatch's separate tag re-homing became dead code and went.
+
+Microsoft.ServiceBus became the fifth family that moves between resource
+groups, chosen over Event Grid because it has a real SAS-authenticated data
+plane to prove the claim: the namespace record and nine child stores
+re-key, both shared-access slots of every rule are pinned across the move,
+and a connection string captured before the move still receives the message
+enqueued before it. The Event Grid half could not be proved because its
+data plane authenticates nothing at all, which is now BUG-9.
+
 ## 2026-08-14 — Seventh polish pass: Cloud Run v1 complete, Key Vault moves
 
 Completed the Cloud Run v1 surface, 100 to 152 of 152 served spellings, as
