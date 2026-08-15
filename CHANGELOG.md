@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/e6qu/sockerless-cloud/compare/v0.10.0...v0.10.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **aws/ec2:** capture snapshot data behind the response, not inside it ([#23](https://github.com/e6qu/sockerless-cloud/issues/23)) ([c06550c](https://github.com/e6qu/sockerless-cloud/commit/c06550cb44f340b6e8ffd13d75ec65d7a80c483f))
+
 ## [0.10.0](https://github.com/e6qu/sockerless-cloud/compare/v0.9.2...v0.10.0) (2026-08-15)
 
 
