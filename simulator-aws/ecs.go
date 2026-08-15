@@ -1010,12 +1010,30 @@ func ecsTaskDetail(details []ECSKeyValuePair, name string) string {
 	return ""
 }
 
-func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, configs []ECSTaskVolumeConfiguration, taskID, requestedSubnet string) (map[string]string, []ECSAttachment, *ecsRequestError) {
+// ecsPendingEBSRestore is a managed-EBS snapshot restore that has been recorded
+// but not yet performed. Real ECS returns RunTask in milliseconds and hydrates
+// the volume while the task moves PROVISIONING → PENDING → RUNNING, which is why
+// an EBS attachment reports ATTACHING at all; a volume created from a snapshot
+// is usable immediately there and its blocks fault in lazily from S3. Copying
+// the data inline in the request handler instead made RunTask block for the
+// length of the copy, so any reverse proxy in front of the simulator timed the
+// call out and the caller saw a 502 rather than a task it could poll.
+type ecsPendingEBSRestore struct {
+	AttachmentID string
+	VolumeName   string
+	DockerSrc    string
+	DockerDst    string
+	HostSrc      string
+	HostDst      string
+}
+
+func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, configs []ECSTaskVolumeConfiguration, taskID, requestedSubnet string) (map[string]string, []ECSAttachment, []ecsPendingEBSRestore, *ecsRequestError) {
 	allowed := ecsConfiguredAtLaunchVolumes(td)
 	hosts := map[string]string{}
 	var attachments []ECSAttachment
+	var restores []ecsPendingEBSRestore
 	if len(configs) == 0 {
-		return hosts, attachments, nil
+		return hosts, attachments, restores, nil
 	}
 
 	az := awsAvailabilityZone()
@@ -1027,14 +1045,14 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 
 	for _, cfg := range configs {
 		if cfg.Name == "" {
-			return nil, nil, &ecsRequestError{"InvalidParameterException", "volumeConfigurations.name is required", http.StatusBadRequest}
+			return nil, nil, nil, &ecsRequestError{"InvalidParameterException", "volumeConfigurations.name is required", http.StatusBadRequest}
 		}
 		if !allowed[cfg.Name] {
-			return nil, nil, &ecsRequestError{"ClientException", fmt.Sprintf("Volume %s is not configuredAtLaunch in the task definition", cfg.Name), http.StatusBadRequest}
+			return nil, nil, nil, &ecsRequestError{"ClientException", fmt.Sprintf("Volume %s is not configuredAtLaunch in the task definition", cfg.Name), http.StatusBadRequest}
 		}
 		managed := cfg.ManagedEBSVolume
 		if managed == nil {
-			return nil, nil, &ecsRequestError{"ClientException", fmt.Sprintf("Volume %s requires managedEBSVolume", cfg.Name), http.StatusBadRequest}
+			return nil, nil, nil, &ecsRequestError{"ClientException", fmt.Sprintf("Volume %s requires managedEBSVolume", cfg.Name), http.StatusBadRequest}
 		}
 
 		size := managed.SizeInGiB
@@ -1047,10 +1065,10 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 		if snapshotID != "" {
 			snap, ok := ec2Snapshots.Get(snapshotID)
 			if !ok {
-				return nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("Snapshot not found: %s", snapshotID), http.StatusBadRequest}
+				return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("Snapshot not found: %s", snapshotID), http.StatusBadRequest}
 			}
 			if snap.State != "completed" {
-				return nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("Snapshot is not completed: %s", snapshotID), http.StatusBadRequest}
+				return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("Snapshot is not completed: %s", snapshotID), http.StatusBadRequest}
 			}
 			if size < snap.VolumeSize {
 				size = snap.VolumeSize
@@ -1097,30 +1115,37 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 		processMode := sim.DockerClient() == nil
 		if processMode {
 			if err := ebsPrepareVolumeHostPath(&vol); err != nil {
-				return nil, nil, &ecsRequestError{"InternalError", fmt.Sprintf("could not create managed EBS volume data path: %v", err), http.StatusInternalServerError}
+				return nil, nil, nil, &ecsRequestError{"InternalError", fmt.Sprintf("could not create managed EBS volume data path: %v", err), http.StatusInternalServerError}
 			}
 		} else {
 			vol.DockerVolumeName = ebsECSDockerVolumeName(volumeID)
 		}
 		// Docker auto-creates the destination volume on first container use so no
 		// explicit VolumeCreate is needed — the copy container triggers creation.
+		// The copy itself is deferred: see ecsPendingEBSRestore.
 		if snapshotDockerVolumeName != "" {
 			if processMode {
-				return nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("managed-EBS snapshot %s is Docker-volume-backed and cannot be restored under SIM_RUNTIME=process — start the simulator in container runtime to restore it", snapshotID), http.StatusBadRequest}
+				return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("managed-EBS snapshot %s is Docker-volume-backed and cannot be restored under SIM_RUNTIME=process — start the simulator in container runtime to restore it", snapshotID), http.StatusBadRequest}
 			}
-			if err := ebsCopyDockerVolumes(ctx, snapshotDockerVolumeName, vol.DockerVolumeName); err != nil {
-				return nil, nil, &ecsRequestError{"InternalError", fmt.Sprintf("could not restore managed EBS snapshot data: %v", err), http.StatusInternalServerError}
-			}
+			restores = append(restores, ecsPendingEBSRestore{
+				AttachmentID: "ebs-" + volumeID,
+				VolumeName:   cfg.Name,
+				DockerSrc:    snapshotDockerVolumeName,
+				DockerDst:    vol.DockerVolumeName,
+			})
 		} else if snapshotHostPath != "" {
 			// Snapshot came from an EC2/Firecracker volume (host-path); fall back to
 			// directory copy. Only works in on-host topology where the sim process runs
 			// on the same machine as the Docker host.
 			if err := ebsPrepareVolumeHostPath(&vol); err != nil {
-				return nil, nil, &ecsRequestError{"InternalError", fmt.Sprintf("could not create managed EBS volume data path: %v", err), http.StatusInternalServerError}
+				return nil, nil, nil, &ecsRequestError{"InternalError", fmt.Sprintf("could not create managed EBS volume data path: %v", err), http.StatusInternalServerError}
 			}
-			if err := ebsCopyDir(vol.HostPath, snapshotHostPath); err != nil {
-				return nil, nil, &ecsRequestError{"InternalError", fmt.Sprintf("could not restore managed EBS snapshot data: %v", err), http.StatusInternalServerError}
-			}
+			restores = append(restores, ecsPendingEBSRestore{
+				AttachmentID: "ebs-" + volumeID,
+				VolumeName:   cfg.Name,
+				HostSrc:      snapshotHostPath,
+				HostDst:      vol.HostPath,
+			})
 			// Use host-path bind-mount for this volume since the data is on-disk.
 			ec2Volumes.Put(volumeID, vol)
 			hosts[cfg.Name] = vol.HostPath
@@ -1153,7 +1178,35 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 			},
 		})
 	}
-	return hosts, attachments, nil
+	return hosts, attachments, restores, nil
+}
+
+// ecsRunPendingEBSRestores hydrates managed-EBS volumes created from a snapshot
+// and marks their attachments ATTACHED once the data is in place. It runs on the
+// task's transition path rather than in the RunTask handler, so a large restore
+// delays only this task's move to RUNNING — which a caller polling DescribeTasks
+// is already prepared for — instead of holding the API response open.
+func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecsPendingEBSRestore) error {
+	for _, restore := range restores {
+		switch {
+		case restore.DockerDst != "":
+			if err := ebsCopyDockerVolumes(ctx, restore.DockerSrc, restore.DockerDst); err != nil {
+				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
+			}
+		case restore.HostDst != "":
+			if err := ebsCopyDir(restore.HostDst, restore.HostSrc); err != nil {
+				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
+			}
+		}
+		ecsTasks.Update(taskID, func(t *ECSTask) {
+			for i := range t.Attachments {
+				if t.Attachments[i].Id == restore.AttachmentID {
+					t.Attachments[i].Status = "ATTACHED"
+				}
+			}
+		})
+	}
+	return nil
 }
 
 func ecsCleanupTaskManagedEBS(task *ECSTask) {
@@ -1482,7 +1535,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 		}
 		taskTags = append(taskTags, in.Tags...)
 
-		taskVolumeHosts, ebsAttachments, ebsErr := ecsPrepareManagedEBSVolumes(ctx, td, in.VolumeConfigurations, taskID, requestedSubnet)
+		taskVolumeHosts, ebsAttachments, pendingRestores, ebsErr := ecsPrepareManagedEBSVolumes(ctx, td, in.VolumeConfigurations, taskID, requestedSubnet)
 		if ebsErr != nil {
 			return nil, ebsErr
 		}
@@ -1563,6 +1616,34 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, *ecsReques
 					t.Containers[j].LastStatus = "PENDING"
 				}
 			})
+
+			// Hydrate any snapshot-backed managed-EBS volume before starting the
+			// containers that mount it. A failure here is a resource problem, not
+			// an exited container, so it stops the task the way real ECS does —
+			// with TaskFailedToStart and a ResourceInitializationError reason the
+			// caller can read from DescribeTasks.
+			if len(pendingRestores) > 0 {
+				if err := ecsRunPendingEBSRestores(context.Background(), id, pendingRestores); err != nil {
+					fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: managed EBS restore failed: %v\n", id, err)
+					stoppedAt := time.Now().Unix()
+					ecsTasks.Update(id, func(t *ECSTask) {
+						t.LastStatus = ECSTaskStatusStopped
+						t.DesiredStatus = ECSTaskStatusStopped
+						t.StoppedAt = &stoppedAt
+						t.StopCode = "TaskFailedToStart"
+						t.StoppedReason = fmt.Sprintf("ResourceInitializationError: unable to restore managed EBS volume: %v", err)
+						for j := range t.Containers {
+							t.Containers[j].LastStatus = "STOPPED"
+						}
+						ecsCleanupTaskManagedEBS(t)
+					})
+					ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
+					if task, ok := ecsTasks.Get(id); ok {
+						ecsRequestServiceReconcileForTask(task)
+					}
+					return
+				}
+			}
 
 			// Prepare CloudWatch logs before the container starts, so the log
 			// group/stream are observable as soon as the task reports RUNNING.
