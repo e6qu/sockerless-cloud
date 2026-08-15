@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/e6qu/sockerless-cloud/compare/v0.9.2...v0.10.0) (2026-08-15)
+
+
+### Features
+
+* authenticate the registry and publish data planes, and gate engine readiness ([#21](https://github.com/e6qu/sockerless-cloud/issues/21)) ([91568d7](https://github.com/e6qu/sockerless-cloud/commit/91568d72af636790955458cf0936b5f02a65a27c))
+
 ## [0.9.2](https://github.com/e6qu/sockerless-cloud/compare/v0.9.1...v0.9.2) (2026-08-15)
 
 
