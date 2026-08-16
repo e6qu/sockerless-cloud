@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/e6qu/sockerless-cloud/compare/v0.10.1...v0.11.0) (2026-08-16)
+
+
+### Features
+
+* authenticate every registry and data plane, and move twenty-nine Azure families ([#25](https://github.com/e6qu/sockerless-cloud/issues/25)) ([b52cc80](https://github.com/e6qu/sockerless-cloud/commit/b52cc80edf4791e1c80af4397a7f21a26f48142f))
+
 ## [0.10.1](https://github.com/e6qu/sockerless-cloud/compare/v0.10.0...v0.10.1) (2026-08-15)
 
 
