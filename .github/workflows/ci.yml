@@ -263,6 +263,15 @@ jobs:
           bash scripts/ci-apt-update.sh
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
+      - name: Install Caddy
+        # TestArtifactRegistryCLI_DockerLoginPushPull serves the Google Artifact
+        # Registry Docker data plane over TLS through the repository's HTTPS
+        # gateway, which is Caddy, because a container engine speaks TLS to a
+        # registry.
+        if: matrix.cloud == 'gcp' && matrix.suite == 'cli'
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
+          caddy version
       # Module download + test-binary compilation get their own budget so the
       # timed run below isn't eaten by a cold module cache after a dep change
       # busts the shared **/go.sum Go cache.

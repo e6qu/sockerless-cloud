@@ -2,7 +2,10 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp/cli-tests
 
 go 1.25.0
 
-require github.com/stretchr/testify v1.11.1
+require (
+	github.com/e6qu/sockerless-cloud/testutil v0.1.0
+	github.com/stretchr/testify v1.11.1
+)
 
 require (
 	github.com/kr/pretty v0.3.1 // indirect
@@ -19,3 +22,5 @@ require (
 )
 
 replace github.com/e6qu/sockerless-cloud/realexec => ../../realexec
+
+replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil
