@@ -17,11 +17,11 @@ import (
 // and Global_GetSubscriptionOperationWithAsyncResponse.
 //
 // The catalog-shaped surfaces answer from what the simulator genuinely
-// hosts: it meters no billing, hosts no App Service Environments and no
-// marketplace premier add-on offers, enforces no location quotas, and
-// hard-deletes sites (the deletedSites lists are empty), so those
-// collections are truthfully empty and the deleted-site reads are
-// truthfully 404.
+// hosts: it meters no billing and offers no marketplace premier add-ons, and
+// enforces no location quotas, so those collections are truthfully empty. The
+// deleted-web-app reads answer from the retention store a site or slot delete
+// writes (web_backup.go), which is the same record WebApps_RestoreFromDeletedApp
+// replays.
 
 func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.HandlerFunc)) {
 	// Provider_ListOperations — the Azure Resource Manager operation
@@ -199,16 +199,43 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 
-	// Deleted-web-app reads. The simulator hard-deletes sites (its
-	// deletedSites lists are empty), so every deletedSiteId is truthfully
-	// absent.
-	deletedSiteMissing := func(w http.ResponseWriter, r *http.Request) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-			"The deleted app with id '%s' was not found.", sim.PathParam(r, "deletedSiteId"))
+	// Deleted-web-app reads — Global_GetDeletedWebApp,
+	// Global_GetDeletedWebAppSnapshots and
+	// DeletedWebApps_GetDeletedWebAppByLocation — answered from the retention
+	// record a site or slot delete wrote.
+	deletedSiteGet := func(w http.ResponseWriter, r *http.Request) {
+		row, ok := webDeletedSiteByRequest(sim.PathParam(r, "deletedSiteId"))
+		if !ok {
+			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				"The deleted app with id '%s' was not found.", sim.PathParam(r, "deletedSiteId"))
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, deletedSiteWire(row))
 	}
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}", deletedSiteMissing)
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}/snapshots", deletedSiteMissing)
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/deletedSites/{deletedSiteId}", deletedSiteMissing)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}", deletedSiteGet)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/deletedSites/{deletedSiteId}", deletedSiteGet)
+	// The deleted app's retained snapshot history — the points
+	// DeletedAppRestoreRequest.snapshotTime can name.
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}/snapshots", func(w http.ResponseWriter, r *http.Request) {
+		row, ok := webDeletedSiteByRequest(sim.PathParam(r, "deletedSiteId"))
+		if !ok {
+			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				"The deleted app with id '%s' was not found.", sim.PathParam(r, "deletedSiteId"))
+			return
+		}
+		out := make([]any, 0, len(row.Snapshots))
+		for _, snap := range row.Snapshots {
+			out = append(out, map[string]any{
+				"id":         snap.ID,
+				"name":       snap.Time,
+				"type":       "Microsoft.Web/sites/snapshots",
+				"properties": map[string]any{"time": snap.Time},
+			})
+		}
+		// The specification declares this response a bare array of Snapshot,
+		// not a paged collection envelope.
+		sim.WriteJSON(w, http.StatusOK, out)
+	})
 
 	// Global_GetSubscriptionOperationWithAsyncResponse — the status of a
 	// Microsoft.Web long-running operation: 204 while the operation record

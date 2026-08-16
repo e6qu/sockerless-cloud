@@ -4,14 +4,26 @@
 	skip_install_trust
 }
 
-https://aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+# The second name is the Amazon ECR private-registry login server,
+# <aws_account_id>.dkr.ecr.<region>.amazonaws.com, at this gateway's coordinate:
+# a container engine reaches a registry by the host in the image reference, so
+# the Docker Registry HTTP API v2 data plane needs a name shaped like one and a
+# certificate issued for it.
+https://aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.dkr.ecr.aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_AWS_SIM_PORT:4566} {
 		header_up X-Forwarded-Proto https
 	}
 }
 
-https://gcp.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+# The second name is the Google Artifact Registry Docker endpoint,
+# <location>-docker.pkg.dev, at this gateway's coordinate: a container engine
+# reaches a registry by the host in the image reference, so the Docker Registry
+# HTTP API v2 data plane needs a name shaped like one and a certificate issued
+# for it.
+https://gcp.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.pkg.gcp.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_GCP_SIM_PORT:4567} {
 		header_up X-Forwarded-Proto https

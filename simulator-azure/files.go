@@ -1018,6 +1018,13 @@ func registerAzureFiles(srv *sim.Server) {
 			container.Properties.PublicAccess = "None"
 		}
 		blobContainers.Put(resourceID, container)
+		// A blob container is ONE object with two management surfaces: the
+		// container the Azure Resource Manager plane creates here is the same
+		// container the Blob data plane serves, so it comes into being on both.
+		// Without this a container created through Microsoft.Storage — which is
+		// how terraform-provider-azurerm creates every container — is invisible
+		// to every client that addresses it at the account's blob endpoint.
+		mirrorARMContainerToBlobPlane(acct, name, container.Properties.PublicAccess, container.Properties.Metadata)
 		sim.WriteJSON(w, http.StatusOK, container)
 	})
 
@@ -1047,6 +1054,8 @@ func registerAzureFiles(srv *sim.Server) {
 			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/blobServices/default/containers/%s",
 			sub, rg, acct, name)
 		blobContainers.Delete(resourceID)
+		// The same one object goes on both surfaces.
+		removeARMContainerFromBlobPlane(acct, name)
 		w.WriteHeader(http.StatusOK)
 	})
 

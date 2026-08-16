@@ -786,6 +786,43 @@ func handleBlobContainerLevel(w http.ResponseWriter, r *http.Request, account, c
 	}
 }
 
+// mirrorARMContainerToBlobPlane makes an Azure Resource Manager container
+// create visible on the Blob data plane, which serves the same object. An
+// existing data-plane container is left alone: the two planes describe one
+// container, and the data plane holds its blobs.
+func mirrorARMContainerToBlobPlane(account, container, publicAccess string, metadata map[string]string) {
+	key := blobContainerKey(account, container)
+	if _, ok := blobContainersData.Get(key); ok {
+		return
+	}
+	if publicAccess == "None" {
+		// The data plane spells "no public access" as an absent header, not as
+		// the Azure Resource Manager plane's "None" enum member.
+		publicAccess = ""
+	}
+	blobContainersData.Put(key, BlobContainerData{
+		Account:      account,
+		Name:         container,
+		Created:      time.Now().UTC().Format(http.TimeFormat),
+		ETag:         `"` + generateUUID() + `"`,
+		Metadata:     metadata,
+		Version:      generateUUID(),
+		PublicAccess: publicAccess,
+	})
+}
+
+// removeARMContainerFromBlobPlane deletes the data-plane side of a container
+// the Azure Resource Manager plane removed, with the blobs it held — deleting
+// a container deletes its contents.
+func removeARMContainerFromBlobPlane(account, container string) {
+	for _, key := range blobKeysInContainer(account, container) {
+		if obj, ok := blobObjects.Get(key); ok {
+			deleteBlobSnapshot(obj.Account, obj.Container, obj.Name, obj.Snapshot)
+		}
+	}
+	blobContainersData.Delete(blobContainerKey(account, container))
+}
+
 func handleCreateContainer(w http.ResponseWriter, r *http.Request, account, container string) {
 	key := blobContainerKey(account, container)
 	if _, ok := blobContainersData.Get(key); ok {

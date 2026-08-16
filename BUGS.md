@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 15. Resolved: 36.
+Open: 18. Resolved: 36.
 
 ## Open
 
@@ -127,6 +127,36 @@ the simulators from the sockerless monorepo, keeping their IDs
   name is in the repository's required-status list — the rename has to land
   together with a branch-protection change, which is a repository-settings
   action rather than a code one.
+
+- **BUG-42 (the macOS Terraform harness skips the whole shared azurerm stack):**
+  The harness drops to the host user through `setpriv`, stripping
+  `CAP_NET_ADMIN` and `CAP_SYS_ADMIN`, so `TestTerraformApplyDestroy` skips on
+  every macOS run; adding `--privileged` does not restore them. Running as root
+  with `--privileged` gets past the capability gate and then fails booting the
+  guest, because the Podman virtual machine exposes no nested virtualisation for
+  that path. CI's Linux runner does execute it, so the coverage exists — but no
+  local run of that stack means anything, and a green local suite must not be
+  read as covering it.
+
+- **BUG-43 (the azurerm provider crashes on the App Service backup path):**
+  `terraform-provider-azurerm v5.1.0` crashed with no captured stack while
+  applying an `azurerm_linux_function_app` carrying a `backup` block against the
+  simulator, after three earlier failures on that stack were fixed (a Dynamic
+  tier reported for every plan, a container visible only on the control plane,
+  and a plan tier that refused backups). The Terraform leg was reverted rather
+  than left failing. Fix shape: capture the provider's crash log, establish
+  whether the simulator returns something the provider cannot parse, and add the
+  stack back once it applies cleanly.
+
+- **BUG-44 (the Blob data plane authorizes no shared access signature):**
+  `webParseBackupStorageURL` checks that a backup's storage URL carries the
+  mandatory signature parameters but not that the signature is valid, because
+  the Blob data plane implements no shared-access-signature authorization at
+  all. Verifying it in the backup path alone would refuse URLs the data plane
+  itself accepts. This is the same shape as the registry and Cosmos gaps closed
+  earlier: the credential exists and nothing consumes it. Fix shape: implement
+  the documented signature verification in the Blob plane, then let the backup
+  path rely on it.
 
 ## Resolved history
 

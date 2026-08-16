@@ -184,6 +184,7 @@ func webCleanupDeployments(resID string) {
 		webDeploymentStatuses.Delete(rec.ID)
 	}
 	azureDropKeyGens(resID, "publishingPassword")
+	webCleanupBackups(resID)
 }
 
 // webPublishingPassword derives the site's current SCM publishing password:
@@ -255,6 +256,9 @@ func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 		written++
 	}
 	webDiscoverWebJobs(resID)
+	// The app's content just changed, so the platform's automatic-backup
+	// snapshot of this app state exists from here on.
+	webCaptureAppSnapshot(resID)
 	return written, nil
 }
 

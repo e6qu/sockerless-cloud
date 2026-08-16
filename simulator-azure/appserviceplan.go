@@ -38,6 +38,53 @@ type AppServicePlanProperties struct {
 
 var azureAppServicePlans sim.Store[AppServicePlan]
 
+// appServicePlanSkuTier maps an App Service plan SKU name onto the pricing
+// tier and SKU family the service reports for it, which is what a client that
+// sends only a SKU name reads back. The mapping is Microsoft's published
+// App Service plan SKU catalog: F1 Free, D1 Shared, B* Basic, S* Standard,
+// P*v4 PremiumV4, P*v3 / P*mv3 PremiumV3, P*v2 PremiumV2, P* Premium,
+// I*v2 / I*mv2 IsolatedV2, I* Isolated, Y1 Dynamic, FC1 FlexConsumption,
+// EP* ElasticPremium, WS* WorkflowStandard.
+func appServicePlanSkuTier(name string) (tier, family string) {
+	upper := strings.ToUpper(name)
+	switch {
+	case upper == "F1" || upper == "FREE":
+		return "Free", "F"
+	case upper == "D1" || upper == "SHARED":
+		return "Shared", "D"
+	case upper == "Y1":
+		return "Dynamic", "Y"
+	case upper == "FC1":
+		return "FlexConsumption", "FC"
+	case strings.HasPrefix(upper, "EP"):
+		return "ElasticPremium", "EP"
+	case strings.HasPrefix(upper, "WS"):
+		return "WorkflowStandard", "WS"
+	case strings.HasPrefix(upper, "B"):
+		return "Basic", "B"
+	case strings.HasPrefix(upper, "S"):
+		return "Standard", "S"
+	case strings.HasPrefix(upper, "P"):
+		switch {
+		case strings.HasSuffix(upper, "V4"):
+			return "PremiumV4", "Pv4"
+		case strings.HasSuffix(upper, "V3"):
+			return "PremiumV3", "Pv3"
+		case strings.HasSuffix(upper, "V2"):
+			return "PremiumV2", "Pv2"
+		}
+		return "Premium", "P"
+	case strings.HasPrefix(upper, "I"):
+		if strings.HasSuffix(upper, "V2") {
+			return "IsolatedV2", "Iv2"
+		}
+		return "Isolated", "I"
+	}
+	// A SKU name the catalog does not cover: report the name as its own tier
+	// rather than silently claiming a tier the plan does not have.
+	return name, name
+}
+
 func registerAppServicePlan(srv *sim.Server) {
 	plans := sim.MakeStore[AppServicePlan](srv.DB(), "app_service_plans")
 	azureAppServicePlans = plans
@@ -62,13 +109,26 @@ func registerAppServicePlan(srv *sim.Server) {
 			resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s",
 				sub, rg, planName)
 
-			// Default SKU values
+			// The service derives an App Service plan's tier, family and size
+			// from the SKU name a client sends. terraform-provider-azurerm's
+			// azurerm_service_plan sends nothing but the name and capacity, and
+			// consumers branch on the tier it reads back — the Function App
+			// resource refuses a backup configuration on a Dynamic-tier plan,
+			// which is what a plan whose tier never left "Dynamic" made of
+			// every plan the provider created.
 			sku := req.Sku
 			if sku.Name == "" {
 				sku.Name = "Y1"
 			}
+			tier, family := appServicePlanSkuTier(sku.Name)
 			if sku.Tier == "" {
-				sku.Tier = "Dynamic"
+				sku.Tier = tier
+			}
+			if sku.Family == "" {
+				sku.Family = family
+			}
+			if sku.Size == "" {
+				sku.Size = sku.Name
 			}
 
 			plan := AppServicePlan{

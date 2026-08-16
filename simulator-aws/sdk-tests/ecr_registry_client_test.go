@@ -27,13 +27,17 @@ import (
 // real Amazon ECR: `unexpected status code 401 Unauthorized: Not Authorized`
 // (google/go-containerregistry#861).
 //
-// It runs in the test process rather than in a container engine on purpose. The
-// engine performs registry transfers itself, and on a host whose engine lives
-// in its own virtual machine — Podman on macOS — that engine cannot dial the
-// simulator's listener on this host's loopback address, while its
-// Docker-compatible `login` endpoint negotiates TLS even for a registry it
-// reports as insecure. An in-process client reaches the simulator's coordinate
-// on every host and exercises the same credential and the same wire exchange.
+// It runs in the test process rather than in a container engine so that this
+// coverage holds on every host. A container engine living in its own virtual
+// machine — Podman on macOS — cannot dial the simulator's listener on this
+// host's loopback address, so an engine-driven test cannot run there at all.
+// An in-process client reaches the simulator's coordinate everywhere and
+// exercises the same credential and the same wire exchange.
+//
+// The engine path is covered too, and separately: `TestECRCLI_DockerLoginPushPull`
+// drives a real `docker login`, push and pull against the registry served over
+// TLS by the HTTPS gateway, which is what makes the engine's own login endpoint
+// workable. That test carries the platform gate this one does not need.
 
 // ecrRegistryAuthenticator returns the credential a Docker client holds after
 // `aws ecr get-login-password | docker login --username AWS --password-stdin`:

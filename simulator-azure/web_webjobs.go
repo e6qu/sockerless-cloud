@@ -137,6 +137,31 @@ func webDiscoverWebJobs(resID string) {
 			jobs[key] = found{kind: kind, name: name, runCmd: file}
 		}
 	}
+	// A webjob exists exactly while its App_Data/jobs script does, so a job
+	// whose directory has left the file system is gone: its container is
+	// killed and its record and run history removed. A deployment never
+	// triggers this — Web Deploy creates and overwrites but does not delete —
+	// but a backup, snapshot or deleted-app restore replaces the whole file
+	// system and can take a job away with it.
+	present := map[string]bool{}
+	for key := range jobs {
+		kind, name, _ := strings.Cut(key, "/")
+		present[resID+"/"+kind+"webjobs/"+name] = true
+	}
+	jobPrefix := resID + "/"
+	for _, rec := range webWebJobs.Filter(func(rec WebJobRecord) bool {
+		return strings.HasPrefix(rec.ID, jobPrefix) && rec.SiteID == resID
+	}) {
+		if present[rec.ID] {
+			continue
+		}
+		webKillWebJobContainer(rec.ID)
+		for _, run := range webJobRunsFor(rec.ID) {
+			webKillWebJobContainer(run.ID)
+			webJobRuns.Delete(run.ID)
+		}
+		webWebJobs.Delete(rec.ID)
+	}
 	for _, j := range jobs {
 		id := resID + "/" + j.kind + "webjobs/" + j.name
 		existing, ok := webWebJobs.Get(id)

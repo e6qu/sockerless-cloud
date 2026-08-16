@@ -142,6 +142,7 @@ func registerWebMore(srv *sim.Server) {
 	webFunctionKeys = sim.MakeStore[WebFunctionKeysRow](srv.DB(), "web_function_keys")
 	initWebDeployStores(srv)
 	initWebJobStores(srv)
+	initWebBackupStores(srv)
 
 	registerWebCertificates(srv)
 	registerWebSiteAndSlotHandlers(srv)
@@ -172,6 +173,10 @@ func webCleanupSiteResources(resID string) {
 	slotPrefix := resID + "/slots/"
 	for _, s := range webSlots.Filter(func(row Site) bool { return strings.HasPrefix(row.ID, slotPrefix) }) {
 		ids = append(ids, s.ID)
+		// A slot deleted with its parent app is retained the same way a
+		// directly deleted slot is — DeletedSiteProperties carries the slot
+		// name for exactly this case.
+		webRecordDeletedSite(s.ID, s)
 		webSlots.Delete(s.ID)
 	}
 	for _, id := range ids {
@@ -309,6 +314,7 @@ func registerWebSiteAndSlotHandlers(srv *sim.Server) {
 	registerWebConfigSnapshots(srv, both)
 	registerWebContainerLogs(both)
 	registerWebProcesses(both)
+	registerWebBackups(both)
 	registerWebProviderGlobal(srv, site)
 
 	// PATCH a production site — merge tags/properties. (Slot PATCH lives in
@@ -499,13 +505,6 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 	slot("PUT", "/config/azurestorageaccounts", webSlotAzureStoragePut)
 	slot("POST", "/config/azurestorageaccounts/list", webSlotAzureStorageList)
 	slot("POST", "/config/publishingcredentials/list", webPublishingCredentials)
-	slot("POST", "/config/backup/list", func(w http.ResponseWriter, r *http.Request) {
-		if webMissing(w, r) {
-			return
-		}
-		sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
-			"No backup configuration found for slot %q.", sim.PathParam(r, "slot"))
-	})
 }
 
 func nonNilStrMap(m map[string]string) map[string]string {
@@ -582,10 +581,6 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 
 	// /usages — resource usage quotas (empty for a sim site).
 	both("GET", "/usages", emptyValueIfExists)
-
-	// /backups + /listbackups — backup history (none configured).
-	both("GET", "/backups", emptyValueIfExists)
-	both("POST", "/listbackups", emptyValueIfExists)
 
 	// /publishxml — publishing profile (FileZilla/WebDeploy/FTP XML). The
 	// response is a raw XML document, not a JSON resource.
