@@ -59,6 +59,10 @@ type SiteProperties struct {
 	// VNet exactly as a swift networkConfig/virtualNetwork PUT does, and it
 	// always reflects the site's current regional integration.
 	VirtualNetworkSubnetID string `json:"virtualNetworkSubnetId,omitempty"`
+	// HostingEnvironmentProfile places the site directly in an App Service
+	// Environment. A site normally inherits the environment from its App
+	// Service plan; either way the environment's own app list reads it back.
+	HostingEnvironmentProfile *HostingEnvironmentProfile `json:"hostingEnvironmentProfile,omitempty"`
 }
 
 // SiteConfig holds the site configuration for a function app.
@@ -183,6 +187,14 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 
+		// A site placed in an App Service Environment is placed in one that
+		// exists; the resource provider refuses an unresolvable reference.
+		hostingEnvironment, err := webResolveHostingEnvironmentProfile(req.Properties.HostingEnvironmentProfile)
+		if err != nil {
+			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		kind := req.Kind
 		if kind == "" {
 			kind = "functionapp"
@@ -235,19 +247,20 @@ func registerAzureFunctions(srv *sim.Server) {
 			Location: req.Location,
 			Tags:     req.Tags,
 			Properties: SiteProperties{
-				State:            "Running",
-				DefaultHostName:  defaultHostName,
-				HostNames:        []string{defaultHostName},
-				Enabled:          true,
-				EnabledHostNames: []string{defaultHostName, name + ".scm.azurewebsites.net"},
-				ServerFarmID:     req.Properties.ServerFarmID,
-				SKU:              webPlanSKUFor(req.Properties.ServerFarmID),
-				Reserved:         req.Properties.Reserved,
-				SiteConfig:       siteConfig,
-				ResourceGroup:    rg,
-				LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
-				HTTPSOnly:        req.Properties.HTTPSOnly,
-				ClientCertMode:   clientCertMode,
+				State:                     "Running",
+				DefaultHostName:           defaultHostName,
+				HostNames:                 []string{defaultHostName},
+				Enabled:                   true,
+				EnabledHostNames:          []string{defaultHostName, name + ".scm.azurewebsites.net"},
+				ServerFarmID:              req.Properties.ServerFarmID,
+				SKU:                       webPlanSKUFor(req.Properties.ServerFarmID),
+				Reserved:                  req.Properties.Reserved,
+				SiteConfig:                siteConfig,
+				ResourceGroup:             rg,
+				LastModifiedTime:          time.Now().UTC().Format(time.RFC3339),
+				HTTPSOnly:                 req.Properties.HTTPSOnly,
+				ClientCertMode:            clientCertMode,
+				HostingEnvironmentProfile: hostingEnvironment,
 			},
 		}
 

@@ -473,6 +473,27 @@ var azurePrivateLinkTargets = []azurePrivateLinkTarget{
 		del: func(id string) { webSitePECs.Delete(id) },
 	},
 	{
+		armType:   "Microsoft.Web/hostingEnvironments",
+		childType: aseResourceType + "/privateEndpointConnections",
+		// An App Service Environment publishes no named private-link group: an
+		// endpoint reaches the environment itself rather than one of several
+		// sub-resources, which is why its private-link resource wrapper is
+		// empty in the specification's own example.
+		dnsSuffixes: func(string) (string, string) {
+			return "appserviceenvironment.net", "privatelink.appserviceenvironment.net"
+		},
+		put: func(id, name string, props map[string]any) {
+			webEnvironmentPECs.Put(id, WebSitePrivateEndpointConnection{
+				ID: id, Name: name, Type: webSitePECType(id), Properties: props,
+			})
+		},
+		get: func(id string) (map[string]any, bool) {
+			c, ok := webEnvironmentPECs.Get(id)
+			return c.Properties, ok
+		},
+		del: func(id string) { webEnvironmentPECs.Delete(id) },
+	},
+	{
 		armType:   "Microsoft.Network/privateLinkServices",
 		childType: azurePLSConnectionType,
 		// A private link service publishes no named groups: a consumer reaches

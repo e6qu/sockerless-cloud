@@ -105,8 +105,16 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 				return
 			}
 		case strings.EqualFold(req.Type, "Microsoft.Web/hostingEnvironments"):
-			// The simulator hosts no App Service Environments; a request that
-			// is well-formed validates, matching name-availability semantics.
+			// An App Service Environment description validates when its name
+			// is still free in the subscription — the environments the
+			// simulator hosts are the ones it checks against.
+			suffix := "/providers/Microsoft.Web/hostingEnvironments/" + req.Name
+			for _, ase := range webHostingEnvironments.List() {
+				if strings.HasSuffix(strings.ToLower(ase.ID), strings.ToLower(suffix)) {
+					fail("AlreadyExists", fmt.Sprintf("The App Service Environment '%s' already exists.", req.Name))
+					return
+				}
+			}
 		default:
 			fail("InvalidResourceType", fmt.Sprintf("The resource type '%s' is not one of ServerFarm, Site, Microsoft.Web/hostingEnvironments.", req.Type))
 			return
@@ -186,9 +194,10 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 
-	// ListAseRegions — the simulator hosts no App Service Environments, so
-	// no region offers ASE capacity (the same truth the geoRegions catalog
-	// tells).
+	// ListAseRegions — the regions that offer App Service Environment
+	// capacity are a region catalog, and the simulator publishes none: its
+	// geoRegions list is empty for the same reason, and an environment is
+	// created in whatever location its request names.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/aseRegions", func(w http.ResponseWriter, _ *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})

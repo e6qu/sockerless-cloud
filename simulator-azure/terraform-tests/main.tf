@@ -1644,3 +1644,60 @@ output "azrm_network_manager_id" {
 output "azrm_network_manager_scope_accesses" {
   value = azurerm_network_manager.az_netman.scope_accesses
 }
+
+# ---------- App Service Environment v3 ----------
+#
+# An App Service Environment is a placement scope carved out of a subnet
+# delegated to Microsoft.Web/hostingEnvironments. The provider reads far more
+# back than it writes — the domain suffix the environment publishes, the
+# addresses it answers on and leaves from, and the inbound network
+# dependencies it computes — so an apply is only idempotent when every one of
+# those comes back the same on the next refresh.
+resource "azurerm_virtual_network" "az_ase_vnet" {
+  name                = "tf-azrm-ase-vnet"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  address_space       = ["10.95.0.0/16"]
+}
+
+resource "azurerm_subnet" "az_ase_subnet" {
+  name                 = "tf-azrm-ase-subnet"
+  resource_group_name  = azurerm_resource_group.az_rg.name
+  virtual_network_name = azurerm_virtual_network.az_ase_vnet.name
+  address_prefixes     = ["10.95.1.0/24"]
+
+  delegation {
+    name = "ase-delegation"
+    service_delegation {
+      name    = "Microsoft.Web/hostingEnvironments"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+    }
+  }
+}
+
+resource "azurerm_app_service_environment_v3" "az_ase" {
+  name                         = "tf-azrm-ase"
+  resource_group_name          = azurerm_resource_group.az_rg.name
+  subnet_id                    = azurerm_subnet.az_ase_subnet.id
+  internal_load_balancing_mode = "Web, Publishing"
+  zone_redundant               = false
+
+  tags = {
+    env = "tf-test"
+  }
+}
+
+output "azrm_app_service_environment_id" {
+  value = azurerm_app_service_environment_v3.az_ase.id
+}
+
+# The domain the environment publishes for the apps in it, and the address it
+# answers on inside its subnet — both computed by the service from the
+# environment's own name, load-balancing mode and subnet.
+output "azrm_app_service_environment_dns_suffix" {
+  value = azurerm_app_service_environment_v3.az_ase.dns_suffix
+}
+
+output "azrm_app_service_environment_internal_inbound_ip_addresses" {
+  value = azurerm_app_service_environment_v3.az_ase.internal_inbound_ip_addresses
+}

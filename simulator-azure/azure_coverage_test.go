@@ -231,6 +231,39 @@ var azureMethodFloor = map[string]int{
 	// data that would need a vendored catalog, like the WAF rule sets; the
 	// decision is recorded in DO_NEXT.md.
 	//
+	// Raised from 545 by the two families that were the last recorded App
+	// Service deferrals: App Service Environments with Kubernetes Environments
+	// (47 operations) and the diagnostics family (24).
+	//
+	// An App Service Environment is a real placement scope: it occupies a
+	// Microsoft.Network subnet that has to exist, leases its outbound address
+	// from the same public-IPv4 pool Microsoft.Network/publicIPAddresses
+	// reserves from, derives the address it answers on inside its subnet from
+	// that subnet's prefix, and reports its front-end count, its Linux-worker
+	// flag, its stamp capacity and its app and plan inventory from the pools
+	// and the resources placed in it.
+	//
+	// Five of that family's 48 operations stay unserved, and each answers a
+	// declared 501 naming its reason rather than a silent routing 404:
+	// ListMultiRoleMetricDefinitions, ListMultiRolePoolInstanceMetricDefinitions,
+	// ListWebWorkerMetricDefinitions and ListWorkerPoolInstanceMetricDefinitions
+	// would declare Microsoft.Insights metric series for pools the simulator
+	// emits no metrics for, and GetOutboundNetworkDependenciesEndpoints answers
+	// with Microsoft's published catalog of platform endpoints and address
+	// ranges — the same class as the declined Provider_*Stacks. The inbound
+	// half IS served: it is computed from the environment's own addresses,
+	// subnet and feature switches.
+	//
+	// The diagnostics family is served for the measurements the simulator can
+	// actually make about a site: its workload container's terminal state, the
+	// engine's CPU and memory samples with the kernel's own throttling and
+	// OOM-kill counters, the container's thread count, the site's restart
+	// journal and its deployment records. The detectors of Microsoft's catalog
+	// whose inputs do not exist here — service health, slot swaps, worker
+	// availability, per-request telemetry, Windows-only counters, auto-heal
+	// history — are not listed and answer a declared 501 naming the missing
+	// input per detector (web_detectors.go).
+	//
 	// Raised from 519 by the backup, restore and snapshot family (26
 	// operations across the production-site and deployment-slot spellings):
 	// the backup configuration, the backup itself, the backup list, status,
@@ -242,7 +275,7 @@ var azureMethodFloor = map[string]int{
 	// Blob data plane of the storage account its SAS URL names; a restore
 	// reads that blob back and replaces the site's file system with it, so
 	// deleting the archive through the Blob API makes the restore fail.
-	"web-arm-openapi-2025-03-01": 545,
+	"web-arm-openapi-2025-03-01": 616,
 }
 
 // ---------------------------------------------------------------------------

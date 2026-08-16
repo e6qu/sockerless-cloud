@@ -109,6 +109,12 @@ var azureTrackedResources = map[string]azureTrackedResource{
 	"microsoft.web/serverfarms":  azureTracked(func() sim.Store[AppServicePlan] { return azureAppServicePlans }),
 	"microsoft.web/certificates": azureTracked(func() sim.Store[WebCertificate] { return webCertificates }),
 	"microsoft.web/staticsites":  azureTracked(func() sim.Store[StaticSiteResource] { return webStaticSites }),
+	"microsoft.web/hostingenvironments": azureTracked(func() sim.Store[AppServiceEnvironmentResource] {
+		return webHostingEnvironments
+	}),
+	"microsoft.web/kubeenvironments": azureTracked(func() sim.Store[KubeEnvironmentResource] {
+		return webKubeEnvironments
+	}),
 
 	// Microsoft.Storage
 	"microsoft.storage/storageaccounts": azureTracked(func() sim.Store[StorageAccount] { return azStorageAccounts }),

@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 18. Resolved: 36.
+Open: 19. Resolved: 36.
 
 ## Open
 
@@ -157,6 +157,17 @@ the simulators from the sockerless monorepo, keeping their IDs
   earlier: the credential exists and nothing consumes it. Fix shape: implement
   the documented signature verification in the Blob plane, then let the backup
   path rely on it.
+
+- **BUG-45 (the Azure SDK's environment lifecycle pagers panic):**
+  `BeginSuspend`, `BeginResume` and `BeginChangeVnet` are generated as pageable
+  long-running operations whose pre-built pager is the poller's result, so the
+  terminal collection body the specification documents unmarshals over it and
+  the returned pager panics when read. This happens against Azure as much as
+  against the simulator, which emits exactly the shape Microsoft's examples
+  document, so it is an upstream SDK defect rather than a fidelity gap. The
+  tests drive those operations through the SDK and read the effect back through
+  the apps instead. Close this when the SDK stops generating those three as
+  pageable.
 
 ## Resolved history
 
