@@ -251,7 +251,11 @@ func registerWebSlotCRUD(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("DELETE "+base+"/slots/{slot}", func(w http.ResponseWriter, r *http.Request) {
+		deleted, existed := webSlots.Get(webResourceID(r))
 		if webSlots.Delete(webResourceID(r)) {
+			if existed {
+				webRecordDeletedSite(webResourceID(r), deleted)
+			}
 			webCleanupSiteResources(webResourceID(r))
 			w.WriteHeader(http.StatusOK)
 			return
@@ -379,12 +383,19 @@ func registerWebGlobal(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
-	// GET deletedSites — soft-deleted apps (none in the sim).
+	// GET deletedSites — DeletedWebApps_List: the apps deleted in this
+	// subscription, retained so they can be restored into another app.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"value": webDeletedSitesIn(sim.PathParam(r, "subscriptionId"), ""),
+		})
 	})
+	// DeletedWebApps_ListByLocation — the same list narrowed to the region
+	// the deleted apps ran in.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/deletedSites", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"value": webDeletedSitesIn(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "location")),
+		})
 	})
 
 	// POST locations/{location}/checknameavailability — regional name check.

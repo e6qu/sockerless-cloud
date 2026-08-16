@@ -51,6 +51,9 @@ func webRecordConfigSnapshot(siteID string, cfg *SiteConfig) {
 		Config:     *cfg,
 	}
 	webConfigSnapshots.Put(row.ID, row)
+	// The app's configuration just changed, so the platform's automatic-backup
+	// snapshot of this app state exists from here on.
+	webCaptureAppSnapshot(siteID)
 }
 
 func registerWebConfigSnapshots(srv *sim.Server, both func(string, string, http.HandlerFunc)) {

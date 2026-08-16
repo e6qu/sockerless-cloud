@@ -1,34 +1,21 @@
 # DO NEXT
 
-1. App Service backup and restore was started and deliberately reverted rather
-   than shipped half-proven. The implementation reached 26 operations (the
-   floor probe agreed, 519 to 545) and the deleted-app and snapshot half passed
-   its SDK test, but the round-trip proof failed on its own precondition: the
-   test wipes the site through MSDeploy and the simulator merged the package
-   instead of replacing the content, so the restore would have been asserted
-   against content that never went away. Whether Web Deploy's sync semantics
-   delete files absent from the package was the question, and it is now
-   answered: they do not. Web Deploy creates new files and overwrites existing
-   ones but leaves files that are not part of the deployment alone unless
-   `DoNotDeleteRule` is explicitly disabled, which is why Azure Pipelines
-   exposes a separate "remove additional files at destination" switch at all.
-   So the simulator's merge was faithful and the test's wipe was wrong. Redoing
-   this work means keeping the merge semantics and wiping through something
-   that really deletes — a deployment with the delete rule disabled, or a
-   different content path — rather than assuming a package replaces the site. Shipping the operations
-   without that proof would have been 26 endpoints whose central claim was
-   untested, which is why the work was removed rather than left in.
-3. App Service: instances and processes are read from the live workload
-   container (519 of 692). Three recorded deferrals remain, and the fourth was
-   analysed rather than accepted: backup and restore want a real Blob round
-   trip; App Service Environments and Kube Environments are two new top-level
-   resources; and the detector family is 24 operations, of which the
-   "simulator cannot compute this" claim is demonstrably wrong for at least the
-   container-health analyses, because the simulator holds real restart and
-   failure state in the workload container and real configuration state in the
-   site record. Sixteen process operations are deliberately unserved with a
-   demonstrated reason recorded beside the floor — the container engine exposes
-   one process-inspection primitive, which reports no modules and no dumps.
+1. App Service: backup and restore round-trips through real Blob storage, and
+   instances and processes are read from the live workload container (545 of
+   692). Two recorded deferrals remain, and both are scoped rather than
+   guessed. App Service Environments and Kube Environments are 54 operations,
+   of which 43 are servable; 5 are not — four metric-definition operations,
+   because the simulator emits no Microsoft.Insights metrics for those pools
+   and declaring definitions would be fabrication, and the outbound
+   network-dependency endpoint, which answers with a Microsoft-published
+   catalog and is the same class as the declined Provider_*Stacks. Detector
+   execution is 22 operations: the container-health family reads state the
+   simulator genuinely holds, and each remaining detector needs its own
+   judgement about whether its inputs exist here.
+2. BUG-43: the azurerm provider crashed applying an App Service backup block
+   against the simulator, after three real defects on that path were fixed. The
+   Terraform leg was reverted rather than left failing; capture the provider's
+   crash log and restore the stack once it applies.
 3. BUG-38: the shared registry-trust helper no longer silently no-ops, which
    exposes two latent defects elsewhere — the Google Cloud build push test
    still takes the insecure path and now fails loudly, and the AWS and Google

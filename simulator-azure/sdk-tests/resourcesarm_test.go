@@ -188,8 +188,11 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	account := "movemixedacct"
 	accounts := createStorageAccountForARM(t, srcRG, account)
 
-	// An ARM-plane container child and real blob bytes on the data plane,
-	// both written before the move.
+	// A container created through the Azure Resource Manager plane, with real
+	// blob bytes written into it on the data plane before the move. One create
+	// is all it takes: the container the Azure Resource Manager plane creates
+	// IS the container the account's blob endpoint serves, so creating it a
+	// second time there is refused as ContainerAlreadyExists.
 	bcClient, err := armstorage.NewBlobContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	const containerName = "move-mixed-container"
@@ -197,7 +200,8 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	require.NoError(t, err)
 	blobClient := newBlobTestClient(t, account)
 	_, err = blobClient.CreateContainer(ctx, containerName, nil)
-	require.NoError(t, err)
+	requireBlobErrorCode(t, err, "ContainerAlreadyExists",
+		"the Azure Resource Manager create already produced this container on the data plane")
 	const payload = "bytes written before the move"
 	_, err = blobClient.UploadBuffer(ctx, containerName, "moved.txt", []byte(payload), nil)
 	require.NoError(t, err)

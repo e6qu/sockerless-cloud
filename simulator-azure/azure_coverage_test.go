@@ -230,7 +230,19 @@ var azureMethodFloor = map[string]int{
 	// unserved deliberately: the runtime-stack catalog is Microsoft-published
 	// data that would need a vendored catalog, like the WAF rule sets; the
 	// decision is recorded in DO_NEXT.md.
-	"web-arm-openapi-2025-03-01": 519,
+	//
+	// Raised from 519 by the backup, restore and snapshot family (26
+	// operations across the production-site and deployment-slot spellings):
+	// the backup configuration, the backup itself, the backup list, status,
+	// secrets and delete reads, backup discovery, and the four restore
+	// spellings (from a backup item, from a backup blob, from a snapshot, from
+	// a deleted app) plus the primary and geo-redundant-secondary snapshot
+	// lists. A backup builds a real ZIP of the site's deployed content and
+	// writes it, with the XML manifest Microsoft documents beside it, into the
+	// Blob data plane of the storage account its SAS URL names; a restore
+	// reads that blob back and replaces the site's file system with it, so
+	// deleting the archive through the Blob API makes the restore fail.
+	"web-arm-openapi-2025-03-01": 545,
 }
 
 // ---------------------------------------------------------------------------

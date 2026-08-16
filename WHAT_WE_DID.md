@@ -1,5 +1,40 @@
 # WHAT WE DID
 
+## 2026-08-16 — Twelfth polish pass: App Service backups that really round-trip, and a registry a real engine can log in to
+
+An App Service backup writes a real archive. It builds a ZIP of the site's
+deployed content beside the XML manifest Microsoft documents, writes both into
+the Blob data plane of the account the request's storage URL names, and a
+restore reads them back and replaces the file system — which is the documented
+behaviour, since without a filter a restore deletes what is there and replaces
+it with the backup's contents. That is also what makes the round trip provable:
+the earlier attempt at this work failed because it tried to empty the site with
+a deployment, and Web Deploy does not delete files a package omits. The merge
+semantics are now asserted as a control of their own, and the restore is the
+deleter. A second control deletes the archive through the Blob API and requires
+the identical restore to fail, so a decorative round trip could not pass. The
+surface moved from 519 to 545 of 692.
+
+Three defects surfaced under it, each further from App Service than the last.
+Web jobs were never removed when the script that defined them left the file
+system. Every App Service plan reported the Dynamic tier because it was
+hardcoded, so a plan created by the Terraform provider — which sends only the
+SKU name — looked like Consumption and refused every backup configuration. And
+a blob container was two separate objects: one created through Azure Resource
+Manager, which is what the provider always does, was invisible at the account's
+blob endpoint. Those are one object now.
+
+The Amazon ECR registry accepts a real `docker login`. The engine's own login
+endpoint negotiates TLS, so the registry is served over TLS by the HTTPS gateway
+this repository already runs for its Terraform stacks, with the gateway's own
+authority installed where the engine reads it per operation rather than once per
+service lifetime. The login server keeps the real
+`<account>.dkr.ecr.<region>.amazonaws.com` shape and differs only in the
+coordinate it is reached at. A real push and pull round-trip through it, a wrong
+password and a logged-out push are refused, and the whole exchange was exercised
+on both container engines — including the one CI uses, through the code path CI
+takes.
+
 ## 2026-08-15 — Eleventh polish pass: every registry authenticates, moves reach twenty-nine families, and the "flaky" tests were real bugs
 
 Every container registry in the project now authenticates, each against its own

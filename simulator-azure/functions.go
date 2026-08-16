@@ -337,9 +337,15 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 
+		deleted, existed := sites.Get(resourceID)
 		if sites.Delete(resourceID) {
 			stopAzureFunctionInstance(name)
 			cleanupSiteContainers(resourceID, name)
+			if existed {
+				// Retain the app so RestoreFromDeletedApp and the deletedSites
+				// reads can reach it, before its content is cleaned up.
+				webRecordDeletedSite(resourceID, deleted)
+			}
 			webCleanupSiteResources(resourceID)
 			// Clean up associated functions
 			funcs := functionConfigs.Filter(func(f FunctionEnvelope) bool {
@@ -551,28 +557,6 @@ func registerAzureFunctions(srv *sim.Server) {
 			Properties: props,
 		})
 	})
-
-	// POST /config/backup/list — "Get Backup Configuration" (POST because the
-	// response carries the storage-account SAS secret). The sim doesn't model
-	// backup schedules; real Azure returns 404 when none is configured. Earlier
-	// the sim returned 200 with an empty `properties: {}` bag — but
-	// terraform-provider-azurerm's FlattenBackupConfig only short-circuits to
-	// [] when Properties is nil, so a non-nil empty bag materialised a phantom
-	// `backup { enabled = false }` block that drifted every plan. 404 makes the
-	// provider treat it as NotFound → no backup block.
-	backupNotFound := func(w http.ResponseWriter, r *http.Request) {
-		name := sim.PathParam(r, "siteName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), name)
-		if _, ok := sites.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"The Resource 'Microsoft.Web/sites/%s' was not found.", name)
-			return
-		}
-		sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
-			"No backup configuration found for site %q.", name)
-	}
-	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/backup/list", backupNotFound)
 
 	// GET /sites/{name}/basicPublishingCredentialsPolicies/{ftp|scm} —
 	// the per-protocol allow flag for FTP / SCM basic auth on the

@@ -581,6 +581,15 @@ jobs:
             --output /tmp/session-manager-plugin.deb https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
           sudo dpkg -i /tmp/session-manager-plugin.deb
           session-manager-plugin --version
+      - name: Install Caddy
+        # TestECRCLI_DockerLoginPushPull serves the Amazon ECR private-registry
+        # data plane over TLS through the repository's HTTPS gateway, which is
+        # Caddy, because a container engine speaks TLS to a registry. That test
+        # matches '^Test(...|ECR|...)', so only the compute shard runs it.
+        if: matrix.suite == 'compute'
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
+          caddy version
       - name: Install latest AWS CLI v2
         # The ubuntu-runner-bundled aws CLI lags; newer service operations (e.g.
         # ECS Express Mode, launched 2025-11-21) need a current CLI. Install the
