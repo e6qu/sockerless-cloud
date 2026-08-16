@@ -308,6 +308,7 @@ func registerWebSiteAndSlotHandlers(srv *sim.Server) {
 	registerWebHostnameTruth(srv, both)
 	registerWebConfigSnapshots(srv, both)
 	registerWebContainerLogs(both)
+	registerWebProcesses(both)
 	registerWebProviderGlobal(srv, site)
 
 	// PATCH a production site — merge tags/properties. (Slot PATCH lives in

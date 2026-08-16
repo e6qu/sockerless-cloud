@@ -17,6 +17,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// workloadRestartBudget is how long each half of this test waits for three
+// real container workloads — an Amazon ECS task, an AWS Batch job and an AWS
+// CodeBuild build whose buildspec sleeps eight seconds — to reach their state.
+// The budget is sized from measurement rather than from the idle case: the
+// whole test takes about fifteen seconds on an unloaded engine and about
+// twenty-five with one other container suite running beside it, so a thirty
+// second budget has almost no headroom on a host running two. It still fails
+// loudly on a recovery that never happens, which is what this test guards.
+const workloadRestartBudget = 90 * time.Second
+
 func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SDK(t *testing.T) {
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
@@ -126,7 +136,7 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 			len(tasks.Tasks) == 1 && aws.ToString(tasks.Tasks[0].LastStatus) == "RUNNING" &&
 			len(jobs.Jobs) == 1 && jobs.Jobs[0].Status == batchtypes.JobStatusRunning &&
 			len(builds.Builds) == 1 && builds.Builds[0].BuildStatus == codebuildtypes.StatusTypeInProgress
-	}, 30*time.Second, 100*time.Millisecond)
+	}, workloadRestartBudget, 100*time.Millisecond)
 
 	shutdownSimulator(cmd)
 	cmd = startPersistentSimulator(t, stateDir, tcpPort, udpPort, "docker")
@@ -148,7 +158,7 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 			len(jobs.Jobs) == 1 && jobs.Jobs[0].Status == batchtypes.JobStatusSucceeded &&
 			aws.ToInt32(jobs.Jobs[0].Container.ExitCode) == 0 &&
 			len(builds.Builds) == 1 && builds.Builds[0].BuildStatus == codebuildtypes.StatusTypeSucceeded
-	}, 30*time.Second, 100*time.Millisecond)
+	}, workloadRestartBudget, 100*time.Millisecond)
 
 	tasks, err := ecsAPI.DescribeTasks(testCtx, &ecs.DescribeTasksInput{
 		Cluster: aws.String(clusterName), Tasks: []string{taskARN},

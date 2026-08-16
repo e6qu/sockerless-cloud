@@ -239,8 +239,14 @@ done
 sudo iptables -t nat -A PREROUTING -i "$tap_dev" -d 169.254.169.254 -p tcp --dport 80 -j DNAT --to-destination "$tap_ip:$metadata_port"
 metadata_dnat_installed=1
 
+# Firecracker's default virtio-MMIO transport carries this guest's root block
+# device and its NIC. The opt-in PCI transport carries the same devices and adds
+# nothing the harness uses, and it is not usable everywhere: on an aarch64 host
+# the guest never receives the completion interrupt for its first virtio-blk
+# request, so the boot stops after the last kernel initcall and never mounts the
+# root filesystem.
 run_firecracker() {
-  sudo firecracker --api-sock "$api_socket" --enable-pci
+  sudo firecracker --api-sock "$api_socket"
 }
 run_firecracker > "$workdir/firecracker-console.log" 2>&1 &
 fc_pid=$!

@@ -3,12 +3,17 @@ package aws_sdk_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +24,59 @@ func ociDigest(b []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// ecrCreateRepository creates the repository a registry test addresses. Amazon
+// ECR repositories are explicit resources — "With Amazon ECR, new repositories
+// must be explicitly created before they can be used" (Amazon ECR User Guide,
+// "Troubleshooting Amazon ECR error messages" § HTTP 404: "Repository Does Not
+// Exist" error) — so a client creates one through the control plane before its
+// first push, exactly as the documented push flow instructs.
+func ecrCreateRepository(t *testing.T, repo string) {
+	t.Helper()
+	_, err := ecrClient().CreateRepository(ctx, &ecr.CreateRepositoryInput{
+		RepositoryName: aws.String(repo),
+	})
+	if err != nil {
+		var exists *ecrtypes.RepositoryAlreadyExistsException
+		require.ErrorAs(t, err, &exists)
+	}
+}
+
+// ecrRegistryCredential returns the Basic credential the Amazon ECR data plane
+// authenticates, obtained the documented way: GetAuthorizationToken serves a
+// base64 `AWS:<password>` string that is itself the Basic parameter — "you must
+// provide an authorization token with every HTTP request … -H "Authorization:
+// Basic $TOKEN"" (Amazon ECR User Guide, "Using HTTP API authentication").
+func ecrRegistryCredential(t *testing.T) string {
+	t.Helper()
+	out, err := ecrClient().GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.AuthorizationData)
+	require.NotNil(t, out.AuthorizationData[0].AuthorizationToken)
+	return "Basic " + *out.AuthorizationData[0].AuthorizationToken
+}
+
+// ecrRegistryPassword returns the password half of the authorization token —
+// what `aws ecr get-login-password` prints and `docker login --password-stdin`
+// consumes.
+func ecrRegistryPassword(t *testing.T) string {
+	t.Helper()
+	out, err := ecrClient().GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.AuthorizationData)
+	raw, err := base64.StdEncoding.DecodeString(*out.AuthorizationData[0].AuthorizationToken)
+	require.NoError(t, err)
+	user, password, ok := strings.Cut(string(raw), ":")
+	require.True(t, ok, "authorization token must decode to user:password")
+	require.Equal(t, "AWS", user)
+	return password
+}
+
 func ociDo(t *testing.T, method, url string, body []byte, contentType string) *http.Response {
+	t.Helper()
+	return ociDoAuthorized(t, method, url, body, contentType, ecrRegistryCredential(t))
+}
+
+func ociDoAuthorized(t *testing.T, method, url string, body []byte, contentType, authorization string) *http.Response {
 	t.Helper()
 	var r io.Reader
 	if body != nil {
@@ -29,6 +86,9 @@ func ociDo(t *testing.T, method, url string, body []byte, contentType string) *h
 	require.NoError(t, err)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
+	}
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -40,6 +100,7 @@ func ociDo(t *testing.T, method, url string, body []byte, contentType string) *h
 // multi-segment repository.
 func TestECR_OCIDataPlane(t *testing.T) {
 	repo := "oci-test-repo/app"
+	ecrCreateRepository(t, repo)
 
 	// Base / version route.
 	resp := ociDo(t, http.MethodGet, baseURL+"/v2/", nil, "")
@@ -118,6 +179,7 @@ func TestECR_OCIDataPlane(t *testing.T) {
 // registries set it on all responses, not just the base ping).
 func TestECR_OCIManifestHeadMissing(t *testing.T) {
 	repo := "shim/registry"
+	ecrCreateRepository(t, repo)
 	const apiVersionHeader = "Docker-Distribution-Api-Version"
 
 	// Missing tag in a not-yet-populated repo → 404 with the registry header.
@@ -154,4 +216,94 @@ func TestECR_OCIManifestHeadMissing(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "registry/2.0", resp.Header.Get(apiVersionHeader))
 	resp.Body.Close()
+}
+
+// TestECR_RegistryDataPlaneAuthentication drives the Amazon ECR private-registry
+// credential contract end to end through the SDK: GetAuthorizationToken mints
+// the credential, the /v2/ data plane accepts it, and every other credential is
+// refused with the Basic challenge Amazon ECR publishes.
+//
+//	Www-Authenticate: Basic realm="https://<registry>/",service="ecr.amazonaws.com"
+//
+// (observed against a real private registry in NVIDIA/enroot#59), and the
+// plain-text `Not Authorized` body that go-containerregistry renders as
+// `unexpected status code 401 Unauthorized: Not Authorized`
+// (google/go-containerregistry#861).
+func TestECR_RegistryDataPlaneAuthentication(t *testing.T) {
+	repo := "ecr-auth/app"
+	ecrCreateRepository(t, repo)
+	credential := ecrRegistryCredential(t)
+
+	// Every credential the registry does not accept is refused, on the base
+	// endpoint and on a repository route alike.
+	for _, probe := range []struct {
+		name          string
+		authorization string
+	}{
+		{"no credential", ""},
+		{"wrong password", "Basic " + base64.StdEncoding.EncodeToString([]byte("AWS:not-the-password"))},
+		{"user other than AWS", "Basic " + base64.StdEncoding.EncodeToString([]byte("root:"+ecrRegistryPassword(t)))},
+		{"bearer token", "Bearer " + ecrRegistryPassword(t)},
+	} {
+		for _, route := range []string{"/v2/", "/v2/" + repo + "/manifests/v1", "/v2/" + repo + "/tags/list"} {
+			resp := ociDoAuthorized(t, http.MethodGet, baseURL+route, nil, "", probe.authorization)
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+				"%s must be refused at %s", probe.name, route)
+			assert.Equal(t,
+				`Basic realm="`+baseURL+`/",service="ecr.amazonaws.com"`,
+				resp.Header.Get("Www-Authenticate"),
+				"the refusal must carry Amazon ECR's Basic challenge")
+			assert.Equal(t, "registry/2.0", resp.Header.Get("Docker-Distribution-Api-Version"))
+			assert.Equal(t, "Not Authorized", strings.TrimSpace(string(body)))
+		}
+	}
+
+	// A blob upload is refused before it can allocate an upload slot.
+	resp := ociDoAuthorized(t, http.MethodPost, baseURL+"/v2/"+repo+"/blobs/uploads/", nil, "", "")
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Empty(t, resp.Header.Get("Docker-Upload-UUID"),
+		"a refused upload must not allocate an upload")
+
+	// The credential GetAuthorizationToken issued reaches the whole data plane.
+	resp = ociDoAuthorized(t, http.MethodGet, baseURL+"/v2/", nil, "", credential)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	layer := []byte("ecr-authenticated-layer")
+	digest := ociDigest(layer)
+	resp = ociDoAuthorized(t, http.MethodPost, baseURL+"/v2/"+repo+"/blobs/uploads/", nil, "", credential)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	loc := resp.Header.Get("Location")
+	resp.Body.Close()
+	resp = ociDoAuthorized(t, http.MethodPatch, baseURL+loc, layer, "application/octet-stream", credential)
+	resp.Body.Close()
+	resp = ociDoAuthorized(t, http.MethodPut, baseURL+loc+"?digest="+digest, nil, "", credential)
+	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	manifest := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":%d,"digest":"%s"},"layers":[{"mediaType":"application/vnd.docker.image.rootfs.diff.tar.gzip","size":%d,"digest":"%s"}]}`,
+		len(layer), digest, len(layer), digest))
+	resp = ociDoAuthorized(t, http.MethodPut, baseURL+"/v2/"+repo+"/manifests/v1", manifest,
+		"application/vnd.docker.distribution.manifest.v2+json", credential)
+	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	// A second, independently issued token authenticates too — the credential
+	// is the IAM principal's, not one shared secret.
+	other := ecrRegistryCredential(t)
+	require.NotEqual(t, credential, other, "each GetAuthorizationToken call mints its own token")
+	resp = ociDoAuthorized(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/v1", nil, "", other)
+	got, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, manifest, got)
+
+	// And the same pull without it is refused, so the pushed manifest is not
+	// readable by an unauthenticated caller.
+	resp = ociDoAuthorized(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/v1", nil, "", "")
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }

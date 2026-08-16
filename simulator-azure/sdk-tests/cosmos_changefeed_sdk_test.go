@@ -37,6 +37,7 @@ func cosmosChangeFeedPage(t *testing.T, account, coll, continuation string, maxI
 	if maxItems > 0 {
 		req.Header.Set("x-ms-max-item-count", itoa(maxItems))
 	}
+	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -158,6 +159,7 @@ func TestCosmosConflictFeed_EmptySingleRegion(t *testing.T) {
 	req, err := http.NewRequest("GET", baseURL+"/dbs/cfdb/colls/items/conflicts", nil)
 	require.NoError(t, err)
 	req.Header.Set("x-ms-cosmos-account", account)
+	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()

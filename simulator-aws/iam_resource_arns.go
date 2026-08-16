@@ -89,7 +89,7 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 	case "kinesis":
 		return iamKinesisResourceARNs(r, types, region, account)
 	case "states":
-		return iamStatesResourceARNs(r, types)
+		return iamStatesResourceARNs(r, op, types, region, account)
 	case "sts":
 		return iamSTSResourceARNs(r, types, account)
 	case "cloudwatch":
@@ -657,10 +657,32 @@ func iamKinesisResourceARNs(r *http.Request, types []string, region, account str
 // inside the state machine segment. So the ARN the caller sent is the ARN to
 // authorize against, and there is nothing to assemble.
 //
-// The one name-addressed case is creation, where the state machine does not
-// exist yet and no ARN can be derived at all.
-func iamStatesResourceARNs(r *http.Request, types []string) []string {
+// Creating a state machine or an activity is the exception that still derives.
+// Both ARN formats end in the name the create request supplies and carry
+// nothing AWS assigns — "stateMachine:${StateMachineName}" and
+// "activity:${ActivityName}" — so the ARN is fully determined before the
+// resource exists. Creating an alias is not: its Name member is the alias's own,
+// while the type it authorizes against is the state machine the alias points
+// at, which the request names only inside a routing entry's version ARN.
+func iamStatesResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
+	switch op {
+	case "CreateStateMachine", "CreateActivity":
+		segment := "stateMachine:"
+		if op == "CreateActivity" {
+			segment = "activity:"
+		}
+		var created []string
+		for _, name := range fields["name"] {
+			if name != "" && !strings.HasPrefix(name, "arn:") {
+				created = append(created, "arn:aws:states:"+region+":"+account+":"+segment+name)
+			}
+		}
+		if len(created) > 0 {
+			sort.Strings(created)
+			return created
+		}
+	}
 	var out []string
 	seen := map[string]struct{}{}
 	for _, field := range []string{

@@ -18,7 +18,15 @@ RUN_FLAGS      :=
 # go-test deadline for the CLI suite. Each `az` invocation carries ~0.5-2s of
 # Python interpreter startup, so the wall-clock grows with the test count as the
 # sim's coverage ratchets up; keep generous headroom over the current runtime.
-CLI_TEST_TIMEOUT ?= 600s
+#
+# Measured on a CI runner at 171 tests: 680s, with nothing hanging — the slowest
+# are 15-30s of real `az` work and 180 subtests had already passed when the old
+# 600s deadline fired. 13m matches the SDK suite and is the most this can be:
+# the CI step allows 14 minutes and the job 15, so a larger inner deadline would
+# surface as an opaque step kill instead of a named Go stack. That headroom is
+# thin and this suite roughly doubled in one pass; BUG-41 tracks sharding it the
+# way the AWS CLI suite is sharded.
+CLI_TEST_TIMEOUT ?= 13m
 
 REPO_ROOT_REL  := ..
 
@@ -86,8 +94,27 @@ DOCKER_TEST_USER := $(shell id -u):$(shell id -g)
 DOCKER_SOCK_GID := $(shell stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)
 DOCKER_TEST_GROUPS := $(DOCKER_SOCK_GID),0
 DOCKER_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e SOCKERLESS_DOCKER_TEST_UIDGID=$(DOCKER_TEST_USER) -e SOCKERLESS_DOCKER_TEST_GROUPS=$(DOCKER_TEST_GROUPS) -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER=
-DOCKER_REALNET_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e NO_PROXY=localhost,127.0.0.1,::1,.localhost,*.localhost -e no_proxy=localhost,127.0.0.1,::1,.localhost,*.localhost
+# The simulator hands the container engine host paths — a webjob's materialized
+# directory, an Azure Files share a workload mounts — and the engine resolves a
+# mount source on the host it runs on, not inside the client container. Running
+# the simulator in this harness therefore needs one directory that is the same
+# path on both sides: the engine's own host directory, mounted into the
+# container at its own path and made the simulator's temporary directory.
+# Without it every workload bind-mounts an empty directory the engine created,
+# and a job reads none of the files it was given.
+#
+# The name is terse and the directory is under /var/tmp rather than /tmp on
+# purpose. A Firecracker API socket is created under the temporary directory as
+# <tmp>/sockerless-firecracker/<=40 chars>/firecracker.socket, and a UNIX socket
+# path cannot exceed 108 bytes, which leaves the directory 22; and /tmp on a
+# container-engine host is commonly a memory-backed filesystem, which a booting
+# machine's root image would fill.
+DOCKER_TEST_SHARED_TMP := /var/tmp/skl
+DOCKER_TEST_SHARED_TMP_MOUNT := -v $(DOCKER_TEST_SHARED_TMP):$(DOCKER_TEST_SHARED_TMP)
+
+DOCKER_REALNET_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e NO_PROXY=localhost,127.0.0.1,::1,.localhost,*.localhost -e no_proxy=localhost,127.0.0.1,::1,.localhost,*.localhost -e TMPDIR=$(DOCKER_TEST_SHARED_TMP)
 DOCKER_REALNET_FLAGS := --privileged
+
 # Spec validation is armed by two coordinates the harness has to carry into the
 # container, exactly as the Amazon Web Services harness does. Without them a
 # macOS run of `SOCKERLESS_SPEC_VALIDATE=... make sdk-test` validates nothing
@@ -114,6 +141,7 @@ docker-test: docker-test-build ## run all tests inside docker
 		--group-add 0 \
 		-v $(REPO_ROOT):/src \
 		-v /var/run/docker.sock:/var/run/docker.sock \
+		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-azure \
 		$(DOCKER_REALNET_TEST_ENV) \
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \
@@ -127,6 +155,7 @@ docker-sdk-test: docker-test-build ## run SDK tests inside the Linux real-networ
 		--group-add 0 \
 		-v $(REPO_ROOT):/src \
 		-v /var/run/docker.sock:/var/run/docker.sock \
+		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-azure \
 		$(DOCKER_REALNET_TEST_ENV) \
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \

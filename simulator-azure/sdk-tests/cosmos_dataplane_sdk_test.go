@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,15 +17,20 @@ import (
 const cosmosEmulatorKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
 
 // newCosmosSDKClient builds the REAL azcosmos client (NewClientWithKey) pointed
-// at a Cosmos endpoint — the sim or the emulator — differing only in the
-// endpoint coordinate. Driving the official SDK (not raw HTTP) is the compliance
-// proof: the sim must serve the SDK's account-discovery + data-plane contract.
-func newCosmosSDKClient(t *testing.T, endpoint string) *azcosmos.Client {
+// at a Cosmos endpoint — the sim or the emulator — differing only in the two
+// coordinates a client is configured with: the endpoint and the account key
+// that signs its requests. Driving the official SDK (not raw HTTP) is the
+// compliance proof: the sim must serve the SDK's account-discovery +
+// data-plane contract, signature verification included. `dial` names the
+// address the request is actually sent to when the endpoint is an account
+// hostname the test host does not resolve; the endpoint's own host is used
+// when it is empty.
+func newCosmosSDKClient(t *testing.T, endpoint, key, dial string) *azcosmos.Client {
 	t.Helper()
-	cred, err := azcosmos.NewKeyCredential(cosmosEmulatorKey)
+	cred, err := azcosmos.NewKeyCredential(key)
 	require.NoError(t, err)
 	c, err := azcosmos.NewClientWithKey(endpoint, cred, &azcosmos.ClientOptions{
-		ClientOptions:                azcore.ClientOptions{InsecureAllowCredentialWithHTTP: true},
+		ClientOptions:                cosmosClientOptions(dial),
 		EnableContentResponseOnWrite: true,
 	})
 	require.NoError(t, err)
@@ -42,7 +46,7 @@ func newCosmosSDKClient(t *testing.T, endpoint string) *azcosmos.Client {
 // CreateDatabase below drives the account-discovery route "GET /{$}" (azcosmos's
 // global-endpoint-manager reads the account root on its first request).
 func TestCosmos_RealSDKDataPlane(t *testing.T) {
-	client := newCosmosSDKClient(t, baseURL+"/")
+	client := cosmosSimClient(t, cosmosDataPlaneAccount)
 
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "sdkdb"}, nil)
 	require.NoError(t, err, "CreateDatabase (drives account discovery + POST /dbs)")
@@ -137,7 +141,7 @@ func TestCosmos_RealSDKDataPlane(t *testing.T) {
 // origin to the console instead of a bare 404, without Cosmos losing the root.
 func TestCosmos_AccountRootServesOnlyCosmosClients(t *testing.T) {
 	// A real Cosmos client: CreateDatabase drives account discovery first.
-	client := newCosmosSDKClient(t, baseURL+"/")
+	client := cosmosSimClient(t, cosmosDataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "rootdiscoverydb"}, nil)
 	require.NoError(t, err, "CreateDatabase must still drive account discovery on GET /{$}")
 

@@ -103,6 +103,7 @@ const (
 	crmConstraintDisableServiceAccountCreation    = "constraints/iam.disableServiceAccountCreation"
 	crmConstraintDisableServiceAccountKeyCreation = "constraints/iam.disableServiceAccountKeyCreation"
 	crmConstraintDisableServiceAccountKeyUpload   = "constraints/iam.disableServiceAccountKeyUpload"
+	crmConstraintAllowTokenLifetimeExtension      = "constraints/iam.allowServiceAccountCredentialLifetimeExtension"
 	crmConstraintRequireOsLogin                   = "constraints/compute.requireOsLogin"
 	crmConstraintVMExternalIPAccess               = "constraints/compute.vmExternalIpAccess"
 	crmConstraintResourceLocations                = "constraints/gcp.resourceLocations"
@@ -139,6 +140,17 @@ var crmOrgPolicyCatalog = []CRMConstraint{
 		Version:           1,
 		ConstraintDefault: "ALLOW",
 		BooleanConstraint: &CRMBooleanConstraint{},
+	},
+	{
+		Name:        crmConstraintAllowTokenLifetimeExtension,
+		DisplayName: "Allow extending lifetime of OAuth 2.0 access tokens to up to 12 hours",
+		Description: "This list constraint defines the set of service accounts that can be granted OAuth 2.0 access tokens with a lifetime of up to 12 hours. By default, the maximum lifetime for these access tokens is 1 hour. The allowed/denied list of service accounts must specify one or more service account email addresses. Supported prefix: is:",
+		Version:     1,
+		// No service account may hold a twelve-hour token until one is
+		// listed, which is what "By default, the maximum lifetime for these
+		// access tokens is 1 hour" says.
+		ConstraintDefault: "DENY",
+		ListConstraint:    &CRMListConstraint{},
 	},
 	{
 		Name:              crmConstraintRequireOsLogin,
@@ -313,6 +325,52 @@ func crmOrgPolicyBooleanEnforced(resource, constraint string) bool {
 	}
 	p := crmEffectiveOrgPolicy(resource, c)
 	return p.BooleanPolicy != nil && p.BooleanPolicy.Enforced
+}
+
+// crmOrgPolicyListAllows reports whether a list constraint admits one value at
+// a resource. The services this cloud slice implements call it at the point the
+// constraint governs, the way crmOrgPolicyBooleanEnforced is called for a
+// boolean one.
+//
+// The evaluation follows the ListPolicy oneof: allValues settles the question
+// outright, an allowedValues set admits only its members, a deniedValues set
+// admits everything but its members, and an empty list policy leaves the
+// constraint's own default in force. Values carry the documented `is:` prefix
+// or none — Organization Policy's literal-value spelling.
+func crmOrgPolicyListAllows(resource, constraint, value string) bool {
+	c, ok := crmConstraintByName(constraint)
+	if !ok || c.ListConstraint == nil {
+		return false
+	}
+	p := crmEffectiveOrgPolicy(resource, c)
+	if p.ListPolicy == nil {
+		return c.ConstraintDefault == "ALLOW"
+	}
+	switch p.ListPolicy.AllValues {
+	case "ALLOW":
+		return true
+	case "DENY":
+		return false
+	}
+	if len(p.ListPolicy.AllowedValues) > 0 {
+		return crmListValueMatches(p.ListPolicy.AllowedValues, value)
+	}
+	if len(p.ListPolicy.DeniedValues) > 0 {
+		return !crmListValueMatches(p.ListPolicy.DeniedValues, value)
+	}
+	return c.ConstraintDefault == "ALLOW"
+}
+
+// crmListValueMatches reports whether a list-policy value set names a literal
+// value, accepting the `is:` prefix Organization Policy documents for a literal
+// that would otherwise be read as a prefixed form.
+func crmListValueMatches(values []string, value string) bool {
+	for _, v := range values {
+		if strings.TrimPrefix(v, "is:") == value {
+			return true
+		}
+	}
+	return false
 }
 
 // crmOrgPolicyVerbs is the set of org-policy colon-verbs every hierarchy node

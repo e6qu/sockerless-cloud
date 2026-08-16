@@ -12,9 +12,14 @@ import (
 // rules, webhooks, tasks, task runs and agent pools — by resource ID, so the
 // whole subtree re-keys onto the destination group. The registry's login
 // server is derived from its globally unique name rather than its resource
-// group, so the host a Docker client pushes to is unchanged by the move, and
-// the repositories, manifests and blobs of the OCI data plane are addressed
-// under that name and need no re-keying.
+// group, so the host a Docker client pushes to is unchanged by the move.
+//
+// The OCI data plane's content is keyed by the registry's resource ID — that
+// is what keeps two registries in one simulator from sharing repositories — so
+// it moves with the registry: the repointing pass in resource_move.go re-keys
+// every manifest, blob and in-flight upload stored beneath the old ID and
+// rewrites the registry identity each row records, so a repository pushed
+// before the move is pulled unchanged after it.
 //
 // The registry's two admin passwords are derived from the resource ID, which
 // embeds the resource group, so the material listCredentials serves is pinned

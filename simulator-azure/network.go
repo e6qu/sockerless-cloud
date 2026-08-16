@@ -281,6 +281,10 @@ func registerNetwork(srv *sim.Server) {
 	azureVnets = vnets
 	azureSubnets = subnets
 	azureNSGs = nsgs
+	// The Microsoft.Network move hooks read their stores through accessors at
+	// request time, so all of them register here even though the stores they
+	// read are assigned across several register functions.
+	registerNetworkResourceMoveHooks()
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network"
 

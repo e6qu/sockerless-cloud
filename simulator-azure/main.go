@@ -91,6 +91,10 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 }
 
 func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
+	// The cross-resource-group move scans every store this build creates
+	// (resource_move.go), so the tracked set starts empty here: a second build
+	// in the same process must scan its own stores, not the previous build's.
+	sim.ResetTrackedStores()
 	srv, err := sim.NewServer(cfg)
 	if err != nil {
 		return nil, err
@@ -107,6 +111,11 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// endpoints are handled and returned before reaching it and never need a
 	// bearer.
 	srv.WrapHandler(AzureBearerVerificationMiddleware)
+	// The Cosmos DB data plane authenticates with the account's shared keys
+	// rather than an ARM bearer, and on its own paths, so its check sits
+	// alongside the ARM one — covering every data-plane route rather than
+	// waiting for each to opt in.
+	srv.WrapHandler(CosmosDataPlaneAuthMiddleware)
 	// Clean double slashes in request paths. The azurerm v3 provider (via
 	// go-azure-sdk) appends a trailing slash to the resourceManager endpoint,
 	// producing paths like //subscriptions/... Go's default mux would 301

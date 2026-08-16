@@ -615,11 +615,14 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      # The azure cloud runs as two shards: the shared stack, and a standalone
-      # `azurerm_subscription` config whose creates and cancels each sit
-      # through the provider's fixed 60s StateChangeConf delay plus four 10s
-      # confirmation polls — too long to fit inside the shared stack's budget
-      # under the repo-wide 15-minute job ceiling.
+      # The azure cloud runs as three shards: the shared `azurerm` stack, a
+      # standalone `azurerm_subscription` config whose creates and cancels each
+      # sit through the provider's fixed 60s StateChangeConf delay plus four
+      # 10s confirmation polls, and a standalone Microsoft Entra ID config
+      # driven by the `azuread` provider, whose every create and delete sits
+      # through that provider's own consistency polling. Neither standalone
+      # config fits inside the shared stack's budget under the repo-wide
+      # 15-minute job ceiling.
       matrix:
         include:
           - suite: aws
@@ -654,6 +657,11 @@ jobs:
             cloud: azure
             tf_timeout: 780s
             tf_run: TestTerraformSubscriptionApplyDestroy
+            timeout_minutes: 14
+          - suite: azure entra
+            cloud: azure
+            tf_timeout: 780s
+            tf_run: TestTerraformEntraApplyDestroy
             timeout_minutes: 14
     name: tf (${{ matrix.suite }})
     steps:
@@ -700,7 +708,7 @@ jobs:
         # plus docker startup so the step never beats the test's own
         # watchdog, while staying inside the repo-wide 15-minute job
         # ceiling: 12 for the shared stacks (inner 600s), 14 for the
-        # azure subscription shard (inner 780s).
+        # azure subscription and azure entra shards (inner 780s).
         timeout-minutes: ${{ matrix.timeout_minutes }}
       - name: Spec-shape ratchet (tf)
         run: bash scripts/check-spec-violations.sh ${{ matrix.cloud }} "$RUNNER_TEMP/${{ matrix.cloud }}-tf-spec-violations.jsonl"

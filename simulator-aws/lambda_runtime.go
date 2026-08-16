@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/netip"
@@ -30,12 +31,23 @@ type lambdaInvocation struct {
 	RequestID   string
 	FunctionArn string
 	Payload     []byte
-	DeadlineMs  int64
-	TraceID     string
+	// TimeoutSec is the function's configured Timeout. It bounds the Invoke
+	// phase — "The function's timeout setting limits the duration of the
+	// entire Invoke phase" — so the deadline the Runtime API reports is
+	// computed when the invocation is handed to the runtime, not when the
+	// execution environment was created.
+	TimeoutSec int
+	TraceID    string
 
 	// Single-slot queue: /next reads once; /response or /error writes once.
 	delivered bool
 	mu        sync.Mutex
+
+	// initialized is closed when the runtime asks for its first invocation.
+	// That request is what ends the Init phase — "The Init phase ends when the
+	// runtime and all extensions signal that they are ready by sending a Next
+	// API request" — and therefore what starts the invocation timer.
+	initialized chan struct{}
 
 	done     chan struct{} // closed when response or error received
 	response []byte
@@ -145,9 +157,15 @@ func (s *runtimeAPISidecar) handleNext(w http.ResponseWriter, r *http.Request) {
 	s.inv.delivered = true
 	s.inv.mu.Unlock()
 
+	// This request is the runtime signalling that it is initialised: the Init
+	// phase ends here and the Invoke phase — the one the function's timeout
+	// bounds — begins, so the deadline is measured from now.
+	deadline := time.Now().Add(time.Duration(s.inv.TimeoutSec) * time.Second)
+	close(s.inv.initialized)
+
 	w.Header().Set("Lambda-Runtime-Aws-Request-Id", s.inv.RequestID)
 	w.Header().Set("Lambda-Runtime-Invoked-Function-Arn", s.inv.FunctionArn)
-	w.Header().Set("Lambda-Runtime-Deadline-Ms", fmt.Sprintf("%d", s.inv.DeadlineMs))
+	w.Header().Set("Lambda-Runtime-Deadline-Ms", fmt.Sprintf("%d", deadline.UnixMilli()))
 	if s.inv.TraceID != "" {
 		w.Header().Set("Lambda-Runtime-Trace-Id", s.inv.TraceID)
 	}
@@ -631,14 +649,13 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	if timeoutSec == 0 {
 		timeoutSec = 3
 	}
-	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
-
 	inv := &lambdaInvocation{
 		RequestID:   requestID,
 		FunctionArn: fn.FunctionArn,
 		Payload:     payload,
-		DeadlineMs:  deadline.UnixMilli(),
+		TimeoutSec:  timeoutSec,
 		TraceID:     generateUUID(),
+		initialized: make(chan struct{}),
 		done:        make(chan struct{}),
 	}
 
@@ -650,7 +667,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	defer sidecar.Shutdown()
 
 	// CloudWatch log group + stream + START log entry.
-	logGroup, logStream, logKey, startMs := injectLambdaInvokeLogs(fn.FunctionName, requestID)
+	logGroup, logStream, logKey, _ := injectLambdaInvokeLogs(fn.FunctionName, requestID)
 
 	// Image functions honor their image configuration. ZIP functions run in
 	// AWS's published managed-runtime base image with the extracted archive at
@@ -716,28 +733,52 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	// Host metadata: Lambda has its Runtime API (above) but workloads
 	// may still query EC2 IMDS for region/SA tokens via the AWS SDK.
 	// Pass empty taskID — Lambda doesn't expose ECS_CONTAINER_METADATA_URI_V4.
-	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		Image:        sim.ResolveLocalImage(image),
-		Architecture: platform,
-		Command:      entrypoint,
-		Args:         args,
-		Env:          mergeEnv(cmdEnv, invocationNetwork.metadataEnv),
-		// Timeout is enforced by the sidecar (waiting for /response or
-		// error with a deadline); the container itself is given a
-		// generous wall-clock budget so slow handlers still surface a
-		// proper Lambda timeout instead of a container-level kill.
-		Timeout:     time.Duration(timeoutSec+5) * time.Second,
-		Name:        fmt.Sprintf("sockerless-sim-aws-lambda-%s", requestID[:12]),
-		Labels:      map[string]string{"sockerless-sim-lambda": requestID},
-		ExtraHosts:  invocationNetwork.extraHosts,
-		Network:     invocationNetwork.network,
-		ENIAddress:  invocationNetwork.eniAddress,
-		NetworkMode: invocationNetwork.networkMode,
-		Sandbox:     sim.SandboxLambda,
-		Binds:       binds,
-		WorkingDir:  workingDir,
-		MemoryBytes: int64(fn.MemorySize) * 1024 * 1024,
-	}, collectSink)
+	//
+	// environmentAttempt counts the execution environments this invocation has
+	// created: the first, and the one a retried Init phase replaces it with.
+	environmentAttempt := 0
+	startExecutionEnvironment := func() (*sim.ContainerHandle, error) {
+		environmentAttempt++
+		return sim.StartContainerSync(sim.ContainerConfig{
+			Image:        sim.ResolveLocalImage(image),
+			Architecture: platform,
+			Command:      entrypoint,
+			Args:         args,
+			Env:          mergeEnv(cmdEnv, invocationNetwork.metadataEnv),
+			// Timeout is enforced by the sidecar (waiting for /response or
+			// error with a deadline); the container itself is given a
+			// generous wall-clock budget so slow handlers still surface a
+			// proper Lambda timeout instead of a container-level kill. The
+			// budget spans both lifecycle phases the sidecar bounds — the Init
+			// phase's own limit and the Invoke phase's function timeout — since
+			// the two run in the same container.
+			Timeout: lambdaInitPhaseLimit + time.Duration(timeoutSec+5)*time.Second,
+			// Each execution environment is its own sandbox, so a retried Init
+			// phase gets its own container rather than the name the cancelled
+			// one still holds until the engine finishes removing it.
+			Name:        fmt.Sprintf("sockerless-sim-aws-lambda-%s-%d", requestID[:12], environmentAttempt),
+			Labels:      map[string]string{"sockerless-sim-lambda": requestID},
+			ExtraHosts:  invocationNetwork.extraHosts,
+			Network:     invocationNetwork.network,
+			ENIAddress:  invocationNetwork.eniAddress,
+			NetworkMode: invocationNetwork.networkMode,
+			Sandbox:     sim.SandboxLambda,
+			Binds:       binds,
+			WorkingDir:  workingDir,
+			MemoryBytes: int64(fn.MemorySize) * 1024 * 1024,
+			// The REPORT entry closing this invocation states the memory the
+			// execution environment reached, which is a measurement of the
+			// environment the invocation actually ran in.
+			TrackMemoryPeak: true,
+		}, collectSink)
+	}
+
+	// The Init phase begins once the execution environment exists. Creating and
+	// starting the container is the sandbox provisioning Lambda performs before
+	// INIT_START, so it is outside the Init phase's limit exactly as it is
+	// outside the function's timeout.
+	handle, err := startExecutionEnvironment()
+	initStart := time.Now()
 	if err != nil {
 		endMs := time.Now().UnixMilli()
 		appendLambdaLog(logKey, endMs, fmt.Sprintf("ERROR RequestId: %s Container start failed: %v", requestID, err))
@@ -755,59 +796,228 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 		exitCode  int
 	)
 	waitForContainer := make(chan int, 1)
-	go func() {
-		res := handle.Wait()
-		waitForContainer <- res.ExitCode
-	}()
+	watchContainer := func(h *sim.ContainerHandle) {
+		go func() {
+			res := h.Wait()
+			waitForContainer <- res.ExitCode
+		}()
+	}
+	watchContainer(handle)
 
-	timer := time.NewTimer(time.Duration(timeoutSec) * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-inv.done:
-		if inv.errorObj != nil {
-			result = inv.errorObj
-			unhandled = true
-		} else {
-			result = inv.response
-			if len(result) == 0 {
-				result = []byte("{}")
-			}
-		}
-		// Let the container exit on its own so logs drain fully; fall
-		// back to cancelling after a short grace window if the handler
-		// hangs after posting /response.
+	// Init phase. Bootstrapping the runtime and running the function's static
+	// code happen here, outside the function timeout: Lambda bounds the Init
+	// phase by its own limit and starts the Invoke phase — the one the timeout
+	// setting limits — only when the runtime asks for its first invocation.
+	initTimer := time.NewTimer(lambdaInitPhaseLimit)
+	defer initTimer.Stop()
+	var (
+		initDuration time.Duration
+		initRetried  bool
+		initFailed   bool
+	)
+initPhase:
+	for {
 		select {
+		case <-inv.initialized:
+			initDuration = time.Since(initStart)
+			break initPhase
+		case <-inv.done:
+			initDuration = time.Since(initStart)
+			// A runtime can only reply once it has been handed an invocation,
+			// so a reply that arrives with the readiness signal already raised
+			// is an ordinary fast handler whose two events this select saw at
+			// once — the Init phase did end, and the Invoke phase below takes
+			// the reply immediately.
+			if lambdaSignalRaised(inv.initialized) {
+				break initPhase
+			}
+			// Otherwise the runtime reported an initialisation failure to
+			// /runtime/init/error rather than asking for work. There is no
+			// Invoke phase to bound; the error it posted is the result.
+			result = inv.errorObj
+			if len(result) == 0 {
+				result = lambdaErrorPayload("Runtime failed to initialize")
+			}
+			unhandled = true
+			initFailed = true
+			select {
+			case exitCode = <-waitForContainer:
+			case <-time.After(3 * time.Second):
+				handle.Cancel()
+				exitCode = <-waitForContainer
+			}
+			break initPhase
 		case exitCode = <-waitForContainer:
-		case <-time.After(3 * time.Second):
+			// The runtime died before signalling readiness, so there is no
+			// Invoke phase to bound: the invocation ends here.
+			initDuration = time.Since(initStart)
+			result = lambdaErrorPayload(fmt.Sprintf("Runtime exited without providing a reason (exit %d): %s", exitCode, strings.TrimSpace(stderr.String())))
+			unhandled = true
+			initFailed = true
+			break initPhase
+		case <-initTimer.C:
+			// "The Init phase is limited to 10 seconds. If all three tasks do
+			// not complete within 10 seconds, Lambda retries the Init phase at
+			// the time of the first function invocation with the configured
+			// function timeout." The retry re-creates the execution
+			// environment, and the configured timeout now bounds the retried
+			// initialisation together with the invocation that follows it.
+			initDuration = time.Since(initStart)
+			appendLambdaLog(logKey, time.Now().UnixMilli(), fmt.Sprintf(
+				"INIT_REPORT Init Duration: %.2f ms Phase: init Status: timeout",
+				float64(initDuration.Microseconds())/1000.0))
 			handle.Cancel()
-			exitCode = <-waitForContainer
+			<-waitForContainer
+			initRetried = true
+			handle, err = startExecutionEnvironment()
+			if err != nil {
+				endMs := time.Now().UnixMilli()
+				appendLambdaLog(logKey, endMs, fmt.Sprintf("ERROR RequestId: %s Container start failed: %v", requestID, err))
+				appendLambdaLog(logKey, endMs+1, fmt.Sprintf("END RequestId: %s", requestID))
+				return lambdaErrorPayload(fmt.Sprintf("Container start failed: %v", err)), true, 1
+			}
+			lambdaProcessHandles.Store(requestID, handle)
+			watchContainer(handle)
+			break initPhase
 		}
-	case exitCode = <-waitForContainer:
-		// Container exited without calling /response — runtime error.
-		result = lambdaErrorPayload(fmt.Sprintf("Runtime exited without providing a reason (exit %d): %s", exitCode, strings.TrimSpace(stderr.String())))
-		unhandled = true
-	case <-timer.C:
-		// Deadline expired.
-		handle.Cancel()
-		<-waitForContainer
-		result = lambdaErrorPayload(fmt.Sprintf("Task timed out after %d.00 seconds", timeoutSec))
-		unhandled = true
-		exitCode = 1
+	}
+
+	if initRetried {
+		// The retried Init phase runs inside the configured function timeout,
+		// so the timer below covers initialisation and invocation both, and the
+		// duration it produces carries the retried init the way a suppressed
+		// init's REPORT does — with no separate Init Duration beside it.
+		initDuration = 0
+	}
+	invokeStart := time.Now()
+	invokeDuration := time.Duration(0)
+
+	// Invoke phase. "The function's timeout setting limits the duration of the
+	// entire Invoke phase", which begins with the Next request the Init phase
+	// ended on — so the timer starts now, not when the container did.
+	if !initFailed {
+		timer := time.NewTimer(time.Duration(timeoutSec) * time.Second)
+		defer timer.Stop()
+
+		select {
+		case <-inv.done:
+			// The Invoke phase ends when the runtime signals it is done, which
+			// is this reply — not when the container it runs in finally exits.
+			invokeDuration = time.Since(invokeStart)
+			if inv.errorObj != nil {
+				result = inv.errorObj
+				unhandled = true
+			} else {
+				result = inv.response
+				if len(result) == 0 {
+					result = []byte("{}")
+				}
+			}
+			// Let the container exit on its own so logs drain fully; fall
+			// back to cancelling after a short grace window if the handler
+			// hangs after posting /response.
+			select {
+			case exitCode = <-waitForContainer:
+			case <-time.After(3 * time.Second):
+				handle.Cancel()
+				exitCode = <-waitForContainer
+			}
+		case exitCode = <-waitForContainer:
+			// Container exited without calling /response — runtime error.
+			invokeDuration = time.Since(invokeStart)
+			result = lambdaErrorPayload(fmt.Sprintf("Runtime exited without providing a reason (exit %d): %s", exitCode, strings.TrimSpace(stderr.String())))
+			unhandled = true
+		case <-timer.C:
+			// Deadline expired.
+			invokeDuration = time.Since(invokeStart)
+			handle.Cancel()
+			<-waitForContainer
+			result = lambdaErrorPayload(fmt.Sprintf("Task timed out after %d.00 seconds", timeoutSec))
+			unhandled = true
+			exitCode = 1
+		}
 	}
 
 	// Inject END + REPORT log entries.
 	endMs := time.Now().UnixMilli()
-	durationMs := float64(time.Since(time.UnixMilli(startMs)).Microseconds()) / 1000.0
 	appendLambdaLog(logKey, endMs, fmt.Sprintf("END RequestId: %s", requestID))
-	appendLambdaLog(logKey, endMs+1, fmt.Sprintf(
-		"REPORT RequestId: %s\tDuration: %.2f ms\tBilled Duration: %d ms\tMemory Size: %d MB\tMax Memory Used: %d MB",
-		requestID, durationMs, int64(durationMs)+1, fn.MemorySize, fn.MemorySize/2))
+	appendLambdaLog(logKey, endMs+1, lambdaReportLine(requestID, invokeDuration, initDuration,
+		fn.MemorySize, handle.MemoryPeakBytes()))
 	if unhandled {
 		appendLambdaLog(logKey, endMs+2, fmt.Sprintf("ERROR RequestId: %s %s", requestID, strings.TrimSpace(string(result))))
 	}
 
 	return result, unhandled, exitCode
+}
+
+// lambdaInitPhaseLimit is how long Lambda gives the Init phase before it gives
+// up on it: "The Init phase is limited to 10 seconds. If all three tasks do not
+// complete within 10 seconds, Lambda retries the Init phase at the time of the
+// first function invocation with the configured function timeout."
+// (AWS Lambda Developer Guide, "Understanding the Lambda execution environment
+// lifecycle" § Init phase.) It is not the function's timeout, which limits the
+// Invoke phase alone, and it is the on-demand concurrency limit — provisioned
+// concurrency, SnapStart and Managed Instances are exempt from it, and this
+// simulator initialises on demand.
+const lambdaInitPhaseLimit = 10 * time.Second
+
+// lambdaSignalRaised reports whether a lifecycle signal channel has been closed
+// already, without waiting for one that has not.
+func lambdaSignalRaised(signal <-chan struct{}) bool {
+	select {
+	case <-signal:
+		return true
+	default:
+		return false
+	}
+}
+
+// lambdaReportLine renders the REPORT entry that closes an invocation.
+//
+// Duration is the Invoke phase alone and Init Duration is reported beside it,
+// which is how Lambda separates the two: its own worked example of a
+// three-second function timing out reports `Duration: 3004.92 ms Billed
+// Duration: 3117 ms … Init Duration: 111.23 ms` — the duration stops at the
+// timeout while the initialisation that preceded it is counted separately.
+// Billed Duration is the two rounded up and added, which reproduces that
+// example (3005 + 112 = 3117) and the two beside it (134 + 80 = 214,
+// 3017 + 84 = 3101).
+//
+// Init Duration is omitted when there is none to report — a warm invocation, or
+// one whose initialisation was retried inside the function timeout and is
+// therefore already inside Duration.
+//
+// Max Memory Used is the memory the execution environment reached, as the
+// container engine accounted for it while the invocation ran, rounded up to the
+// megabyte the field is expressed in. peakBytes is zero when the engine
+// reported no accounting at all, and the entry then omits the field: an absent
+// measurement is reported as absent rather than as a number nothing measured.
+func lambdaReportLine(requestID string, invokeDuration, initDuration time.Duration, memorySize int, peakBytes uint64) string {
+	durationMs := float64(invokeDuration.Microseconds()) / 1000.0
+	billedMs := int64(math.Ceil(durationMs))
+	initSuffix := ""
+	if initDuration > 0 {
+		initMs := float64(initDuration.Microseconds()) / 1000.0
+		billedMs += int64(math.Ceil(initMs))
+		initSuffix = fmt.Sprintf("\tInit Duration: %.2f ms", initMs)
+	}
+	memoryUsed := ""
+	if peakBytes > 0 {
+		memoryUsed = fmt.Sprintf("\tMax Memory Used: %d MB", lambdaMemoryMegabytes(peakBytes))
+	}
+	return fmt.Sprintf(
+		"REPORT RequestId: %s\tDuration: %.2f ms\tBilled Duration: %d ms\tMemory Size: %d MB%s%s",
+		requestID, durationMs, billedMs, memorySize, memoryUsed, initSuffix)
+}
+
+// lambdaMemoryMegabytes expresses a measured byte count in the megabytes a
+// REPORT entry reports, which are the megabytes a function's memory size is
+// configured in — 1 MB = 1 MiB, the unit the execution environment's cgroup
+// limit is set from. A partly used megabyte is a used megabyte, so the
+// conversion rounds up.
+func lambdaMemoryMegabytes(bytes uint64) uint64 {
+	const megabyte = 1024 * 1024
+	return (bytes + megabyte - 1) / megabyte
 }
 
 // injectLambdaInvokeLogs sets up the CloudWatch log group + stream and

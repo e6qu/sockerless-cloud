@@ -143,16 +143,22 @@ func TestMain(m *testing.M) {
 
 	workloadPlatform := nativeDockerPlatform()
 
+	// The workload images are tagged for this suite alone. A container image
+	// tag is a single global name in the one engine the machine runs, and every
+	// cloud's suite builds workloads from the same testdata; sharing one tag
+	// makes two suites running at once clobber each other's image mid-run, and
+	// the loser's container start fails with "No such image" for a workload its
+	// own TestMain built.
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
-	evalImageName = "sockerless-eval-arithmetic:test"
+	evalImageName = "sockerless-eval-arithmetic:azure-sdk"
 	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
 
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
-	httpProbeImageName = "sockerless-http-localhost-probe:test"
+	httpProbeImageName = "sockerless-http-localhost-probe:azure-sdk"
 	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
 
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
-	commandImageName = "sockerless-container-command:test"
+	commandImageName = "sockerless-container-command:azure-sdk"
 	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -257,7 +263,10 @@ func simAdvertisedDataPlaneHost(host string) bool {
 			return true
 		}
 	}
-	return false
+	// A Cosmos DB account's document endpoint is its own host — the coordinate
+	// ARM advertises and a client dials, and the one that tells the service
+	// whose keys sign the request.
+	return strings.Contains(host, ".documents.")
 }
 
 func mergeNoProxy(existing string, entries ...string) string {

@@ -1,37 +1,55 @@
 # DO NEXT
 
-1. BUG-3 continues one provider family per pass. Eleven type keys move
-   today; still unhooked, all with resource-ID-derived credentials, are
-   Microsoft.ApiManagement/service, standalone Microsoft.Logic/workflows,
-   Microsoft.DocumentDB/databaseAccounts, and the remaining Event Grid types
-   (partnerNamespaces is the key-bearing one). Microsoft.Network is last,
-   because its resources reference each other by resource ID and the same
-   pass has to rewrite every inbound reference — a private endpoint's
-   privateLinkServiceId, a Redis linked server's linkedRedisCacheId, a system
-   topic's source and metricResourceId, an event subscription's destination
-   and deadLetterDestination.
-2. BUG-18: Amazon ECR and Google Artifact Registry authenticate nothing. The
-   shared registry's per-registry `Authorize` hook makes both tractable, but
-   each needs verifying against its own published contract — ECR's Basic
-   credential from `GetAuthorizationToken`, Artifact Registry's Docker Bearer
-   flow — rather than a copy of the Azure implementation.
-3. BUG-17: the Azure Container Registry manifest and blob stores are global,
-   so two registries share content by repository name. Authentication is
-   per-registry now; storage is the remaining half.
-4. BUG-19: the AWS Lambda invocation timer starts before the runtime
-   bootstrap, so a slow INIT eats the function's timeout. Suspected rather
-   than demonstrated — reproduce it with a deliberately slow initialiser.
-5. BUG-16: a release tag is pushed before the artifacts it names exist, so a
-   stalled build leaves a published release that lies about itself. Either
-   tag after the artifact run succeeds, or reconcile the expected asset set
-   and all three image indexes against the tag and fail loudly.
-6. App Service: Stages 1-5 shipped (503 of 692). What remains in that swagger
-   is the recorded deferrals — processes and instances read from the live
-   container, backup and restore wanting a real Blob round-trip, App Service
-   Environments and Kube Environments as new top-level resources, detector
-   execution being data the simulator cannot compute — plus the declined
-   Provider_*Stacks catalog below.
-7. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+1. App Service backup and restore was started and deliberately reverted rather
+   than shipped half-proven. The implementation reached 26 operations (the
+   floor probe agreed, 519 to 545) and the deleted-app and snapshot half passed
+   its SDK test, but the round-trip proof failed on its own precondition: the
+   test wipes the site through MSDeploy and the simulator merged the package
+   instead of replacing the content, so the restore would have been asserted
+   against content that never went away. Whether Web Deploy's sync semantics
+   delete files absent from the package was the question, and it is now
+   answered: they do not. Web Deploy creates new files and overwrites existing
+   ones but leaves files that are not part of the deployment alone unless
+   `DoNotDeleteRule` is explicitly disabled, which is why Azure Pipelines
+   exposes a separate "remove additional files at destination" switch at all.
+   So the simulator's merge was faithful and the test's wipe was wrong. Redoing
+   this work means keeping the merge semantics and wiping through something
+   that really deletes — a deployment with the delete rule disabled, or a
+   different content path — rather than assuming a package replaces the site. Shipping the operations
+   without that proof would have been 26 endpoints whose central claim was
+   untested, which is why the work was removed rather than left in.
+3. App Service: instances and processes are read from the live workload
+   container (519 of 692). Three recorded deferrals remain, and the fourth was
+   analysed rather than accepted: backup and restore want a real Blob round
+   trip; App Service Environments and Kube Environments are two new top-level
+   resources; and the detector family is 24 operations, of which the
+   "simulator cannot compute this" claim is demonstrably wrong for at least the
+   container-health analyses, because the simulator holds real restart and
+   failure state in the workload container and real configuration state in the
+   site record. Sixteen process operations are deliberately unserved with a
+   demonstrated reason recorded beside the floor — the container engine exposes
+   one process-inspection primitive, which reports no modules and no dumps.
+3. BUG-38: the shared registry-trust helper no longer silently no-ops, which
+   exposes two latent defects elsewhere — the Google Cloud build push test
+   still takes the insecure path and now fails loudly, and the AWS and Google
+   harness makefiles lack the shared engine-host temporary directory whose
+   absence made Azure workloads mount empty directories.
+4. BUG-20 and BUG-36: the container reaper leaves workload containers running
+   for hours after a run ends, and each cloud's suites still build their
+   simulator to one shared path where a build can overwrite a binary another
+   suite is executing. Both are the same family as the harness collisions
+   already fixed.
+5. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
+   that the account's advertised endpoint works, and refuse two accounts
+   sharing a name the way the service does.
+6. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
+   uploads the real service refuses and issues a token for any scope it is
+   asked for, a virtual network drops subnets declared inline on it, and an
+   Amazon ECR pull through a cache rule is never hydrated.
+7. BUG-32's consumer note: the sockerless AWS backend warns and continues when
+   repository creation fails, which now surfaces as a loud push failure rather
+   than a silent success — correct, and matching the real service.
+8. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 

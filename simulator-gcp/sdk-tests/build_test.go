@@ -49,9 +49,9 @@ func TestCloudBuild_DockerBuildAndPush(t *testing.T) {
 	body := fmt.Sprintf(`{
 		"source":{"storageSource":{"bucket":%q,"object":%q}},
 		"steps":[
-			{"name":"gcr.io/cloud-builders/docker","args":["build","-t","sim-cb-build:test","."]}
+			{"name":"gcr.io/cloud-builders/docker","args":["build","-t","sim-cb-build:gcp-sdk","."]}
 		],
-		"images":["sim-cb-build:test"]
+		"images":["sim-cb-build:gcp-sdk"]
 	}`, bucket, objectName)
 	resp := httpPOST(t, buildURL, body)
 
@@ -105,10 +105,10 @@ func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
 	body := fmt.Sprintf(`{
 		"source":{"storageSource":{"bucket":%q,"object":%q}},
 		"steps":[
-			{"name":"gcr.io/cloud-builders/docker","args":["build","-t","sim-cb-secret:test","."],
+			{"name":"gcr.io/cloud-builders/docker","args":["build","-t","sim-cb-secret:gcp-sdk","."],
 			 "secretEnv":["MYSECRET"]}
 		],
-		"images":["sim-cb-secret:test"],
+		"images":["sim-cb-secret:gcp-sdk"],
 		"availableSecrets":{"secretManager":[
 			{"versionName":"projects/%s/secrets/%s/versions/latest","env":"MYSECRET"}
 		]}

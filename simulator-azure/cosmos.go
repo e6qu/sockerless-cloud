@@ -441,7 +441,7 @@ func handleCosmosDeleteAccount(w http.ResponseWriter, r *http.Request) {
 			cosmosResources.Delete(c.ID)
 		}
 	}
-	for _, role := range []string{"primary", "secondary", "primary-readonly", "secondary-readonly"} {
+	for _, role := range cosmosKeyRoles {
 		cosmosKeyGens.Delete(id + "|" + role)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1323,6 +1323,14 @@ func handleCosmosAccountProperties(srv *sim.Server, w http.ResponseWriter, r *ht
 			return
 		}
 		http.NotFound(w, r)
+		return
+	}
+	// Reading the account is a data-plane operation and carries the same
+	// shared-key authorization as any other, over an empty resource type and an
+	// empty resource link. It is authorized here rather than in the data-plane
+	// middleware because the operator console shares this path, and only the
+	// branch above can tell a console visitor from a Cosmos client.
+	if !cosmosAuthorizeDataPlane(w, r) {
 		return
 	}
 	endpoint := azureRequestScheme(r) + "://" + r.Host + "/"

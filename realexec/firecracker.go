@@ -172,7 +172,15 @@ func StartFirecrackerVM(ctx context.Context, cfg FirecrackerVMConfig) (*Firecrac
 		return nil, err
 	}
 	defer consoleLog.Close()
-	args := []string{"netns", "exec", cfg.Tap.NetworkNamespace(), "firecracker", "--api-sock", apiSocket, "--enable-pci"}
+	// Firecracker's default virtio-MMIO transport carries this machine's root
+	// block device, its extra drives and its NIC. The opt-in PCI transport
+	// (--enable-pci) carries the same devices and adds nothing any of them need,
+	// and it is not usable everywhere: on an aarch64 host the guest never
+	// receives the completion interrupt for its first virtio-blk request, so the
+	// boot stops after the last kernel initcall — before "EXT4-fs (vda): mounted
+	// filesystem" — with the vCPU spinning and not one byte read from the root
+	// filesystem image. The same kernel and image reach userspace over MMIO.
+	args := []string{"netns", "exec", cfg.Tap.NetworkNamespace(), "firecracker", "--api-sock", apiSocket}
 	cmd := exec.Command("ip", args...)
 	cmd.Stdout = consoleLog
 	cmd.Stderr = consoleLog

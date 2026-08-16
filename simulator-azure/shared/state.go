@@ -135,6 +135,18 @@ func (s *MemoryStore[T]) Delete(id string) bool {
 	return ok
 }
 
+// keys returns every key the store holds, for the cross-cutting passes in
+// store_scan.go that must address rows they did not compose the key of.
+func (s *MemoryStore[T]) keys() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]string, 0, len(s.items))
+	for key := range s.items {
+		result = append(result, key)
+	}
+	return result
+}
+
 // List returns snapshots of all stored items.
 func (s *MemoryStore[T]) List() []T {
 	s.mu.RLock()

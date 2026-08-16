@@ -930,7 +930,7 @@ func mintAzureSimIDTokenForUser(u EntraUser, tenantID, clientID, nonce, scope, i
 	}
 
 	memberships := entraGroupMembershipStore.Filter(func(m entraGroupMembership) bool {
-		return m.UserID == u.OID
+		return m.MemberID == u.OID
 	})
 	if len(memberships) > 0 {
 		groupIDSet := map[string]bool{}

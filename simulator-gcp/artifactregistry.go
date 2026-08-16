@@ -188,6 +188,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 		Blobs:     sim.MakeStore[sim.OCIBlob](srv.DB(), "ar_blobs"),
 		Uploads:   sim.MakeStore[sim.OCIUpload](srv.DB(), "ar_uploads"),
 		SkipPath:  func(path string) bool { return strings.HasPrefix(path, "/v2/projects/") },
+		Authorize: arAuthorizeV2,
 		OnManifestPut: func(repo, ref, contentType string, data []byte) {
 			registerDockerImageFromManifest(dockerImagesForHooks, repo, ref, contentType, data)
 		},
@@ -372,6 +373,16 @@ func registerArtifactRegistry(srv *sim.Server) {
 
 	// OCI Distribution data plane — mounted from the shared registry library.
 	reg.Register(srv)
+
+	// The Docker token service the data plane's Bearer challenge names in its
+	// realm. Each verb is mounted on its own so the route stays a
+	// method-specific pattern under /v2/, and HEAD is left to Go's
+	// GET-implies-HEAD rule rather than registered explicitly.
+	srv.HandleFunc("GET /v2/token", arTokenServiceHandler)
+	srv.HandleFunc("POST /v2/token", arTokenServiceMethodNotAllowed)
+	srv.HandleFunc("PUT /v2/token", arTokenServiceMethodNotAllowed)
+	srv.HandleFunc("PATCH /v2/token", arTokenServiceMethodNotAllowed)
+	srv.HandleFunc("DELETE /v2/token", arTokenServiceMethodNotAllowed)
 }
 
 // registerARSubresources mounts the package/version/tag/file/rule/attachment
@@ -1401,25 +1412,47 @@ func registerDockerImageFromManifest(dockerImages sim.Store[DockerImage], imageN
 	dockerImages.Put(imgName, img)
 }
 
+// artifactRegistryImageParts splits a Docker Registry v2 repository path —
+// `PROJECT/REPOSITORY/IMAGE`, the layout Artifact Registry documents for an
+// image reference — into the Artifact Registry resource it addresses.
+//
+// The location is not in that path. Against the real service it is in the
+// registry endpoint itself (`LOCATION-docker.pkg.dev`), and each regional
+// endpoint serves only its own location's repositories. The simulator serves
+// all of Artifact Registry at one coordinate that names no location, so the
+// location of a repository here is the one the control plane created it at. A
+// path naming a repository no location holds addresses nothing, and says so
+// rather than standing a location in for the one the request never supplied.
 func artifactRegistryImageParts(imageName string) (project, location, repoID, imagePath string, ok bool) {
-	location = "us-central1"
 	parts := strings.SplitN(imageName, "/", 3)
 	if len(parts) < 3 {
 		return "", "", "", "", false
 	}
 	project, repoID, imagePath = parts[0], parts[1], parts[2]
-	if arRepos != nil {
-		prefix := fmt.Sprintf("projects/%s/locations/", project)
-		suffix := fmt.Sprintf("/repositories/%s", repoID)
-		matches := arRepos.Filter(func(repo Repository) bool {
-			return strings.HasPrefix(repo.Name, prefix) && strings.HasSuffix(repo.Name, suffix)
-		})
-		if len(matches) > 0 {
-			segments := strings.Split(matches[0].Name, "/")
-			if len(segments) >= 4 {
-				location = segments[3]
-			}
-		}
+	location, ok = artifactRegistryRepositoryLocation(project, repoID)
+	if !ok {
+		return "", "", "", "", false
 	}
 	return project, location, repoID, imagePath, true
+}
+
+// artifactRegistryRepositoryLocation reports the location a project's
+// repository was created at, and whether any location holds one by that name.
+func artifactRegistryRepositoryLocation(project, repoID string) (string, bool) {
+	if arRepos == nil {
+		return "", false
+	}
+	prefix := fmt.Sprintf("projects/%s/locations/", project)
+	suffix := fmt.Sprintf("/repositories/%s", repoID)
+	matches := arRepos.Filter(func(repo Repository) bool {
+		return strings.HasPrefix(repo.Name, prefix) && strings.HasSuffix(repo.Name, suffix)
+	})
+	if len(matches) == 0 {
+		return "", false
+	}
+	segments := strings.Split(matches[0].Name, "/")
+	if len(segments) < 4 {
+		return "", false
+	}
+	return segments[3], true
 }

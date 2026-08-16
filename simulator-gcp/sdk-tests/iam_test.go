@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudresourcemanager/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iam/v1"
 	iamcredentials "google.golang.org/api/iamcredentials/v1"
 	"google.golang.org/api/option"
@@ -979,4 +981,134 @@ func TestIAM_OAuthClientCRUD(t *testing.T) {
 	got, err = svc.Projects.Locations.OauthClients.Get(name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", got.State)
+}
+
+// TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime drives the
+// `lifetime` member of GenerateAccessTokenRequest through the official SDK.
+// The rule is the iamcredentials v1 Discovery document's own, verbatim:
+//
+//	The desired lifetime duration of the access token in seconds. By default,
+//	the maximum allowed value is 1 hour. To set a lifetime of up to 12 hours,
+//	you can add the service account as an allowed value in an Organization
+//	Policy that enforces the
+//	`constraints/iam.allowServiceAccountCredentialLifetimeExtension`
+//	constraint. […] If a value is not specified, the token's lifetime will be
+//	set to a default value of 1 hour.
+//
+// so expireTime must track what the request asked for, the default must be an
+// hour, and anything past the ceiling in force must be refused.
+func TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime(t *testing.T) {
+	iamSvc := iamService(t)
+	credSvc := iamCredentialsService(t)
+
+	created, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
+		&iam.CreateServiceAccountRequest{AccountId: "lifetime-sa"}).Do()
+	require.NoError(t, err)
+
+	scope := []string{"https://www.googleapis.com/auth/cloud-platform"}
+	for _, tc := range []struct {
+		name     string
+		lifetime string
+		want     time.Duration
+	}{
+		{name: "unspecified takes the documented one-hour default", lifetime: "", want: time.Hour},
+		{name: "a short lifetime is honoured", lifetime: "60s", want: time.Minute},
+		{name: "a one-second lifetime is honoured", lifetime: "1s", want: time.Second},
+		{name: "the default maximum is honoured", lifetime: "3600s", want: time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := time.Now()
+			resp, err := credSvc.Projects.ServiceAccounts.GenerateAccessToken(created.Name,
+				&iamcredentials.GenerateAccessTokenRequest{Scope: scope, Lifetime: tc.lifetime}).Do()
+			require.NoError(t, err)
+			require.NotEmpty(t, resp.AccessToken)
+
+			expiry, err := time.Parse(time.RFC3339, resp.ExpireTime)
+			require.NoError(t, err, "expireTime is RFC3339: %q", resp.ExpireTime)
+			got := expiry.Sub(before)
+			assert.InDelta(t, tc.want.Seconds(), got.Seconds(), 30,
+				"expireTime must track the requested lifetime, not a fixed hour")
+		})
+	}
+}
+
+// TestIAMCredentials_GenerateAccessTokenRefusesAnOverLongLifetime covers the
+// ceiling: without the Organization Policy that extends it, a service account
+// may not hold a token longer than the documented one-hour default, and twelve
+// hours is the ceiling in every case (google-auth-library-java's
+// ImpersonatedCredentials refuses locally: "lifetime must be less than or equal
+// to 43200").
+func TestIAMCredentials_GenerateAccessTokenRefusesAnOverLongLifetime(t *testing.T) {
+	iamSvc := iamService(t)
+	credSvc := iamCredentialsService(t)
+
+	created, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
+		&iam.CreateServiceAccountRequest{AccountId: "overlong-lifetime-sa"}).Do()
+	require.NoError(t, err)
+
+	scope := []string{"https://www.googleapis.com/auth/cloud-platform"}
+	for _, lifetime := range []string{"3601s", "43200s", "43201s"} {
+		t.Run(lifetime, func(t *testing.T) {
+			_, err := credSvc.Projects.ServiceAccounts.GenerateAccessToken(created.Name,
+				&iamcredentials.GenerateAccessTokenRequest{Scope: scope, Lifetime: lifetime}).Do()
+			require.Error(t, err, "a lifetime past the ceiling must be refused")
+			var apiErr *googleapi.Error
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+			assert.Contains(t, apiErr.Message, "3600")
+		})
+	}
+}
+
+// TestIAMCredentials_TwelveHourLifetimeNeedsTheOrganizationPolicy is the
+// constraint half of the rule: the same twelve-hour request that the ceiling
+// refuses above succeeds once the service account is an allowed value of
+// constraints/iam.allowServiceAccountCredentialLifetimeExtension, set through
+// Cloud Resource Manager the way an administrator sets it.
+func TestIAMCredentials_TwelveHourLifetimeNeedsTheOrganizationPolicy(t *testing.T) {
+	iamSvc := iamService(t)
+	credSvc := iamCredentialsService(t)
+	crm := crmV1Service(t)
+
+	// The policy is set on the project the accounts live in, so the test owns
+	// a project of its own rather than leaving a policy on a shared one.
+	const projectID = "sdk-token-lifetime"
+	resource := orgPolicyProject(t, projectID)
+
+	created, err := iamSvc.Projects.ServiceAccounts.Create("projects/"+projectID,
+		&iam.CreateServiceAccountRequest{AccountId: "twelve-hour-sa"}).Do()
+	require.NoError(t, err)
+
+	scope := []string{"https://www.googleapis.com/auth/cloud-platform"}
+	request := &iamcredentials.GenerateAccessTokenRequest{Scope: scope, Lifetime: "43200s"}
+
+	_, err = credSvc.Projects.ServiceAccounts.GenerateAccessToken(created.Name, request).Do()
+	require.Error(t, err, "twelve hours is refused before the policy lists the account")
+
+	_, err = crm.Projects.SetOrgPolicy(resource, &cloudresourcemanager.SetOrgPolicyRequest{
+		Policy: &cloudresourcemanager.OrgPolicy{
+			Constraint: "constraints/iam.allowServiceAccountCredentialLifetimeExtension",
+			ListPolicy: &cloudresourcemanager.ListPolicy{AllowedValues: []string{created.Email}},
+		},
+	}).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = crm.Projects.ClearOrgPolicy(resource, &cloudresourcemanager.ClearOrgPolicyRequest{
+			Constraint: "constraints/iam.allowServiceAccountCredentialLifetimeExtension",
+		}).Do()
+	})
+
+	before := time.Now()
+	resp, err := credSvc.Projects.ServiceAccounts.GenerateAccessToken(created.Name, request).Do()
+	require.NoError(t, err, "the listed account may hold a twelve-hour token")
+	expiry, err := time.Parse(time.RFC3339, resp.ExpireTime)
+	require.NoError(t, err)
+	assert.InDelta(t, (12 * time.Hour).Seconds(), expiry.Sub(before).Seconds(), 30)
+
+	// An account the policy does not list is still held to the default hour.
+	other, err := iamSvc.Projects.ServiceAccounts.Create("projects/"+projectID,
+		&iam.CreateServiceAccountRequest{AccountId: "unlisted-lifetime-sa"}).Do()
+	require.NoError(t, err)
+	_, err = credSvc.Projects.ServiceAccounts.GenerateAccessToken(other.Name, request).Do()
+	require.Error(t, err, "an account the policy does not list keeps the one-hour ceiling")
 }

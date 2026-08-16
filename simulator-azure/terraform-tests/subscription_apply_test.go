@@ -1,8 +1,6 @@
 package azure_tf_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -66,34 +64,7 @@ func TestTerraformSubscriptionApplyDestroy(t *testing.T) {
 
 // tfSubscriptionWorkspace copies the standalone Microsoft.Subscription
 // configuration into a working directory private to this run.
-//
-// Terraform keeps its working state — terraform.tfstate, the state lock, the
-// .terraform plugin directory, errored.tfstate — next to the configuration it
-// runs, so running in the checked-in configuration directory makes that
-// directory shared mutable state between every terraform process on the
-// machine. Two overlapping runs of this round trip (the CI shard alongside a
-// local run, or two local runs) then corrupt each other: the second run wipes
-// the working directory while the first is mid-apply, and the first run's
-// subsequent plan reads an empty state and reports every resource as a fresh
-// create, which reads as a simulator idempotency failure. A per-run directory
-// keeps the round trip hermetic, and takes the state files out of the
-// checked-in tree entirely.
 func tfSubscriptionWorkspace(t *testing.T) string {
 	t.Helper()
-	src := tfSubscriptionDir()
-	dst := t.TempDir()
-	entries, err := os.ReadDir(src)
-	require.NoError(t, err, "read the Microsoft.Subscription configuration at %s", src)
-	copied := 0
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".tf" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(src, entry.Name()))
-		require.NoError(t, err, "read %s", entry.Name())
-		require.NoError(t, os.WriteFile(filepath.Join(dst, entry.Name()), data, 0o600), "write %s", entry.Name())
-		copied++
-	}
-	require.NotZero(t, copied, "no .tf files found in the Microsoft.Subscription configuration at %s", src)
-	return dst
+	return tfWorkspaceFrom(t, tfSubscriptionDir())
 }

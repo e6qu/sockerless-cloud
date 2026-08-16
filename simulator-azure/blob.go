@@ -316,11 +316,13 @@ func registerBlobDataPlane(srv *sim.Server) {
 				handleBlobDataPlane(w, r, parts[0])
 				return
 			}
-			// A Cosmos data-plane request (master-key auth / documentdb headers)
-			// shares the sim port but must never be misrouted to blob by the
-			// path-style fallback below — Cosmos also sends x-ms-version, which is
-			// a storage signal.
-			if cosmosIsDataPlaneRequest(r) {
+			// A Cosmos data-plane request (master-key auth / documentdb headers,
+			// or a path under the Cosmos document API) shares the sim port but
+			// must never be misrouted to blob by the path-style fallback below.
+			// Cosmos also sends x-ms-version, which is a storage signal, and a
+			// request the Cosmos plane refuses for its credential carries no
+			// Cosmos header at all — only its path says whose it is.
+			if cosmosIsDataPlaneRequest(r) || cosmosIsDataPlanePath(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}

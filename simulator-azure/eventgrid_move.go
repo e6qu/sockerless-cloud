@@ -2,11 +2,20 @@ package main
 
 import (
 	"strings"
+
+	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
-// Cross-resource-group move for Microsoft.EventGrid/topics and
-// Microsoft.EventGrid/domains. The hook table in resource_move.go dispatches
-// Resources_MoveResources here.
+// Cross-resource-group move for the Microsoft.EventGrid types Azure Resource
+// Manager moves between resource groups — topics, domains, systemTopics,
+// partnerTopics and partnerNamespaces ("Azure resource types for move
+// operations", Microsoft.EventGrid: Resource group = Yes for each). The hook
+// table in resource_move.go dispatches Resources_MoveResources here.
+//
+// Two Event Grid types deliberately have no hook, because real Azure refuses
+// them: partnerRegistrations is published as Resource group = No, and
+// partnerConfigurations appears nowhere in the move-support table at all. Both
+// keep answering ARM's ResourceMoveNotSupported.
 //
 // A custom topic or a domain keys its ARM record — and its event
 // subscriptions, and a domain's domain topics with their own subscriptions —
@@ -60,6 +69,51 @@ func moveEventGridDomainARM(oldID, newID string) {
 // operator already holds.
 func pinEventGridKeys(oldID, newID string) {
 	pinAzureKeySlots(oldID, newID, azureKeyMaterial32, eventGridKeySlots...)
+}
+
+// moveEventGridSystemTopicARM re-homes one Event Grid system topic.
+//
+// A system topic carries no access key of its own — it is published to by the
+// Azure resource its `source` property names, not by a credential holder — so
+// the move has no key to pin. What it does hold are two inbound references to
+// that source resource, `source` and `metricResourceId`; those follow the
+// source when the source itself moves, through the repointing pass in
+// resource_move.go.
+func moveEventGridSystemTopicARM(oldID, newID string) {
+	moveEventGridScope(eventGridSystemTopics, oldID, newID, false)
+}
+
+// moveEventGridPartnerTopicARM re-homes one Event Grid partner topic. Like a
+// system topic it holds no key of its own: a partner publishes into it through
+// the partner namespace's channel, authenticated with the namespace's key.
+func moveEventGridPartnerTopicARM(oldID, newID string) {
+	moveEventGridScope(eventGridPartnerTopics, oldID, newID, false)
+}
+
+// moveEventGridPartnerNamespaceARM re-homes one Event Grid partner namespace,
+// pinning the two access keys a partner publisher authenticates with so the
+// credential it already holds keeps working.
+func moveEventGridPartnerNamespaceARM(oldID, newID string) {
+	moveEventGridScope(eventGridPartnerNamespaces, oldID, newID, true)
+	rekeyRowsByPrefix(eventGridPartnerChannels, oldID+"/", newID+"/",
+		func(c *EventGridTopic) *string { return &c.ID })
+}
+
+// moveEventGridScope re-homes one Event Grid publishing or event-source scope
+// and the event subscriptions stored beneath it, pinning its access keys when
+// the scope is one clients authenticate to.
+func moveEventGridScope(store sim.Store[EventGridTopic], oldID, newID string, keyBearing bool) {
+	scope, ok := store.Get(oldID)
+	if !ok {
+		return
+	}
+	if keyBearing {
+		pinEventGridKeys(oldID, newID)
+	}
+	store.Delete(oldID)
+	scope.ID = newID
+	store.Put(scope.ID, scope)
+	moveEventGridSubscriptions(oldID, newID)
 }
 
 // moveEventGridSubscriptions re-keys every event subscription stored beneath a

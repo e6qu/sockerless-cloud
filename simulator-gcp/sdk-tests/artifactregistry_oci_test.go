@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,8 +41,12 @@ func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
 	require.NotNil(t, created.RemoteRepositoryConfig.DockerRepository)
 	require.Equal(t, "DOCKER_HUB", created.RemoteRepositoryConfig.DockerRepository.PublicRepository)
 
-	imageName := "test-project/docker-hub/sockerless-eval-arithmetic"
-	manifestURL := baseURL + "/v2/" + imageName + "/manifests/test"
+	// The remote repository hydrates from the local Docker daemon, so the
+	// reference this pull names is the harness's own workload image — repository
+	// and tag both — rather than a tag some other suite happens to have built.
+	localRepo, localTag, _ := strings.Cut(evalImageName, ":")
+	imageName := "test-project/docker-hub/" + localRepo
+	manifestURL := baseURL + "/v2/" + imageName + "/manifests/" + localTag
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 	require.NoError(t, err)
@@ -82,6 +87,7 @@ func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
 	images, err := service.Projects.Locations.Repositories.DockerImages.List(parent + "/repositories/docker-hub").Do()
 	require.NoError(t, err)
 	require.Len(t, images.DockerImages, 1)
-	require.Contains(t, images.DockerImages[0].Name, "projects/test-project/locations/us-central1/repositories/docker-hub/dockerImages/sockerless-eval-arithmetic@sha256:")
-	require.Equal(t, []string{"test"}, images.DockerImages[0].Tags)
+	require.Contains(t, images.DockerImages[0].Name,
+		"projects/test-project/locations/us-central1/repositories/docker-hub/dockerImages/"+localRepo+"@sha256:")
+	require.Equal(t, []string{localTag}, images.DockerImages[0].Tags)
 }

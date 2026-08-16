@@ -30,16 +30,17 @@ func TestBareRootReachesConsoleWhileCosmosKeepsAPIRoot(t *testing.T) {
 	}
 
 	// A real Cosmos client still gets account properties from the same route.
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("x-ms-cosmos-account", "simaccount")
-	rec = httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("Cosmos account discovery: got %d %q, want 200", rec.Code, rec.Body.String())
+	// It addresses the account's own hostname and signs the read: the account
+	// root is a data-plane resource like any other, so the SDK's endpoint
+	// manager sends an authorized request and an unauthorized one is refused.
+	keys := cosmosProvisionAccount(t, srv, "simaccount")
+	status, body := cosmosSignedRequest(t, srv, http.MethodGet, "/", "simaccount", keys.PrimaryMasterKey, "")
+	if status != http.StatusOK {
+		t.Fatalf("Cosmos account discovery: got %d %q, want 200", status, body)
 	}
 	for _, want := range []string{`"writableLocations"`, `"readableLocations"`, `"databaseAccountEndpoint"`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Fatalf("Cosmos account properties missing %s: %s", want, rec.Body.String())
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("Cosmos account properties missing %s: %s", want, body)
 		}
 	}
 

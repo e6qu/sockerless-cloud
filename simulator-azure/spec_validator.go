@@ -692,13 +692,15 @@ func (idx *azureSpecIndex) match(method, reqPath string) []*azureSpecOp {
 // gate's allowedNonSpecAzurePrefixes). They must be excluded from
 // matching because their short paths are otherwise valid spellings of
 // leading-parameter data-plane templates — Graph's "POST /v1.0/groups"
-// unifies with the blob "POST /{containerName}/{blob}" template, and a
-// Functions invoke body is workload-defined, not a swagger shape.
+// and its beta spelling "POST /beta/groups" both unify with the blob
+// "POST /{containerName}/{blob}" template, and a Functions invoke body is
+// workload-defined, not a swagger shape.
 // /metadata/identity/ is deliberately NOT here: the vendored IMDS
 // swagger describes it, so it validates like any other surface.
 var azureNonSpecRequestPrefixes = []string{
 	"/dbs",                // Cosmos DB SQL data plane (documented REST API, no upstream swagger)
 	"/v1.0/",              // Microsoft Graph v1.0 surface (spec lives in msgraph-metadata)
+	"/beta/",              // Microsoft Graph beta surface (spec lives in msgraph-metadata)
 	"/api/function",       // Functions host invoke endpoint (body is workload output)
 	"/msi/token",          // App Service MSI token endpoint
 	"/metadata/endpoints", // ARM cloud-environment metadata bootstrap (terraform metadata_host)

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -432,13 +433,30 @@ func registerIAM(srv *sim.Server) {
 		}
 		switch action {
 		case "generateAccessToken":
+			// Body: { scope, lifetime, delegates }. Response:
+			// { accessToken, expireTime }.
+			//
 			// The token is signed with the simulator's access-token key (see
 			// signAccessToken) so the data-plane bearer middleware accepts it,
 			// naming the impersonated service account as its subject. Real
 			// expiry is RFC3339Nano with timezone offset; the SDK parses it
 			// with time.Parse(time.RFC3339).
+			var req struct {
+				Scope     []string `json:"scope"`
+				Lifetime  string   `json:"lifetime"`
+				Delegates []string `json:"delegates"`
+			}
+			if err := sim.ReadJSON(r, &req); err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			lifetime, refusal := iamAccessTokenLifetime(req.Lifetime, email)
+			if refusal != "" {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", refusal)
+				return
+			}
 			now := time.Now()
-			expires := now.Add(1 * time.Hour)
+			expires := now.Add(lifetime)
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
 				"accessToken": signAccessToken(email, now, expires),
 				"expireTime":  expires.UTC().Format(time.RFC3339),
@@ -2858,4 +2876,86 @@ func registerOAuthClients(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
+}
+
+// --- IAM Credentials access-token lifetime ---
+//
+// The rule the IAM Service Account Credentials API publishes for the
+// `lifetime` member of GenerateAccessTokenRequest, verbatim from the
+// iamcredentials v1 Discovery document vendored at
+// specs/cloud-api/gcp/iamcredentials-v1.discovery.json.gz:
+//
+//	The desired lifetime duration of the access token in seconds. By default,
+//	the maximum allowed value is 1 hour. To set a lifetime of up to 12 hours,
+//	you can add the service account as an allowed value in an Organization
+//	Policy that enforces the
+//	`constraints/iam.allowServiceAccountCredentialLifetimeExtension`
+//	constraint. See detailed instructions at
+//	https://cloud.google.com/iam/help/credentials/lifetime If a value is not
+//	specified, the token's lifetime will be set to a default value of 1 hour.
+//
+// Twelve hours is the ceiling in every case: Google's own client libraries
+// refuse a longer one before the request leaves the process
+// (google-auth-library-java, ImpersonatedCredentials: "lifetime must be less
+// than or equal to 43200").
+const (
+	iamAccessTokenDefaultLifetime  = time.Hour
+	iamAccessTokenExtendedLifetime = 12 * time.Hour
+)
+
+// iamAccessTokenLifetime resolves how long a generateAccessToken request's
+// token lives. An absent lifetime takes the documented one-hour default; a
+// present one is honoured up to the ceiling in force for the service account,
+// which is one hour unless an Organization Policy enforcing
+// constraints/iam.allowServiceAccountCredentialLifetimeExtension lists it, and
+// twelve hours when one does.
+//
+// A lifetime the account may not have is reported through the second return,
+// which is the INVALID_ARGUMENT message the caller receives — a wire string
+// rather than a Go error, so it reads the way the API's own messages read.
+func iamAccessTokenLifetime(requested, email string) (time.Duration, string) {
+	if strings.TrimSpace(requested) == "" {
+		return iamAccessTokenDefaultLifetime, ""
+	}
+	lifetime, err := parseGoogleDuration(requested)
+	if err != nil {
+		return 0, fmt.Sprintf("Invalid value at 'lifetime' (type.googleapis.com/google.protobuf.Duration), %q", requested)
+	}
+	if lifetime <= 0 {
+		return 0, fmt.Sprintf("Requested lifetime %s is not a positive duration.", requested)
+	}
+	maximum := iamAccessTokenMaximumLifetime(email)
+	if lifetime > maximum {
+		return 0, fmt.Sprintf("Requested lifetime %s exceeds the maximum lifetime of %ds allowed for service account %s.",
+			requested, int(maximum.Seconds()), email)
+	}
+	return lifetime, ""
+}
+
+// iamAccessTokenMaximumLifetime reports the longest access token that may be
+// minted for a service account: twelve hours when an Organization Policy in
+// force over its project lists it as an allowed value of
+// constraints/iam.allowServiceAccountCredentialLifetimeExtension, and the
+// default one hour otherwise.
+func iamAccessTokenMaximumLifetime(email string) time.Duration {
+	project := gcpProjectFromEmail(email)
+	if project != "" && crmOrgPolicyListAllows("projects/"+project, crmConstraintAllowTokenLifetimeExtension, email) {
+		return iamAccessTokenExtendedLifetime
+	}
+	return iamAccessTokenDefaultLifetime
+}
+
+// parseGoogleDuration reads the `google-duration` JSON encoding — a decimal
+// number of seconds, optionally fractional to nanosecond precision, with a
+// trailing "s" — that proto3 gives google.protobuf.Duration.
+func parseGoogleDuration(s string) (time.Duration, error) {
+	body, ok := strings.CutSuffix(strings.TrimSpace(s), "s")
+	if !ok {
+		return 0, fmt.Errorf("duration %q does not end in 's'", s)
+	}
+	seconds, err := strconv.ParseFloat(body, 64)
+	if err != nil {
+		return 0, fmt.Errorf("duration %q is not a number of seconds: %w", s, err)
+	}
+	return time.Duration(seconds * float64(time.Second)), nil
 }

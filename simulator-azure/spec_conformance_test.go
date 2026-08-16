@@ -241,10 +241,14 @@ var allowedNonSpecAzurePrefixes = map[string]string{
 	// (/dbs/{db}/colls/{coll}/docs) has no swagger in azure-rest-api-specs.
 	"/dbs": "Cosmos DB SQL data plane (documented REST API, no upstream swagger)",
 
-	// Microsoft Graph — real Graph v1.0 endpoints (users/groups/me);
-	// Graph's OpenAPI lives in microsoftgraph/msgraph-metadata, not
-	// azure-rest-api-specs.
+	// Microsoft Graph — real Graph endpoints (applications, service
+	// principals, users, groups, directory objects). Graph publishes both a
+	// v1.0 and a beta endpoint over the same directory, and clients mix them:
+	// terraform-provider-azuread reads members that only beta models. Graph's
+	// OpenAPI lives in microsoftgraph/msgraph-metadata, not
+	// azure-rest-api-specs, so neither version can be spec-checked here.
 	"/v1.0/": "Microsoft Graph v1.0 surface (spec lives in msgraph-metadata)",
+	"/beta/": "Microsoft Graph beta surface (spec lives in msgraph-metadata)",
 
 	// Azure Functions host — the per-function invoke endpoint of the
 	// Functions host runtime; no swagger exists.

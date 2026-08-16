@@ -16,7 +16,7 @@ import (
 // (read-your-writes), driven through the official azcosmos client — the session
 // machinery in cosmos_consistency.go.
 func TestCosmos_SessionTokenRoundTrip(t *testing.T) {
-	client := newCosmosSDKClient(t, baseURL+"/")
+	client := cosmosSimClient(t, cosmosDataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "sessdb"}, nil)
 	require.NoError(t, err)
 	db, _ := client.NewDatabase("sessdb")
@@ -61,7 +61,7 @@ func TestCosmos_SessionTokenRoundTrip(t *testing.T) {
 // asking for Strong (a stronger level) is rejected with 400 BadRequest, exactly
 // as real Cosmos rejects an escalation past the account maximum.
 func TestCosmos_ConsistencyEscalationRejected(t *testing.T) {
-	client := newCosmosSDKClient(t, baseURL+"/")
+	client := cosmosSimClient(t, cosmosDataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "consdb"}, nil)
 	require.NoError(t, err)
 	db, _ := client.NewDatabase("consdb")

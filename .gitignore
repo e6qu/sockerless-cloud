@@ -11,6 +11,9 @@ __debug_bin*
 # Simulator binaries (built by `go build` / `make build`)
 simulator-aws/simulator-aws
 simulator-gcp/simulator-gcp
+# Per-suite simulator binaries: each GCP test suite builds the simulator it
+# runs into its own path so concurrent suites cannot overwrite each other.
+simulator-gcp/.build/
 simulator-azure/simulator-azure
 
 # Test-helper binaries built by `go build ./...` in testdata dirs. The
@@ -38,6 +41,10 @@ override.tf.json
 # Test outputs
 coverage.out
 coverage.html
+# The Firecracker arithmetic harness keeps its workspace — a guest root
+# filesystem tree of several hundred megabytes — when a run fails, so the
+# failure can be inspected.
+.firecracker-ci/
 
 # IDE / Editor
 .idea/

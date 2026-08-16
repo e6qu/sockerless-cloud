@@ -1251,3 +1251,35 @@ func TestIAMEnforce_KMSKeyScopedGrant(t *testing.T) {
 		})
 	}
 }
+
+// AWS Step Functions names a state machine and an activity by ARNs that end in
+// the name the create request supplies, so a create authorizes against the
+// resource it is about rather than against "*". An alias create does not: its
+// Name is the alias's own, while the type it authorizes against is the state
+// machine behind it.
+func TestIAMResourceARNs_StepFunctionsCreateNamesTheARNItWillHave(t *testing.T) {
+	const p = "arn:aws:states:us-east-1:123456789012:"
+	t.Run("a state machine create names the state machine", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateStateMachine",
+				`{"name":"order-pipeline","roleArn":"arn:aws:iam::123456789012:role/sfn","definition":"{}"}`),
+			"states:CreateStateMachine", p+"stateMachine:order-pipeline")
+	})
+	t.Run("an activity create names the activity", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateActivity", `{"name":"human-review"}`),
+			"states:CreateActivity", p+"activity:human-review")
+	})
+	t.Run("an alias create names no state machine", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateStateMachineAlias",
+				`{"name":"live","routingConfiguration":[{"weight":100}]}`),
+			"states:CreateStateMachineAlias", "*")
+	})
+	t.Run("an execution start still names the state machine it was sent", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.StartExecution",
+				`{"stateMachineArn":"`+p+`stateMachine:order-pipeline","name":"run-1"}`),
+			"states:StartExecution", p+"stateMachine:order-pipeline")
+	})
+}

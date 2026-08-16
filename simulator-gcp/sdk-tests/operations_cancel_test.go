@@ -345,7 +345,7 @@ func TestSDK_CloudSQL_OperationsCancel(t *testing.T) {
 func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	svc := cloudbuildService(t)
 
-	const image = "sockerless-cloudbuild-cancel-probe:test"
+	const image = "sockerless-cloudbuild-cancel-probe:gcp-sdk"
 	_ = exec.Command("docker", "rmi", "-f", image).Run()
 	t.Cleanup(func() { _ = exec.Command("docker", "rmi", "-f", image).Run() })
 

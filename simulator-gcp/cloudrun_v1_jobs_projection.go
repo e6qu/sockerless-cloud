@@ -357,11 +357,11 @@ func cloudRunDurationToSeconds(duration string) string {
 	if duration == "" {
 		return ""
 	}
-	seconds, err := strconv.ParseFloat(strings.TrimSuffix(duration, "s"), 64)
-	if err != nil || !strings.HasSuffix(duration, "s") {
+	parsed, err := parseGoogleDuration(duration)
+	if err != nil {
 		return ""
 	}
-	return strconv.FormatInt(int64(seconds), 10)
+	return strconv.FormatInt(int64(parsed.Seconds()), 10)
 }
 
 // cloudRunSecondsToDuration is cloudRunDurationToSeconds' inverse.

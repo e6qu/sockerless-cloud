@@ -117,6 +117,11 @@ func NewServer(cfg Config) (*Server, error) {
 	// set in the env.
 	var routed http.Handler = mux
 	routed = AuthPassthroughMiddleware(cfg.Provider)(routed)
+	// Outside the auth passthrough so the registry sees every request, and so a
+	// request that hangs is attributable while it is still hanging rather than
+	// reconstructed afterwards. See diagnostics.go.
+	routed = InFlightMiddleware(routed)
+	StartDiagnosticsListener()
 
 	// Initialize Docker/Podman for workload execution. SIM_RUNTIME=process
 	// is an explicit API-only startup mode for non-execution service slices.

@@ -241,15 +241,15 @@ func TestMain(m *testing.M) {
 	workloadPlatform := nativeDockerPlatform()
 
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
-	evalImageName = "sockerless-eval-arithmetic:test"
+	evalImageName = "sockerless-eval-arithmetic:aws-cli"
 	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
 
 	lambdaHandlerDir, _ := filepath.Abs("../../testdata/lambda-runtime-handler")
-	lambdaHandlerImageName = "sockerless-lambda-runtime-handler:test"
+	lambdaHandlerImageName = "sockerless-lambda-runtime-handler:aws-cli"
 	buildGoScratchImage(lambdaHandlerImageName, lambdaHandlerDir, "lambda-runtime-handler", workloadPlatform)
 
 	containerCommandDir, _ := filepath.Abs("../../testdata/container-command")
-	containerCommandImage = "sockerless-container-command:test"
+	containerCommandImage = "sockerless-container-command:aws-cli"
 	buildGoScratchImage(containerCommandImage, containerCommandDir, "container-command", workloadPlatform)
 
 	// Find free port

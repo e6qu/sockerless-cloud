@@ -22,6 +22,13 @@ type resourceMoveHook struct {
 	// exists reports whether resID names a live resource — the pre-flight
 	// check both the validate and the move spellings run.
 	exists func(resID string) bool
+	// supported, when set, decides per resource whether Azure Resource Manager
+	// moves this particular one. Most types are movable or not as a whole, and
+	// leave it nil; a Microsoft.Network private endpoint is movable only when
+	// the private-link resource it connects to is one of the types Azure lists
+	// as supporting the move, so it answers here instead. The string is the
+	// reason ARM's ResourceMoveNotSupported message carries.
+	supported func(resID string) (bool, string)
 	// move re-homes the resource, and everything stored beneath it, from
 	// oldID onto newID; targetRG is the destination resource-group name the
 	// new ID carries, for rows that record the group by name.
@@ -77,6 +84,30 @@ var resourceMoveHooks = map[string]resourceMoveHook{
 		exists: func(id string) bool { _, ok := eventGridDomains.Get(id); return ok },
 		move:   func(oldID, newID, _ string) { moveEventGridDomainARM(oldID, newID) },
 	},
+	"microsoft.eventgrid/systemtopics": {
+		exists: func(id string) bool { _, ok := eventGridSystemTopics.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveEventGridSystemTopicARM(oldID, newID) },
+	},
+	"microsoft.eventgrid/partnertopics": {
+		exists: func(id string) bool { _, ok := eventGridPartnerTopics.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveEventGridPartnerTopicARM(oldID, newID) },
+	},
+	"microsoft.eventgrid/partnernamespaces": {
+		exists: func(id string) bool { _, ok := eventGridPartnerNamespaces.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveEventGridPartnerNamespaceARM(oldID, newID) },
+	},
+	"microsoft.apimanagement/service": {
+		exists: func(id string) bool { _, ok := apimServices.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveAPIMServiceARM(oldID, newID) },
+	},
+	"microsoft.logic/workflows": {
+		exists: func(id string) bool { _, ok := logicWorkflows.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveLogicWorkflowARM(oldID, newID) },
+	},
+	"microsoft.documentdb/databaseaccounts": {
+		exists: func(id string) bool { _, ok := cosmosAccounts.Get(id); return ok },
+		move:   func(oldID, newID, _ string) { moveCosmosAccountARM(oldID, newID) },
+	},
 }
 
 // registerResourceMoveHook adds one resource type's move hook to the dispatch
@@ -109,4 +140,105 @@ func rekeyEntry[T any](store sim.Store[T], oldKey, newKey string) {
 		store.Delete(oldKey)
 		store.Put(newKey, row)
 	}
+}
+
+// azureRepointMovedResource re-homes everything the hooks do not address by
+// name: every row any slice stores beneath the moved resource ID, and every
+// reference any resource anywhere holds to it.
+//
+// An Azure Resource Manager resource ID is an address, and a resource that
+// names another one stores that address verbatim — a private endpoint's
+// privateLinkServiceId, a network interface's subnet id, an Azure Cache for
+// Redis linked server's linkedRedisCacheId, an Event Grid system topic's source
+// and metricResourceId, an event subscription's destination resourceId. A move
+// that re-keyed only the moved records
+// would leave every one of those pointing at an address nothing answers to, so
+// the fabric would silently break. The pass walks the stores this build created
+// (sim.TrackedStores) and rewrites both halves: a stored key that is the moved
+// ID or sits beneath it, and any string that names the moved ID at a resource-ID
+// boundary.
+//
+// Scanning every store rather than a hand-listed set is deliberate: a reference
+// missed because a slice was added after the list was written is a silent
+// correctness hole, and the set of stores is exactly what the simulator built.
+func azureRepointMovedResource(oldID, newID string) {
+	rekey := func(key string) string { return azureRepointStoreKey(key, oldID, newID) }
+	edit := func(value string) string { return azureRepointReference(value, oldID, newID) }
+	for _, store := range sim.TrackedStores() {
+		store.Remap(rekey, edit)
+	}
+}
+
+// azureRepointStoreKey re-homes a store key that addresses the moved resource
+// or a row stored beneath it. Azure Resource Manager compares resource IDs
+// case-insensitively, so the match is case-folded while the key keeps the rest
+// of its own spelling.
+//
+// The match requires the moved ID to be the whole key or to be followed by the
+// `/` that starts a child segment, so a key that merely begins with the same
+// characters — a sibling resource whose name extends the moved one's — is left
+// alone. It also leaves the `<resourceID>|<slot>` keys of the key-generation
+// stores alone, which is what carries a credential across a move: those rows
+// are re-homed by pinAzureKeySlots, which pins the material rather than
+// re-deriving it from the new ID.
+func azureRepointStoreKey(key, oldID, newID string) string {
+	if len(key) < len(oldID) || !strings.EqualFold(key[:len(oldID)], oldID) {
+		return key
+	}
+	if len(key) == len(oldID) || key[len(oldID)] == '/' {
+		return newID + key[len(oldID):]
+	}
+	return key
+}
+
+// azureRepointReference rewrites every reference to the moved resource a stored
+// string holds. A reference is the moved resource ID at a resource-ID boundary:
+// the end of the string, or one of the characters that can follow a resource ID
+// inside a longer value — `/` for a child segment or a URL path, and `?`, `#`
+// or `&` for a URL that embeds the ID in its path. That covers both a bare
+// reference member and any data-plane URL a resource advertises that is built
+// from a resource ID.
+func azureRepointReference(value, oldID, newID string) string {
+	at := azureReferenceIndex(value, oldID, 0)
+	if at < 0 {
+		return value
+	}
+	var out strings.Builder
+	out.Grow(len(value))
+	from := 0
+	for at >= 0 {
+		out.WriteString(value[from:at])
+		out.WriteString(newID)
+		from = at + len(oldID)
+		at = azureReferenceIndex(value, oldID, from)
+	}
+	out.WriteString(value[from:])
+	return out.String()
+}
+
+// azureReferenceIndex returns the index of the first reference to oldID in
+// value at or after from, or -1 when the string holds none.
+func azureReferenceIndex(value, oldID string, from int) int {
+	if oldID == "" {
+		return -1
+	}
+	for i := from; i+len(oldID) <= len(value); i++ {
+		if strings.EqualFold(value[i:i+len(oldID)], oldID) && azureReferenceEndsAt(value, i+len(oldID)) {
+			return i
+		}
+	}
+	return -1
+}
+
+// azureReferenceEndsAt reports whether a resource ID ending at index i inside
+// value is a complete reference rather than the prefix of a longer name.
+func azureReferenceEndsAt(value string, i int) bool {
+	if i == len(value) {
+		return true
+	}
+	switch value[i] {
+	case '/', '?', '#', '&':
+		return true
+	}
+	return false
 }

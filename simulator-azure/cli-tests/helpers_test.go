@@ -19,12 +19,13 @@ import (
 )
 
 var (
-	baseURL          string
-	simCmd           *exec.Cmd
-	binaryPath       string
-	evalImageName    string
-	commandImageName string
-	tmpDir           string
+	baseURL            string
+	simCmd             *exec.Cmd
+	binaryPath         string
+	evalImageName      string
+	commandImageName   string
+	httpProbeImageName string
+	tmpDir             string
 
 	// azureFilesDataDir is where the simulator materializes every Azure Files
 	// share: <dir>/<account>/<share>. It is the directory a Container Apps
@@ -74,13 +75,24 @@ func TestMain(m *testing.M) {
 
 	workloadPlatform := nativeDockerPlatform()
 
+	// Tagged for this suite alone: a container image tag is a single global
+	// name in the one engine the machine runs, and every cloud's suite builds
+	// workloads from the same testdata, so a shared tag lets two suites running
+	// at once clobber each other's image mid-run.
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
-	evalImageName = "sockerless-eval-arithmetic:test"
+	evalImageName = "sockerless-eval-arithmetic:azure-cli"
 	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
 
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
-	commandImageName = "sockerless-container-command:test"
+	commandImageName = "sockerless-container-command:azure-cli"
 	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
+
+	// The long-lived HTTP bootstrap an always-on App Service site keeps
+	// running, so a site's instance and process table can be read from a
+	// container that is still there when the read arrives.
+	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
+	httpProbeImageName = "sockerless-http-localhost-probe:azure-cli"
+	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
 
 	// Find free port
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -323,10 +335,21 @@ func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
 COPY %s /usr/local/bin/%s
 ENTRYPOINT ["/usr/local/bin/%s"]
 `, binaryName, binaryName, binaryName)
-	dockerBuild := exec.Command("docker", "build",
-		"--platform", platform,
-		"-t", imageName,
-		"-f", "-", buildDir)
+	// On a docker-container buildx driver (the default on many dev machines),
+	// `docker build -t` leaves the image in the build cache only — never the
+	// daemon store — so the sim's container start cannot find it and answers
+	// "No such image" for a workload this function reported building.
+	// `docker buildx build --load` materializes it into the daemon store. The
+	// legacy builder writes to the store natively and rejects the buildx-only
+	// `--load`, so it is omitted there.
+	var args []string
+	if exec.Command("docker", "buildx", "version").Run() == nil {
+		args = []string{"buildx", "build", "--load"}
+	} else {
+		args = []string{"build"}
+	}
+	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
+	dockerBuild := exec.Command("docker", args...)
 	dockerBuild.Stdin = strings.NewReader(dockerfile)
 	if out, err := dockerBuild.CombinedOutput(); err != nil {
 		log.Fatalf("Failed to build %s Docker image: %v\n%s", imageName, err, out)

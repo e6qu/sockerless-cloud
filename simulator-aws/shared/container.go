@@ -110,6 +110,13 @@ type ContainerConfig struct {
 	// 1_000_000_000 == 1 vCPU. Zero = unbounded. Cloud handlers translate the
 	// product's advertised CPU sizing here.
 	NanoCPU int64
+
+	// TrackMemoryPeak makes the handle observe the container's memory usage
+	// through the engine's stats endpoint for as long as it runs, so a cloud
+	// product that reports what a workload consumed — the AWS Lambda
+	// invocation REPORT's Max Memory Used — has a measurement to report.
+	// Read it back with ContainerHandle.MemoryPeakBytes.
+	TrackMemoryPeak bool
 }
 
 // ContainerHandle manages a running container.
@@ -118,6 +125,7 @@ type ContainerHandle struct {
 	cancel      context.CancelFunc
 	done        <-chan ProcessResult
 	cli         *client.Client
+	memory      *memoryPeakObserver
 }
 
 // Wait blocks until the container exits.
@@ -125,6 +133,18 @@ func (h *ContainerHandle) Wait() ProcessResult { return <-h.done }
 
 // Cancel stops and removes the container.
 func (h *ContainerHandle) Cancel() { h.cancel() }
+
+// MemoryPeakBytes reports the highest memory usage the container engine
+// accounted to this container while it ran. It is zero when the engine reported
+// none — a container started without ContainerConfig.TrackMemoryPeak, or one
+// the engine stopped accounting for before the first sample — and a caller that
+// reports the figure must then report nothing rather than a substitute.
+func (h *ContainerHandle) MemoryPeakBytes() uint64 {
+	if h.memory == nil {
+		return 0
+	}
+	return h.memory.peakBytes()
+}
 
 // dockerClient is the shared Docker client. Initialized once at startup.
 var (
@@ -243,9 +263,20 @@ func StartContainerSync(cfg ContainerConfig, sink LogSink) (*ContainerHandle, er
 
 	managedContainers.Store(containerID, true)
 
+	var memory *memoryPeakObserver
+	if cfg.TrackMemoryPeak {
+		memory = newMemoryPeakObserver()
+		go memory.observe(ctx, cli, containerID)
+	}
+
 	// Stream logs and wait for exit in background
 	go func() {
 		result := waitAndCaptureLogs(ctx, cli, containerID, cfg, sink)
+		// The observation ends with the container, before it is removed: the
+		// engine accounts for a container only while it runs.
+		if memory != nil {
+			memory.stop()
+		}
 		managedContainers.Delete(containerID)
 		// Remove container after exit
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -259,6 +290,7 @@ func StartContainerSync(cfg ContainerConfig, sink LogSink) (*ContainerHandle, er
 		cancel:      cancel,
 		done:        resultCh,
 		cli:         cli,
+		memory:      memory,
 	}
 	return handle, nil
 }

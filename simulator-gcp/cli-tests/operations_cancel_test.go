@@ -41,7 +41,7 @@ func TestCloudBuildCLI_CancelStopsARunningBuild(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			bucket := "cli-cloudbuild-cancel-" + tc.name
 			object := "source.tar.gz"
-			image := "sockerless-cli-cancel-" + tc.name + ":test"
+			image := "sockerless-cli-cancel-" + tc.name + ":gcp-cli"
 			t.Cleanup(func() { _ = exec.Command("docker", "rmi", "-f", image).Run() })
 
 			uploadCancelSource(t, bucket, object, "FROM alpine:latest\nRUN sleep 3600\n")

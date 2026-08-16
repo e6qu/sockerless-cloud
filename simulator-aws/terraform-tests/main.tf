@@ -400,7 +400,7 @@ resource "aws_ecs_task_definition" "tf_runner" {
 
   container_definitions = jsonencode([{
     name      = "app"
-    image     = "sockerless-container-command:test"
+    image     = "sockerless-container-command:aws-terraform"
     command   = ["hold"]
     essential = true
   }])
@@ -939,7 +939,7 @@ resource "aws_lambda_function" "tf_lambda" {
   function_name                  = "tf-lambda-image"
   role                           = "arn:aws:iam::123456789012:role/tf-lambda"
   package_type                   = "Image"
-  image_uri                      = "123456789012.dkr.ecr.us-east-1.amazonaws.com/sockerless-lambda-runtime-handler:test"
+  image_uri                      = "123456789012.dkr.ecr.us-east-1.amazonaws.com/sockerless-lambda-runtime-handler:aws-terraform"
   memory_size                    = 128
   timeout                        = 3
   publish                        = true

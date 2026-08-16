@@ -248,6 +248,20 @@ var allowedNonSpecGCPRoutes = map[string]string{
 	"PATCH /v2/":  "OCI distribution data plane subtree (Artifact Registry)",
 	"DELETE /v2/": "OCI distribution data plane subtree (Artifact Registry)",
 
+	// The Docker token service Artifact Registry names in the `realm` of every
+	// Bearer challenge its data plane sends
+	// (`Bearer realm="https://us-central1-docker.pkg.dev/v2/token"`). It belongs
+	// to the same OCI data plane as the subtree above and is likewise outside
+	// Discovery, which describes the Artifact Registry JSON admin API rather
+	// than the Docker Registry HTTP API v2. The non-GET verbs are mounted so the
+	// endpoint answers 405 the way the live service does, instead of falling
+	// through the /v2/ subtree to a 404.
+	"GET /v2/token":    "Artifact Registry Docker token service (challenge realm)",
+	"POST /v2/token":   "Artifact Registry Docker token service (405: GET-only)",
+	"PUT /v2/token":    "Artifact Registry Docker token service (405: GET-only)",
+	"PATCH /v2/token":  "Artifact Registry Docker token service (405: GET-only)",
+	"DELETE /v2/token": "Artifact Registry Docker token service (405: GET-only)",
+
 	// GCS resumable upload protocol: Discovery describes only the
 	// initiating POST (uploadType=resumable); the follow-up chunk PUTs
 	// go to the returned session URI on the same /upload path. Real,
