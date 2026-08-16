@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 36.
+Open: 21. Resolved: 36.
 
 ## Open
 
@@ -168,6 +168,25 @@ the simulators from the sockerless monorepo, keeping their IDs
   tests drive those operations through the SDK and read the effect back through
   the apps instead. Close this when the SDK stops generating those three as
   pageable.
+
+- **BUG-46 (a failed health check reverts a completed Amazon ECS deployment):**
+  `ecsRefreshServiceState` flips a `COMPLETED` primary deployment back to
+  `IN_PROGRESS` when a load-balancer target's health check fails. Real Amazon
+  ECS never reverts a finished rollout — it replaces the task instead: "The
+  service scheduler also replaces tasks determined to be unhealthy after a
+  container health check or a load balancer target group health check fails."
+  So the simulator both reports a deployment state the service would not report
+  and omits the replacement the service would perform. Found while removing
+  that same function from the read path.
+
+- **BUG-47 (DescribeTargetHealth probes every target on the request path):**
+  `handleELBv2DescribeTargetHealth` probes each registered target inline while
+  answering, paying one health-check timeout per unresponsive target. It is the
+  same defect class as issue #29 — a read doing the health surveying that
+  belongs to a continuous background check — and it is the remaining instance
+  of it after the Amazon ECS service handlers were fixed. Fix shape: answer
+  from recorded target health kept current by the checker, and cover it with a
+  test that fails if the read ever probes.
 
 ## Resolved history
 

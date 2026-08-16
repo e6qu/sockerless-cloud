@@ -430,8 +430,13 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 	ecsServices.Put(key, svc)
 	ecsBeginServiceDeployment(key, ECSService{}, svc)
 	ecsRecordServiceDeployment(svc, ecsServiceConnectNamespace(svc.ServiceConnectConfiguration))
-	ecsReconcileService(key)
+	// CreateService records the requested state and answers with it; placing
+	// the tasks is the service scheduler's work. Amazon ECS answers a create
+	// for ten tasks with the service at runningCount 0 and a PRIMARY
+	// deployment of desiredCount 10 / runningCount 0, and converges it after
+	// the response.
 	svc, _ = ecsServices.Get(key)
+	ecsRequestServiceReconcile(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"service": svc})
 }
 
@@ -475,6 +480,12 @@ func ecsServiceDeployment(svc ECSService, now float64) ECSDeployment {
 	}
 }
 
+// handleECSDescribeServices reports the service records the control plane
+// holds. Counts, deployment rollout state and events are owned by the service
+// scheduler, which converges them from real task state on every task lifecycle
+// transition, on its stabilization timer while a deployment is in progress, and
+// on its launch-retry timer; a read reports that record and never runs a
+// scheduler pass of its own.
 func handleECSDescribeServices(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cluster  string   `json:"cluster"`
@@ -496,11 +507,6 @@ func handleECSDescribeServices(w http.ResponseWriter, r *http.Request) {
 		name := ecsServiceNameFromRef(ref)
 		key := ecsServiceKey(clusterName, name)
 		if svc, ok := ecsServices.Get(key); ok {
-			if svc.Status == "ACTIVE" {
-				ecsReconcileService(key)
-				ecsRefreshServiceState(key)
-				svc, _ = ecsServices.Get(key)
-			}
 			services = append(services, svc)
 		} else {
 			failures = append(failures, map[string]string{
@@ -758,8 +764,11 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 		ecsBeginServiceDeployment(key, previousService, svc)
 		ecsRecordServiceDeployment(svc, ecsServiceConnectNamespace(svc.ServiceConnectConfiguration))
 	}
-	ecsReconcileService(key)
+	// The update is recorded and answered with; applying it is the service
+	// scheduler's work, which starts new tasks and replaces running ones under
+	// the deployment configuration's minimumHealthyPercent and maximumPercent.
 	svc, _ = ecsServices.Get(key)
+	ecsRequestServiceReconcile(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"service": svc})
 }
 
