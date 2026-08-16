@@ -333,17 +333,29 @@ func TestIAMCredentialsPrintAccessTokenLifetimeCLI(t *testing.T) {
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,
 		"--project="+project, "--format=json"))
 
-	// A reduced lifetime is honoured: the token comes back, and it stops
-	// working once the lifetime the CLI asked for has passed.
-	token := lastLine(runCLI(t, gcloudCLI("auth", "print-access-token",
+	// A reduced lifetime is honoured, and both halves of that — a living
+	// token is accepted, a dead one is refused — are read from a pair of
+	// tokens presented at the same moment: one that asked for a single
+	// second, one that took the documented hour. Neither verdict is reached
+	// by outrunning the token, which no caller can do: gcloud spends longer
+	// minting and printing a token than a one-second token lives. The wait
+	// after both are in hand puts the presentation past the short token's
+	// second however slow the host is, and leaves the hour-long one alive.
+	short := lastLine(runCLI(t, gcloudCLI("auth", "print-access-token",
 		"--impersonate-service-account="+email, "--lifetime=1")))
-	require.NotEmpty(t, token, "gcloud printed no token for a one-second lifetime")
+	require.NotEmpty(t, short, "gcloud printed no token for a one-second lifetime")
 
-	live := httpGetStatusWithBearer(t, baseURL+"/v1/projects/"+project+"/serviceAccounts", token)
-	require.Equal(t, 200, live, "the freshly minted token must be accepted while it lives")
+	standard := lastLine(runCLI(t, gcloudCLI("auth", "print-access-token",
+		"--impersonate-service-account="+email)))
+	require.NotEmpty(t, standard, "gcloud printed no token for the default lifetime")
+	require.NotEqual(t, short, standard, "each invocation mints a token of its own")
 
-	time.Sleep(3 * time.Second)
-	expired := httpGetStatusWithBearer(t, baseURL+"/v1/projects/"+project+"/serviceAccounts", token)
+	time.Sleep(2 * time.Second)
+
+	live := httpGetStatusWithBearer(t, baseURL+"/v1/projects/"+project+"/serviceAccounts", standard)
+	require.Equal(t, 200, live, "a token inside its lifetime must be accepted")
+
+	expired := httpGetStatusWithBearer(t, baseURL+"/v1/projects/"+project+"/serviceAccounts", short)
 	assert.Equal(t, 401, expired, "a one-second token must stop being accepted once it expires")
 
 	// The extension beyond the default hour needs the org policy constraint,
