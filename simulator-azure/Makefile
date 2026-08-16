@@ -18,7 +18,15 @@ RUN_FLAGS      :=
 # go-test deadline for the CLI suite. Each `az` invocation carries ~0.5-2s of
 # Python interpreter startup, so the wall-clock grows with the test count as the
 # sim's coverage ratchets up; keep generous headroom over the current runtime.
-CLI_TEST_TIMEOUT ?= 600s
+#
+# Measured on a CI runner at 171 tests: 680s, with nothing hanging — the slowest
+# are 15-30s of real `az` work and 180 subtests had already passed when the old
+# 600s deadline fired. 13m matches the SDK suite and is the most this can be:
+# the CI step allows 14 minutes and the job 15, so a larger inner deadline would
+# surface as an opaque step kill instead of a named Go stack. That headroom is
+# thin and this suite roughly doubled in one pass; BUG-41 tracks sharding it the
+# way the AWS CLI suite is sharded.
+CLI_TEST_TIMEOUT ?= 13m
 
 REPO_ROOT_REL  := ..
 

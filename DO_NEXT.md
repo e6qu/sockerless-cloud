@@ -1,6 +1,24 @@
 # DO NEXT
 
-1. App Service: instances and processes are read from the live workload
+1. App Service backup and restore was started and deliberately reverted rather
+   than shipped half-proven. The implementation reached 26 operations (the
+   floor probe agreed, 519 to 545) and the deleted-app and snapshot half passed
+   its SDK test, but the round-trip proof failed on its own precondition: the
+   test wipes the site through MSDeploy and the simulator merged the package
+   instead of replacing the content, so the restore would have been asserted
+   against content that never went away. Whether Web Deploy's sync semantics
+   delete files absent from the package was the question, and it is now
+   answered: they do not. Web Deploy creates new files and overwrites existing
+   ones but leaves files that are not part of the deployment alone unless
+   `DoNotDeleteRule` is explicitly disabled, which is why Azure Pipelines
+   exposes a separate "remove additional files at destination" switch at all.
+   So the simulator's merge was faithful and the test's wipe was wrong. Redoing
+   this work means keeping the merge semantics and wiping through something
+   that really deletes — a deployment with the delete rule disabled, or a
+   different content path — rather than assuming a package replaces the site. Shipping the operations
+   without that proof would have been 26 endpoints whose central claim was
+   untested, which is why the work was removed rather than left in.
+3. App Service: instances and processes are read from the live workload
    container (519 of 692). Three recorded deferrals remain, and the fourth was
    analysed rather than accepted: backup and restore want a real Blob round
    trip; App Service Environments and Kube Environments are two new top-level
@@ -11,27 +29,27 @@
    site record. Sixteen process operations are deliberately unserved with a
    demonstrated reason recorded beside the floor — the container engine exposes
    one process-inspection primitive, which reports no modules and no dumps.
-2. BUG-38: the shared registry-trust helper no longer silently no-ops, which
+3. BUG-38: the shared registry-trust helper no longer silently no-ops, which
    exposes two latent defects elsewhere — the Google Cloud build push test
    still takes the insecure path and now fails loudly, and the AWS and Google
    harness makefiles lack the shared engine-host temporary directory whose
    absence made Azure workloads mount empty directories.
-3. BUG-20 and BUG-36: the container reaper leaves workload containers running
+4. BUG-20 and BUG-36: the container reaper leaves workload containers running
    for hours after a run ends, and each cloud's suites still build their
    simulator to one shared path where a build can overwrite a binary another
    suite is executing. Both are the same family as the harness collisions
    already fixed.
-4. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
+5. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
    that the account's advertised endpoint works, and refuse two accounts
    sharing a name the way the service does.
-5. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
+6. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
    uploads the real service refuses and issues a token for any scope it is
    asked for, a virtual network drops subnets declared inline on it, and an
    Amazon ECR pull through a cache rule is never hydrated.
-6. BUG-32's consumer note: the sockerless AWS backend warns and continues when
+7. BUG-32's consumer note: the sockerless AWS backend warns and continues when
    repository creation fails, which now surfaces as a loud push failure rather
    than a silent success — correct, and matching the real service.
-7. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+8. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 

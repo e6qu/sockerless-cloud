@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 14. Resolved: 36.
+Open: 15. Resolved: 36.
 
 ## Open
 
@@ -112,6 +112,21 @@ the simulators from the sockerless monorepo, keeping their IDs
   the name being a hostname. Data-plane resolution was made deterministic
   rather than order-dependent as a stopgap, but the duplicate should be refused
   at creation the way the service refuses it.
+
+- **BUG-41 (the Azure CLI suite is one job approaching the fifteen-minute
+  ceiling):** The suite runs unsharded and measured 680 seconds across 171
+  tests on a CI runner, against a job ceiling of fifteen minutes and a step
+  allowance of fourteen. Its inner deadline was raised to thirteen minutes,
+  which is the most it can be before a breach stops producing a named Go stack
+  and becomes an opaque step kill — so the remaining headroom is under two
+  minutes for a suite that roughly doubled in a single pass. The AWS CLI suite
+  solved the same problem by sharding into eleven jobs, and the Azure suite's
+  names partition cleanly (all 171 match `Test[A-Z]`, 99 in A-M and 72 in N-Z),
+  so the split itself is straightforward. What makes it more than a workflow
+  edit is that sharding renames the `sim (azure cli)` status context, and that
+  name is in the repository's required-status list — the rename has to land
+  together with a branch-protection change, which is a repository-settings
+  action rather than a code one.
 
 ## Resolved history
 

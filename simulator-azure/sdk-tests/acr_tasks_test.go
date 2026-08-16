@@ -59,18 +59,42 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	coordinate := "127.0.0.1:" + regPort
 	authority := startThrowawayRegistry(t, regPort)
 
-	// Negative control for the trust installed below: until the authority is
-	// installed the engine must refuse the registry on its certificate. A
-	// registry the engine would have accepted anyway makes the installation
-	// unfalsifiable, and the push would then prove nothing about it.
-	untrusted, err := exec.Command("docker", "pull", coordinate+"/sockerless-overlay/aca:absent").CombinedOutput()
-	require.Error(t, err, "engine must not trust the registry before its authority is installed: %s", untrusted)
-	assert.Contains(t, string(untrusted), "certificate signed by unknown authority",
-		"the refusal before trust is installed must be the certificate one")
+	// Negative control for the trust installed below. The pull always fails —
+	// that tag does not exist — so what matters is WHY. A certificate refusal
+	// means the engine does not trust this registry yet, which makes the
+	// installation falsifiable: it must convert that refusal into the
+	// registry's own "manifest unknown", asserted immediately after it.
+	//
+	// Engines genuinely differ here. dockerd treats loopback registries as
+	// insecure by default, so it reaches this coordinate with no trust
+	// configuration at all and answers "manifest unknown" straight away. Where
+	// that happens the installation cannot be falsified at this coordinate, and
+	// this test says so rather than asserting another engine's wording;
+	// proving the mechanism itself belongs to testutil/registrytrust.
+	probe, err := exec.Command("docker", "pull", coordinate+"/sockerless-overlay/aca:absent").CombinedOutput()
+	require.Error(t, err, "the absent tag must not resolve before anything is pushed: %s", probe)
+	trustIsFalsifiable := strings.Contains(string(probe), "certificate signed by unknown authority")
+	if !trustIsFalsifiable {
+		require.Contains(t, string(probe), "manifest unknown",
+			"the engine neither refused the certificate nor reached the registry: %s", probe)
+		t.Logf("engine already trusts %s unconfigured, so the authority installation is not falsifiable here: %s",
+			coordinate, strings.TrimSpace(string(probe)))
+	}
 
 	cleanupTrust, err := registrytrust.ConfigureTrustedRegistryCA(ctx, coordinate, authority)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cleanupTrust()) })
+
+	if trustIsFalsifiable {
+		// The same pull must now be refused by the registry rather than by the
+		// certificate, which is what proves the authority installation worked.
+		trusted, err := exec.Command("docker", "pull", coordinate+"/sockerless-overlay/aca:absent").CombinedOutput()
+		require.Error(t, err, "the absent tag must still not resolve: %s", trusted)
+		assert.NotContains(t, string(trusted), "certificate signed by unknown authority",
+			"installing the authority must stop the engine refusing the registry's certificate")
+		assert.Contains(t, string(trusted), "manifest unknown",
+			"after trust is installed the refusal must come from the registry, not the certificate")
+	}
 	// Pre-pull the build's base image so the sim's `docker build` uses the
 	// local cache instead of racing a fresh (throttle-prone) public-mirror
 	// pull mid-build.
