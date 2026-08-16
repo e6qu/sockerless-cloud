@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/e6qu/sockerless-cloud/compare/v0.11.0...v0.12.0) (2026-08-16)
+
+
+### Features
+
+* back App Service backups with real Blob storage, and let a real engine log in to the registry ([#28](https://github.com/e6qu/sockerless-cloud/issues/28)) ([829a350](https://github.com/e6qu/sockerless-cloud/commit/829a35074e3feb7dc55ee7c0d45f2642f0f8c56e))
+
 ## [0.11.0](https://github.com/e6qu/sockerless-cloud/compare/v0.10.1...v0.11.0) (2026-08-16)
 
 
