@@ -408,13 +408,37 @@ if [[ -n "$gh_token" ]]; then
   github_headers+=(-H "Authorization: Bearer $gh_token")
 fi
 
+# The rate-limit protocol lives in its own file so the decision it makes can be
+# exercised against crafted headers: a throttle is not something a test can ask
+# GitHub for. Sourced through REPO_ROOT rather than BASH_SOURCE, which zsh —
+# the other shell this check runs under in CI — does not set.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/github-throttle.sh
+source "$REPO_ROOT/scripts/lib/github-throttle.sh"
+
 # gh_api writes the body of <url> to <outfile> and succeeds only on HTTP 200.
-# Throttling (403/429), a bad credential (401), and a missing resource (404) all
-# fail here, so no caller can mistake them for an empty-but-valid answer.
+# A bad credential (401) and a missing resource (404) fail here, so no caller
+# can mistake either for an empty-but-valid answer.
+#
+# A throttled reply (403 or 429 carrying a rate-limit signal) is different in
+# kind: it is transient, and the API says when to come back — `Retry-After`, or
+# `X-RateLimit-Reset` once the remaining quota is zero. Failing the run on the
+# first one turns a branch red for a reason nobody caused, so the documented
+# wait is honoured and the request retried. The wait is never guessed: a 403
+# that carries no rate-limit signal at all is a real refusal and fails at once.
 gh_api() {
-  local url=$1 out=$2 code
-  code=$(curl -sSL -o "$out" -w '%{http_code}' "${github_headers[@]}" "$url" 2>/dev/null || echo 000)
-  [[ $code == 200 ]]
+  local url=$1 out=$2 code headers attempt wait_for
+  headers="$work/gh-headers.txt"
+  for attempt in 1 2 3; do
+    code=$(curl -sSL -o "$out" -D "$headers" -w '%{http_code}' "${github_headers[@]}" "$url" 2>/dev/null || echo 000)
+    [[ $code == 200 ]] && return 0
+    [[ $code == 403 || $code == 429 ]] || return 1
+    [[ $attempt == 3 ]] && return 1
+    wait_for=$(gh_throttle_wait "$headers" "$(date +%s)") || return 1
+    echo "  ..    GitHub API throttled on ${url#https://api.github.com/repos/}; waiting ${wait_for}s as the reply asked" >&2
+    sleep "$wait_for"
+  done
+  return 1
 }
 
 # gh_tag_publish_time prints when a tag of LOOKUP_SUBJECT became available.

@@ -143,9 +143,22 @@ through the effective-policy read as though the organization had chosen it.
 Both suites enable the type before attaching now, and assert the refusal before
 that.
 
-Left open and filed: two jobs of one run died in setup with `429` fetching
+The dependency check itself failed once for a reason nobody caused, which is
+the class of failure it was rebuilt to stop producing: a single throttled reply
+from the GitHub API made it report that an action's tags could not be read. A
+throttle is transient and the API says when to come back, so the documented
+wait is honoured — `Retry-After`, or `X-RateLimit-Reset` once the quota is
+spent — and the request retried. The wait is never invented: a refusal carrying
+no rate-limit signal, or one with quota still left, fails immediately rather
+than turning a permanent error into a slow one, and a reset beyond the cap is
+reported rather than sat on. The protocol lives beside the check as its own
+file so those decisions can be exercised against crafted headers, which is the
+only way to test a throttle nobody can ask for.
+
+Left open and filed: three jobs across two runs died in setup with `429`
+fetching
 `actions/setup-go` from codeload, after the three attempts the runner makes on
-its own, with no repository code executed in either. The workflow starts around
+its own, with no repository code executed in any of them. The workflow starts around
 forty-six jobs at once and every one downloads the same action tarballs within
 seconds. The repair — cutting the simultaneous fan-out, or not fetching the
 actions per job — is a continuous-integration-wide wall-clock trade-off rather

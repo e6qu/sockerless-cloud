@@ -19,7 +19,9 @@ the simulators from the sockerless monorepo, keeping their IDs
   of one run died in setup with `429 (Too Many Requests)` fetching
   `actions/setup-go` from codeload, after the three attempts the runner makes on
   its own — `sim (aws cli ecs)` and `browser (simulator-aws)` on run
-  32037273208, with no repository code executed in either. The workflow starts
+  32037273208, then `sim (aws cli appdata2)` on run 32038906020, with no
+  repository code executed in any of them. It recurs on every push rather than
+  being a one-off. The workflow starts
   around forty-six jobs at once and every one of them downloads the same three
   action tarballs within seconds of each other, which is the burst being
   throttled. It presents as an unrelated pair of red cells that pass on a

@@ -34,8 +34,11 @@ failures=0
 # new_repo lays out one fixture git repository holding the check under test.
 new_repo() {
 	local dir="$fixture/$1"
-	mkdir -p "$dir/scripts"
+	mkdir -p "$dir/scripts/lib"
 	cp "$root/scripts/check-latest-deps.sh" "$dir/scripts/"
+	# The check sources the rate-limit protocol, so the fixture copy needs it
+	# too — a fixture missing it would fail every case for the wrong reason.
+	cp "$root/scripts/lib/github-throttle.sh" "$dir/scripts/lib/"
 	git -C "$dir" init -q
 	git -C "$dir" config user.email latest-deps@example.invalid
 	git -C "$dir" config user.name 'latest deps fixture'
@@ -305,6 +308,77 @@ run_check "$tf_repo" "DEPS_ADOPTION_QUARANTINE_SECONDS=$wide_window"
 expect_status 0 'terraform: a range constraint inside the window is held'
 expect_says 'HELD' 'terraform: a range constraint inside the window is held'
 expect_silent_about 'FAIL' 'terraform: a range constraint inside the window is held'
+
+# --- The GitHub rate-limit protocol ----------------------------------------
+# A throttle is not something a test can ask GitHub for, so the decision the
+# protocol makes is exercised against the headers a throttled reply carries.
+# What matters is that it waits only when told to and never guesses: the
+# alternative to this discipline is either a branch turning red because someone
+# else exhausted a quota, or a sleep invented out of a refusal that will never
+# clear.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/github-throttle.sh
+source "$root/scripts/lib/github-throttle.sh"
+
+throttle_headers="$fixture/throttle-headers.txt"
+throttle_now=1786000000
+
+expect_wait() {
+	local want=$1 label=$2 got
+	if ! got=$(gh_throttle_wait "$throttle_headers" "$throttle_now"); then
+		echo "FAIL $label: expected a wait of ${want}s, got a refusal to wait" >&2
+		failures=$((failures + 1))
+		return
+	fi
+	if [[ "$got" != "$want" ]]; then
+		echo "FAIL $label: expected a wait of ${want}s, got ${got}s" >&2
+		failures=$((failures + 1))
+	fi
+}
+
+expect_no_wait() {
+	local label=$1 got
+	if got=$(gh_throttle_wait "$throttle_headers" "$throttle_now"); then
+		echo "FAIL $label: expected no wait, got ${got}s" >&2
+		failures=$((failures + 1))
+	fi
+}
+
+# Retry-After is the reply saying exactly when to come back, and it wins over
+# everything else. Ten per cent and a second are added because the two clocks
+# are not the same one.
+printf 'HTTP/2 429\r\nretry-after: 30\r\n\r\n' >"$throttle_headers"
+expect_wait 34 'throttle: Retry-After is honoured'
+
+# A spent quota is the other documented form: the reset is an absolute time, so
+# the wait is what remains of it.
+printf 'HTTP/2 403\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: %s\r\n\r\n' \
+	"$((throttle_now + 20))" >"$throttle_headers"
+expect_wait 23 'throttle: a spent quota waits out its reset'
+
+# Negative control, and the one that matters most: a refusal with quota left is
+# not a throttle. Waiting on it would turn a permanent error — a credential
+# without the scope, a repository that cannot be read — into a slow one.
+printf 'HTTP/2 403\r\nx-ratelimit-remaining: 4993\r\nx-ratelimit-reset: %s\r\n\r\n' \
+	"$((throttle_now + 20))" >"$throttle_headers"
+expect_no_wait 'throttle: a refusal with quota left is not waited on'
+
+# A reply carrying no rate-limit signal at all says nothing about when to
+# return, so there is nothing to honour.
+printf 'HTTP/2 403\r\n\r\n' >"$throttle_headers"
+expect_no_wait 'throttle: a refusal with no rate-limit signal is not waited on'
+
+# A quota that resets beyond the cap is a quota problem to report, not to sit
+# on.
+printf 'HTTP/2 403\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: %s\r\n\r\n' \
+	"$((throttle_now + 3600))" >"$throttle_headers"
+expect_no_wait 'throttle: a reset beyond the cap is reported rather than waited out'
+
+# A reset already in the past still yields once rather than returning a
+# negative sleep.
+printf 'HTTP/2 403\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: %s\r\n\r\n' \
+	"$((throttle_now - 5))" >"$throttle_headers"
+expect_wait 1 'throttle: a reset already past yields once'
 
 if ((failures > 0)); then
 	echo "$failures adoption quarantine test(s) failed" >&2
