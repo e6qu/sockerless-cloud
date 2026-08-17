@@ -82,6 +82,10 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 		"--vpc-id", vpcID,
 		"--target-type", "ip",
 		"--health-check-timeout-seconds", "2",
+		// Elastic Load Balancing takes a target out of service after
+		// UnhealthyThresholdCount consecutive failed checks spaced by this
+		// interval; the 30-second default would make the test wait one out.
+		"--health-check-interval-seconds", "5",
 		"--query", "TargetGroups[0].TargetGroupArn",
 		"--output", "text"))
 	tgArn := strings.TrimSpace(out)
@@ -92,21 +96,25 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 	runCLI(t, awsCLI("elbv2", "register-targets",
 		"--target-group-arn", tgArn,
 		"--targets", "Id="+targetHost+",Port="+targetPort, "Id=192.0.2.254,Port=80"))
-	out = runCLI(t, awsCLI("elbv2", "describe-target-health",
-		"--target-group-arn", tgArn,
-		"--targets", "Id="+targetHost+",Port="+targetPort,
-		"--query", "TargetHealthDescriptions[0].TargetHealth.State",
-		"--output", "text"))
-	if strings.TrimSpace(out) != "healthy" {
-		t.Fatalf("expected healthy target, got %q", out)
-	}
+	waitForELBv2TargetHealthCLI(t, tgArn, "Id="+targetHost+",Port="+targetPort, "healthy")
+	waitForELBv2TargetHealthCLI(t, tgArn, "Id=192.0.2.254,Port=80", "unhealthy")
+	// An unhealthy target carries the documented reason code and description
+	// alongside its state.
 	out = runCLI(t, awsCLI("elbv2", "describe-target-health",
 		"--target-group-arn", tgArn,
 		"--targets", "Id=192.0.2.254,Port=80",
-		"--query", "TargetHealthDescriptions[0].TargetHealth.State",
+		"--query", "TargetHealthDescriptions[0].TargetHealth.Reason",
 		"--output", "text"))
-	if strings.TrimSpace(out) != "unhealthy" {
-		t.Fatalf("expected unhealthy target, got %q", out)
+	if reason := strings.TrimSpace(out); reason != "Target.Timeout" && reason != "Target.FailedHealthChecks" {
+		t.Fatalf("expected a connection-failure reason code, got %q", reason)
+	}
+	out = runCLI(t, awsCLI("elbv2", "describe-target-health",
+		"--target-group-arn", tgArn,
+		"--targets", "Id="+targetHost+",Port="+targetPort,
+		"--query", "TargetHealthDescriptions[0].HealthCheckPort",
+		"--output", "text"))
+	if strings.TrimSpace(out) != targetPort {
+		t.Fatalf("expected health check port %s, got %q", targetPort, out)
 	}
 
 	out = runCLI(t, awsCLI("elbv2", "create-listener",

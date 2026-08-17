@@ -1,17 +1,13 @@
 # DO NEXT
 
-1. App Service: backup and restore round-trips through real Blob storage, and
-   instances and processes are read from the live workload container (545 of
-   692). Two recorded deferrals remain, and both are scoped rather than
-   guessed. App Service Environments and Kube Environments are 54 operations,
-   of which 43 are servable; 5 are not — four metric-definition operations,
-   because the simulator emits no Microsoft.Insights metrics for those pools
-   and declaring definitions would be fabrication, and the outbound
-   network-dependency endpoint, which answers with a Microsoft-published
-   catalog and is the same class as the declined Provider_*Stacks. Detector
-   execution is 22 operations: the container-health family reads state the
-   simulator genuinely holds, and each remaining detector needs its own
-   judgement about whether its inputs exist here.
+1. App Service is at 616 of 692. The recorded deferrals are done: backup and
+   restore round-trip through real Blob storage, instances and processes read
+   from the live workload container, App Service Environments and Kube
+   Environments are served, and detectors compute from real container and site
+   state. Five operations stay unserved and answer a 501 naming the reason —
+   four metric-definition operations with no series behind them, and the
+   outbound network-dependency catalog, which is Microsoft-published data.
+   What remains in that swagger is the long tail below 692, not a deferral.
 2. BUG-43: the azurerm provider crashed applying an App Service backup block
    against the simulator, after three real defects on that path were fixed. The
    Terraform leg was reverted rather than left failing; capture the provider's

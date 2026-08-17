@@ -53,6 +53,8 @@ import (
 //     group publishes into a Microsoft.Network/privateDnsZones zone)
 //   - Microsoft.Network/networkProfiles
 //   - Microsoft.Network/serviceEndpointPolicies
+//   - Microsoft.Web/hostingEnvironments (App Service Environment v3, in a
+//     subnet delegated to Microsoft.Web/hostingEnvironments)
 //
 // The Microsoft.Subscription alias slice runs separately in
 // TestTerraformSubscriptionApplyDestroy (its own CI shard): each
@@ -412,6 +414,16 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.ElementsMatch(t, []string{"Connectivity", "SecurityAdmin"},
 		outputs.mustList(t, "azrm_network_manager_scope_accesses"),
 		"the manager must report the configuration kinds it was given access to")
+
+	azrmASE := outputs.must(t, "azrm_app_service_environment_id")
+	require.Contains(t, azrmASE, "/providers/Microsoft.Web/hostingEnvironments/tf-azrm-ase",
+		"App Service Environment id must include canonical ARM path; got %s", azrmASE)
+	require.Equal(t, "tf-azrm-ase.appserviceenvironment.net",
+		outputs.must(t, "azrm_app_service_environment_dns_suffix"),
+		"an internally load-balanced environment publishes the internal domain suffix")
+	require.Equal(t, []string{"10.95.1.4"},
+		outputs.mustList(t, "azrm_app_service_environment_internal_inbound_ip_addresses"),
+		"the environment answers on an address out of its own subnet")
 
 	out, err = runTimed(t, "terraform destroy", terraformCmd(dir, "destroy", "-auto-approve"))
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)

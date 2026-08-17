@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -378,9 +379,27 @@ func registerWebGlobal(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
-	// GET deploymentLocations — locations + hosting environments.
+	// GET deploymentLocations — the places an App Service resource can be
+	// deployed to. The simulator publishes no region catalog, so `locations`
+	// is absent; the App Service Environments in the subscription are real
+	// resources it holds, so they are reported both in full and in the
+	// name-and-location form.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deploymentLocations", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+		prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
+		environments := webHostingEnvironments.Filter(func(a AppServiceEnvironmentResource) bool {
+			return strings.HasPrefix(strings.ToLower(a.ID), strings.ToLower(prefix))
+		})
+		sort.Slice(environments, func(i, j int) bool { return environments[i].ID < environments[j].ID })
+		full := make([]AppServiceEnvironmentProperties, 0, len(environments))
+		basic := make([]map[string]any, 0, len(environments))
+		for _, env := range environments {
+			full = append(full, aseProject(env).Properties)
+			basic = append(basic, map[string]any{"name": env.Name, "location": env.Location})
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"hostingEnvironments":               full,
+			"hostingEnvironmentDeploymentInfos": basic,
+		})
 	})
 
 	// GET deletedSites — DeletedWebApps_List: the apps deleted in this

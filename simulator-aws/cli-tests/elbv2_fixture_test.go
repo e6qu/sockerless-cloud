@@ -63,6 +63,30 @@ func importELBv2CertificateCLI(t *testing.T, domain string) string {
 		"--query", "CertificateArn", "--output", "text")))
 }
 
+// waitForELBv2TargetHealthCLI polls describe-target-health until Elastic Load
+// Balancing's health checker reports the target in the wanted state. A target
+// is not in service the instant it is registered — "After your target is
+// registered, it must pass one health check to be considered healthy" — and
+// leaving service takes UnhealthyThresholdCount consecutive failed checks at
+// the target group's configured interval.
+func waitForELBv2TargetHealthCLI(t *testing.T, targetGroupArn, target, want string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	observed := ""
+	for time.Now().Before(deadline) {
+		observed = strings.TrimSpace(runCLI(t, awsCLI("elbv2", "describe-target-health",
+			"--target-group-arn", targetGroupArn,
+			"--targets", target,
+			"--query", "TargetHealthDescriptions[0].TargetHealth.State",
+			"--output", "text")))
+		if observed == want {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("target %s in %s reported %q, want %q", target, targetGroupArn, observed, want)
+}
+
 func availableELBv2ListenerPortCLI(t *testing.T) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

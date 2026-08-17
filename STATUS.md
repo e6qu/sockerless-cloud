@@ -39,7 +39,7 @@ Current state of the sockerless-cloud repository.
   module graphs; govulncheck clean).
 - **Measured floors**: IAM resource derivation 1,784 of 1,974 served
   operations; `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
-  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 519 of 692; `cloudrun-v1` 152 of 152; `spanner-v1` 188 of 198;
+  WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 616 of 692; `cloudrun-v1` 152 of 152; `spanner-v1` 188 of 198;
   `containerregistry-dataplane-containerregistry-2021-07-01` 20 of 29
   (App Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family);

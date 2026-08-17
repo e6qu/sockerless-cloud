@@ -150,7 +150,7 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 		HealthCheckPath:            aws.String("/healthz"),
 		HealthyThresholdCount:      aws.Int32(3),
 		UnhealthyThresholdCount:    aws.Int32(2),
-		HealthCheckIntervalSeconds: aws.Int32(10),
+		HealthCheckIntervalSeconds: aws.Int32(5),
 		HealthCheckTimeoutSeconds:  aws.Int32(2),
 	})
 	require.NoError(t, err)
@@ -185,12 +185,23 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 		Targets:        []elbtypes.TargetDescription{target, unreachableTarget},
 	})
 	require.NoError(t, err)
+	// The health checker puts the reachable target in service on its first
+	// successful check and takes the unreachable one out of service after
+	// UnhealthyThresholdCount consecutive failures.
+	waitForELBv2TargetHealth(t, tgArn, target, elbtypes.TargetHealthStateEnumHealthy)
+	waitForELBv2TargetHealth(t, tgArn, unreachableTarget, elbtypes.TargetHealthStateEnumUnhealthy)
 	health, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(tgArn),
 	})
 	require.NoError(t, err)
 	require.Len(t, health.TargetHealthDescriptions, 2)
 	assert.Equal(t, elbtypes.TargetHealthStateEnumHealthy, health.TargetHealthDescriptions[0].TargetHealth.State)
+	// A healthy target carries no reason code and no description; an unhealthy
+	// one carries both.
+	assert.Empty(t, health.TargetHealthDescriptions[0].TargetHealth.Reason)
+	assert.Nil(t, health.TargetHealthDescriptions[0].TargetHealth.Description)
+	assert.Equal(t, strconv.Itoa(targetPort),
+		aws.ToString(health.TargetHealthDescriptions[0].HealthCheckPort))
 	unhealthy, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(tgArn),
 		Targets:        []elbtypes.TargetDescription{unreachableTarget},
@@ -198,6 +209,17 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, unhealthy.TargetHealthDescriptions, 1)
 	assert.Equal(t, elbtypes.TargetHealthStateEnumUnhealthy, unhealthy.TargetHealthDescriptions[0].TargetHealth.State)
+	// A target that is not healthy carries a documented reason code and the
+	// description Elastic Load Balancing publishes for it. Which of the
+	// connection-failure codes an unroutable address produces is the host
+	// network's to decide; the exact mapping is pinned by the unit tests.
+	assert.Contains(t,
+		[]elbtypes.TargetHealthReasonEnum{
+			elbtypes.TargetHealthReasonEnumTimeout,
+			elbtypes.TargetHealthReasonEnumFailedHealthChecks,
+		},
+		unhealthy.TargetHealthDescriptions[0].TargetHealth.Reason)
+	assert.NotEmpty(t, aws.ToString(unhealthy.TargetHealthDescriptions[0].TargetHealth.Description))
 
 	listenerOut, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
 		LoadBalancerArn: aws.String(lbArn),
@@ -210,6 +232,7 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, listenerOut.Listeners, 1)
+	waitForELBv2TargetHealth(t, tgArn, target, elbtypes.TargetHealthStateEnumHealthy)
 	proxiedReq, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/proxy-check", nil)
 	require.NoError(t, err)
 	proxiedReq.Host = lbDNSName

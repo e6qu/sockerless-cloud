@@ -266,6 +266,13 @@ func (s *Server) stopBackground() {
 	s.backgroundWG.Wait()
 }
 
+// StopBackground cancels every background worker the server started and waits
+// for them to return. Shutting the listener down does this on its way out; a
+// caller that builds a server without serving on it — a test exercising one
+// registered subsystem, say — has to do it explicitly, or those workers keep
+// running against package-level state after the caller is finished with it.
+func (s *Server) StopBackground() { s.stopBackground() }
+
 // ListenAndServe starts the server and blocks until shutdown.
 // It listens for SIGTERM and SIGINT for graceful shutdown.
 func (s *Server) ListenAndServe() error {

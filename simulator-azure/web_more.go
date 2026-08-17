@@ -138,6 +138,7 @@ func registerWebMore(srv *sim.Server) {
 	webSourceControls = sim.MakeStore[WebSourceControl](srv.DB(), "web_source_controls")
 	webSiteExtensions = sim.MakeStore[WebSiteExtension](srv.DB(), "web_site_extensions")
 	webConfigExtras = sim.MakeStore[webConfigExtra](srv.DB(), "web_config_extras")
+	webSiteEvents = sim.MakeStore[WebSiteEvent](srv.DB(), "web_site_events")
 	webHostKeys = sim.MakeStore[WebHostKeysRow](srv.DB(), "web_host_keys")
 	webFunctionKeys = sim.MakeStore[WebFunctionKeysRow](srv.DB(), "web_function_keys")
 	initWebDeployStores(srv)
@@ -314,6 +315,7 @@ func registerWebSiteAndSlotHandlers(srv *sim.Server) {
 	registerWebConfigSnapshots(srv, both)
 	registerWebContainerLogs(both)
 	registerWebProcesses(both)
+	registerWebDiagnostics(both)
 	registerWebBackups(both)
 	registerWebProviderGlobal(srv, site)
 
@@ -553,7 +555,9 @@ func webConfigWebPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
-	setState := func(state string) http.HandlerFunc {
+	// Each lifecycle operation records what it did in the site's event
+	// journal, which is what the restart detectors report from.
+	setState := func(state, operation string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if webMissing(w, r) {
 				return
@@ -564,12 +568,24 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 				row.Properties.State = state
 				store.Put(webResourceID(r), row)
 			}
+			recordWebSiteEvent(webResourceID(r), operation, webEventCauseUser)
 			w.WriteHeader(http.StatusOK)
 		}
 	}
-	both("POST", "/start", setState("Running"))
-	both("POST", "/stop", setState("Stopped"))
-	both("POST", "/restart", setState(""))
+	both("POST", "/start", setState("Running", "Start"))
+	both("POST", "/stop", setState("Stopped", "Stop"))
+	// A restart restarts: the site's workload container is torn down, and the
+	// next request to the site brings a new one up. Without that the operation
+	// would report success while the same process kept running.
+	both("POST", "/restart", func(w http.ResponseWriter, r *http.Request) {
+		if webMissing(w, r) {
+			return
+		}
+		site, _ := webResource(r)
+		stopAzureFunctionInstance(site.Name)
+		recordWebSiteEvent(webResourceID(r), "Restart", webEventCauseUser)
+		w.WriteHeader(http.StatusOK)
+	})
 
 	// Slot-swap family — production⇄slot config exchange. The simulator
 	// records the call and returns success (the swap itself is an

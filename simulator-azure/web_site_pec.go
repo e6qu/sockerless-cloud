@@ -30,9 +30,14 @@ type WebSitePrivateEndpointConnection struct {
 
 var webSitePECs sim.Store[WebSitePrivateEndpointConnection]
 
-// webSitePECType is the connection's ARM type at the addressed level.
+// webSitePECType is the connection's ARM type at the addressed level: the
+// production site, one of its deployment slots, or the App Service
+// Environment the connection was opened on.
 func webSitePECType(id string) string {
-	if strings.Contains(id, "/slots/") {
+	switch {
+	case strings.Contains(strings.ToLower(id), "/hostingenvironments/"):
+		return aseResourceType + "/privateEndpointConnections"
+	case strings.Contains(id, "/slots/"):
 		return "Microsoft.Web/sites/slots/privateEndpointConnections"
 	}
 	return "Microsoft.Web/sites/privateEndpointConnections"

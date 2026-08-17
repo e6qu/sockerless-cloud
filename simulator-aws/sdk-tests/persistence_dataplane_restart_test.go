@@ -110,6 +110,7 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 		}},
 	})
 	require.NoError(t, err)
+	waitForPersistentTargetInService(t, testCtx, elbAPI, targetGroupARN)
 	assertPersistentTCPEcho(t, listenerPort, "before-restart")
 
 	shutdownSimulator(cmd)
@@ -122,6 +123,10 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	})
 	require.NoError(t, err)
 	require.Len(t, described.LoadBalancers, 1)
+	// Target health is a live measurement, not stored configuration: a
+	// restarted load balancer checks its registered targets again before it
+	// forwards to them.
+	waitForPersistentTargetInService(t, testCtx, elbAPI, targetGroupARN)
 	assertPersistentTCPEcho(t, listenerPort, "after-restart")
 	secondNetworkInterface, err := ec2API.CreateNetworkInterface(testCtx, &ec2.CreateNetworkInterfaceInput{
 		SubnetId: subnet.Subnet.SubnetId,
@@ -150,6 +155,27 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	})
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(secondDaemonTaskDefinition.DaemonTaskDefinitionArn), "persistent-daemon-family:2")
+}
+
+// waitForPersistentTargetInService blocks until Elastic Load Balancing's health
+// checker has put the registered target in service. A load balancer forwards
+// only to targets that have passed a health check, so a client that has just
+// registered one waits for that check before sending it traffic.
+func waitForPersistentTargetInService(
+	t *testing.T,
+	ctx context.Context,
+	api *elbv2.Client,
+	targetGroupARN string,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		health, err := api.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
+			TargetGroupArn: aws.String(targetGroupARN),
+		})
+		return err == nil && len(health.TargetHealthDescriptions) == 1 &&
+			health.TargetHealthDescriptions[0].TargetHealth.State == elbv2types.TargetHealthStateEnumHealthy
+	}, 30*time.Second, 100*time.Millisecond,
+		"target registered in %s never entered service", targetGroupARN)
 }
 
 func servePersistentTCPEcho(listener net.Listener) {

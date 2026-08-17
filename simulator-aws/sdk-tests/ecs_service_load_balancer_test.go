@@ -64,6 +64,11 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		Name: aws.String("svc-lb-tg"), Protocol: elbtypes.ProtocolEnumHttp,
 		Port: aws.Int32(port), VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
 		HealthCheckPath: aws.String("/health"),
+		// The container starts serving only after the target's first health
+		// check has already failed, so the target enters service on a later
+		// check. Elastic Load Balancing runs those on this interval, and the
+		// 30-second default would make the test wait one out for nothing.
+		HealthCheckIntervalSeconds: aws.Int32(5),
 	})
 	require.NoError(t, err)
 	targetGroupArn := aws.ToString(targetGroup.TargetGroups[0].TargetGroupArn)

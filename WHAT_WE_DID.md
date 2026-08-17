@@ -1,5 +1,43 @@
 # WHAT WE DID
 
+## 2026-08-16 — App Service Environments, Kube Environments and detectors
+
+An App Service Environment is a real placement scope rather than a stored
+document. Its virtual-network reference must resolve to a subnet the simulator's
+own network store holds, and a missing one is refused; its outbound address is
+leased from the same public-address pool the network resources reserve from and
+released on delete, while its inbound address is derived from the subnet's own
+prefix, since Azure reserves a subnet's first four addresses. Its counts are
+derived rather than stored — the multi-role count is the front-end pool's worker
+count, Linux support appears only once a Linux plan is placed, and available
+capacity is each pool's workers minus what the placed plans took. Suspending or
+resuming an environment stops and starts the apps inside it, rebooting tears
+down their workload containers, and a delete is refused while plans remain
+unless it is forced. The environment is a private-link target too, so its
+private-endpoint operations act on connections a real endpoint opened. Kube
+Environments are served in full.
+
+Five operations are deliberately unserved and say so on the wire rather than
+answering a silent 404 inside a working resource: four metric-definition
+operations, because a metric definition promises a series the simulator does not
+emit, and the outbound network-dependency catalog, which is Microsoft-published
+platform data of the same class as the runtime-stack catalogs this project has
+declined to invent. The inbound half of that pair is served, computed from the
+environment's own addresses, subnet and protocol switches.
+
+Detectors compute from state the simulator actually holds. Site crashes read the
+workload container's exit code, whether the kernel killed it for memory, and
+whether it is dead; the memory and processor analyses read engine samples and
+report a problem only on a real kernel kill or a non-zero throttling counter,
+never against an invented threshold; the thread count reads the container's own
+process table; and restart history comes from a new site event journal. Every
+detector left unimplemented names the input it would need — service-health
+incidents, swap history, a worker fleet, request or platform logs, Windows
+counters — rather than being dismissed as a family. Fixed beside them: restarting
+a web app was a no-op that reported success.
+
+The surface moved from 545 to 616 of 692.
+
 ## 2026-08-16 — Twelfth polish pass: App Service backups that really round-trip, and a registry a real engine can log in to
 
 An App Service backup writes a real archive. It builds a ZIP of the site's

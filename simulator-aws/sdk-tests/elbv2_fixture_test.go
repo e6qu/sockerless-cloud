@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"testing"
@@ -13,8 +14,43 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/stretchr/testify/require"
 )
+
+// waitForELBv2TargetHealth blocks until Elastic Load Balancing's health
+// checker reports the target in the wanted state. A target is not in service
+// the instant it is registered — "After your target is registered, it must
+// pass one health check to be considered healthy" — and leaving service takes
+// UnhealthyThresholdCount consecutive failed checks at the target group's
+// configured interval, so a client polls the health before depending on it.
+func waitForELBv2TargetHealth(
+	t *testing.T,
+	targetGroupArn string,
+	target elbtypes.TargetDescription,
+	want elbtypes.TargetHealthStateEnum,
+) {
+	t.Helper()
+	elb := elbv2Client()
+	observed := "none"
+	require.Eventuallyf(t, func() bool {
+		health, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
+			TargetGroupArn: aws.String(targetGroupArn),
+			Targets:        []elbtypes.TargetDescription{target},
+		})
+		if err != nil || len(health.TargetHealthDescriptions) != 1 {
+			observed = fmt.Sprintf("describe failed: %v", err)
+			return false
+		}
+		observed = string(health.TargetHealthDescriptions[0].TargetHealth.State)
+		return observed == string(want)
+	}, 30*time.Second, 100*time.Millisecond,
+		"target %s:%d in %s never reported %s",
+		aws.ToString(target.Id), aws.ToInt32(target.Port), targetGroupArn, want)
+	t.Logf("target %s:%d reported %s (last observed %s)",
+		aws.ToString(target.Id), aws.ToInt32(target.Port), want, observed)
+}
 
 func importELBv2Certificate(t *testing.T, domain string) string {
 	t.Helper()

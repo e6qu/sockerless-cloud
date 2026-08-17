@@ -205,6 +205,7 @@ func registerELBv2(r *sim.AWSQueryRouter, srv *sim.Server) {
 
 	registerELBv2Rules(r, srv)
 	registerELBv2TrustStores(r, srv)
+	startELBv2TargetHealthChecker(srv)
 	if err := elbv2RecoverDataPlanes(); err != nil {
 		panic(fmt.Sprintf("restore Elastic Load Balancing data planes: %v", err))
 	}
@@ -641,8 +642,17 @@ func handleELBv2DescribeTargetHealth(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("<TargetHealthDescriptions>")
 	for _, target := range targets {
-		state := elbv2ProbeTarget(r.Context(), tg, target)
-		fmt.Fprintf(&b, `<member><Target>%s</Target><TargetHealth><State>%s</State></TargetHealth></member>`, elbv2TargetXML(target), state)
+		health := elbv2TargetHealthFor(tg, target)
+		fmt.Fprintf(&b, `<member><Target>%s</Target><HealthCheckPort>%d</HealthCheckPort><TargetHealth><State>%s</State>`,
+			elbv2TargetXML(target), elbv2EffectiveHealthCheckPort(tg, target), xmlEscape(health.State))
+		// A healthy target carries neither a reason code nor a description.
+		if health.Reason != "" {
+			fmt.Fprintf(&b, "<Reason>%s</Reason>", xmlEscape(health.Reason))
+		}
+		if health.Description != "" {
+			fmt.Fprintf(&b, "<Description>%s</Description>", xmlEscape(health.Description))
+		}
+		b.WriteString("</TargetHealth></member>")
 	}
 	b.WriteString("</TargetHealthDescriptions>")
 	elbv2XMLResponse(w, "DescribeTargetHealth", b.String(), sim.RequestID(r.Context()))

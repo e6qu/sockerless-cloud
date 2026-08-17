@@ -34,6 +34,14 @@ type AppServicePlanProperties struct {
 	IsXenon                   bool   `json:"isXenon"`
 	MaximumElasticWorkerCount int    `json:"maximumElasticWorkerCount"`
 	NumberOfSites             int    `json:"numberOfSites"`
+	// HostingEnvironmentProfile places the plan in an App Service
+	// Environment. The environment reads its own inventory back through it,
+	// and its stamp capacity counts the plan's instances against the pool the
+	// plan targets.
+	HostingEnvironmentProfile *HostingEnvironmentProfile `json:"hostingEnvironmentProfile,omitempty"`
+	// TargetWorkerSizeID names the worker size the plan's instances run on,
+	// which is the App Service Environment pool they consume capacity from.
+	TargetWorkerSizeID *int32 `json:"targetWorkerSizeId,omitempty"`
 }
 
 var azureAppServicePlans sim.Store[AppServicePlan]
@@ -109,6 +117,15 @@ func registerAppServicePlan(srv *sim.Server) {
 			resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s",
 				sub, rg, planName)
 
+			// A plan placed in an App Service Environment is placed in one
+			// that exists; the resource provider refuses a reference to an
+			// environment it cannot resolve.
+			hostingEnvironment, err := webResolveHostingEnvironmentProfile(req.Properties.HostingEnvironmentProfile)
+			if err != nil {
+				sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+				return
+			}
+
 			// The service derives an App Service plan's tier, family and size
 			// from the SKU name a client sends. terraform-provider-azurerm's
 			// azurerm_service_plan sends nothing but the name and capacity, and
@@ -140,10 +157,12 @@ func registerAppServicePlan(srv *sim.Server) {
 				Kind:     req.Kind,
 				Sku:      sku,
 				Properties: AppServicePlanProperties{
-					ProvisioningState: "Succeeded",
-					Status:            "Ready",
-					Reserved:          req.Properties.Reserved,
-					IsXenon:           req.Properties.IsXenon,
+					ProvisioningState:         "Succeeded",
+					Status:                    "Ready",
+					Reserved:                  req.Properties.Reserved,
+					IsXenon:                   req.Properties.IsXenon,
+					HostingEnvironmentProfile: hostingEnvironment,
+					TargetWorkerSizeID:        req.Properties.TargetWorkerSizeID,
 				},
 			}
 			plans.Put(resourceID, plan)

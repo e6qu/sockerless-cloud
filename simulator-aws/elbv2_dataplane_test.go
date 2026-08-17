@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,10 @@ func newELBv2DataPlaneServer(t *testing.T) *sim.Server {
 	registerWAFv2(jsonRouter, srv)
 	registerECS(jsonRouter, srv)
 	registerELBv2DataPlane(srv)
+	// The Elastic Load Balancing target health checker runs under the
+	// server lifecycle; without this it outlives the test and keeps
+	// checking whatever the next test puts in the package stores.
+	t.Cleanup(srv.StopBackground)
 	return srv
 }
 
@@ -79,6 +84,7 @@ func TestELBv2DataPlaneRoutesOnlyLoadBalancerHosts(t *testing.T) {
 		HealthCheckProtocol: "HTTP",
 		HealthCheckPath:     "/healthz",
 		HealthCheckTimeout:  2,
+		HealthCheckEnabled:  true,
 		Targets: []ELBv2TargetDescription{{
 			ID:   targetHost,
 			Port: targetPort,
@@ -96,6 +102,9 @@ func TestELBv2DataPlaneRoutesOnlyLoadBalancerHosts(t *testing.T) {
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
+	// A load balancer forwards only to targets its health checker has put in
+	// service, so run the check the checker would have run by now.
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 	elbv2Listeners.Put(listener.Arn, listener)
 
 	req := httptest.NewRequest(http.MethodGet, "http://simulator/proxy-check", nil)
@@ -233,6 +242,7 @@ func TestELBv2DataPlaneReturnsTargetRedirectsInsteadOfFollowingThem(t *testing.T
 		HealthCheckProtocol: "HTTP",
 		HealthCheckPath:     "/healthz",
 		HealthCheckTimeout:  2,
+		HealthCheckEnabled:  true,
 		Targets:             []ELBv2TargetDescription{{ID: targetHost, Port: targetPort}},
 	}
 	listener := ELBv2Listener{
@@ -244,6 +254,9 @@ func TestELBv2DataPlaneReturnsTargetRedirectsInsteadOfFollowingThem(t *testing.T
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
+	// A load balancer forwards only to targets its health checker has put in
+	// service, so run the check the checker would have run by now.
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 	elbv2Listeners.Put(listener.Arn, listener)
 
 	for _, status := range []int{
@@ -351,6 +364,7 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 		HealthCheckProtocol: "HTTP",
 		HealthCheckPath:     "/healthz",
 		HealthCheckTimeout:  2,
+		HealthCheckEnabled:  true,
 		Targets:             []ELBv2TargetDescription{{ID: targetHost, Port: targetPort}},
 	}
 	listener := ELBv2Listener{
@@ -362,6 +376,9 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
+	// A load balancer forwards only to targets its health checker has put in
+	// service, so run the check the checker would have run by now.
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 	elbv2Listeners.Put(listener.Arn, listener)
 
 	dataPlane := httptest.NewServer(srv)

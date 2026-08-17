@@ -114,6 +114,12 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	// 127.0.0.1:<port>, the host every same-host client reaches). We resolve the
 	// hostname → IP and connect on the listener port — never a host:port from
 	// DNSName.
+	// The listener forwards only to a target the health checker has put in
+	// service, so wait for the registration to pass its first health check.
+	waitForELBv2TargetHealth(t, tgArn,
+		elbtypes.TargetDescription{Id: aws.String(backendHost), Port: aws.Int32(int32(backendPort))},
+		elbtypes.TargetHealthStateEnumHealthy)
+
 	proxyHost := resolveNLBHostname(dnsName)
 	endpoint := net.JoinHostPort(proxyHost, strconv.Itoa(listenerPort))
 	conn, err := net.DialTimeout("tcp", endpoint, 5*time.Second)
