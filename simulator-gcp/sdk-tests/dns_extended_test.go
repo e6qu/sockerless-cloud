@@ -41,7 +41,11 @@ func TestDNS_PolicyCRUD(t *testing.T) {
 
 	list, err := svc.Policies.List(project).Do()
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(list.Policies), 1)
+	policyNames := make([]string, 0, len(list.Policies))
+	for _, p := range list.Policies {
+		policyNames = append(policyNames, p.Name)
+	}
+	require.Contains(t, policyNames, "fwd-policy", "the policy just created must be listed")
 
 	patched, err := svc.Policies.Patch(project, "fwd-policy", &dns.Policy{
 		Description: "patched description",
@@ -88,7 +92,11 @@ func TestDNS_ResponsePolicyAndRulesCRUD(t *testing.T) {
 
 	rpList, err := svc.ResponsePolicies.List(project).Do()
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(rpList.ResponsePolicies), 1)
+	rpNames := make([]string, 0, len(rpList.ResponsePolicies))
+	for _, p := range rpList.ResponsePolicies {
+		rpNames = append(rpNames, p.ResponsePolicyName)
+	}
+	require.Contains(t, rpNames, "rp-1", "the response policy just created must be listed")
 
 	patchedRP, err := svc.ResponsePolicies.Patch(project, "rp-1", &dns.ResponsePolicy{
 		Description: "patched rp",

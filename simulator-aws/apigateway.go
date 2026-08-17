@@ -15,13 +15,22 @@ import (
 // `terraform-provider-aws::aws_api_gateway_rest_api` exercises.
 
 type APIGWRestApi struct {
-	Id             string            `json:"id"`
-	Name           string            `json:"name"`
-	Description    string            `json:"description,omitempty"`
-	CreatedDate    int64             `json:"createdDate"`
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	CreatedDate int64  `json:"createdDate"`
+	// ApiStatus is how a caller knows the API can be used: a client that
+	// creates one waits for AVAILABLE before it deploys to it, and reads an
+	// absent status as a state it has never seen. The simulator's REST API is
+	// usable as soon as the create returns, so that is the status it reports
+	// from creation onward.
+	ApiStatus      string            `json:"apiStatus,omitempty"`
 	RootResourceId string            `json:"rootResourceId,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
 }
+
+// apigwStatusAvailable is the ApiStatus of a REST API that can serve requests.
+const apigwStatusAvailable = "AVAILABLE"
 
 // Inner fields use the `restApiIdRef` tag (or similar non-canonical
 // names) instead of `json:"-"` so they survive Store persistence
@@ -306,6 +315,7 @@ func handleAPIGWCreateRestApi(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Description: req.Description,
 		CreatedDate: time.Now().Unix(),
+		ApiStatus:   apigwStatusAvailable,
 		Tags:        req.Tags,
 	}
 	// Real API Gateway auto-creates the root "/" resource on Create and

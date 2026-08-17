@@ -123,9 +123,11 @@ spec:
 // publishes left the published one working.
 func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	const jobID = "cli-verb-job"
+	// The step outlives this test by a wide margin, so nothing settles the
+	// execution except the cancel the CLI sends.
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId="+jobID, `{
 		"template": {"template": {"containers": [
-			{"image": "alpine:latest", "command": ["sleep"], "args": ["30"]}
+			{"image": "alpine:latest", "command": ["sleep"], "args": ["3600"]}
 		]}}
 	}`)
 	t.Cleanup(func() {
@@ -145,16 +147,64 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	require.NotEmpty(t, lro.Response.Name)
 	execID := lro.Response.Name[strings.LastIndex(lro.Response.Name, "/")+1:]
 
+	// The task has to be genuinely in flight when the cancel lands, otherwise
+	// the cancelled count the cancel records would be zero.
+	type v2Execution struct {
+		RunningCount   int    `json:"runningCount"`
+		CancelledCount int    `json:"cancelledCount"`
+		SucceededCount int    `json:"succeededCount"`
+		FailedCount    int    `json:"failedCount"`
+		CompletionTime string `json:"completionTime"`
+		Conditions     []struct {
+			Type   string `json:"type"`
+			State  string `json:"state"`
+			Reason string `json:"reason"`
+		} `json:"conditions"`
+	}
+	readExecution := func() v2Execution {
+		var execution v2Execution
+		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+lro.Response.Name, ""), &execution)
+		return execution
+	}
+	container := jobContainerName(lro.Response.Name)
+	require.Eventually(t, func() bool {
+		return exec.Command("docker", "inspect", container).Run() == nil
+	}, 60*time.Second, 250*time.Millisecond,
+		"the execution's workload container %s never came up", container)
+	require.Equal(t, 1, readExecution().RunningCount,
+		"the execution's task must still be running when the cancel is sent")
+
 	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "executions", "cancel", execID,
 		"--region="+location, "--format=value(metadata.name)"))
 
+	var settled v2Execution
 	require.Eventually(t, func() bool {
-		var execution struct {
-			CompletionTime string `json:"completionTime"`
-		}
-		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+lro.Response.Name, ""), &execution)
-		return execution.CompletionTime != ""
+		settled = readExecution()
+		return settled.CompletionTime != ""
 	}, 60*time.Second, 250*time.Millisecond, "the cancel the CLI sent must settle the execution")
+
+	// A cancelled execution is not merely finished: the task it stopped is
+	// counted as cancelled, none succeeded or failed on their own, and both
+	// terminal conditions carry the cancellation reason. A step that ran to
+	// completion by itself would settle with a succeeded count instead.
+	assert.Equal(t, 1, settled.CancelledCount, "the running task is counted as cancelled")
+	assert.Equal(t, 0, settled.RunningCount)
+	assert.Equal(t, 0, settled.SucceededCount, "nothing succeeded — the task was stopped")
+	assert.Equal(t, 0, settled.FailedCount)
+	byType := map[string]string{}
+	for _, c := range settled.Conditions {
+		byType[c.Type] = c.State + "/" + c.Reason
+	}
+	assert.Equal(t, "CONDITION_FAILED/Cancelled", byType["Ready"])
+	assert.Equal(t, "CONDITION_FAILED/Cancelled", byType["Completed"])
+
+	// Rewriting the record is not cancelling: the workload container the
+	// execution owned has to be stopped too, or an hour of `sleep 3600` keeps
+	// running behind an execution both API versions call cancelled.
+	require.Eventually(t, func() bool {
+		return exec.Command("docker", "inspect", container).Run() != nil
+	}, 60*time.Second, 250*time.Millisecond,
+		"the cancel must stop the workload container %s, not just the record", container)
 
 	// A verb the service does not publish is refused on the same collection
 	// rather than silently cancelling: no CLI spells an unpublished method, so

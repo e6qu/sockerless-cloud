@@ -1,6 +1,7 @@
 package aws_cli_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -76,15 +77,23 @@ func TestGlueBusinessContextAndEntityRecords_CLI(t *testing.T) {
 		"--asset-identifier", "cli-quarterly-sales",
 		"--glossary-term-identifiers", termID))
 
-	runCLIExpectError(t, awsCLI("glue", "list-iterable-forms",
-		"--asset-identifier", "cli-quarterly-sales", "--iterable-form-name", "columns"))
-	runCLIExpectError(t, awsCLI("glue", "batch-get-iterable-forms",
-		"--asset-identifier", "cli-quarterly-sales", "--iterable-form-name", "columns",
-		"--item-identifiers", "amount"))
+	// list-iterable-forms and batch-get-iterable-forms are absent from the aws
+	// CLI bundled here, so driving them from this suite would only prove that
+	// botocore rejects an unknown command — never reaching the simulator. They
+	// are exercised through the SDK suite instead.
 
+	// A run id no evaluation run carries comes back under RunsNotFound rather
+	// than as a run: the batch reader distinguishes what it found from what it
+	// did not.
 	batch := runCLI(t, awsCLI("glue", "batch-get-data-quality-ruleset-evaluation-run",
-		"--run-ids", "cli-missing-run"))
-	assert.Contains(t, batch, "cli-missing-run")
+		"--run-ids", "cli-missing-run", "--output", "json"))
+	var batchResult struct {
+		Runs         []json.RawMessage `json:"Runs"`
+		RunsNotFound []string          `json:"RunsNotFound"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(batch), &batchResult))
+	assert.Equal(t, []string{"cli-missing-run"}, batchResult.RunsNotFound)
+	assert.Empty(t, batchResult.Runs)
 
 	runCLI(t, awsCLI("dynamodb", "create-table",
 		"--table-name", "glue-cli-business-entities",

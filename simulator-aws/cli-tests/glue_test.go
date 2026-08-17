@@ -260,6 +260,14 @@ func TestGlue_PartitionLifecycle_CLI(t *testing.T) {
 	assert.Empty(t, gps.Partitions)
 }
 
+// glueJobRunCompletionBudget bounds the wait for an AWS Glue job run to settle.
+// A Python shell job run is real container work — the interpreter image is
+// pulled if absent, the script runs inside it, and the run settles when that
+// container exits — so the budget covers the container engine's
+// pull/create/start/wait alongside whatever else is running on the host. Real
+// AWS Glue job runs take minutes; the API promises nothing faster.
+const glueJobRunCompletionBudget = 4 * time.Minute
+
 func TestGlue_JobCRUD_CLI(t *testing.T) {
 	bucket := "glue-cli-scripts"
 	scriptPath := filepath.Join(tmpDir, "glue-cli-script.py")
@@ -326,7 +334,7 @@ func TestGlue_JobCRUD_CLI(t *testing.T) {
 			"--run-id", run.JobRunID))
 		parseJSON(t, out, &getRun)
 		return getRun.JobRun.JobRunState == "SUCCEEDED"
-	}, 10*time.Second, 100*time.Millisecond)
+	}, glueJobRunCompletionBudget, 250*time.Millisecond)
 	assert.Equal(t, run.JobRunID, getRun.JobRun.ID)
 	assert.Equal(t, "SUCCEEDED", getRun.JobRun.JobRunState)
 

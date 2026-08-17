@@ -10,6 +10,13 @@ import (
 
 // cbCLICreateProject creates a NO_SOURCE project with a one-command buildspec so
 // build/batch/sandbox round-trips have a real project to run against.
+// cbCLIBuildCompletionBudget bounds every wait for an AWS CodeBuild build or
+// sandbox command to reach a terminal state. Both are real container work — the
+// build environment image is created and the commands run inside it — so the
+// budget is really a budget for the container engine alongside whatever else is
+// running on the host. Real AWS CodeBuild builds take minutes.
+const cbCLIBuildCompletionBudget = 4 * time.Minute
+
 func cbCLICreateProject(t *testing.T, name, buildspec string) {
 	t.Helper()
 	runCLI(t, awsCLI("codebuild", "create-project",
@@ -52,7 +59,7 @@ func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 		}
 		parseJSON(t, o, &bg)
 		return len(bg.BuildBatches) == 1 && bg.BuildBatches[0].BuildBatchStatus == "SUCCEEDED"
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbCLIBuildCompletionBudget, 100*time.Millisecond)
 
 	out = runCLI(t, awsCLI("codebuild", "list-build-batches"))
 	var lb struct {
@@ -232,7 +239,7 @@ func TestCodeBuildCLI_SandboxesAndCommands(t *testing.T) {
 		}
 		parseJSON(t, o, &bgc)
 		return len(bgc.CommandExecutions) == 1 && bgc.CommandExecutions[0].Status == "SUCCEEDED"
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbCLIBuildCompletionBudget, 100*time.Millisecond)
 
 	out = runCLI(t, awsCLI("codebuild", "list-command-executions-for-sandbox", "--sandbox-id", sbID))
 	var lc struct {
@@ -304,8 +311,17 @@ func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 		runCLI(t, awsCLI("codebuild", "delete-report-group", "--arn", rgArn, "--delete-reports"))
 	})
 
+	// The build writes the JUnit XML its reports entry declares, and the entry
+	// names the group by ARN so the report lands in the group created above; a
+	// bare name would create "<project-name>-<report-group-name>" instead. The
+	// content rides base64 so neither the buildspec YAML nor the shell touches
+	// it. The two cases below are what the file holds — one passing, one failing.
 	proj := "cb-cli-insights-proj"
-	cbCLICreateProject(t, proj, "version: 0.2\\nphases:\\n  build:\\n    commands:\\n      - printf ok\\nreports:\\n  "+rgName+":\\n    files:\\n      - '**/*'\\n")
+	cbCLICreateProject(t, proj, "version: 0.2\\nphases:\\n  build:\\n    commands:\\n"+
+		"      - mkdir -p test-results\\n"+
+		"      - printf %s PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48dGVzdHN1aXRlcz48dGVzdHN1aXRlIG5hbWU9ImNoZWNrb3V0Ij48dGVzdGNhc2UgY2xhc3NuYW1lPSJjYXJ0LkNoZWNrb3V0VGVzdCIgbmFtZT0idG90YWxzVGhlQmFza2V0IiB0aW1lPSIwLjEyNSIvPjx0ZXN0Y2FzZSBjbGFzc25hbWU9ImNhcnQuQ2hlY2tvdXRUZXN0IiBuYW1lPSJyZWplY3RzQW5FbXB0eUJhc2tldCIgdGltZT0iMC41Ij48ZmFpbHVyZSBtZXNzYWdlPSJleHBlY3RlZCA0MDAsIGdvdCAyMDAiPmJvb208L2ZhaWx1cmU+PC90ZXN0Y2FzZT48L3Rlc3RzdWl0ZT48L3Rlc3RzdWl0ZXM+ | base64 -d > test-results/junit.xml\\n"+
+		"reports:\\n  "+rgArn+":\\n    files:\\n      - junit.xml\\n"+
+		"    base-directory: test-results\\n    file-format: JUNITXML\\n")
 
 	out = runCLI(t, awsCLI("codebuild", "start-build", "--project-name", proj))
 	var start struct {
@@ -330,19 +346,39 @@ func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 		}
 		reportArn = gb.Builds[0].ReportArns[0]
 		return true
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbCLIBuildCompletionBudget, 100*time.Millisecond)
 	require.NotEmpty(t, reportArn)
 
+	// The two test cases are the ones the JUnit XML held, with the statuses,
+	// suite, prefix and duration it recorded.
 	out = runCLI(t, awsCLI("codebuild", "describe-test-cases", "--report-arn", reportArn))
 	var tc struct {
 		TestCases []struct {
-			ReportArn string `json:"reportArn"`
+			ReportArn             string `json:"reportArn"`
+			Name                  string `json:"name"`
+			Prefix                string `json:"prefix"`
+			Status                string `json:"status"`
+			Message               string `json:"message"`
+			TestSuiteName         string `json:"testSuiteName"`
+			DurationInNanoSeconds int64  `json:"durationInNanoSeconds"`
+			TestRawDataPath       string `json:"testRawDataPath"`
 		} `json:"testCases"`
 	}
 	parseJSON(t, out, &tc)
-	require.NotEmpty(t, tc.TestCases)
-	assert.Equal(t, reportArn, tc.TestCases[0].ReportArn)
+	require.Len(t, tc.TestCases, 2)
+	byName := map[string]string{}
+	for _, c := range tc.TestCases {
+		byName[c.Name] = c.Status
+		assert.Equal(t, reportArn, c.ReportArn)
+		assert.Equal(t, "cart.CheckoutTest", c.Prefix)
+		assert.Equal(t, "checkout", c.TestSuiteName)
+		assert.Equal(t, "junit.xml", c.TestRawDataPath)
+	}
+	assert.Equal(t, "SUCCEEDED", byName["totalsTheBasket"])
+	assert.Equal(t, "FAILED", byName["rejectsAnEmptyBasket"])
 
+	// The build wrote no coverage file, and this is a TEST report group, so the
+	// coverage answer is empty rather than an invented hundred-percent row.
 	out = runCLI(t, awsCLI("codebuild", "describe-code-coverages", "--report-arn", reportArn))
 	var cov struct {
 		CodeCoverages []struct {
@@ -350,21 +386,23 @@ func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 		} `json:"codeCoverages"`
 	}
 	parseJSON(t, out, &cov)
-	require.NotEmpty(t, cov.CodeCoverages)
-	assert.Equal(t, reportArn, cov.CodeCoverages[0].ReportARN)
+	assert.Empty(t, cov.CodeCoverages)
 
 	out = runCLI(t, awsCLI("codebuild", "get-report-group-trend",
 		"--report-group-arn", rgArn, "--trend-field", "PASS_RATE"))
 	var trend struct {
 		RawData []struct {
 			ReportArn string `json:"reportArn"`
+			Data      string `json:"data"`
 		} `json:"rawData"`
 		Stats struct {
 			Average string `json:"average"`
 		} `json:"stats"`
 	}
 	parseJSON(t, out, &trend)
-	require.NotEmpty(t, trend.RawData)
+	require.Len(t, trend.RawData, 1)
+	// One of the report's two cases passed.
+	assert.Equal(t, "50", trend.RawData[0].Data)
 
 	runCLI(t, awsCLI("codebuild", "delete-report", "--arn", reportArn))
 }

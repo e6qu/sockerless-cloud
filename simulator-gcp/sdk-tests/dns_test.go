@@ -60,7 +60,17 @@ func TestDNS_ListManagedZones(t *testing.T) {
 
 	resp, err := svc.ManagedZones.List("test-project").Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(resp.ManagedZones), 1)
+	assert.Contains(t, dnsZoneNames(resp), "list-zone",
+		"the zone just created must be listed")
+}
+
+// dnsZoneNames reduces a managedZones.list response to its zone names.
+func dnsZoneNames(resp *dns.ManagedZonesListResponse) []string {
+	names := make([]string, 0, len(resp.ManagedZones))
+	for _, z := range resp.ManagedZones {
+		names = append(names, z.Name)
+	}
+	return names
 }
 
 func TestDNS_DeleteManagedZone(t *testing.T) {
@@ -73,8 +83,24 @@ func TestDNS_DeleteManagedZone(t *testing.T) {
 	_, err := svc.ManagedZones.Create("test-project", zone).Do()
 	require.NoError(t, err)
 
-	err = svc.ManagedZones.Delete("test-project", "del-zone").Do()
+	// The zone exists before the delete, so its absence afterwards is the
+	// delete's doing and not a create that never landed.
+	before, err := svc.ManagedZones.List("test-project").Do()
 	require.NoError(t, err)
+	require.Contains(t, dnsZoneNames(before), "del-zone")
+
+	require.NoError(t, svc.ManagedZones.Delete("test-project", "del-zone").Do())
+
+	_, err = svc.ManagedZones.Get("test-project", "del-zone").Do()
+	require.Error(t, err, "a deleted zone must not be readable")
+	gerr, ok := err.(*googleapi.Error)
+	require.True(t, ok, "expected a googleapi.Error, got %T: %v", err, err)
+	assert.Equal(t, 404, gerr.Code)
+
+	after, err := svc.ManagedZones.List("test-project").Do()
+	require.NoError(t, err)
+	assert.NotContains(t, dnsZoneNames(after), "del-zone",
+		"a deleted zone must be gone from the list")
 }
 
 func TestDNS_ChangesAndPatchRecordSet(t *testing.T) {

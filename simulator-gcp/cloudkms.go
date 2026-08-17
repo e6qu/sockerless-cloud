@@ -1501,7 +1501,13 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		if !ok {
 			return
 		}
-		resp := map[string]any{"retiredResources": page, "totalSize": len(all)}
+		// ListRetiredResourcesResponse declares totalSize as an int64, which
+		// proto3 JSON carries as a string — unlike the int32 totalSize every
+		// other Cloud KMS list response declares.
+		resp := map[string]any{
+			"retiredResources": page,
+			"totalSize":        strconv.Itoa(len(all)),
+		}
 		if next != "" {
 			resp["nextPageToken"] = next
 		}
@@ -2852,15 +2858,18 @@ func kmsAssembleCryptoKey(k kmsStoredCryptoKey) kmsCryptoKey {
 	return out
 }
 
-// kmsVersionNumber extracts the trailing numeric version ID from a
-// version resource name.
+// kmsVersionNumber extracts the trailing numeric version ID from a version
+// resource name. Key versions are numbered from one, and the identifier is the
+// whole final segment: a segment that is not a positive integer names no
+// version, so "0x10" and "1-old" are rejected rather than read as far as the
+// first non-digit.
 func kmsVersionNumber(versionName string) (int, bool) {
 	i := strings.LastIndex(versionName, "/cryptoKeyVersions/")
 	if i < 0 {
 		return 0, false
 	}
-	var n int
-	if _, err := fmt.Sscanf(versionName[i+len("/cryptoKeyVersions/"):], "%d", &n); err != nil {
+	n, err := strconv.Atoi(versionName[i+len("/cryptoKeyVersions/"):])
+	if err != nil || n < 1 {
 		return 0, false
 	}
 	return n, true

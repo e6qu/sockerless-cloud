@@ -997,7 +997,166 @@ func iamSSMDerivesItsResource(operation string, members map[string]bool) bool {
 // coverage is per-request (the case fires only when the request carries the
 // field it reads), which is precisely why the table-driven form replaced it.
 var iamHandwrittenDerivationServices = map[string]bool{
+	// Amazon DynamoDB's transactions and batches, whose tables ride per item
+	// rather than at the top level.
+	"dynamodb": true,
+	// AWS Lambda's function name, which its REST path carries.
 	"lambda": true,
+}
+
+// ----- Probing the services whose requests are not a flat awsJson body -------
+
+// iamProductionProbeDerives runs the gate's own entry point —
+// iamResourceARNsForRequest, the function the enforcement path calls — against a
+// probe request, and reports whether it produced a resource rather than the "*"
+// fallback. Every service the coverage measurement counts goes through a probe
+// like this one: table membership states only that AWS declares a resource type
+// for the action, never that this simulator can read it out of the request.
+func iamProductionProbeDerives(r *http.Request, action string) bool {
+	arns := iamResourceARNsForRequest(r, action)
+	if len(arns) == 0 {
+		return false
+	}
+	for _, arn := range arns {
+		if arn == "*" {
+			return false
+		}
+	}
+	return true
+}
+
+// iamProbeMemberValue is what the probe sends for one request member: an ARN
+// where the member is an ARN by definition — which is what a real caller
+// sends — and a bare identifier otherwise.
+func iamProbeMemberValue(name, arnValue string) string {
+	if strings.HasSuffix(strings.ToLower(name), "arn") {
+		return arnValue
+	}
+	return "probe"
+}
+
+// iamAWSJSONProbeRequest is the awsJson request an SDK sends for an operation:
+// every member the model declares, in the shape the model gives it — a list
+// where the API takes a list, an object where it takes a structure — and an
+// ARN in the members that are ARNs by definition.
+func iamAWSJSONProbeRequest(
+	service, operation, arnValue string, members map[string]string, nested map[string][]string,
+) *http.Request {
+	body := make(map[string]any, len(members))
+	for name, kind := range members {
+		value := iamProbeMemberValue(name, arnValue)
+		switch kind {
+		case "list":
+			body[name] = []string{value}
+		case "structure":
+			object := make(map[string]any, len(nested[name]))
+			for _, inner := range nested[name] {
+				object[inner] = iamProbeMemberValue(inner, arnValue)
+			}
+			body[name] = object
+		default:
+			body[name] = value
+		}
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		encoded = []byte("{}")
+	}
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(encoded)))
+	r.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	r.Header.Set("X-Amz-Target", service+"."+operation)
+	return r
+}
+
+// iamAWSQueryProbeRequest is the form-encoded request an awsQuery service takes,
+// with a list member sent under the protocol's indexed .member.N spelling.
+func iamAWSQueryProbeRequest(operation, version, arnValue string, members map[string]string) *http.Request {
+	form := "Action=" + operation + "&Version=" + version
+	for name, kind := range members {
+		if name == "Action" || name == "Version" {
+			continue
+		}
+		key := name
+		if kind == "list" {
+			key = name + ".member.1"
+		}
+		form += "&" + key + "=" + url.QueryEscape(iamProbeMemberValue(name, arnValue))
+	}
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return r
+}
+
+// loadCasedRequestMembers returns, per operation, the request members the model
+// declares — under the exact spelling the SDK puts on the wire, and carrying
+// each member's shape kind so the probe can send a list where the API takes a
+// list and an object where it takes a structure.
+//
+// Both halves matter to the measurement. loadRequestFields lower-cases every
+// name, which suits a derivation that case-folds its lookup; a derivation that
+// reads a named member or form parameter — AWS Identity and Access Management
+// reads RoleName, Amazon ECS reads taskDefinition — would see nothing under a
+// folded name. And a probe that sends the string "probe" for Amazon ECS's
+// services or tasks member never puts a list where the API puts one, so a
+// derivation that reads inside it finds nothing and the operation is counted as
+// underived while a real request derives it perfectly well.
+func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string]string {
+	t.Helper()
+	path := filepath.Join("..", "specs", "cloud-api", "aws", service+".smithy.json.gz")
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open %s: %v — run scripts/fetch-aws-spec.sh %s", path, err, service)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("gunzip %s: %v", path, err)
+	}
+	defer gz.Close()
+
+	var doc struct {
+		Shapes map[string]struct {
+			Type    string                  `json:"type"`
+			Input   struct{ Target string } `json:"input"`
+			Members map[string]struct {
+				Target string `json:"target"`
+			} `json:"members"`
+			Member struct {
+				Target string `json:"target"`
+			} `json:"member"`
+		} `json:"shapes"`
+	}
+	if err := json.NewDecoder(gz).Decode(&doc); err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+	out := map[string]map[string]string{}
+	for id, shape := range doc.Shapes {
+		if shape.Type != "operation" || shape.Input.Target == "" {
+			continue
+		}
+		named := map[string]string{}
+		for name, member := range doc.Shapes[shape.Input.Target].Members {
+			kind := "string"
+			if target, ok := doc.Shapes[member.Target]; ok {
+				switch target.Type {
+				case "list":
+					// Only a list of strings can carry an identifier a flat
+					// probe is able to supply.
+					if inner, ok := doc.Shapes[target.Member.Target]; ok && inner.Type == "string" {
+						kind = "list"
+					}
+				case "structure":
+					kind = "structure"
+				}
+			}
+			named[name] = kind
+		}
+		out[id[strings.Index(id, "#")+1:]] = named
+	}
+	if len(out) == 0 {
+		t.Fatalf("%s declares no operations", path)
+	}
+	return out
 }
 
 // iamDerivationCoverageFloor is the number of served operations that both
@@ -1011,6 +1170,20 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // express — those are pinned against the real shape instead, because teaching
 // the probe about one operation, or filling a field with an ARN because the
 // metric wanted one, would be measuring the measurement.
+//
+// Every service in the measurement is probed. The floor stands at 1687 rather
+// than the 1788 it once claimed because five of them — AWS Identity and Access
+// Management, Amazon CloudWatch Logs, Amazon ECS, AWS CodeBuild and AWS WAFv2 —
+// were counted by membership in the generated resource-type table with no probe
+// behind them, and membership states only that AWS declares a resource type for
+// the action, never that this simulator can read the resource out of the
+// request. 101 of those 373 operations do not derive, and the number went down
+// when they were measured. That is the honest direction for this ratchet: a
+// floor that counts operations nothing exercised overstates how much of the
+// surface a resource-scoped grant actually works against, and the overstatement
+// is exactly the defect the metric exists to expose. Lowering it here loses no
+// derivation — no gate code changed — it only stops crediting derivation nobody
+// measured.
 //
 // Amazon EC2's 55: an operation that creates its resource has no identifier for
 // it yet, the Disassociate/Detach family names an association rather than
@@ -1074,9 +1247,10 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // caller supplies where the probe fills a placeholder, and PutEvents carries
 // its event bus per entry, a nested list shape nothing flat can read.
 //
-// AWS Budgets' 3: its reference is vendored for the PassRole table and it has
-// no derivation case at all; the three are its tagging operations, and closing
-// them means giving the service a generated table and an extractor.
+// AWS Budgets' 3: its reference is vendored for the PassRole table, it has no
+// entry in the generated resource-type table and no derivation case at all;
+// the three are its tagging operations, and closing them means giving the
+// service a generated table and an extractor.
 // AWS Step Functions' 1: creating an alias names the alias, while the type the
 // call authorizes against is the state machine the alias points at, which the
 // request carries only inside a routing entry's version ARN. Creating a state
@@ -1096,13 +1270,49 @@ var iamHandwrittenDerivationServices = map[string]bool{
 // probe fills with a placeholder no account can be read from —
 // TestIAMResourceARNs_STSNamesTheIdentityEachCallIsAbout pins the real shape.
 //
+// AWS Identity and Access Management's 20: creating an OpenID Connect or SAML
+// provider, a service-linked role or a delegation request names something that
+// does not exist yet, and the remainder are scoped to the caller
+// (ChangePassword), to an access key, or to a report the call is about to
+// generate rather than to an IAM resource. Everything named by RoleName,
+// UserName, GroupName, PolicyArn or a virtual MFA device's serial number
+// derives — TestIAMResourceARNs_IAMIsGlobalAndCarriesNoRegion pins the shape,
+// and the ARNs carry no region because IAM is global.
+//
+// Amazon CloudWatch Logs' 31: the derivation reads a log group and a log
+// stream, which is what TestIAMResourceARNs_CloudWatchLogs pins. The delivery,
+// delivery-destination, delivery-source, destination, anomaly-detector,
+// lookup-table and scheduled-query families each authorize against a resource
+// type of their own that nothing assembles yet, and GetQueryResults and
+// GetLogRecord name a query or a record rather than the group behind it.
+//
+// Amazon ECS's 20: the daemon family and the Amazon ECS Express Mode operations
+// authorize against resource types — daemon, daemon task definition, Express
+// Gateway service — the derivation does not build, CreateTaskSet and
+// RegisterDaemonTaskDefinition name something that has no identifier yet, and
+// the attribute operations name an attribute rather than a resource.
+//
+// AWS CodeBuild's 23: the build-scoped operations authorize against the project
+// that owns the build, which the derivation reads out of the build id's
+// "<projectName>:<uuid>" shape — a shape the probe's flat placeholder is not,
+// and which TestIAMResourceARNs_CodeBuild pins against the real one. The
+// remainder name a report, a sandbox, a command execution or a fleet by an
+// identifier AWS assigns, or delete a report group by an ARN a real caller
+// supplies where the probe fills a placeholder.
+//
+// AWS WAFv2's 7: its ARNs carry the resource's generated id and its scope path,
+// which the derivation assembles from the operation's own suffix plus the
+// request's Name, Scope and Id — pinned by TestIAMResourceARNs_WAFv2. The seven
+// name a Firewall Manager rule group, a logging configuration, a managed rule
+// set or a sample of requests, none of which carries that triple.
+//
 // Amazon SQS and AWS Cloud Map derive completely: CancelMessageMoveTask
 // resolves its opaque task handle through the move-task record to the source
 // queue it authorizes against, and GetOperation resolves its operation id
 // through the operation record to the namespace and service the operation
 // acted on — the simulator's own state, the same resolution Amazon RDS uses
 // for a custom engine version.
-const iamDerivationCoverageFloor = 1788
+const iamDerivationCoverageFloor = 1687
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1159,6 +1369,15 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	firehoseMembers := loadRequestFields(t, "firehose", memberWireName)
 	stsParameters := loadRequestFields(t, "sts", memberWireName)
 	appAutoScalingMembers := loadRequestFields(t, "application-auto-scaling", memberWireName)
+	_, ecsNested := loadRequestShapes(t, "ecs", memberWireName)
+	_, logsNested := loadRequestShapes(t, "cloudwatch-logs", memberWireName)
+	_, codeBuildNested := loadRequestShapes(t, "codebuild", memberWireName)
+	_, wafv2Nested := loadRequestShapes(t, "wafv2", memberWireName)
+	ecsMembers := loadCasedRequestMembers(t, "ecs")
+	logsMembers := loadCasedRequestMembers(t, "cloudwatch-logs")
+	codeBuildMembers := loadCasedRequestMembers(t, "codebuild")
+	wafv2Members := loadCasedRequestMembers(t, "wafv2")
+	iamMembers := loadCasedRequestMembers(t, "iam")
 	iamCloudMapProbeState()
 	iamSQSProbeState()
 	organizationsIDs := iamOrganizationsProbeState()
@@ -1234,6 +1453,30 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "application-autoscaling":
 			derived = iamJSONProbeDerives("application-autoscaling", o.name, appAutoScalingMembers[o.name],
 				"arn:aws:application-autoscaling:us-east-1:123456789012:scalable-target/probe")
+		case "ecs":
+			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
+				"AmazonEC2ContainerServiceV20141113", o.name,
+				"arn:aws:ecs:us-east-1:123456789012:cluster/probe",
+				ecsMembers[o.name], ecsNested[o.name]), "ecs:"+o.name)
+		case "logs":
+			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
+				"Logs_20140328", o.name,
+				"arn:aws:logs:us-east-1:123456789012:log-group:probe",
+				logsMembers[o.name], logsNested[o.name]), "logs:"+o.name)
+		case "codebuild":
+			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
+				"CodeBuild_20161006", o.name,
+				"arn:aws:codebuild:us-east-1:123456789012:project/probe",
+				codeBuildMembers[o.name], codeBuildNested[o.name]), "codebuild:"+o.name)
+		case "wafv2":
+			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
+				"AWSWAF_20190729", o.name,
+				"arn:aws:wafv2:us-east-1:123456789012:regional/webacl/probe/0123",
+				wafv2Members[o.name], wafv2Nested[o.name]), "wafv2:"+o.name)
+		case "iam":
+			derived = iamProductionProbeDerives(iamAWSQueryProbeRequest(
+				o.name, "2010-05-08", "arn:aws:iam::123456789012:policy/probe",
+				iamMembers[o.name]), "iam:"+o.name)
 		}
 		if derived {
 			covered++

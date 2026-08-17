@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
@@ -29,25 +30,49 @@ import (
 // is reached the target is `initial`, whose documented reason codes are
 // `Elb.RegistrationInProgress` before the first check has been issued and
 // `Elb.InitialHealthChecking` while checks are still running.
+//
+// Two states sit outside that machine because the checker never reaches them.
+// A target group no listener rule forwards to is not checked at all — "Health
+// checks are performed on all targets registered to a target group that is
+// specified in a listener rule for your load balancer", and "Before the load
+// balancer sends a health check request to a target, you must register it with
+// a target group, specify its target group in a listener rule, and ensure that
+// the Availability Zone of the target is enabled for the load balancer" — so
+// its targets are `unused` with `Target.NotInUse`. A target being deregistered
+// is `draining` with `Target.DeregistrationInProgress` for as long as the
+// target group's deregistration delay runs: "The initial state of a
+// deregistering target is draining. After the deregistration delay elapses,
+// the deregistration process completes and the state of the target is unused."
 
 const (
 	elbv2TargetStateInitial     = "initial"
 	elbv2TargetStateHealthy     = "healthy"
 	elbv2TargetStateUnhealthy   = "unhealthy"
 	elbv2TargetStateUnavailable = "unavailable"
+	elbv2TargetStateUnused      = "unused"
+	elbv2TargetStateDraining    = "draining"
 
-	elbv2ReasonRegistrationInProgress = "Elb.RegistrationInProgress"
-	elbv2ReasonInitialHealthChecking  = "Elb.InitialHealthChecking"
-	elbv2ReasonFailedHealthChecks     = "Target.FailedHealthChecks"
-	elbv2ReasonTimeout                = "Target.Timeout"
-	elbv2ReasonHealthCheckDisabled    = "Target.HealthCheckDisabled"
+	elbv2ReasonRegistrationInProgress   = "Elb.RegistrationInProgress"
+	elbv2ReasonInitialHealthChecking    = "Elb.InitialHealthChecking"
+	elbv2ReasonFailedHealthChecks       = "Target.FailedHealthChecks"
+	elbv2ReasonTimeout                  = "Target.Timeout"
+	elbv2ReasonResponseCodeMismatch     = "Target.ResponseCodeMismatch"
+	elbv2ReasonHealthCheckDisabled      = "Target.HealthCheckDisabled"
+	elbv2ReasonNotInUse                 = "Target.NotInUse"
+	elbv2ReasonDeregistrationInProgress = "Target.DeregistrationInProgress"
 
 	// The descriptions Elastic Load Balancing publishes for each reason code.
-	elbv2DescriptionRegistrationInProgress = "Target registration is in progress"
-	elbv2DescriptionInitialHealthChecking  = "Initial health checks in progress"
-	elbv2DescriptionFailedHealthChecks     = "Health checks failed"
-	elbv2DescriptionTimeout                = "Request timed out"
-	elbv2DescriptionHealthCheckDisabled    = "Health checks are disabled"
+	elbv2DescriptionRegistrationInProgress   = "Target registration is in progress"
+	elbv2DescriptionInitialHealthChecking    = "Initial health checks in progress"
+	elbv2DescriptionFailedHealthChecks       = "Health checks failed"
+	elbv2DescriptionTimeout                  = "Request timed out"
+	elbv2DescriptionHealthCheckDisabled      = "Health checks are disabled"
+	elbv2DescriptionNotInUse                 = "Target group is not configured to receive traffic from the load balancer"
+	elbv2DescriptionDeregistrationInProgress = "Target deregistration is in progress"
+
+	// Target.ResponseCodeMismatch is the one description that names what the
+	// target answered: "Health checks failed with these codes: [code]".
+	elbv2DescriptionResponseCodeMismatchFormat = "Health checks failed with these codes: [%d]"
 )
 
 // Defaults for target groups whose health-check settings were never set:
@@ -57,6 +82,13 @@ const (
 	elbv2DefaultHealthCheckInterval     = 30 * time.Second
 	elbv2DefaultHealthyThresholdCount   = 5
 	elbv2DefaultUnhealthyThresholdCount = 2
+
+	// "deregistration_delay.timeout_seconds — The amount of time for Elastic
+	// Load Balancing to wait before deregistering a target. The range is 0–3600
+	// seconds. The default value is 300 seconds."
+	elbv2DeregistrationDelayAttribute = "deregistration_delay.timeout_seconds"
+	elbv2DefaultDeregistrationDelay   = 300 * time.Second
+	elbv2MaximumDeregistrationDelay   = 3600 * time.Second
 
 	// elbv2TargetHealthSweep is how often the checker looks for targets whose
 	// next check has come due. It bounds the checker's own resolution, not the
@@ -109,12 +141,83 @@ func elbv2UnhealthyThreshold(tg ELBv2TargetGroup) int {
 	return tg.UnhealthyThresholdCount
 }
 
+// elbv2DeregistrationDelay is how long the target group holds a target after
+// it is deregistered, which is how long the target reports `draining`.
+func elbv2DeregistrationDelay(tg ELBv2TargetGroup) time.Duration {
+	seconds, err := strconv.Atoi(tg.Attributes[elbv2DeregistrationDelayAttribute])
+	if err != nil || seconds < 0 {
+		return elbv2DefaultDeregistrationDelay
+	}
+	delay := time.Duration(seconds) * time.Second
+	if delay > elbv2MaximumDeregistrationDelay {
+		return elbv2MaximumDeregistrationDelay
+	}
+	return delay
+}
+
+// elbv2TargetGroupInUse reports whether a listener forwards to the target
+// group, which is the condition Elastic Load Balancing health-checks it under:
+// "Health checks are performed on all targets registered to a target group
+// that is specified in a listener rule for your load balancer." A listener's
+// default actions are its default rule, so they count alongside the rules
+// created against it.
+func elbv2TargetGroupInUse(targetGroupArn string) bool {
+	for _, listener := range elbv2Listeners.List() {
+		if elbv2ActionsForwardTo(listener.DefaultActions, targetGroupArn) {
+			return true
+		}
+	}
+	for _, rule := range elbv2Rules.List() {
+		if elbv2ActionsForwardTo(rule.Actions, targetGroupArn) {
+			return true
+		}
+	}
+	return false
+}
+
+// elbv2ActionsForwardTo reports whether any action forwards to the target
+// group, through either the single-target-group shorthand or the weighted
+// forward config.
+func elbv2ActionsForwardTo(actions []ELBv2Action, targetGroupArn string) bool {
+	for _, action := range actions {
+		if action.TargetGroupArn == targetGroupArn {
+			return true
+		}
+		if action.Forward == nil {
+			continue
+		}
+		for _, tuple := range action.Forward.TargetGroups {
+			if tuple.TargetGroupArn == targetGroupArn {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // elbv2TargetHealthFor reports the health the checker last recorded for a
-// target. A target group with health checks turned off reports every target
-// `unavailable` with `Target.HealthCheckDisabled`, and a target the checker
-// has not yet issued a first check for is `initial` with
-// `Elb.RegistrationInProgress`.
+// target, or the state that keeps the checker away from it. A target being
+// deregistered is `draining` until its target group's deregistration delay
+// elapses; a target group no listener forwards to is not checked at all and
+// reports `unused` with `Target.NotInUse`; a target group with health checks
+// turned off reports every target `unavailable` with
+// `Target.HealthCheckDisabled`; and a target the checker has not yet issued a
+// first check for is `initial` with `Elb.RegistrationInProgress`.
 func elbv2TargetHealthFor(tg ELBv2TargetGroup, target ELBv2TargetDescription) ELBv2TargetHealth {
+	if !target.DeregisteringAt.IsZero() {
+		return ELBv2TargetHealth{
+			State:       elbv2TargetStateDraining,
+			Reason:      elbv2ReasonDeregistrationInProgress,
+			Description: elbv2DescriptionDeregistrationInProgress,
+		}
+	}
+	if !elbv2TargetGroupInUse(tg.Arn) {
+		return ELBv2TargetHealth{
+			State:       elbv2TargetStateUnused,
+			Reason:      elbv2ReasonNotInUse,
+			Description: elbv2DescriptionNotInUse,
+		}
+	}
 	if !tg.HealthCheckEnabled {
 		return ELBv2TargetHealth{
 			State:       elbv2TargetStateUnavailable,
@@ -158,10 +261,48 @@ func startELBv2TargetHealthChecker(srv *sim.Server) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				elbv2CheckTargetHealth(ctx, time.Now())
+				elbv2SweepTargets(ctx, time.Now())
 			}
 		}
 	})
+}
+
+// elbv2SweepTargets is one turn of the target loop: deregistrations whose
+// delay has run complete, and every target still registered that is due a
+// health check gets one.
+func elbv2SweepTargets(ctx context.Context, now time.Time) {
+	elbv2CompleteDueDeregistrations(now)
+	elbv2CheckTargetHealth(ctx, now)
+}
+
+// elbv2CompleteDueDeregistrations drops the targets whose deregistration delay
+// has elapsed: "After the deregistration delay elapses, the deregistration
+// process completes."
+func elbv2CompleteDueDeregistrations(now time.Time) {
+	for _, tg := range elbv2TargetGroups.List() {
+		draining := false
+		for _, target := range tg.Targets {
+			if !target.DeregisteringAt.IsZero() {
+				draining = true
+				break
+			}
+		}
+		if !draining {
+			continue
+		}
+		delay := elbv2DeregistrationDelay(tg)
+		elbv2TargetGroups.Update(tg.Arn, func(group *ELBv2TargetGroup) {
+			remaining := make([]ELBv2TargetDescription, 0, len(group.Targets))
+			for _, target := range group.Targets {
+				if !target.DeregisteringAt.IsZero() &&
+					!now.Before(target.DeregisteringAt.Add(delay)) {
+					continue
+				}
+				remaining = append(remaining, target)
+			}
+			group.Targets = remaining
+		})
+	}
 }
 
 // elbv2TargetHealthCheck is one due check the sweep issues.
@@ -179,11 +320,17 @@ func elbv2CheckTargetHealth(ctx context.Context, now time.Time) {
 	registered := map[string]bool{}
 	var due []elbv2TargetHealthCheck
 	for _, tg := range elbv2TargetGroups.List() {
+		// Turning health checks off leaves no checker behind, and neither does
+		// a target group no listener forwards to, so the verdicts either had
+		// reached are forgotten: putting the target group back in a listener
+		// rule starts its targets from a registration again.
+		if !tg.HealthCheckEnabled || !elbv2TargetGroupInUse(tg.Arn) {
+			continue
+		}
 		for _, target := range tg.Targets {
-			if !tg.HealthCheckEnabled {
-				// Turning health checks off leaves no checker behind, so the
-				// verdicts it had reached are forgotten and turning them back
-				// on starts from a registration again.
+			if !target.DeregisteringAt.IsZero() {
+				// A deregistering target reports `draining` for the whole
+				// delay, so no check result could change what it reports.
 				continue
 			}
 			key := elbv2TargetHealthKey(tg.Arn, target)
@@ -288,14 +435,33 @@ func elbv2RecordTargetHealthCheck(key string, tg ELBv2TargetGroup, err error) (c
 }
 
 // elbv2HealthCheckFailureReason maps a failed check to the reason code and
-// description Elastic Load Balancing publishes for it.
+// description Elastic Load Balancing publishes for it. A target that answered
+// with a code outside the target group's Matcher is a response code mismatch —
+// "Target.ResponseCodeMismatch - The health checks did not return an expected
+// HTTP code" — and its description names the code the target returned.
 func elbv2HealthCheckFailureReason(err error) (reason, description string) {
+	var mismatch elbv2ResponseCodeMismatch
+	if errors.As(err, &mismatch) {
+		return elbv2ReasonResponseCodeMismatch,
+			fmt.Sprintf(elbv2DescriptionResponseCodeMismatchFormat, mismatch.StatusCode)
+	}
 	var netError net.Error
 	if errors.Is(err, context.DeadlineExceeded) ||
 		(errors.As(err, &netError) && netError.Timeout()) {
 		return elbv2ReasonTimeout, elbv2DescriptionTimeout
 	}
 	return elbv2ReasonFailedHealthChecks, elbv2DescriptionFailedHealthChecks
+}
+
+// elbv2ForgetTargetHealth drops the record of one target, so a target the
+// checker has stopped maintaining a verdict for does not answer with a stale
+// one. Registering a target again starts it from a registration: "Before a
+// target can receive requests from the load balancer, it must pass the initial
+// health checks."
+func elbv2ForgetTargetHealth(targetGroupArn string, target ELBv2TargetDescription) {
+	elbv2TargetHealthMu.Lock()
+	defer elbv2TargetHealthMu.Unlock()
+	delete(elbv2TargetHealthRecords, elbv2TargetHealthKey(targetGroupArn, target))
 }
 
 // elbv2ForgetDeregisteredTargets drops the records of targets that are no

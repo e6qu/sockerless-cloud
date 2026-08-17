@@ -37,6 +37,8 @@ func TestEventarcCLI_TriggerLifecycle(t *testing.T) {
 	assert.Equal(t, "projects/"+project+"/locations/"+location+"/triggers/cli-trigger", trigger.Name)
 	require.Len(t, trigger.EventFilters, 1)
 	assert.Equal(t, "type", trigger.EventFilters[0].Attribute)
+	assert.Equal(t, "google.cloud.pubsub.topic.v1.messagePublished", trigger.EventFilters[0].Value,
+		"the filter must carry the event type the trigger was created for")
 
 	out = runCLI(t, gcloudCLI("eventarc", "triggers", "list",
 		"--location", location,

@@ -1269,12 +1269,31 @@ output "project_org_policy_enforced" {
   value = google_project_organization_policy.tf_project_org_policy.boolean_policy[0].enforced
 }
 
+# etag and update_time are computed only from what getOrgPolicy answers — the
+# provider has nothing in configuration to fall back on — so they are the half
+# of the round trip a stored policy has to produce.
+output "project_org_policy_etag" {
+  value = google_project_organization_policy.tf_project_org_policy.etag
+}
+
+output "project_org_policy_update_time" {
+  value = google_project_organization_policy.tf_project_org_policy.update_time
+}
+
 output "folder_org_policy_allowed_values" {
   value = google_folder_organization_policy.tf_folder_org_policy.list_policy[0].allow[0].values
 }
 
 output "organization_org_policy_constraint" {
   value = google_organization_policy.tf_org_policy.constraint
+}
+
+# The organization-level policy is written with enforced = false while the
+# project-level one is written with enforced = true, so the pair distinguishes a
+# stored boolean policy from a constant: a getOrgPolicy that always reported
+# enforcement would answer true here.
+output "organization_org_policy_enforced" {
+  value = google_organization_policy.tf_org_policy.boolean_policy[0].enforced
 }
 
 output "resource_manager_lien_name" {
@@ -1292,12 +1311,37 @@ data "google_service_account_access_token" "tf_sa_token" {
   lifetime               = "600s"
 }
 
+# `lifetime` is a request member the data source never re-reads from the
+# response, so the state attribute is the configured literal and proves
+# nothing about the mint. The minted token itself carries what the API
+# decided: its claim set spans exactly the requested lifetime, and an API
+# that ignored `lifetime` in favour of the one-hour default would span 3600
+# seconds instead. Decode the claims segment — base64url, which
+# `base64decode` (standard alphabet, padded) reaches only after the
+# alphabet swap and the padding it needs — and publish the span, a value
+# that is stable across re-reads even though the token is not.
+locals {
+  sa_token_claims_segment = split(".", nonsensitive(data.google_service_account_access_token.tf_sa_token.access_token))[1]
+  sa_token_claims = jsondecode(base64decode(join("", [
+    replace(replace(local.sa_token_claims_segment, "-", "+"), "_", "/"),
+    substr("===", 0, (4 - length(local.sa_token_claims_segment) % 4) % 4),
+  ])))
+}
+
 output "service_account_access_token_id" {
   value = data.google_service_account_access_token.tf_sa_token.id
 }
 
 output "service_account_access_token_lifetime" {
   value = data.google_service_account_access_token.tf_sa_token.lifetime
+}
+
+output "service_account_access_token_lifetime_seconds" {
+  value = local.sa_token_claims.exp - local.sa_token_claims.iat
+}
+
+output "service_account_access_token_subject" {
+  value = local.sa_token_claims.sub
 }
 
 output "service_account_access_token_minted" {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -264,16 +266,26 @@ func registerNetworkMoreOps(srv *sim.Server) {
 
 	// ResourceNavigationLinks_List / ServiceAssociationLinks_List — the links
 	// other Azure services create when they delegate the subnet. A subnet with
-	// no delegated services carries no links.
-	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/ResourceNavigationLinks", func(w http.ResponseWriter, r *http.Request) {
+	// no delegated services carries no links, but the subnet has to exist for
+	// the question to have an answer at all: these read a child collection of a
+	// subnet, and a collection under a subnet that was never created is a
+	// ResourceNotFound, not an empty list.
+	linkList := func(w http.ResponseWriter, r *http.Request) {
+		if !azureSubnetExists(r) {
+			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				"The Resource 'subnets/%s' under virtualNetworks '%s' was not found.",
+				sim.PathParam(r, "subnetName"), sim.PathParam(r, "vnetName"))
+			return
+		}
 		azureWriteList(w, []any{})
-	})
-	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/ServiceAssociationLinks", func(w http.ResponseWriter, r *http.Request) {
-		azureWriteList(w, []any{})
-	})
+	}
+	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/ResourceNavigationLinks", linkList)
+	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/ServiceAssociationLinks", linkList)
 
 	// VirtualNetworks_ListDdosProtectionStatus — the DDoS protection status of
-	// every public IP attached (through a NIC) to a subnet of the vnet.
+	// every public IP attached (through a NIC) to a subnet of the vnet. The
+	// operation is long-running with its final state via Location, so it
+	// answers 202 and the addresses are read from the Location poll.
 	srv.HandleFunc("POST "+armBase+"/virtualNetworks/{vnetName}/ddosProtectionStatus", func(w http.ResponseWriter, r *http.Request) {
 		vnetID := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
 			"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
@@ -299,7 +311,30 @@ func registerNetworkMoreOps(srv *sim.Server) {
 				})
 			}
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": results})
+		// Answering the list on the initial response is a shape no client is
+		// built for: the official SDK builds its pager out of the polled
+		// result and drops the one it constructed, so the body that arrived
+		// here would never be read.
+		vnet, ok := azureVnets.Get(vnetID)
+		if !ok {
+			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				"The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.",
+				sim.PathParam(r, "vnetName"), sim.PathParam(r, "resourceGroupName"))
+			return
+		}
+		payload, err := json.Marshal(map[string]any{"value": results})
+		if err != nil {
+			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+				"The DDoS protection status could not be rendered: %v", err)
+			return
+		}
+		opID := issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
+			return payload, nil
+		})
+		w.Header().Set("Location", azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),
+			"Microsoft.Network", vnet.Location, "operationResults", opID, r.URL.Query().Get("api-version")))
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusAccepted)
 	})
 }
 
@@ -324,4 +359,20 @@ func loadBalancerIDFromChildID(childID, marker string) string {
 		return childID[:i]
 	}
 	return ""
+}
+
+// azureSubnetExists reports whether the subnet a request addresses through the
+// {subscriptionId}/{resourceGroupName}/{vnetName}/{subnetName} path parameters
+// is one the simulator holds. Child collections under a subnet answer for the
+// subnet's own contents, so an absent subnet is a ResourceNotFound rather than
+// an empty collection.
+func azureSubnetExists(r *http.Request) bool {
+	if azureSubnets == nil {
+		return false
+	}
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
+		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
+		sim.PathParam(r, "vnetName"), sim.PathParam(r, "subnetName"))
+	_, ok := azureSubnets.Get(id)
+	return ok
 }

@@ -309,15 +309,39 @@ func acaGetExecution(t *testing.T, rg, jobName, execName string) map[string]any 
 	return result
 }
 
+// TestContainerApps_ExecutionRunningState asserts that a job execution reports
+// Running while its replica is still running, and that the Running it reports
+// is a real observation of the workload rather than a value stamped at create
+// time.
+//
+// The workload is given something to do. Reading the status immediately after
+// starting a job whose container exits at once is a race the test can only win
+// by being faster than the simulator, which is not a property of the
+// simulator — on a loaded host the execution has already finished and the
+// assertion fails for no defect at all. Sleeping in the container makes
+// "Running" the deterministic answer, and requiring it to reach a terminal
+// state afterwards is what proves the status tracks the replica instead of
+// being frozen.
 func TestContainerApps_ExecutionRunningState(t *testing.T) {
-	acaCreateJob(t, "status-rg", "running-job")
+	acaCreateJobWithCommand(t, "status-rg", "running-job", []string{"sleep", "30"})
 	execName := acaStartExecution(t, "status-rg", "running-job")
 
-	// Immediately check — should be Running
-	exec := acaGetExecution(t, "status-rg", "running-job", execName)
-	props := exec["properties"].(map[string]any)
-	assert.Equal(t, "Running", props["status"])
-	assert.NotEmpty(t, props["startTime"])
+	var props map[string]any
+	require.Eventually(t, func() bool {
+		exec := acaGetExecution(t, "status-rg", "running-job", execName)
+		props, _ = exec["properties"].(map[string]any)
+		return props != nil && props["status"] == "Running"
+	}, 60*time.Second, 200*time.Millisecond,
+		"an execution whose replica sleeps must report Running; last properties were %v", props)
+	assert.NotEmpty(t, props["startTime"], "a running execution reports when its replica started")
+	assert.Empty(t, props["endTime"], "a running execution has not ended")
+
+	// A status that never leaves Running would satisfy the check above just as
+	// well as one that tracks the replica, so the execution has to terminate.
+	terminal := acaWaitExecution(t, "status-rg", "running-job", execName)
+	terminalProps := terminal["properties"].(map[string]any)
+	assert.NotEqual(t, "Running", terminalProps["status"],
+		"the execution must leave Running once its replica stops; the status is not a constant")
 }
 
 func TestContainerApps_ExecutionSucceededState(t *testing.T) {
@@ -464,9 +488,16 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	assert.Contains(t, logs, "real aca output", "process stdout should appear in Log Analytics")
 }
 
+// TestContainerApps_GetJob reads back a job it creates itself. Reading one that
+// only TestContainerApps_CreateJob puts there makes the test pass or fail on
+// the order the package happens to run in, and `go test -run
+// TestContainerApps_GetJob` fails outright — so the read proves nothing about
+// the read.
 func TestContainerApps_GetJob(t *testing.T) {
+	acaCreateJob(t, "aca-get-rg", "get-job")
+
 	req, _ := http.NewRequestWithContext(ctx, "GET",
-		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/aca-rg/providers/Microsoft.App/jobs/test-job?api-version=2024-03-01",
+		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/aca-get-rg/providers/Microsoft.App/jobs/get-job?api-version=2024-03-01",
 		nil)
 	req.Header.Set("Authorization", simARMBearer)
 
@@ -476,9 +507,33 @@ func TestContainerApps_GetJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var result map[string]any
-	data, _ := io.ReadAll(resp.Body)
-	json.Unmarshal(data, &result)
-	assert.Equal(t, "test-job", result["name"])
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	// The decode error was discarded here, which let a body that is not JSON at
+	// all reach the assertions below as an empty map.
+	require.NoError(t, json.Unmarshal(data, &result), "decode the job: %s", data)
+	assert.Equal(t, "get-job", result["name"])
+	assert.Equal(t, "eastus", result["location"])
+	assert.Equal(t, "Microsoft.App/jobs", result["type"])
+	assert.Equal(t,
+		"/subscriptions/"+subscriptionID+"/resourceGroups/aca-get-rg/providers/Microsoft.App/jobs/get-job",
+		result["id"], "the job reports its own canonical Azure Resource Manager id")
+
+	// The configuration the create sent has to come back, not just the name.
+	properties, ok := result["properties"].(map[string]any)
+	require.True(t, ok, "the job carries a properties object: %s", data)
+	configuration, ok := properties["configuration"].(map[string]any)
+	require.True(t, ok, "the job carries its configuration: %s", data)
+	assert.Equal(t, "Manual", configuration["triggerType"])
+	template, ok := properties["template"].(map[string]any)
+	require.True(t, ok, "the job carries its template: %s", data)
+	containers, ok := template["containers"].([]any)
+	require.True(t, ok, "the job's template carries its containers: %s", data)
+	require.Len(t, containers, 1)
+	container, ok := containers[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "worker", container["name"])
+	assert.Equal(t, "public.ecr.aws/docker/library/alpine:latest", container["image"])
 }
 
 // --- SDK-level tests using armappcontainers ---

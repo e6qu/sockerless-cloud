@@ -354,9 +354,22 @@ func TestVirtualMachineBootDiagnosticsPath(t *testing.T) {
 // A machine with no running guest has produced no console output, and the
 // refusal says so rather than returning an empty log that a caller could not
 // distinguish from a guest that booted silently.
+//
+// Both halves are asserted. "An error came back" alone is satisfied by any
+// failure at all — including one from a later line of the function — so the
+// refusal is required to name the missing guest as its reason, and the console
+// bytes are required to be absent rather than an empty slice a caller might
+// hand on as a real, silent log.
 func TestVirtualMachineBootDiagnosticsRefusesWithoutAGuest(t *testing.T) {
-	if _, err := azureGuestConsoleOutput(vmOpsID("no-guest")); err == nil {
-		t.Fatal("console output was produced for a machine with no guest")
+	console, err := azureGuestConsoleOutput(vmOpsID("no-guest"))
+	if err == nil {
+		t.Fatalf("console output was produced for a machine with no guest: %q", console)
+	}
+	if !strings.Contains(err.Error(), "no running guest") {
+		t.Fatalf("the refusal must name the absent guest as its reason, got %q", err)
+	}
+	if console != nil {
+		t.Fatalf("a refused read must return no console bytes, got %d", len(console))
 	}
 }
 

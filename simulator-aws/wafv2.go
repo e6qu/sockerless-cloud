@@ -1784,9 +1784,8 @@ func handleWAFListSettlementRecords(w http.ResponseWriter, r *http.Request) {
 
 // wafEncodeAPIKey produces a wire-form APIKey token. Real AWS returns an opaque
 // encrypted base64 token whose plaintext is the scope, token domains, and a
-// creation timestamp; GetDecryptedAPIKey reverses it. The sim base64-encodes a
-// JSON envelope of the same fields so the round-trip is faithful and the token
-// is genuinely self-describing (no out-of-band lookup needed to decrypt it).
+// creation timestamp; GetDecryptedAPIKey reverses it against the key the
+// account holds, which is why a token alone never decrypts here either.
 func wafEncodeAPIKey(scope string, domains []string, created time.Time) string {
 	env := struct {
 		Scope        string   `json:"s"`
@@ -1795,22 +1794,6 @@ func wafEncodeAPIKey(scope string, domains []string, created time.Time) string {
 	}{Scope: scope, TokenDomains: domains, Created: created.Unix()}
 	raw, _ := json.Marshal(env)
 	return base64.StdEncoding.EncodeToString(raw)
-}
-
-func wafDecodeAPIKey(token string) (scope string, domains []string, created time.Time, ok bool) {
-	raw, err := base64.StdEncoding.DecodeString(token)
-	if err != nil {
-		return "", nil, time.Time{}, false
-	}
-	var env struct {
-		Scope        string   `json:"s"`
-		TokenDomains []string `json:"d"`
-		Created      int64    `json:"c"`
-	}
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return "", nil, time.Time{}, false
-	}
-	return env.Scope, env.TokenDomains, time.Unix(env.Created, 0).UTC(), true
 }
 
 type wafCreateAPIKeyReq struct {
@@ -1908,19 +1891,13 @@ func handleWAFGetDecryptedAPIKey(w http.ResponseWriter, r *http.Request) {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
+	// The API key is a resource of the account and scope that created it, so
+	// the store is the only thing that decides whether it decrypts: a key that
+	// was deleted, or one that belongs to another scope, is not this account's
+	// to decrypt however well-formed its token is.
 	stored, ok := wafAPIKeys.Get(wafKey(req.Scope, req.APIKey))
 	if !ok {
-		// The token is self-describing; if it isn't in the store, try decoding
-		// it directly so a key created out-of-band still decrypts faithfully.
-		scope, domains, created, decoded := wafDecodeAPIKey(req.APIKey)
-		if !decoded || scope != req.Scope {
-			wafWriteError(w, "WAFInvalidParameterException", "APIKey is not valid for this scope")
-			return
-		}
-		wafWriteJSON(w, map[string]any{
-			"TokenDomains":      domains,
-			"CreationTimestamp": created.Unix(),
-		})
+		wafWriteError(w, "WAFInvalidParameterException", "APIKey is not valid for this scope")
 		return
 	}
 	wafWriteJSON(w, map[string]any{

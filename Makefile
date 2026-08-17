@@ -66,7 +66,7 @@ ALL_APPS := $(GO_UI_APPS) $(GO_APPS) $(UI_APPS)
 
 # ── Standard fan-out targets ────────────────────────────────────────
 
-.PHONY: install build build-noui test test-integration lint lint-ui lint-all clean upgrade-deps check-deps check-workflow-timeouts hooks
+.PHONY: install build build-noui test test-integration lint lint-ui lint-all clean upgrade-deps check-deps check-workflow-timeouts check-workflow-concurrency hooks
 
 install: ## install deps in every app
 	@$(MAKE) -s _fanout TARGET=install APPS="$(ALL_APPS)"
@@ -103,11 +103,16 @@ upgrade-deps: ## bump every Go module's direct deps to latest (per-module indepe
 	@$(MAKE) -s _fanout TARGET=upgrade-deps APPS="$(GO_UI_APPS) $(GO_APPS) $(TEST_DIRS)"
 
 check-deps: ## fail if any Go module / Terraform provider is behind its latest published version
+	@bash scripts/test-latest-deps-quarantine.sh
 	@bash scripts/check-latest-deps.sh
 
 check-workflow-timeouts: ## verify every GitHub Actions job has a timeout of at most 15 minutes
 	@bash scripts/test-workflow-timeouts.sh
 	@bash scripts/check-workflow-timeouts.sh
+
+check-workflow-concurrency: ## verify no push-triggered workflow run can be cancelled by a later commit
+	@bash scripts/test-workflow-concurrency.sh
+	@bash scripts/check-workflow-concurrency.sh
 
 # Internal helper: iterate APPS and run TARGET in each. Stops on
 # first failure. Honours --keep-going via $(MAKEFLAGS).

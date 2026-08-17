@@ -137,9 +137,13 @@ func TestIAMServiceAccountAsResourceIAMCLI(t *testing.T) {
 	// get-iam-policy on a fresh SA → empty bindings, an etag present.
 	out := runCLI(t, gcloudCLI("iam", "service-accounts", "get-iam-policy", email, "--format=json"))
 	var pol struct {
+		Bindings []struct {
+			Role string `json:"role"`
+		} `json:"bindings"`
 		Etag string `json:"etag"`
 	}
 	parseJSONObject(t, out, &pol)
+	require.Empty(t, pol.Bindings, "a newly created service account has no IAM bindings: %s", out)
 	require.NotEmpty(t, pol.Etag)
 
 	// add-iam-policy-binding read-modify-writes the SA's policy (get+set).

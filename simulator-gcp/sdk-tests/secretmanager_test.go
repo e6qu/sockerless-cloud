@@ -193,9 +193,20 @@ func TestSecretManager_RegionalLifecycleSDK(t *testing.T) {
 	disabled, err := svc.Projects.Locations.Secrets.Versions.Get(secretName + "/versions/1").Do()
 	require.NoError(t, err)
 	require.Equal(t, "DISABLED", disabled.State)
+	// A disabled version's payload cannot be read — that is what disabling is
+	// for, and it is what makes the re-enable below observable.
+	_, err = svc.Projects.Locations.Secrets.Versions.Access(secretName + "/versions/1").Do()
+	require.Error(t, err, "a disabled version does not hand out its payload")
+
 	_, err = svc.Projects.Locations.Secrets.Versions.Enable(secretName+"/versions/1",
 		&secretmanager.EnableSecretVersionRequest{}).Do()
 	require.NoError(t, err)
+	reEnabled, err := svc.Projects.Locations.Secrets.Versions.Get(secretName + "/versions/1").Do()
+	require.NoError(t, err)
+	require.Equal(t, "ENABLED", reEnabled.State, "the enable moved the version back to ENABLED")
+	reAccess, err := svc.Projects.Locations.Secrets.Versions.Access(secretName + "/versions/1").Do()
+	require.NoError(t, err, "an enabled version hands out its payload again")
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("regional-first")), reAccess.Payload.Data)
 
 	patched, err := svc.Projects.Locations.Secrets.Patch(secretName, &secretmanager.Secret{
 		Labels: map[string]string{"env": "prod"},

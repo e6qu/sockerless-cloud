@@ -796,6 +796,21 @@ func TestWAFv2APIKeysAndCapacity(t *testing.T) {
 		Scope: wafv2types.ScopeCloudfront, APIKey: aws.String(apiKey),
 	})
 	require.NoError(t, err)
+
+	afterDelete, err := c.ListAPIKeys(ctx, &wafv2.ListAPIKeysInput{Scope: wafv2types.ScopeCloudfront})
+	require.NoError(t, err)
+	for _, s := range afterDelete.APIKeySummaries {
+		assert.NotEqual(t, apiKey, aws.ToString(s.APIKey), "the deleted key must be gone from the list")
+	}
+
+	// And the token no longer decrypts, which is what a deleted key means to a
+	// caller that kept a copy of it: the key is the account's resource, not a
+	// self-describing bearer token.
+	_, err = c.GetDecryptedAPIKey(ctx, &wafv2.GetDecryptedAPIKeyInput{
+		Scope: wafv2types.ScopeCloudfront, APIKey: aws.String(apiKey),
+	})
+	assert.Equal(t, "WAFInvalidParameterException", errCode(t, err),
+		"a deleted API key must not decrypt")
 }
 
 // TestWAFv2ManagedRuleGroupCatalog exercises the read-only managed rule

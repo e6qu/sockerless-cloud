@@ -2,7 +2,11 @@ package azure_cli_test
 
 import (
 	"fmt"
+	"os/exec"
+	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,14 +98,34 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 // TestNetwork_SubnetLinksAndVnetDdos exercises the subnet resource/service
 // association link reads and the virtual-network DDoS protection status through
 // `az rest` (all empty without delegated services or attached public IPs).
+//
+// The virtual network and subnet are created first. Reading a child collection
+// of a subnet that was never created and asserting the collection is empty
+// proves nothing about the collection — a handler answering {"value":[]} to any
+// URL of that shape satisfies it — and it pins the simulator answering 200
+// where the real service answers ResourceNotFound. The refusal for a subnet
+// that does not exist is asserted alongside, so "empty" and "absent" stay
+// distinguishable.
+//
+// Creating the subnet builds real Linux network fabric, so this joins the rest
+// of the Microsoft.Network suite behind the host-capability gate and runs for
+// real on the CI Linux cell — a better trade than the version it replaces,
+// which ran everywhere and proved nothing because its subject existed nowhere.
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
+	requireNetworkHost(t)
+	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet", networkMoreAPIVersion)
+	runCLI(t, azRest("PUT", vnetURL,
+		`{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.93.0.0/16"]}}}`))
+	subnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-links-subnet", networkMoreAPIVersion)
+	runCLI(t, azRest("PUT", subnetURL, `{"properties":{"addressPrefix":"10.93.1.0/24"}}`))
+
 	navURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-links-subnet/ResourceNavigationLinks", networkMoreAPIVersion)
 	out := runCLI(t, azRest("GET", navURL, ""))
 	var nav struct {
 		Value []any `json:"value"`
 	}
 	parseJSON(t, out, &nav)
-	assert.Empty(t, nav.Value)
+	assert.Empty(t, nav.Value, "a subnet no service has delegated carries no resource navigation links")
 
 	svcURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-links-subnet/ServiceAssociationLinks", networkMoreAPIVersion)
 	out = runCLI(t, azRest("GET", svcURL, ""))
@@ -109,13 +133,49 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 		Value []any `json:"value"`
 	}
 	parseJSON(t, out, &svc)
-	assert.Empty(t, svc.Value)
+	assert.Empty(t, svc.Value, "a subnet no service has delegated carries no service association links")
 
+	// The discriminator: these collections belong to the subnet, so a subnet
+	// that does not exist has no collection to read.
+	missingNav := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-no-such-subnet/ResourceNavigationLinks", networkMoreAPIVersion)
+	assert.Contains(t, runNetworkCLIExpectFailure(t, azRest("GET", missingNav, "")), "ResourceNotFound",
+		"resource navigation links under a subnet that does not exist must be refused as ResourceNotFound")
+	missingSvc := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-no-such-subnet/ServiceAssociationLinks", networkMoreAPIVersion)
+	assert.Contains(t, runNetworkCLIExpectFailure(t, azRest("GET", missingSvc, "")), "ResourceNotFound",
+		"service association links under a subnet that does not exist must be refused as ResourceNotFound")
+
+	// Listing the DDoS protection status is a long-running operation whose
+	// final state comes via Location, so the addresses are read from the
+	// Location poll rather than from the 202 that starts it. `az rest` prints
+	// response headers only under --debug, which is where the poll URL comes
+	// from; a client that ignored the header would see the empty 202 body and
+	// conclude the network has no addresses at all.
 	ddosURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/ddosProtectionStatus", networkMoreAPIVersion)
-	out = runCLI(t, azRest("POST", ddosURL, ""))
+	location := azRestResponseHeader(t, azRest("POST", ddosURL, "", "--debug"), "Location")
+	require.NotEmpty(t, location,
+		"the DDoS protection status operation must answer 202 with the Location its result is read from")
 	var ddos struct {
 		Value []any `json:"value"`
 	}
+	require.Eventually(t, func() bool {
+		out = runCLI(t, azRest("GET", location, ""))
+		return strings.Contains(out, "\"value\"")
+	}, 30*time.Second, 250*time.Millisecond,
+		"the Location poll never produced the operation's result")
 	parseJSON(t, out, &ddos)
-	assert.Empty(t, ddos.Value)
+	assert.Empty(t, ddos.Value, "no public IP is attached to this network, so no address has a DDoS protection status")
+}
+
+// azRestResponseHeader runs an `az rest --debug` command and returns the named
+// response header the client printed. Response headers are how an Azure
+// long-running operation hands back the URL its result is read from, and the
+// Azure CLI shows them only in its debug log.
+func azRestResponseHeader(t *testing.T, cmd *exec.Cmd, header string) string {
+	t.Helper()
+	out := runCLI(t, cmd)
+	match := regexp.MustCompile(`'` + regexp.QuoteMeta(header) + `':\s*'([^']+)'`).FindStringSubmatch(out)
+	if match == nil {
+		t.Fatalf("the response carried no %s header:\n%s", header, out)
+	}
+	return match[1]
 }

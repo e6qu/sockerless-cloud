@@ -61,6 +61,20 @@ func TestSecretManagerSecretLifecycleCLI(t *testing.T) {
 	require.Equal(t, created.Name+"/versions/2", versions[0].Name)
 	require.Equal(t, created.Name+"/versions/1", versions[1].Name)
 
+	// Naming the versions is not storing them: each version has to give back
+	// the payload it was added with, and `latest` has to resolve to the newest.
+	// `versions access` prints the decoded payload with no terminator.
+	for version, want := range map[string]string{
+		"1":      "first",
+		"2":      "second",
+		"latest": "second",
+	} {
+		got := runCLI(t, gcloudCLI("secrets", "versions", "access", version,
+			"--secret="+secretID))
+		require.Equal(t, want, strings.TrimSpace(got),
+			"secrets versions access %s returned the wrong payload", version)
+	}
+
 	out = runCLI(t, gcloudCLI("secrets", "update", secretID,
 		"--update-labels=env=prod,owner=cli",
 		"--format=json",

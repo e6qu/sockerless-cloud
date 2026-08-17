@@ -720,6 +720,7 @@ func handleAPIGWImportRestApi(w http.ResponseWriter, r *http.Request) {
 	api := APIGWRestApi{
 		Id:          generateUUID()[:10],
 		CreatedDate: time.Now().Unix(),
+		ApiStatus:   apigwStatusAvailable,
 	}
 	root := APIGWResource{
 		Id:        generateUUID()[:10],

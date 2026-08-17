@@ -22,6 +22,13 @@ func newFuzzRegistry() *OCIRegistry {
 // (strings.Index on /blobs/, /manifests/, etc.), the digest prefix handling in
 // storeBlob, the manifest JSON handling, and ociReadBody must never panic on
 // any input — they should return an HTTP error response instead.
+//
+// The second half of that sentence is the half a panic-only oracle cannot see,
+// so the response is inspected too. Each iteration gets a registry with nothing
+// in it, which makes two properties checkable on arbitrary input: a read of
+// content that was never pushed cannot succeed, and no request may leave the
+// registry holding content under an empty key — the shape a digest splitter
+// that mishandles "sha256:" or ":" would produce.
 func FuzzOCIServe(f *testing.F) {
 	type seed struct {
 		method, path, digest, enc string
@@ -86,6 +93,28 @@ func FuzzOCIServe(f *testing.F) {
 		reg := newFuzzRegistry()
 		rec := httptest.NewRecorder()
 		reg.serve(rec, req)
+
+		if rec.Code < 100 || rec.Code > 599 {
+			t.Fatalf("%s %s answered with %d, which is not an HTTP status", method, target, rec.Code)
+		}
+		// Nothing was ever pushed to this registry, so no read of a manifest or
+		// a blob can succeed. "/v2/" itself is the API-version probe and does
+		// legitimately answer 200.
+		isRead := method == http.MethodGet || method == http.MethodHead || method == http.MethodDelete
+		addressesContent := strings.Contains(req.URL.Path, "/manifests/") || strings.Contains(req.URL.Path, "/blobs/")
+		if isRead && addressesContent && rec.Code >= 200 && rec.Code < 300 {
+			t.Fatalf("%s %s succeeded with %d against an empty registry — nothing was ever pushed to read back",
+				method, req.URL.Path, rec.Code)
+		}
+		// A digest or repository name the splitter reduced to nothing must not
+		// become a storage key: content filed under "" is unreachable by any
+		// legitimate client and collides with the next such write.
+		if _, ok := reg.Blobs.Get(""); ok {
+			t.Fatalf("%s %s stored a blob under an empty key", method, target)
+		}
+		if _, ok := reg.Manifests.Get(""); ok {
+			t.Fatalf("%s %s stored a manifest under an empty key", method, target)
+		}
 	})
 }
 

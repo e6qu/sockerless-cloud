@@ -42,12 +42,30 @@ func TestPubSub_SnapshotLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "created snapshot appears in the list")
 
-	// Seek the subscription back to the snapshot.
+	// Seek the subscription back to the snapshot. The verb resolves the
+	// subscription it is asked to move: a name no subscription was created
+	// under is NOT_FOUND, so the empty SeekResponse on the line above is the
+	// answer for a subscription the service really holds and not the answer it
+	// gives to anything.
 	_, err = svc.Projects.Subscriptions.Seek(subName, &pubsub.SeekRequest{Snapshot: snapName}).Do()
 	require.NoError(t, err, "subscriptions.seek to a snapshot")
 
+	_, err = svc.Projects.Subscriptions.Seek(
+		"projects/"+project+"/subscriptions/no-such-sub",
+		&pubsub.SeekRequest{Snapshot: snapName}).Do()
+	require.Error(t, err, "seek on a subscription the project does not hold")
+	assert.Contains(t, err.Error(), "404")
+
+	// Deleting the snapshot removes it from the collection and from the
+	// project's listing, not just from the direct read.
 	_, err = svc.Projects.Snapshots.Delete(snapName).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.Snapshots.Get(snapName).Do()
 	assert.Error(t, err, "snapshot gone after delete")
+
+	afterDelete, err := svc.Projects.Snapshots.List("projects/" + project).Do()
+	require.NoError(t, err)
+	for _, s := range afterDelete.Snapshots {
+		assert.NotEqual(t, snapName, s.Name, "the deleted snapshot is out of the listing too")
+	}
 }

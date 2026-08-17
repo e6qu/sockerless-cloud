@@ -206,9 +206,9 @@ func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
 	executionID := started.Metadata.Name
 
 	// Wait until the container is demonstrably running.
-	require.Eventually(t, func() bool {
-		return strings.Contains(jobLogs(t, id), "tick-0")
-	}, 90*time.Second, 200*time.Millisecond, "the workload container must start ticking")
+	waitForJobLogs(t, id, func(logs string) bool {
+		return strings.Contains(logs, "tick-0")
+	})
 
 	cancelled, err := svc.Namespaces.Executions.Cancel(
 		parent+"/executions/"+executionID, &run.CancelExecutionRequest{}).Do()
@@ -220,9 +220,12 @@ func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
 	assert.NotEmpty(t, cancelled.Status.CompletionTime)
 
 	// Let any line already in flight land, then hold still: a stopped
-	// container produces no further ticks.
+	// container produces no further ticks. The count the hold is measured
+	// against has to be a real one — comparing no ticks against no ticks would
+	// pass with the log stream never read at all.
 	time.Sleep(2 * time.Second)
 	settled := strings.Count(jobLogs(t, id), "tick-")
+	require.Greater(t, settled, 0, "the container's ticks must be in the log stream before the hold")
 	time.Sleep(4 * time.Second)
 	assert.Equal(t, settled, strings.Count(jobLogs(t, id), "tick-"),
 		"the cancelled execution's container must be stopped, not merely recorded as cancelled")
@@ -268,9 +271,9 @@ func TestCloudRunV1_JobRunOverrides(t *testing.T) {
 		started.Spec.Template.Spec.Containers[0].Args)
 
 	// The override reached the real container.
-	require.Eventually(t, func() bool {
-		return strings.Contains(jobLogs(t, id), "overridden-yes")
-	}, 90*time.Second, 200*time.Millisecond, "the overridden args and env must reach the container")
+	waitForJobLogs(t, id, func(logs string) bool {
+		return strings.Contains(logs, "overridden-yes")
+	})
 
 	// The job resource itself is unchanged — an override lasts one execution.
 	job, err := svc.Namespaces.Jobs.Get(parent + "/jobs/" + id).Do()

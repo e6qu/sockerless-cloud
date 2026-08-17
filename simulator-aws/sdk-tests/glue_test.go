@@ -390,6 +390,14 @@ func TestGlue_GetPartitionIndexes_SDK(t *testing.T) {
 	assert.Empty(t, indexes.PartitionIndexDescriptorList)
 }
 
+// glueJobRunCompletionBudget bounds every wait for an AWS Glue job run to
+// settle. A Python shell job run is real container work — the interpreter image
+// is pulled if absent, the script runs inside it, and the run settles when that
+// container exits — so the budget covers the container engine's
+// pull/create/start/wait alongside whatever else is running on the host. Real
+// AWS Glue job runs take minutes; the API promises nothing faster.
+const glueJobRunCompletionBudget = 4 * time.Minute
+
 func TestGlue_JobCRUD_SDK(t *testing.T) {
 	c := glueClient()
 	s3c := s3Client()
@@ -468,8 +476,11 @@ func TestGlue_JobCRUD_SDK(t *testing.T) {
 			RunId:   runResp.JobRunId,
 		})
 		require.NoError(t, err)
+		if run.JobRun.JobRunState == gluetypes.JobRunStateFailed {
+			t.Fatalf("job run failed: %s", aws.ToString(run.JobRun.ErrorMessage))
+		}
 		return run.JobRun.JobRunState == gluetypes.JobRunStateSucceeded
-	}, 10*time.Second, 100*time.Millisecond)
+	}, glueJobRunCompletionBudget, 100*time.Millisecond)
 	assert.Equal(t, aws.ToString(runResp.JobRunId), aws.ToString(run.JobRun.Id))
 	assert.Equal(t, gluetypes.JobRunStateSucceeded, run.JobRun.JobRunState)
 

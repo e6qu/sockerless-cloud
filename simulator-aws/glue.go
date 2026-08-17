@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,7 +19,12 @@ import (
 )
 
 // AWS Glue — AWS JSON 1.1 protocol (X-Amz-Target: AWSGlue.<Op>).
-// Python shell job runs execute the script stored at the job's S3 script location.
+// Python shell job runs execute the script stored at the job's S3 script
+// location, in a container running the interpreter the job command names.
+
+// glueJobScriptDir is where a Python shell job's script is mounted inside its
+// job container, and the working directory the script runs from.
+const glueJobScriptDir = "/tmp/glue-script"
 
 type GlueDatabase struct {
 	Name                          string            `json:"Name"`
@@ -1397,7 +1403,7 @@ func handleGlueStartJobRun(w http.ResponseWriter, r *http.Request) {
 		Arguments:   req.Arguments,
 	}
 	glueJobRuns.Put(req.JobName+"/"+runID, run)
-	go glueRunPythonJob(req.JobName, runID, script, req.Arguments)
+	go glueRunPythonJob(req.JobName, runID, job, script, req.Arguments)
 	glueWriteJSON(w, http.StatusOK, map[string]any{"JobRunId": runID})
 }
 
@@ -1427,7 +1433,33 @@ func gluePythonScript(job GlueJob) ([]byte, error) {
 	return obj.Data, nil
 }
 
-func glueRunPythonJob(jobName, runID string, script []byte, args map[string]string) {
+// gluePythonShellImage is the interpreter a Python shell job runs on, chosen by
+// the job command's PythonVersion. AWS: "The Python version being used to run a
+// Python shell job. Allowed values are 2 or 3." Glue runs Python 3 shell jobs
+// on Python 3.9; Python 2 shell jobs ran only on Glue versions AWS has since
+// retired, so a job asking for one is refused rather than quietly run on a
+// different interpreter.
+func gluePythonShellImage(job GlueJob) (string, error) {
+	version := glueString(job.Command["PythonVersion"])
+	if version == "" {
+		version = glueString(job.Command["pythonVersion"])
+	}
+	switch version {
+	case "", "3", "3.9":
+		return "public.ecr.aws/docker/library/python:3.9", nil
+	case "2":
+		return "", fmt.Errorf("Command.PythonVersion 2 is not supported for Python shell jobs")
+	default:
+		return "", fmt.Errorf("Command.PythonVersion %q is not a Python shell job version", version)
+	}
+}
+
+func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args map[string]string) {
+	image, err := gluePythonShellImage(job)
+	if err != nil {
+		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
+		return
+	}
 	workDir, err := os.MkdirTemp("", "sockerless-glue-*")
 	if err != nil {
 		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
@@ -1441,15 +1473,32 @@ func glueRunPythonJob(jobName, runID string, script []byte, args map[string]stri
 		return
 	}
 
-	command := append([]string{"python3", scriptPath}, glueArgs(args)...)
-	handle := sim.StartProcess(sim.ProcessConfig{
-		Command: command,
-		Dir:     filepath.Clean(workDir),
+	platform, err := localImagePlatform(context.Background(), image)
+	if err != nil {
+		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
+		return
+	}
+	// The job runs in its interpreter's container, taking the script and the
+	// job's arguments the way Glue hands them to a Python shell job.
+	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+		Image:        image,
+		Architecture: platform,
+		Command:      []string{"python3"},
+		Args:         append([]string{glueJobScriptDir + "/script.py"}, glueArgs(args)...),
+		WorkingDir:   glueJobScriptDir,
+		Binds:        []string{filepath.Clean(workDir) + ":" + glueJobScriptDir + ":z"},
 		Env: map[string]string{
-			"PATH": os.Getenv("PATH"),
-			"HOME": os.Getenv("HOME"),
+			"AWS_DEFAULT_REGION": awsRegion(),
+			"AWS_REGION":         awsRegion(),
 		},
+		ExtraHosts: hostMetadataExtraHosts(),
+		Labels:     map[string]string{"sockerless-glue-job-run": runID},
+		Sandbox:    sim.SandboxFargate,
 	}, sim.NoopSink{})
+	if err != nil {
+		glueCompleteRun(jobName, runID, "FAILED", 0, fmt.Sprintf("start job environment %s: %v", image, err))
+		return
+	}
 	result := handle.Wait()
 	status := "SUCCEEDED"
 	reason := ""

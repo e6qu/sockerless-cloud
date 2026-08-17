@@ -20,7 +20,10 @@ CLI_TEST_TIMEOUT ?= 600s
 CLI_TEST_ARGS    ?= ./...
 TERRAFORM_TEST_TIMEOUT ?= 300s
 TERRAFORM_TEST_ARGS    ?=
-TERRAFORM_TEST_PACKAGES ?= . ./elasticache ./rds-instance ./rds-restore ./rds-snapshot
+# Every stack under terraform-tests/, so a package added there runs without
+# being listed anywhere. CI shards the same set one package per job; the shard
+# list is gated against this directory by scripts/check-tf-shard-coverage.sh.
+TERRAFORM_TEST_PACKAGES ?= ./...
 # Each package launches its own simulator, Caddy gateway, Terraform provider,
 # and real database/container workloads. Keep packages isolated while Terraform
 # retains its own resource-level parallelism inside each production-shaped graph.

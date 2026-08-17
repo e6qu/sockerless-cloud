@@ -581,14 +581,21 @@ func registerComputeRouterMore(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		router.Name = name
-		router.Kind = "compute#router"
-		router.SelfLink = computeSelfLink(key)
-		router.Region = computeSelfLink(fmt.Sprintf("projects/%s/regions/%s", project, region))
-		if _, ok := routers.Get(key); !ok {
+		existing, ok := routers.Get(key)
+		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
 		}
+		// selfLink, id, region and the creation timestamp are output-only: an
+		// update replaces what the caller may write and carries the server's own
+		// members across unchanged, so a router keeps the identity every other
+		// collection addresses it by.
+		router.Name = name
+		router.Kind = "compute#router"
+		router.SelfLink = existing.SelfLink
+		router.Region = existing.Region
+		router.Id = existing.Id
+		router.CreationTimestamp = existing.CreationTimestamp
 		defaultRouterNATTypes(router.Nats)
 		routers.Put(key, router)
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "regions/"+region, computeSelfLink(key), "update"))

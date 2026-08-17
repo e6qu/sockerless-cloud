@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -28,6 +29,53 @@ func assertNoJSONKeys(t *testing.T, v any, keys ...string) {
 			t.Errorf("wire shape leaks %q: %s", key, data)
 		}
 	}
+	// Marshalling one instance only proves the member was empty on that
+	// instance. The invariant is about the type: a member added to the wire
+	// struct leaks on the first request that populates it, long before a test
+	// happens to fill it in. So the type's own JSON tag set is checked too.
+	assertTypeHasNoJSONKeys(t, reflect.TypeOf(v), keys...)
+}
+
+// assertTypeHasNoJSONKeys walks every JSON member reachable from a type —
+// through pointers, slices, arrays, map values and embedded structs — and fails
+// if any of the named keys is declared anywhere in it. Unlike marshalling an
+// instance, this cannot be satisfied by a zero value.
+func assertTypeHasNoJSONKeys(t *testing.T, typ reflect.Type, keys ...string) {
+	t.Helper()
+	forbidden := map[string]bool{}
+	for _, key := range keys {
+		forbidden[key] = true
+	}
+	seen := map[reflect.Type]bool{}
+	var walk func(reflect.Type)
+	walk = func(typ reflect.Type) {
+		for typ != nil && (typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice ||
+			typ.Kind() == reflect.Array || typ.Kind() == reflect.Map) {
+			typ = typ.Elem()
+		}
+		if typ == nil || typ.Kind() != reflect.Struct || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		for i := range typ.NumField() {
+			field := typ.Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+			if name == "-" {
+				continue
+			}
+			if name == "" {
+				name = field.Name
+			}
+			if forbidden[name] {
+				t.Errorf("wire type %s declares the store-only member %q", typ, name)
+			}
+			walk(field.Type)
+		}
+	}
+	walk(typ)
 }
 
 func TestManagedZoneWireHasNoDockerNetworkName(t *testing.T) {
@@ -77,7 +125,29 @@ func TestStoredFunctionRoundTrip(t *testing.T) {
 		t.Fatalf("decode lost serviceConfig members: %+v", fn.ServiceConfig)
 	}
 
-	assertNoJSONKeys(t, fn.wire(), "simImage", "simCommand", "simArchitecture")
+	// wire() narrows the stored serviceConfig to the schema's member set, and
+	// the stored type shadows the wire Function's serviceConfig field — so a
+	// wire() that forgot to copy the shadowed member would emit a Function with
+	// no serviceConfig at all. Compare the emitted member set exactly: a lost
+	// serviceConfig, a dropped member and an invented one all fail.
+	wireJSON, err := json.Marshal(fn.wire())
+	if err != nil {
+		t.Fatalf("marshal wire function: %v", err)
+	}
+	var emitted struct {
+		ServiceConfig map[string]any `json:"serviceConfig"`
+	}
+	if err := json.Unmarshal(wireJSON, &emitted); err != nil {
+		t.Fatalf("unmarshal wire function: %v", err)
+	}
+	wantMembers := map[string]any{
+		"uri":                  "http://sim/v2-functions-invoke/f",
+		"service":              "projects/p/locations/l/services/f",
+		"environmentVariables": map[string]any{"FOO": "bar"},
+	}
+	if !reflect.DeepEqual(emitted.ServiceConfig, wantMembers) {
+		t.Errorf("wire serviceConfig = %#v, want %#v", emitted.ServiceConfig, wantMembers)
+	}
 
 	// The persisted row round-trips the real serviceConfig members.
 	persisted, err := json.Marshal(fn)

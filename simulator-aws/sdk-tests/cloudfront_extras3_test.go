@@ -405,7 +405,8 @@ func TestCloudFront_DistributionWebACLAndAlias(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// A second distribution claiming the same alias yields a conflict.
+	// A second distribution claiming the same alias yields a conflict, and the
+	// conflict names the alias and the distribution already holding it.
 	other, _ := cfExtras3MakeDistribution(t, c, ctx)
 	conf, err := c.ListConflictingAliases(ctx, &cloudfront.ListConflictingAliasesInput{
 		DistributionId: aws.String(other),
@@ -413,13 +414,30 @@ func TestCloudFront_DistributionWebACLAndAlias(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, conf.ConflictingAliasesList)
+	require.NotEmpty(t, conf.ConflictingAliasesList.Items,
+		"the alias another distribution holds must be reported as conflicting")
+	assert.Equal(t, len(conf.ConflictingAliasesList.Items), int(aws.ToInt32(conf.ConflictingAliasesList.Quantity)))
+	conflicting := conf.ConflictingAliasesList.Items[0]
+	assert.Equal(t, alias, aws.ToString(conflicting.Alias))
+	assert.Equal(t, id, aws.ToString(conflicting.DistributionId),
+		"the conflict must name the distribution that holds the alias")
+
+	// An alias nobody holds conflicts with nothing.
+	free, err := c.ListConflictingAliases(ctx, &cloudfront.ListConflictingAliasesInput{
+		DistributionId: aws.String(other),
+		Alias:          aws.String("unclaimed-" + alias),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, free.ConflictingAliasesList)
+	assert.Empty(t, free.ConflictingAliasesList.Items)
 
 	dc, err := c.ListDomainConflicts(ctx, &cloudfront.ListDomainConflictsInput{
 		Domain:                          aws.String(alias),
 		DomainControlValidationResource: &cftypes.DistributionResourceId{DistributionId: aws.String(id)},
 	})
 	require.NoError(t, err)
-	require.NotNil(t, dc)
+	require.NotEmpty(t, dc.DomainConflicts, "the domain this distribution holds must be reported")
+	assert.Equal(t, alias, aws.ToString(dc.DomainConflicts[0].Domain))
 
 	uda, err := c.UpdateDomainAssociation(ctx, &cloudfront.UpdateDomainAssociationInput{
 		Domain:         aws.String(alias),
@@ -437,55 +455,182 @@ func TestCloudFront_DistributionWebACLAndAlias(t *testing.T) {
 }
 
 // TestCloudFront_ListDistributionsByResource covers the ListDistributionsBy*
-// projections over the existing distribution store.
+// projections. Every projection is asserted twice: against the resource the
+// distribution really carries, which must return it, and against one it does
+// not, which must not. A projection that ignores its filter fails one arm or
+// the other, and each list's Quantity is asserted against the items in it,
+// which is the wire contract a paginating client reads.
 func TestCloudFront_ListDistributionsByResource(t *testing.T) {
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Seed a distribution so the store is non-empty (matches are honestly empty
-	// for these references since the seed distribution does not reference them).
-	_, _ = cfExtras3MakeDistribution(t, c, ctx)
+	stamp := time.Now().Format("150405.000000000")
+	cachePolicy := "cp-" + stamp
+	originPolicy := "orp-" + stamp
+	headersPolicy := "rhp-" + stamp
+	keyGroup := "kg-" + stamp
+	anycastIPList := "aipl-" + stamp
+	webACL := "arn:aws:wafv2:us-east-1:000000000000:global/webacl/sdk-" + stamp + "/1"
 
-	byCache, err := c.ListDistributionsByCachePolicyId(ctx, &cloudfront.ListDistributionsByCachePolicyIdInput{CachePolicyId: aws.String("cp-123")})
-	require.NoError(t, err)
-	require.NotNil(t, byCache.DistributionIdList)
+	id := cfExtras3MakeReferencingDistribution(t, c, ctx, cftypes.DistributionConfig{
+		AnycastIpListId: aws.String(anycastIPList),
+		ConnectionMode:  cftypes.ConnectionModeTenantOnly,
+		WebACLId:        aws.String(webACL),
+		DefaultCacheBehavior: &cftypes.DefaultCacheBehavior{
+			TargetOriginId:          aws.String("o1"),
+			ViewerProtocolPolicy:    cftypes.ViewerProtocolPolicyAllowAll,
+			CachePolicyId:           aws.String(cachePolicy),
+			OriginRequestPolicyId:   aws.String(originPolicy),
+			ResponseHeadersPolicyId: aws.String(headersPolicy),
+			TrustedKeyGroups: &cftypes.TrustedKeyGroups{
+				Enabled:  aws.Bool(true),
+				Quantity: aws.Int32(1),
+				Items:    []string{keyGroup},
+			},
+		},
+	})
 
-	byOrigin, err := c.ListDistributionsByOriginRequestPolicyId(ctx, &cloudfront.ListDistributionsByOriginRequestPolicyIdInput{OriginRequestPolicyId: aws.String("orp-123")})
-	require.NoError(t, err)
-	require.NotNil(t, byOrigin.DistributionIdList)
+	idsOf := func(list *cftypes.DistributionIdList) []string {
+		require.NotNil(t, list)
+		require.Equal(t, len(list.Items), int(aws.ToInt32(list.Quantity)),
+			"Quantity must count the identifiers returned")
+		return list.Items
+	}
+	summariesOf := func(list *cftypes.DistributionList) []string {
+		require.NotNil(t, list)
+		require.Equal(t, len(list.Items), int(aws.ToInt32(list.Quantity)),
+			"Quantity must count the distributions returned")
+		ids := make([]string, 0, len(list.Items))
+		for _, item := range list.Items {
+			ids = append(ids, aws.ToString(item.Id))
+		}
+		return ids
+	}
 
-	byResp, err := c.ListDistributionsByResponseHeadersPolicyId(ctx, &cloudfront.ListDistributionsByResponseHeadersPolicyIdInput{ResponseHeadersPolicyId: aws.String("rhp-123")})
+	byCache, err := c.ListDistributionsByCachePolicyId(ctx, &cloudfront.ListDistributionsByCachePolicyIdInput{CachePolicyId: aws.String(cachePolicy)})
 	require.NoError(t, err)
-	require.NotNil(t, byResp.DistributionIdList)
+	assert.Contains(t, idsOf(byCache.DistributionIdList), id)
+	byOtherCache, err := c.ListDistributionsByCachePolicyId(ctx, &cloudfront.ListDistributionsByCachePolicyIdInput{CachePolicyId: aws.String("cp-other-" + stamp)})
+	require.NoError(t, err)
+	assert.NotContains(t, idsOf(byOtherCache.DistributionIdList), id)
 
-	byKG, err := c.ListDistributionsByKeyGroup(ctx, &cloudfront.ListDistributionsByKeyGroupInput{KeyGroupId: aws.String("kg-123")})
+	byOrigin, err := c.ListDistributionsByOriginRequestPolicyId(ctx, &cloudfront.ListDistributionsByOriginRequestPolicyIdInput{OriginRequestPolicyId: aws.String(originPolicy)})
 	require.NoError(t, err)
-	require.NotNil(t, byKG.DistributionIdList)
+	assert.Contains(t, idsOf(byOrigin.DistributionIdList), id)
+	byOtherOrigin, err := c.ListDistributionsByOriginRequestPolicyId(ctx, &cloudfront.ListDistributionsByOriginRequestPolicyIdInput{OriginRequestPolicyId: aws.String("orp-other-" + stamp)})
+	require.NoError(t, err)
+	assert.NotContains(t, idsOf(byOtherOrigin.DistributionIdList), id)
 
-	byVpc, err := c.ListDistributionsByVpcOriginId(ctx, &cloudfront.ListDistributionsByVpcOriginIdInput{VpcOriginId: aws.String("vo-123")})
+	byResp, err := c.ListDistributionsByResponseHeadersPolicyId(ctx, &cloudfront.ListDistributionsByResponseHeadersPolicyIdInput{ResponseHeadersPolicyId: aws.String(headersPolicy)})
 	require.NoError(t, err)
-	require.NotNil(t, byVpc.DistributionIdList)
+	assert.Contains(t, idsOf(byResp.DistributionIdList), id)
+	byOtherResp, err := c.ListDistributionsByResponseHeadersPolicyId(ctx, &cloudfront.ListDistributionsByResponseHeadersPolicyIdInput{ResponseHeadersPolicyId: aws.String("rhp-other-" + stamp)})
+	require.NoError(t, err)
+	assert.NotContains(t, idsOf(byOtherResp.DistributionIdList), id)
 
-	byRTL, err := c.ListDistributionsByRealtimeLogConfig(ctx, &cloudfront.ListDistributionsByRealtimeLogConfigInput{RealtimeLogConfigName: aws.String("rtl-123")})
+	byKG, err := c.ListDistributionsByKeyGroup(ctx, &cloudfront.ListDistributionsByKeyGroupInput{KeyGroupId: aws.String(keyGroup)})
 	require.NoError(t, err)
-	require.NotNil(t, byRTL.DistributionList)
+	assert.Contains(t, idsOf(byKG.DistributionIdList), id)
+	byOtherKG, err := c.ListDistributionsByKeyGroup(ctx, &cloudfront.ListDistributionsByKeyGroupInput{KeyGroupId: aws.String("kg-other-" + stamp)})
+	require.NoError(t, err)
+	assert.NotContains(t, idsOf(byOtherKG.DistributionIdList), id)
 
-	byAnycast, err := c.ListDistributionsByAnycastIpListId(ctx, &cloudfront.ListDistributionsByAnycastIpListIdInput{AnycastIpListId: aws.String("aipl-123")})
+	byAnycast, err := c.ListDistributionsByAnycastIpListId(ctx, &cloudfront.ListDistributionsByAnycastIpListIdInput{AnycastIpListId: aws.String(anycastIPList)})
 	require.NoError(t, err)
-	require.NotNil(t, byAnycast.DistributionList)
+	assert.Contains(t, summariesOf(byAnycast.DistributionList), id)
+	byOtherAnycast, err := c.ListDistributionsByAnycastIpListId(ctx, &cloudfront.ListDistributionsByAnycastIpListIdInput{AnycastIpListId: aws.String("aipl-other-" + stamp)})
+	require.NoError(t, err)
+	assert.NotContains(t, summariesOf(byOtherAnycast.DistributionList), id)
 
-	byWebACL, err := c.ListDistributionsByWebACLId(ctx, &cloudfront.ListDistributionsByWebACLIdInput{WebACLId: aws.String("webacl-123")})
+	byWebACL, err := c.ListDistributionsByWebACLId(ctx, &cloudfront.ListDistributionsByWebACLIdInput{WebACLId: aws.String(webACL)})
 	require.NoError(t, err)
-	require.NotNil(t, byWebACL.DistributionList)
+	assert.Contains(t, summariesOf(byWebACL.DistributionList), id)
+	byOtherWebACL, err := c.ListDistributionsByWebACLId(ctx, &cloudfront.ListDistributionsByWebACLIdInput{WebACLId: aws.String(webACL + "-other")})
+	require.NoError(t, err)
+	assert.NotContains(t, summariesOf(byOtherWebACL.DistributionList), id)
 
-	byMode, err := c.ListDistributionsByConnectionMode(ctx, &cloudfront.ListDistributionsByConnectionModeInput{ConnectionMode: cftypes.ConnectionModeDirect})
+	// The distribution is tenant-only, so it appears under that mode and not
+	// under direct: the mode selects, rather than the distribution merely
+	// existing.
+	byTenantOnly, err := c.ListDistributionsByConnectionMode(ctx, &cloudfront.ListDistributionsByConnectionModeInput{ConnectionMode: cftypes.ConnectionModeTenantOnly})
 	require.NoError(t, err)
-	require.NotNil(t, byMode.DistributionList)
+	assert.Contains(t, summariesOf(byTenantOnly.DistributionList), id)
+	byDirect, err := c.ListDistributionsByConnectionMode(ctx, &cloudfront.ListDistributionsByConnectionModeInput{ConnectionMode: cftypes.ConnectionModeDirect})
+	require.NoError(t, err)
+	assert.NotContains(t, summariesOf(byDirect.DistributionList), id)
+
+	// It names no VPC origin and no real-time log configuration, and owns no
+	// resource of another account, so none of those three projects it.
+	byVpc, err := c.ListDistributionsByVpcOriginId(ctx, &cloudfront.ListDistributionsByVpcOriginIdInput{VpcOriginId: aws.String("vo-" + stamp)})
+	require.NoError(t, err)
+	assert.NotContains(t, idsOf(byVpc.DistributionIdList), id)
+
+	byRTL, err := c.ListDistributionsByRealtimeLogConfig(ctx, &cloudfront.ListDistributionsByRealtimeLogConfigInput{RealtimeLogConfigName: aws.String("rtl-" + stamp)})
+	require.NoError(t, err)
+	assert.NotContains(t, summariesOf(byRTL.DistributionList), id)
 
 	byOwned, err := c.ListDistributionsByOwnedResource(ctx, &cloudfront.ListDistributionsByOwnedResourceInput{ResourceArn: aws.String("arn:aws:wafv2:us-east-1:111122223333:global/webacl/x/y")})
 	require.NoError(t, err)
 	require.NotNil(t, byOwned.DistributionList)
+	assert.Equal(t, len(byOwned.DistributionList.Items), int(aws.ToInt32(byOwned.DistributionList.Quantity)))
+	for _, owner := range byOwned.DistributionList.Items {
+		assert.NotEqual(t, id, aws.ToString(owner.DistributionId))
+	}
+}
+
+// cfExtras3MakeReferencingDistribution creates a distribution whose
+// configuration carries the references the caller supplies, on top of the
+// minimal origin every distribution in this file uses, and returns its id.
+func cfExtras3MakeReferencingDistribution(t *testing.T, c *cloudfront.Client, ctx context.Context, overrides cftypes.DistributionConfig) string {
+	t.Helper()
+	config := &cftypes.DistributionConfig{
+		CallerReference: aws.String(cfExtras3Caller()),
+		Comment:         aws.String("sdk extras3 by-resource"),
+		Enabled:         aws.Bool(true),
+		Origins: &cftypes.Origins{
+			Quantity: aws.Int32(1),
+			Items: []cftypes.Origin{{
+				Id:         aws.String("o1"),
+				DomainName: aws.String("example.com"),
+				CustomOriginConfig: &cftypes.CustomOriginConfig{
+					HTTPPort:             aws.Int32(80),
+					HTTPSPort:            aws.Int32(443),
+					OriginProtocolPolicy: cftypes.OriginProtocolPolicyHttpOnly,
+					OriginSslProtocols: &cftypes.OriginSslProtocols{
+						Quantity: aws.Int32(1),
+						Items:    []cftypes.SslProtocol{cftypes.SslProtocolTLSv12},
+					},
+				},
+			}},
+		},
+		DefaultCacheBehavior: overrides.DefaultCacheBehavior,
+		AnycastIpListId:      overrides.AnycastIpListId,
+		ConnectionMode:       overrides.ConnectionMode,
+		WebACLId:             overrides.WebACLId,
+		ViewerCertificate:    &cftypes.ViewerCertificate{CloudFrontDefaultCertificate: aws.Bool(true)},
+		Restrictions: &cftypes.Restrictions{
+			GeoRestriction: &cftypes.GeoRestriction{RestrictionType: cftypes.GeoRestrictionTypeNone, Quantity: aws.Int32(0)},
+		},
+	}
+	out, err := c.CreateDistribution(ctx, &cloudfront.CreateDistributionInput{DistributionConfig: config})
+	require.NoError(t, err)
+	id := aws.ToString(out.Distribution.Id)
+	require.NotEmpty(t, id)
+	t.Cleanup(func() {
+		bg := context.Background()
+		g, gerr := c.GetDistribution(bg, &cloudfront.GetDistributionInput{Id: aws.String(id)})
+		if gerr != nil {
+			return
+		}
+		cfg := *g.Distribution.DistributionConfig
+		cfg.Enabled = aws.Bool(false)
+		u, uerr := c.UpdateDistribution(bg, &cloudfront.UpdateDistributionInput{Id: aws.String(id), IfMatch: g.ETag, DistributionConfig: &cfg})
+		if uerr == nil {
+			_, _ = c.DeleteDistribution(bg, &cloudfront.DeleteDistributionInput{Id: aws.String(id), IfMatch: u.ETag})
+		}
+	})
+	return id
 }
 
 // TestCloudFront_UpdateAnycastIpList covers UpdateAnycastIpList over a created
@@ -511,10 +656,32 @@ func TestCloudFront_UpdateAnycastIpList(t *testing.T) {
 		}
 	})
 
+	require.NotNil(t, create.AnycastIpList)
+	assert.Len(t, create.AnycastIpList.AnycastIps, 2, "IpCount addresses are allocated")
+
+	// The update carries a change, so the response and a later read both have
+	// to show it: an update that echoed the stored list would pass neither.
 	upd, err := c.UpdateAnycastIpList(ctx, &cloudfront.UpdateAnycastIpListInput{
-		Id:      aws.String(id),
-		IfMatch: aws.String(etag),
+		Id:            aws.String(id),
+		IfMatch:       aws.String(etag),
+		IpAddressType: cftypes.IpAddressTypeDualStack,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, id, aws.ToString(upd.AnycastIpList.Id))
+	assert.Equal(t, cftypes.IpAddressTypeDualStack, upd.AnycastIpList.IpAddressType)
+	assert.NotEqual(t, etag, aws.ToString(upd.ETag), "an update issues a new entity tag")
+
+	reread, err := c.GetAnycastIpList(ctx, &cloudfront.GetAnycastIpListInput{Id: aws.String(id)})
+	require.NoError(t, err)
+	assert.Equal(t, cftypes.IpAddressTypeDualStack, reread.AnycastIpList.IpAddressType,
+		"the change must be what a later read returns")
+
+	// The stale entity tag is refused, which is what makes the concurrency
+	// control real rather than decorative.
+	_, err = c.UpdateAnycastIpList(ctx, &cloudfront.UpdateAnycastIpListInput{
+		Id:            aws.String(id),
+		IfMatch:       aws.String(etag),
+		IpAddressType: cftypes.IpAddressTypeIpv4,
+	})
+	assert.Equal(t, "PreconditionFailed", errCode(t, err))
 }

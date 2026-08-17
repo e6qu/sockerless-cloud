@@ -43,6 +43,9 @@ type Server struct {
 	tracker *ProcessTracker // nil when persistence disabled
 	uiAuth  *uiauth.Auth
 
+	// runtimeMode is how this process was started, resolved once at startup.
+	runtimeMode RuntimeMode
+
 	backgroundCtx    context.Context
 	backgroundCancel context.CancelFunc
 	backgroundWG     sync.WaitGroup
@@ -94,18 +97,26 @@ func NewServer(cfg Config) (*Server, error) {
 
 	mux := http.NewServeMux()
 
-	// Health check endpoint
+	// The runtime mode decides whether this process holds a container engine
+	// client, so it is resolved once here and carried, never re-read: what the
+	// server reports about itself and what it can actually do have to be the
+	// same answer.
+	runtimeMode, err := ResolveRuntimeMode()
+	if err != nil {
+		return nil, err
+	}
+
+	// Health check endpoint. The workload-execution capability answers for both
+	// halves of what running a workload takes — a mode that runs them and an
+	// engine to run them on — rather than for the mode alone. Reporting the
+	// mode by itself would let a process claim a capability it does not hold.
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		runtime := os.Getenv("SIM_RUNTIME")
-		if runtime == "" {
-			runtime = "docker"
-		}
 		WriteJSON(w, http.StatusOK, map[string]any{
 			"status":   "ok",
 			"provider": cfg.Provider,
-			"runtime":  runtime,
+			"runtime":  string(runtimeMode),
 			"capabilities": map[string]bool{
-				"workloadExecution": runtime != "process",
+				"workloadExecution": runtimeMode.ExecutesWorkloads() && DockerClient() != nil,
 			},
 		})
 	})
@@ -123,12 +134,6 @@ func NewServer(cfg Config) (*Server, error) {
 	routed = InFlightMiddleware(routed)
 	StartDiagnosticsListener()
 
-	// Initialize Docker/Podman for workload execution. SIM_RUNTIME=process
-	// is an explicit API-only startup mode for non-execution service slices.
-	runtime := os.Getenv("SIM_RUNTIME")
-	if runtime == "" {
-		runtime = "docker"
-	}
 	dataDir := cfg.DataDir
 	if cfg.Persist && dataDir == "" {
 		dataDir = fmt.Sprintf("/tmp/sockerless-sim-%s", cfg.Provider)
@@ -141,9 +146,21 @@ func NewServer(cfg Config) (*Server, error) {
 		dataDir = absoluteDataDir
 		cfg.DataDir = absoluteDataDir
 	}
-	if runtime != "process" {
-		InitDocker(cfg.Provider, cfg.Persist, dataDir)
+	// Obtain the container engine for every mode that executes workloads, and
+	// refuse to serve without one. Discovering an absent engine at the first
+	// workload instead leaves a process that passes its health check and fails
+	// every workload it is given, one at a time, in the background.
+	// SIM_RUNTIME=process is the one mode that legitimately has no engine, and
+	// it says so in the log so that the absence is never a silent one.
+	if runtimeMode.ExecutesWorkloads() {
+		if _, err := InitDocker(cfg.Provider, cfg.Persist, dataDir); err != nil {
+			return nil, fmt.Errorf("runtime mode %s: %w", runtimeMode, err)
+		}
 		logger.Info().Str("runtime", RuntimeInfo()).Msg("container runtime initialized")
+	} else {
+		logger.Warn().
+			Str("runtime", string(runtimeMode)).
+			Msg("API-only mode: no container engine client; operations that execute workloads will be refused")
 	}
 
 	// Open SQLite database if persistence enabled. No fallback —
@@ -166,6 +183,7 @@ func NewServer(cfg Config) (*Server, error) {
 		config:           cfg,
 		logger:           logger,
 		mux:              mux,
+		runtimeMode:      runtimeMode,
 		routed:           routed,
 		db:               db,
 		tracker:          tracker,
@@ -423,6 +441,12 @@ func (s *Server) printBanner() {
 	fmt.Fprintf(os.Stderr, "\n")
 	fmt.Fprintf(os.Stderr, "  Sockerless %s Simulator\n", s.config.Provider)
 	fmt.Fprintf(os.Stderr, "  Listening on %s\n", s.config.ListenAddr)
+	if s.runtimeMode.ExecutesWorkloads() {
+		fmt.Fprintf(os.Stderr, "  Container runtime: %s\n", RuntimeInfo())
+	} else {
+		fmt.Fprintf(os.Stderr, "  Container runtime: none (%s=%s, API-only; workloads will be refused)\n",
+			runtimeModeVariable, s.runtimeMode)
+	}
 	switch s.config.Provider {
 	case "aws":
 		fmt.Fprintf(os.Stderr, "  SDK config: AWS_ENDPOINT_URL=http://localhost%s\n", s.config.ListenAddr)

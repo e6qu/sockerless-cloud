@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCanonicalConfig_NoSimQuirkBaseEndpoint scans test sources and
@@ -48,6 +50,7 @@ func TestCanonicalConfig_NoSimQuirkBaseEndpoint(t *testing.T) {
 	root := filepath.Dir(cwd)
 
 	var hits []string
+	scanned := 0
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -72,6 +75,7 @@ func TestCanonicalConfig_NoSimQuirkBaseEndpoint(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		scanned++
 		isTF := strings.HasSuffix(base, ".tf")
 		for lineNo, line := range strings.Split(string(body), "\n") {
 			trim := strings.TrimSpace(line)
@@ -100,6 +104,13 @@ func TestCanonicalConfig_NoSimQuirkBaseEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WalkDir: %v", err)
 	}
+
+	// A scan that reached nothing reports clean without having looked, so the
+	// file count is asserted before the finding count. The floor is far below
+	// the hundreds of test and Terraform files under simulator-aws/, and exists
+	// only to catch a walk that lost its root or its filter.
+	require.Greaterf(t, scanned, 100,
+		"the scan read only %d files under %s — it cannot report clean without having looked", scanned, root)
 
 	if len(hits) > 0 {
 		t.Errorf("sim-quirk endpoint pattern found — fix the sim's routing instead of reconfiguring clients around it (see .claude/skills/sim-canonical-config-test/SKILL.md):\n%s",

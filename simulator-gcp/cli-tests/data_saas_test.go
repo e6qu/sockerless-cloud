@@ -6,7 +6,10 @@ import (
 	"testing"
 )
 
-func TestBigQueryAndFirestore_RESTCLIFlows(t *testing.T) {
+// TestBigQueryAndFirestore_Wire_RESTFlows drives the BigQuery and Firestore
+// REST slices at the wire level: dataset + table create, streaming insert and
+// query, then a Firestore document write, read and structured query.
+func TestBigQueryAndFirestore_Wire_RESTFlows(t *testing.T) {
 	dsBody := `{"datasetReference":{"projectId":"test-project","datasetId":"cli_dataset"},"location":"US"}`
 	httpDoJSON(t, "POST", baseURL+"/bigquery/v2/projects/test-project/datasets", dsBody)
 

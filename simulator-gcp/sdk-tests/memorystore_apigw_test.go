@@ -30,6 +30,39 @@ func apigatewayService(t *testing.T) *apigateway.Service {
 	return svc
 }
 
+// awaitRedisLRO reads a Memorystore for Redis long-running operation to its
+// terminal state through projects.locations.operations.get — the collection the
+// operation's own name addresses — and returns the finished record. Reading the
+// outcome off the collection rather than off the create response is how a client
+// learns it, and it holds whether the service settles the work inside the
+// request or minutes later.
+func awaitRedisLRO(t *testing.T, svc *redis.Service, op *redis.Operation) *redis.Operation {
+	t.Helper()
+	require.NotEmpty(t, op.Name, "a long-running method answers with the operation it started")
+	settled := awaitLRO(t, op.Name,
+		func() (*redis.Operation, error) {
+			return svc.Projects.Locations.Operations.Get(op.Name).Do()
+		},
+		func(o *redis.Operation) bool { return o.Done })
+	assert.Equal(t, op.Name, settled.Name)
+	assert.Nil(t, settled.Error, "operation %s finished with an error", op.Name)
+	return settled
+}
+
+// awaitAPIGatewayLRO is awaitRedisLRO for the API Gateway operations collection.
+func awaitAPIGatewayLRO(t *testing.T, svc *apigateway.Service, op *apigateway.ApigatewayOperation) *apigateway.ApigatewayOperation {
+	t.Helper()
+	require.NotEmpty(t, op.Name, "a long-running method answers with the operation it started")
+	settled := awaitLRO(t, op.Name,
+		func() (*apigateway.ApigatewayOperation, error) {
+			return svc.Projects.Locations.Operations.Get(op.Name).Do()
+		},
+		func(o *apigateway.ApigatewayOperation) bool { return o.Done })
+	assert.Equal(t, op.Name, settled.Name)
+	assert.Nil(t, settled.Error, "operation %s finished with an error", op.Name)
+	return settled
+}
+
 // TestMemorystoreRedis_InstanceLifecycle exercises the Memorystore
 // Redis instance lifecycle: create (LRO) → get → list → patch (LRO)
 // → delete (LRO).
@@ -43,7 +76,7 @@ func TestMemorystoreRedis_InstanceLifecycle(t *testing.T) {
 		MemorySizeGb: 1,
 	}).InstanceId(id).Do()
 	require.NoError(t, err)
-	assert.True(t, op.Done, "sim emits synchronous done=true LROs")
+	awaitRedisLRO(t, svc, op)
 
 	inst, err := svc.Projects.Locations.Instances.Get(parent + "/instances/" + id).Do()
 	require.NoError(t, err)
@@ -62,19 +95,30 @@ func TestMemorystoreRedis_InstanceLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Patch.
-	_, err = svc.Projects.Locations.Instances.Patch(inst.Name, &redis.Instance{
+	// Patch. The mask names memorySizeGb, so that is the only field the update
+	// may move — the tier and the rest of the instance stay as the create left
+	// them.
+	patchOp, err := svc.Projects.Locations.Instances.Patch(inst.Name, &redis.Instance{
 		MemorySizeGb: 5,
 	}).UpdateMask("memorySizeGb").Do()
 	require.NoError(t, err)
+	awaitRedisLRO(t, svc, patchOp)
 
 	got, err := svc.Projects.Locations.Instances.Get(inst.Name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), got.MemorySizeGb)
+	assert.Equal(t, "BASIC", got.Tier, "a memorySizeGb-masked update leaves the tier alone")
+	assert.Equal(t, "READY", got.State)
+	assert.Equal(t, int64(6379), got.Port)
 
 	delOp, err := svc.Projects.Locations.Instances.Delete(inst.Name).Do()
 	require.NoError(t, err)
-	assert.True(t, delOp.Done)
+	awaitRedisLRO(t, svc, delOp)
+
+	// The delete removed the instance it reported deleting.
+	_, err = svc.Projects.Locations.Instances.Get(inst.Name).Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
 }
 
 // TestMemorystoreRedis_ClusterLifecycle exercises the Redis Cluster
@@ -91,7 +135,7 @@ func TestMemorystoreRedis_ClusterLifecycle(t *testing.T) {
 		NodeType:     "REDIS_HIGHMEM_MEDIUM",
 	}).ClusterId(id).Do()
 	require.NoError(t, err)
-	assert.True(t, op.Done, "sim emits synchronous done=true LROs")
+	awaitRedisLRO(t, svc, op)
 
 	name := parent + "/clusters/" + id
 	cl, err := svc.Projects.Locations.Clusters.Get(name).Do()
@@ -112,13 +156,16 @@ func TestMemorystoreRedis_ClusterLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	_, err = svc.Projects.Locations.Clusters.Patch(name, &redis.Cluster{
+	clusterPatchOp, err := svc.Projects.Locations.Clusters.Patch(name, &redis.Cluster{
 		ReplicaCount: 2,
 	}).UpdateMask("replicaCount").Do()
 	require.NoError(t, err)
+	awaitRedisLRO(t, svc, clusterPatchOp)
 	got, err := svc.Projects.Locations.Clusters.Get(name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), got.ReplicaCount)
+	assert.Equal(t, int64(3), got.ShardCount, "a replicaCount-masked update leaves the shard count alone")
+	assert.Equal(t, "REDIS_HIGHMEM_MEDIUM", got.NodeType)
 
 	ca, err := svc.Projects.Locations.Clusters.GetCertificateAuthority(name + "/certificateAuthority").Do()
 	require.NoError(t, err)
@@ -128,7 +175,10 @@ func TestMemorystoreRedis_ClusterLifecycle(t *testing.T) {
 
 	delOp, err := svc.Projects.Locations.Clusters.Delete(name).Do()
 	require.NoError(t, err)
-	assert.True(t, delOp.Done)
+	awaitRedisLRO(t, svc, delOp)
+	_, err = svc.Projects.Locations.Clusters.Get(name).Do()
+	require.Error(t, err, "the delete removed the cluster it reported deleting")
+	assert.Contains(t, err.Error(), "404")
 }
 
 // TestMemorystoreRedis_BackupCollections exercises a cluster :backup that
@@ -149,7 +199,7 @@ func TestMemorystoreRedis_BackupCollections(t *testing.T) {
 		BackupId: "snap-1",
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, bop.Done)
+	awaitRedisLRO(t, svc, bop)
 
 	// The backup collection is named after the cluster.
 	bcName := parent + "/backupCollections/" + id
@@ -176,11 +226,30 @@ func TestMemorystoreRedis_BackupCollections(t *testing.T) {
 		GcsBucket: "gs://sim-backups",
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, expOp.Done)
+	expSettled := awaitRedisLRO(t, svc, expOp)
+	assert.NotEmpty(t, expSettled.Response, "the export reports the backup it exported")
+	// Exporting reads the backup; it does not consume it.
+	stillThere, err := svc.Projects.Locations.BackupCollections.Backups.Get(backupName).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "ACTIVE", stillThere.State)
+
+	// Export resolves the backup it is given: a name no backup was minted under
+	// is NOT_FOUND rather than an export of nothing.
+	_, err = svc.Projects.Locations.BackupCollections.Backups.Export(bcName+"/backups/no-such-backup",
+		&redis.ExportBackupRequest{GcsBucket: "gs://sim-backups"}).Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
 
 	delOp, err := svc.Projects.Locations.BackupCollections.Backups.Delete(backupName).Do()
 	require.NoError(t, err)
-	assert.True(t, delOp.Done)
+	awaitRedisLRO(t, svc, delOp)
+	_, err = svc.Projects.Locations.BackupCollections.Backups.Get(backupName).Do()
+	require.Error(t, err, "the delete removed the backup")
+	assert.Contains(t, err.Error(), "404")
+
+	afterDelete, err := svc.Projects.Locations.BackupCollections.Backups.List(bcName).Do()
+	require.NoError(t, err)
+	assert.Empty(t, afterDelete.Backups, "the collection no longer lists the deleted backup")
 }
 
 // TestMemorystoreRedis_AclPolicies exercises ACL policy CRUD plus the
@@ -207,17 +276,22 @@ func TestMemorystoreRedis_AclPolicies(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, pList.AclPolicies)
 
-	_, err = svc.Projects.Locations.AclPolicies.Patch(polName, &redis.AclPolicy{
+	patchOp, err := svc.Projects.Locations.AclPolicies.Patch(polName, &redis.AclPolicy{
 		Rules: []*redis.AclRule{{Username: "app", Rule: "+get ~k*"}},
 	}).UpdateMask("rules").Do()
 	require.NoError(t, err)
+	awaitRedisLRO(t, svc, patchOp)
 	got, err = svc.Projects.Locations.AclPolicies.Get(polName).Do()
 	require.NoError(t, err)
+	require.Len(t, got.Rules, 1)
 	assert.Equal(t, "+get ~k*", got.Rules[0].Rule)
 
 	delOp, err := svc.Projects.Locations.AclPolicies.Delete(polName).Do()
 	require.NoError(t, err)
-	assert.True(t, delOp.Done)
+	awaitRedisLRO(t, svc, delOp)
+	_, err = svc.Projects.Locations.AclPolicies.Get(polName).Do()
+	require.Error(t, err, "the delete removed the ACL policy")
+	assert.Contains(t, err.Error(), "404")
 
 	// Token-auth users + auth tokens, nested under a cluster.
 	clParent := parent
@@ -231,7 +305,7 @@ func TestMemorystoreRedis_AclPolicies(t *testing.T) {
 		TokenAuthUser: "svc-account",
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, addOp.Done)
+	awaitRedisLRO(t, svc, addOp)
 
 	userName := clName + "/tokenAuthUsers/svc-account"
 	uList, err := svc.Projects.Locations.Clusters.TokenAuthUsers.List(clName).Do()
@@ -248,7 +322,7 @@ func TestMemorystoreRedis_AclPolicies(t *testing.T) {
 		AuthToken: &redis.AuthToken{Name: "tok-1"},
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, tokOp.Done)
+	awaitRedisLRO(t, svc, tokOp)
 
 	tList, err := svc.Projects.Locations.Clusters.TokenAuthUsers.AuthTokens.List(userName).Do()
 	require.NoError(t, err)
@@ -268,7 +342,7 @@ func TestAPIGateway_Lifecycle(t *testing.T) {
 		DisplayName: "Test API",
 	}).ApiId(apiId).Do()
 	require.NoError(t, err)
-	assert.True(t, apiOp.Done)
+	awaitAPIGatewayLRO(t, svc, apiOp)
 
 	// Get Api.
 	api, err := svc.Projects.Locations.Apis.Get(parentGlobal + "/apis/" + apiId).Do()
@@ -280,7 +354,7 @@ func TestAPIGateway_Lifecycle(t *testing.T) {
 		DisplayName: "v1",
 	}).ApiConfigId("v1").Do()
 	require.NoError(t, err)
-	assert.True(t, cfgOp.Done)
+	awaitAPIGatewayLRO(t, svc, cfgOp)
 
 	// List ApiConfigs.
 	cfgList, err := svc.Projects.Locations.Apis.Configs.List(api.Name).Do()
@@ -293,7 +367,7 @@ func TestAPIGateway_Lifecycle(t *testing.T) {
 		ApiConfig: cfgList.ApiConfigs[0].Name,
 	}).GatewayId("test-gw").Do()
 	require.NoError(t, err)
-	assert.True(t, gwOp.Done)
+	awaitAPIGatewayLRO(t, svc, gwOp)
 
 	gw, err := svc.Projects.Locations.Gateways.Get(parentRegion + "/gateways/test-gw").Do()
 	require.NoError(t, err)
@@ -305,10 +379,11 @@ func TestAPIGateway_Lifecycle(t *testing.T) {
 		DisplayName: "Test API renamed",
 	}).UpdateMask("displayName").Do()
 	require.NoError(t, err)
-	assert.True(t, apiPatchOp.Done)
+	awaitAPIGatewayLRO(t, svc, apiPatchOp)
 	api, err = svc.Projects.Locations.Apis.Get(api.Name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "Test API renamed", api.DisplayName)
+	assert.Equal(t, "ACTIVE", api.State, "the rename left the API active")
 
 	// Patch ApiConfig (displayName).
 	cfgName := cfgList.ApiConfigs[0].Name
@@ -316,7 +391,7 @@ func TestAPIGateway_Lifecycle(t *testing.T) {
 		DisplayName: "v1 renamed",
 	}).UpdateMask("displayName").Do()
 	require.NoError(t, err)
-	assert.True(t, cfgPatchOp.Done)
+	awaitAPIGatewayLRO(t, svc, cfgPatchOp)
 	cfg, err := svc.Projects.Locations.Apis.Configs.Get(cfgName).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "v1 renamed", cfg.DisplayName)
@@ -326,13 +401,26 @@ func TestAPIGateway_Lifecycle(t *testing.T) {
 		DisplayName: "Gateway renamed",
 	}).UpdateMask("displayName").Do()
 	require.NoError(t, err)
-	assert.True(t, gwPatchOp.Done)
+	awaitAPIGatewayLRO(t, svc, gwPatchOp)
 	gw, err = svc.Projects.Locations.Gateways.Get(gw.Name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "Gateway renamed", gw.DisplayName)
+	assert.Equal(t, cfgList.ApiConfigs[0].Name, gw.ApiConfig,
+		"a displayName-masked update leaves the gateway pointing at its config")
 
-	// Cleanup: delete in dependency order.
-	_, _ = svc.Projects.Locations.Gateways.Delete(gw.Name).Do()
-	_, _ = svc.Projects.Locations.Apis.Configs.Delete(cfgList.ApiConfigs[0].Name).Do()
-	_, _ = svc.Projects.Locations.Apis.Delete(api.Name).Do()
+	// Cleanup: delete in dependency order. Each delete is a long-running
+	// method, and the resource is gone once its operation completes.
+	gwDel, err := svc.Projects.Locations.Gateways.Delete(gw.Name).Do()
+	require.NoError(t, err)
+	awaitAPIGatewayLRO(t, svc, gwDel)
+	cfgDel, err := svc.Projects.Locations.Apis.Configs.Delete(cfgList.ApiConfigs[0].Name).Do()
+	require.NoError(t, err)
+	awaitAPIGatewayLRO(t, svc, cfgDel)
+	apiDel, err := svc.Projects.Locations.Apis.Delete(api.Name).Do()
+	require.NoError(t, err)
+	awaitAPIGatewayLRO(t, svc, apiDel)
+
+	_, err = svc.Projects.Locations.Apis.Get(api.Name).Do()
+	require.Error(t, err, "the API is gone once its delete operation completed")
+	assert.Contains(t, err.Error(), "404")
 }

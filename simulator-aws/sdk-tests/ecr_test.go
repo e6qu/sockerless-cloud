@@ -2,8 +2,11 @@ package aws_sdk_test
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -48,8 +51,33 @@ func TestECR_GetAuthorizationToken(t *testing.T) {
 	client := ecrClient()
 	out, err := client.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
 	require.NoError(t, err)
-	require.NotEmpty(t, out.AuthorizationData)
-	assert.NotEmpty(t, *out.AuthorizationData[0].AuthorizationToken)
+	require.Len(t, out.AuthorizationData, 1)
+	data := out.AuthorizationData[0]
+
+	// The token is the credential `docker login` replays as Basic auth, so it
+	// has to decode to `AWS:<password>` — the wire form the Amazon ECR API
+	// Reference documents for AuthorizationData.authorizationToken, and the one
+	// the registry's own authenticator parses.
+	decoded, err := base64.StdEncoding.DecodeString(aws.ToString(data.AuthorizationToken))
+	require.NoError(t, err, "the authorization token must be base64")
+	user, password, ok := strings.Cut(string(decoded), ":")
+	require.True(t, ok, "the decoded token must be user:password, got %q", decoded)
+	assert.Equal(t, "AWS", user)
+	assert.NotEmpty(t, password)
+
+	// The proxy endpoint names this account's login server, and the token
+	// expires twelve hours out, which is the service's documented lifetime.
+	assert.Regexp(t, `^https://\d{12}\.dkr\.ecr\.us-east-1\.amazonaws\.com$`, aws.ToString(data.ProxyEndpoint))
+	require.NotNil(t, data.ExpiresAt)
+	assert.WithinDuration(t, time.Now().Add(12*time.Hour), *data.ExpiresAt, 5*time.Minute)
+
+	// A second call issues a different password, so a client that cached the
+	// first cannot be what a later request is accepted on.
+	again, err := client.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
+	require.NoError(t, err)
+	require.Len(t, again.AuthorizationData, 1)
+	assert.NotEqual(t, aws.ToString(data.AuthorizationToken), aws.ToString(again.AuthorizationData[0].AuthorizationToken),
+		"each call must issue a fresh authorization token")
 }
 
 func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
@@ -194,7 +222,9 @@ func TestECR_LifecyclePolicy(t *testing.T) {
 		RepositoryName: aws.String("lifecycle-repo"),
 	})
 	require.NoError(t, err)
-	assert.NotEmpty(t, *getOut.LifecyclePolicyText)
+	assert.JSONEq(t, policy, aws.ToString(getOut.LifecyclePolicyText),
+		"the policy read back must be the one that was put")
+	assert.Equal(t, "lifecycle-repo", aws.ToString(getOut.RepositoryName))
 }
 
 func TestECR_DescribeRepositories_Pagination(t *testing.T) {

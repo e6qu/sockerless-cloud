@@ -3,6 +3,9 @@ package aws_cli_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // CLI coverage backfill for operations that had no test, grouped by service.
@@ -41,30 +44,90 @@ func TestSSMCLI_GetParameters(t *testing.T) {
 func TestGlueCLI_GetPartitionIndexes(t *testing.T) {
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", "Name=clicovdb"))
 	runCLI(t, awsCLI("glue", "create-table", "--database-name", "clicovdb",
-		"--table-input", `{"Name":"clicovt","StorageDescriptor":{"Columns":[{"Name":"c","Type":"string"}]}}`))
-	// The op must be wired and return the descriptor list (empty here).
+		"--table-input", `{"Name":"clicovt","PartitionKeys":[{"Name":"dt","Type":"string"}],"StorageDescriptor":{"Columns":[{"Name":"c","Type":"string"}]}}`))
+	runCLI(t, awsCLI("glue", "create-partition-index", "--database-name", "clicovdb", "--table-name", "clicovt",
+		"--partition-index", `{"Keys":["dt"],"IndexName":"cli-cov-index"}`))
+
+	// The index just created is the one the reader returns, with the key it was
+	// created over — an empty or canned descriptor list fails here.
 	out := runCLI(t, awsCLI("glue", "get-partition-indexes", "--database-name", "clicovdb", "--table-name", "clicovt",
-		"--query", "PartitionIndexDescriptorList", "--output", "json"))
-	if !strings.Contains(out, "[") {
-		t.Fatalf("get-partition-indexes did not return a descriptor list: %s", out)
+		"--output", "json"))
+	var indexes struct {
+		PartitionIndexDescriptorList []struct {
+			IndexName string `json:"IndexName"`
+			Keys      []struct {
+				Name string `json:"Name"`
+			} `json:"Keys"`
+			IndexStatus string `json:"IndexStatus"`
+		} `json:"PartitionIndexDescriptorList"`
 	}
+	parseJSON(t, out, &indexes)
+	require.Len(t, indexes.PartitionIndexDescriptorList, 1)
+	index := indexes.PartitionIndexDescriptorList[0]
+	assert.Equal(t, "cli-cov-index", index.IndexName)
+	require.Len(t, index.Keys, 1)
+	assert.Equal(t, "dt", index.Keys[0].Name)
+	assert.NotEmpty(t, index.IndexStatus)
+
+	// Deleting it empties the list, so the read above reflects the table's own
+	// indexes rather than a fixed answer.
+	runCLI(t, awsCLI("glue", "delete-partition-index", "--database-name", "clicovdb", "--table-name", "clicovt",
+		"--index-name", "cli-cov-index"))
+	parseJSON(t, runCLI(t, awsCLI("glue", "get-partition-indexes", "--database-name", "clicovdb", "--table-name", "clicovt",
+		"--output", "json")), &indexes)
+	assert.Empty(t, indexes.PartitionIndexDescriptorList)
 }
 
 func TestCodeBuildCLI_ListBuilds(t *testing.T) {
-	out := runCLI(t, awsCLI("codebuild", "list-builds", "--query", "ids", "--output", "json"))
-	if !strings.Contains(out, "[") {
-		t.Fatalf("list-builds did not return an ids list: %s", out)
+	project := "cli-cov-listbuilds"
+	runCLI(t, awsCLI("codebuild", "create-project", "--name", project,
+		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n"}`,
+		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/busybox:latest","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--service-role", "arn:aws:iam::123456789012:role/cli-cov-codebuild"))
+	t.Cleanup(func() { _ = awsCLI("codebuild", "delete-project", "--name", project).Run() })
+
+	buildID := strings.TrimSpace(runCLI(t, awsCLI("codebuild", "start-build", "--project-name", project,
+		"--query", "build.id", "--output", "text")))
+	require.NotEmpty(t, buildID)
+
+	// The build just started is in the account's build list, and in the
+	// project's own — a reader that answered with an empty list, or with every
+	// project's builds under one project, fails one of the two.
+	var all struct {
+		IDs []string `json:"ids"`
 	}
+	parseJSON(t, runCLI(t, awsCLI("codebuild", "list-builds", "--output", "json")), &all)
+	assert.Contains(t, all.IDs, buildID)
+
+	var forProject struct {
+		IDs []string `json:"ids"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("codebuild", "list-builds-for-project", "--project-name", project, "--output", "json")), &forProject)
+	assert.Equal(t, []string{buildID}, forProject.IDs)
 }
 
 func TestSFNCLI_VersionsAndValidate(t *testing.T) {
 	const def = `{"StartAt":"x","States":{"x":{"Type":"Pass","End":true}}}`
 	sm := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "create-state-machine", "--name", "cli-cov-sm",
 		"--definition", def, "--role-arn", "arn:aws:iam::123456789012:role/r", "--query", "stateMachineArn", "--output", "text")))
-	out := runCLI(t, awsCLI("stepfunctions", "list-state-machine-versions", "--state-machine-arn", sm, "--query", "stateMachineVersions", "--output", "json"))
-	if !strings.Contains(out, "[") {
-		t.Fatalf("list-state-machine-versions did not return a versions list: %s", out)
+	// A published version appears in the listing under the state machine that
+	// published it; a machine with no published version lists none.
+	var versions struct {
+		StateMachineVersions []struct {
+			StateMachineVersionArn string `json:"stateMachineVersionArn"`
+		} `json:"stateMachineVersions"`
 	}
+	parseJSON(t, runCLI(t, awsCLI("stepfunctions", "list-state-machine-versions", "--state-machine-arn", sm, "--output", "json")), &versions)
+	assert.Empty(t, versions.StateMachineVersions, "no version is published yet")
+
+	versionArn := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "publish-state-machine-version",
+		"--state-machine-arn", sm, "--query", "stateMachineVersionArn", "--output", "text")))
+	require.Equal(t, sm+":1", versionArn)
+
+	parseJSON(t, runCLI(t, awsCLI("stepfunctions", "list-state-machine-versions", "--state-machine-arn", sm, "--output", "json")), &versions)
+	require.Len(t, versions.StateMachineVersions, 1)
+	assert.Equal(t, versionArn, versions.StateMachineVersions[0].StateMachineVersionArn)
 	res := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "validate-state-machine-definition", "--definition", def, "--query", "result", "--output", "text")))
 	if res != "OK" {
 		t.Fatalf("validate-state-machine-definition result = %q, want OK", res)

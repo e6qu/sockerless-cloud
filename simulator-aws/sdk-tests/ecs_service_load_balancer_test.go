@@ -72,6 +72,20 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 	})
 	require.NoError(t, err)
 	targetGroupArn := aws.ToString(targetGroup.TargetGroups[0].TargetGroupArn)
+	// A task the service replaces has its target deregistered, and Elastic Load
+	// Balancing drains a deregistering target for this long before dropping it.
+	// The delay is set well past the test's own runtime so the drain is still
+	// running when the replacement is asserted: what this test is about is the
+	// service data plane surviving a replacement, and a delay that elapsed
+	// mid-assertion would make that a race. The delay's own expiry is covered
+	// by the target-health tests.
+	_, err = elbC.ModifyTargetGroupAttributes(ctx, &elbv2.ModifyTargetGroupAttributesInput{
+		TargetGroupArn: aws.String(targetGroupArn),
+		Attributes: []elbtypes.TargetGroupAttribute{{
+			Key: aws.String("deregistration_delay.timeout_seconds"), Value: aws.String("300"),
+		}},
+	})
+	require.NoError(t, err)
 	loadBalancer, err := elbC.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name: aws.String("svc-lb-alb"), Type: elbtypes.LoadBalancerTypeEnumApplication,
 		Subnets: []string{subnetID},
@@ -179,14 +193,38 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		Reason: aws.String("validate load-balanced replacement"),
 	})
 	require.NoError(t, err)
+	// The service replaces the stopped task, and its target group ends up
+	// holding both addresses: the replacement in service, and the stopped
+	// task's address draining. Elastic Load Balancing deregisters through the
+	// deregistration delay however the removal was requested, so a target that
+	// simply vanished the moment its task stopped would be the simulator
+	// inventing a transition the service does not make.
+	var replacement, targetHealthDiagnostic string
 	require.Eventually(t, func() bool {
 		health, healthErr := elbC.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
 			TargetGroupArn: aws.String(targetGroupArn),
 		})
-		return healthErr == nil &&
-			len(health.TargetHealthDescriptions) == 1 &&
-			health.TargetHealthDescriptions[0].TargetHealth.State == elbtypes.TargetHealthStateEnumHealthy &&
-			aws.ToString(health.TargetHealthDescriptions[0].Target.Id) != firstTarget
-	}, 30*time.Second, 100*time.Millisecond, "replacement target did not become healthy")
+		if healthErr != nil {
+			targetHealthDiagnostic = healthErr.Error()
+			return false
+		}
+		replacement, targetHealthDiagnostic = "", ""
+		draining := false
+		for _, described := range health.TargetHealthDescriptions {
+			id := aws.ToString(described.Target.Id)
+			state := described.TargetHealth.State
+			targetHealthDiagnostic += fmt.Sprintf("%s=%s ", id, state)
+			if id == firstTarget {
+				draining = state == elbtypes.TargetHealthStateEnumDraining
+				continue
+			}
+			if state == elbtypes.TargetHealthStateEnumHealthy {
+				replacement = id
+			}
+		}
+		return replacement != "" && draining
+	}, 30*time.Second, 100*time.Millisecond,
+		"the replacement target never became healthy alongside the stopped task's draining target")
+	require.NotEqual(t, firstTarget, replacement, "target health: %s", targetHealthDiagnostic)
 	assertServiceResponse()
 }

@@ -236,10 +236,17 @@ func TestSDK_RunV2REST_ExecutionTask_EtagOptimisticConcurrency(t *testing.T) {
 	const id = "etag-exec-job"
 	jobName := crV2Parent + "/jobs/" + id
 
+	// The container holds for the length of the test: every etag below is read
+	// from a running execution and spent on it, and an execution that finished
+	// in between would have rotated its fingerprint under the client.
 	op, err := svc.Projects.Locations.Jobs.Create(crV2Parent, &runv2.GoogleCloudRunV2Job{
 		Template: &runv2.GoogleCloudRunV2ExecutionTemplate{
 			Template: &runv2.GoogleCloudRunV2TaskTemplate{
-				Containers: []*runv2.GoogleCloudRunV2Container{{Image: "alpine:latest"}},
+				Containers: []*runv2.GoogleCloudRunV2Container{{
+					Image:   "alpine:latest",
+					Command: []string{"sleep"},
+					Args:    []string{"30"},
+				}},
 			},
 		},
 	}).JobId(id).Do()

@@ -134,10 +134,16 @@ func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 	require.Len(t, got.Bindings, 1)
 	assert.Contains(t, got.Bindings[0].Members, "user:reader@example.com")
 
+	// testIamPermissions answers with the permissions the caller holds out of
+	// the set it asked about — the payload the call exists to produce.
 	testResp, err := svc.Projects.Locations.Repositories.TestIamPermissions(repoName,
-		&artifactregistry.TestIamPermissionsRequest{Permissions: []string{"artifactregistry.repositories.get"}}).Do()
+		&artifactregistry.TestIamPermissionsRequest{
+			Permissions: []string{"artifactregistry.repositories.get", "artifactregistry.repositories.uploadArtifacts"},
+		}).Do()
 	require.NoError(t, err)
-	assert.NotNil(t, testResp)
+	assert.Equal(t,
+		[]string{"artifactregistry.repositories.get", "artifactregistry.repositories.uploadArtifacts"},
+		testResp.Permissions)
 }
 
 // TestArtifactRegistry_ProjectSettingsAndVPCSC covers the project-scoped

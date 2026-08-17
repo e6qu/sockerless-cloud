@@ -20,7 +20,11 @@ import (
 const ecsHealthTestTargetGroupArn = "arn:aws:elasticloadbalancing:us-east-1:000000000000:targetgroup/svc-health-tg/0123456789abcdef"
 
 // ecsHealthTestTargetGroup registers the target group an Amazon ECS service
-// binds to, holding one target per task address on the container port.
+// binds to, holding one target per task address on the container port, and the
+// listener that forwards to it. An Amazon ECS service's target group is one a
+// load balancer listener forwards to; that is what has its targets
+// health-checked in the first place, and therefore what gives the scheduler a
+// load balancer target group health verdict to react to.
 func ecsHealthTestTargetGroup(t *testing.T, containerPort int, addresses ...string) {
 	t.Helper()
 	targets := make([]ELBv2TargetDescription, 0, len(addresses))
@@ -41,6 +45,18 @@ func ecsHealthTestTargetGroup(t *testing.T, containerPort int, addresses ...stri
 		HealthyThresholdCount:   5,
 		UnhealthyThresholdCount: 2,
 		Targets:                 targets,
+	})
+	const loadBalancerArn = "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/svc-health-lb/0123456789abcdef"
+	const listenerArn = loadBalancerArn + "/fedcba9876543210"
+	elbv2Listeners.Put(listenerArn, ELBv2Listener{
+		Arn:             listenerArn,
+		LoadBalancerArn: loadBalancerArn,
+		Protocol:        "HTTP",
+		Port:            80,
+		DefaultActions: []ELBv2Action{{
+			Type:           "forward",
+			TargetGroupArn: ecsHealthTestTargetGroupArn,
+		}},
 	})
 }
 

@@ -450,19 +450,71 @@ ENTRYPOINT ["/usr/local/bin/%s"]
 	}
 }
 
+// parseJSON decodes the JSON payload a command wrote into target.
+//
+// gcloud may prefix its JSON with status text ("Created [URL].\n"), so the
+// payload is located structurally: the first delimiter from which the rest of
+// the output is one complete JSON value. It is then decoded exactly once, and
+// a decode that fails there is fatal.
+//
+// The location and the decode are deliberately separate steps. Decoding into
+// the caller's target is not a usable search signal — an object whose keys are
+// all unknown to a struct target decodes cleanly and leaves every field at its
+// zero value — so a search that advanced on decode failure would silently
+// settle on whichever fragment happened to decode and hand the caller a
+// zero-valued target to assert against.
 func parseJSON(t *testing.T, data string, target any) {
 	t.Helper()
-	// gcloud may prefix JSON with status text (e.g. "Created [URL].\n").
-	// Try each plausible JSON delimiter until the remaining output decodes.
 	for i, r := range data {
 		if r != '[' && r != '{' {
 			continue
 		}
-		if err := json.Unmarshal([]byte(data[i:]), target); err == nil {
+		if !json.Valid([]byte(data[i:])) {
+			continue
+		}
+		if err := json.Unmarshal([]byte(data[i:]), target); err != nil {
+			t.Fatalf("Failed to parse JSON into %T: %v\nData: %s", target, err, data)
+		}
+		return
+	}
+	t.Fatalf("Output carries no complete JSON value.\nData: %s", data)
+}
+
+// parseDescribedResource decodes the one resource a `gcloud ... describe
+// --format=json` printed, whichever way the client rendered it. Some Compute
+// Engine collections render a described resource as a one-element list rather
+// than as an object, and which ones do has changed between releases: a describe
+// that prints an object under Google Cloud SDK 566 prints a one-element list
+// under the 2026.08 components CI installs. Both renderings say the same thing,
+// that exactly one resource was described. No resource, or more than one, still
+// fails — this decodes a single describe rather than leniently parsing whatever
+// arrived.
+func parseDescribedResource(t *testing.T, data string, target any) {
+	t.Helper()
+	for i, r := range data {
+		if r != '[' && r != '{' {
+			continue
+		}
+		if !json.Valid([]byte(data[i:])) {
+			continue
+		}
+		if r == '{' {
+			if err := json.Unmarshal([]byte(data[i:]), target); err != nil {
+				t.Fatalf("Failed to parse described resource into %T: %v\nData: %s", target, err, data)
+			}
 			return
 		}
+		var rendered []json.RawMessage
+		if err := json.Unmarshal([]byte(data[i:]), &rendered); err != nil {
+			t.Fatalf("Failed to parse describe output as a list: %v\nData: %s", err, data)
+		}
+		if len(rendered) != 1 {
+			t.Fatalf("A describe names one resource, so it renders one; got %d.\nData: %s", len(rendered), data)
+		}
+		if err := json.Unmarshal(rendered[0], target); err != nil {
+			t.Fatalf("Failed to parse described resource into %T: %v\nData: %s", target, err, data)
+		}
+		return
 	}
-	if err := json.Unmarshal([]byte(data), target); err != nil {
-		t.Fatalf("Failed to parse JSON: %v\nData: %s", err, data)
-	}
+	t.Fatalf("Output carries no complete JSON value.\nData: %s", data)
 }

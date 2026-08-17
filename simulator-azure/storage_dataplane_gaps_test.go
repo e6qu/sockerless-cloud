@@ -590,7 +590,12 @@ func TestQueuesDataPlaneUpdateMessageExtendsInvisibility(t *testing.T) {
 		[]byte(`<QueueMessage><MessageText>aGVsbG8=</MessageText></QueueMessage>`), nil),
 		http.StatusCreated, "PutMessage")
 
-	rec := storagePlaneReq(t, srv, http.MethodGet, account, "queue", "/"+queue+"/messages?visibilitytimeout=1", nil, nil)
+	// The dequeue takes a long invisibility window on purpose. What follows is
+	// three more round trips before the pop receipt is used, and a one-second
+	// window would let the message become visible again in between on a loaded
+	// host — turning the receipt stale and failing the test for a reason it
+	// does not test. The window's own expiry is not what is under test here.
+	rec := storagePlaneReq(t, srv, http.MethodGet, account, "queue", "/"+queue+"/messages?visibilitytimeout=300", nil, nil)
 	assertStatus(t, rec, http.StatusOK, "GetMessages")
 	var dequeued struct {
 		Messages []struct {

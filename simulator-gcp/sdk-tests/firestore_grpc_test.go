@@ -158,10 +158,17 @@ func TestFirestore_GRPC_DeletePrecondition(t *testing.T) {
 	}
 
 	// A LastUpdateTime precondition that doesn't match the stored doc must fail
-	// with FailedPrecondition.
+	// with FailedPrecondition. Over gRPC the status travels verbatim, so
+	// FailedPrecondition is the only correct code here — Aborted is the mapping
+	// the gax REST transport applies to an HTTP 409, and this client is gRPC.
 	_, err := doc.Delete(ctx, firestore.LastUpdateTime(time.Now().Add(time.Hour)))
-	if status.Code(err) != codes.FailedPrecondition && status.Code(err) != codes.Aborted {
-		t.Fatalf("Delete with mismatched updateTime code = %v, want FailedPrecondition", status.Code(err))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("Delete with mismatched updateTime code = %v, want FailedPrecondition (%v)", status.Code(err), err)
+	}
+
+	// The rejected delete must have left the document in place.
+	if _, err := doc.Get(ctx); err != nil {
+		t.Fatalf("Get after a refused delete: %v", err)
 	}
 
 	// Unconditional delete succeeds.

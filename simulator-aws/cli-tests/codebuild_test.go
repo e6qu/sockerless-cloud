@@ -90,7 +90,7 @@ func TestCodeBuild_Build_CLI(t *testing.T) {
 		parseJSON(t, out, &getBuilds)
 		require.Len(t, getBuilds.Builds, 1)
 		return getBuilds.Builds[0].BuildStatus == "SUCCEEDED"
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbCLIBuildCompletionBudget, 100*time.Millisecond)
 	assert.Equal(t, startResult.Build.ID, getBuilds.Builds[0].ID)
 	assert.Equal(t, "SUCCEEDED", getBuilds.Builds[0].BuildStatus)
 
@@ -201,10 +201,17 @@ func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
 	parseJSON(t, out, &lg)
 	require.Contains(t, lg.ReportGroups, rgArn)
 
-	// A build referencing the report group produces a Report.
+	// A build referencing the report group by ARN produces a Report in it, and
+	// writes the JUnit XML the entry declares so the report has raw data to
+	// settle from. Naming the group by a bare name would create
+	// "<project-name>-<report-group-name>" instead, which is a different group.
+	buildspec := `version: 0.2\nphases:\n  build:\n    commands:\n` +
+		`      - mkdir -p test-results\n` +
+		`      - printf %s PHRlc3RzdWl0ZSBuYW1lPSJ1bml0Ij48dGVzdGNhc2UgY2xhc3NuYW1lPSJwa2cuVCIgbmFtZT0ib25lIiB0aW1lPSIwLjEiLz48L3Rlc3RzdWl0ZT4= | base64 -d > test-results/junit.xml\n` +
+		`reports:\n  ` + rgArn + `:\n    files:\n      - junit.xml\n    base-directory: test-results\n`
 	runCLI(t, awsCLI("codebuild", "create-project",
 		"--name", "cb-cli-report-proj",
-		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\nreports:\n  cb-cli-rg:\n    files:\n      - '**/*'\n"}`,
+		"--source", `{"type":"NO_SOURCE","buildspec":"`+buildspec+`"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
 		"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
 		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
@@ -237,7 +244,7 @@ func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
 		}
 		reportArn = gb.Builds[0].ReportArns[0]
 		return true
-	}, 10*time.Second, 100*time.Millisecond)
+	}, cbCLIBuildCompletionBudget, 100*time.Millisecond)
 	require.NotEmpty(t, reportArn)
 
 	out = runCLI(t, awsCLI("codebuild", "list-reports"))

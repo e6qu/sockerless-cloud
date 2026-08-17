@@ -18,8 +18,20 @@ func TestCosmosParseQuery_Malformed(t *testing.T) {
 		"",
 	}
 	for _, q := range cases {
-		// Must not panic; an unparseable query simply returns an error.
-		_, _ = cosmosParseQuery(q)
+		// Not panicking is the weaker half. The half that matters is that the
+		// parser refuses: a malformed query that came back with a usable plan
+		// would be run against the container, and a plan with no predicate
+		// selects every document — the whole collection handed to a caller whose
+		// query the parser never understood.
+		plan, err := cosmosParseQuery(q)
+		if err == nil {
+			t.Errorf("cosmosParseQuery(%q) accepted a malformed query and returned plan %+v", q, plan)
+			continue
+		}
+		if plan != nil {
+			t.Errorf("cosmosParseQuery(%q) returned err %v alongside a non-nil plan %+v — a caller that ignores the error would run it",
+				q, err, plan)
+		}
 	}
 }
 

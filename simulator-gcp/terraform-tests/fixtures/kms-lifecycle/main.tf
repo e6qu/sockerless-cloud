@@ -47,3 +47,11 @@ output "crypto_key_id" {
 output "crypto_key_purpose" {
   value = google_kms_crypto_key.tf_key.purpose
 }
+
+# rotation_period is re-read from the API's rotationPeriod on every Read, so
+# this output is what CreateCryptoKey stored and GetCryptoKey answered rather
+# than the configured literal. A key created without its rotation schedule reads
+# back empty here, and re-plans forever.
+output "crypto_key_rotation_period" {
+  value = google_kms_crypto_key.tf_key.rotation_period
+}

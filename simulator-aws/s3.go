@@ -614,6 +614,9 @@ func handleS3HeadBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// HeadBucket answers with the bucket's Region — the header a client that
+	// reached the wrong regional endpoint reads to learn where the bucket is.
+	w.Header().Set("x-amz-bucket-region", awsRegion())
 	w.WriteHeader(http.StatusOK)
 }
 

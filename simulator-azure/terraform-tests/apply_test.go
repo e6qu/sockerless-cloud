@@ -395,14 +395,20 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	// The gateway's child collections are addressed under the gateway itself,
 	// which is what the sibling references inside its own configuration resolve
 	// against — the provider reads those ids straight back out of the create.
-	for _, poolID := range outputs.mustList(t, "azrm_application_gateway_backend_pool_ids") {
-		require.Contains(t, poolID, azrmAppGateway+"/backendAddressPools/",
-			"backend pool id must be addressed under the gateway; got %s", poolID)
-	}
-	for _, listenerID := range outputs.mustList(t, "azrm_application_gateway_listener_ids") {
-		require.Contains(t, listenerID, azrmAppGateway+"/httpListeners/",
-			"listener id must be addressed under the gateway; got %s", listenerID)
-	}
+	// The whole declared set has to come back, not merely a well-shaped subset:
+	// a gateway that answered with one of its two backend pools would satisfy a
+	// per-element shape check while having dropped a pool the routing rules name.
+	require.ElementsMatch(t,
+		[]string{
+			azrmAppGateway + "/backendAddressPools/web",
+			azrmAppGateway + "/backendAddressPools/api",
+		},
+		outputs.mustList(t, "azrm_application_gateway_backend_pool_ids"),
+		"the gateway must report both declared backend pools, addressed under itself")
+	require.ElementsMatch(t,
+		[]string{azrmAppGateway + "/httpListeners/listener"},
+		outputs.mustList(t, "azrm_application_gateway_listener_ids"),
+		"the gateway must report its declared listener, addressed under itself")
 
 	azrmNetworkWatcher := outputs.must(t, "azrm_network_watcher_id")
 	require.Contains(t, azrmNetworkWatcher, "/providers/Microsoft.Network/networkWatchers/tf-azrm-network-watcher",
@@ -470,10 +476,21 @@ func assertACRDataPlaneAuthenticates(t *testing.T, loginServer, username, passwo
 		"a wrong password must be refused")
 }
 
+// requireTerraformNetworkHost asserts the real-execution networking
+// capabilities the Microsoft.Network and Microsoft.Compute handlers in this
+// stack need — the same detection the simulator itself gates those endpoints
+// on. It fails rather than skips, because both environments this suite runs in
+// supply the capabilities: the Linux CI runner invokes it under sudo with
+// iproute2 and nftables installed, and a macOS run re-executes the suite inside
+// the privileged Linux test container (runTerraformTestsInDocker). A skip here
+// would silently retire the whole shared-stack round trip — the apply, the
+// resource assertions and the destroy — while the shard still reported ok.
 func requireTerraformNetworkHost(t *testing.T) {
 	t.Helper()
 	if err := realexec.DetectNetworkCapabilities().Require(); err != nil {
-		t.Skipf("skipping: Terraform Network coverage requires host capabilities the simulator cannot provide here: %v", err)
+		t.Fatalf("the Terraform stack needs real-execution networking capabilities and this host has none: %v.\n"+
+			"Run the suite under sudo on a Linux host with iproute2 and nftables installed, or run `make terraform-test` "+
+			"on macOS, which re-executes it inside the privileged Linux test container.", err)
 	}
 }
 

@@ -15,6 +15,19 @@ import (
 	"google.golang.org/api/spanner/v1"
 )
 
+// awaitSpannerLRO reads a Cloud Spanner long-running operation to its terminal
+// state through the operations collection its own name addresses, and returns
+// the finished record. That is how a client learns the outcome, and it holds
+// whether the service settles the work inside the request or later.
+func awaitSpannerLRO(t *testing.T, name string, get func() (*spanner.Operation, error)) *spanner.Operation {
+	t.Helper()
+	require.NotEmpty(t, name, "a long-running method answers with the operation it started")
+	settled := awaitLRO(t, name, get, func(o *spanner.Operation) bool { return o.Done })
+	assert.Equal(t, name, settled.Name)
+	assert.Nil(t, settled.Error, "operation %s finished with an error", name)
+	return settled
+}
+
 func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
 	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
@@ -28,7 +41,9 @@ func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
 		},
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, op.Done)
+	awaitSpannerLRO(t, op.Name, func() (*spanner.Operation, error) {
+		return svc.Projects.Instances.Operations.Get(op.Name).Do()
+	})
 
 	inst, err := svc.Projects.Instances.Get("projects/test-project/instances/sdk-spanner").Do()
 	require.NoError(t, err)
@@ -38,7 +53,9 @@ func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
 		CreateStatement: "CREATE DATABASE `sdkdb`",
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, dbOp.Done)
+	awaitSpannerLRO(t, dbOp.Name, func() (*spanner.Operation, error) {
+		return svc.Projects.Instances.Databases.Operations.Get(dbOp.Name).Do()
+	})
 	var createMetadata map[string]any
 	require.NoError(t, json.Unmarshal(dbOp.Metadata, &createMetadata))
 	assert.Equal(t, "projects/test-project/instances/sdk-spanner/databases/sdkdb", createMetadata["database"])
@@ -52,7 +69,9 @@ func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
 		Statements: []string{"CREATE TABLE Users (UserId STRING(36) NOT NULL) PRIMARY KEY (UserId)"},
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, ddlOp.Done)
+	awaitSpannerLRO(t, ddlOp.Name, func() (*spanner.Operation, error) {
+		return svc.Projects.Instances.Databases.Operations.Get(ddlOp.Name).Do()
+	})
 	assert.Contains(t, ddlOp.Name, "/databases/sdkdb/operations/")
 	var ddlMetadata map[string]any
 	require.NoError(t, json.Unmarshal(ddlOp.Metadata, &ddlMetadata))
@@ -92,7 +111,9 @@ func TestSpanner_InstanceConfigSDK(t *testing.T) {
 		},
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, op.Done)
+	awaitSpannerLRO(t, op.Name, func() (*spanner.Operation, error) {
+		return svc.Projects.InstanceConfigs.Operations.Get(op.Name).Do()
+	})
 
 	cfg, err := svc.Projects.InstanceConfigs.Get("projects/test-project/instanceConfigs/custom-sdk-config").Do()
 	require.NoError(t, err)
@@ -121,36 +142,71 @@ func TestSpanner_InstanceConfigSDK(t *testing.T) {
 		UpdateMask: "displayName",
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, patchOp.Done)
+	awaitSpannerLRO(t, patchOp.Name, func() (*spanner.Operation, error) {
+		return svc.Projects.InstanceConfigs.Operations.Get(patchOp.Name).Do()
+	})
 
 	updated, err := svc.Projects.InstanceConfigs.Get(cfg.Name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "SDK Renamed Config", updated.DisplayName)
+	assert.Equal(t, "USER_MANAGED", updated.ConfigType,
+		"a displayName-masked update leaves the rest of the configuration alone")
+	require.Len(t, updated.Replicas, 2)
 
 	// Instance configuration LRO surfaces: list at config level and at the
 	// project-wide instanceConfigOperations collection, then read one back.
 	cfgOps, err := svc.Projects.InstanceConfigs.Operations.List(cfg.Name + "/operations").Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, cfgOps.Operations)
+	cfgOpNames := make([]string, 0, len(cfgOps.Operations))
+	for _, o := range cfgOps.Operations {
+		assert.True(t, strings.HasPrefix(o.Name, cfg.Name+"/operations/"),
+			"the collection holds this configuration's operations, got %q", o.Name)
+		cfgOpNames = append(cfgOpNames, o.Name)
+	}
+	assert.Contains(t, cfgOpNames, op.Name, "the create's operation is in the configuration's collection")
+	assert.Contains(t, cfgOpNames, patchOp.Name, "so is the update's")
 	gotOp, err := svc.Projects.InstanceConfigs.Operations.Get(cfgOps.Operations[0].Name).Do()
 	require.NoError(t, err)
 	assert.Equal(t, cfgOps.Operations[0].Name, gotOp.Name)
 
 	collOps, err := svc.Projects.InstanceConfigOperations.List(parent).Do()
 	require.NoError(t, err)
-	assert.NotEmpty(t, collOps.Operations)
+	collOpNames := make([]string, 0, len(collOps.Operations))
+	for _, o := range collOps.Operations {
+		collOpNames = append(collOpNames, o.Name)
+	}
+	assert.Contains(t, collOpNames, op.Name,
+		"the project-wide instanceConfigOperations collection sees the configuration's operations")
 
-	// ssdCaches operations list (empty but routable).
+	// The ssdCaches operations sub-collection is a different collection: the
+	// configuration's own operations are not in it. Its emptiness here is the
+	// scoping assertion — a handler that answered with the parent's operations
+	// would return the two above.
 	ssdOps, err := svc.Projects.InstanceConfigs.SsdCaches.Operations.List(cfg.Name + "/ssdCaches/cache-1/operations").Do()
 	require.NoError(t, err)
-	assert.Empty(t, ssdOps.Operations)
+	for _, o := range ssdOps.Operations {
+		assert.True(t, strings.HasPrefix(o.Name, cfg.Name+"/ssdCaches/cache-1/operations/"),
+			"the ssdCaches collection holds only its own operations, got %q", o.Name)
+	}
+	assert.Empty(t, ssdOps.Operations, "no long-running work was started against this cache")
 
 	_, err = svc.Projects.InstanceConfigs.Delete(cfg.Name).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.InstanceConfigs.Get(cfg.Name).Do()
 	require.Error(t, err, "deleted config should not be gettable")
+	afterDelete, err := svc.Projects.InstanceConfigs.List(parent).Do()
+	require.NoError(t, err)
+	for _, c := range afterDelete.InstanceConfigs {
+		assert.NotEqual(t, cfg.Name, c.Name, "the deleted configuration is out of the listing too")
+	}
 }
 
+// scans.list is the one Cloud Spanner collection with no method that creates a
+// member: a scan is produced by the service's own key-visualizer analysis, which
+// this simulator does not run, so an empty listing is the whole of the observable
+// behaviour. The assertion here is the route and the response shape the generated
+// client has to decode.
 func TestSpanner_ScansListSDK(t *testing.T) {
 	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
@@ -158,6 +214,7 @@ func TestSpanner_ScansListSDK(t *testing.T) {
 	resp, err := svc.Scans.List("scans").Do()
 	require.NoError(t, err)
 	assert.Empty(t, resp.Scans)
+	assert.Empty(t, resp.NextPageToken, "an empty page is the last page")
 }
 
 func TestDataflow_RegionalJobSDK(t *testing.T) {
@@ -188,21 +245,41 @@ func TestDataflow_RegionalJobSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "JOB_STATE_CANCELLED", updated.CurrentState)
 
-	// Messages + metrics return faithful representative shapes.
+	// Messages, metrics and execution details are all about the job they name:
+	// each resolves the job id and reports NOT_FOUND for one no create minted,
+	// rather than answering the same way whatever it is asked about.
 	msgs, err := svc.Projects.Locations.Jobs.Messages.List("test-project", "us-central1", job.Id).Do()
 	require.NoError(t, err)
-	require.Len(t, msgs.JobMessages, 1)
-	assert.Equal(t, "JOB_MESSAGE_BASIC", msgs.JobMessages[0].MessageImportance)
+	require.NotEmpty(t, msgs.JobMessages)
+	for _, m := range msgs.JobMessages {
+		assert.NotEmpty(t, m.MessageImportance, "every job message carries its importance")
+		assert.NotEmpty(t, m.Time, "every job message carries its time")
+	}
+	_, err = svc.Projects.Locations.Jobs.Messages.List("test-project", "us-central1", "no-such-job").Do()
+	require.Error(t, err, "messages.list resolves the job it is asked about")
+	assert.Contains(t, err.Error(), "404")
 
 	metrics, err := svc.Projects.Locations.Jobs.GetMetrics("test-project", "us-central1", job.Id).Do()
 	require.NoError(t, err)
-	require.Len(t, metrics.Metrics, 1)
-	assert.Equal(t, "ElementCount", metrics.Metrics[0].Name.Name)
+	require.NotEmpty(t, metrics.Metrics)
+	for _, m := range metrics.Metrics {
+		require.NotNil(t, m.Name)
+		assert.NotEmpty(t, m.Name.Name, "every metric update names its metric")
+	}
+	assert.NotEmpty(t, metrics.MetricTime)
+	_, err = svc.Projects.Locations.Jobs.GetMetrics("test-project", "us-central1", "no-such-job").Do()
+	require.Error(t, err, "getMetrics resolves the job it is asked about")
+	assert.Contains(t, err.Error(), "404")
 
 	exec, err := svc.Projects.Locations.Jobs.GetExecutionDetails("test-project", "us-central1", job.Id).Do()
 	require.NoError(t, err)
-	require.Len(t, exec.Stages, 1)
-	assert.Equal(t, "s1", exec.Stages[0].StageId)
+	require.NotEmpty(t, exec.Stages)
+	for _, s := range exec.Stages {
+		assert.NotEmpty(t, s.StageId, "every stage carries its id")
+	}
+	_, err = svc.Projects.Locations.Jobs.GetExecutionDetails("test-project", "us-central1", "no-such-job").Do()
+	require.Error(t, err, "getExecutionDetails resolves the job it is asked about")
+	assert.Contains(t, err.Error(), "404")
 }
 
 func TestDataflow_GlobalJobSDK(t *testing.T) {
@@ -227,7 +304,10 @@ func TestDataflow_GlobalJobSDK(t *testing.T) {
 
 	metrics, err := svc.Projects.Jobs.GetMetrics("global-df-project", job.Id).Do()
 	require.NoError(t, err)
-	require.Len(t, metrics.Metrics, 1)
+	require.NotEmpty(t, metrics.Metrics)
+	_, err = svc.Projects.Jobs.GetMetrics("global-df-project", "no-such-job").Do()
+	require.Error(t, err, "the global getMetrics resolves the job it is asked about too")
+	assert.Contains(t, err.Error(), "404")
 }
 
 func TestDataflow_SnapshotsSDK(t *testing.T) {
@@ -284,6 +364,11 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, launch.Job)
 	assert.Equal(t, "tmpl-job", launch.Job.Name)
+	// The launch started a job, so the jobs collection answers about it.
+	launched, err := svc.Projects.Locations.Jobs.Get("tmpl-project", "us-central1", launch.Job.Id).Do()
+	require.NoError(t, err, "a launched template's job is in the regional jobs collection")
+	assert.Equal(t, "tmpl-job", launched.Name)
+	assert.Equal(t, "JOB_STATE_RUNNING", launched.CurrentState)
 
 	// Classic template launch (global).
 	glaunch, err := svc.Projects.Templates.Launch("tmpl-project", &dataflow.LaunchTemplateParameters{
@@ -292,10 +377,14 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, glaunch.Job)
 
-	// GetTemplate metadata.
+	// GetTemplate metadata: the reply has to carry the two members a client
+	// reads off it — the status and the template type it names.
 	tmpl, err := svc.Projects.Locations.Templates.Get("tmpl-project", "us-central1").GcsPath("gs://dataflow-templates/word-count").Do()
 	require.NoError(t, err)
-	assert.Equal(t, "LEGACY", tmpl.TemplateType)
+	require.NotNil(t, tmpl.Status)
+	assert.NotEmpty(t, tmpl.TemplateType)
+	require.NotNil(t, tmpl.Metadata)
+	assert.NotEmpty(t, tmpl.Metadata.Name)
 
 	// Flex template launch → a Job inside LaunchFlexTemplateResponse.
 	flex, err := svc.Projects.Locations.FlexTemplates.Launch("tmpl-project", "us-central1", &dataflow.LaunchFlexTemplateRequest{
@@ -307,6 +396,9 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, flex.Job)
 	assert.Equal(t, "flex-job", flex.Job.Name)
+	flexed, err := svc.Projects.Locations.Jobs.Get("tmpl-project", "us-central1", flex.Job.Id).Do()
+	require.NoError(t, err, "a launched flex template's job is in the regional jobs collection")
+	assert.Equal(t, "flex-job", flexed.Name)
 }
 
 func TestBigtable_InstanceClusterTableSDK(t *testing.T) {
@@ -382,12 +474,22 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, op.Done)
 
-	// Locations + project operations.
+	// Locations + project operations. Bigtable admin files its long-running
+	// operations in the flat operations/{id} collection, and the create above
+	// is one of them, so the listing has to contain it.
 	locs, err := svc.Projects.Locations.List(project).Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, locs.Locations)
-	_, err = svc.Operations.Projects.Operations.List("operations/" + project).Do()
+	projectOps, err := svc.Operations.Projects.Operations.List("operations/" + project).Do()
 	require.NoError(t, err)
+	require.NotEmpty(t, projectOps.Operations, "the instance create filed an operation")
+	opNames := make([]string, 0, len(projectOps.Operations))
+	for _, o := range projectOps.Operations {
+		assert.True(t, strings.HasPrefix(o.Name, "operations/"),
+			"a Bigtable admin operation is named in the flat collection, got %q", o.Name)
+		opNames = append(opNames, o.Name)
+	}
+	assert.Contains(t, opNames, op.Name, "the create's own operation is in the listing")
 
 	// Instance PUT update + IAM round-trip.
 	upd, err := svc.Projects.Instances.Update(inst, &bigtableadmin.Instance{DisplayName: "Admin2", Type: "PRODUCTION"}).Do()
@@ -514,15 +616,47 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	assert.True(t, chk.Consistent)
 	_, err = svc.Projects.Instances.Tables.DropRowRange(tbl.Name, &bigtableadmin.DropRowRangeRequest{DeleteAllDataFromTable: true}).Do()
 	require.NoError(t, err)
+	// The drop is about the table it names, and it leaves the table and its
+	// schema in place — it removes rows, not the table.
+	afterDrop, err := svc.Projects.Instances.Tables.Get(tbl.Name).Do()
+	require.NoError(t, err)
+	assert.Contains(t, afterDrop.ColumnFamilies, "cf")
+	assert.Contains(t, afterDrop.ColumnFamilies, "cf2")
+	_, err = svc.Projects.Instances.Tables.DropRowRange(inst+"/tables/no_such_table",
+		&bigtableadmin.DropRowRangeRequest{DeleteAllDataFromTable: true}).Do()
+	require.Error(t, err, "dropRowRange resolves the table it is asked about")
+	assert.Contains(t, err.Error(), "404")
+
 	_, err = svc.Projects.Instances.Tables.Undelete(tbl.Name, &bigtableadmin.UndeleteTableRequest{}).Do()
 	require.NoError(t, err)
+	_, err = svc.Projects.Instances.Tables.Undelete(inst+"/tables/no_such_table", &bigtableadmin.UndeleteTableRequest{}).Do()
+	require.Error(t, err, "undelete resolves the table it is asked about")
+	assert.Contains(t, err.Error(), "404")
+
+	// A masked patch writes the field it names, and a read confirms it stuck.
 	_, err = svc.Projects.Instances.Tables.Patch(tbl.Name, &bigtableadmin.Table{DeletionProtection: true}).
 		UpdateMask("deletionProtection").Do()
 	require.NoError(t, err)
+	protected, err := svc.Projects.Instances.Tables.Get(tbl.Name).Do()
+	require.NoError(t, err)
+	assert.True(t, protected.DeletionProtection, "the patched deletionProtection persisted")
+	assert.Contains(t, protected.ColumnFamilies, "cf2", "the masked patch left the schema alone")
+
 	_, err = svc.Projects.Instances.Tables.SetIamPolicy(tbl.Name, &bigtableadmin.SetIamPolicyRequest{
 		Policy: &bigtableadmin.Policy{Bindings: []*bigtableadmin.Binding{{Role: "roles/bigtable.reader", Members: []string{"user:b@example.com"}}}},
 	}).Do()
 	require.NoError(t, err)
+	tablePol, err := svc.Projects.Instances.Tables.GetIamPolicy(tbl.Name, &bigtableadmin.GetIamPolicyRequest{}).Do()
+	require.NoError(t, err)
+	require.Len(t, tablePol.Bindings, 1, "the table's policy is the one that was set on it")
+	assert.Equal(t, "roles/bigtable.reader", tablePol.Bindings[0].Role)
+	assert.Equal(t, []string{"user:b@example.com"}, tablePol.Bindings[0].Members)
+	// The table's policy is its own: setting it did not overwrite the
+	// instance's.
+	instPolAfter, err := svc.Projects.Instances.GetIamPolicy(inst, &bigtableadmin.GetIamPolicyRequest{}).Do()
+	require.NoError(t, err)
+	require.Len(t, instPolAfter.Bindings, 1)
+	assert.Equal(t, "roles/bigtable.user", instPolAfter.Bindings[0].Role)
 
 	// Authorized views (table-scoped).
 	avOp, err := svc.Projects.Instances.Tables.AuthorizedViews.Create(tbl.Name, &bigtableadmin.AuthorizedView{
@@ -537,9 +671,16 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, avList.AuthorizedViews, 1)
 	_, err = svc.Projects.Instances.Tables.AuthorizedViews.SetIamPolicy(avName, &bigtableadmin.SetIamPolicyRequest{
-		Policy: &bigtableadmin.Policy{},
+		Policy: &bigtableadmin.Policy{Bindings: []*bigtableadmin.Binding{
+			{Role: "roles/bigtable.viewer", Members: []string{"user:av@example.com"}},
+		}},
 	}).Do()
 	require.NoError(t, err)
+	avPol, err := svc.Projects.Instances.Tables.AuthorizedViews.GetIamPolicy(avName, &bigtableadmin.GetIamPolicyRequest{}).Do()
+	require.NoError(t, err)
+	require.Len(t, avPol.Bindings, 1, "the authorized view keeps the policy set on it")
+	assert.Equal(t, "roles/bigtable.viewer", avPol.Bindings[0].Role)
+	assert.Equal(t, []string{"user:av@example.com"}, avPol.Bindings[0].Members)
 
 	// Schema bundles (table-scoped).
 	sbOp, err := svc.Projects.Instances.Tables.SchemaBundles.Create(tbl.Name, &bigtableadmin.SchemaBundle{}).
@@ -585,28 +726,78 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	_, err = svc.Projects.Instances.Clusters.Backups.Patch(bkName, &bigtableadmin.Backup{ExpireTime: "2100-01-01T00:00:00Z"}).
 		UpdateMask("expireTime").Do()
 	require.NoError(t, err)
+	patchedBk, err := svc.Projects.Instances.Clusters.Backups.Get(bkName).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "2100-01-01T00:00:00Z", patchedBk.ExpireTime, "the masked patch moved the expiry")
+	assert.Equal(t, tbl.Name, patchedBk.SourceTable, "and left the source table alone")
+
 	copyOp, err := svc.Projects.Instances.Clusters.Backups.Copy(clusterName, &bigtableadmin.CopyBackupRequest{
 		BackupId:     "bk1-copy",
 		SourceBackup: bkName,
 		ExpireTime:   "2099-06-01T00:00:00Z",
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, copyOp.Done)
+	require.True(t, copyOp.Done)
+	// The copy made a second backup: it is in the cluster's collection under
+	// the id the request asked for, with the expiry the request asked for.
+	copyName := clusterName + "/backups/bk1-copy"
+	copied, err := svc.Projects.Instances.Clusters.Backups.Get(copyName).Do()
+	require.NoError(t, err, "the copy is a backup the cluster holds")
+	assert.Equal(t, copyName, copied.Name)
+	assert.Equal(t, "2099-06-01T00:00:00Z", copied.ExpireTime)
+	bkListAfterCopy, err := svc.Projects.Instances.Clusters.Backups.List(clusterName).Do()
+	require.NoError(t, err)
+	require.Len(t, bkListAfterCopy.Backups, 2, "the source and its copy are both in the collection")
+
 	_, err = svc.Projects.Instances.Clusters.Backups.SetIamPolicy(bkName, &bigtableadmin.SetIamPolicyRequest{
-		Policy: &bigtableadmin.Policy{},
+		Policy: &bigtableadmin.Policy{Bindings: []*bigtableadmin.Binding{
+			{Role: "roles/bigtable.viewer", Members: []string{"user:bk@example.com"}},
+		}},
 	}).Do()
 	require.NoError(t, err)
+	bkPol, err := svc.Projects.Instances.Clusters.Backups.GetIamPolicy(bkName, &bigtableadmin.GetIamPolicyRequest{}).Do()
+	require.NoError(t, err)
+	require.Len(t, bkPol.Bindings, 1, "the backup keeps the policy set on it")
+	assert.Equal(t, "roles/bigtable.viewer", bkPol.Bindings[0].Role)
+	assert.Equal(t, []string{"user:bk@example.com"}, bkPol.Bindings[0].Members)
+	// The backup's policy is its own, not the copy's.
+	copyPol, err := svc.Projects.Instances.Clusters.Backups.GetIamPolicy(copyName, &bigtableadmin.GetIamPolicyRequest{}).Do()
+	require.NoError(t, err)
+	assert.Empty(t, copyPol.Bindings, "nothing was bound on the copy")
 
-	// Restore a table from the backup.
+	// Restore a table from the backup. The restored table is a table of the
+	// instance: it is gettable by the name the request asked for and it shows
+	// up in the instance's listing alongside the one it was backed up from.
 	restoreOp, err := svc.Projects.Instances.Tables.Restore(inst, &bigtableadmin.RestoreTableRequest{
 		TableId: "bt_admin_restored",
 		Backup:  bkName,
 	}).Do()
 	require.NoError(t, err)
-	assert.True(t, restoreOp.Done)
+	require.True(t, restoreOp.Done)
 	restored, err := svc.Projects.Instances.Tables.Get(inst + "/tables/bt_admin_restored").Do()
 	require.NoError(t, err)
 	assert.Equal(t, inst+"/tables/bt_admin_restored", restored.Name)
+	assert.Equal(t, "MILLIS", restored.Granularity)
+	tblList, err := svc.Projects.Instances.Tables.List(inst).Do()
+	require.NoError(t, err)
+	restoredNames := make([]string, 0, len(tblList.Tables))
+	for _, x := range tblList.Tables {
+		restoredNames = append(restoredNames, x.Name)
+	}
+	assert.Contains(t, restoredNames, restored.Name)
+	assert.Contains(t, restoredNames, tbl.Name)
+
+	// A restore with no table id has nothing to create.
+	_, err = svc.Projects.Instances.Tables.Restore(inst, &bigtableadmin.RestoreTableRequest{
+		Backup: bkName,
+	}).Do()
+	require.Error(t, err, "restore requires the tableId it creates")
+	assert.Contains(t, err.Error(), "400")
+	// A restore into an instance the service does not hold is NOT_FOUND.
+	_, err = svc.Projects.Instances.Tables.Restore(project+"/instances/no-such-instance",
+		&bigtableadmin.RestoreTableRequest{TableId: "x", Backup: bkName}).Do()
+	require.Error(t, err, "restore resolves the instance it restores into")
+	assert.Contains(t, err.Error(), "404")
 
 	// Deletes across the new families.
 	for _, del := range []func() error{

@@ -140,9 +140,14 @@ func TestBigtableCLI_DataPlane_cbt(t *testing.T) {
 
 	// count: a distinct data-plane op (streams SampleRowKeys internally and
 	// reports the row count) — covers SampleRowKeys from the second adaptor.
-	cnt := cbt("count", table)
-	if !strings.Contains(cnt, "2") {
-		t.Fatalf("cbt count did not report 2 rows: %s", cnt)
+	// cbt logs its credential choice before the count, so the number is the
+	// last line it writes; the comparison is on that whole line, because a
+	// substring match on "2" is satisfied by "12", "20" or a timing suffix.
+	countOut := cbt("count", table)
+	reported := strings.Split(strings.TrimSpace(countOut), "\n")
+	cnt := strings.TrimSpace(reported[len(reported)-1])
+	if cnt != "2" {
+		t.Fatalf("cbt count reported %q, want the two rows that were written", countOut)
 	}
 }
 

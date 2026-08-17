@@ -30,6 +30,7 @@ import (
 // would pass a shape assertion and fail this one.
 func TestTerraformServiceAccountKey(t *testing.T) {
 	fixtureDir := filepath.Join("fixtures", "service-account-key")
+	cleanTerraformFixture(t, fixtureDir)
 
 	out, err := runTimed(t, "terraform init", terraformCmdInDir(fixtureDir, "init"))
 	require.NoError(t, err, "terraform init failed:\n%s", out)

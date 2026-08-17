@@ -110,9 +110,35 @@ func TestSSMParameterCLI_ListTagsForResource(t *testing.T) {
 	assert.Equal(t, "prod", tagged.TagList[0].Value)
 }
 
+// TestSSMParameterCLI_ListTagsForResourceWithoutLeadingSlash pins the
+// resolution the Terraform provider depends on: a parameter is stored under a
+// leading slash, and a resource id given without one still names it. The tag
+// read back is what proves the name resolved — an unresolved id would answer
+// with an empty list just as convincingly.
 func TestSSMParameterCLI_ListTagsForResourceWithoutLeadingSlash(t *testing.T) {
 	name := "terraform-compatible-parameter"
 	runCLI(t, awsCLI("ssm", "put-parameter", "--name", name, "--type", "String", "--value", "v", "--output", "json"))
 	t.Cleanup(func() { _ = awsCLI("ssm", "delete-parameter", "--name", name).Run() })
-	runCLI(t, awsCLI("ssm", "list-tags-for-resource", "--resource-type", "Parameter", "--resource-id", name, "--output", "json"))
+	runCLI(t, awsCLI("ssm", "add-tags-to-resource",
+		"--resource-type", "Parameter", "--resource-id", name,
+		"--tags", "Key=owner,Value=terraform", "--output", "json"))
+
+	out := runCLI(t, awsCLI("ssm", "list-tags-for-resource",
+		"--resource-type", "Parameter", "--resource-id", name, "--output", "json"))
+	var tagged struct {
+		TagList []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"TagList"`
+	}
+	parseJSON(t, out, &tagged)
+	require.Len(t, tagged.TagList, 1, "the slashless resource id must resolve to the tagged parameter")
+	assert.Equal(t, "owner", tagged.TagList[0].Key)
+	assert.Equal(t, "terraform", tagged.TagList[0].Value)
+
+	// A name no parameter carries does not resolve, so the read above is
+	// resolution rather than indifference.
+	missing := runCLIExpectError(t, awsCLI("ssm", "list-tags-for-resource",
+		"--resource-type", "Parameter", "--resource-id", name+"-absent", "--output", "json"))
+	assert.Contains(t, missing, "InvalidResourceId")
 }

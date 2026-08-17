@@ -36,13 +36,17 @@ func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
 	require.NoError(t, err)
 	defer svc.Projects.Topics.Delete(topicName).Do() //nolint:errcheck
 
+	// The create reply is already the stored resource, so the fields the caller
+	// supplied come back on it as well as on the later read.
+	assert.Equal(t, topicName, topic.Name)
+	assert.Equal(t, "86400s", topic.MessageRetentionDuration)
+
 	gotTopic, err := svc.Projects.Topics.Get(topicName).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "projects/test-project/locations/us/keyRings/r/cryptoKeys/k", gotTopic.KmsKeyName, "kms_key_name must round-trip")
 	assert.Equal(t, "86400s", gotTopic.MessageRetentionDuration, "message_retention_duration must round-trip")
 	require.NotNil(t, gotTopic.MessageStoragePolicy)
 	assert.Equal(t, []string{"us-central1"}, gotTopic.MessageStoragePolicy.AllowedPersistenceRegions)
-	_ = topic
 
 	// Subscription with dead-letter + retry policy.
 	subName := base + "/subscriptions/fidelity-sub"
@@ -66,7 +70,10 @@ func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
 	assert.Equal(t, "10s", gotSub.RetryPolicy.MinimumBackoff)
 	assert.Equal(t, "600s", gotSub.RetryPolicy.MaximumBackoff)
 
-	// PATCH the retry policy via updateMask.
+	// PATCH the retry policy via updateMask. The mask names one field, so it is
+	// the only one the update may touch — the dead-letter policy the create set
+	// has to survive, or every terraform plan after an unrelated retry-policy
+	// change would show a spurious dead_letter_policy removal.
 	_, err = svc.Projects.Subscriptions.Patch(subName, &pubsub.UpdateSubscriptionRequest{
 		Subscription: &pubsub.Subscription{RetryPolicy: &pubsub.RetryPolicy{MinimumBackoff: "30s", MaximumBackoff: "300s"}},
 		UpdateMask:   "retryPolicy",
@@ -76,4 +83,10 @@ func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, patched.RetryPolicy)
 	assert.Equal(t, "30s", patched.RetryPolicy.MinimumBackoff, "patched retry_policy must persist")
+	assert.Equal(t, "300s", patched.RetryPolicy.MaximumBackoff)
+	require.NotNil(t, patched.DeadLetterPolicy,
+		"a retryPolicy-masked update leaves the dead-letter policy alone")
+	assert.Equal(t, dlqName, patched.DeadLetterPolicy.DeadLetterTopic)
+	assert.Equal(t, int64(7), patched.DeadLetterPolicy.MaxDeliveryAttempts)
+	assert.Equal(t, topicName, patched.Topic, "the update did not re-parent the subscription")
 }

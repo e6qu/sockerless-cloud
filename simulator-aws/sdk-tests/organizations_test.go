@@ -232,14 +232,70 @@ func TestOrganizations_Policies(t *testing.T) {
 	assert.Equal(t, root, aws.ToString(tfp.Targets[0].TargetId))
 	assert.Equal(t, orgtypes.TargetTypeRoot, tfp.Targets[0].Type)
 
-	// Effective SCP at the root resolves to our attached content.
-	eff, err := c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
+	// A service control policy has no effective form — EffectivePolicyType is a
+	// narrower enum than PolicyType, because an SCP is evaluated as an
+	// intersection along the path rather than merged into one document — so
+	// asking for one is a validation failure rather than a document.
+	_, err = c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
 		PolicyType: orgtypes.EffectivePolicyType("SERVICE_CONTROL_POLICY"),
 		TargetId:   aws.String(root),
 	})
-	if err == nil {
-		assert.NotEmpty(t, aws.ToString(eff.EffectivePolicy.PolicyContent))
-	}
+	assert.Equal(t, "InvalidInputException", errCode(t, err),
+		"SERVICE_CONTROL_POLICY is not an EffectivePolicyType")
+
+	// A tag policy does have one, and it resolves to the content attached to
+	// this target rather than to any other policy in the organization.
+	tagContent := `{"tags":{"CostCenter":{"tag_key":{"@@assign":"CostCenter"}}}}`
+	tagPolicy, err := c.CreatePolicy(ctx, &organizations.CreatePolicyInput{
+		Name:        aws.String("TagCostCenter"),
+		Description: aws.String("requires a cost centre tag key"),
+		Type:        orgtypes.PolicyTypeTagPolicy,
+		Content:     aws.String(tagContent),
+	})
+	require.NoError(t, err)
+	tagPolicyID := aws.ToString(tagPolicy.Policy.PolicySummary.Id)
+
+	// A policy governs a target only once its type is enabled in the root.
+	// Service control policies are enabled in every root; a tag policy is not
+	// until someone enables it, and attaching one before that is refused.
+	_, err = c.AttachPolicy(ctx, &organizations.AttachPolicyInput{
+		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
+	})
+	assert.Equal(t, "PolicyTypeNotEnabledException", errCode(t, err),
+		"a tag policy cannot be attached before tag policies are enabled in the root")
+	_, err = c.EnablePolicyType(ctx, &organizations.EnablePolicyTypeInput{
+		RootId: aws.String(root), PolicyType: orgtypes.PolicyTypeTagPolicy,
+	})
+	require.NoError(t, err)
+	_, err = c.AttachPolicy(ctx, &organizations.AttachPolicyInput{
+		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
+	})
+	require.NoError(t, err)
+
+	eff, err := c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
+		PolicyType: orgtypes.EffectivePolicyTypeTagPolicy,
+		TargetId:   aws.String(root),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, eff.EffectivePolicy)
+	assert.JSONEq(t, tagContent, aws.ToString(eff.EffectivePolicy.PolicyContent),
+		"the effective policy must be the content attached to this target")
+	assert.Equal(t, root, aws.ToString(eff.EffectivePolicy.TargetId))
+	assert.Equal(t, orgtypes.EffectivePolicyTypeTagPolicy, eff.EffectivePolicy.PolicyType)
+
+	// Detached, the target has no effective tag policy at all, which the
+	// service reports as its own error rather than as an empty document.
+	_, err = c.DetachPolicy(ctx, &organizations.DetachPolicyInput{
+		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
+	})
+	require.NoError(t, err)
+	_, err = c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
+		PolicyType: orgtypes.EffectivePolicyTypeTagPolicy,
+		TargetId:   aws.String(root),
+	})
+	assert.Equal(t, "EffectivePolicyNotFoundException", errCode(t, err))
+	_, err = c.DeletePolicy(ctx, &organizations.DeletePolicyInput{PolicyId: aws.String(tagPolicyID)})
+	require.NoError(t, err)
 
 	_, err = c.DetachPolicy(ctx, &organizations.DetachPolicyInput{PolicyId: aws.String(pid), TargetId: aws.String(root)})
 	require.NoError(t, err)
@@ -247,12 +303,17 @@ func TestOrganizations_Policies(t *testing.T) {
 	_, err = c.DeletePolicy(ctx, &organizations.DeletePolicyInput{PolicyId: aws.String(pid)})
 	require.NoError(t, err)
 
-	// Enable then disable a non-default policy type on the root.
-	en, err := c.EnablePolicyType(ctx, &organizations.EnablePolicyTypeInput{RootId: aws.String(root), PolicyType: orgtypes.PolicyTypeTagPolicy})
-	require.NoError(t, err)
-	require.NotNil(t, en.Root)
+	// The type enabled above comes back off the root, and the root reports it
+	// gone.
 	_, err = c.DisablePolicyType(ctx, &organizations.DisablePolicyTypeInput{RootId: aws.String(root), PolicyType: orgtypes.PolicyTypeTagPolicy})
 	require.NoError(t, err)
+	roots, err := c.ListRoots(ctx, &organizations.ListRootsInput{})
+	require.NoError(t, err)
+	require.Len(t, roots.Roots, 1)
+	for _, enabled := range roots.Roots[0].PolicyTypes {
+		assert.NotEqual(t, orgtypes.PolicyTypeTagPolicy, enabled.Type,
+			"the disabled policy type must be gone from the root")
+	}
 }
 
 // TestOrganizations_Handshakes covers Invite/Describe/List/Accept/Decline/Cancel.

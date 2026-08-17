@@ -100,6 +100,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: tf-shard-coverage
+        name: AWS Terraform shard coverage (every stack runs in exactly one CI shard)
+        entry: bash scripts/check-tf-shard-coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: mux-overlap-scan
         name: Mux-overlap scan
         entry: bash scripts/scan-mux-overlap.sh
@@ -142,9 +149,23 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: latest-deps-quarantine
+        name: Dependency freshness honours the adoption quarantine
+        entry: bash -c 'scripts/test-latest-deps-quarantine.sh'
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: workflow-timeouts
         name: GitHub Actions jobs finish within 15 minutes
         entry: bash -c 'scripts/test-workflow-timeouts.sh && scripts/check-workflow-timeouts.sh'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: workflow-concurrency
+        name: No commit's workflow run can be cancelled by a later commit
+        entry: bash -c 'scripts/test-workflow-concurrency.sh && scripts/check-workflow-concurrency.sh'
         language: system
         pass_filenames: false
         always_run: true

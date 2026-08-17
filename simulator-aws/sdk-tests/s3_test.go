@@ -36,7 +36,16 @@ func TestS3_CreateBucket(t *testing.T) {
 		Bucket: aws.String("test-bucket"),
 	})
 	require.NoError(t, err)
-	assert.NotNil(t, out)
+	assert.Equal(t, "us-east-1", aws.ToString(out.BucketRegion),
+		"HeadBucket reports the region the bucket lives in")
+
+	// A bucket that does not exist is a 404, so the success above is the
+	// bucket's existence rather than the operation's indifference.
+	_, err = client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String("test-bucket-absent"),
+	})
+	var notFound *s3types.NotFound
+	require.ErrorAs(t, err, &notFound, "HeadBucket on an absent bucket is NotFound")
 }
 
 func TestS3_PutAndGetObject(t *testing.T) {
@@ -204,6 +213,36 @@ func TestS3_DeleteObject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The object is readable before the delete, so what follows is the delete's
+	// doing and not a key that was never there.
+	_, err = client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String("del-bucket"),
+		Key:    aws.String("to-delete.txt"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String("del-bucket"),
+		Key:    aws.String("to-delete.txt"),
+	})
+	require.NoError(t, err)
+
+	// The key is gone from both the read and the listing.
+	_, err = client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String("del-bucket"),
+		Key:    aws.String("to-delete.txt"),
+	})
+	var noSuchKey *s3types.NoSuchKey
+	require.ErrorAs(t, err, &noSuchKey, "a deleted key must read back as NoSuchKey")
+
+	listed, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("del-bucket")})
+	require.NoError(t, err)
+	for _, object := range listed.Contents {
+		assert.NotEqual(t, "to-delete.txt", aws.ToString(object.Key))
+	}
+
+	// Deleting a key that is already gone is not an error, which is what makes
+	// S3's delete idempotent.
 	_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String("del-bucket"),
 		Key:    aws.String("to-delete.txt"),

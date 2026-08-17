@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
@@ -30,7 +31,7 @@ func newFSClient(t *testing.T, project string) *firestore.Client {
 
 // TestFirestore_FieldTransforms exercises the four FieldTransform operators the
 // high-level client emits (Increment, ArrayUnion, ArrayRemove, ServerTimestamp)
-// through Set(..., MergeAll) and Update writes (BUG-2154).
+// through Set(..., MergeAll) and Update writes.
 func TestFirestore_FieldTransforms(t *testing.T) {
 	c := newFSClient(t, "fs-transforms")
 	doc := c.Collection("counters").Doc("c1")
@@ -42,6 +43,10 @@ func TestFirestore_FieldTransforms(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Set seed: %v", err)
 	}
+
+	// The server timestamp the update writes must fall inside the window the
+	// update itself spans.
+	beforeUpdate := time.Now().UTC().Add(-time.Second)
 
 	// Increment, ArrayUnion (add a new + an already-present element),
 	// ArrayRemove, and ServerTimestamp in one Update.
@@ -84,12 +89,26 @@ func TestFirestore_FieldTransforms(t *testing.T) {
 		t.Fatalf("arrayRemove on missing: want empty array, got %v (%T)", data["gone"], data["gone"])
 	}
 
-	// ServerTimestamp set the field to a real timestamp value.
-	if _, ok := data["updatedAt"]; !ok {
-		t.Fatalf("serverTimestamp: updatedAt field missing")
+	// ServerTimestamp set the field to a real timestamp value: the client
+	// decodes a Firestore timestampValue to a time.Time, so a null, an empty
+	// string or any other value type fails the type assertion outright.
+	afterGet := time.Now().UTC().Add(time.Second)
+	updatedAt, ok := data["updatedAt"].(time.Time)
+	if !ok {
+		t.Fatalf("serverTimestamp: updatedAt is %#v (%T), want a time.Time", data["updatedAt"], data["updatedAt"])
+	}
+	if updatedAt.Before(beforeUpdate) || updatedAt.After(afterGet) {
+		t.Fatalf("serverTimestamp: updatedAt %s is outside the update window [%s, %s]",
+			updatedAt.UTC(), beforeUpdate, afterGet)
 	}
 	if snap.UpdateTime.IsZero() {
 		t.Fatalf("serverTimestamp: updateTime not set")
+	}
+	// REQUEST_TIME is the commit time, so the field and the document's own
+	// updateTime describe the same write.
+	if delta := updatedAt.Sub(snap.UpdateTime).Abs(); delta > time.Second {
+		t.Fatalf("serverTimestamp: updatedAt %s and updateTime %s differ by %s",
+			updatedAt.UTC(), snap.UpdateTime.UTC(), delta)
 	}
 }
 
@@ -136,7 +155,7 @@ func TestFirestore_CreatePrecondition(t *testing.T) {
 }
 
 // TestFirestore_UpdatePrecondition: Update on a missing doc must fail with
-// NotFound (the high-level Update emits currentDocument.exists=true) (BUG-2155).
+// NotFound (the high-level Update emits currentDocument.exists=true).
 func TestFirestore_UpdatePrecondition(t *testing.T) {
 	c := newFSClient(t, "fs-update-pre")
 	doc := c.Collection("users").Doc("ghost")
@@ -151,7 +170,7 @@ func TestFirestore_UpdatePrecondition(t *testing.T) {
 }
 
 // TestFirestore_NumericEqualityQuery: Where("n","==",1) must match a doc whose n
-// was stored as an integer, exercising the unified numeric equality (BUG-2156).
+// was stored as an integer, exercising the unified numeric equality.
 func TestFirestore_NumericEqualityQuery(t *testing.T) {
 	c := newFSClient(t, "fs-num-eq")
 	col := c.Collection("nums")
@@ -172,7 +191,7 @@ func TestFirestore_NumericEqualityQuery(t *testing.T) {
 }
 
 // TestFirestore_CursorPagination: OrderBy(...).StartAfter(...) must slice the
-// ordered result by the cursor (BUG-2157).
+// ordered result by the cursor.
 func TestFirestore_CursorPagination(t *testing.T) {
 	c := newFSClient(t, "fs-cursor")
 	col := c.Collection("ranked")
@@ -198,7 +217,7 @@ func TestFirestore_CursorPagination(t *testing.T) {
 // TestFirestore_CursorTieBreakByName exercises the implicit __name__ order the
 // high-level client appends to a cursor: with two docs sharing a rank, a
 // document-snapshot StartAfter cursor must tie-break by document name
-// (referenceValue) (BUG-2157).
+// (referenceValue).
 func TestFirestore_CursorTieBreakByName(t *testing.T) {
 	c := newFSClient(t, "fs-cursor-tie")
 	col := c.Collection("tied")
@@ -222,7 +241,7 @@ func TestFirestore_CursorTieBreakByName(t *testing.T) {
 }
 
 // TestFirestore_SelectProjection: Select("a") must return only the projected
-// field (BUG-2157).
+// field.
 func TestFirestore_SelectProjection(t *testing.T) {
 	c := newFSClient(t, "fs-select")
 	col := c.Collection("docs")

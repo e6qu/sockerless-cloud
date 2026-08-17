@@ -2,6 +2,9 @@ package gcp_sdk_test
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,16 +139,57 @@ func TestCloudRunV1_DomainMappings_RoundTrip(t *testing.T) {
 	require.Error(t, err, "deleted domain mapping must be gone")
 }
 
+// TestCloudRunV1_AuthorizedDomains_List drives the two parents the
+// authorizeddomains list method is published under. The simulator holds no
+// authorized domains, so what the test pins is the shape of the answer a
+// client decodes and the parents it is addressable from: an exhausted list of
+// no domains, serialized as an empty JSON array rather than a null a ranging
+// client would have to guard against.
 func TestCloudRunV1_AuthorizedDomains_List(t *testing.T) {
 	svc := newRunV1(t)
 	// Namespaces surface.
 	resp, err := svc.Namespaces.Authorizeddomains.List("namespaces/test-project-ad").Do()
 	require.NoError(t, err)
-	assert.NotNil(t, resp.Domains)
+	require.NotNil(t, resp.Domains)
+	assert.Empty(t, resp.NextPageToken, "an exhausted list carries no page token")
 	// projects surface (Projects.Authorizeddomains.List).
 	presp, err := svc.Projects.Authorizeddomains.List("projects/test-project-ad").Do()
 	require.NoError(t, err)
-	assert.NotNil(t, presp.Domains)
+	require.NotNil(t, presp.Domains)
+	assert.Empty(t, presp.NextPageToken, "an exhausted list carries no page token")
+
+	// Every published path answers with a JSON array under "domains". The SDK
+	// decodes a null into the same empty slice, so only the wire body can tell
+	// the two apart.
+	for _, path := range []string{
+		"/apis/domains.cloudrun.com/v1/namespaces/test-project-ad/authorizeddomains",
+		"/v1/projects/test-project-ad/authorizeddomains",
+		"/v1/projects/test-project-ad/locations/us-central1/authorizeddomains",
+	} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+		require.NoError(t, err)
+		httpResp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		body, err := io.ReadAll(httpResp.Body)
+		httpResp.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, httpResp.StatusCode, "%s: %s", path, body)
+
+		var decoded map[string]any
+		require.NoError(t, json.Unmarshal(body, &decoded), "%s: %s", path, body)
+		require.IsType(t, []any{}, decoded["domains"],
+			"%s must serialize domains as a JSON array, not null: %s", path, body)
+	}
+
+	// The method is published under a parent, so a request naming none reaches
+	// no method at all.
+	rootReq, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/authorizeddomains", nil)
+	require.NoError(t, err)
+	rootResp, err := http.DefaultClient.Do(rootReq)
+	require.NoError(t, err)
+	rootResp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, rootResp.StatusCode,
+		"authorizeddomains is a method on a parent, not on the service root")
 }
 
 // TestCloudRunV1_RegionalMirror_RoundTrip drives the

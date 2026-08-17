@@ -37,8 +37,12 @@ Current state of the sockerless-cloud repository.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
-- **Measured floors**: IAM resource derivation 1,784 of 1,974 served
-  operations; `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
+- **Measured floors**: IAM resource derivation 1,687 of 1,974 served
+  operations — the floor fell from 1,784 when the ratchet stopped crediting
+  101 operations that belonged to the coverage table while being absent from
+  the probe's own switch, and the condition-key ratchet likewise stopped
+  asserting hand-written booleans no code had to agree with;
+  `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed
   WAF rule-set catalog vendored); `web-arm-openapi-2025-03-01` 616 of 692; `cloudrun-v1` 152 of 152; `spanner-v1` 188 of 198;
   `containerregistry-dataplane-containerregistry-2021-07-01` 20 of 29
   (App Service Stages 1-5: child resources, site-scoped workflows, Key Vault
@@ -75,6 +79,29 @@ Current state of the sockerless-cloud repository.
   slice's store at request time — and honour the `$filter`, `$expand` and
   `$top` forms the Azure CLI and terraform-provider-azurerm send, refusing a
   filter naming anything ARM does not filter on.
+
+- **Tests that cannot pass without proving something**: every simulator has
+  been audited against a taxonomy of fake tests, each candidate judged by
+  breaking the behaviour it names and watching whether it noticed. The suites
+  that had never run — five Terraform packages absent from the makefile and the
+  workflow, a security-group firewall test excluded by a shell filter, two fuzz
+  targets aimed at routes that do not exist — run now, and gates make each
+  class of drift impossible to repeat: a Terraform shard-coverage gate, a
+  concurrency gate, and an adoption-quarantine fixture.
+- **Dependency adoption quarantine**: `scripts/check-latest-deps.sh` requires a
+  Go module, Terraform provider or GitHub Action to be at least 24 hours
+  published before it is adopted, reporting a younger newest version as held
+  rather than as drift. The window can only be lengthened, an unknown
+  publication time fails loudly, and Go's zero-valued proxy timestamp is
+  refused rather than treated as ancient. Vendored specifications are outside
+  the quarantine by design: it mitigates executing code we install, and a
+  discovery document is inert data our own suites validate.
+- **Publication and retention**: container publishes are keyed per commit and
+  never cancelled by a later merge, retention runs in its own workflow so two
+  prunes cannot race, and it holds only prunable releases to the limit —
+  versions coalesced per architecture onto immutable release tags cannot be
+  deleted, and counting them made the limit unsatisfiable. Specification
+  freshness holds a branch to what it changed, with an unbaselined daily run.
 
 ## Releases
 

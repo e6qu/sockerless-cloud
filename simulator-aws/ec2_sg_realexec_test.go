@@ -20,9 +20,7 @@ import (
 // (the CI real-exec job runs as root); the metadata-only tier is covered by the
 // SDK validation/storage tests that run everywhere.
 func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
-	if err := realexec.DetectNetworkCapabilities().Require(); err != nil {
-		t.Skipf("real EC2 networking capabilities unavailable: %v", err)
-	}
+	requireRealNetworkFabric(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -97,7 +95,24 @@ func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
 		}},
 	})
 
-	if err := ec2ApplyRealECSTaskSecurityGroups(ctx, taskID, []string{sgID}); err != nil {
+	// A task NIC exists because a task is running, and that task's record is
+	// where both the live attach and a later reapply read the security groups
+	// from. A NIC with no task behind it is a state the simulator never
+	// produces, and a reapply would rightly find nothing to reprogram.
+	ecsTasks.Put(taskID, ECSTask{
+		TaskArn:       ecsArn("task", "sgfwhw/"+taskID),
+		ClusterArn:    ecsArn("cluster", "sgfwhw"),
+		LastStatus:    ECSTaskStatusRunning,
+		DesiredStatus: ECSTaskStatusRunning,
+		NetworkConfiguration: &ECSTaskNetworkConfig{
+			AwsvpcConfiguration: &ECSTaskVpcConfig{
+				Subnets:        []string{subnet.SubnetId},
+				SecurityGroups: []string{sgID},
+			},
+		},
+	})
+
+	if err := ec2ApplyRealECSTaskSecurityGroups(ctx, taskID, ecsTaskSecurityGroupIDs(taskID)); err != nil {
 		t.Fatalf("ec2ApplyRealECSTaskSecurityGroups: %v", err)
 	}
 

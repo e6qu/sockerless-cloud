@@ -1,8 +1,10 @@
 package gcp_sdk_test
 
 import (
+	"fmt"
 	"testing"
 
+	"cloud.google.com/go/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	loggingrpc "google.golang.org/api/logging/v2"
@@ -257,16 +259,53 @@ func TestLogging_EntriesCopy(t *testing.T) {
 	assert.NotEmpty(t, op.Response)
 }
 
+// TestLogging_EntriesTail writes a spread of severities into one log and tails
+// it: entries.tail must return exactly the entries at or above the filter's
+// severity, carrying the payload, severity and log name they were written with.
 func TestLogging_EntriesTail(t *testing.T) {
 	svc := loggingRESTService(t)
-	resp, err := svc.Entries.Tail(&loggingrpc.TailLogEntriesRequest{
-		ResourceNames: []string{"projects/tail-test-project"},
-		Filter:        `severity >= INFO`,
-	}).Do()
+
+	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
-	require.NotNil(t, resp)
-	// An empty entries list is a valid TailLogEntriesResponse.
-	assert.GreaterOrEqual(t, len(resp.Entries), 0)
+	const logID = "tail-test"
+	logName := "projects/test-project/logs/" + logID
+	logger := writeClient.Logger(logID)
+	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail debug", Severity: logging.Debug}))
+	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail info", Severity: logging.Info}))
+	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail warning", Severity: logging.Warning}))
+	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail error", Severity: logging.Error}))
+	require.NoError(t, writeClient.Close())
+
+	tail := func(filter string) map[string]string {
+		t.Helper()
+		resp, err := svc.Entries.Tail(&loggingrpc.TailLogEntriesRequest{
+			ResourceNames: []string{"projects/test-project"},
+			Filter:        filter,
+		}).Do()
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		bySeverity := map[string]string{}
+		for _, e := range resp.Entries {
+			assert.Equal(t, logName, e.LogName, "the log-name clause must scope the tail")
+			bySeverity[e.Severity] = e.TextPayload
+		}
+		return bySeverity
+	}
+
+	scope := fmt.Sprintf("logName=%q AND ", logName)
+	assert.Equal(t, map[string]string{
+		"INFO":    "tail info",
+		"WARNING": "tail warning",
+		"ERROR":   "tail error",
+	}, tail(scope+"severity>=INFO"), "severity>=INFO excludes the DEBUG entry")
+
+	assert.Equal(t, map[string]string{
+		"ERROR": "tail error",
+	}, tail(scope+"severity>=ERROR"))
+
+	// Without the severity clause every entry of the log is tailed, so the
+	// exclusions above are the filter's doing and not a missing write.
+	assert.Len(t, tail(fmt.Sprintf("logName=%q", logName)), 4)
 }
 
 func TestLogging_MonitoredResourceDescriptors_List(t *testing.T) {

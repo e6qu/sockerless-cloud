@@ -2,6 +2,7 @@ package gcp_sdk_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"testing"
@@ -168,9 +169,16 @@ func TestSpanner_GRPC(t *testing.T) {
 	assert.Equal(t, []string{"C", "D"}, []string{albums[0].Title, albums[1].Title})
 
 	// Concurrent reads exercise the session-pool path (BatchCreateSessions) —
-	// each goroutine borrows its own session and runs a StreamingRead.
+	// each goroutine borrows its own session and runs a StreamingRead. Every
+	// goroutine has to come back with the one row Singers holds at this point:
+	// a pool that handed out sessions bound to an empty or wrong database would
+	// otherwise finish cleanly on zero rows.
 	const n = 8
-	done := make(chan error, n)
+	type concurrentRead struct {
+		rows int
+		err  error
+	}
+	done := make(chan concurrentRead, n)
 	for i := 0; i < n; i++ {
 		go func() {
 			it := client.Single().Query(ctx, spanner.Statement{SQL: "SELECT SingerId FROM Singers"})
@@ -178,24 +186,26 @@ func TestSpanner_GRPC(t *testing.T) {
 			cnt := 0
 			for {
 				_, err := it.Next()
-				if err == iterator.Done {
-					done <- nil
+				if errors.Is(err, iterator.Done) {
+					done <- concurrentRead{rows: cnt}
 					return
 				}
 				if err != nil {
-					done <- err
+					done <- concurrentRead{rows: cnt, err: err}
 					return
 				}
 				cnt++
 				if cnt > 1000 {
-					done <- fmt.Errorf("too many rows")
+					done <- concurrentRead{rows: cnt, err: fmt.Errorf("too many rows")}
 					return
 				}
 			}
 		}()
 	}
 	for i := 0; i < n; i++ {
-		require.NoError(t, <-done, "concurrent read failed")
+		got := <-done
+		require.NoError(t, got.err, "concurrent read failed")
+		require.Equal(t, 1, got.rows, "every concurrent session reads the one Singers row")
 	}
 }
 
@@ -359,7 +369,7 @@ func spannerReadAll[T any](t *testing.T, it *spanner.RowIterator) []T {
 	var out []T
 	for {
 		row, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return out
 		}
 		require.NoError(t, err, "unexpected iterator error")

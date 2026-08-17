@@ -176,13 +176,10 @@ func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 	exec, err := runOp.Wait(ctx)
 	require.NoError(t, err)
 
-	// Generous deadline so a slow real multi-container job start on a loaded CI
-	// runner doesn't expire before the execution completes; matches sibling tests.
-	require.Eventually(t, func() bool {
-		got, err := execClient.GetExecution(ctx, &runpb.GetExecutionRequest{Name: exec.Name})
-		require.NoError(t, err)
-		return got.RunningCount == 0 && got.SucceededCount == 1
-	}, 60*time.Second, 200*time.Millisecond)
+	settled := waitExecutionSettled(t, execClient, exec.Name)
+	require.Equal(t, int32(0), settled.GetRunningCount())
+	require.Equal(t, int32(1), settled.GetSucceededCount(),
+		"the multi-container task must succeed, not merely stop running")
 
 	client := logadminClient(t)
 	it := client.Entries(ctx, logadmin.Filter(`resource.type="cloud_run_job" AND resource.labels.job_name="sdk-run-job-sidecar"`))
@@ -233,11 +230,7 @@ func TestSDK_CloudRun_GetExecution(t *testing.T) {
 
 	// runOp.Wait returns when the execution STARTS; poll GetExecution until it
 	// completes (CompletionTime set) — a fixed sleep races a loaded runner.
-	var gotExec *runpb.Execution
-	require.Eventually(t, func() bool {
-		gotExec, err = execClient.GetExecution(ctx, &runpb.GetExecutionRequest{Name: exec.Name})
-		return err == nil && gotExec.CompletionTime != nil
-	}, 60*time.Second, 200*time.Millisecond)
+	gotExec := waitExecutionSettled(t, execClient, exec.Name)
 
 	assert.Equal(t, exec.Name, gotExec.Name)
 	assert.Equal(t, int32(1), gotExec.SucceededCount)
@@ -245,20 +238,50 @@ func TestSDK_CloudRun_GetExecution(t *testing.T) {
 	assert.NotNil(t, gotExec.CompletionTime)
 }
 
+// waitExecutionSettled polls an execution through the Cloud Run SDK until it
+// reports a completion time, and returns it. The poll runs on the calling
+// goroutine, so a failed read fails the test with the SDK's own error instead
+// of being retried until the deadline expires.
+func waitExecutionSettled(t *testing.T, client *run.ExecutionsClient, name string) *runpb.Execution {
+	t.Helper()
+	// Generous deadline so a slow real container start on a loaded CI runner
+	// doesn't expire before the execution completes.
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		exec, err := client.GetExecution(ctx, &runpb.GetExecutionRequest{Name: name})
+		require.NoError(t, err, "get execution %q", name)
+		if exec.GetCompletionTime() != nil {
+			return exec
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("execution %q did not complete within 60s: running=%d succeeded=%d failed=%d cancelled=%d",
+				name, exec.GetRunningCount(), exec.GetSucceededCount(),
+				exec.GetFailedCount(), exec.GetCancelledCount())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 	jobsClient := newJobsClient(t)
 	execClient := newExecutionsClient(t)
+	const jobID = "sdk-cancel-job"
+	const marker = "sdk-cancel-marker"
 
-	// Create and run a long-running job (no command = sleeps for default timeout)
+	// The container announces itself on stdout and then holds until it is
+	// cancelled. A container that had already exited would settle the
+	// execution from its exit status, so the cancel would find no running task
+	// and the cancelled count would stay at zero.
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
-		JobId:  "sdk-cancel-job",
+		JobId:  jobID,
 		Job: &runpb.Job{
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
 					Containers: []*runpb.Container{
-						{Image: "alpine:latest"},
+						{Image: commandImageName, Args: []string{"log", marker, "60"}},
 					},
+					Timeout: durationpb.New(60 * time.Second),
 				},
 			},
 		},
@@ -268,14 +291,20 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 	require.NoError(t, err)
 
 	runOp, err := jobsClient.RunJob(ctx, &runpb.RunJobRequest{
-		Name: "projects/test-project/locations/us-central1/jobs/sdk-cancel-job",
+		Name: "projects/test-project/locations/us-central1/jobs/" + jobID,
 	})
 	require.NoError(t, err)
 
 	exec, err := runOp.Wait(ctx)
 	require.NoError(t, err)
 
-	// Cancel immediately
+	// Cancel while that container is demonstrably running.
+	waitForJobLogMessage(t, jobID, marker)
+	running, err := execClient.GetExecution(ctx, &runpb.GetExecutionRequest{Name: exec.Name})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), running.GetRunningCount(), "the execution is running when the cancel arrives")
+	require.Nil(t, running.GetCompletionTime())
+
 	cancelOp, err := execClient.CancelExecution(ctx, &runpb.CancelExecutionRequest{
 		Name: exec.Name,
 	})
@@ -286,6 +315,8 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 
 	assert.Equal(t, int32(0), cancelledExec.RunningCount)
 	assert.Equal(t, int32(1), cancelledExec.CancelledCount)
+	assert.Equal(t, int32(0), cancelledExec.SucceededCount)
+	assert.Equal(t, int32(0), cancelledExec.FailedCount)
 	assert.NotNil(t, cancelledExec.CompletionTime)
 }
 

@@ -58,20 +58,46 @@ func TestRegionalCPUQuota_PartitionedByProjectAndRegion(t *testing.T) {
 	}
 }
 
-// TestRegionalCPUQuota_SlidingWindow — debits older than the window
-// roll off so the budget refreshes over time. Reproduces the live
-// cloud's per-minute regional CPU allocation behaviour.
+// TestRegionalCPUQuota_SlidingWindow — debits older than the window roll off so
+// the budget refreshes over time. Reproduces the live cloud's per-minute
+// regional CPU allocation behaviour.
+//
+// Time comes from a clock the test advances, not from the host's. Sleeping past
+// a millisecond-scale window makes the boundary a race with the scheduler: a
+// debit meant to land inside the window passes when the host pauses the test
+// for longer than the window, and the roll-off fails when a sleep
+// under-delivers. Advancing an explicit clock puts each debit exactly where the
+// case means it to be, and lets the case sit on the boundary itself.
 func TestRegionalCPUQuota_SlidingWindow(t *testing.T) {
-	q := &regionalCPUQuota{budget: 1, window: 50 * time.Millisecond, debitsBy: map[string][]quotaDebit{}}
+	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	now := start
+	q := &regionalCPUQuota{
+		budget:   1,
+		window:   time.Minute,
+		debitsBy: map[string][]quotaDebit{},
+		now:      func() time.Time { return now },
+	}
+
 	if !q.tryDebit("p", "us-central1", 1) {
 		t.Fatal("first debit should pass")
 	}
+
+	// One tick short of the window: the first debit is still inside it.
+	now = start.Add(time.Minute - time.Nanosecond)
 	if q.tryDebit("p", "us-central1", 1) {
-		t.Fatal("second debit should fail before window elapses")
+		t.Fatal("a debit while the first is still inside the window should fail")
 	}
-	time.Sleep(60 * time.Millisecond)
+
+	// Past the window: the first debit has rolled off and the budget is free.
+	now = start.Add(time.Minute + time.Nanosecond)
 	if !q.tryDebit("p", "us-central1", 1) {
 		t.Fatal("debit after window roll-off should pass")
+	}
+
+	// The debit that just landed holds the budget for its own window, so the
+	// roll-off freed exactly one debit's worth rather than clearing the key.
+	if q.tryDebit("p", "us-central1", 1) {
+		t.Fatal("the rolled-over debit must itself hold the budget")
 	}
 }
 

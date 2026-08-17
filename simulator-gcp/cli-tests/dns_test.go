@@ -61,16 +61,29 @@ func TestDNS_CreateAndListRecordSets(t *testing.T) {
 	require.Len(t, record.Rrdatas, 1)
 	assert.Equal(t, "10.0.0.1", record.Rrdatas[0])
 
-	// List record sets
+	// List record sets. A managed zone is created with its own SOA and NS
+	// records, so a non-empty list proves nothing — the created A record has to
+	// be found by name and type, carrying the address it was created with.
 	out = httpDoJSON(t, "GET", url, "")
 	var listResult struct {
 		Rrsets []struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
+			Name    string   `json:"name"`
+			Type    string   `json:"type"`
+			TTL     int      `json:"ttl"`
+			Rrdatas []string `json:"rrdatas"`
 		} `json:"rrsets"`
 	}
 	parseJSON(t, out, &listResult)
-	assert.NotEmpty(t, listResult.Rrsets)
+	found := false
+	for _, rr := range listResult.Rrsets {
+		if rr.Name != "test.records.example.com." || rr.Type != "A" {
+			continue
+		}
+		found = true
+		assert.Equal(t, 300, rr.TTL)
+		assert.Equal(t, []string{"10.0.0.1"}, rr.Rrdatas)
+	}
+	assert.True(t, found, "the created A record must be in the zone's record sets: %s", out)
 
 	// Cleanup
 	runCLI(t, gcloudCLI("dns", "managed-zones", "delete", "record-test-zone"))
@@ -109,6 +122,27 @@ func TestDNS_RecordSetTransactionAndUpdateCLI(t *testing.T) {
 		"--format=json",
 	))
 
+	// The transaction is only real if the record it added is in the zone. Read
+	// it back before the update below overwrites it, otherwise a transaction
+	// that changed nothing is indistinguishable from one that worked.
+	added := runCLI(t, gcloudCLI("dns", "record-sets", "describe", recordName,
+		"--zone", zone,
+		"--type", "A",
+		"--format=json",
+	))
+	var committed struct {
+		Name    string   `json:"name"`
+		Type    string   `json:"type"`
+		TTL     int      `json:"ttl"`
+		Rrdatas []string `json:"rrdatas"`
+	}
+	parseJSONObject(t, added, &committed)
+	require.Equal(t, recordName, committed.Name)
+	require.Equal(t, "A", committed.Type)
+	require.Equal(t, 300, committed.TTL)
+	require.Equal(t, []string{"203.0.113.20"}, committed.Rrdatas,
+		"the executed transaction added the record it described")
+
 	updateOut := runCLI(t, gcloudCLI("dns", "record-sets", "update", recordName,
 		"--zone", zone,
 		"--type", "A",
@@ -127,6 +161,17 @@ func TestDNS_RecordSetTransactionAndUpdateCLI(t *testing.T) {
 	require.Equal(t, "A", updated.Type)
 	require.Equal(t, 600, updated.TTL)
 	require.Equal(t, []string{"203.0.113.21"}, updated.Rrdatas)
+
+	// And the zone holds the updated record, not just the response the update
+	// echoed.
+	var reread struct {
+		TTL     int      `json:"ttl"`
+		Rrdatas []string `json:"rrdatas"`
+	}
+	parseJSONObject(t, runCLI(t, gcloudCLI("dns", "record-sets", "describe", recordName,
+		"--zone", zone, "--type", "A", "--format=json")), &reread)
+	require.Equal(t, 600, reread.TTL)
+	require.Equal(t, []string{"203.0.113.21"}, reread.Rrdatas)
 }
 
 func TestDNS_DeleteZone(t *testing.T) {

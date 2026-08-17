@@ -841,17 +841,26 @@ func bqEvaluateQuery(defaultProject, query string) (BQQueryResult, error) {
 	}, nil
 }
 
+// bqParseTableRef resolves a `dataset.table` or `project.dataset.table`
+// reference. Every component must be present: an empty one addresses
+// `projects//datasets//tables/…`, which identifies nothing, so a reference
+// missing a component is invalid rather than a partial address.
 func bqParseTableRef(defaultProject, ref string) (string, string, string, error) {
 	ref = strings.Trim(ref, "`")
 	parts := strings.Split(ref, ".")
+	var project, dataset, table string
 	switch len(parts) {
 	case 2:
-		return defaultProject, parts[0], parts[1], nil
+		project, dataset, table = defaultProject, parts[0], parts[1]
 	case 3:
-		return parts[0], parts[1], parts[2], nil
+		project, dataset, table = parts[0], parts[1], parts[2]
 	default:
 		return "", "", "", fmt.Errorf("invalid table reference %q", ref)
 	}
+	if project == "" || dataset == "" || table == "" {
+		return "", "", "", fmt.Errorf("invalid table reference %q", ref)
+	}
+	return project, dataset, table, nil
 }
 
 // ---- projects.list / projects.getServiceAccount / jobs.delete ----

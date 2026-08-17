@@ -2,11 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -654,7 +654,25 @@ func handleACIContainerAttachSession(w http.ResponseWriter, r *http.Request) {
 // handleACISubnetServiceAssociationLinkDelete removes the service association
 // link that binds a delegated subnet to Azure Container Instances. The
 // simulator holds no such link, so the delete is a no-op success.
-func handleACISubnetServiceAssociationLinkDelete(w http.ResponseWriter, _ *http.Request) {
+// handleACISubnetServiceAssociationLinkDelete removes the link Azure Container
+// Instances holds on a delegated subnet. The link lives on the subnet, so the
+// subnet has to exist: answering 204 for a subnet the simulator has never heard
+// of reports a delete that removed nothing as a delete that succeeded, and does
+// so for any URL of the right shape.
+func handleACISubnetServiceAssociationLinkDelete(w http.ResponseWriter, r *http.Request) {
+	subnetName := sim.PathParam(r, "subnetName")
+	vnetName := sim.PathParam(r, "virtualNetworkName")
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
+		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), vnetName, subnetName)
+	if azureSubnets == nil {
+		sim.AzureError(w, "ResourceNotFound", "No virtual networks exist.", http.StatusNotFound)
+		return
+	}
+	if _, ok := azureSubnets.Get(id); !ok {
+		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			"The Resource 'subnets/%s' under virtualNetworks '%s' was not found.", subnetName, vnetName)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -803,9 +821,19 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 			aciLogs.Put(logKey, append(lines, line.Text))
 			aciLogMu.Unlock()
 		})
+		localImage := sim.ResolveLocalImage(image)
+		// The platform comes from the image's own manifest, the way every other
+		// workload this simulator starts derives it. Taking the host's
+		// architecture instead runs an image on a platform it may not have been
+		// built for, and reports a container group as running an image the
+		// engine actually resolved to a different variant.
+		platform, err := localImagePlatform(context.Background(), localImage)
+		if err != nil {
+			return fmt.Errorf("inspect container %q image platform: %w", name, err)
+		}
 		cfg := sim.ContainerConfig{
-			Image:        sim.ResolveLocalImage(image),
-			Architecture: "linux/" + runtime.GOARCH,
+			Image:        localImage,
+			Architecture: platform,
 			Env:          env,
 			Labels: map[string]string{
 				"sockerless-sim": "true",

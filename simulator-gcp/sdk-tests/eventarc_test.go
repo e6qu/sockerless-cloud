@@ -2,6 +2,7 @@ package gcp_sdk_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -14,6 +15,24 @@ import (
 	"google.golang.org/api/option"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
 )
+
+// eventarcCollect drains a list iterator and returns the identity of every item
+// it yielded. Every collection in this file lives in one shared location, so a
+// test asserts MEMBERSHIP of the resource it created: "exactly one item, then
+// iterator.Done" would make each test's result depend on which other tests have
+// already run and on whether their cleanups succeeded.
+func eventarcCollect[T any](t *testing.T, next func() (T, error), id func(T) string) []string {
+	t.Helper()
+	var out []string
+	for {
+		item, err := next()
+		if errors.Is(err, iterator.Done) {
+			return out
+		}
+		require.NoError(t, err)
+		out = append(out, id(item))
+	}
+}
 
 func eventarcClient(t *testing.T) *eventarc.Client {
 	t.Helper()
@@ -57,10 +76,13 @@ func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, name, created.GetName())
 	assert.Equal(t, "test", created.GetLabels()["env"])
+	// A cleanup that swallowed its error would leave the trigger behind, and
+	// the location is shared with every other test in this file.
 	t.Cleanup(func() {
 		op, err := client.DeleteTrigger(ctx, &eventarcpb.DeleteTriggerRequest{Name: name})
-		if err == nil {
-			_, _ = op.Wait(ctx)
+		if assert.NoError(t, err, "delete %s", name) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", name)
 		}
 	})
 
@@ -78,12 +100,10 @@ func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
 	assertProtoJSONTimestamp(t, raw["createTime"].(string))
 	assertProtoJSONTimestamp(t, raw["updateTime"].(string))
 
-	iter := client.ListTriggers(ctx, &eventarcpb.ListTriggersRequest{Parent: parent})
-	listed, err := iter.Next()
-	require.NoError(t, err)
-	assert.Equal(t, name, listed.GetName())
-	_, err = iter.Next()
-	assert.ErrorIs(t, err, iterator.Done)
+	triggers := eventarcCollect(t,
+		client.ListTriggers(ctx, &eventarcpb.ListTriggersRequest{Parent: parent}).Next,
+		(*eventarcpb.Trigger).GetName)
+	assert.Contains(t, triggers, name, "the trigger just created must be listed")
 }
 
 func TestEventarc_ChannelProviderConnectionSDK(t *testing.T) {
@@ -92,15 +112,15 @@ func TestEventarc_ChannelProviderConnectionSDK(t *testing.T) {
 	channelName := parent + "/channels/sdk-channel"
 	connectionName := parent + "/channelConnections/sdk-connection"
 
-	providers := client.ListProviders(ctx, &eventarcpb.ListProvidersRequest{Parent: parent})
-	provider, err := providers.Next()
-	require.NoError(t, err)
-	assert.Equal(t, parent+"/providers/cloud.pubsub", provider.GetName())
-	require.NotEmpty(t, provider.GetEventTypes())
+	providers := eventarcCollect(t,
+		client.ListProviders(ctx, &eventarcpb.ListProvidersRequest{Parent: parent}).Next,
+		(*eventarcpb.Provider).GetName)
+	require.Contains(t, providers, parent+"/providers/cloud.pubsub")
 
 	gotProvider, err := client.GetProvider(ctx, &eventarcpb.GetProviderRequest{Name: parent + "/providers/cloud.pubsub"})
 	require.NoError(t, err)
 	assert.Equal(t, "Cloud Pub/Sub", gotProvider.GetDisplayName())
+	require.NotEmpty(t, gotProvider.GetEventTypes())
 
 	createChannel, err := client.CreateChannel(ctx, &eventarcpb.CreateChannelRequest{
 		Parent:    parent,
@@ -121,8 +141,9 @@ func TestEventarc_ChannelProviderConnectionSDK(t *testing.T) {
 	require.NotEmpty(t, channel.GetActivationToken())
 	t.Cleanup(func() {
 		op, err := client.DeleteChannel(ctx, &eventarcpb.DeleteChannelRequest{Name: channelName})
-		if err == nil {
-			_, _ = op.Wait(ctx)
+		if assert.NoError(t, err, "delete %s", channelName) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", channelName)
 		}
 	})
 
@@ -130,12 +151,10 @@ func TestEventarc_ChannelProviderConnectionSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "projects/test-project/topics/sdk-channel-topic", gotChannel.GetPubsubTopic())
 
-	channels := client.ListChannels(ctx, &eventarcpb.ListChannelsRequest{Parent: parent})
-	listedChannel, err := channels.Next()
-	require.NoError(t, err)
-	assert.Equal(t, channelName, listedChannel.GetName())
-	_, err = channels.Next()
-	assert.ErrorIs(t, err, iterator.Done)
+	channels := eventarcCollect(t,
+		client.ListChannels(ctx, &eventarcpb.ListChannelsRequest{Parent: parent}).Next,
+		(*eventarcpb.Channel).GetName)
+	assert.Contains(t, channels, channelName, "the channel just created must be listed")
 
 	createConnection, err := client.CreateChannelConnection(ctx, &eventarcpb.CreateChannelConnectionRequest{
 		Parent:              parent,
@@ -153,8 +172,9 @@ func TestEventarc_ChannelProviderConnectionSDK(t *testing.T) {
 	assert.Equal(t, channelName, connection.GetChannel())
 	t.Cleanup(func() {
 		op, err := client.DeleteChannelConnection(ctx, &eventarcpb.DeleteChannelConnectionRequest{Name: connectionName})
-		if err == nil {
-			_, _ = op.Wait(ctx)
+		if assert.NoError(t, err, "delete %s", connectionName) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", connectionName)
 		}
 	})
 
@@ -162,12 +182,10 @@ func TestEventarc_ChannelProviderConnectionSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, channelName, gotConnection.GetChannel())
 
-	connections := client.ListChannelConnections(ctx, &eventarcpb.ListChannelConnectionsRequest{Parent: parent})
-	listedConnection, err := connections.Next()
-	require.NoError(t, err)
-	assert.Equal(t, connectionName, listedConnection.GetName())
-	_, err = connections.Next()
-	assert.ErrorIs(t, err, iterator.Done)
+	connections := eventarcCollect(t,
+		client.ListChannelConnections(ctx, &eventarcpb.ListChannelConnectionsRequest{Parent: parent}).Next,
+		(*eventarcpb.ChannelConnection).GetName)
+	assert.Contains(t, connections, connectionName, "the channel connection just created must be listed")
 }
 
 func TestEventarc_MessageBusAndEnrollmentSDK(t *testing.T) {
@@ -189,8 +207,10 @@ func TestEventarc_MessageBusAndEnrollmentSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, busName, bus.GetName())
 	t.Cleanup(func() {
-		if op, err := client.DeleteMessageBus(ctx, &eventarcpb.DeleteMessageBusRequest{Name: busName}); err == nil {
-			_, _ = op.Wait(ctx)
+		op, err := client.DeleteMessageBus(ctx, &eventarcpb.DeleteMessageBusRequest{Name: busName})
+		if assert.NoError(t, err, "delete %s", busName) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", busName)
 		}
 	})
 
@@ -206,10 +226,10 @@ func TestEventarc_MessageBusAndEnrollmentSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "SDK Bus v2", updatedBus.GetDisplayName())
 
-	buses := client.ListMessageBuses(ctx, &eventarcpb.ListMessageBusesRequest{Parent: parent})
-	listedBus, err := buses.Next()
-	require.NoError(t, err)
-	assert.Equal(t, busName, listedBus.GetName())
+	buses := eventarcCollect(t,
+		client.ListMessageBuses(ctx, &eventarcpb.ListMessageBusesRequest{Parent: parent}).Next,
+		(*eventarcpb.MessageBus).GetName)
+	assert.Contains(t, buses, busName, "the message bus just created must be listed")
 
 	createEnrollment, err := client.CreateEnrollment(ctx, &eventarcpb.CreateEnrollmentRequest{
 		Parent:       parent,
@@ -227,8 +247,10 @@ func TestEventarc_MessageBusAndEnrollmentSDK(t *testing.T) {
 	assert.Equal(t, enrollmentName, enrollment.GetName())
 	assert.Equal(t, busName, enrollment.GetMessageBus())
 	t.Cleanup(func() {
-		if op, err := client.DeleteEnrollment(ctx, &eventarcpb.DeleteEnrollmentRequest{Name: enrollmentName}); err == nil {
-			_, _ = op.Wait(ctx)
+		op, err := client.DeleteEnrollment(ctx, &eventarcpb.DeleteEnrollmentRequest{Name: enrollmentName})
+		if assert.NoError(t, err, "delete %s", enrollmentName) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", enrollmentName)
 		}
 	})
 
@@ -236,18 +258,19 @@ func TestEventarc_MessageBusAndEnrollmentSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, parent+"/pipelines/sdk-pipeline", gotEnrollment.GetDestination())
 
-	enrollments := client.ListEnrollments(ctx, &eventarcpb.ListEnrollmentsRequest{Parent: parent})
-	listedEnrollment, err := enrollments.Next()
-	require.NoError(t, err)
-	assert.Equal(t, enrollmentName, listedEnrollment.GetName())
+	enrollments := eventarcCollect(t,
+		client.ListEnrollments(ctx, &eventarcpb.ListEnrollmentsRequest{Parent: parent}).Next,
+		(*eventarcpb.Enrollment).GetName)
+	assert.Contains(t, enrollments, enrollmentName, "the enrollment just created must be listed")
 
-	// messageBuses:listEnrollments returns the names of enrollments bound to the bus.
-	busEnrollments := client.ListMessageBusEnrollments(ctx, &eventarcpb.ListMessageBusEnrollmentsRequest{Parent: busName})
-	firstName, err := busEnrollments.Next()
-	require.NoError(t, err)
-	assert.Equal(t, enrollmentName, firstName)
-	_, err = busEnrollments.Next()
-	assert.ErrorIs(t, err, iterator.Done)
+	// messageBuses:listEnrollments returns the names of enrollments bound to the
+	// bus. The bus belongs to this test, so the binding it made is the whole of
+	// that list — an enrollment bound to another bus leaking in would be a
+	// scoping defect.
+	busEnrollments := eventarcCollect(t,
+		client.ListMessageBusEnrollments(ctx, &eventarcpb.ListMessageBusEnrollmentsRequest{Parent: busName}).Next,
+		func(name string) string { return name })
+	assert.Equal(t, []string{enrollmentName}, busEnrollments)
 }
 
 func TestEventarc_PipelineSDK(t *testing.T) {
@@ -275,8 +298,10 @@ func TestEventarc_PipelineSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, pipelineName, pipeline.GetName())
 	t.Cleanup(func() {
-		if op, err := client.DeletePipeline(ctx, &eventarcpb.DeletePipelineRequest{Name: pipelineName}); err == nil {
-			_, _ = op.Wait(ctx)
+		op, err := client.DeletePipeline(ctx, &eventarcpb.DeletePipelineRequest{Name: pipelineName})
+		if assert.NoError(t, err, "delete %s", pipelineName) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", pipelineName)
 		}
 	})
 
@@ -294,10 +319,10 @@ func TestEventarc_PipelineSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "SDK Pipeline v2", updatedPipeline.GetDisplayName())
 
-	pipelines := client.ListPipelines(ctx, &eventarcpb.ListPipelinesRequest{Parent: parent})
-	listed, err := pipelines.Next()
-	require.NoError(t, err)
-	assert.Equal(t, pipelineName, listed.GetName())
+	pipelines := eventarcCollect(t,
+		client.ListPipelines(ctx, &eventarcpb.ListPipelinesRequest{Parent: parent}).Next,
+		(*eventarcpb.Pipeline).GetName)
+	assert.Contains(t, pipelines, pipelineName, "the pipeline just created must be listed")
 }
 
 func TestEventarc_GoogleApiSourceSDK(t *testing.T) {
@@ -319,8 +344,10 @@ func TestEventarc_GoogleApiSourceSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sourceName, source.GetName())
 	t.Cleanup(func() {
-		if op, err := client.DeleteGoogleApiSource(ctx, &eventarcpb.DeleteGoogleApiSourceRequest{Name: sourceName}); err == nil {
-			_, _ = op.Wait(ctx)
+		op, err := client.DeleteGoogleApiSource(ctx, &eventarcpb.DeleteGoogleApiSourceRequest{Name: sourceName})
+		if assert.NoError(t, err, "delete %s", sourceName) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", sourceName)
 		}
 	})
 
@@ -336,10 +363,10 @@ func TestEventarc_GoogleApiSourceSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "SDK Source v2", updatedSource.GetDisplayName())
 
-	sources := client.ListGoogleApiSources(ctx, &eventarcpb.ListGoogleApiSourcesRequest{Parent: parent})
-	listed, err := sources.Next()
-	require.NoError(t, err)
-	assert.Equal(t, sourceName, listed.GetName())
+	sources := eventarcCollect(t,
+		client.ListGoogleApiSources(ctx, &eventarcpb.ListGoogleApiSourcesRequest{Parent: parent}).Next,
+		(*eventarcpb.GoogleApiSource).GetName)
+	assert.Contains(t, sources, sourceName, "the Google API source just created must be listed")
 }
 
 func TestEventarc_GoogleChannelConfigSDK(t *testing.T) {
@@ -386,8 +413,10 @@ func TestEventarc_IamPolicySDK(t *testing.T) {
 	_, err = create.Wait(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		if op, err := client.DeleteTrigger(ctx, &eventarcpb.DeleteTriggerRequest{Name: triggerName}); err == nil {
-			_, _ = op.Wait(ctx)
+		op, err := client.DeleteTrigger(ctx, &eventarcpb.DeleteTriggerRequest{Name: triggerName})
+		if assert.NoError(t, err, "delete %s", triggerName) {
+			_, err = op.Wait(ctx)
+			assert.NoError(t, err, "await deletion of %s", triggerName)
 		}
 	})
 
@@ -420,13 +449,10 @@ func TestEventarc_IamPolicySDK(t *testing.T) {
 func TestEventarc_LocationsSDK(t *testing.T) {
 	client := eventarcClient(t)
 
-	locations := client.ListLocations(ctx, &locationpb.ListLocationsRequest{
-		Name: "projects/test-project",
-	})
-	first, err := locations.Next()
-	require.NoError(t, err)
-	require.NotEmpty(t, first.GetName())
-	require.NotEmpty(t, first.GetLocationId())
+	locations := eventarcCollect(t,
+		client.ListLocations(ctx, &locationpb.ListLocationsRequest{Name: "projects/test-project"}).Next,
+		(*locationpb.Location).GetName)
+	require.Contains(t, locations, "projects/test-project/locations/us-central1")
 
 	got, err := client.GetLocation(ctx, &locationpb.GetLocationRequest{
 		Name: "projects/test-project/locations/us-central1",

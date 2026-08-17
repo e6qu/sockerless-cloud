@@ -61,23 +61,26 @@ func registerOperations(srv *sim.Server) {
 		opID := sim.PathParam(r, "operation")
 		name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID)
 
-		if op, ok := crOperations.Get(name); ok {
+		if op, ok := gcpLookupOperation(name); ok {
 			sim.WriteJSON(w, http.StatusOK, op)
 			return
 		}
-		// Real GCP returns NOT_FOUND when an operation doesn't exist; the
-		// previous synthetic done=true response masked client-side bugs.
+		// Real GCP returns NOT_FOUND when an operation doesn't exist; a
+		// synthetic done=true response would mask a client-side bug.
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 	})
 
-	// Get operation - v2 prefix
+	// Get operation - v2 prefix. Cloud Logging's scope-parented operations
+	// share this URI with the services that record into crOperations, and
+	// CancelOperation already resolves a name across both stores, so a read
+	// that searched only one would refuse a name its own cancel accepts.
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		opID := sim.PathParam(r, "operation")
 		name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID)
 
-		if op, ok := crOperations.Get(name); ok {
+		if op, ok := gcpLookupOperation(name); ok {
 			sim.WriteJSON(w, http.StatusOK, op)
 			return
 		}

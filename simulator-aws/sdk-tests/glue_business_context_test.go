@@ -166,17 +166,32 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 	require.Len(t, search.Items, 1)
 	assert.Equal(t, "quarterly-sales", aws.ToString(search.Items[0].Id))
 
+	// This asset names no Data Catalog object, so it carries no iterable form
+	// and both readers answer with the service's not-found error. The error code
+	// is asserted rather than the mere presence of an error, so a handler that
+	// failed for any other reason — an unrouted operation, a decode failure —
+	// would not pass for it. The reachable side of the surface, an asset that
+	// names a table and so carries its columns, is
+	// TestGlueIterableFormsOfATableAsset_SDK.
 	_, err = client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
 		AssetIdentifier:  aws.String("quarterly-sales"),
 		IterableFormName: aws.String("columns"),
 	})
-	require.Error(t, err)
+	assert.Equal(t, "EntityNotFoundException", errCode(t, err))
 	_, err = client.BatchGetIterableForms(ctx, &glue.BatchGetIterableFormsInput{
 		AssetIdentifier:  aws.String("quarterly-sales"),
 		IterableFormName: aws.String("columns"),
 		ItemIdentifiers:  []string{"amount"},
 	})
-	require.Error(t, err)
+	assert.Equal(t, "EntityNotFoundException", errCode(t, err))
+
+	// The asset itself must be the other half of that decision: an asset that
+	// does not exist is reported against the asset, not the form.
+	_, err = client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
+		AssetIdentifier:  aws.String("no-such-asset"),
+		IterableFormName: aws.String("columns"),
+	})
+	assert.Equal(t, "EntityNotFoundException", errCode(t, err))
 
 	_, err = client.DeleteAttachment(ctx, &glue.DeleteAttachmentInput{
 		AssetIdentifier: aws.String("quarterly-sales"),
@@ -337,4 +352,181 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 	require.Len(t, batch.Runs, 1)
 	assert.Equal(t, aws.ToString(run.RunId), aws.ToString(batch.Runs[0].RunId))
 	assert.Equal(t, []string{"missing-run"}, batch.RunsNotFound)
+}
+
+// TestGlueIterableFormsOfATableAsset_SDK exercises the iterable-form surface
+// through the only route that reaches it.
+//
+// No operation in the AWS Glue business-context API creates an iterable form:
+// PutAsset, PutAssetType, PutFormType and PutAttachment take none, and
+// IterableFormMap appears in the vendored model only on GetAssetOutput, where
+// it is "The iterable forms available on the asset, keyed by form name (for
+// example, columns)". An iterable form is the catalog object's own repeating
+// structure — ListIterableForms is documented as "Lists the items in an
+// iterable form on an asset in Glue Data Catalog. For example, lists the
+// columns of a table asset" — so an asset that names a Data Catalog table
+// carries that table's columns, and PutAttachment and AssociateGlossaryTerms
+// annotate the items that are already there.
+func TestGlueIterableFormsOfATableAsset_SDK(t *testing.T) {
+	client := glueClient()
+
+	_, err := client.CreateDatabase(ctx, &glue.CreateDatabaseInput{
+		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String("iterable_forms")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteDatabase(ctx, &glue.DeleteDatabaseInput{Name: aws.String("iterable_forms")})
+	})
+	_, err = client.CreateTable(ctx, &glue.CreateTableInput{
+		DatabaseName: aws.String("iterable_forms"),
+		TableInput: &gluetypes.TableInput{
+			Name: aws.String("orders"),
+			StorageDescriptor: &gluetypes.StorageDescriptor{
+				Columns: []gluetypes.Column{
+					{Name: aws.String("order_id"), Type: aws.String("string"), Comment: aws.String("the order")},
+					{Name: aws.String("amount"), Type: aws.String("double")},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteTable(ctx, &glue.DeleteTableInput{
+			DatabaseName: aws.String("iterable_forms"), Name: aws.String("orders")})
+	})
+
+	formType, err := client.PutFormType(ctx, &glue.PutFormTypeInput{
+		Name:   aws.String("ColumnGovernance"),
+		Schema: aws.String("structure ColumnGovernance { classification: String }"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteFormType(ctx, &glue.DeleteFormTypeInput{Identifier: formType.Id})
+	})
+	assetType, err := client.PutAssetType(ctx, &glue.PutAssetTypeInput{
+		Name: aws.String("GovernedTable"),
+		Forms: map[string]gluetypes.AssetTypeFormReference{
+			"governance": {FormTypeIdentifier: formType.Id},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteAssetType(ctx, &glue.DeleteAssetTypeInput{Identifier: assetType.Id})
+	})
+
+	// A table asset is identified by the table's own ARN, which is how AWS names
+	// a Data Catalog table.
+	tableARN := "arn:aws:glue:us-east-1:123456789012:table/iterable_forms/orders"
+	_, err = client.PutAsset(ctx, &glue.PutAssetInput{
+		AssetTypeId: assetType.Id,
+		Identifier:  aws.String(tableARN),
+		Name:        aws.String("orders"),
+		Forms: map[string]gluetypes.AssetFormEntry{
+			"governance": {FormTypeId: formType.Id, Content: aws.String(`{"classification":"internal"}`)},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteAsset(ctx, &glue.DeleteAssetInput{Identifier: aws.String(tableARN)})
+	})
+
+	gotAsset, err := client.GetAsset(ctx, &glue.GetAssetInput{Identifier: aws.String(tableARN)})
+	require.NoError(t, err)
+	require.Contains(t, gotAsset.IterableForms, "columns",
+		"a table asset must advertise the columns iterable form")
+	assert.Equal(t, "columns", aws.ToString(gotAsset.IterableForms["columns"].FormTypeId))
+
+	listed, err := client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
+		AssetIdentifier:  aws.String(tableARN),
+		IterableFormName: aws.String("columns"),
+	})
+	require.NoError(t, err)
+	require.Len(t, listed.Items, 2, "the form must list the table's two columns")
+	names := []string{aws.ToString(listed.Items[0].ItemName), aws.ToString(listed.Items[1].ItemName)}
+	assert.Equal(t, []string{"amount", "order_id"}, names)
+	for _, item := range listed.Items {
+		if aws.ToString(item.ItemName) == "order_id" {
+			assert.Equal(t, "the order", aws.ToString(item.Description),
+				"a column's description is its catalog comment")
+		}
+	}
+
+	batch, err := client.BatchGetIterableForms(ctx, &glue.BatchGetIterableFormsInput{
+		AssetIdentifier:  aws.String(tableARN),
+		IterableFormName: aws.String("columns"),
+		ItemIdentifiers:  []string{"order_id", "no_such_column"},
+	})
+	require.NoError(t, err)
+	require.Len(t, batch.Items, 1)
+	assert.Equal(t, "order_id", aws.ToString(batch.Items[0].ItemId))
+	require.Contains(t, batch.Items[0].Forms, "columns")
+	assert.JSONEq(t, `{"Name":"order_id","Type":"string","Comment":"the order"}`,
+		aws.ToString(batch.Items[0].Forms["columns"].Content),
+		"the item's form is the column the catalog holds")
+	require.Len(t, batch.Errors, 1)
+	assert.Equal(t, "no_such_column", aws.ToString(batch.Errors[0].ItemIdentifier))
+
+	// An item that exists can be annotated, which is what the model's
+	// IterableFormName + ItemIdentifier members on PutAttachment and
+	// AssociateGlossaryTerms are for.
+	attachment, err := client.PutAttachment(ctx, &glue.PutAttachmentInput{
+		AssetIdentifier:  aws.String(tableARN),
+		IterableFormName: aws.String("columns"),
+		ItemIdentifier:   aws.String("order_id"),
+		AttachmentName:   aws.String("governance"),
+		FormTypeId:       formType.Id,
+		Content:          aws.String(`{"classification":"pii"}`),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "columns", aws.ToString(attachment.IterableFormName))
+	assert.Equal(t, "order_id", aws.ToString(attachment.ItemIdentifier))
+
+	glossary, err := client.CreateGlossary(ctx, &glue.CreateGlossaryInput{
+		Name:        aws.String("Column Terms"),
+		ClientToken: aws.String("iterable-forms-glossary"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteGlossary(ctx, &glue.DeleteGlossaryInput{Identifier: glossary.Id})
+	})
+	term, err := client.CreateGlossaryTerm(ctx, &glue.CreateGlossaryTermInput{
+		GlossaryIdentifier: glossary.Id,
+		Name:               aws.String("Order Identifier"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteGlossaryTerm(ctx, &glue.DeleteGlossaryTermInput{Identifier: term.Id})
+	})
+	associated, err := client.AssociateGlossaryTerms(ctx, &glue.AssociateGlossaryTermsInput{
+		AssetIdentifier:         aws.String(tableARN),
+		IterableFormName:        aws.String("columns"),
+		ItemIdentifier:          aws.String("order_id"),
+		GlossaryTermIdentifiers: []string{aws.ToString(term.Id)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "columns", aws.ToString(associated.IterableFormName))
+	assert.Equal(t, []string{aws.ToString(term.Id)}, associated.GlossaryTerms)
+
+	annotated, err := client.BatchGetIterableForms(ctx, &glue.BatchGetIterableFormsInput{
+		AssetIdentifier:  aws.String(tableARN),
+		IterableFormName: aws.String("columns"),
+		ItemIdentifiers:  []string{"order_id"},
+	})
+	require.NoError(t, err)
+	require.Len(t, annotated.Items, 1)
+	require.Contains(t, annotated.Items[0].Attachments, "governance")
+	assert.Equal(t, []string{aws.ToString(term.Id)}, annotated.Items[0].GlossaryTerms)
+
+	// The annotations belong to the item, not to the asset.
+	wholeAsset, err := client.GetAsset(ctx, &glue.GetAssetInput{Identifier: aws.String(tableARN)})
+	require.NoError(t, err)
+	assert.NotContains(t, wholeAsset.Attachments, "governance")
+	assert.Empty(t, wholeAsset.GlossaryTerms)
+
+	// A form name the asset does not carry is still not found.
+	_, err = client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
+		AssetIdentifier:  aws.String(tableARN),
+		IterableFormName: aws.String("partitions"),
+	})
+	assert.Equal(t, "EntityNotFoundException", errCode(t, err))
 }

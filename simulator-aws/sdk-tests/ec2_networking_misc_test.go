@@ -358,17 +358,41 @@ func TestEC2_VgwRoutePropagationSDK(t *testing.T) {
 	vgw, err := c.CreateVpnGateway(ctx, &ec2.CreateVpnGatewayInput{Type: types.GatewayTypeIpsec1})
 	require.NoError(t, err)
 
+	propagatedRoutes := func() []types.Route {
+		described, err := c.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{
+			RouteTableIds: []string{aws.ToString(rt.RouteTable.RouteTableId)},
+		})
+		require.NoError(t, err)
+		require.Len(t, described.RouteTables, 1)
+		var propagated []types.Route
+		for _, route := range described.RouteTables[0].Routes {
+			if route.Origin == types.RouteOriginEnableVgwRoutePropagation {
+				propagated = append(propagated, route)
+			}
+		}
+		return propagated
+	}
+	require.Empty(t, propagatedRoutes(), "nothing propagates before the gateway is enabled")
+
 	_, err = c.EnableVgwRoutePropagation(ctx, &ec2.EnableVgwRoutePropagationInput{
 		GatewayId:    vgw.VpnGateway.VpnGatewayId,
 		RouteTableId: rt.RouteTable.RouteTableId,
 	})
 	require.NoError(t, err)
 
+	// Enabling propagation puts the gateway's route on the table, which is the
+	// whole effect of the operation.
+	enabled := propagatedRoutes()
+	require.Len(t, enabled, 1)
+	assert.Equal(t, aws.ToString(vgw.VpnGateway.VpnGatewayId), aws.ToString(enabled[0].GatewayId))
+	assert.Equal(t, types.RouteStateActive, enabled[0].State)
+
 	_, err = c.DisableVgwRoutePropagation(ctx, &ec2.DisableVgwRoutePropagationInput{
 		GatewayId:    vgw.VpnGateway.VpnGatewayId,
 		RouteTableId: rt.RouteTable.RouteTableId,
 	})
 	require.NoError(t, err)
+	assert.Empty(t, propagatedRoutes(), "disabling propagation withdraws the route it added")
 }
 
 // TestEC2_VpnConcentratorLifecycleSDK covers CreateVpnConcentrator,

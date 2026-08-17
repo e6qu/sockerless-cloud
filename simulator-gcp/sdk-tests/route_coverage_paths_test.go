@@ -1,14 +1,30 @@
 package gcp_sdk_test
 
-// Literal wire-path coverage doc for the GCP service-ratchet (BUG-2214).
+import (
+	"io"
+	"net/http"
+	"os"
+	"regexp"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// Literal wire-path index for the simulator-testing-contract hook.
 //
-// The routes below are all exercised by the Google Cloud Go SDK round-trip
-// tests in this package (sibling *_test.go files) — but the SDK constructs
-// request URLs internally, so the literal wire paths never appear in the test
-// source. This block records them so the simulator-testing-contract hook
-// (which greps changed test files for each route's literal path) can see the
-// coverage. Each line is a real route mounted in simulator-gcp/<service>.go
-// and driven by a genuine SDK call in this package; none is a stub.
+// The routes below are driven by the Google Cloud Go SDK round-trip tests in
+// this package, but the SDK builds request URLs internally, so their literal
+// wire paths never appear in test source and the hook — which greps changed
+// test files for each route's literal path — cannot see them. This block is
+// where they are written down.
+//
+// A comment satisfies a grep whether or not the route exists, so the block is
+// not taken on trust: TestRouteCoveragePathsAreServed reads these lines back
+// out of this file and sends each one to the running simulator, failing on any
+// that no handler answers. That check proves the routes are real; it does not
+// prove any particular SDK call drives them, which is the sibling tests' job.
 //
 //   DELETE /bigquery/v2/projects/{project}/datasets/{dataset}/models/{model}
 //   DELETE /bigquery/v2/projects/{project}/datasets/{dataset}/routines/{routine}
@@ -509,14 +525,6 @@ package gcp_sdk_test
 //   POST /v1/projects/{projectAction}
 //   GET /v1/operations/{operation}
 //   GET /v1/projects/{project}/billingInfo
-//   POST /v3/projects
-//   GET /v3/projects
-//   GET /v3/projects:search
-//   GET /v3/projects/{project}
-//   PATCH /v3/projects/{project}
-//   DELETE /v3/projects/{project}
-//   POST /v3/projects/{projectAction}
-//   GET /v3/operations/{operation}
 
 // Cloud Run Admin v1 (Knative) Jobs family. These routes render the v2-owned
 // job / execution / task records in the Knative shape and are driven by the
@@ -531,7 +539,6 @@ package gcp_sdk_test
 //   GET /apis/run.googleapis.com/v1/namespaces/{namespace}/tasks
 //   GET /v1/projects/{project}/locations/{location}/jobs/{jobAction}
 //   POST /v1/projects/{project}/locations/{location}/operations/{opAction}
-//   POST /v2/projects/{project}/locations/{location}/operations/{opAction}
 
 // Cloud Run Admin v1 (Knative) instances and worker pools. These routes render
 // the v2-owned instance and worker-pool records in the Knative shape and are
@@ -574,3 +581,87 @@ package gcp_sdk_test
 //   DELETE /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{name}
 //   POST /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{nameAction}
 //   POST /v2/projects/{project}/locations/{location}/jobs/{jobAction}
+
+// routeCoverageLine matches one entry of the block above: the method and the
+// wire path, as the hook reads them.
+var routeCoverageLine = regexp.MustCompile(`^//\s{3}([A-Z]+) (/\S*)$`)
+
+// routeCoveragePathParam matches a path template's placeholder segment.
+var routeCoveragePathParam = regexp.MustCompile(`\{[^}]*\}`)
+
+// TestRouteCoveragePathsAreServed holds the block above to its claim. The list
+// exists so the simulator-testing-contract hook can see routes whose literal
+// wire paths never appear in SDK test source (the SDK builds request URLs
+// internally) — but a comment satisfies a grep whether or not the route exists,
+// so the list would otherwise be able to name a route nothing serves and still
+// green the gate for it.
+//
+// Every entry is therefore rendered into a concrete URI and sent to the running
+// simulator. Go's own plain-text mux miss is the failure: it means no handler is
+// mounted at that method and path. A service-level refusal (a JSON 404, a 400,
+// a 403) means a handler answered, which is all this list can honestly claim —
+// that the route is real. What the sibling tests then assert about it is their
+// business, not this file's.
+func TestRouteCoveragePathsAreServed(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "locate this file to read the route list out of it")
+	source, err := os.ReadFile(thisFile)
+	require.NoError(t, err)
+
+	var routes [][2]string
+	for _, line := range strings.Split(string(source), "\n") {
+		if m := routeCoverageLine.FindStringSubmatch(strings.TrimRight(line, "\r")); m != nil {
+			routes = append(routes, [2]string{m[1], m[2]})
+		}
+	}
+	require.Greater(t, len(routes), 400,
+		"the route list must be readable — a parse that finds nothing would pass vacuously")
+
+	seen := map[string]bool{}
+	for _, route := range routes {
+		method, template := route[0], route[1]
+		key := method + " " + template
+		if seen[key] {
+			t.Errorf("%s is listed twice", key)
+			continue
+		}
+		seen[key] = true
+
+		// A route mounted from a concatenated pattern (".../{repo}/" + kind +
+		// ":create") is keyed by the hook on its literal prefix, so the entry is
+		// a path prefix rather than a whole path and nothing answers it. Such an
+		// entry earns its place by prefixing a complete entry in this same list,
+		// which is probed on its own line.
+		if strings.HasSuffix(template, "/") {
+			covered := false
+			for _, other := range routes {
+				if other[0] == method && other[1] != template && strings.HasPrefix(other[1], template) {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				t.Errorf("%s is a path prefix that no complete listed route extends", key)
+			}
+			continue
+		}
+
+		// A placeholder stands for any single segment, so any non-empty value
+		// routes the same way. `probe` also keeps a colon-verb suffix
+		// (`{nameAction}` → `probe`) from accidentally naming a real verb.
+		uri := routeCoveragePathParam.ReplaceAllString(template, "probe")
+		req, err := http.NewRequestWithContext(ctx, method, baseURL+uri, http.NoBody)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoErrorf(t, err, "%s", key)
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		body := string(raw)
+
+		if strings.Contains(body, "404 page not found") || strings.Contains(body, "Method Not Allowed") {
+			t.Errorf("%s is listed as covered but no handler is mounted for it (%s)",
+				key, strings.TrimSpace(body))
+		}
+	}
+}

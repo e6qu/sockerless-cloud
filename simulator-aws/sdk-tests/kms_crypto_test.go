@@ -5,7 +5,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -394,10 +396,12 @@ func TestKMS_GetKeyLastUsage(t *testing.T) {
 }
 
 // TestKMS_AsymmetricOperationsRestored exercises every asymmetric/MAC
-// operation handler restored in the kms_crypto.go rewrite: GetPublicKey,
-// Sign, Verify, GenerateMac, VerifyMac, GenerateDataKeyPair,
-// GenerateDataKeyPairWithoutPlaintext, and DeriveSharedSecret. Each call
-// must succeed, confirming the handlers are registered and functional.
+// operation against what it produces: GetPublicKey, Sign, Verify, GenerateMac,
+// VerifyMac, GenerateDataKeyPair, GenerateDataKeyPairWithoutPlaintext, and
+// DeriveSharedSecret. Each result is checked as material — a parsed public key,
+// a verification that says valid and refuses a tampered input, a key pair whose
+// halves belong together, a secret that changes with the peer — so a handler
+// that answers with an empty struct fails rather than counting as coverage.
 func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 	c := kmsClient()
 
@@ -409,8 +413,17 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 	require.NoError(t, err)
 	signKeyId := *signKey.KeyMetadata.KeyId
 
-	_, err = c.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: aws.String(signKeyId)})
+	pub, err := c.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: aws.String(signKeyId)})
 	require.NoError(t, err)
+	parsedPublic, err := x509.ParsePKIXPublicKey(pub.PublicKey)
+	require.NoError(t, err, "GetPublicKey must return a DER SubjectPublicKeyInfo")
+	rsaPublic, ok := parsedPublic.(*rsa.PublicKey)
+	require.True(t, ok, "an RSA_2048 key's public half is an RSA key, got %T", parsedPublic)
+	assert.Equal(t, 2048, rsaPublic.N.BitLen())
+	assert.Equal(t, kmstypes.KeySpecRsa2048, pub.KeySpec)
+	assert.Equal(t, kmstypes.KeyUsageTypeSignVerify, pub.KeyUsage)
+	assert.Contains(t, pub.SigningAlgorithms, kmstypes.SigningAlgorithmSpecRsassaPssSha256)
+
 	signOut, err := c.Sign(ctx, &kms.SignInput{
 		KeyId:            aws.String(signKeyId),
 		Message:          []byte("msg"),
@@ -418,7 +431,8 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 		SigningAlgorithm: kmstypes.SigningAlgorithmSpecRsassaPssSha256,
 	})
 	require.NoError(t, err)
-	_, err = c.Verify(ctx, &kms.VerifyInput{
+	require.NotEmpty(t, signOut.Signature)
+	verified, err := c.Verify(ctx, &kms.VerifyInput{
 		KeyId:            aws.String(signKeyId),
 		Message:          []byte("msg"),
 		Signature:        signOut.Signature,
@@ -426,6 +440,17 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 		MessageType:      kmstypes.MessageTypeRaw,
 	})
 	require.NoError(t, err)
+	assert.True(t, verified.SignatureValid, "the signature this key produced must verify under it")
+	// A message the signature was not made over is refused, so "valid" is a
+	// decision rather than a constant.
+	_, err = c.Verify(ctx, &kms.VerifyInput{
+		KeyId:            aws.String(signKeyId),
+		Message:          []byte("tampered"),
+		Signature:        signOut.Signature,
+		SigningAlgorithm: kmstypes.SigningAlgorithmSpecRsassaPssSha256,
+		MessageType:      kmstypes.MessageTypeRaw,
+	})
+	assert.Equal(t, "KMSInvalidSignatureException", errCode(t, err))
 
 	hmacKey, err := c.CreateKey(ctx, &kms.CreateKeyInput{
 		Description: aws.String("hmac-all-ops"),
@@ -441,13 +466,22 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 		MacAlgorithm: kmstypes.MacAlgorithmSpecHmacSha256,
 	})
 	require.NoError(t, err)
-	_, err = c.VerifyMac(ctx, &kms.VerifyMacInput{
+	require.Len(t, macOut.Mac, 32, "HMAC_SHA_256 produces a 32-byte tag")
+	macVerified, err := c.VerifyMac(ctx, &kms.VerifyMacInput{
 		KeyId:        aws.String(hmacKeyId),
 		Message:      []byte("mac-msg"),
 		Mac:          macOut.Mac,
 		MacAlgorithm: kmstypes.MacAlgorithmSpecHmacSha256,
 	})
 	require.NoError(t, err)
+	assert.True(t, macVerified.MacValid)
+	_, err = c.VerifyMac(ctx, &kms.VerifyMacInput{
+		KeyId:        aws.String(hmacKeyId),
+		Message:      []byte("other-msg"),
+		Mac:          macOut.Mac,
+		MacAlgorithm: kmstypes.MacAlgorithmSpecHmacSha256,
+	})
+	assert.Equal(t, "KMSInvalidMacException", errCode(t, err))
 
 	symmetricKey, err := c.CreateKey(ctx, &kms.CreateKeyInput{
 		Description: aws.String("data-key-pair-all-ops"),
@@ -455,16 +489,33 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 	require.NoError(t, err)
 	symmetricKeyId := *symmetricKey.KeyMetadata.KeyId
 
-	_, err = c.GenerateDataKeyPair(ctx, &kms.GenerateDataKeyPairInput{
+	pair, err := c.GenerateDataKeyPair(ctx, &kms.GenerateDataKeyPairInput{
 		KeyId:       aws.String(symmetricKeyId),
 		KeyPairSpec: kmstypes.DataKeyPairSpecRsa2048,
 	})
 	require.NoError(t, err)
-	_, err = c.GenerateDataKeyPairWithoutPlaintext(ctx, &kms.GenerateDataKeyPairWithoutPlaintextInput{
+	// The two halves are one key pair: the plaintext private key parses, and
+	// its public half is the one returned beside it.
+	privateKey, err := x509.ParsePKCS8PrivateKey(pair.PrivateKeyPlaintext)
+	require.NoError(t, err, "the plaintext private key must be a PKCS#8 document")
+	rsaPrivate, ok := privateKey.(*rsa.PrivateKey)
+	require.True(t, ok, "an RSA_2048 data key pair's private half is an RSA key, got %T", privateKey)
+	pairPublic, err := x509.MarshalPKIXPublicKey(&rsaPrivate.PublicKey)
+	require.NoError(t, err)
+	assert.Equal(t, pairPublic, pair.PublicKey, "the public half must belong to the private half")
+	assert.NotEmpty(t, pair.PrivateKeyCiphertextBlob)
+	assert.NotEqual(t, pair.PrivateKeyPlaintext, pair.PrivateKeyCiphertextBlob,
+		"the ciphertext must not be the plaintext")
+
+	withoutPlaintext, err := c.GenerateDataKeyPairWithoutPlaintext(ctx, &kms.GenerateDataKeyPairWithoutPlaintextInput{
 		KeyId:       aws.String(symmetricKeyId),
 		KeyPairSpec: kmstypes.DataKeyPairSpecRsa2048,
 	})
 	require.NoError(t, err)
+	_, err = x509.ParsePKIXPublicKey(withoutPlaintext.PublicKey)
+	require.NoError(t, err, "the public half is returned even when the private plaintext is withheld")
+	assert.NotEmpty(t, withoutPlaintext.PrivateKeyCiphertextBlob)
+	assert.NotEqual(t, pair.PublicKey, withoutPlaintext.PublicKey, "each call generates its own pair")
 
 	eccKey, err := c.CreateKey(ctx, &kms.CreateKeyInput{
 		Description: aws.String("ecdh-all-ops"),
@@ -478,10 +529,37 @@ func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
 	require.NoError(t, err)
 	peerPub, err := x509.MarshalPKIXPublicKey(&peerPriv.PublicKey)
 	require.NoError(t, err)
-	_, err = c.DeriveSharedSecret(ctx, &kms.DeriveSharedSecretInput{
+	derived, err := c.DeriveSharedSecret(ctx, &kms.DeriveSharedSecretInput{
 		KeyId:                 aws.String(eccKeyId),
 		KeyAgreementAlgorithm: kmstypes.KeyAgreementAlgorithmSpecEcdh,
 		PublicKey:             peerPub,
 	})
 	require.NoError(t, err)
+	require.Len(t, derived.SharedSecret, 32, "ECDH over P-256 agrees on a 32-byte secret")
+	// The service names the key by its ARN here, which is what the operation
+	// documents it returns.
+	assert.True(t, strings.HasSuffix(aws.ToString(derived.KeyId), ":key/"+eccKeyId),
+		"DeriveSharedSecret names the key by ARN: %s", aws.ToString(derived.KeyId))
+
+	// The same peer agrees on the same secret; a different peer does not, so
+	// the secret is derived from the two keys rather than minted per call.
+	again, err := c.DeriveSharedSecret(ctx, &kms.DeriveSharedSecretInput{
+		KeyId:                 aws.String(eccKeyId),
+		KeyAgreementAlgorithm: kmstypes.KeyAgreementAlgorithmSpecEcdh,
+		PublicKey:             peerPub,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, derived.SharedSecret, again.SharedSecret)
+
+	otherPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	otherPub, err := x509.MarshalPKIXPublicKey(&otherPriv.PublicKey)
+	require.NoError(t, err)
+	other, err := c.DeriveSharedSecret(ctx, &kms.DeriveSharedSecretInput{
+		KeyId:                 aws.String(eccKeyId),
+		KeyAgreementAlgorithm: kmstypes.KeyAgreementAlgorithmSpecEcdh,
+		PublicKey:             otherPub,
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, derived.SharedSecret, other.SharedSecret)
 }

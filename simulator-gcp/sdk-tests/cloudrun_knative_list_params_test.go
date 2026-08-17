@@ -31,6 +31,17 @@ func knativeServiceBody(name string, labels map[string]string) *run.Service {
 	}
 }
 
+// knativeListContinue returns the continue cursor a Knative list response
+// carries, which is the empty string when the response carries no ListMeta at
+// all. Reading the cursor through it keeps "there is no cursor" one assertion
+// instead of a check a nil ListMeta skips.
+func knativeListContinue(meta *run.ListMeta) string {
+	if meta == nil {
+		return ""
+	}
+	return meta.Continue
+}
+
 func TestCloudRunV1_ServicesList_LabelSelectorAndPaging(t *testing.T) {
 	svc := newRunV1(t)
 	const namespace = "test-project-knative-list-params"
@@ -47,13 +58,15 @@ func TestCloudRunV1_ServicesList_LabelSelectorAndPaging(t *testing.T) {
 		})
 	}
 
-	// An unparameterised list is the whole namespace and carries no cursor.
+	// An unparameterised list is the whole namespace, is labelled as the kind
+	// it is, and continues nowhere — a cursor here would send a client back
+	// for a page that does not exist.
 	all, err := svc.Namespaces.Services.List(parent).Do()
 	require.NoError(t, err)
 	require.Len(t, all.Items, 3)
-	if all.Metadata != nil {
-		assert.Empty(t, all.Metadata.Continue, "an untruncated list carries no continue cursor")
-	}
+	assert.Equal(t, "serving.knative.dev/v1", all.ApiVersion)
+	assert.Equal(t, "ServiceList", all.Kind)
+	assert.Empty(t, knativeListContinue(all.Metadata), "an untruncated list carries no continue cursor")
 
 	// limit + continue walk the collection in disjoint pages that cover it
 	// exactly once.

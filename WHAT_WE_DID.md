@@ -1,5 +1,203 @@
 # WHAT WE DID
 
+## 2026-08-17 — A sweep for tests that proved nothing
+
+Every simulator was audited against a taxonomy of fake tests drawn from real
+examples found here in the preceding days: assertions on wording that varies by
+engine or platform, tests racing their own preconditions, calls whose responses
+nothing checked, tests depending on state another suite created, skips that read
+as passes, negative controls that could not fail, coverage inflated without
+behaviour behind it, and tolerances too wide to fail. Each candidate was judged
+by breaking the behaviour it names and watching whether it noticed, usually
+through a build overlay so the tree was never modified.
+
+The sweep found defects, not just weak tests. A Google Cloud service account's
+sign-blob and sign-JSON-web-token operations returned a keyed hash labelled as
+an RSA signature, under a per-process key that rotated on restart, so nothing
+could verify it; the test checked that the result was base64 with two dots.
+Those operations now sign with a persisted per-account RSA key whose public half
+is published through the real key surface. Azure Container Instances ran
+workloads on the host's architecture rather than the image's, hidden because the
+test that forbade a hardcoded platform grepped two files by name and the
+offending expression was in a third. Two Azure subnet child collections were
+constants, hidden because both tests addressed a subnet that no test created.
+Amazon CloudFront filtered distributions by neither connection mode nor anycast
+list because it modelled neither field. An image export or import returned a
+task identifier and stored nothing. A deleted web-application-firewall key was
+still decodable from its own token, so deletion was unobservable.
+
+Whole suites turned out never to have run. Five Terraform packages were absent
+from both the makefile and the workflow, so they had never compiled anywhere; a
+shell filter meant a security-group firewall test had never been built; two fuzz
+targets had been spending the nightly budget on routes that do not exist; and a
+576-line file containing no statements existed only to satisfy a gate that greps
+added test lines, where a comment suffices. Wiring the Terraform packages up
+immediately exposed two real defects in one of them. A new gate makes that class
+of drift impossible to repeat, and the Azure Terraform harness — which had been
+skipping its entire stack behind capabilities it was itself dropping — now runs.
+
+The six bugs the sweep filed were closed in the same pass. Elastic Load
+Balancing target health gained the three behaviours its checker still lacked: a
+target group no listener rule forwards to reports its targets unused rather than
+being checked at all, the configured matcher grades the response code and a
+mismatch names it, and a deregistering target drains for the configured delay
+instead of vanishing. Beside them an HTTPS health check was only a connection
+attempt, so a target answering an error over HTTPS reported healthy.
+
+The report that a simulator could start without a container client was wrong
+about the mechanism, and disproving it found the real one: container mode
+already refused a missing, hanging or unhealthy engine, all three verified
+against the unfixed binary, while the reachable path was the process runtime the
+engine-down message itself recommends. Taking that advice produced a simulator
+that called itself healthy, accepted work and failed it later in the background.
+Startup now refuses for any mode that executes workloads, and health no longer
+claims a capability the process lacks.
+
+AWS CodeBuild reads test results and coverage from the files the buildspec
+declares, out of the build container; four formats are ingested and the seven
+other documented ones are refused by name, so partial support is loud rather
+than a fabrication. The CodeBuild command and the Glue Python job moved into
+containers, which left the process substrate unreachable, so it is gone. An
+asset's iterable forms are derived from the catalog table it names, so a surface
+that could only ever answer an error can now succeed.
+
+The identity-derivation floor fell from 1,788 to 1,687 because 101 operations
+across five services were credited by table membership while absent from the
+probe's own switch. The drop is the honest outcome, recorded in the floor's own
+comment: no derivation was lost, the count stopped crediting derivation nobody
+measured. The condition-key ratchet was the same shape — hand-written booleans
+no code had to agree with — and probing them showed three keys never reach the
+request path.
+
+## 2026-08-17 — What running the newly-wired suites found
+
+The suites the sweep put back into the pipeline immediately reported, and each
+report was a real divergence rather than a test that needed loosening.
+
+Two Amazon EC2 members and one AWS Glue member were reported to clients that no
+model declares. An `ExportImageTask` carries fewer members than the
+`ExportImage` response that starts it — the disk image format and the role the
+export assumes belong to the request and its answer, not to the task — and a
+batch-get of iterable forms answers `IterableFormItem` members, where the
+description belongs to the list item's different shape.
+
+The virtual network's DDoS protection status is a long-running operation whose
+final state comes via Location, and answering the list synchronously is a shape
+no client is built for: the official Azure SDK builds its pager out of the
+polled result and discards the one it constructed, so a synchronous body is
+never read and the pager it hands back panics on first use. The operation now
+answers 202 with the Location its result is read from, and an operation can
+record the payload its Location poll serves — Azure Resource Manager serves the
+operation's result there rather than the status envelope.
+
+The security-group host-firewall test registered a namespace interface with no
+task behind it, a state the simulator never produces, so the reapply it exercised
+had nothing to find; the fixture now stores the task the interface belongs to,
+which is where both the live attach and the reapply read the groups from. An
+Azure Container Apps replica's console assertion waited for the first log line
+of any kind, which the platform's own lifecycle line always wins, so the
+assertion read an incomplete console; both such waits now wait for the
+workload's own output. An AWS Glue Python shell job's completion budget still
+assumed a host process rather than the container it now runs in.
+
+Writing the exact-pin rule surfaced one more defect in the freshness check
+itself. A version's publication time was read out of a page of the repository's
+releases, and the GitHub list endpoint has been observed answering 200 with an
+empty array for a repository whose releases exist and are individually
+readable. An absence read out of that page is indistinguishable from a tag that
+carries no release, so the check fell through to the git tag's own date and
+aged the version by days — adopting it before its quarantine had run. The
+release is now fetched for the one tag, where a 404 says the tag genuinely
+carries no release and anything else fails.
+
+Two host dependencies had drifted. The Cloud Firestore emulator's component now
+refuses anything below a Java 21 runtime, and the runner's default is older, so
+the newest installed runtime that satisfies it goes on PATH ahead of the
+default and the harness names that requirement instead of reporting a port that
+never opened. Reading what the runner already has, rather than adding an action
+that installs one, is deliberate: the runner downloads every action a workflow
+references before it evaluates any step's condition, so a step scoped to one
+cloud still costs every job in the matrix another tarball fetch from the
+service already throttling them. And a Compute Engine
+describe renders as a one-element list under the client CI installs while
+rendering as an object under an older one, so the described resource is decoded
+from either rendering — still exactly one resource, or a failure.
+
+## 2026-08-17 — The second round of what CI reported
+
+The provider bump the freshness rule forced turned up a fidelity gap of its
+own. `terraform-provider-aws` 6.60.0 waits for a REST API to report itself
+available before it deploys to one, and the simulator reported no status at
+all, so the wait ran out against a state it had never seen. API Gateway carries
+`apiStatus` on a REST API; the simulator's is usable the moment its create
+returns, so that is the status it reports from creation onward.
+
+Two suites were pinning behaviour the branch had corrected. The Amazon ECS
+load-balancer test asserted that a replaced task's target vanished, which was
+the reconciler's old behaviour and not the service's — it now asserts what
+Elastic Load Balancing does, the replacement in service alongside the stopped
+task's address draining. And the Organizations command-line suite still asked
+for the effective form of a service control policy, which the simulator had
+started refusing the way the service does; it asserts the refusal now and reads
+a tag policy's effective form instead.
+
+Writing that assertion found one more divergence. Attaching a policy did not
+require its type to be enabled in the root, which is what makes a policy govern
+a target at all: a tag policy nobody enabled attached cleanly and then resolved
+through the effective-policy read as though the organization had chosen it.
+Both suites enable the type before attaching now, and assert the refusal before
+that.
+
+The dependency check itself failed once for a reason nobody caused, which is
+the class of failure it was rebuilt to stop producing: a single throttled reply
+from the GitHub API made it report that an action's tags could not be read. A
+throttle is transient and the API says when to come back, so the documented
+wait is honoured — `Retry-After`, or `X-RateLimit-Reset` once the quota is
+spent — and the request retried. The wait is never invented: a refusal carrying
+no rate-limit signal, or one with quota still left, fails immediately rather
+than turning a permanent error into a slow one, and a reset beyond the cap is
+reported rather than sat on. The protocol lives beside the check as its own
+file so those decisions can be exercised against crafted headers, which is the
+only way to test a throttle nobody can ask for.
+
+Left open and filed: three jobs across two runs died in setup with `429`
+fetching
+`actions/setup-go` from codeload, after the three attempts the runner makes on
+its own, with no repository code executed in any of them. The workflow starts around
+forty-six jobs at once and every one downloads the same action tarballs within
+seconds. The repair — cutting the simultaneous fan-out, or not fetching the
+actions per job — is a continuous-integration-wide wall-clock trade-off rather
+than a fix to make silently, so it is recorded rather than applied.
+
+## 2026-08-17 — Continuous integration that fails only for reasons this branch caused
+
+A publish is no longer cancelled by the next merge. The concurrency group was
+the branch name, so every merge killed its predecessor; nine publishes were
+cancelled and six commits sit on the default branch with no image in any
+package. Publishes are keyed per commit, and retention moved to its own
+workflow, because per-commit publishes overlap and two prunes racing each other
+corrupt the count. Retention holds only prunable releases to the limit, since
+versions coalesced onto immutable release tags cannot be deleted and counting
+them made the limit unsatisfiable and monotonic; coalescing is per architecture,
+which the rule now handles and a fixture proves.
+
+Specification freshness holds a branch to what it changed rather than to
+upstream's tip, with an unbaselined daily run so nothing rots unnoticed. Before
+this a branch could fail three times in forty-two minutes for drift nobody
+caused, one of them unsatisfiable locally because two edges served different
+revisions of the same document.
+
+Dependencies must be at least a day old before adoption: a release published
+minutes ago has had no time to be yanked or flagged, and that delay is the
+mitigation. A newer version inside the window is reported held rather than
+drift, one past it still fails, and an unknown publication time fails loudly
+rather than passing. Writing it surfaced two defects — an absent proxy timestamp
+renders as the year one and would have cleared the window instantly, and the
+Terraform section had never run at all, having globbed a filename this
+repository does not use. The quarantine is deliberately not applied to vendored
+specifications: it mitigates executing code we install, whereas a discovery
+document is inert data our own suites validate.
+
 ## 2026-08-16 — App Service Environments, Kube Environments and detectors
 
 An App Service Environment is a real placement scope rather than a stored

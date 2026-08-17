@@ -13,13 +13,17 @@ import (
 )
 
 func TestAzureNSGCompilerPreservesPriorityAndVNetDefault(t *testing.T) {
+	// These are package-level stores shared with every other test in the
+	// package. Restore what was there rather than clearing to nil: a nil store
+	// makes any later test that reads one without first rebuilding the
+	// simulator panic on a nil map, which turns this test into an ordering
+	// hazard for tests it has nothing to do with.
+	priorNSGs, priorSubnets, priorVnets := azureNSGs, azureSubnets, azureVnets
 	azureNSGs = sim.MakeStore[NetworkSecurityGroup](nil, "test_nsgs")
 	azureSubnets = sim.MakeStore[Subnet](nil, "test_subnets")
 	azureVnets = sim.MakeStore[VirtualNetwork](nil, "test_vnets")
 	defer func() {
-		azureNSGs = nil
-		azureSubnets = nil
-		azureVnets = nil
+		azureNSGs, azureSubnets, azureVnets = priorNSGs, priorSubnets, priorVnets
 	}()
 
 	vnetID := "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet"
@@ -95,13 +99,14 @@ func TestAzureLoadBalancerDataPlaneProxiesBackendPoolNIC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
+	// Restored rather than cleared, for the reason given above: a nil store
+	// left behind panics whichever test runs next against it.
+	priorPublicIPs, priorLBs, priorNICs := azurePublicIPs, azureLBs, azureNICs
 	azurePublicIPs = sim.MakeStore[PublicIPAddress](nil, "test_public_ips")
 	azureLBs = sim.MakeStore[LoadBalancer](nil, "test_lbs")
 	azureNICs = sim.MakeStore[NetworkInterface](nil, "test_nics")
 	defer func() {
-		azurePublicIPs = nil
-		azureLBs = nil
-		azureNICs = nil
+		azurePublicIPs, azureLBs, azureNICs = priorPublicIPs, priorLBs, priorNICs
 	}()
 	registerAzureLoadBalancerDataPlane(srv)
 

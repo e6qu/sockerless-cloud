@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -35,30 +37,30 @@ func TestSMPayloadPersistenceRoundTrip(t *testing.T) {
 // `{"name":..., "payload":{"data":"<base64>"}}`). Leaking payload
 // bytes from GetSecretVersion would be both a wire drift and a
 // security issue (the SDK caches list responses).
+// The check is over the TYPE, not over one instance: marshalling a
+// SecretVersion whose payload members happen to be empty proves nothing,
+// because the leak this guards against is a member added to the struct, which
+// carries bytes on the first version that has any. Walking the declared JSON
+// tags catches that the moment the field appears.
 func TestSMVersionWireShapeIsPayloadFree(t *testing.T) {
+	assertTypeHasNoJSONKeys(t, reflect.TypeOf(SecretVersion{}), "payload", "secretData", "data")
+
+	// A fully-populated instance is marshalled too, so a member that reaches
+	// the wire some other way — an embedded map, a custom marshaller — is
+	// caught even though the tag walk cannot see it.
 	v := SecretVersion{
-		Name:       "projects/p/secrets/s/versions/1",
-		CreateTime: "2026-01-01T00:00:00Z",
-		State:      "ENABLED",
+		Name:                           "projects/p/secrets/s/versions/1",
+		CreateTime:                     "2026-01-01T00:00:00Z",
+		State:                          "ENABLED",
+		ClientSpecifiedPayloadChecksum: true,
 	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	got := string(data)
-	// No `payload`, `data`, or `secretData` key in the wire response.
 	for _, leak := range []string{`"payload"`, `"secretData"`, `"data"`} {
-		if containsSubstr(got, leak) {
-			t.Errorf("SecretVersion wire shape leaks %s: %s", leak, got)
+		if strings.Contains(string(data), leak) {
+			t.Errorf("SecretVersion wire shape leaks %s: %s", leak, data)
 		}
 	}
-}
-
-func containsSubstr(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

@@ -69,6 +69,29 @@ func TestCloudFunctions_InvokeInjectsLogEntries(t *testing.T) {
 	assert.Equal(t, "Function invoked", messages[0])
 }
 
+// cloudFunctionInvocationLogs returns the payloads Cloud Logging holds for a
+// function's invocations, read with the filter the backend uses. An invocation
+// of a function the simulator holds injects one entry per invocation, so the log
+// is what distinguishes a request that reached a function from one that reached
+// only the route.
+func cloudFunctionInvocationLogs(t *testing.T, functionID string) []string {
+	t.Helper()
+	client := logadminClient(t)
+	filter := `resource.type="cloud_run_revision" AND resource.labels.service_name="` + functionID + `"`
+	it := client.Entries(ctx, logadmin.Filter(filter))
+	var messages []string
+	for {
+		entry, err := it.Next()
+		if err == iterator.Done {
+			return messages
+		}
+		require.NoError(t, err)
+		if s, ok := entry.Payload.(string); ok {
+			messages = append(messages, s)
+		}
+	}
+}
+
 func TestCloudFunctions_InvokeURLMatchesEndpoint(t *testing.T) {
 	// Create a function
 	fn := map[string]any{
@@ -98,9 +121,32 @@ func TestCloudFunctions_InvokeURLMatchesEndpoint(t *testing.T) {
 	// Verify the URI contains the expected invoke path
 	assert.Contains(t, uri, "/v2-functions-invoke/url-test-fn")
 
-	// POST to the returned URI — it should be reachable
+	require.Empty(t, cloudFunctionInvocationLogs(t, "url-test-fn"),
+		"the function has not been invoked yet")
+
+	// POST to the returned URI — it must reach the function itself.
 	invokeResp, err := http.DefaultClient.Post(uri, "application/json", strings.NewReader("{}"))
 	require.NoError(t, err)
-	defer invokeResp.Body.Close()
-	assert.Equal(t, http.StatusOK, invokeResp.StatusCode)
+	invokeBody, _ := io.ReadAll(invokeResp.Body)
+	invokeResp.Body.Close()
+	require.Equal(t, http.StatusOK, invokeResp.StatusCode, "body: %s", invokeBody)
+	assert.Equal(t, "application/json", invokeResp.Header.Get("Content-Type"))
+	// The function carries no container image, so the invocation runs no
+	// user code and answers with the empty JSON object.
+	assert.JSONEq(t, "{}", string(invokeBody))
+
+	// The response body alone cannot tell a real invocation from a request the
+	// endpoint merely accepted; the log entry the invocation emits can, and it
+	// is attributed to this function.
+	assert.Equal(t, []string{"Function invoked"}, cloudFunctionInvocationLogs(t, "url-test-fn"),
+		"the URI from serviceConfig.uri must invoke the function it names")
+
+	// Negative control: a function id the simulator holds no function for must
+	// not be invoked — nothing may be attributed to it.
+	bogusResp, err := http.DefaultClient.Post(
+		baseURL+"/v2-functions-invoke/does-not-exist", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	bogusResp.Body.Close()
+	assert.Empty(t, cloudFunctionInvocationLogs(t, "does-not-exist"),
+		"a function that does not exist must not record an invocation")
 }

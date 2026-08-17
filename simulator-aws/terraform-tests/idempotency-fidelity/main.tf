@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.50.0"
+      version = "6.60.0"
     }
   }
 }
@@ -166,6 +166,39 @@ resource "aws_acm_certificate" "this" {
   validation_method = "DNS"
 }
 
+# An HTTPS listener terminates TLS, so its certificate has to be ISSUED with key
+# material — which for a DNS-validated certificate means publishing the
+# challenge record and waiting for the issuance. Both certificates below are
+# validated in the zone that owns their domain, and the listener waits for them.
+resource "aws_route53_zone" "public" {
+  name = "example.test"
+}
+
+resource "aws_route53_record" "cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.this.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  }
+
+  zone_id = aws_route53_zone.public.zone_id
+  name    = each.value.name
+  type    = each.value.type
+  ttl     = 60
+  records = [each.value.record]
+}
+
+resource "aws_acm_certificate_validation" "this" {
+  certificate_arn         = aws_acm_certificate.this.arn
+  validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
+
+  timeouts {
+    create = "120s"
+  }
+}
+
 # ALB created without minimum_load_balancer_capacity: DescribeCapacityReservation
 # must omit the attribute (not report capacity_units=0, which drifts to null).
 resource "aws_lb" "this" {
@@ -193,11 +226,14 @@ resource "aws_lb_target_group" "this" {
 
 # HTTPS listener with an ACM cert + ssl_policy: both must round-trip through
 # DescribeListeners (cert ARN + SslPolicy) or the listener drifts every plan.
+# The listener terminates TLS on a real socket, so it takes an unprivileged
+# port: 443 needs a privileged bind, which the test process does not have on
+# any of the hosts this stack runs on.
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.this.arn
-  port              = 443
+  port              = 8443
   protocol          = "HTTPS"
-  certificate_arn   = aws_acm_certificate.this.arn
+  certificate_arn   = aws_acm_certificate_validation.this.certificate_arn
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
   default_action {
@@ -240,9 +276,34 @@ resource "aws_acm_certificate" "sni" {
   validation_method = "DNS"
 }
 
+resource "aws_route53_record" "sni_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.sni.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  }
+
+  zone_id = aws_route53_zone.public.zone_id
+  name    = each.value.name
+  type    = each.value.type
+  ttl     = 60
+  records = [each.value.record]
+}
+
+resource "aws_acm_certificate_validation" "sni" {
+  certificate_arn         = aws_acm_certificate.sni.arn
+  validation_record_fqdns = [for r in aws_route53_record.sni_cert_validation : r.fqdn]
+
+  timeouts {
+    create = "120s"
+  }
+}
+
 resource "aws_lb_listener_certificate" "sni" {
   listener_arn    = aws_lb_listener.https.arn
-  certificate_arn = aws_acm_certificate.sni.arn
+  certificate_arn = aws_acm_certificate_validation.sni.certificate_arn
 }
 
 # Listener rule exercising authenticate-oidc (the IAP/Pomerium proxy shape) +

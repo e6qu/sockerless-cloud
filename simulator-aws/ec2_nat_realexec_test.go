@@ -23,9 +23,7 @@ import (
 // as root); the control-plane path is covered by the SDK/CLI tests that run
 // everywhere.
 func TestEC2RealNATGatewayDataPlane(t *testing.T) {
-	if err := realexec.DetectNetworkCapabilities().Require(); err != nil {
-		t.Skipf("real EC2 networking capabilities unavailable: %v", err)
-	}
+	requireRealNetworkFabric(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

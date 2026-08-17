@@ -463,10 +463,11 @@ func TestRDS_ClusterOps(t *testing.T) {
 		MasterUserPassword:  aws.String("password123!"),
 	})
 	require.NoError(t, err)
-	clusterArn := ""
-	if d, e := c.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String(clusterID)}); e == nil && len(d.DBClusters) == 1 {
-		clusterArn = aws.ToString(d.DBClusters[0].DBClusterArn)
-	}
+	described, err := c.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String(clusterID)})
+	require.NoError(t, err)
+	require.Len(t, described.DBClusters, 1)
+	clusterArn := aws.ToString(described.DBClusters[0].DBClusterArn)
+	require.NotEmpty(t, clusterArn, "the cluster's ARN addresses it in the Data API and global-cluster operations below")
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
 			DBClusterIdentifier: aws.String(clusterID), SkipFinalSnapshot: aws.Bool(true)})
@@ -524,18 +525,16 @@ func TestRDS_ClusterOps(t *testing.T) {
 	assert.Equal(t, clusterID, aws.ToString(prOut.DBCluster.DBClusterIdentifier))
 
 	// Enable/Disable HTTP endpoint (Aurora Serverless v1 Data API).
-	if clusterArn != "" {
-		enOut, err := c.EnableHttpEndpoint(ctx, &rds.EnableHttpEndpointInput{
-			ResourceArn: aws.String(clusterArn),
-		})
-		require.NoError(t, err)
-		assert.True(t, aws.ToBool(enOut.HttpEndpointEnabled))
-		diOut, err := c.DisableHttpEndpoint(ctx, &rds.DisableHttpEndpointInput{
-			ResourceArn: aws.String(clusterArn),
-		})
-		require.NoError(t, err)
-		assert.False(t, aws.ToBool(diOut.HttpEndpointEnabled))
-	}
+	enOut, err := c.EnableHttpEndpoint(ctx, &rds.EnableHttpEndpointInput{
+		ResourceArn: aws.String(clusterArn),
+	})
+	require.NoError(t, err)
+	assert.True(t, aws.ToBool(enOut.HttpEndpointEnabled))
+	diOut, err := c.DisableHttpEndpoint(ctx, &rds.DisableHttpEndpointInput{
+		ResourceArn: aws.String(clusterArn),
+	})
+	require.NoError(t, err)
+	assert.False(t, aws.ToBool(diOut.HttpEndpointEnabled))
 
 	// Global cluster failover/remove.
 	gcID := "rext-global-cluster"
@@ -548,22 +547,21 @@ func TestRDS_ClusterOps(t *testing.T) {
 		_, _ = c.DeleteGlobalCluster(ctx, &rds.DeleteGlobalClusterInput{
 			GlobalClusterIdentifier: aws.String(gcID)})
 	})
-	if clusterArn != "" {
-		fgOut, err := c.FailoverGlobalCluster(ctx, &rds.FailoverGlobalClusterInput{
-			GlobalClusterIdentifier:   aws.String(gcID),
-			TargetDbClusterIdentifier: aws.String(clusterArn),
-		})
-		require.NoError(t, err)
-		require.NotNil(t, fgOut.GlobalCluster)
+	fgOut, err := c.FailoverGlobalCluster(ctx, &rds.FailoverGlobalClusterInput{
+		GlobalClusterIdentifier:   aws.String(gcID),
+		TargetDbClusterIdentifier: aws.String(clusterArn),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, fgOut.GlobalCluster)
+	assert.Equal(t, gcID, aws.ToString(fgOut.GlobalCluster.GlobalClusterIdentifier))
 
-		rmOut, err := c.RemoveFromGlobalCluster(ctx, &rds.RemoveFromGlobalClusterInput{
-			GlobalClusterIdentifier: aws.String(gcID),
-			DbClusterIdentifier:     aws.String(clusterArn),
-		})
-		require.NoError(t, err)
-		require.NotNil(t, rmOut.GlobalCluster)
-		assert.Empty(t, rmOut.GlobalCluster.GlobalClusterMembers)
-	}
+	rmOut, err := c.RemoveFromGlobalCluster(ctx, &rds.RemoveFromGlobalClusterInput{
+		GlobalClusterIdentifier: aws.String(gcID),
+		DbClusterIdentifier:     aws.String(clusterArn),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, rmOut.GlobalCluster)
+	assert.Empty(t, rmOut.GlobalCluster.GlobalClusterMembers)
 }
 
 // TestRDS_SnapshotAttributesAndModify covers cluster-snapshot

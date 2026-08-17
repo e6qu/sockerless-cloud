@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 21. Resolved: 38.
+Open: 20. Resolved: 47.
 
 ## Open
 
@@ -14,6 +14,27 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. |
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
+
+- **BUG-56 (the job fan-out throttles GitHub's own action download):** Two jobs
+  of one run died in setup with `429 (Too Many Requests)` fetching
+  `actions/setup-go` from codeload, after the three attempts the runner makes on
+  its own — `sim (aws cli ecs)` and `browser (simulator-aws)` on run
+  32037273208, then `sim (aws cli appdata2)` on run 32038906020, then five jobs
+  on run 32039692114 — with no repository code executed in any of them. It
+  recurs on every push, and worsens as the workflow grows: one of those five
+  died fetching an `actions/setup-java` step scoped to a different cloud, which
+  is how the aggravating factor surfaced. The runner downloads every action a
+  workflow references before it evaluates any step's condition, so an action
+  used by one job costs every job in the matrix a fetch; that step was replaced
+  by one reading the runtime the runner already has. The workflow starts
+  around forty-six jobs at once and every one of them downloads the same three
+  action tarballs within seconds of each other, which is the burst being
+  throttled. It presents as an unrelated pair of red cells that pass on a
+  re-run, so it costs a re-run each time and, worse, teaches a reader to re-run
+  red cells. Fix shape: cut the simultaneous fan-out (a matrix `max-parallel`
+  low enough that the tarball fetches spread out, traded against wall clock), or
+  stop fetching the actions per job at all. Do not paper over it with a retry
+  wrapper: the runner already retried three times.
 
 - **BUG-20 (the container reaper leaves workload containers running for
   days):** Simulator workload containers outlive the simulator that created
@@ -178,23 +199,79 @@ the simulators from the sockerless monorepo, keeping their IDs
   bodies are now asserted on the wire in the SDK suite and through the Azure
   command-line client, which is as far as a real client can consume them.
 
-- **BUG-48 (three Elastic Load Balancing target-health fidelity gaps):** A
-  target group no listener rule references should report itself unused and not
-  be health-checked at all; the health-check matcher is ignored, so a response
-  code mismatch can never be reported; and deregistration delay with its
-  draining state is not modelled. Found while giving target health a real
-  checker. The first changes tests that register targets before creating a
-  listener, so it is not a drive-by edit.
-
-- **BUG-49 (the simulator can start without a container client):** Under
-  container-engine pressure a run logged `container start failed: docker client
-  not initialized` while otherwise appearing healthy, so workloads failed
-  silently rather than the simulator refusing to start. Seen twice under load
-  and not reproducible in isolation. Fix shape: fail loudly at startup when the
-  engine client cannot be built, rather than deferring the discovery to the
-  first workload.
-
 ## Resolved history
+
+- **BUG-57 (AttachPolicy accepted a policy type the root had not enabled):**
+  Attaching a policy now requires its type to be enabled in the root, which is
+  what makes a policy govern a target at all — service control policies are
+  enabled in every root, and every other type has to be enabled first. Stored
+  without that check, a tag policy nobody enabled resolved through
+  DescribeEffectivePolicy as though it governed the target, a policy decision
+  the organization never made. Both suites enable the type before attaching and
+  assert the refusal before that.
+
+- **BUG-54 (the ECS reconciler bypassed the deregistration delay):** The Amazon
+  ECS service reconciler now deregisters a target-group target the way the API
+  does — marking it draining and letting the target group's deregistration
+  delay run — rather than removing it the moment its task stops, so a scaled-in
+  task leaves the target group the way Elastic Load Balancing makes one leave
+  it. A task running again at a draining address cancels the drain, as
+  registering that target would, and a zero delay still completes at once. Both
+  paths were observed failing against the unfixed reconciler.
+
+- **BUG-55 (AWS provider pins were checked by major version only):** An exact
+  Terraform provider pin is now compared exactly: it names the one version
+  Terraform may install, so it is behind the moment a newer one clears the
+  adoption quarantine. A constraint carrying an operator admits newer versions
+  by itself and keeps the major-only comparison. Ten `hashicorp/aws` pins were
+  ten minor versions behind and silent; they moved to 6.60.0 in the same pass.
+
+- **BUG-48 (three Elastic Load Balancing target-health gaps):** A target group
+  no listener rule forwards to now reports its targets unused rather than being
+  health-checked, as the service requires before it checks anything; the
+  configured matcher grades the response code and a mismatch names it; and a
+  deregistering target drains for the configured delay instead of vanishing.
+  Found beside them: an HTTPS health check was only a connection attempt, so a
+  target answering an error over HTTPS reported healthy.
+
+- **BUG-49 (the simulator could start without a container client):** The filed
+  mechanism was wrong, and proving it wrong found the real one. Container mode
+  already refused to start against a missing, hanging or unhealthy engine — all
+  three verified against the unfixed binary. The reachable path was the
+  process runtime, which the engine-down message itself recommends: following
+  that advice produced a simulator reporting itself healthy, accepting work, and
+  failing it later in the background. Startup now refuses for any mode that
+  executes workloads, health no longer claims an execution capability the
+  process lacks, and the engine constructor returns an error instead of exiting,
+  which is what made any of this testable.
+
+- **BUG-50 (CodeBuild invented test and coverage data):** Reports are read from
+  the files the buildspec declares, out of the build container. Four formats are
+  ingested and the seven other documented ones are refused by name, so partial
+  support is loud rather than a silent fabrication. A build declaring no reports
+  produces none, and a pattern matching nothing produces the incomplete report
+  the service documents.
+
+- **BUG-51 (two workloads ran as host processes):** The CodeBuild command and
+  the Glue Python job run in containers, with the platform derived from the
+  image manifest like every other launcher here. With the last callers gone the
+  process substrate was unreachable and has been removed, and the dispatch gate
+  that failed to notice either of them now walks the whole module.
+
+- **BUG-52 (the derivation floor counted what it never measured):** 1,788 became
+  **1,687**. One hundred and one operations across five services were credited by
+  table membership while absent from the probe's own switch. The floor going
+  down is the honest outcome and the comment says so: no derivation was lost,
+  the number stopped crediting derivation nobody measured. The condition-key
+  ratchet was the same shape — twenty-four hand-written booleans no code had to
+  agree with — and probing them properly showed three keys never reach the
+  request path at all.
+
+- **BUG-53 (a surface with no reachable success path):** The vendored model has
+  no API that creates an iterable form, because it is the catalog object's own
+  repeating structure: a table asset's columns. It is derived from the table the
+  asset names, with item attachments and glossary terms merged on, so the
+  operations can succeed.
 
 - **BUG-47 (DescribeTargetHealth probed every target on the request path):**
   The read paid a full health-check timeout for each unresponsive target —

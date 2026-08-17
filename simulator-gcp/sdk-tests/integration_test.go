@@ -16,18 +16,24 @@ import (
 // flow against the simulator: create → run → verify running → logs → cancel → verify cancelled → delete.
 func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	const jobID = "integ-crj"
+	const marker = "integ-crj-running"
 
-	// 1. Create job
+	// 1. Create job. Its container announces itself on stdout and then holds,
+	// so every step below runs against a workload that is really up: a
+	// container that had already exited would settle the execution from its
+	// exit status and leave the cancel with nothing to cancel.
 	job := map[string]any{
 		"template": map[string]any{
 			"template": map[string]any{
+				"timeout": "60s",
 				"containers": []map[string]any{
-					{"image": "alpine:latest"},
+					{"image": commandImageName, "args": []string{"log", marker, "60"}},
 				},
 			},
 		},
 	}
-	body, _ := json.Marshal(job)
+	body, err := json.Marshal(job)
+	require.NoError(t, err)
 	createReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/v2/projects/test-project/locations/us-central1/jobs?jobId="+jobID,
 		strings.NewReader(string(body)))
@@ -48,25 +54,30 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, runResp.StatusCode)
 
 	var lro map[string]any
-	data, _ := io.ReadAll(runResp.Body)
+	data, err := io.ReadAll(runResp.Body)
+	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, &lro))
-	execName := lro["response"].(map[string]any)["name"].(string)
+	response, ok := lro["response"].(map[string]any)
+	require.True(t, ok, "the run operation must carry the execution: %s", data)
+	execName, ok := response["name"].(string)
+	require.True(t, ok, "the execution must be named: %s", data)
 
-	// 3. Verify running state
+	// 3. The workload really started: the line the container printed on its
+	// own stdout reached Cloud Logging, and the execution's own start entry
+	// precedes it.
+	entries := waitForJobLogEntries(t, jobID, func(entries []jobLogEntry) bool {
+		return containsString(jobLogMessages(entries), marker)
+	})
+	assert.Equal(t, "cloud_run_job", entries[0].resourceType)
+	assert.Equal(t, jobID, entries[0].jobName)
+	assert.Equal(t, "Container started", entries[0].message)
+
+	// 4. Verify running state while that container is still holding.
 	exec := getExecution(t, execName)
 	assert.Equal(t, float64(1), exec["runningCount"])
+	assert.Equal(t, float64(0), exec["succeededCount"])
+	assert.Equal(t, float64(0), exec["failedCount"])
 	assert.Empty(t, exec["completionTime"])
-
-	// 4. Verify start log entry exists
-	logClient := logadminClient(t)
-	filter := `resource.type="cloud_run_job" AND resource.labels.job_name="` + jobID + `"`
-	it := logClient.Entries(ctx, logadmin.Filter(filter))
-
-	entry, err := it.Next()
-	require.NoError(t, err)
-	assert.Equal(t, "cloud_run_job", entry.Resource.Type)
-	assert.Equal(t, jobID, entry.Resource.Labels["job_name"])
-	assert.Equal(t, "Container started", entry.Payload)
 
 	// 5. Cancel execution
 	parts := strings.SplitN(execName, "/executions/", 2)
@@ -78,10 +89,13 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	cancelResp.Body.Close()
 	require.Equal(t, http.StatusOK, cancelResp.StatusCode)
 
-	// 6. Verify cancelled state
+	// 6. Verify cancelled state — the running task was cancelled, not settled
+	// from an exit status.
 	exec = getExecution(t, execName)
 	assert.Equal(t, float64(0), exec["runningCount"])
 	assert.Equal(t, float64(1), exec["cancelledCount"])
+	assert.Equal(t, float64(0), exec["succeededCount"])
+	assert.Equal(t, float64(0), exec["failedCount"])
 	assert.NotEmpty(t, exec["completionTime"])
 
 	// 7. Delete job

@@ -285,10 +285,14 @@ func TestRDS_EventsAndEngineMetadata(t *testing.T) {
 	require.Len(t, catsFiltered.EventCategoriesMapList, 1)
 	assert.Equal(t, "db-cluster", aws.ToString(catsFiltered.EventCategoriesMapList[0].SourceType))
 
-	// DescribeEvents: empty list for an unknown source is valid.
-	events, err := c.DescribeEvents(ctx, &rds.DescribeEventsInput{})
+	// DescribeEvents with a source identifier no resource carries returns an
+	// empty list rather than every event in the account.
+	events, err := c.DescribeEvents(ctx, &rds.DescribeEventsInput{
+		SourceIdentifier: aws.String("ext-events-absent"),
+		SourceType:       rdstypes.SourceTypeDbInstance,
+	})
 	require.NoError(t, err)
-	assert.NotNil(t, events) // Events may be empty; shape must parse.
+	assert.Empty(t, events.Events, "an unknown source identifier matches no event")
 
 	// DescribeEvents for a known instance surfaces a creation event.
 	evInst := "ext-events-inst"

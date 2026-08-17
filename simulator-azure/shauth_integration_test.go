@@ -90,26 +90,38 @@ func TestShauthIsMountedAlongsideAzureAuth(t *testing.T) {
 		return rec.Code
 	}
 
-	for _, path := range []string{
-		uiauth.LoginPath,
-		uiauth.CallbackPath,
-		uiauth.SessionPath,
-		uiauth.FederationSubjectPath,
-		uiauth.FrontchannelLogoutPath,
-		uiauth.LogoutCompletePath,
-		uiauth.SignedOutPath,
-		uiauth.ValidationPath,
+	// "Anything but 404" is too wide to be a mounting contract: a route that
+	// 500s, that answers 405, or that is being absorbed by some other subtree's
+	// catch-all pattern all satisfy it. Two things are asserted per path
+	// instead — that http.ServeMux resolves the request to that exact
+	// registered pattern, which is what rules out a catch-all standing in for
+	// the relying party, and the answer the endpoint owes an anonymous caller.
+	//
+	// The login endpoint's 502 is the relying party reaching for the configured
+	// issuer's discovery document and finding nothing at https://shauth.example.com;
+	// a mounted-but-inert handler would not attempt the round trip at all.
+	for _, tc := range []struct {
+		path string
+		code int
+		why  string
+	}{
+		{uiauth.LoginPath, http.StatusBadGateway, "the login endpoint fetches the configured issuer's discovery document, which this test's issuer does not serve"},
+		{uiauth.CallbackPath, http.StatusBadRequest, "a callback with no authorization response is malformed"},
+		{uiauth.SessionPath, http.StatusUnauthorized, "an anonymous caller has no session"},
+		{uiauth.FederationSubjectPath, http.StatusUnauthorized, "an anonymous caller has no assertion to federate"},
+		{uiauth.FrontchannelLogoutPath, http.StatusOK, "the front-channel logout endpoint answers the identity provider's iframe"},
+		{uiauth.LogoutCompletePath, http.StatusSeeOther, "logout completion redirects the browser onward"},
+		{uiauth.SignedOutPath, http.StatusOK, "the signed-out page is served"},
+		{uiauth.ValidationPath, http.StatusSeeOther, "validation redirects the browser onward"},
 	} {
-		if code := get(path); code == http.StatusNotFound {
-			t.Errorf("%s is not routed — Shauth is not mounted on the azure simulator", path)
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		if _, pattern := srv.Mux().Handler(req); pattern != "GET "+tc.path {
+			t.Errorf("%s resolved to pattern %q, not its own route — Shauth is not mounted on the azure simulator", tc.path, pattern)
+			continue
 		}
-	}
-
-	if code := get(uiauth.SessionPath); code != http.StatusUnauthorized {
-		t.Errorf("%s anonymously = %d, want 401", uiauth.SessionPath, code)
-	}
-	if code := get(uiauth.FederationSubjectPath); code != http.StatusUnauthorized {
-		t.Errorf("%s anonymously = %d, want 401", uiauth.FederationSubjectPath, code)
+		if code := get(tc.path); code != tc.code {
+			t.Errorf("%s anonymously = %d, want %d (%s)", tc.path, code, tc.code, tc.why)
+		}
 	}
 }
 

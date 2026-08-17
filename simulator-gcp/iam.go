@@ -1,16 +1,18 @@
 package main
 
 import (
-	"crypto/hmac"
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
 	"sort"
 	"strconv"
@@ -70,6 +72,8 @@ var gcpResourcePolicies sim.Store[IAMPolicy]
 
 // GCPServiceAccountKey mirrors the `iam#ServiceAccountKey` resource. Real GCP
 // only returns privateKeyData on creation; subsequent Gets omit it.
+// PublicKeyData carries the base64 of the public half in the encoding the
+// caller named with `publicKeyType`, and is absent when none was asked for.
 type GCPServiceAccountKey struct {
 	Name            string `json:"name"`
 	KeyAlgorithm    string `json:"keyAlgorithm"`
@@ -78,16 +82,66 @@ type GCPServiceAccountKey struct {
 	KeyType         string `json:"keyType"`
 	PrivateKeyData  string `json:"privateKeyData,omitempty"` // only on Create response
 	PrivateKeyType  string `json:"privateKeyType,omitempty"` // only on Create response
+	PublicKeyData   string `json:"publicKeyData,omitempty"`  // only when publicKeyType is requested
 }
 
-// GCPServiceAccountKeyMaterial holds the public half of a user-managed
-// service-account key, keyed by the key's full resource name. It never appears
-// on the wire: it exists so the OAuth2 token endpoint can verify a JWT-bearer
-// assertion against the service account's registered public keys, the way real
-// Google verifies an assertion before minting a token for it.
+// serviceAccountSystemKey is the system-managed signing key Google holds for
+// every service account — the key `signBlob` and `signJwt` sign with. Its
+// private half is never handed to the account's owner, and it is persisted so a
+// signature stays verifiable across a simulator restart, the way a real
+// account's system-managed key outlives any single server process.
+type serviceAccountSystemKey struct {
+	Name          string `json:"name"`
+	PrivateKeyPEM string `json:"privateKeyPem"`
+}
+
+// GCPServiceAccountKeyMaterial holds the published halves of a user-managed
+// service-account key, keyed by the key's full resource name. The struct itself
+// never appears on the wire: the OAuth2 token endpoint reads PublicKeyPEM to
+// verify a JWT-bearer assertion against the account's registered keys, the way
+// real Google verifies an assertion before minting a token for it, and the keys
+// surface renders one of the two encodings into `publicKeyData` when a caller
+// names a publicKeyType.
 type GCPServiceAccountKeyMaterial struct {
-	Name         string `json:"name"`
-	PublicKeyPEM string `json:"publicKeyPem"`
+	Name           string `json:"name"`
+	PublicKeyPEM   string `json:"publicKeyPem"`
+	CertificatePEM string `json:"certificatePem,omitempty"`
+}
+
+// serviceAccountKeyTypeWanted reports whether a keyTypes filter admits a key
+// type. An absent filter admits every type, which is how the API lists both a
+// service account's user-managed and system-managed keys by default.
+func serviceAccountKeyTypeWanted(filter []string, keyType string) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	for _, want := range filter {
+		if want == keyType || want == "KEY_TYPE_UNSPECIFIED" {
+			return true
+		}
+	}
+	return false
+}
+
+// serviceAccountSystemManagedKey returns the resource describing an existing
+// service account's system-managed key, resolving (and on first use creating)
+// the key it names. It reports false for an account that does not exist, which
+// has no keys of either kind.
+func serviceAccountSystemManagedKey(accounts sim.Store[GCPServiceAccount], saName, email string) (GCPServiceAccountKey, bool) {
+	if _, ok := accounts.Get(saName); !ok {
+		return GCPServiceAccountKey{}, false
+	}
+	material, err := serviceAccountSigningKey(saName, email)
+	if err != nil {
+		return GCPServiceAccountKey{}, false
+	}
+	return GCPServiceAccountKey{
+		Name:            saName + "/keys/" + material.keyID,
+		KeyAlgorithm:    "KEY_ALG_RSA_2048",
+		ValidAfterTime:  saCertificateEpoch.Format(time.RFC3339),
+		ValidBeforeTime: saCertificateEpoch.AddDate(10, 0, 0).Format(time.RFC3339),
+		KeyType:         "SYSTEM_MANAGED",
+	}, true
 }
 
 // iamServiceAccounts and iamSAKeyPublics expose the service-account and
@@ -98,6 +152,7 @@ type GCPServiceAccountKeyMaterial struct {
 var (
 	iamServiceAccounts sim.Store[GCPServiceAccount]
 	iamSAKeyPublics    sim.Store[GCPServiceAccountKeyMaterial]
+	iamSASystemKeys    sim.Store[serviceAccountSystemKey]
 )
 
 func registerIAM(srv *sim.Server) {
@@ -106,6 +161,7 @@ func registerIAM(srv *sim.Server) {
 	saKeyPublics := sim.MakeStore[GCPServiceAccountKeyMaterial](srv.DB(), "iam_sa_key_publics")
 	iamServiceAccounts = serviceAccounts
 	iamSAKeyPublics = saKeyPublics
+	iamSASystemKeys = sim.MakeStore[serviceAccountSystemKey](srv.DB(), "iam_sa_system_keys")
 	projectPolicies := sim.MakeStore[IAMPolicy](srv.DB(), "iam_project_policies")
 	gcpResourcePolicies = sim.MakeStore[IAMPolicy](srv.DB(), "iam_resource_policies")
 	resourcePolicies := gcpResourcePolicies
@@ -271,6 +327,7 @@ func registerIAM(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 
 		serviceAccounts.Delete(name)
+		iamSASystemKeys.Delete(name)
 		keyPrefix := name + "/keys/"
 		for _, key := range saKeys.Filter(func(k GCPServiceAccountKey) bool {
 			return strings.HasPrefix(k.Name, keyPrefix)
@@ -314,15 +371,20 @@ func registerIAM(srv *sim.Server) {
 		// Generate the key material before persisting metadata: if generation
 		// fails, the store must not retain a key that never had private-key
 		// material (a subsequent Get would return a phantom key).
-		privateKeyData, publicKeyPEM, err := gcpMakeSAKeyJSON(project, keyID, email, sa.UniqueId)
+		privateKeyData, publicKeyPEM, certificatePEM, err := gcpMakeSAKeyJSON(project, keyID, email, sa.UniqueId)
 		if err != nil {
 			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "generate key: %v", err)
 			return
 		}
 		saKeys.Put(keyName, key)
-		// Register the public half so the OAuth2 token endpoint can verify
-		// JWT-bearer assertions signed with this key, as real Google does.
-		saKeyPublics.Put(keyName, GCPServiceAccountKeyMaterial{Name: keyName, PublicKeyPEM: publicKeyPEM})
+		// Register the published halves so the OAuth2 token endpoint can verify
+		// JWT-bearer assertions signed with this key, as real Google does, and
+		// the keys surface can serve either publicKeyType for it.
+		saKeyPublics.Put(keyName, GCPServiceAccountKeyMaterial{
+			Name:           keyName,
+			PublicKeyPEM:   publicKeyPEM,
+			CertificatePEM: certificatePEM,
+		})
 
 		resp := key
 		resp.PrivateKeyData = privateKeyData
@@ -330,7 +392,11 @@ func registerIAM(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Get service account key (no private key data after creation).
+	// Get service account key. The private half is returned only by Create;
+	// the public half comes back when the caller names a publicKeyType, in the
+	// encoding it names. The account's system-managed key — the key signBlob
+	// and signJwt sign with — is addressable here alongside its user-managed
+	// keys, which is what lets a client verify a signature it was handed.
 	srv.HandleFunc("GET /v1/projects/{project}/serviceAccounts/{email}/keys/{keyId}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		email := sim.PathParam(r, "email")
@@ -338,28 +404,67 @@ func registerIAM(srv *sim.Server) {
 			project = gcpProjectFromEmail(email)
 		}
 		keyID := sim.PathParam(r, "keyId")
-		keyName := fmt.Sprintf("projects/%s/serviceAccounts/%s/keys/%s", project, email, keyID)
+		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
+		keyName := saName + "/keys/" + keyID
+		publicKeyType := r.URL.Query().Get("publicKeyType")
+
 		key, ok := saKeys.Get(keyName)
-		if !ok {
+		if ok {
+			material, hasMaterial := saKeyPublics.Get(keyName)
+			if publicKeyType != "" && hasMaterial {
+				data, err := serviceAccountPublicKeyData(publicKeyType, material.PublicKeyPEM, material.CertificatePEM)
+				if err != nil {
+					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+					return
+				}
+				key.PublicKeyData = data
+			}
+			sim.WriteJSON(w, http.StatusOK, key)
+			return
+		}
+
+		system, systemOK := serviceAccountSystemManagedKey(serviceAccounts, saName, email)
+		if !systemOK || system.Name != keyName {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, key)
+		if publicKeyType != "" {
+			material, err := serviceAccountSigningKey(saName, email)
+			if err != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
+				return
+			}
+			data, err := serviceAccountPublicKeyData(publicKeyType, material.publicKeyPEM, material.certificatePEM)
+			if err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+				return
+			}
+			system.PublicKeyData = data
+		}
+		sim.WriteJSON(w, http.StatusOK, system)
 	})
 
-	// List service account keys.
+	// List service account keys. Both key types are listed unless keyTypes
+	// narrows the result, which is how the API scopes the listing.
 	srv.HandleFunc("GET /v1/projects/{project}/serviceAccounts/{email}/keys", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		email := sim.PathParam(r, "email")
 		if project == "-" {
 			project = gcpProjectFromEmail(email)
 		}
-		prefix := fmt.Sprintf("projects/%s/serviceAccounts/%s/keys/", project, email)
-		keys := saKeys.Filter(func(k GCPServiceAccountKey) bool {
-			return strings.HasPrefix(k.Name, prefix)
-		})
-		if keys == nil {
-			keys = []GCPServiceAccountKey{}
+		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
+		prefix := saName + "/keys/"
+		wanted := r.URL.Query()["keyTypes"]
+		keys := []GCPServiceAccountKey{}
+		if serviceAccountKeyTypeWanted(wanted, "USER_MANAGED") {
+			keys = append(keys, saKeys.Filter(func(k GCPServiceAccountKey) bool {
+				return strings.HasPrefix(k.Name, prefix)
+			})...)
+		}
+		if serviceAccountKeyTypeWanted(wanted, "SYSTEM_MANAGED") {
+			if system, ok := serviceAccountSystemManagedKey(serviceAccounts, saName, email); ok {
+				keys = append(keys, system)
+			}
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"keys": keys})
 	})
@@ -372,8 +477,16 @@ func registerIAM(srv *sim.Server) {
 			project = gcpProjectFromEmail(email)
 		}
 		keyID := sim.PathParam(r, "keyId")
-		keyName := fmt.Sprintf("projects/%s/serviceAccounts/%s/keys/%s", project, email, keyID)
+		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
+		keyName := saName + "/keys/" + keyID
 		if !saKeys.Delete(keyName) {
+			// A system-managed key belongs to Google, not to the account's
+			// owner, so it is refused rather than reported missing.
+			if system, ok := serviceAccountSystemManagedKey(serviceAccounts, saName, email); ok && system.Name == keyName {
+				sim.GCPError(w, http.StatusBadRequest,
+					"Request contains an invalid argument.", "INVALID_ARGUMENT")
+				return
+			}
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
 			return
 		}
@@ -491,12 +604,10 @@ func registerIAM(srv *sim.Server) {
 			// iamcredentials.serviceAccounts.signBlob — sign an opaque,
 			// base64-encoded payload with the service account's system-managed
 			// key. Body: { payload (base64), delegates }. Response:
-			// { keyId, signedBlob (base64) }. The sim has no modeled
-			// system-managed private key for the SA, so it produces a
-			// deterministic representative signature (HMAC-SHA256 over the
-			// decoded payload against the sim's per-process key) — sufficient
-			// for clients that only round-trip the signature, which never
-			// verify it against Google's public key.
+			// { keyId, signedBlob (base64) }. The signature is RSASSA-PKCS1-v1_5
+			// over SHA-256 of the decoded payload, produced with the account's
+			// system-managed key, and keyId names the key the IAM keys surface
+			// publishes the verifying public half under.
 			var req struct {
 				Payload   string   `json:"payload"`
 				Delegates []string `json:"delegates"`
@@ -510,19 +621,27 @@ func registerIAM(srv *sim.Server) {
 				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "payload must be base64: %v", err)
 				return
 			}
-			sig := simSAHMAC(raw)
+			material, err := serviceAccountSigningKey(name, email)
+			if err != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
+				return
+			}
+			digest := sha256.Sum256(raw)
+			sig, err := rsa.SignPKCS1v15(rand.Reader, material.key, crypto.SHA256, digest[:])
+			if err != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "sign blob: %v", err)
+				return
+			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"keyId":      simSAKeyID(email),
+				"keyId":      material.keyID,
 				"signedBlob": base64.StdEncoding.EncodeToString(sig),
 			})
 		case "signJwt":
 			// iamcredentials.serviceAccounts.signJwt — sign a JWT claim set
 			// (the request payload is the JSON claims string) with the SA's
-			// system-managed key. Response: { keyId, signedJwt }. As with
-			// signBlob the sim has no modeled SA private key, so it emits a
-			// real-shape JWS (header.payload.signature) whose signature is a
-			// deterministic HMAC over the signing input — representative, not
-			// RS256-verifiable against Google's keys.
+			// system-managed key. Response: { keyId, signedJwt }. The result is
+			// an RS256 JWS whose signature verifies against the public half the
+			// IAM keys surface publishes under the reported keyId.
 			var req struct {
 				Payload   string   `json:"payload"`
 				Delegates []string `json:"delegates"`
@@ -531,14 +650,28 @@ func registerIAM(srv *sim.Server) {
 				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
-			headerJSON, _ := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": simSAKeyID(email)})
+			material, err := serviceAccountSigningKey(name, email)
+			if err != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
+				return
+			}
+			headerJSON, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": material.keyID})
+			if err != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode JWT header: %v", err)
+				return
+			}
 			headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
 			payloadB64 := base64.RawURLEncoding.EncodeToString([]byte(req.Payload))
 			signingInput := headerB64 + "." + payloadB64
-			sigB64 := base64.RawURLEncoding.EncodeToString(simSAHMAC([]byte(signingInput)))
+			digest := sha256.Sum256([]byte(signingInput))
+			sig, err := rsa.SignPKCS1v15(rand.Reader, material.key, crypto.SHA256, digest[:])
+			if err != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "sign JWT: %v", err)
+				return
+			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"keyId":     simSAKeyID(email),
-				"signedJwt": signingInput + "." + sigB64,
+				"keyId":     material.keyID,
+				"signedJwt": signingInput + "." + base64.RawURLEncoding.EncodeToString(sig),
 			})
 		default:
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported service-account action %q", action)
@@ -1646,44 +1779,137 @@ func crmNamespaced(parent, shortName string) string {
 	return id + "/" + shortName
 }
 
-// saSignHMACKey is the per-process HMAC key backing the representative
-// signBlob / signJwt signatures. Real GCP signs those with the service
-// account's system-managed RS256 key; the sim has no modeled SA private key,
-// so it emits a deterministic HMAC over the input against this key. A restart
-// rotates it, which is acceptable because clients only round-trip the signature
-// rather than verify it against Google's public certs.
-var (
-	saSignHMACKey     []byte
-	saSignHMACKeyOnce sync.Once
-)
+// saSystemKeyMu serialises first-use generation of a service account's
+// system-managed key so two concurrent signs cannot each generate one and race
+// to persist it, which would leave a signature verifiable against a key the
+// store no longer holds.
+var saSystemKeyMu sync.Mutex
 
-func saSignKey() []byte {
-	saSignHMACKeyOnce.Do(func() {
-		saSignHMACKey = make([]byte, 32)
-		_, _ = rand.Read(saSignHMACKey)
-	})
-	return saSignHMACKey
+// saSigningMaterial is a service account's system-managed key resolved for use:
+// the private half signBlob and signJwt sign with, the identifier the key is
+// published under, and the two encodings of the public half the IAM keys
+// surface serves.
+type saSigningMaterial struct {
+	key            *rsa.PrivateKey
+	keyID          string
+	publicKeyPEM   string
+	certificatePEM string
 }
 
-// simSAHMAC produces a deterministic representative signature for the
-// iamcredentials signBlob / signJwt operations. Real GCP signs with the
-// service account's system-managed RS256 key; the sim has no modeled SA
-// private key, so it emits an HMAC-SHA256 over the input against the
-// process-scoped key. Clients in the repo only round-trip the signature
-// (they never verify it against Google's public certs), so the
-// representative signature is sufficient and is documented as such.
-func simSAHMAC(input []byte) []byte {
-	mac := hmac.New(sha256.New, saSignKey())
-	mac.Write(input)
-	return mac.Sum(nil)
+// serviceAccountSigningKey returns the system-managed key Google holds for a
+// service account, generating and persisting it on first use. signBlob, signJwt
+// and the keys surface all resolve the key through here, so the identifier a
+// signature reports is the identifier the key is published under and the public
+// half a client fetches verifies the signature it was given.
+func serviceAccountSigningKey(saName, email string) (saSigningMaterial, error) {
+	saSystemKeyMu.Lock()
+	defer saSystemKeyMu.Unlock()
+
+	var key *rsa.PrivateKey
+	if rec, ok := iamSASystemKeys.Get(saName); ok {
+		block, _ := pem.Decode([]byte(rec.PrivateKeyPEM))
+		if block == nil {
+			return saSigningMaterial{}, fmt.Errorf("persisted system-managed key for %s is not PEM", saName)
+		}
+		parsed, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err != nil {
+			return saSigningMaterial{}, fmt.Errorf("parse persisted system-managed key for %s: %w", saName, err)
+		}
+		key = parsed
+	} else {
+		generated, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return saSigningMaterial{}, fmt.Errorf("generate system-managed key for %s: %w", saName, err)
+		}
+		iamSASystemKeys.Put(saName, serviceAccountSystemKey{
+			Name: saName,
+			PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{
+				Type:  "RSA PRIVATE KEY",
+				Bytes: x509.MarshalPKCS1PrivateKey(generated),
+			})),
+		})
+		key = generated
+	}
+
+	id, err := serviceAccountKeyID(&key.PublicKey)
+	if err != nil {
+		return saSigningMaterial{}, err
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return saSigningMaterial{}, fmt.Errorf("marshal system-managed public key for %s: %w", saName, err)
+	}
+	certPEM, err := serviceAccountCertificatePEM(key, email)
+	if err != nil {
+		return saSigningMaterial{}, err
+	}
+	return saSigningMaterial{
+		key:            key,
+		keyID:          id,
+		publicKeyPEM:   string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})),
+		certificatePEM: certPEM,
+	}, nil
 }
 
-// simSAKeyID derives a stable, opaque key identifier for a service account,
-// mirroring the 40-hex-char keyId real GCP returns in signBlob / signJwt
-// responses. Deterministic per email so repeated signs report the same key.
-func simSAKeyID(email string) string {
-	sum := sha256.Sum256([]byte("sa-signing-key:" + email))
-	return hex.EncodeToString(sum[:20])
+// serviceAccountKeyID derives the 40-hex-char identifier a service-account key
+// is published under from its public half, so the id is stable for the life of
+// the key and changes when the key does.
+func serviceAccountKeyID(pub *rsa.PublicKey) (string, error) {
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return "", fmt.Errorf("marshal service-account public key: %w", err)
+	}
+	sum := sha256.Sum256(der)
+	return hex.EncodeToString(sum[:20]), nil
+}
+
+// serviceAccountPublicKeyData renders a key's published material in the
+// encoding a `publicKeyType` names and returns it base64-encoded, which is how
+// the IAM keys surface carries `publicKeyData`. An empty publicKeyType asks for
+// no material and yields none, matching the API's default.
+func serviceAccountPublicKeyData(publicKeyType, publicKeyPEM, certificatePEM string) (string, error) {
+	switch publicKeyType {
+	case "":
+		return "", nil
+	case "TYPE_RAW_PUBLIC_KEY":
+		return base64.StdEncoding.EncodeToString([]byte(publicKeyPEM)), nil
+	case "TYPE_X509_PEM_FILE":
+		return base64.StdEncoding.EncodeToString([]byte(certificatePEM)), nil
+	default:
+		return "", fmt.Errorf("unknown publicKeyType %q", publicKeyType)
+	}
+}
+
+// saCertificateEpoch fixes the validity window stamped into a service-account
+// certificate so a key's certificate does not drift with the clock.
+var saCertificateEpoch = time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+// serviceAccountCertificatePEM wraps a service-account key in the self-signed
+// X.509 certificate the TYPE_X509_PEM_FILE encoding carries, the way Google
+// publishes a service account's certificate under its own email.
+func serviceAccountCertificatePEM(key *rsa.PrivateKey, email string) (string, error) {
+	id, err := serviceAccountKeyID(&key.PublicKey)
+	if err != nil {
+		return "", err
+	}
+	serialBytes, err := hex.DecodeString(id)
+	if err != nil {
+		return "", fmt.Errorf("decode key id %s: %w", id, err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          new(big.Int).SetBytes(serialBytes),
+		Subject:               pkix.Name{CommonName: email},
+		Issuer:                pkix.Name{CommonName: email},
+		NotBefore:             saCertificateEpoch,
+		NotAfter:              saCertificateEpoch.AddDate(10, 0, 0),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return "", fmt.Errorf("certify service-account key: %w", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), nil
 }
 
 // registerCustomRoles mounts the custom-role CRUD surface for one scope
@@ -2191,23 +2417,28 @@ func gcpNumericID(digits int) string {
 // gcpMakeSAKeyJSON generates a real RSA-2048 key pair and returns the private
 // half encoded as a base64 GCP service-account JSON credential file — matching
 // the exact shape real GCP returns for CreateServiceAccountKey — together with
-// the public half as a PEM-encoded PKIX public key, which the caller registers
-// so the OAuth2 token endpoint can verify assertions signed with this key.
-func gcpMakeSAKeyJSON(project, keyID, email, clientID string) (privateKeyData, publicKeyPEM string, err error) {
+// the two published encodings of the public half. The caller registers those so
+// the OAuth2 token endpoint can verify assertions signed with this key and the
+// keys surface can serve either publicKeyType.
+func gcpMakeSAKeyJSON(project, keyID, email, clientID string) (privateKeyData, publicKeyPEM, certificatePEM string, err error) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return "", "", fmt.Errorf("generate RSA key: %w", err)
+		return "", "", "", fmt.Errorf("generate RSA key: %w", err)
 	}
 	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
-		return "", "", fmt.Errorf("marshal private key: %w", err)
+		return "", "", "", fmt.Errorf("marshal private key: %w", err)
 	}
 	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
 	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
 	if err != nil {
-		return "", "", fmt.Errorf("marshal public key: %w", err)
+		return "", "", "", fmt.Errorf("marshal public key: %w", err)
 	}
 	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+	certPEM, err := serviceAccountCertificatePEM(priv, email)
+	if err != nil {
+		return "", "", "", err
+	}
 
 	payload := map[string]string{
 		"type":                        "service_account",
@@ -2224,9 +2455,9 @@ func gcpMakeSAKeyJSON(project, keyID, email, clientID string) (privateKeyData, p
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return "", "", fmt.Errorf("marshal JSON key: %w", err)
+		return "", "", "", fmt.Errorf("marshal JSON key: %w", err)
 	}
-	return base64.StdEncoding.EncodeToString(data), string(pubPEM), nil
+	return base64.StdEncoding.EncodeToString(data), string(pubPEM), certPEM, nil
 }
 
 // iamLROs holds the long-running operations the IAM admin surface returns for

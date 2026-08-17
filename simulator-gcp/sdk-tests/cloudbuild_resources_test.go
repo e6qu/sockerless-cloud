@@ -2,6 +2,7 @@ package gcp_sdk_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,12 +141,25 @@ func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://ghe-rgn.example.com", got.HostUrl)
 
+	// The listing must be the regional collection under this parent, holding
+	// the config just created: a handler that ignored its parent and answered
+	// with the global collection would still be non-empty.
 	list, err := svc.Projects.Locations.GithubEnterpriseConfigs.List(parent).Do()
 	require.NoError(t, err)
-	assert.NotEmpty(t, list.Configs)
+	found := false
+	for _, c := range list.Configs {
+		assert.True(t, strings.HasPrefix(c.Name, parent+"/githubEnterpriseConfigs/"),
+			"a regional listing must only carry configs under %s; got %s", parent, c.Name)
+		if c.Name == name {
+			found = true
+		}
+	}
+	assert.True(t, found, "created regional GHE config must appear in list")
 
 	_, err = svc.Projects.Locations.GithubEnterpriseConfigs.Delete(name).Do()
 	require.NoError(t, err)
+	_, err = svc.Projects.Locations.GithubEnterpriseConfigs.Get(name).Do()
+	require.Error(t, err, "a deleted regional GHE config must no longer be readable")
 }
 
 // TestCloudBuild_GitLabConfigCRUD round-trips a GitLab source-host config

@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,35 +97,54 @@ func TestLogging_WriteAndListEntries(t *testing.T) {
 	assert.Equal(t, "second entry", messages[1])
 }
 
+// loggingPayloads runs a filter through logadmin.Entries and returns the text
+// payloads of the matching entries, in the order Cloud Logging returned them.
+func loggingPayloads(t *testing.T, client *logadmin.Client, filter string) []string {
+	t.Helper()
+	it := client.Entries(ctx, logadmin.Filter(filter))
+	var payloads []string
+	for {
+		entry, err := it.Next()
+		if err == iterator.Done {
+			return payloads
+		}
+		require.NoError(t, err, "filter %q", filter)
+		s, ok := entry.Payload.(string)
+		require.Truef(t, ok, "entry payload is %T, want a text payload", entry.Payload)
+		payloads = append(payloads, s)
+	}
+}
+
 func TestLogging_FilterByResourceType(t *testing.T) {
 	client := logadminClient(t)
 
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
 
-	// Write entries with different resource types
-	err = writeClient.Logger("filter-test").LogSync(ctx, writeEntryWithResource("cloud_run_job", "job-1", "cloud run entry"))
-	require.NoError(t, err)
-	err = writeClient.Logger("filter-test").LogSync(ctx, writeEntryWithResource("cloud_run_revision", "svc-1", "cloud function entry"))
-	require.NoError(t, err)
-	err = writeClient.Close()
-	require.NoError(t, err)
+	// Two entries in one log, differing only in resource type.
+	logName := "filter-test"
+	logger := writeClient.Logger(logName)
+	require.NoError(t, logger.LogSync(ctx, writeEntryWithResource("cloud_run_job", "job-1", "cloud run entry")))
+	require.NoError(t, logger.LogSync(ctx, writeEntryWithResource("cloud_run_revision", "svc-1", "cloud function entry")))
+	require.NoError(t, writeClient.Close())
 
-	// Filter by resource.type
-	it := client.Entries(ctx, logadmin.Filter(`resource.type="cloud_run_job"`))
+	// The log name scopes the query to this test's two entries, so the
+	// resource.type clause is the only thing that can separate them: a filter
+	// that ignored it would return both.
+	byLogName := fmt.Sprintf(`logName="projects/test-project/logs/%s"`, logName)
+	scope := byLogName + " AND "
 
-	var count int
-	for {
-		entry, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		require.NoError(t, err)
-		assert.Equal(t, "cloud_run_job", entry.Resource.Type)
-		count++
-	}
+	jobs := loggingPayloads(t, client, scope+`resource.type="cloud_run_job"`)
+	assert.Equal(t, []string{"cloud run entry"}, jobs,
+		"resource.type=cloud_run_job must match the job entry and exclude the revision entry")
 
-	assert.GreaterOrEqual(t, count, 1)
+	revisions := loggingPayloads(t, client, scope+`resource.type="cloud_run_revision"`)
+	assert.Equal(t, []string{"cloud function entry"}, revisions)
+
+	// Both entries are reachable without the resource.type clause, so the
+	// exclusions above are the filter's doing and not a missing write.
+	assert.ElementsMatch(t, []string{"cloud run entry", "cloud function entry"},
+		loggingPayloads(t, client, byLogName))
 }
 
 func TestLogging_FilterByTimestamp(t *testing.T) {
@@ -131,27 +153,30 @@ func TestLogging_FilterByTimestamp(t *testing.T) {
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
 
-	err = writeClient.Logger("ts-filter-test").LogSync(ctx, writeEntry("old entry"))
-	require.NoError(t, err)
-	err = writeClient.Logger("ts-filter-test").LogSync(ctx, writeEntry("new entry"))
-	require.NoError(t, err)
-	err = writeClient.Close()
-	require.NoError(t, err)
+	logName := "ts-filter-test"
+	logger := writeClient.Logger(logName)
 
-	// Use a filter that should match all (timestamp >= a very old date)
-	it := client.Entries(ctx, logadmin.Filter(`timestamp>="2020-01-01T00:00:00Z"`))
+	// A cutoff comfortably before the first write, one between the two writes.
+	// The early one is truncated to the second so it is unambiguously earlier
+	// than either entry's sub-second timestamp.
+	beforeAll := time.Now().UTC().Add(-time.Second).Truncate(time.Second).Format(time.RFC3339)
+	require.NoError(t, logger.LogSync(ctx, writeEntry("old entry")))
+	time.Sleep(50 * time.Millisecond)
+	cutoff := time.Now().UTC().Format(time.RFC3339Nano)
+	time.Sleep(50 * time.Millisecond)
+	require.NoError(t, logger.LogSync(ctx, writeEntry("new entry")))
+	require.NoError(t, writeClient.Close())
 
-	var count int
-	for {
-		_, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		require.NoError(t, err)
-		count++
-	}
+	scope := fmt.Sprintf(`logName="projects/test-project/logs/%s" AND `, logName)
 
-	assert.GreaterOrEqual(t, count, 2, "should return entries with timestamps >= 2020")
+	// Both directions around the cutoff. A sim that dropped the timestamp
+	// predicate would return both entries for the second query.
+	assert.Equal(t, []string{"old entry", "new entry"},
+		loggingPayloads(t, client, scope+fmt.Sprintf(`timestamp>="%s"`, beforeAll)),
+		"a cutoff before both writes must return both entries")
+	assert.Equal(t, []string{"new entry"},
+		loggingPayloads(t, client, scope+fmt.Sprintf(`timestamp>="%s"`, cutoff)),
+		"a cutoff between the writes must exclude the earlier entry")
 }
 
 func TestLogging_FilterByTimestampStrictGT(t *testing.T) {
@@ -325,9 +350,42 @@ func TestLogging_MetricCRUD(t *testing.T) {
 	require.Error(t, err)
 }
 
+// loggingSinkPage fetches one page of sinks.list, returning the sink names in
+// wire order plus the page's nextPageToken. Real Cloud Logging returns the short
+// sink identifier in LogSink.name.
+func loggingSinkPage(t *testing.T, listURL, pageToken string) (names []string, next string) {
+	t.Helper()
+	u := listURL
+	if pageToken != "" {
+		sep := "&"
+		if !strings.Contains(u, "?") {
+			sep = "?"
+		}
+		u += sep + "pageToken=" + url.QueryEscape(pageToken)
+	}
+	req, _ := http.NewRequest("GET", u, nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "list %s: %s", u, body)
+	var decoded struct {
+		Sinks         []map[string]any `json:"sinks"`
+		NextPageToken string           `json:"nextPageToken"`
+	}
+	require.NoError(t, json.Unmarshal(body, &decoded))
+	for _, s := range decoded.Sinks {
+		n, ok := s["name"].(string)
+		require.Truef(t, ok, "sink carries no name: %v", s)
+		names = append(names, n)
+	}
+	return names, decoded.NextPageToken
+}
+
 func TestLogging_ListSinks_Pagination(t *testing.T) {
 	const project = "test-project"
-	for _, name := range []string{"pag-sink-a", "pag-sink-b", "pag-sink-c"} {
+	want := []string{"pag-sink-a", "pag-sink-b", "pag-sink-c"}
+	for _, name := range want {
 		body, _ := json.Marshal(map[string]any{
 			"name":        name,
 			"destination": "storage.googleapis.com/my-bucket",
@@ -339,43 +397,45 @@ func TestLogging_ListSinks_Pagination(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
+		created, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		n := name
+		require.Equal(t, http.StatusOK, resp.StatusCode, "create sink %s: %s", name, created)
 		t.Cleanup(func() {
 			req, _ := http.NewRequest("DELETE",
-				fmt.Sprintf("%s/v2/projects/%s/sinks/%s", baseURL, project, n), nil)
-			http.DefaultClient.Do(req)
+				fmt.Sprintf("%s/v2/projects/%s/sinks/%s", baseURL, project, name), nil)
+			resp, err := http.DefaultClient.Do(req)
+			if assert.NoError(t, err, "delete sink %s", name) {
+				resp.Body.Close()
+			}
 		})
 	}
 
+	listURL := fmt.Sprintf("%s/v2/projects/%s/sinks", baseURL, project)
+
+	// The project holds exactly these three sinks, so both the unpaginated list
+	// and the page-by-page walk are pinned exactly.
+	all, next := loggingSinkPage(t, listURL, "")
+	require.Equal(t, want, all)
+	require.Empty(t, next, "a list without pageSize returns everything and no token")
+
+	// pageSize=1 must yield one sink per page, a token on every page but the
+	// last, and no sink twice — a single page carrying all three would satisfy
+	// a union-only assertion while paginating nothing.
 	seen := map[string]bool{}
-	var pageToken string
-	for {
-		u := fmt.Sprintf("%s/v2/projects/%s/sinks?pageSize=1", baseURL, project)
-		if pageToken != "" {
-			u += "&pageToken=" + pageToken
+	var got []string
+	var token string
+	for page := 1; page <= len(want); page++ {
+		names, nextToken := loggingSinkPage(t, listURL+"?pageSize=1", token)
+		require.Lenf(t, names, 1, "pageSize=1 must return exactly one sink (page %d of %d)", page, len(want))
+		require.Falsef(t, seen[names[0]], "sink %q was returned on more than one page", names[0])
+		seen[names[0]] = true
+		got = append(got, names[0])
+		if page < len(want) {
+			require.NotEmptyf(t, nextToken, "page %d of %d must carry a nextPageToken", page, len(want))
+		} else {
+			require.Emptyf(t, nextToken, "the last page must carry no nextPageToken, got %q", nextToken)
 		}
-		req, _ := http.NewRequest("GET", u, nil)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		var body struct {
-			Sinks         []map[string]any `json:"sinks"`
-			NextPageToken string           `json:"nextPageToken"`
-		}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-		resp.Body.Close()
-		for _, s := range body.Sinks {
-			if n, ok := s["name"].(string); ok {
-				seen[n] = true
-			}
-		}
-		pageToken = body.NextPageToken
-		if pageToken == "" {
-			break
-		}
+		token = nextToken
 	}
-	// Real Cloud Logging returns the short sink identifier in LogSink.name.
-	for _, n := range []string{"pag-sink-a", "pag-sink-b", "pag-sink-c"} {
-		assert.True(t, seen[n], "sink %s should appear via pagination", n)
-	}
+	assert.Equal(t, want, got, "the one-sink-per-page walk must reproduce the unpaginated listing, in order")
 }

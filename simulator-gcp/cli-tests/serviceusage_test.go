@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func serviceURL(service string) string {
@@ -52,7 +53,10 @@ func TestServiceUsage_ListPagination(t *testing.T) {
 	listBase := fmt.Sprintf("%s/v1/projects/%s/services", baseURL, project)
 	token := ""
 	pages := 0
-	total := 0
+	// Identities, not a count: a handler that returned the same service on
+	// every page would satisfy a total, so every page's entries are recorded
+	// and a repeat is a failure.
+	seen := map[string]bool{}
 	for {
 		url := listBase + "?pageSize=1"
 		if token != "" {
@@ -66,18 +70,22 @@ func TestServiceUsage_ListPagination(t *testing.T) {
 			NextPageToken string `json:"nextPageToken"`
 		}
 		parseJSON(t, out, &result)
-		assert.LessOrEqual(t, len(result.Services), 1, "pageSize=1 must cap the page")
-		total += len(result.Services)
-		pages++
-		if pages > 200 {
-			t.Fatal("pagination did not terminate")
+		require.LessOrEqual(t, len(result.Services), 1, "pageSize=1 must cap the page")
+		for _, s := range result.Services {
+			require.False(t, seen[s.Name], "service %q was paged out twice", s.Name)
+			seen[s.Name] = true
 		}
+		pages++
+		require.Less(t, pages, 200, "pagination must terminate")
 		token = result.NextPageToken
 		if token == "" {
 			break
 		}
 	}
-	assert.GreaterOrEqual(t, total, len(svcs), "all enabled services must appear across pages")
+	for _, s := range svcs {
+		assert.True(t, seen[fmt.Sprintf("projects/%s/services/%s", project, s)],
+			"service %s must appear across the pages", s)
+	}
 	assert.Greater(t, pages, 1, "with pageSize=1 and multiple services there must be multiple pages")
 }
 

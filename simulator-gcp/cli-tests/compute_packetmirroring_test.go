@@ -1,6 +1,7 @@
 package gcp_cli_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,9 +9,11 @@ import (
 )
 
 // `gcloud compute packet-mirrorings` drives the policy through the real CLI.
-// The CLI builds the resource's nested members — network, collectorIlb,
-// mirroredResources, filter — from its own flags, so this covers the request
-// shape a real operator sends rather than the one the SDK test hand-assembles.
+// The CLI builds the resource's nested members — network, collectorIlb and
+// mirroredResources — from its own flags, resolving each flag value to a
+// resource URL, so this covers the request shape a real operator sends rather
+// than the one the SDK test hand-assembles. Each of those members is read back
+// off the described policy and has to resolve to the resource the flag named.
 func TestGcloudComputePacketMirroring_CRUD(t *testing.T) {
 	// The policy references a network and subnetwork, and creating those
 	// provisions real Linux network fabric — so this runs where that fabric
@@ -87,10 +90,35 @@ func TestGcloudComputePacketMirroring_CRUD(t *testing.T) {
 	})
 
 	out, err = gcloudCLI("compute", "packet-mirrorings", "describe", name,
-		"--region="+region, "--format=value(name,enable)").CombinedOutput()
+		"--region="+region, "--format=json").CombinedOutput()
 	require.NoError(t, err, "describe: %s", out)
-	assert.Contains(t, string(out), name)
-	assert.Contains(t, string(out), "TRUE")
+	var policy struct {
+		Name    string `json:"name"`
+		Enable  string `json:"enable"`
+		Network struct {
+			URL string `json:"url"`
+		} `json:"network"`
+		CollectorIlb struct {
+			URL string `json:"url"`
+		} `json:"collectorIlb"`
+		MirroredResources struct {
+			Subnetworks []struct {
+				URL string `json:"url"`
+			} `json:"subnetworks"`
+		} `json:"mirroredResources"`
+	}
+	parseDescribedResource(t, string(out), &policy)
+	assert.Equal(t, name, policy.Name)
+	assert.Equal(t, "TRUE", policy.Enable)
+	assert.True(t, strings.HasSuffix(policy.Network.URL, "/networks/"+network),
+		"the policy's network resolves to the network the flag named: %q", policy.Network.URL)
+	assert.True(t, strings.HasSuffix(policy.CollectorIlb.URL, "/forwardingRules/"+ilb),
+		"the policy's collector resolves to the internal load balancer: %q", policy.CollectorIlb.URL)
+	require.Len(t, policy.MirroredResources.Subnetworks, 1,
+		"--mirrored-subnets builds one mirrored subnetwork: %s", out)
+	assert.True(t, strings.HasSuffix(policy.MirroredResources.Subnetworks[0].URL, "/subnetworks/"+subnet),
+		"the mirrored subnetwork resolves to the subnet the flag named: %q",
+		policy.MirroredResources.Subnetworks[0].URL)
 
 	out, err = gcloudCLI("compute", "packet-mirrorings", "list",
 		"--format=value(name)").CombinedOutput()

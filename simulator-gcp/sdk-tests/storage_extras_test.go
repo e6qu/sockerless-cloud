@@ -1,6 +1,8 @@
 package gcp_sdk_test
 
 import (
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -241,13 +243,25 @@ func TestGCS_Folders_RoundTrip(t *testing.T) {
 	assert.Equal(t, "storage#folders", list.Kind)
 	require.Len(t, list.Items, 1)
 
-	// Rename returns a long-running operation.
+	// Rename returns a long-running operation. Read the outcome the way a
+	// client does — by polling the operation the rename named until the
+	// collection reports it complete.
 	op, err := svc.Folders.Rename("folders-bucket", "a/", "b/").Do()
 	require.NoError(t, err)
-	assert.True(t, op.Done)
+	require.NotEmpty(t, op.Name)
+	renameID := op.Name[strings.LastIndex(op.Name, "/")+1:]
+	finished := awaitLRO(t, op.Name,
+		func() (*storageapi.GoogleLongrunningOperation, error) {
+			return svc.Operations.Get("folders-bucket", renameID).Do()
+		},
+		func(o *storageapi.GoogleLongrunningOperation) bool { return o.Done })
+	assert.Equal(t, op.Name, finished.Name)
+	assert.Nil(t, finished.Error, "the rename completed without an error")
 
 	_, err = svc.Folders.Get("folders-bucket", "b/").Do()
 	require.NoError(t, err)
+	_, err = svc.Folders.Get("folders-bucket", "a/").Do()
+	require.Error(t, err, "the rename moved the folder rather than copying it")
 
 	require.NoError(t, svc.Folders.Delete("folders-bucket", "b/").Do())
 }
@@ -318,17 +332,41 @@ func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
 		perms.Permissions)
 }
 
+// buckets.lockRetentionPolicy and buckets.restore each answer with the bucket
+// the request named: the resource that comes back is the stored bucket, carrying
+// the retention policy the caller put on it, and a bucket the service does not
+// hold is NOT_FOUND from both rather than an invented resource.
 func TestGCS_BucketLockRetentionPolicy(t *testing.T) {
 	svc := storageService(t)
 	mustCreateBucket(t, svc, "lock-bucket")
 
+	patched, err := svc.Buckets.Patch("lock-bucket", &storageapi.Bucket{
+		RetentionPolicy: &storageapi.BucketRetentionPolicy{RetentionPeriod: 60},
+	}).Do()
+	require.NoError(t, err)
+	require.NotNil(t, patched.RetentionPolicy, "the bucket keeps the retention policy it was given")
+	assert.EqualValues(t, 60, patched.RetentionPolicy.RetentionPeriod)
+
 	b, err := svc.Buckets.LockRetentionPolicy("lock-bucket", 1).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "lock-bucket", b.Name)
+	require.NotNil(t, b.RetentionPolicy,
+		"the lock answers with the bucket's own retention policy, not a bare name")
+	assert.EqualValues(t, 60, b.RetentionPolicy.RetentionPeriod)
 
 	restored, err := svc.Buckets.Restore("lock-bucket", 1).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "lock-bucket", restored.Name)
+	require.NotNil(t, restored.RetentionPolicy)
+	assert.EqualValues(t, 60, restored.RetentionPolicy.RetentionPeriod)
+
+	// Neither verb invents a bucket the service does not hold.
+	_, err = svc.Buckets.LockRetentionPolicy("no-such-lock-bucket", 1).Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+	_, err = svc.Buckets.Restore("no-such-lock-bucket", 1).Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
 }
 
 func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
@@ -341,7 +379,17 @@ func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#operation", op.Kind)
-	require.True(t, op.Done)
+	require.NotEmpty(t, op.Name)
+	// Read the insert's outcome off the operations collection the way a client
+	// does, rather than trusting the field on the create response.
+	insertID := op.Name[strings.LastIndex(op.Name, "/")+1:]
+	settled := awaitLRO(t, op.Name,
+		func() (*storageapi.GoogleLongrunningOperation, error) {
+			return svc.Operations.Get("cache-bucket", insertID).Do()
+		},
+		func(o *storageapi.GoogleLongrunningOperation) bool { return o.Done })
+	assert.Equal(t, op.Name, settled.Name)
+	assert.Nil(t, settled.Error, "the cache insert completed without an error")
 
 	list, err := svc.AnywhereCaches.List("cache-bucket").Do()
 	require.NoError(t, err)
@@ -426,10 +474,28 @@ func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 	assert.Empty(t, running.Operations)
 
 	// Cancel and advance are best effort against a recorded operation; both
-	// resolve the name rather than accepting anything.
+	// resolve the name rather than accepting anything. A client learns what
+	// became of the operation by reading it back, and what it reads is the
+	// record the relocation wrote: the work was already complete when its name
+	// reached the client, so neither verb erases the record nor moves it out of
+	// the completed set.
 	require.NoError(t, svc.Operations.Cancel("ops-bucket", id).Do())
+	afterCancel, err := svc.Operations.Get("ops-bucket", id).Do()
+	require.NoError(t, err, "the cancelled operation is still a record the collection answers about")
+	assert.Equal(t, started.Name, afterCancel.Name)
+	assert.True(t, afterCancel.Done, "a cancel of completed work leaves it completed")
+
 	require.NoError(t, svc.Operations.AdvanceRelocateBucket("ops-bucket", id,
 		&storageapi.AdvanceRelocateBucketOperationRequest{Ttl: "3600s"}).Do())
+	afterAdvance, err := svc.Operations.Get("ops-bucket", id).Do()
+	require.NoError(t, err, "advancing does not discard the operation it advanced")
+	assert.Equal(t, started.Name, afterAdvance.Name)
+	assert.True(t, afterAdvance.Done)
+
+	stillListed, err := svc.Operations.List("ops-bucket").Do()
+	require.NoError(t, err)
+	require.Len(t, stillListed.Operations, 1, "the collection still holds the one operation")
+	assert.Equal(t, started.Name, stillListed.Operations[0].Name)
 
 	// A bucket the service does not hold has no operations collection.
 	_, err = svc.Operations.List("no-such-ops-bucket").Do()
@@ -523,13 +589,29 @@ func TestGCS_BucketRelocate(t *testing.T) {
 	assert.Equal(t, "US", defaulted.Location)
 }
 
+// channels.stop stops a watch channel. The method's Discovery declaration gives
+// it no response schema, so the reply a client has to be able to decode is an
+// empty 200 — asserted both through the SDK round-trip and on the wire, because
+// a body here would break the generated client's decode.
 func TestGCS_ChannelsStop(t *testing.T) {
 	svc := storageService(t)
-	err := svc.Channels.Stop(&storageapi.Channel{
+	require.NoError(t, svc.Channels.Stop(&storageapi.Channel{
 		Id:         "channel-1",
 		ResourceId: "resource-1",
-	}).Do()
+	}).Do())
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		baseURL+"/storage/v1/channels/stop",
+		strings.NewReader(`{"id":"channel-1","resourceId":"resource-1"}`))
 	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := simAuthHTTPClient().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+	assert.Empty(t, body, "channels.stop declares no response body")
 }
 
 func TestGCS_ObjectInsertMetadataOnly(t *testing.T) {
@@ -541,8 +623,26 @@ func TestGCS_ObjectInsertMetadataOnly(t *testing.T) {
 	obj, err := svc.Objects.Insert("obj-insert-bucket", &storageapi.Object{
 		Name:        "empty.txt",
 		ContentType: "text/plain",
+		Metadata:    map[string]string{"origin": "metadata-only"},
 	}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "empty.txt", obj.Name)
 	assert.Equal(t, "obj-insert-bucket", obj.Bucket)
+	assert.Equal(t, "text/plain", obj.ContentType)
+	assert.EqualValues(t, 0, obj.Size)
+
+	// The insert created the object, so the collection answers about it with
+	// the fields the insert supplied.
+	got, err := svc.Objects.Get("obj-insert-bucket", "empty.txt").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "empty.txt", got.Name)
+	assert.Equal(t, "obj-insert-bucket", got.Bucket)
+	assert.Equal(t, "text/plain", got.ContentType, "the supplied contentType persisted")
+	assert.EqualValues(t, 0, got.Size, "a metadata-only insert makes a zero-length object")
+	assert.Equal(t, map[string]string{"origin": "metadata-only"}, got.Metadata)
+
+	list, err := svc.Objects.List("obj-insert-bucket").Do()
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, "empty.txt", list.Items[0].Name)
 }

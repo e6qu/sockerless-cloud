@@ -73,12 +73,29 @@ func TestPubSub_SchemaLifecycle(t *testing.T) {
 	assert.Equal(t, avroDef, rolled.Definition, "rollback restores the first revision's definition")
 	assert.NotEqual(t, firstRev, rolled.RevisionId)
 
-	// DeleteRevision removes the second revision; head remains.
+	// Three revisions exist at this point: the create, the commit, the rollback.
+	revsBefore, err := svc.Projects.Schemas.ListRevisions(schemaName).Do()
+	require.NoError(t, err)
+	require.Len(t, revsBefore.Schemas, 3, "create + commit + rollback are three revisions")
+
+	// DeleteRevision removes the revision it names — that one and no other.
 	_, err = svc.Projects.Schemas.DeleteRevision(schemaName).RevisionId(secondRev).Do()
 	require.NoError(t, err)
 	revs2, err := svc.Projects.Schemas.ListRevisions(schemaName).Do()
 	require.NoError(t, err)
 	assert.Len(t, revs2.Schemas, 2, "two revisions remain after deleting one of three")
+	remaining := make([]string, 0, len(revs2.Schemas))
+	for _, s := range revs2.Schemas {
+		remaining = append(remaining, s.RevisionId)
+	}
+	assert.NotContains(t, remaining, secondRev, "the named revision is the one that went")
+	assert.ElementsMatch(t, []string{firstRev, rolled.RevisionId}, remaining,
+		"the revisions the delete did not name are all still there")
+
+	// A revision id the schema does not have is NOT_FOUND, so the delete is
+	// resolving the id rather than dropping whichever revision it reaches first.
+	_, err = svc.Projects.Schemas.DeleteRevision(schemaName).RevisionId(secondRev).Do()
+	require.Error(t, err, "the revision is already gone")
 
 	_, err = svc.Projects.Schemas.Delete(schemaName).Do()
 	require.NoError(t, err)
@@ -87,7 +104,9 @@ func TestPubSub_SchemaLifecycle(t *testing.T) {
 }
 
 // TestPubSub_SchemaValidate covers the collection-level validate and
-// validateMessage verbs.
+// validateMessage verbs, in both directions: what each verb accepts, and what
+// each rejects with INVALID_ARGUMENT / NOT_FOUND. A verb that accepted
+// everything would pass the acceptance half alone.
 func TestPubSub_SchemaValidate(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "schema-validate-project"
@@ -98,6 +117,20 @@ func TestPubSub_SchemaValidate(t *testing.T) {
 		Schema: &pubsub.Schema{Type: "AVRO", Definition: avroDef},
 	}).Do()
 	require.NoError(t, err, "validate accepts a typed, non-empty schema")
+
+	// A schema type outside the enum is INVALID_ARGUMENT.
+	_, err = svc.Projects.Schemas.Validate(parent, &pubsub.ValidateSchemaRequest{
+		Schema: &pubsub.Schema{Type: "BOGUS", Definition: avroDef},
+	}).Do()
+	require.Error(t, err, "validate rejects a type outside the schema enum")
+	assert.Contains(t, err.Error(), "400")
+
+	// So is a schema with no definition to validate.
+	_, err = svc.Projects.Schemas.Validate(parent, &pubsub.ValidateSchemaRequest{
+		Schema: &pubsub.Schema{Type: "AVRO"},
+	}).Do()
+	require.Error(t, err, "validate rejects a schema carrying no definition")
+	assert.Contains(t, err.Error(), "400")
 
 	// validate against an ad-hoc schema + a message.
 	_, err = svc.Projects.Schemas.ValidateMessage(parent, &pubsub.ValidateMessageRequest{
@@ -118,6 +151,32 @@ func TestPubSub_SchemaValidate(t *testing.T) {
 		Encoding: "JSON",
 	}).Do()
 	require.NoError(t, err, "validateMessage accepts a named schema + message")
+
+	// A name no schema was created under is NOT_FOUND, so validateMessage is
+	// resolving the schema it was pointed at.
+	_, err = svc.Projects.Schemas.ValidateMessage(parent, &pubsub.ValidateMessageRequest{
+		Name:     parent + "/schemas/no-such-schema",
+		Message:  "eyJpZCI6ImEifQ==",
+		Encoding: "JSON",
+	}).Do()
+	require.Error(t, err, "validateMessage rejects a schema name the project does not hold")
+	assert.Contains(t, err.Error(), "404")
+
+	// Neither a schema nor a name leaves nothing to validate against.
+	_, err = svc.Projects.Schemas.ValidateMessage(parent, &pubsub.ValidateMessageRequest{
+		Message:  "eyJpZCI6ImEifQ==",
+		Encoding: "JSON",
+	}).Do()
+	require.Error(t, err, "validateMessage needs either a name or an inline schema")
+	assert.Contains(t, err.Error(), "400")
+
+	// A request with a schema but no message has nothing to validate.
+	_, err = svc.Projects.Schemas.ValidateMessage(parent, &pubsub.ValidateMessageRequest{
+		Schema:   &pubsub.Schema{Type: "AVRO", Definition: avroDef},
+		Encoding: "JSON",
+	}).Do()
+	require.Error(t, err, "validateMessage requires the message it validates")
+	assert.Contains(t, err.Error(), "400")
 }
 
 // TestPubSub_SchemaIAM round-trips an IAM policy on a schema resource
@@ -168,7 +227,7 @@ func TestPubSub_ResourceIAM(t *testing.T) {
 			func(req *pubsub.TestIamPermissionsRequest) (*pubsub.TestIamPermissionsResponse, error) {
 				return svc.Projects.Topics.TestIamPermissions(topic, req).Do()
 			},
-			"pubsub.topics.publish",
+			"pubsub.topics.get",
 		)
 	})
 	t.Run("subscription", func(t *testing.T) {
@@ -180,7 +239,7 @@ func TestPubSub_ResourceIAM(t *testing.T) {
 			func(req *pubsub.TestIamPermissionsRequest) (*pubsub.TestIamPermissionsResponse, error) {
 				return svc.Projects.Subscriptions.TestIamPermissions(sub, req).Do()
 			},
-			"pubsub.subscriptions.consume",
+			"pubsub.subscriptions.get",
 		)
 	})
 	t.Run("snapshot", func(t *testing.T) {
@@ -192,14 +251,21 @@ func TestPubSub_ResourceIAM(t *testing.T) {
 			func(req *pubsub.TestIamPermissionsRequest) (*pubsub.TestIamPermissionsResponse, error) {
 				return svc.Projects.Snapshots.TestIamPermissions(snap, req).Do()
 			},
-			"pubsub.snapshots.seek",
+			"pubsub.snapshots.get",
 		)
 	})
 }
 
 // assertIAMRoundTrip runs the getIamPolicy → setIamPolicy → getIamPolicy
-// → testIamPermissions sequence and asserts the binding persists and the
-// permission echoes back.
+// → testIamPermissions sequence. The policy half is the behavioural half: the
+// binding the caller set is the binding a later read returns.
+//
+// The testIamPermissions half pins the route and the response shape only. The
+// simulator serves a single caller who owns every resource, so the reply is the
+// requested set — it is not an authorization decision about the binding above,
+// and the permission asked for is therefore one the bound role really carries,
+// so the assertion cannot be read as a claim the caller was granted something
+// the policy withheld.
 func assertIAMRoundTrip(
 	t *testing.T,
 	get func() (*pubsub.Policy, error),
@@ -228,7 +294,7 @@ func assertIAMRoundTrip(
 
 	res, err := test(&pubsub.TestIamPermissionsRequest{Permissions: []string{perm}})
 	require.NoError(t, err, "testIamPermissions")
-	assert.Equal(t, []string{perm}, res.Permissions, "echoes the requested permission")
+	assert.Equal(t, []string{perm}, res.Permissions, "the response carries the requested set")
 }
 
 // TestPubSub_TopicSubCollections lists the snapshots and subscriptions
