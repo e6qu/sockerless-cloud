@@ -251,26 +251,60 @@ terraform {
 TF
 }
 
+# The release before the newest, for the exact-pin cases: an exact pin names the
+# one version Terraform may install, so being one release behind is drift even
+# though the major matches.
+tf_previous="$(curl -fsSL "https://registry.terraform.io/v1/providers/$tf_provider" |
+	jq -er '[.versions[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(split(".") | map(tonumber)) | .[-2]')"
+if ! [[ "$tf_previous" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+	echo "FAIL terraform fixture: the registry did not report a previous version for $tf_provider" >&2
+	exit 1
+fi
+
 # Negative control for the section itself: it reads required_providers wherever
-# Terraform puts it, and a constraint a major behind the newest adoptable
+# Terraform puts it, and a range constraint a major behind the newest adoptable
 # release is red. A Terraform section that matched no file at all would pass
 # this fixture in silence and prove nothing.
-write_tf "$((tf_major - 1)).0.0"
+write_tf "~> $((tf_major - 1)).0"
 commit_repo "$tf_repo"
 run_check "$tf_repo"
 expect_status 1 'terraform: a stale major is drift'
-expect_says "constraint $((tf_major - 1)).0.0 vs latest adoptable" 'terraform: a stale major is drift'
+expect_says "constraint ~> $((tf_major - 1)).0 vs latest adoptable" 'terraform: a stale major is drift'
 
-write_tf "${tf_major}.0.0"
+# A range constraint admits newer releases by itself, so only its major has to
+# keep up.
+write_tf "~> ${tf_major}.0"
 run_check "$tf_repo"
-expect_status 0 'terraform: a current major is clean'
-expect_silent_about 'FAIL' 'terraform: a current major is clean'
+expect_status 0 'terraform: a current major range is clean'
+expect_silent_about 'FAIL' 'terraform: a current major range is clean'
 
+# An exact pin is held to the exact newest adoptable release: one release back
+# is drift even inside the current major, which is the case that had been
+# passing silently.
+write_tf "$tf_previous"
+run_check "$tf_repo"
+expect_status 1 'terraform: an exact pin one release behind is drift'
+expect_says "pinned at $tf_previous vs latest adoptable" 'terraform: an exact pin one release behind is drift'
+
+write_tf "$tf_latest"
+run_check "$tf_repo"
+expect_status 0 'terraform: an exact pin at the newest release is clean'
+expect_silent_about 'FAIL' 'terraform: an exact pin at the newest release is clean'
+
+# Under a window wide enough to quarantine the newest releases, the pin is
+# newer than anything adoptable — the state a freshly bumped pin is in for its
+# first day. That is held, not a demand to downgrade.
 run_check "$tf_repo" "DEPS_ADOPTION_QUARANTINE_SECONDS=$wide_window"
 expect_status 0 'terraform: releases inside the window are held'
 expect_says 'HELD' 'terraform: releases inside the window are held'
 expect_says "$tf_provider" 'terraform: releases inside the window are held'
 expect_silent_about 'FAIL' 'terraform: releases inside the window are held'
+
+write_tf "~> ${tf_major}.0"
+run_check "$tf_repo" "DEPS_ADOPTION_QUARANTINE_SECONDS=$wide_window"
+expect_status 0 'terraform: a range constraint inside the window is held'
+expect_says 'HELD' 'terraform: a range constraint inside the window is held'
+expect_silent_about 'FAIL' 'terraform: a range constraint inside the window is held'
 
 if ((failures > 0)); then
 	echo "$failures adoption quarantine test(s) failed" >&2

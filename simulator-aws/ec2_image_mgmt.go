@@ -451,15 +451,14 @@ func handleDescribeImageUsageReportEntries(w http.ResponseWriter, r *http.Reques
 // DescribeImportImageTasks read side over the export/import task stores.
 
 // ec2ExportImageFieldsXML renders the fields of a DescribeExportImageTasks item
-// (minus the wrapping element).
+// (minus the wrapping element). An ExportImageTask carries fewer members than
+// the ExportImage response that started it: the disk image format and the role
+// the export assumes belong to the request and its immediate answer, and Amazon
+// EC2 does not report either back on the task.
 func ec2ExportImageFieldsXML(t EC2ExportImageTask) string {
 	desc := ""
 	if t.Description != "" {
 		desc = fmt.Sprintf("<description>%s</description>", xmlEscape(t.Description))
-	}
-	role := ""
-	if t.RoleName != "" {
-		role = fmt.Sprintf("<roleName>%s</roleName>", xmlEscape(t.RoleName))
 	}
 	status := ""
 	if t.StatusMessage != "" {
@@ -467,8 +466,8 @@ func ec2ExportImageFieldsXML(t EC2ExportImageTask) string {
 	}
 	s3 := fmt.Sprintf("<s3ExportLocation><s3Bucket>%s</s3Bucket><s3Prefix>%s</s3Prefix></s3ExportLocation>",
 		xmlEscape(t.S3Bucket), xmlEscape(t.S3Prefix))
-	return fmt.Sprintf("%s<diskImageFormat>%s</diskImageFormat><exportImageTaskId>%s</exportImageTaskId><imageId>%s</imageId>%s<progress>%s</progress>%s<status>%s</status>%s%s",
-		desc, t.DiskImageFormat, t.ExportImageTaskId, t.ImageId, role, t.Progress, s3, t.Status, status, writeTagSetXML(t.Tags))
+	return fmt.Sprintf("%s<exportImageTaskId>%s</exportImageTaskId><imageId>%s</imageId><progress>%s</progress>%s<status>%s</status>%s%s",
+		desc, t.ExportImageTaskId, t.ImageId, t.Progress, s3, t.Status, status, writeTagSetXML(t.Tags))
 }
 
 func handleDescribeExportImageTasks(w http.ResponseWriter, r *http.Request) {

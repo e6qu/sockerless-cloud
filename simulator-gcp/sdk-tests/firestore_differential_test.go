@@ -8,7 +8,9 @@ import (
 	"math/big"
 	"net"
 	"os/exec"
+	"regexp"
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 
@@ -284,15 +286,46 @@ func fsCanonValue(v any) any {
 	}
 }
 
-// startFirestoreEmulator launches Google's Firestore emulator via gcloud (the
-// gcp CI job installs gcloud + the cloud-firestore-emulator component; the runner
-// ships a JRE). It fails loud when gcloud is unavailable — a required tool the
-// CI provides, never a silent skip — and when the emulator can't start.
+// startFirestoreEmulator launches Google's Firestore emulator via gcloud. The
+// gcp CI job installs all three things it needs: the Google Cloud CLI, the
+// cloud-firestore-emulator component, and a Java 21 or newer runtime, which the
+// emulator refuses to start without. Each is a required tool, so a missing one
+// fails loud rather than skipping.
+// requireFirestoreEmulatorJava fails with the actual reason when the Java on
+// PATH is too old for the emulator. Without this the emulator process starts,
+// refuses in its own output, and the failure reads as "the emulator did not
+// open its port in time" ninety seconds later.
+func requireFirestoreEmulatorJava(t *testing.T) {
+	t.Helper()
+	javaPath, err := exec.LookPath("java")
+	if err != nil {
+		t.Fatalf("the Cloud Firestore emulator runs on Java and none is on PATH; install a Java 21+ runtime (the gcp CI job provides one): %v", err)
+	}
+	// `java -version` writes to stderr on every release that ever shipped.
+	out, err := exec.Command(javaPath, "-version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s -version failed, so the Java the Cloud Firestore emulator would run on cannot be identified: %v\n%s", javaPath, err, out)
+	}
+	version := regexp.MustCompile(`version "(\d+)`).FindSubmatch(out)
+	if version == nil {
+		t.Fatalf("could not read a version out of %s -version; the Cloud Firestore emulator requires Java 21 or newer:\n%s", javaPath, out)
+	}
+	major, err := strconv.Atoi(string(version[1]))
+	if err != nil {
+		t.Fatalf("could not read a version out of %s -version: %v\n%s", javaPath, err, out)
+	}
+	if major < 21 {
+		t.Fatalf("the Cloud Firestore emulator requires Java 21 or newer and %s is Java %d; install a newer runtime (the gcp CI job installs Temurin 25):\n%s",
+			javaPath, major, out)
+	}
+}
+
 func startFirestoreEmulator(t *testing.T) (host string, stop func()) {
 	t.Helper()
 	if _, err := exec.LookPath("gcloud"); err != nil {
-		t.Fatalf("gcloud is required for the Firestore emulator differential test; install the Google Cloud CLI, the cloud-firestore-emulator component, and a JRE (the gcp CI job provides all three): %v", err)
+		t.Fatalf("gcloud is required for the Firestore emulator differential test; install the Google Cloud CLI, the cloud-firestore-emulator component, and a Java 21+ runtime (the gcp CI job provides all three): %v", err)
 	}
+	requireFirestoreEmulatorJava(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("free port: %v", err)
@@ -307,7 +340,7 @@ func startFirestoreEmulator(t *testing.T) (host string, stop func()) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("could not launch the Firestore emulator; install the cloud-firestore-emulator gcloud component and a JRE (the gcp CI job provides both): %v", err)
+		t.Fatalf("could not launch the Firestore emulator; install the cloud-firestore-emulator gcloud component and a Java 21+ runtime (the gcp CI job provides both): %v", err)
 	}
 	stop = func() {
 		if cmd.Process != nil {

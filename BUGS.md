@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 21. Resolved: 44.
+Open: 19. Resolved: 46.
 
 ## Open
 
@@ -178,23 +178,23 @@ the simulators from the sockerless monorepo, keeping their IDs
   bodies are now asserted on the wire in the SDK suite and through the Azure
   command-line client, which is as far as a real client can consume them.
 
-- **BUG-54 (the ECS reconciler bypasses the deregistration delay):** The service
-  reconciler adds and removes target-group targets immediately, while the API
-  handler now drains them for the configured delay. Real Elastic Load Balancing
-  deregisters through the delay however the removal was requested, so a scaled-in
-  service task disappears from the target group in a way a real one would not.
-  Fix shape: route the reconciler's removals through the same marking the
-  handler uses.
-
-- **BUG-55 (AWS provider pins are checked by major version only):** Ten Terraform
-  files pin the AWS provider at an exact version while the freshness comparison
-  comes down to the major, so a pin ten minor versions behind is silent. Found
-  when the Terraform section of that check began running at all — it had globbed
-  a filename this repository does not use, so it had been exiting successfully on
-  no input. Decide whether major-only is the intended contract or the pins should
-  be held exactly; the Google and Azure modules pin no version at all.
-
 ## Resolved history
+
+- **BUG-54 (the ECS reconciler bypassed the deregistration delay):** The Amazon
+  ECS service reconciler now deregisters a target-group target the way the API
+  does — marking it draining and letting the target group's deregistration
+  delay run — rather than removing it the moment its task stops, so a scaled-in
+  task leaves the target group the way Elastic Load Balancing makes one leave
+  it. A task running again at a draining address cancels the drain, as
+  registering that target would, and a zero delay still completes at once. Both
+  paths were observed failing against the unfixed reconciler.
+
+- **BUG-55 (AWS provider pins were checked by major version only):** An exact
+  Terraform provider pin is now compared exactly: it names the one version
+  Terraform may install, so it is behind the moment a newer one clears the
+  adoption quarantine. A constraint carrying an operator admits newer versions
+  by itself and keeps the major-only comparison. Ten `hashicorp/aws` pins were
+  ten minor versions behind and silent; they moved to 6.60.0 in the same pass.
 
 - **BUG-48 (three Elastic Load Balancing target-health gaps):** A target group
   no listener rule forwards to now reports its targets unused rather than being

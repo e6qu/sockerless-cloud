@@ -346,6 +346,35 @@ while IFS= read -r tf; do
       held=$((held + 1))
       continue
     fi
+    # An exact pin names the one version Terraform may install, so it is behind
+    # the moment a newer one is adoptable. Comparing its major only would let a
+    # pin sit ten minor versions back and still read as current, which is what
+    # every AWS provider pin in this repository was doing. A constraint carrying
+    # an operator ("~> 6.0", ">= 6.1.0") admits newer versions by itself, so
+    # only its major has to keep up.
+    exact_pin=$(echo "$ver_constraint" | sed -E 's/^[[:space:]]*=?[[:space:]]*//')
+    if [[ "$exact_pin" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      if [[ "$exact_pin" == "$ADOPTABLE" ]]; then
+        if [[ -n "$HELD_NOTE" ]]; then
+          echo "  HELD  $tf: $name ($source) pinned at $exact_pin: $HELD_NOTE — inside the ${quarantine_seconds}s adoption quarantine, so it is not drift yet"
+          held=$((held + 1))
+        fi
+        continue
+      fi
+      # A pin newer than the newest adoptable release is a version still inside
+      # the quarantine window, which is the state a freshly bumped pin is in for
+      # its first day. That is held, not drift: reporting it would demand a
+      # downgrade of the very version the last upgrade adopted.
+      newer=$(printf '%s\n%s\n' "$exact_pin" "$ADOPTABLE" | sort -V | tail -1)
+      if [[ "$newer" == "$exact_pin" ]]; then
+        echo "  HELD  $tf: $name ($source) pinned at $exact_pin, newer than the latest adoptable $ADOPTABLE — inside the ${quarantine_seconds}s adoption quarantine, so it is not drift"
+        held=$((held + 1))
+        continue
+      fi
+      echo "  FAIL  $tf: $name ($source) pinned at $exact_pin vs latest adoptable $ADOPTABLE (bump the pin, then \`terraform init -upgrade\`)"
+      fail=$((fail + 1))
+      continue
+    fi
     constraint_major=$(echo "$ver_constraint" | sed -E 's/[^0-9]*([0-9]+).*/\1/')
     latest_major=$(echo "$ADOPTABLE" | sed -E 's/^([0-9]+).*/\1/')
     if [[ "$constraint_major" != "$latest_major" ]]; then
@@ -392,26 +421,34 @@ gh_api() {
 #
 # A GitHub Release is the moment a version becomes something people install, so
 # its `published_at` is the timestamp that matters and is used whenever the tag
-# has one. Tags cut without a release carry only git's own record: an annotated
-# tag object's `tagger.date`, or, for a lightweight tag — which stores no
-# metadata of its own — the committer date of the commit it names. Anything
-# unresolvable prints nothing, and the caller fails the run.
+# has one. The release is fetched for that one tag rather than looked up in a
+# page of the repository's releases: the list endpoint has been observed
+# answering 200 with an empty array for a repository whose releases exist and
+# are individually readable, and an absence read out of that page is
+# indistinguishable from a tag that carries no release — which would silently
+# age a version by days, adopting it before its quarantine had run. A 404 here
+# says the tag genuinely has no release; anything else is a failure.
+#
+# Tags cut without a release carry only git's own record: an annotated tag
+# object's `tagger.date`, or, for a lightweight tag — which stores no metadata
+# of its own — the committer date of the commit it names. Anything unresolvable
+# prints nothing, and the caller fails the run.
 gh_tag_publish_time() {
   local tag=$1
-  local slug releases obj ref_type ref_sha ts
-  slug=$(printf '%s' "$LOOKUP_SUBJECT" | tr '/' '_')
-  releases="$work/gh-releases-$slug.json"
-  if [[ ! -f $releases ]]; then
-    gh_api "https://api.github.com/repos/$LOOKUP_SUBJECT/releases?per_page=100" "$releases" || {
-      rm -f "$releases"
-      return 1
-    }
-  fi
-  ts=$(jq -r --arg t "$tag" 'map(select(.tag_name == $t))[0].published_at // empty' "$releases" 2>/dev/null || true)
-  if [[ -n $ts ]]; then
-    printf '%s\n' "$ts"
-    return 0
-  fi
+  local release obj ref_type ref_sha ts code
+  release="$work/gh-release.json"
+  code=$(curl -sSL -o "$release" -w '%{http_code}' "${github_headers[@]}" \
+    "https://api.github.com/repos/$LOOKUP_SUBJECT/releases/tags/$tag" 2>/dev/null || echo 000)
+  case "$code" in
+    200)
+      ts=$(jq -r '.published_at // empty' "$release" 2>/dev/null || true)
+      [[ -n $ts ]] || return 1
+      printf '%s\n' "$ts"
+      return 0
+      ;;
+    404) ;; # the tag carries no release, so git's own record is all there is
+    *) return 1 ;;
+  esac
   obj="$work/gh-object.json"
   gh_api "https://api.github.com/repos/$LOOKUP_SUBJECT/git/ref/tags/$tag" "$obj" || return 1
   ref_type=$(jq -r '.object.type // empty' "$obj")

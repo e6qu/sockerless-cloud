@@ -479,3 +479,42 @@ func parseJSON(t *testing.T, data string, target any) {
 	}
 	t.Fatalf("Output carries no complete JSON value.\nData: %s", data)
 }
+
+// parseDescribedResource decodes the one resource a `gcloud ... describe
+// --format=json` printed, whichever way the client rendered it. Some Compute
+// Engine collections render a described resource as a one-element list rather
+// than as an object, and which ones do has changed between releases: a describe
+// that prints an object under Google Cloud SDK 566 prints a one-element list
+// under the 2026.08 components CI installs. Both renderings say the same thing,
+// that exactly one resource was described. No resource, or more than one, still
+// fails — this decodes a single describe rather than leniently parsing whatever
+// arrived.
+func parseDescribedResource(t *testing.T, data string, target any) {
+	t.Helper()
+	for i, r := range data {
+		if r != '[' && r != '{' {
+			continue
+		}
+		if !json.Valid([]byte(data[i:])) {
+			continue
+		}
+		if r == '{' {
+			if err := json.Unmarshal([]byte(data[i:]), target); err != nil {
+				t.Fatalf("Failed to parse described resource into %T: %v\nData: %s", target, err, data)
+			}
+			return
+		}
+		var rendered []json.RawMessage
+		if err := json.Unmarshal([]byte(data[i:]), &rendered); err != nil {
+			t.Fatalf("Failed to parse describe output as a list: %v\nData: %s", err, data)
+		}
+		if len(rendered) != 1 {
+			t.Fatalf("A describe names one resource, so it renders one; got %d.\nData: %s", len(rendered), data)
+		}
+		if err := json.Unmarshal(rendered[0], target); err != nil {
+			t.Fatalf("Failed to parse described resource into %T: %v\nData: %s", target, err, data)
+		}
+		return
+	}
+	t.Fatalf("Output carries no complete JSON value.\nData: %s", data)
+}

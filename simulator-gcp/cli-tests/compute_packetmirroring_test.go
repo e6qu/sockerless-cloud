@@ -107,7 +107,7 @@ func TestGcloudComputePacketMirroring_CRUD(t *testing.T) {
 			} `json:"subnetworks"`
 		} `json:"mirroredResources"`
 	}
-	parseJSONObject(t, string(out), &policy)
+	parseDescribedResource(t, string(out), &policy)
 	assert.Equal(t, name, policy.Name)
 	assert.Equal(t, "TRUE", policy.Enable)
 	assert.True(t, strings.HasSuffix(policy.Network.URL, "/networks/"+network),

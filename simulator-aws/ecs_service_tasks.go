@@ -962,21 +962,55 @@ func ecsSyncServiceLoadBalancerTargets(service ECSService) {
 				desired[key] = target
 			}
 		}
+		// A task the service no longer runs is deregistered rather than dropped:
+		// Elastic Load Balancing drains a target for the target group's
+		// deregistration delay however the removal was requested, so a scaled-in
+		// task leaves the target group the same way DeregisterTargets makes one
+		// leave it.
+		deregisteringAt := time.Now()
+		var draining []ELBv2TargetDescription
 		elbv2TargetGroups.Update(binding.TargetGroupArn, func(group *ELBv2TargetGroup) {
+			draining = nil
+			held := map[string]bool{}
 			next := make([]ELBv2TargetDescription, 0, len(group.Targets)+len(desired))
 			for _, target := range group.Targets {
-				if !managed[ecsServiceTargetKey(target)] {
+				key := ecsServiceTargetKey(target)
+				if !managed[key] {
+					next = append(next, target)
+					continue
+				}
+				if replacement, ok := desired[key]; ok {
+					// A task running again at an address that is still draining
+					// cancels the drain, as registering that target would.
+					next = append(next, replacement)
+					held[key] = true
+					continue
+				}
+				if target.DeregisteringAt.IsZero() {
+					target.DeregisteringAt = deregisteringAt
+					draining = append(draining, target)
+				}
+				next = append(next, target)
+				held[key] = true
+			}
+			for key, target := range desired {
+				if !held[key] {
 					next = append(next, target)
 				}
-			}
-			for _, target := range desired {
-				next = append(next, target)
 			}
 			sort.Slice(next, func(i, j int) bool {
 				return ecsServiceTargetKey(next[i]) < ecsServiceTargetKey(next[j])
 			})
 			group.Targets = next
 		})
+		// The checker stops maintaining a verdict for a target the moment it
+		// starts draining, and a zero delay finishes the deregistration now.
+		for _, target := range draining {
+			elbv2ForgetTargetHealth(binding.TargetGroupArn, target)
+		}
+		if len(draining) > 0 {
+			elbv2CompleteDueDeregistrations(deregisteringAt)
+		}
 	}
 }
 

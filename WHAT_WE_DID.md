@@ -69,6 +69,55 @@ measured. The condition-key ratchet was the same shape — hand-written booleans
 no code had to agree with — and probing them showed three keys never reach the
 request path.
 
+## 2026-08-17 — What running the newly-wired suites found
+
+The suites the sweep put back into the pipeline immediately reported, and each
+report was a real divergence rather than a test that needed loosening.
+
+Two Amazon EC2 members and one AWS Glue member were reported to clients that no
+model declares. An `ExportImageTask` carries fewer members than the
+`ExportImage` response that starts it — the disk image format and the role the
+export assumes belong to the request and its answer, not to the task — and a
+batch-get of iterable forms answers `IterableFormItem` members, where the
+description belongs to the list item's different shape.
+
+The virtual network's DDoS protection status is a long-running operation whose
+final state comes via Location, and answering the list synchronously is a shape
+no client is built for: the official Azure SDK builds its pager out of the
+polled result and discards the one it constructed, so a synchronous body is
+never read and the pager it hands back panics on first use. The operation now
+answers 202 with the Location its result is read from, and an operation can
+record the payload its Location poll serves — Azure Resource Manager serves the
+operation's result there rather than the status envelope.
+
+The security-group host-firewall test registered a namespace interface with no
+task behind it, a state the simulator never produces, so the reapply it exercised
+had nothing to find; the fixture now stores the task the interface belongs to,
+which is where both the live attach and the reapply read the groups from. An
+Azure Container Apps replica's console assertion waited for the first log line
+of any kind, which the platform's own lifecycle line always wins, so the
+assertion read an incomplete console; both such waits now wait for the
+workload's own output. An AWS Glue Python shell job's completion budget still
+assumed a host process rather than the container it now runs in.
+
+Writing the exact-pin rule surfaced one more defect in the freshness check
+itself. A version's publication time was read out of a page of the repository's
+releases, and the GitHub list endpoint has been observed answering 200 with an
+empty array for a repository whose releases exist and are individually
+readable. An absence read out of that page is indistinguishable from a tag that
+carries no release, so the check fell through to the git tag's own date and
+aged the version by days — adopting it before its quarantine had run. The
+release is now fetched for the one tag, where a 404 says the tag genuinely
+carries no release and anything else fails.
+
+Two host dependencies had drifted. The Cloud Firestore emulator's component now
+refuses anything below a Java 21 runtime, and the runner's default is older, so
+the runtime is installed rather than assumed and the harness names that
+requirement instead of reporting a port that never opened. And a Compute Engine
+describe renders as a one-element list under the client CI installs while
+rendering as an object under an older one, so the described resource is decoded
+from either rendering — still exactly one resource, or a failure.
+
 ## 2026-08-17 — Continuous integration that fails only for reasons this branch caused
 
 A publish is no longer cancelled by the next merge. The concurrency group was

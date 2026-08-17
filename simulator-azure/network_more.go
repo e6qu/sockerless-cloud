@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -282,7 +283,9 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/ServiceAssociationLinks", linkList)
 
 	// VirtualNetworks_ListDdosProtectionStatus — the DDoS protection status of
-	// every public IP attached (through a NIC) to a subnet of the vnet.
+	// every public IP attached (through a NIC) to a subnet of the vnet. The
+	// operation is long-running with its final state via Location, so it
+	// answers 202 and the addresses are read from the Location poll.
 	srv.HandleFunc("POST "+armBase+"/virtualNetworks/{vnetName}/ddosProtectionStatus", func(w http.ResponseWriter, r *http.Request) {
 		vnetID := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
 			"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
@@ -308,7 +311,30 @@ func registerNetworkMoreOps(srv *sim.Server) {
 				})
 			}
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": results})
+		// Answering the list on the initial response is a shape no client is
+		// built for: the official SDK builds its pager out of the polled
+		// result and drops the one it constructed, so the body that arrived
+		// here would never be read.
+		vnet, ok := azureVnets.Get(vnetID)
+		if !ok {
+			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				"The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.",
+				sim.PathParam(r, "vnetName"), sim.PathParam(r, "resourceGroupName"))
+			return
+		}
+		payload, err := json.Marshal(map[string]any{"value": results})
+		if err != nil {
+			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+				"The DDoS protection status could not be rendered: %v", err)
+			return
+		}
+		opID := issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
+			return payload, nil
+		})
+		w.Header().Set("Location", azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),
+			"Microsoft.Network", vnet.Location, "operationResults", opID, r.URL.Query().Get("api-version")))
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusAccepted)
 	})
 }
 

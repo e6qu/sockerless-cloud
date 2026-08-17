@@ -282,6 +282,17 @@ jobs:
         with:
           path: ~/.cache/sockerless/firecracker-ci
           key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
+      # The Cloud Firestore emulator is a Java program, and the component
+      # refuses anything below a Java 21 runtime — it announces that support for
+      # 21 itself ends after gcloud 576.0.0, so this installs the version Google
+      # points at. The runner's own `java` is older, and the emulator refuses to
+      # start on it.
+      - name: Install the Java runtime the Cloud Firestore emulator requires
+        if: matrix.cloud == 'gcp'
+        uses: actions/setup-java@v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
       - name: Install gcloud CLI
         if: matrix.cloud == 'gcp'
         run: |
@@ -294,7 +305,8 @@ jobs:
           tar -xzf "$archive" -C "$HOME"
           echo "$HOME/google-cloud-sdk/bin" >> "$GITHUB_PATH"
           # The Firestore-emulator component is the differential-test oracle for
-          # TestFirestore_DifferentialVsEmulator (the runner ships a JRE).
+          # TestFirestore_DifferentialVsEmulator; the step above provides the
+          # Java runtime it runs on.
           "$HOME/google-cloud-sdk/bin/gcloud" components install cloud-firestore-emulator beta --quiet
       - name: Install Azure CLI
         if: matrix.cloud == 'azure'

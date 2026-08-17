@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -648,4 +649,146 @@ func TestReRegisteringADrainingTargetReturnsItToService(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, inService.Targets, 1)
 	require.Equal(t, elbv2TargetStateHealthy, elbv2TargetHealthFor(inService, inService.Targets[0]).State)
+}
+
+// TestServiceScaleInDrainsItsTargetRatherThanDroppingIt holds the Amazon ECS
+// service reconciler to the same deregistration Elastic Load Balancing performs
+// however the removal was requested. A service whose task stops deregisters
+// that task's target, and "the initial state of a deregistering target is
+// draining" — the target group keeps it, and stops routing to it, until the
+// deregistration delay elapses. A reconciler that removes the target outright
+// makes a scaled-in task disappear in a way a real one does not.
+func TestServiceScaleInDrainsItsTargetRatherThanDroppingIt(t *testing.T) {
+	elbv2TargetHealthTestStores()
+	port, _ := countingHealthCheckTarget(t, http.StatusOK)
+	const delaySeconds = 60
+	tg := putELBv2HealthCheckedTargetGroup("scale-in-tg", port, func(tg *ELBv2TargetGroup) {
+		tg.Attributes[elbv2DeregistrationDelayAttribute] = strconv.Itoa(delaySeconds)
+		// The reconciler registers the service's tasks; nothing is registered
+		// before it runs.
+		tg.Targets = nil
+	})
+
+	service := elbv2ServiceBoundToTargetGroup(t, tg)
+	task := elbv2ServiceTaskAtAddress(service, "127.0.0.1", ECSTaskStatusRunning)
+	ecsTasks.Put(task.TaskID(), task)
+
+	ecsSyncServiceLoadBalancerTargets(service)
+	registered, ok := elbv2TargetGroups.Get(tg.Arn)
+	require.True(t, ok)
+	require.Len(t, registered.Targets, 1,
+		"the reconciler did not register the running task's target")
+	require.True(t, registered.Targets[0].DeregisteringAt.IsZero())
+
+	elbv2SweepTargets(context.Background(), time.Now())
+	require.Equal(t, elbv2TargetStateHealthy,
+		elbv2TargetHealthFor(registered, registered.Targets[0]).State)
+
+	// The task stops, as it does when the service scales in.
+	task.LastStatus = ECSTaskStatusStopped
+	ecsTasks.Put(task.TaskID(), task)
+	ecsSyncServiceLoadBalancerTargets(service)
+
+	drained, ok := elbv2TargetGroups.Get(tg.Arn)
+	require.True(t, ok)
+	require.Len(t, drained.Targets, 1,
+		"the reconciler removed the target instead of deregistering it, so it never drained")
+	health := elbv2TargetHealthFor(drained, drained.Targets[0])
+	require.Equal(t, elbv2TargetStateDraining, health.State)
+	require.Equal(t, elbv2ReasonDeregistrationInProgress, health.Reason)
+	require.False(t, elbv2TargetReceivesTraffic(drained, drained.Targets[0]),
+		"the load balancer kept routing to a target the service deregistered")
+
+	deregisteredAt := drained.Targets[0].DeregisteringAt
+	require.False(t, deregisteredAt.IsZero())
+	elbv2SweepTargets(context.Background(), deregisteredAt.Add((delaySeconds-1)*time.Second))
+	stillDraining, ok := elbv2TargetGroups.Get(tg.Arn)
+	require.True(t, ok)
+	require.Len(t, stillDraining.Targets, 1,
+		"the target left the target group before its deregistration delay elapsed")
+
+	elbv2SweepTargets(context.Background(), deregisteredAt.Add(delaySeconds*time.Second))
+	gone, ok := elbv2TargetGroups.Get(tg.Arn)
+	require.True(t, ok)
+	require.Empty(t, gone.Targets,
+		"the target stayed in the target group after its deregistration delay elapsed")
+}
+
+// TestServiceTaskRunningAgainCancelsItsDrain covers the other half of the
+// reconciler's deregistration: a task running again at an address that is still
+// draining returns that target to service, as registering it again does.
+func TestServiceTaskRunningAgainCancelsItsDrain(t *testing.T) {
+	elbv2TargetHealthTestStores()
+	port, _ := countingHealthCheckTarget(t, http.StatusOK)
+	tg := putELBv2HealthCheckedTargetGroup("scale-out-tg", port, func(tg *ELBv2TargetGroup) {
+		tg.Attributes[elbv2DeregistrationDelayAttribute] = "300"
+		tg.Targets = nil
+	})
+
+	service := elbv2ServiceBoundToTargetGroup(t, tg)
+	task := elbv2ServiceTaskAtAddress(service, "127.0.0.1", ECSTaskStatusRunning)
+	ecsTasks.Put(task.TaskID(), task)
+	ecsSyncServiceLoadBalancerTargets(service)
+
+	task.LastStatus = ECSTaskStatusStopped
+	ecsTasks.Put(task.TaskID(), task)
+	ecsSyncServiceLoadBalancerTargets(service)
+	draining, ok := elbv2TargetGroups.Get(tg.Arn)
+	require.True(t, ok)
+	require.Len(t, draining.Targets, 1)
+	require.False(t, draining.Targets[0].DeregisteringAt.IsZero())
+
+	task.LastStatus = ECSTaskStatusRunning
+	ecsTasks.Put(task.TaskID(), task)
+	ecsSyncServiceLoadBalancerTargets(service)
+
+	returned, ok := elbv2TargetGroups.Get(tg.Arn)
+	require.True(t, ok)
+	require.Len(t, returned.Targets, 1)
+	require.True(t, returned.Targets[0].DeregisteringAt.IsZero(),
+		"the target stayed in deregistration after its task was running again")
+
+	elbv2SweepTargets(context.Background(), time.Now())
+	inService, ok := elbv2TargetGroups.Get(tg.Arn)
+	require.True(t, ok)
+	require.Equal(t, elbv2TargetStateHealthy,
+		elbv2TargetHealthFor(inService, inService.Targets[0]).State)
+}
+
+// elbv2ServiceBoundToTargetGroup stores a service whose load-balancer binding
+// forwards the target group's port to a named container, which is what the
+// reconciler reads to derive its targets.
+func elbv2ServiceBoundToTargetGroup(t *testing.T, tg ELBv2TargetGroup) ECSService {
+	t.Helper()
+	bindings, err := json.Marshal([]map[string]any{{
+		"targetGroupArn": tg.Arn,
+		"containerName":  "web",
+		"containerPort":  tg.Port,
+	}})
+	require.NoError(t, err)
+	service := ECSService{
+		ServiceArn:    ecsArn("service", "target-health/"+tg.Name+"-svc"),
+		ServiceName:   tg.Name + "-svc",
+		ClusterArn:    ecsArn("cluster", "target-health"),
+		LoadBalancers: bindings,
+	}
+	ecsServices.Put(service.ServiceArn, service)
+	return service
+}
+
+// elbv2ServiceTaskAtAddress builds a task in the service's group whose `web`
+// container holds the given address, which is the target an `ip` target group
+// registers.
+func elbv2ServiceTaskAtAddress(service ECSService, address string, status ECSTaskStatus) ECSTask {
+	return ECSTask{
+		TaskArn:       ecsArn("task", "target-health/"+address),
+		ClusterArn:    service.ClusterArn,
+		Group:         ecsServiceTaskGroup(service.ServiceName),
+		LastStatus:    status,
+		DesiredStatus: ECSTaskStatusRunning,
+		Containers: []ECSTaskContainer{{
+			Name:              "web",
+			NetworkInterfaces: []ECSNetworkInterface{{PrivateIpv4Address: address}},
+		}},
+	}
 }

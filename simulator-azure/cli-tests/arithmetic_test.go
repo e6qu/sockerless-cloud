@@ -2,6 +2,7 @@ package azure_cli_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -65,16 +66,30 @@ func TestContainerApps_CLI_ArithmeticEval(t *testing.T) {
 	// TimeGenerated stamps and identifiers, so any row landing at 14 minutes
 	// or 14 seconds past the hour satisfies it and the workload could have
 	// printed anything at all.
-	var lines []string
-	require.Eventually(t, func() bool {
-		lines = containerAppLogLines(t, "ContainerGroupName_s", jobName)
-		return len(lines) > 0
-	}, 60*time.Second, 300*time.Millisecond, "the job's console output never reached Log Analytics")
+	lines := waitForContainerAppLogLine(t, "ContainerGroupName_s", jobName, "14", 60*time.Second)
 	assert.Contains(t, lines, "14",
 		"the workload evaluates (3 + 4) * 2 and prints the result; its console lines were %q", lines)
 
 	// Cleanup
 	runCLI(t, azRest("DELETE", jobURL, ""))
+}
+
+// waitForContainerAppLogLine polls Log Analytics until the workload's own
+// output lands, and returns whatever lines it saw when it stopped waiting.
+// Waiting for the first line of any kind is a race the platform always wins:
+// a replica logs that it started before the workload inside it prints
+// anything, so the wait ends on a lifecycle line and the assertion that
+// follows reads an incomplete console.
+func waitForContainerAppLogLine(t *testing.T, column, name, want string, budget time.Duration) []string {
+	t.Helper()
+	deadline := time.Now().Add(budget)
+	for {
+		lines := containerAppLogLines(t, column, name)
+		if slices.Contains(lines, want) || !time.Now().Before(deadline) {
+			return lines
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // containerAppLogLines reads the console lines Log Analytics holds for one

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -24,6 +25,13 @@ type AsyncOperationStatus struct {
 	// (`{"error":{"code":...,"message":...}}`); present only on Failed
 	// operations, exactly as real Azure Resource Manager emits it.
 	Error *AsyncOperationError `json:"error,omitempty"`
+	// Result is what the Location poll answers with once an operation whose
+	// final state comes via Location succeeds: Azure Resource Manager serves
+	// the operation's own result there rather than the status envelope, and a
+	// paged operation's client reads its first page out of it. It is stored so
+	// it survives a restart alongside the operation it belongs to, and never
+	// appears in the operationStatuses envelope.
+	Result json.RawMessage `json:"result,omitempty"`
 }
 
 // AsyncOperationError is the error member of a Failed ARM operation envelope.
@@ -80,6 +88,19 @@ func issueAzureAsyncOperation(complete func()) string {
 // failed-operation error envelope, exactly as real Azure Resource Manager
 // reports a long-running operation whose backend work failed.
 func issueAzureAsyncOperationOutcome(complete func() *AsyncOperationError) string {
+	return issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
+		if complete == nil {
+			return nil, nil
+		}
+		return nil, complete()
+	})
+}
+
+// issueAzureAsyncOperationResult is the form for an operation whose final
+// state comes via Location: the completion callback returns the payload the
+// Location poll answers with, which is the operation's result rather than its
+// status envelope.
+func issueAzureAsyncOperationResult(complete func() (json.RawMessage, *AsyncOperationError)) string {
 	opID := generateUUID()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	azureAsyncOps.Put(opID, AsyncOperationStatus{
@@ -90,14 +111,17 @@ func issueAzureAsyncOperationOutcome(complete func() *AsyncOperationError) strin
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		var opErr *AsyncOperationError
+		var result json.RawMessage
 		if complete != nil {
-			opErr = complete()
+			result, opErr = complete()
 		}
 		azureAsyncOps.Update(opID, func(op *AsyncOperationStatus) {
 			op.Status = "Succeeded"
+			op.Result = result
 			if opErr != nil {
 				op.Status = "Failed"
 				op.Error = opErr
+				op.Result = nil
 			}
 			op.EndTime = time.Now().UTC().Format(time.RFC3339Nano)
 		})
@@ -149,5 +173,13 @@ func handleAzureAsyncOperationStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// An operation that recorded a result serves it from the Location route,
+	// which is where a final-state-via-location client reads the operation's
+	// own payload. The status envelope never carries it.
+	if strings.Contains(r.URL.Path, "/operationResults/") && len(op.Result) > 0 {
+		sim.WriteJSON(w, http.StatusOK, op.Result)
+		return
+	}
+	op.Result = nil
 	sim.WriteJSON(w, http.StatusOK, op)
 }

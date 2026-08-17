@@ -148,11 +148,7 @@ func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
 	// of any row landing at 54 seconds past the minute, so a substring search
 	// passes for a replica that printed something else entirely — or that
 	// printed nothing and left only a stamp behind.
-	var lines []string
-	require.Eventually(t, func() bool {
-		lines = containerAppLogLines(t, "ContainerAppName_s", appName)
-		return len(lines) > 0
-	}, 30*time.Second, 250*time.Millisecond, "the replica's console output never reached Log Analytics")
+	lines := waitForContainerAppLogLine(t, "ContainerAppName_s", appName, "54", 60*time.Second)
 	assert.Contains(t, lines, "54",
 		"the replica evaluates 9 * 6 and prints the result; its console lines were %q", lines)
 }

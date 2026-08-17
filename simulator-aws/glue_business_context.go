@@ -1100,7 +1100,10 @@ func handleGlueBatchGetIterableForms(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Iterable form not found: "+req.IterableFormName)
 		return
 	}
-	items := make([]GlueBusinessIterableItem, 0, len(req.ItemIdentifiers))
+	// A batch-get answers with IterableFormItem members — the item's forms,
+	// attachments and glossary terms. The description belongs to the list
+	// item, which is a different shape, so it is not reported here.
+	items := make([]map[string]any, 0, len(req.ItemIdentifiers))
 	errors := make([]map[string]any, 0)
 	for _, identifier := range req.ItemIdentifiers {
 		item, ok := form.Items[identifier]
@@ -1113,7 +1116,17 @@ func handleGlueBatchGetIterableForms(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if ok {
-			items = append(items, item)
+			entry := map[string]any{"ItemId": item.ItemId, "ItemName": item.ItemName}
+			if len(item.GlossaryTerms) > 0 {
+				entry["GlossaryTerms"] = item.GlossaryTerms
+			}
+			if len(item.Forms) > 0 {
+				entry["Forms"] = item.Forms
+			}
+			if len(item.Attachments) > 0 {
+				entry["Attachments"] = item.Attachments
+			}
+			items = append(items, entry)
 		} else {
 			errors = append(errors, map[string]any{
 				"ItemIdentifier": identifier, "Code": "EntityNotFoundException",
