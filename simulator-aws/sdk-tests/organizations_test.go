@@ -254,6 +254,19 @@ func TestOrganizations_Policies(t *testing.T) {
 	})
 	require.NoError(t, err)
 	tagPolicyID := aws.ToString(tagPolicy.Policy.PolicySummary.Id)
+
+	// A policy governs a target only once its type is enabled in the root.
+	// Service control policies are enabled in every root; a tag policy is not
+	// until someone enables it, and attaching one before that is refused.
+	_, err = c.AttachPolicy(ctx, &organizations.AttachPolicyInput{
+		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
+	})
+	assert.Equal(t, "PolicyTypeNotEnabledException", errCode(t, err),
+		"a tag policy cannot be attached before tag policies are enabled in the root")
+	_, err = c.EnablePolicyType(ctx, &organizations.EnablePolicyTypeInput{
+		RootId: aws.String(root), PolicyType: orgtypes.PolicyTypeTagPolicy,
+	})
+	require.NoError(t, err)
 	_, err = c.AttachPolicy(ctx, &organizations.AttachPolicyInput{
 		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
 	})
@@ -290,12 +303,17 @@ func TestOrganizations_Policies(t *testing.T) {
 	_, err = c.DeletePolicy(ctx, &organizations.DeletePolicyInput{PolicyId: aws.String(pid)})
 	require.NoError(t, err)
 
-	// Enable then disable a non-default policy type on the root.
-	en, err := c.EnablePolicyType(ctx, &organizations.EnablePolicyTypeInput{RootId: aws.String(root), PolicyType: orgtypes.PolicyTypeTagPolicy})
-	require.NoError(t, err)
-	require.NotNil(t, en.Root)
+	// The type enabled above comes back off the root, and the root reports it
+	// gone.
 	_, err = c.DisablePolicyType(ctx, &organizations.DisablePolicyTypeInput{RootId: aws.String(root), PolicyType: orgtypes.PolicyTypeTagPolicy})
 	require.NoError(t, err)
+	roots, err := c.ListRoots(ctx, &organizations.ListRootsInput{})
+	require.NoError(t, err)
+	require.Len(t, roots.Roots, 1)
+	for _, enabled := range roots.Roots[0].PolicyTypes {
+		assert.NotEqual(t, orgtypes.PolicyTypeTagPolicy, enabled.Type,
+			"the disabled policy type must be gone from the root")
+	}
 }
 
 // TestOrganizations_Handshakes covers Invite/Describe/List/Accept/Decline/Cancel.

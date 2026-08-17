@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 46.
+Open: 20. Resolved: 47.
 
 ## Open
 
@@ -14,6 +14,20 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. |
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
+
+- **BUG-56 (the job fan-out throttles GitHub's own action download):** Two jobs
+  of one run died in setup with `429 (Too Many Requests)` fetching
+  `actions/setup-go` from codeload, after the three attempts the runner makes on
+  its own — `sim (aws cli ecs)` and `browser (simulator-aws)` on run
+  32037273208, with no repository code executed in either. The workflow starts
+  around forty-six jobs at once and every one of them downloads the same three
+  action tarballs within seconds of each other, which is the burst being
+  throttled. It presents as an unrelated pair of red cells that pass on a
+  re-run, so it costs a re-run each time and, worse, teaches a reader to re-run
+  red cells. Fix shape: cut the simultaneous fan-out (a matrix `max-parallel`
+  low enough that the tarball fetches spread out, traded against wall clock), or
+  stop fetching the actions per job at all. Do not paper over it with a retry
+  wrapper: the runner already retried three times.
 
 - **BUG-20 (the container reaper leaves workload containers running for
   days):** Simulator workload containers outlive the simulator that created
@@ -179,6 +193,15 @@ the simulators from the sockerless monorepo, keeping their IDs
   command-line client, which is as far as a real client can consume them.
 
 ## Resolved history
+
+- **BUG-57 (AttachPolicy accepted a policy type the root had not enabled):**
+  Attaching a policy now requires its type to be enabled in the root, which is
+  what makes a policy govern a target at all — service control policies are
+  enabled in every root, and every other type has to be enabled first. Stored
+  without that check, a tag policy nobody enabled resolved through
+  DescribeEffectivePolicy as though it governed the target, a policy decision
+  the organization never made. Both suites enable the type before attaching and
+  assert the refusal before that.
 
 - **BUG-54 (the ECS reconciler bypassed the deregistration delay):** The Amazon
   ECS service reconciler now deregisters a target-group target the way the API

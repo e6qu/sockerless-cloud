@@ -118,6 +118,39 @@ describe renders as a one-element list under the client CI installs while
 rendering as an object under an older one, so the described resource is decoded
 from either rendering — still exactly one resource, or a failure.
 
+## 2026-08-17 — The second round of what CI reported
+
+The provider bump the freshness rule forced turned up a fidelity gap of its
+own. `terraform-provider-aws` 6.60.0 waits for a REST API to report itself
+available before it deploys to one, and the simulator reported no status at
+all, so the wait ran out against a state it had never seen. API Gateway carries
+`apiStatus` on a REST API; the simulator's is usable the moment its create
+returns, so that is the status it reports from creation onward.
+
+Two suites were pinning behaviour the branch had corrected. The Amazon ECS
+load-balancer test asserted that a replaced task's target vanished, which was
+the reconciler's old behaviour and not the service's — it now asserts what
+Elastic Load Balancing does, the replacement in service alongside the stopped
+task's address draining. And the Organizations command-line suite still asked
+for the effective form of a service control policy, which the simulator had
+started refusing the way the service does; it asserts the refusal now and reads
+a tag policy's effective form instead.
+
+Writing that assertion found one more divergence. Attaching a policy did not
+require its type to be enabled in the root, which is what makes a policy govern
+a target at all: a tag policy nobody enabled attached cleanly and then resolved
+through the effective-policy read as though the organization had chosen it.
+Both suites enable the type before attaching now, and assert the refusal before
+that.
+
+Left open and filed: two jobs of one run died in setup with `429` fetching
+`actions/setup-go` from codeload, after the three attempts the runner makes on
+its own, with no repository code executed in either. The workflow starts around
+forty-six jobs at once and every one downloads the same action tarballs within
+seconds. The repair — cutting the simultaneous fan-out, or not fetching the
+actions per job — is a continuous-integration-wide wall-clock trade-off rather
+than a fix to make silently, so it is recorded rather than applied.
+
 ## 2026-08-17 — Continuous integration that fails only for reasons this branch caused
 
 A publish is no longer cancelled by the next merge. The concurrency group was

@@ -185,8 +185,49 @@ func TestOrganizationsCLI_Policies(t *testing.T) {
 		t.Fatalf("list-targets-for-policy missing root target: %s", tfpOut)
 	}
 
-	// Effective SCP at the root.
-	runCLI(t, awsCLI("organizations", "describe-effective-policy", "--policy-type", "SERVICE_CONTROL_POLICY", "--target-id", root, "--output", "json"))
+	// A service control policy has no effective form: EffectivePolicyType is a
+	// narrower enum than PolicyType, because an SCP is evaluated as an
+	// intersection along the path rather than merged into one document. Asking
+	// for one is refused.
+	scpEffective := runCLIExpectError(t, awsCLI("organizations", "describe-effective-policy",
+		"--policy-type", "SERVICE_CONTROL_POLICY", "--target-id", root, "--output", "json"))
+	if !strings.Contains(scpEffective, "InvalidInputException") {
+		t.Fatalf("describe-effective-policy for a service control policy must be refused as InvalidInputException: %s", scpEffective)
+	}
+
+	// A tag policy does have one, and it resolves to the content attached to
+	// this target.
+	tagContent := `{"tags":{"CostCenter":{"tag_key":{"@@assign":"CostCenter"}}}}`
+	tagOut := runCLI(t, awsCLI("organizations", "create-policy", "--name", "CLITagCostCenter",
+		"--description", "requires a cost centre tag key", "--type", "TAG_POLICY",
+		"--content", tagContent, "--output", "json"))
+	var tagPolicy struct {
+		Policy struct {
+			PolicySummary struct {
+				Id string `json:"Id"`
+			} `json:"PolicySummary"`
+		} `json:"Policy"`
+	}
+	parseJSON(t, tagOut, &tagPolicy)
+	tagPolicyID := tagPolicy.Policy.PolicySummary.Id
+
+	// A policy governs a target only once its type is enabled in the root, so
+	// attaching one of a type nobody enabled is refused.
+	notEnabled := runCLIExpectError(t, awsCLI("organizations", "attach-policy",
+		"--policy-id", tagPolicyID, "--target-id", root))
+	if !strings.Contains(notEnabled, "PolicyTypeNotEnabledException") {
+		t.Fatalf("attaching a tag policy before the type is enabled must be refused as PolicyTypeNotEnabledException: %s", notEnabled)
+	}
+	runCLI(t, awsCLI("organizations", "enable-policy-type", "--root-id", root, "--policy-type", "TAG_POLICY", "--output", "json"))
+	runCLI(t, awsCLI("organizations", "attach-policy", "--policy-id", tagPolicyID, "--target-id", root))
+	effOut := runCLI(t, awsCLI("organizations", "describe-effective-policy",
+		"--policy-type", "TAG_POLICY", "--target-id", root, "--output", "json"))
+	if !strings.Contains(effOut, "CostCenter") {
+		t.Fatalf("the effective tag policy must be the content attached to this target: %s", effOut)
+	}
+	runCLI(t, awsCLI("organizations", "detach-policy", "--policy-id", tagPolicyID, "--target-id", root))
+	runCLI(t, awsCLI("organizations", "delete-policy", "--policy-id", tagPolicyID))
+	runCLI(t, awsCLI("organizations", "disable-policy-type", "--root-id", root, "--policy-type", "TAG_POLICY", "--output", "json"))
 
 	runCLI(t, awsCLI("organizations", "detach-policy", "--policy-id", pid, "--target-id", root))
 	runCLI(t, awsCLI("organizations", "delete-policy", "--policy-id", pid))

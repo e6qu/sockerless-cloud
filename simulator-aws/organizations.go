@@ -1067,6 +1067,23 @@ func handleOrgUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 
 func orgAttachmentKey(policyID, targetID string) string { return policyID + "|" + targetID }
 
+// orgPolicyTypeEnabled reports whether a policy of this type may govern a
+// target: SERVICE_CONTROL_POLICY is enabled in every root, and every other
+// type has to be enabled with EnablePolicyType first.
+func orgPolicyTypeEnabled(policyType string) bool {
+	if policyType == "" || policyType == "SERVICE_CONTROL_POLICY" {
+		return true
+	}
+	for _, root := range orgRoots.List() {
+		for _, enabled := range root.EnabledPolicyTypes {
+			if enabled == policyType {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func handleOrgAttachPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PolicyId string `json:"PolicyId"`
@@ -1082,6 +1099,16 @@ func handleOrgAttachPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	if !orgTargetExists(req.TargetId) {
 		sim.AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
+		return
+	}
+	// A policy governs a target only if its type is enabled in the root, so
+	// attaching one of a type nobody enabled is refused rather than stored:
+	// stored, it would resolve through DescribeEffectivePolicy as though it
+	// governed the target, which is a policy decision the organization never
+	// made. Service control policies are enabled in every root by default.
+	policy, _ := orgPolicies.Get(req.PolicyId)
+	if !orgPolicyTypeEnabled(policy.Type) {
+		sim.AWSError(w, "PolicyTypeNotEnabledException", "The specified policy type isn't currently enabled in this root.", http.StatusBadRequest)
 		return
 	}
 	key := orgAttachmentKey(req.PolicyId, req.TargetId)
