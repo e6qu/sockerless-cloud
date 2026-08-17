@@ -112,8 +112,13 @@ carries no release and anything else fails.
 
 Two host dependencies had drifted. The Cloud Firestore emulator's component now
 refuses anything below a Java 21 runtime, and the runner's default is older, so
-the runtime is installed rather than assumed and the harness names that
-requirement instead of reporting a port that never opened. And a Compute Engine
+the newest installed runtime that satisfies it goes on PATH ahead of the
+default and the harness names that requirement instead of reporting a port that
+never opened. Reading what the runner already has, rather than adding an action
+that installs one, is deliberate: the runner downloads every action a workflow
+references before it evaluates any step's condition, so a step scoped to one
+cloud still costs every job in the matrix another tarball fetch from the
+service already throttling them. And a Compute Engine
 describe renders as a one-element list under the client CI installs while
 rendering as an object under an older one, so the described resource is decoded
 from either rendering — still exactly one resource, or a failure.

@@ -283,16 +283,40 @@ jobs:
           path: ~/.cache/sockerless/firecracker-ci
           key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       # The Cloud Firestore emulator is a Java program, and the component
-      # refuses anything below a Java 21 runtime — it announces that support for
-      # 21 itself ends after gcloud 576.0.0, so this installs the version Google
-      # points at. The runner's own `java` is older, and the emulator refuses to
-      # start on it.
-      - name: Install the Java runtime the Cloud Firestore emulator requires
+      # refuses anything below a Java 21 runtime, which the runner's default
+      # `java` is not. The runner does ship newer runtimes alongside it, each
+      # announced through a JAVA_HOME_<major>_<arch> variable, so the newest one
+      # that satisfies the emulator goes on PATH ahead of the default.
+      #
+      # Deliberately not actions/setup-java: the runner downloads every action a
+      # workflow references before it evaluates any step's condition, so a
+      # gcp-only action step costs every job in the matrix one more tarball
+      # fetch from codeload — and those fetches are already being throttled
+      # (BUG-56). A step that reads what is installed costs nothing.
+      - name: Put the Java runtime the Cloud Firestore emulator requires on PATH
         if: matrix.cloud == 'gcp'
-        uses: actions/setup-java@v5.7.0
-        with:
-          distribution: temurin
-          java-version: '25'
+        run: |
+          best=""
+          best_major=0
+          while IFS='=' read -r name home; do
+            case "$name" in JAVA_HOME_*) ;; *) continue ;; esac
+            major=${name#JAVA_HOME_}
+            major=${major%%_*}
+            case "$major" in ''|*[!0-9]*) continue ;; esac
+            [ -x "$home/bin/java" ] || continue
+            [ "$major" -ge 21 ] || continue
+            [ "$major" -gt "$best_major" ] || continue
+            best_major=$major
+            best=$home
+          done <<<"$(env)"
+          if [ -z "$best" ]; then
+            echo "No Java 21+ runtime is installed on this runner; the Cloud Firestore emulator cannot start without one." >&2
+            env | grep '^JAVA_HOME' >&2 || echo "(the runner announced no JAVA_HOME_* runtimes at all)" >&2
+            exit 1
+          fi
+          echo "Using Java $best_major from $best"
+          echo "$best/bin" >> "$GITHUB_PATH"
+          echo "JAVA_HOME=$best" >> "$GITHUB_ENV"
       - name: Install gcloud CLI
         if: matrix.cloud == 'gcp'
         run: |
