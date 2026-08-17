@@ -51,7 +51,7 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 		http.Error(w, "no matching load balancer listener", http.StatusNotFound)
 		return
 	}
-	targetGroup, target, ok := elbv2HealthyTargetForListener(r.Context(), listener)
+	targetGroup, target, ok := elbv2HealthyTargetForListener(listener)
 	if !ok {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
 		return
@@ -92,7 +92,12 @@ func elbv2DataPlaneListenerPort(r *http.Request) int {
 	return 80
 }
 
-func elbv2HealthyTargetForListener(ctx context.Context, listener ELBv2Listener) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
+// elbv2HealthyTargetForListener picks a target the load balancer may forward
+// to. A load balancer routes from the health its checker maintains — "Each
+// load balancer node routes requests only to the healthy targets in the
+// enabled Availability Zones" — rather than checking a target because a
+// request arrived for it.
+func elbv2HealthyTargetForListener(listener ELBv2Listener) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
 	for _, action := range listener.DefaultActions {
 		if action.TargetGroupArn == "" {
 			continue
@@ -102,7 +107,7 @@ func elbv2HealthyTargetForListener(ctx context.Context, listener ELBv2Listener) 
 			continue
 		}
 		for _, target := range tg.Targets {
-			if elbv2ProbeTarget(ctx, tg, target) == "healthy" {
+			if elbv2TargetReceivesTraffic(tg, target) {
 				return tg, target, true
 			}
 		}
@@ -207,10 +212,17 @@ func elbv2LoadBalancerAttributes(lbArn string) map[string]string {
 	return attrs
 }
 
-func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2TargetDescription) string {
+// elbv2ProbeTarget runs one health check against a target and reports why it
+// failed, which is what the target health checker turns into the state and
+// reason code DescribeTargetHealth reports.
+func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2TargetDescription) error {
+	// "HealthCheckPort — The port the load balancer uses when performing health
+	// checks on targets. The default is to use the port on which each target
+	// receives traffic from the load balancer."
+	target.Port = elbv2EffectiveHealthCheckPort(tg, target)
 	address, err := elbv2TargetAddress(tg, target)
 	if err != nil {
-		return "unhealthy"
+		return err
 	}
 	protocol := tg.HealthCheckProtocol
 	if protocol == "" || strings.EqualFold(protocol, "traffic-port") {
@@ -220,13 +232,10 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
-	if err := realexec.ProbeTarget(ctx, realexec.ProbeSpec{
+	return realexec.ProbeTarget(ctx, realexec.ProbeSpec{
 		Protocol: protocol,
 		Address:  address,
 		Path:     tg.HealthCheckPath,
 		Timeout:  timeout,
-	}); err != nil {
-		return "unhealthy"
-	}
-	return "healthy"
+	})
 }

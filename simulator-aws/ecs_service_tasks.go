@@ -24,6 +24,12 @@ var (
 	ecsServiceStabilityTimers sync.Map // map[service store key]*time.Timer
 )
 
+// ecsUnhealthyTaskReplacedReason is the stopped reason the service scheduler
+// records when it replaces a task whose health check failed: "The service
+// scheduler also replaces tasks determined to be unhealthy after a container
+// health check or a load balancer target group health check fails."
+const ecsUnhealthyTaskReplacedReason = "Task failed ELB health checks"
+
 type ecsServiceLoadBalancer struct {
 	TargetGroupArn string `json:"targetGroupArn"`
 	ContainerName  string `json:"containerName"`
@@ -347,11 +353,18 @@ func ecsReconcileService(key string) {
 		}
 	}
 
+	// A task the health checks have failed no longer counts towards the desired
+	// count, because the scheduler is going to replace it: "The Amazon ECS
+	// scheduler uses this parameter to replace unhealthy tasks by starting
+	// replacement tasks first and then stopping the unhealthy tasks, as long as
+	// cluster resources for starting replacement tasks are available."
+	unhealthy := ecsUnhealthyServiceTasks(service, current)
+
 	// When the configured maximum does not leave room for a replacement, stop
 	// only as many old tasks as the configured minimum healthy count permits.
 	// This opens capacity for the next real deployment batch.
-	if len(current) < targetCount {
-		launchCount := targetCount - len(current)
+	if len(current)-len(unhealthy) < targetCount {
+		launchCount := targetCount - (len(current) - len(unhealthy))
 		available := maximumActive - len(active)
 		if available < launchCount {
 			launchCount = available
@@ -365,7 +378,26 @@ func ecsReconcileService(key string) {
 				ecsStopServiceTaskSlice(previous, stoppable, "Service deployment replaced task")
 				active = ecsServiceRunningTasks(service.ClusterArn, group)
 				available = maximumActive - len(active)
-				launchCount = targetCount - len(current)
+				launchCount = targetCount - (len(current) - len(unhealthy))
+				if available < launchCount {
+					launchCount = available
+				}
+			}
+		}
+		// "If any tasks are unhealthy and if maximumPercent doesn't allow the
+		// Amazon ECS scheduler to start replacement tasks, the scheduler stops
+		// the unhealthy tasks one-by-one — using the minimumHealthyPercent as a
+		// constraint — to clear up capacity to launch replacement tasks."
+		if launchCount <= 0 && len(unhealthy) > 0 {
+			stoppable := ecsCountServiceTasks(active, ECSTaskStatusRunning) - minimumHealthy
+			if stoppable > len(unhealthy) {
+				stoppable = len(unhealthy)
+			}
+			if stoppable > 0 {
+				ecsStopServiceTaskSlice(unhealthy, stoppable, ecsUnhealthyTaskReplacedReason)
+				active = ecsServiceRunningTasks(service.ClusterArn, group)
+				available = maximumActive - len(active)
+				launchCount = targetCount - (len(current) - len(unhealthy))
 				if available < launchCount {
 					launchCount = available
 				}
@@ -403,6 +435,7 @@ func ecsReconcileService(key string) {
 				previous = append(previous, task)
 			}
 		}
+		unhealthy = ecsUnhealthyServiceTasks(service, current)
 	}
 
 	if err := ecsSyncServiceRegistryInstances(service); err != nil {
@@ -413,9 +446,12 @@ func ecsReconcileService(key string) {
 	currentHealthy := ecsCountHealthyServiceTasks(service, current)
 	if currentHealthy >= targetCount {
 		ecsStopServiceTaskSlice(previous, len(previous), "Service deployment replaced task")
+		// The replacements are in service, so the tasks they replaced go.
+		ecsStopServiceTaskSlice(unhealthy, len(unhealthy), ecsUnhealthyTaskReplacedReason)
 	}
-	if len(current) > targetCount {
-		ecsStopServiceTaskSlice(current, len(current)-targetCount, "Service scheduler reduced desired count")
+	if surplus := len(current) - len(unhealthy) - targetCount; surplus > 0 {
+		ecsStopServiceTaskSlice(ecsTasksExcluding(current, unhealthy), surplus,
+			"Service scheduler reduced desired count")
 	}
 
 	ecsRefreshServiceState(key)
@@ -441,26 +477,134 @@ func ecsCountHealthyServiceTasks(service ECSService, tasks []ECSTask) int {
 	return count
 }
 
+// ecsServiceTaskHealthy reports whether a task is in service. The Amazon ECS
+// service scheduler reads the health Elastic Load Balancing maintains for the
+// task's target rather than checking the target itself.
 func ecsServiceTaskHealthy(service ECSService, task ECSTask) bool {
 	if task.StartedAt == nil ||
 		time.Since(time.Unix(*task.StartedAt, 0)) < ecsServiceSteadyStateWindow {
 		return false
 	}
-	bindings, err := ecsServiceLoadBalancers(service.LoadBalancers)
-	if err != nil || len(bindings) == 0 {
-		return err == nil
+	states, ok := ecsServiceTaskTargetHealth(service, task)
+	if !ok {
+		return false
 	}
-	for _, binding := range bindings {
-		targetGroup, ok := elbv2TargetGroups.Get(binding.TargetGroupArn)
-		if !ok {
-			return false
-		}
-		target, ok := ecsServiceLoadBalancerTarget(task, binding, targetGroup)
-		if !ok || elbv2ProbeTarget(context.Background(), targetGroup, target) != "healthy" {
+	for _, state := range states {
+		if state != elbv2TargetStateHealthy && state != elbv2TargetStateUnavailable {
 			return false
 		}
 	}
 	return true
+}
+
+// ecsServiceTaskUnhealthy reports whether the load balancer took the task's
+// target out of service. It is not the negation of ecsServiceTaskHealthy: a
+// target the checker has not yet reached a verdict on is `initial`, which is
+// neither in service nor a reason to replace the task.
+//
+// The scheduler ignores those verdicts for healthCheckGracePeriodSeconds after
+// the task first started: that period is "the period of time, in seconds, that
+// the Amazon ECS service scheduler ignores unhealthy Elastic Load Balancing,
+// VPC Lattice, and container health checks after a task has first started."
+func ecsServiceTaskUnhealthy(service ECSService, task ECSTask) bool {
+	if task.LastStatus != ECSTaskStatusRunning || task.StartedAt == nil {
+		return false
+	}
+	started := time.Unix(*task.StartedAt, 0)
+	grace := ecsServiceSteadyStateWindow
+	if service.HealthCheckGracePeriodSeconds != nil {
+		grace = time.Duration(*service.HealthCheckGracePeriodSeconds) * time.Second
+	}
+	if time.Since(started) < grace {
+		return false
+	}
+	states, ok := ecsServiceTaskTargetHealth(service, task)
+	if !ok {
+		return false
+	}
+	for _, state := range states {
+		if state == elbv2TargetStateUnhealthy {
+			return true
+		}
+	}
+	return false
+}
+
+// ecsServiceTaskTargetHealth reports the health Elastic Load Balancing has
+// recorded for the task's target in each of the service's target groups. A
+// service with no load balancer has no target health, and reports none. ok is
+// false when the service's load-balancer configuration cannot be resolved to a
+// target group and a target, which is not the same as a target being out of
+// service.
+func ecsServiceTaskTargetHealth(service ECSService, task ECSTask) (states []string, ok bool) {
+	bindings, err := ecsServiceLoadBalancers(service.LoadBalancers)
+	if err != nil {
+		return nil, false
+	}
+	for _, binding := range bindings {
+		targetGroup, found := elbv2TargetGroups.Get(binding.TargetGroupArn)
+		if !found {
+			return nil, false
+		}
+		target, found := ecsServiceLoadBalancerTarget(task, binding, targetGroup)
+		if !found {
+			return nil, false
+		}
+		states = append(states, elbv2TargetHealthFor(targetGroup, target).State)
+	}
+	return states, true
+}
+
+// ecsUnhealthyServiceTasks selects the tasks whose health checks have failed.
+func ecsUnhealthyServiceTasks(service ECSService, tasks []ECSTask) []ECSTask {
+	var unhealthy []ECSTask
+	for _, task := range tasks {
+		if ecsServiceTaskUnhealthy(service, task) {
+			unhealthy = append(unhealthy, task)
+		}
+	}
+	return unhealthy
+}
+
+// ecsTasksExcluding returns the tasks that are not in excluded.
+func ecsTasksExcluding(tasks, excluded []ECSTask) []ECSTask {
+	if len(excluded) == 0 {
+		return tasks
+	}
+	skip := make(map[string]bool, len(excluded))
+	for _, task := range excluded {
+		skip[task.TaskArn] = true
+	}
+	remaining := make([]ECSTask, 0, len(tasks))
+	for _, task := range tasks {
+		if !skip[task.TaskArn] {
+			remaining = append(remaining, task)
+		}
+	}
+	return remaining
+}
+
+// ecsRequestServiceReconcileForTargetGroup wakes the scheduler of every
+// service bound to a target group whose target health just changed. Elastic
+// Load Balancing health moves without any Amazon ECS task transition, and it
+// is what decides whether a task is in service and whether the scheduler has
+// to replace it.
+func ecsRequestServiceReconcileForTargetGroup(targetGroupArn string) {
+	for _, service := range ecsServices.List() {
+		if service.Status != "ACTIVE" {
+			continue
+		}
+		bindings, err := ecsServiceLoadBalancers(service.LoadBalancers)
+		if err != nil {
+			continue
+		}
+		for _, binding := range bindings {
+			if binding.TargetGroupArn == targetGroupArn {
+				ecsRequestServiceReconcile(ecsServiceStoreKey(service))
+				break
+			}
+		}
+	}
 }
 
 func ecsStopServiceTaskSlice(tasks []ECSTask, count int, reason string) {
@@ -537,11 +681,19 @@ func ecsRefreshServiceState(key string) {
 		deployment.RunningCount = currentRunning
 		deployment.PendingCount = pending
 		deployment.UpdatedAt = now
-		if currentRunning == targetCount && currentHealthy == targetCount && pending == 0 && !oldActive {
+		switch {
+		case deployment.RolloutState == "COMPLETED":
+			// A rollout that reached steady state is finished: "When a service
+			// deployment is started, it begins in an IN_PROGRESS state. When the
+			// service reaches a steady state, the deployment transitions to a
+			// COMPLETED state." Losing a task, or failing a health check, does
+			// not restart it — the scheduler replaces the task under the same
+			// completed deployment. Only a new deployment starts a new rollout.
+		case currentRunning == targetCount && currentHealthy == targetCount && pending == 0 && !oldActive:
 			deployment.RolloutState = "COMPLETED"
 			deployment.RolloutStateReason = ""
 			ecsCompleteServiceDeployments(current.ServiceArn, now)
-		} else if deployment.RolloutState != "FAILED" {
+		case deployment.RolloutState != "FAILED":
 			deployment.RolloutState = "IN_PROGRESS"
 			deployment.RolloutStateReason = ""
 		}

@@ -21,6 +21,9 @@ import (
 //	GET  .../hostingEnvironments/{name}/outboundNetworkDependenciesEndpoints (declared gap)
 //	PUT  .../hostingEnvironments/{name}/workerPools/{workerPoolName}
 //	GET  .../hostingEnvironments/{name}/multiRolePools/default/metricdefinitions (declared gap)
+//	POST .../hostingEnvironments/{name}/suspend
+//	POST .../hostingEnvironments/{name}/resume
+//	POST .../hostingEnvironments/{name}/changeVirtualNetwork
 //	POST .../hostingEnvironments/{name}/testUpgradeAvailableNotification
 //	POST .../hostingEnvironments/{name}/upgrade
 //	PUT|GET|DELETE .../kubeEnvironments/{name}
@@ -33,9 +36,9 @@ func aseCLIURL(path string) string {
 
 // TestAppServiceEnvironmentCLI drives one App Service Environment through the
 // Azure CLI: it is placed in a subnet the simulator holds, reports the address
-// it derived from that subnet, scales a worker pool, refuses an upgrade until
-// one is announced, and names the two families it does not implement instead
-// of answering them.
+// it derived from that subnet, scales a worker pool, is suspended, resumed and
+// moved into another subnet, refuses an upgrade until one is announced, and
+// names the two families it does not implement instead of answering them.
 func TestAppServiceEnvironmentCLI(t *testing.T) {
 	requireNetworkHost(t)
 
@@ -69,6 +72,32 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 	inbound := runCLI(t, azRest("GET", aseCLIURL("hostingEnvironments/cli-ase/inboundNetworkDependenciesEndpoints"), ""))
 	assert.Contains(t, inbound, "App Service Environment VIP")
 	assert.Contains(t, inbound, "10.80.2.0/24", "the environment's own subnet is an inbound dependency")
+
+	// Suspend, resume and move. Each answers with the collection of apps in the
+	// environment — this one hosts none, so the empty collection Microsoft's
+	// own examples for these three operations show — and each leaves its mark:
+	// the suspended flag, and an internal address re-derived from the subnet
+	// the environment was moved into. The Azure CLI reads these bodies straight
+	// off the wire, which is what the Go SDK's generated pageable long-running
+	// clients for the same three operations cannot do.
+	suspended := runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/suspend"), ""))
+	assert.Contains(t, suspended, `"value": []`)
+	afterSuspend := runCLI(t, azRest("GET", aseURL, ""))
+	assert.Contains(t, afterSuspend, `"suspended": true`)
+
+	resumed := runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/resume"), ""))
+	assert.Contains(t, resumed, `"value": []`)
+
+	runCLI(t, azRest("PUT", armURL("Microsoft.Network", "virtualNetworks/cli-ase-vnet/subnets/cli-ase-subnet-2", "2024-05-01"),
+		`{"properties":{"addressPrefix":"10.80.6.0/24"}}`))
+	movedSubnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/cli-ase-vnet/subnets/cli-ase-subnet-2",
+		subscriptionID, resourceGroup)
+	moved := runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/changeVirtualNetwork"),
+		fmt.Sprintf(`{"id":%q}`, movedSubnetID)))
+	assert.Contains(t, moved, `"value": []`)
+	afterMove := runCLI(t, azRest("GET", aseURL, ""))
+	assert.Contains(t, afterMove, `"suspended": false`, "resuming cleared the suspended flag")
+	assert.Contains(t, afterMove, "10.80.6.4", "the move re-derived the address from the new subnet")
 
 	// The upgrade pair: refused until the notification announces one.
 	refusal := runStorageCLIExpectFailure(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/upgrade"), ""))

@@ -334,6 +334,12 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	dnsName := aws.ToString(lbDesc.LoadBalancers[0].DNSName)
 	endpoint := net.JoinHostPort(resolveNLBHostname(dnsName), strconv.Itoa(listenerPort))
 
+	// The listener forwards only to a target the health checker has put in
+	// service, so wait for the registration to pass its first health check.
+	waitForELBv2TargetHealth(t, tgArn,
+		elbtypes.TargetDescription{Id: aws.String(backendHost), Port: aws.Int32(int32(backendPort))},
+		elbtypes.TargetHealthStateEnumHealthy)
+
 	// Dial over TLS — the handshake must complete against the listener's cert
 	// (proving termination), then the decrypted byte stream round-trips to the
 	// raw-TCP target.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"net"
 	"strconv"
 	"strings"
@@ -21,6 +22,10 @@ func elbv2InitStoresForTest(t *testing.T) {
 		t.Fatalf("new server: %v", err)
 	}
 	registerELBv2(sim.NewAWSQueryRouter(), srv)
+	// The Elastic Load Balancing target health checker runs under the
+	// server lifecycle; without this it outlives the test and keeps
+	// checking whatever the next test puts in the package stores.
+	t.Cleanup(srv.StopBackground)
 }
 
 // elbv2TestNLBEndpoint resolves a load balancer's stable AWS-shaped DNSName to
@@ -92,13 +97,17 @@ func TestELBv2NLBProxyForwardsRawTCP(t *testing.T) {
 	elbv2TargetGroups.Put(tgArn, ELBv2TargetGroup{
 		Arn: tgArn, Protocol: "TCP", Port: backendPort,
 		HealthCheckProtocol: "TCP", HealthCheckTimeout: 2, TargetType: "ip",
-		Targets: []ELBv2TargetDescription{{ID: backendHost, Port: backendPort}},
+		HealthCheckEnabled: true,
+		Targets:            []ELBv2TargetDescription{{ID: backendHost, Port: backendPort}},
 	})
 	listener := ELBv2Listener{
 		Arn: listenerArn, LoadBalancerArn: lbArn, Protocol: "TCP", Port: 2022,
 		DefaultActions: []ELBv2Action{{Type: "forward", TargetGroupArn: tgArn}},
 	}
 	elbv2Listeners.Put(listenerArn, listener)
+	// A load balancer forwards only to targets its health checker has put in
+	// service, so run the check the checker would have run by now.
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 
 	if err := elbv2StartNLBProxy(listener); err != nil {
 		t.Fatalf("start NLB proxy: %v", err)

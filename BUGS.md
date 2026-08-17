@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 21. Resolved: 36.
+Open: 21. Resolved: 38.
 
 ## Open
 
@@ -158,37 +158,67 @@ the simulators from the sockerless monorepo, keeping their IDs
   the documented signature verification in the Blob plane, then let the backup
   path rely on it.
 
-- **BUG-45 (the Azure SDK's environment lifecycle pagers panic):**
-  `BeginSuspend`, `BeginResume` and `BeginChangeVnet` are generated as pageable
-  long-running operations whose pre-built pager is the poller's result, so the
-  terminal collection body the specification documents unmarshals over it and
-  the returned pager panics when read. This happens against Azure as much as
-  against the simulator, which emits exactly the shape Microsoft's examples
-  document, so it is an upstream SDK defect rather than a fidelity gap. The
-  tests drive those operations through the SDK and read the effect back through
-  the apps instead. Close this when the SDK stops generating those three as
-  pageable.
+- **BUG-45 (the Azure SDK's environment lifecycle pagers panic):** Three App
+  Service Environment operations — suspend, resume and change-virtual-network —
+  are declared both long-running and pageable, and the generated client hands
+  back a poller whose result type is a pager. On the synchronous branch the
+  SDK's no-op poller unmarshals the terminal body into a nil pager, allocating a
+  fresh one with a zero handler and assigning it over the client's pre-built
+  pager, so every read calls through a nil handler and panics. Only that branch
+  is affected; the accepted-plus-location branch unmarshals into the client's
+  own pager and reads correctly. A second, separate defect applies to both
+  branches: iterating with the `More` loop Microsoft's own generated example
+  uses yields zero pages. The simulator is faithful — it emits the collection
+  the specification and Microsoft's examples document, verified by the runtime
+  validator, and answers synchronously because the work genuinely completes in
+  the handler; manufacturing an accepted response and a location for finished
+  work would be a fake completion signal. Nothing here closes by changing the
+  simulator. It closes when the SDK stops generating these three as pageable,
+  or when its no-op poller stops overwriting a caller-supplied response. The
+  bodies are now asserted on the wire in the SDK suite and through the Azure
+  command-line client, which is as far as a real client can consume them.
 
-- **BUG-46 (a failed health check reverts a completed Amazon ECS deployment):**
-  `ecsRefreshServiceState` flips a `COMPLETED` primary deployment back to
-  `IN_PROGRESS` when a load-balancer target's health check fails. Real Amazon
-  ECS never reverts a finished rollout — it replaces the task instead: "The
-  service scheduler also replaces tasks determined to be unhealthy after a
-  container health check or a load balancer target group health check fails."
-  So the simulator both reports a deployment state the service would not report
-  and omits the replacement the service would perform. Found while removing
-  that same function from the read path.
+- **BUG-48 (three Elastic Load Balancing target-health fidelity gaps):** A
+  target group no listener rule references should report itself unused and not
+  be health-checked at all; the health-check matcher is ignored, so a response
+  code mismatch can never be reported; and deregistration delay with its
+  draining state is not modelled. Found while giving target health a real
+  checker. The first changes tests that register targets before creating a
+  listener, so it is not a drive-by edit.
 
-- **BUG-47 (DescribeTargetHealth probes every target on the request path):**
-  `handleELBv2DescribeTargetHealth` probes each registered target inline while
-  answering, paying one health-check timeout per unresponsive target. It is the
-  same defect class as issue #29 — a read doing the health surveying that
-  belongs to a continuous background check — and it is the remaining instance
-  of it after the Amazon ECS service handlers were fixed. Fix shape: answer
-  from recorded target health kept current by the checker, and cover it with a
-  test that fails if the read ever probes.
+- **BUG-49 (the simulator can start without a container client):** Under
+  container-engine pressure a run logged `container start failed: docker client
+  not initialized` while otherwise appearing healthy, so workloads failed
+  silently rather than the simulator refusing to start. Seen twice under load
+  and not reproducible in isolation. Fix shape: fail loudly at startup when the
+  engine client cannot be built, rather than deferring the discovery to the
+  first workload.
 
 ## Resolved history
+
+- **BUG-47 (DescribeTargetHealth probed every target on the request path):**
+  The read paid a full health-check timeout for each unresponsive target —
+  measured at 5.001 seconds against one, now 114 microseconds. No checker
+  existed at all: the describe, the data plane's listener lookup and the Amazon
+  ECS scheduler each probed inline. A real continuous checker now runs under
+  the server lifecycle, checking each target on its own group's configured
+  interval with the documented threshold state machine, and all three consumers
+  read what it recorded. The read reports the states and reason codes the
+  service documents, including the initial state before a first check completes,
+  and the health-check port is honoured rather than ignored while being echoed
+  back.
+
+- **BUG-46 (a failed health check reverted a completed deployment):** A
+  completed deployment is terminal, as the service documents — there is no
+  documented edge back to in-progress — and the omission behind it is closed
+  too: the scheduler now replaces an unhealthy task rather than merely
+  reopening the rollout, starting the replacement first and stopping the
+  unhealthy one once it is in service, or one at a time when the maximum
+  percentage leaves no room. The initial state is not treated as unhealthy. One
+  dependency surfaced on the way: a new deployment had been marked completed
+  from the previous revision's counts, so with a terminal completed state the
+  circuit-breaker and alarm rollbacks would never have fired; deployments now
+  start in progress as documented.
 
 - **BUG-26 (the Azure Cosmos DB data plane authenticated nothing):** A
   middleware verifies the shared-key token on every data-plane path, so a new

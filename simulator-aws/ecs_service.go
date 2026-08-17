@@ -460,10 +460,13 @@ func ecsServiceConnectNamespace(scc []byte) string {
 // service-connect / volume / vpc-lattice configs surface here (the SDK Service
 // type carries them only inside the deployment record, not at the top level).
 func ecsServiceDeployment(svc ECSService, now float64) ECSDeployment {
-	rolloutState := "IN_PROGRESS"
-	if svc.RunningCount == svc.DesiredCount && svc.PendingCount == 0 {
-		rolloutState = "COMPLETED"
-	}
+	// "When a service deployment is started, it begins in an IN_PROGRESS
+	// state. When the service reaches a steady state, the deployment
+	// transitions to a COMPLETED state." Deciding that from the counts the
+	// service carries at the moment the deployment record is built reads the
+	// previous revision's tasks: a service already running its desired count
+	// would start its next rollout finished. The scheduler completes the
+	// rollout once the deployment's own tasks are running and in service.
 	return ECSDeployment{
 		Id:                          "ecs-svc/" + generateUUID(),
 		Status:                      "PRIMARY",
@@ -471,7 +474,7 @@ func ecsServiceDeployment(svc ECSService, now float64) ECSDeployment {
 		DesiredCount:                svc.DesiredCount,
 		RunningCount:                svc.RunningCount,
 		PendingCount:                svc.PendingCount,
-		RolloutState:                rolloutState,
+		RolloutState:                "IN_PROGRESS",
 		CreatedAt:                   now,
 		UpdatedAt:                   now,
 		ServiceConnectConfiguration: svc.ServiceConnectConfiguration,

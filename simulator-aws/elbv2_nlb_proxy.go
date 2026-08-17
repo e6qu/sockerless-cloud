@@ -86,7 +86,7 @@ func elbv2StartNLBProxy(listener ELBv2Listener) error {
 		if !ok {
 			return "", fmt.Errorf("listener %s no longer exists", listenerArn)
 		}
-		tg, target, ok := elbv2HealthyTargetForListener(ctx, current)
+		tg, target, ok := elbv2HealthyTargetForListener(current)
 		if !ok {
 			return "", fmt.Errorf("no healthy targets for listener %s", listenerArn)
 		}

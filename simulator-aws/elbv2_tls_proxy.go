@@ -241,7 +241,7 @@ func elbv2TLSHTTPSHandler(listenerArn string) func(http.ResponseWriter, *http.Re
 			http.Error(w, "listener no longer exists", http.StatusBadGateway)
 			return
 		}
-		tg, target, ok := elbv2HealthyTargetForListener(r.Context(), listener)
+		tg, target, ok := elbv2HealthyTargetForListener(listener)
 		if !ok {
 			http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
 			return
@@ -288,7 +288,7 @@ func (p *elbv2TLSProxy) handleStream(client net.Conn) {
 	if !ok {
 		return
 	}
-	tg, target, ok := elbv2HealthyTargetForListener(ctx, current)
+	tg, target, ok := elbv2HealthyTargetForListener(current)
 	if !ok {
 		return
 	}

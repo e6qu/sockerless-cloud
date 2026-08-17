@@ -1,6 +1,10 @@
 package azure_sdk_test
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -63,6 +67,67 @@ func environmentsClient(t *testing.T) *armappservice.EnvironmentsClient {
 	client, err := armappservice.NewEnvironmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	return client
+}
+
+// aseActionApps invokes one of the three App Service Environment operations
+// that answer with the collection of apps they moved — suspend, resume and
+// changeVirtualNetwork — and returns that collection, decoded through the
+// SDK's own WebAppCollection model.
+//
+// The operations are driven through the generated client too, immediately
+// after each call here; this reads the terminal body over the wire because
+// the generated client cannot hand it back. BeginSuspend, BeginResume and
+// BeginChangeVnet are generated as pageable long-running operations returning
+// *runtime.Poller[*runtime.Pager[…]]: the client builds a pager up front and
+// passes it to the poller as its Response. On the 200 the specification
+// documents — completion in the initial response, which is what a service
+// that finished the work inside the request answers — azcore selects its
+// NopPoller, whose result field is a zero value of the poller's type
+// parameter. That type parameter is *runtime.Pager[…], so the nil pager makes
+// encoding/json allocate a fresh one with a zero PagingHandler, and
+// NopPoller.Result assigns it over the pager the client built. Both
+// Pager.More and Pager.NextPage then call through the nil handler, so reading
+// the poller's result in any way is a nil-pointer dereference. Only the 202 +
+// Location branch escapes it: there the terminal body is unmarshaled into the
+// client's own pager through Pager.UnmarshalJSON, which sets the current page
+// and leaves the handler intact.
+//
+// So each operation's effect is asserted through the apps and the environment
+// it moved, and the collection it answers with is asserted here.
+func aseActionApps(t *testing.T, action, body string) []*armappservice.Site {
+	t.Helper()
+	url := fmt.Sprintf(
+		"%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/hostingEnvironments/%s/%s?api-version=2025-03-01",
+		baseURL, subscriptionID, aseRG, aseName, action)
+	var payload io.Reader
+	if body != "" {
+		payload = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, payload)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", simARMBearer)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	var collection armappservice.WebAppCollection
+	require.NoError(t, json.Unmarshal(raw, &collection), string(raw))
+	return collection.Value
+}
+
+// aseAppStates reduces an app collection to name→state so an assertion names
+// both the apps the operation reported and the state it left them in.
+func aseAppStates(apps []*armappservice.Site) map[string]string {
+	states := map[string]string{}
+	for _, app := range apps {
+		states[*app.Name] = *app.Properties.State
+	}
+	return states
 }
 
 // TestSDK_AppServiceEnvironment_PlacementAndCapacity drives the whole
@@ -365,14 +430,14 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	assert.Equal(t, "sdk-ase-app", *listedSites[0].Name)
 
 	// Suspending the environment stops the apps in it; resuming starts them.
-	// The three app-collection operations (suspend, resume, change-vnet) are
-	// generated as pageable long-running operations: the client builds a pager
-	// up front and hands it to the poller as the result, so azcore overwrites
-	// it with whatever the terminal response carries. Their documented
-	// terminal body is the app collection, which unmarshals over that pager,
-	// so the returned pager is not usable — against the simulator or against
-	// Azure. The operation is driven through the SDK all the same, and its
-	// effect is read back through the apps themselves.
+	// Each operation answers with the collection of apps it moved, so that
+	// collection is asserted on the wire (see aseActionApps for why the
+	// generated client cannot return it), the operation is then driven through
+	// the generated client as a real caller drives it, and its effect is read
+	// back through the environment and the apps.
+	assert.Equal(t, map[string]string{"sdk-ase-app": "Stopped"},
+		aseAppStates(aseActionApps(t, "suspend", "")),
+		"suspend answers with the apps it stopped, in the state it left them")
 	suspendPoller, err := client.BeginSuspend(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
 	_, err = suspendPoller.PollUntilDone(ctx, nil)
@@ -385,6 +450,9 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	assert.Equal(t, "Stopped", *site.Properties.State,
 		"the app itself must report the state the environment put it in")
 
+	assert.Equal(t, map[string]string{"sdk-ase-app": "Running"},
+		aseAppStates(aseActionApps(t, "resume", "")),
+		"resume answers with the apps it started, in the state it left them")
 	resumePoller, err := client.BeginResume(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
 	_, err = resumePoller.PollUntilDone(ctx, nil)
@@ -465,8 +533,13 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 		assert.Contains(t, err.Error(), "not implemented by the simulator", name)
 	}
 
-	// Moving the environment to another subnet re-derives its address.
+	// Moving the environment to another subnet re-derives its address. The
+	// apps it hosts come with it, which is the collection the move answers
+	// with.
 	otherSubnet := requireSubnet(t, aseRG, "sdk-ase-vnet2", "10.61.0.0/16", "ase-subnet-2", "10.61.5.0/24")
+	assert.Equal(t, map[string]string{"sdk-ase-app": "Running"},
+		aseAppStates(aseActionApps(t, "changeVirtualNetwork", fmt.Sprintf(`{"id":%q}`, otherSubnet))),
+		"the move answers with the apps that came with the environment")
 	changePoller, err := client.BeginChangeVnet(ctx, aseRG, aseName,
 		armappservice.VirtualNetworkProfile{ID: to.Ptr(otherSubnet)}, nil)
 	require.NoError(t, err)
