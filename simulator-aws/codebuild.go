@@ -55,9 +55,16 @@ type CBBuild struct {
 	// Seq is a sim-internal monotonic creation order used to sort ListBuilds
 	// faithfully by start order; it's not part of the CodeBuild wire shape.
 	Seq int64 `json:"-"`
-	// ReportGroups holds the report-group names the buildspec references; the
-	// build produces a Report per group on completion. Sim-internal, not wire.
-	ReportGroups []string `json:"-"`
+	// Reports holds the buildspec's reports section; the build produces a
+	// Report per entry on completion, from the raw result files the entry
+	// names. Sim-internal, not part of the wire shape.
+	Reports []cbReportSpec `json:"-"`
+	// Workspace is the build environment's source directory on the host, bound
+	// into the build container at CODEBUILD_SRC_DIR. Report ingestion reads the
+	// raw result files out of it once the container has exited, so it is
+	// durable: a control-plane restart that adopts a running build container
+	// still knows where that build's reports will land.
+	Workspace string `json:"-"`
 	// BuildPlan and RuntimeEnvironment are the durable execution inputs needed
 	// to resume the narrow pre-container window after a control-plane restart.
 	// Once the real build container exists, recovery adopts that container
@@ -146,6 +153,7 @@ var (
 	cbBuilds            sim.Store[CBBuild]
 	cbReportGrps        sim.Store[CBReportGroup]
 	cbReports           sim.Store[CBReport]
+	cbReportResults     sim.Store[CBReportResults]
 	cbSourceCreds       sim.Store[CBSourceCredential]
 	cbSourceCredSecrets sim.Store[cbSourceCredentialSecret]
 	cbMu                sync.Mutex
@@ -158,6 +166,7 @@ func registerCodeBuild(r *sim.AWSRouter, srv *sim.Server) {
 	cbBuilds = sim.MakeStore[CBBuild](srv.DB(), "codebuild_builds")
 	cbReportGrps = sim.MakeStore[CBReportGroup](srv.DB(), "codebuild_report_groups")
 	cbReports = sim.MakeStore[CBReport](srv.DB(), "codebuild_reports")
+	cbReportResults = sim.MakeStore[CBReportResults](srv.DB(), "codebuild_report_results")
 	cbSourceCreds = sim.MakeStore[CBSourceCredential](srv.DB(), "codebuild_source_credentials")
 	cbSourceCredSecrets = sim.MakeStore[cbSourceCredentialSecret](srv.DB(), "codebuild_source_credential_secrets")
 	cbRebuildBuildSequence()
@@ -518,7 +527,11 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "InvalidInputException", err.Error())
 		return
 	}
-	reportGroups := cbBuildReportGroups(p, req.BuildspecOverride)
+	reportSpecs, err := cbBuildReportSpecs(p, req.BuildspecOverride)
+	if err != nil {
+		cbWriteError(w, "InvalidInputException", err.Error())
+		return
+	}
 
 	cbMu.Lock()
 	defer cbMu.Unlock()
@@ -536,7 +549,7 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 		StartTime:          now,
 		EndTime:            now,
 		Environment:        p.Environment,
-		ReportGroups:       reportGroups,
+		Reports:            reportSpecs,
 		BuildPlan:          &plan,
 		RuntimeEnvironment: runtimeEnvironment,
 		Phases: []CBPhase{
@@ -616,6 +629,11 @@ func handleCBRetryBuild(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "InvalidInputException", err.Error())
 		return
 	}
+	reportSpecs, err := cbBuildReportSpecs(p, "")
+	if err != nil {
+		cbWriteError(w, "InvalidInputException", err.Error())
+		return
+	}
 
 	cbMu.Lock()
 	defer cbMu.Unlock()
@@ -635,6 +653,7 @@ func handleCBRetryBuild(w http.ResponseWriter, r *http.Request) {
 		StartTime:          now,
 		EndTime:            now,
 		Environment:        p.Environment,
+		Reports:            reportSpecs,
 		BuildPlan:          &plan,
 		RuntimeEnvironment: runtimeEnvironment,
 		Phases: []CBPhase{
@@ -652,11 +671,10 @@ type cbBuildspec struct {
 	Phases map[string]struct {
 		Commands []string `yaml:"commands"`
 	} `yaml:"phases"`
-	// Reports maps a report-group name to its report config; a build with a
-	// reports section produces a Report per group, exactly like real CodeBuild.
-	Reports map[string]struct {
-		Files []string `yaml:"files"`
-	} `yaml:"reports"`
+	// Reports maps a report-group name or ARN to its report config; a build
+	// with a reports section produces a Report per entry, exactly like real
+	// CodeBuild.
+	Reports map[string]cbReportSpec `yaml:"reports"`
 }
 
 type cbBuildPlan struct {
@@ -664,26 +682,35 @@ type cbBuildPlan struct {
 	SourceVersion string
 }
 
-// cbBuildReportGroups returns the report-group names a project's buildspec
-// references via its reports section (empty if none).
-func cbBuildReportGroups(p CBProject, override string) []string {
+// cbBuildReportSpecs returns the reports a project's buildspec declares, in
+// report-group-key order (empty when the buildspec has no reports section).
+func cbBuildReportSpecs(p CBProject, override string) ([]cbReportSpec, error) {
 	buildspec := override
 	if buildspec == "" {
 		buildspec = cbString(p.Source["buildspec"])
 	}
 	if buildspec == "" {
-		return nil
+		return nil, nil
 	}
 	var spec cbBuildspec
 	if err := yaml.Unmarshal([]byte(buildspec), &spec); err != nil {
-		return nil
+		return nil, fmt.Errorf("invalid buildspec: %w", err)
 	}
-	groups := make([]string, 0, len(spec.Reports))
-	for name := range spec.Reports {
-		groups = append(groups, name)
+	keys := make([]string, 0, len(spec.Reports))
+	for key := range spec.Reports {
+		keys = append(keys, key)
 	}
-	sort.Strings(groups)
-	return groups
+	sort.Strings(keys)
+	specs := make([]cbReportSpec, 0, len(keys))
+	for _, key := range keys {
+		entry := spec.Reports[key]
+		entry.Key = key
+		specs = append(specs, entry)
+	}
+	if err := cbValidateReportSpecs(specs); err != nil {
+		return nil, err
+	}
+	return specs, nil
 }
 
 func cbBuildCommands(p CBProject, override string) ([]string, error) {
@@ -730,7 +757,10 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	if err != nil {
 		return -1, err.Error()
 	}
-	defer os.RemoveAll(workDir)
+	// The workspace outlives this function: cbCompleteBuild reads the build's
+	// raw report files out of it and removes it afterwards, so an adopted build
+	// finds it too.
+	cbRecordBuildWorkspace(buildID, workDir)
 
 	if err := cbCheckoutSource(project, plan.SourceVersion, workDir); err != nil {
 		return -1, err.Error()
@@ -910,6 +940,15 @@ func cbSecretsManagerSourceCredential(resource, sourceType string) (cbDecryptedS
 	return cbDecryptedSourceCredential{Username: username, Password: value.Token}, true
 }
 
+// cbRecordBuildWorkspace stores where a build's source directory lives so
+// report ingestion can read the build's raw result files out of it after the
+// build container exits.
+func cbRecordBuildWorkspace(buildID, workspace string) {
+	cbMu.Lock()
+	defer cbMu.Unlock()
+	cbBuilds.Update(buildID, func(build *CBBuild) { build.Workspace = workspace })
+}
+
 func cbRegisterBuildCancel(buildID string, cancel func()) {
 	cbBuildCancelMu.Lock()
 	cbBuildCancels[buildID] = cancel
@@ -945,7 +984,15 @@ func cbCompleteBuild(buildID string, exitCode int, reason string) {
 	defer cbMu.Unlock()
 
 	build, ok := cbBuilds.Get(buildID)
-	if !ok || build.BuildStatus != "IN_PROGRESS" {
+	if !ok {
+		return
+	}
+	if build.BuildStatus != "IN_PROGRESS" {
+		// The build already settled — StopBuild is the way that happens while
+		// the container is still running — so there are no reports to read, but
+		// the source directory is still on disk and is this function's to remove.
+		cbReleaseBuildWorkspace(&build)
+		cbBuilds.Put(buildID, build)
 		return
 	}
 	now := cbEpochNow()
@@ -972,39 +1019,89 @@ func cbCompleteBuild(buildID string, exitCode int, reason string) {
 		{PhaseType: "COMPLETED", PhaseStatus: status, StartTime: now, EndTime: now, DurationInSeconds: 0},
 	}
 
-	// A build whose buildspec references report groups produces one Report per
-	// group, carrying the build's terminal status — the real CodeBuild flow.
-	reportStatus := "SUCCEEDED"
-	if status != "SUCCEEDED" {
-		reportStatus = "FAILED"
+	build = cbProduceBuildReports(build, now)
+	cbReleaseBuildWorkspace(&build)
+	cbBuilds.Put(buildID, build)
+}
+
+// cbReleaseBuildWorkspace removes the build environment's source directory once
+// nothing will read it again. Caller holds cbMu.
+func cbReleaseBuildWorkspace(build *CBBuild) {
+	if build.Workspace == "" {
+		return
 	}
-	for _, groupName := range build.ReportGroups {
-		groupArn := cbARN("report-group/" + groupName)
-		rg, ok := cbReportGrps.Get(groupArn)
-		if !ok {
+	_ = os.RemoveAll(build.Workspace)
+	build.Workspace = ""
+}
+
+// cbProduceBuildReports turns each entry of the build's buildspec reports
+// section into a Report, reading the raw result files the entry names out of
+// the build environment's source directory. Caller holds cbMu.
+func cbProduceBuildReports(build CBBuild, now float64) CBBuild {
+	for _, spec := range build.Reports {
+		group, err := cbReportGroupForSpec(spec, build.ProjectName)
+		if err != nil {
+			build.Phases = cbAppendReportFailure(build.Phases, err.Error(), now)
 			continue
 		}
-		execID := strings.SplitN(build.ID, ":", 2)
 		reportName := build.ID
-		if len(execID) == 2 {
-			reportName = execID[1]
+		if _, suffix, found := strings.Cut(build.ID, ":"); found {
+			reportName = suffix
 		}
-		reportArn := cbARN("report/" + groupName + ":" + reportName)
+		reportArn := cbARN("report/" + group.Name + ":" + reportName)
 		report := CBReport{
 			Arn:            reportArn,
-			Type:           rg.Type,
+			Type:           group.Type,
 			Name:           reportName,
-			ReportGroupArn: groupArn,
+			ReportGroupArn: group.Arn,
 			ExecutionId:    build.Arn,
-			Status:         reportStatus,
 			Created:        now,
-			ExportConfig:   rg.ExportConfig,
-			Truncated:      false,
+			ExportConfig:   group.ExportConfig,
+		}
+		switch {
+		case build.BuildStatus != "SUCCEEDED":
+			// "INCOMPLETE: … The build was not completed because of an error
+			// that is not related to the tests."
+			report.Status = "INCOMPLETE"
+		case build.Workspace == "":
+			build.Phases = cbAppendReportFailure(build.Phases,
+				"build environment source directory is unknown, so reports."+spec.Key+" cannot be read", now)
+			report.Status = "INCOMPLETE"
+		default:
+			results, status, err := cbIngestReport(build.Workspace, spec, reportArn)
+			if err != nil {
+				build.Phases = cbAppendReportFailure(build.Phases, err.Error(), now)
+				report.Status = "INCOMPLETE"
+				break
+			}
+			results.TestCases, report.Truncated = cbTruncateTestCases(results.TestCases)
+			report.Status = status
+			cbReportResults.Put(reportArn, results)
 		}
 		cbReports.Put(reportArn, report)
 		build.ReportArns = append(build.ReportArns, reportArn)
 	}
-	cbBuilds.Put(buildID, build)
+	return build
+}
+
+// cbAppendReportFailure records why a report could not be produced on the
+// build's phases, where the real Build shape carries per-phase failure detail.
+func cbAppendReportFailure(phases []CBPhase, message string, now float64) []CBPhase {
+	for i := range phases {
+		if phases[i].PhaseType != "COMPLETED" {
+			continue
+		}
+		phases[i].PhaseStatus = "FAILED"
+		phases[i].Contexts = append(phases[i].Contexts, CBPhaseContext{
+			StatusCode: "CLIENT_ERROR",
+			Message:    message,
+		})
+		return phases
+	}
+	return append(phases, CBPhase{
+		PhaseType: "COMPLETED", PhaseStatus: "FAILED", StartTime: now, EndTime: now,
+		Contexts: []CBPhaseContext{{StatusCode: "CLIENT_ERROR", Message: message}},
+	})
 }
 
 func handleCBBatchGetBuilds(w http.ResponseWriter, r *http.Request) {
@@ -1194,6 +1291,7 @@ func handleCBDeleteReportGroup(w http.ResponseWriter, r *http.Request) {
 		for _, rep := range cbReports.List() {
 			if rep.ReportGroupArn == req.Arn {
 				cbReports.Delete(rep.Arn)
+				cbReportResults.Delete(rep.Arn)
 			}
 		}
 	}

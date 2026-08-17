@@ -755,8 +755,9 @@ func handleGlueGetAsset(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Asset not found: "+req.Identifier)
 		return
 	}
-	iterable := make(map[string]map[string]string, len(asset.IterableForms))
-	for name, form := range asset.IterableForms {
+	forms := glueAssetIterableForms(asset)
+	iterable := make(map[string]map[string]string, len(forms))
+	for name, form := range forms {
 		iterable[name] = map[string]string{"FormTypeId": form.FormTypeId}
 	}
 	glueWriteJSON(w, http.StatusOK, map[string]any{
@@ -824,6 +825,8 @@ func handleGlueDisassociateGlossaryTerms(w http.ResponseWriter, r *http.Request)
 func glueUpdateAssetGlossaryTerms(w http.ResponseWriter, r *http.Request, associate bool) {
 	var req struct {
 		AssetIdentifier         string   `json:"AssetIdentifier"`
+		IterableFormName        string   `json:"IterableFormName"`
+		ItemIdentifier          string   `json:"ItemIdentifier"`
 		GlossaryTermIdentifiers []string `json:"GlossaryTermIdentifiers"`
 	}
 	if !glueDecodeBusinessRequest(w, r, &req) {
@@ -831,6 +834,12 @@ func glueUpdateAssetGlossaryTerms(w http.ResponseWriter, r *http.Request, associ
 	}
 	if req.AssetIdentifier == "" || len(req.GlossaryTermIdentifiers) == 0 {
 		glueWriteError(w, "InvalidInputException", "AssetIdentifier and GlossaryTermIdentifiers are required")
+		return
+	}
+	// "The identifier of the item within the iterable form. Required when
+	// iterableFormName is specified."
+	if (req.IterableFormName == "") != (req.ItemIdentifier == "") {
+		glueWriteError(w, "InvalidInputException", "IterableFormName and ItemIdentifier must be specified together")
 		return
 	}
 	glueMu.Lock()
@@ -849,21 +858,42 @@ func glueUpdateAssetGlossaryTerms(w http.ResponseWriter, r *http.Request, associ
 		}
 		selected[term.Id] = true
 	}
-	if associate {
-		for termID := range selected {
-			if !containsGlueBusinessString(asset.GlossaryTerms, termID) {
-				asset.GlossaryTerms = append(asset.GlossaryTerms, termID)
-			}
-		}
-		sort.Strings(asset.GlossaryTerms)
+	response := map[string]any{"AssetIdentifier": asset.Id}
+	if req.IterableFormName == "" {
+		asset.GlossaryTerms = glueApplyGlossaryTerms(asset.GlossaryTerms, selected, associate)
+		response["GlossaryTerms"] = asset.GlossaryTerms
 	} else {
-		asset.GlossaryTerms = removeGlueBusinessStrings(asset.GlossaryTerms, selected)
+		if _, ok := glueAssetIterableForms(asset)[req.IterableFormName]; !ok {
+			glueWriteError(w, "EntityNotFoundException", "Iterable form not found: "+req.IterableFormName)
+			return
+		}
+		item, ok := glueStoredIterableItem(&asset, req.IterableFormName, req.ItemIdentifier)
+		if !ok {
+			glueWriteError(w, "EntityNotFoundException", "Iterable form item not found: "+req.ItemIdentifier)
+			return
+		}
+		item.GlossaryTerms = glueApplyGlossaryTerms(item.GlossaryTerms, selected, associate)
+		glueStoreIterableItemAnnotations(&asset, req.IterableFormName, item)
+		response["IterableFormName"] = req.IterableFormName
+		response["ItemIdentifier"] = req.ItemIdentifier
+		response["GlossaryTerms"] = item.GlossaryTerms
 	}
 	asset.UpdatedAt = glueEpochNow()
 	glueBusinessAssets.Put(asset.Id, asset)
-	glueWriteJSON(w, http.StatusOK, map[string]any{
-		"AssetIdentifier": asset.Id, "GlossaryTerms": asset.GlossaryTerms,
-	})
+	glueWriteJSON(w, http.StatusOK, response)
+}
+
+func glueApplyGlossaryTerms(current []string, selected map[string]bool, associate bool) []string {
+	if !associate {
+		return removeGlueBusinessStrings(current, selected)
+	}
+	for termID := range selected {
+		if !containsGlueBusinessString(current, termID) {
+			current = append(current, termID)
+		}
+	}
+	sort.Strings(current)
+	return current
 }
 
 func containsGlueBusinessString(values []string, value string) bool {
@@ -927,20 +957,11 @@ func handleGluePutAttachment(w http.ResponseWriter, r *http.Request) {
 			glueWriteError(w, "InvalidInputException", "IterableFormName and ItemIdentifier must be specified together")
 			return
 		}
-		form, ok := asset.IterableForms[req.IterableFormName]
-		if !ok {
+		if _, ok := glueAssetIterableForms(asset)[req.IterableFormName]; !ok {
 			glueWriteError(w, "EntityNotFoundException", "Iterable form not found: "+req.IterableFormName)
 			return
 		}
-		item, ok := form.Items[req.ItemIdentifier]
-		if !ok {
-			for _, candidate := range form.Items {
-				if candidate.ItemName == req.ItemIdentifier {
-					item, ok = candidate, true
-					break
-				}
-			}
-		}
+		item, ok := glueStoredIterableItem(&asset, req.IterableFormName, req.ItemIdentifier)
 		if !ok {
 			glueWriteError(w, "EntityNotFoundException", "Iterable form item not found: "+req.ItemIdentifier)
 			return
@@ -949,8 +970,7 @@ func handleGluePutAttachment(w http.ResponseWriter, r *http.Request) {
 			item.Attachments = map[string]GlueBusinessAssetFormEntry{}
 		}
 		item.Attachments[req.AttachmentName] = entry
-		form.Items[item.ItemId] = item
-		asset.IterableForms[req.IterableFormName] = form
+		glueStoreIterableItemAnnotations(&asset, req.IterableFormName, item)
 	}
 	asset.UpdatedAt = glueEpochNow()
 	glueBusinessAssets.Put(asset.Id, asset)
@@ -993,12 +1013,11 @@ func handleGlueDeleteAttachment(w http.ResponseWriter, r *http.Request) {
 		}
 		delete(asset.Attachments, req.AttachmentName)
 	} else {
-		form, ok := asset.IterableForms[req.IterableFormName]
-		if !ok {
+		if _, ok := glueAssetIterableForms(asset)[req.IterableFormName]; !ok {
 			glueWriteError(w, "EntityNotFoundException", "Iterable form not found: "+req.IterableFormName)
 			return
 		}
-		item, ok := form.Items[req.ItemIdentifier]
+		item, ok := glueStoredIterableItem(&asset, req.IterableFormName, req.ItemIdentifier)
 		if !ok {
 			glueWriteError(w, "EntityNotFoundException", "Iterable form item not found: "+req.ItemIdentifier)
 			return
@@ -1008,12 +1027,20 @@ func handleGlueDeleteAttachment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		delete(item.Attachments, req.AttachmentName)
-		form.Items[item.ItemId] = item
-		asset.IterableForms[req.IterableFormName] = form
+		glueStoreIterableItemAnnotations(&asset, req.IterableFormName, item)
 	}
 	asset.UpdatedAt = glueEpochNow()
 	glueBusinessAssets.Put(asset.Id, asset)
-	glueWriteJSON(w, http.StatusOK, map[string]any{"AssetIdentifier": asset.Id})
+	// The two item members are present only when the deletion targeted an
+	// iterable form item, which is what "if applicable" means on them.
+	response := map[string]any{"AssetIdentifier": asset.Id}
+	if req.IterableFormName != "" {
+		response["IterableFormName"] = req.IterableFormName
+	}
+	if req.ItemIdentifier != "" {
+		response["ItemIdentifier"] = req.ItemIdentifier
+	}
+	glueWriteJSON(w, http.StatusOK, response)
 }
 
 func handleGlueListIterableForms(w http.ResponseWriter, r *http.Request) {
@@ -1031,7 +1058,7 @@ func handleGlueListIterableForms(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Asset not found: "+req.AssetIdentifier)
 		return
 	}
-	form, ok := asset.IterableForms[req.IterableFormName]
+	form, ok := glueAssetIterableForms(asset)[req.IterableFormName]
 	if !ok {
 		glueWriteError(w, "EntityNotFoundException", "Iterable form not found: "+req.IterableFormName)
 		return
@@ -1068,7 +1095,7 @@ func handleGlueBatchGetIterableForms(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Asset not found: "+req.AssetIdentifier)
 		return
 	}
-	form, ok := asset.IterableForms[req.IterableFormName]
+	form, ok := glueAssetIterableForms(asset)[req.IterableFormName]
 	if !ok {
 		glueWriteError(w, "EntityNotFoundException", "Iterable form not found: "+req.IterableFormName)
 		return

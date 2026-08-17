@@ -160,17 +160,12 @@ func iamAuthorize(r *http.Request, action, resource string) (allowed bool, princ
 	return iamAuthorizeWithContext(r, action, resource, nil)
 }
 
-// iamAuthorizeWithContext is iamAuthorize with additional condition-context
-// keys the caller supplies — the keys AWS derives from what the request is
-// doing rather than from its envelope, such as iam:PassedToService on the
-// PassRole check.
-func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map[string][]string) (allowed bool, principalArn string, registered bool) {
-	akid := iamAccessKeyIDFromRequest(r)
-	principalArn, docs, userName, ok := iamPrincipalForAccessKey(akid)
-	if !ok {
-		return false, "", false
-	}
-
+// iamRequestConditionContext is the condition context the gate evaluates a
+// policy against: every key it can resolve from the request, the principal
+// behind the access key, and the resource the request targets.
+func iamRequestConditionContext(
+	r *http.Request, akid, principalArn, userName, action string,
+) map[string][]string {
 	ctx := map[string][]string{}
 	if userName != "" {
 		ctx["aws:username"] = []string{userName}
@@ -193,6 +188,21 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 	// Resource-scoped / service-specific keys (aws:ResourceTag/*, ecs:cluster,
 	// aws:RequestTag/*, aws:TagKeys) from the request's target resource.
 	iamPopulateResourceConditionKeys(r, action, ctx)
+	return ctx
+}
+
+// iamAuthorizeWithContext is iamAuthorize with additional condition-context
+// keys the caller supplies — the keys AWS derives from what the request is
+// doing rather than from its envelope, such as iam:PassedToService on the
+// PassRole check.
+func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map[string][]string) (allowed bool, principalArn string, registered bool) {
+	akid := iamAccessKeyIDFromRequest(r)
+	principalArn, docs, userName, ok := iamPrincipalForAccessKey(akid)
+	if !ok {
+		return false, "", false
+	}
+
+	ctx := iamRequestConditionContext(r, akid, principalArn, userName, action)
 	for key, values := range extra {
 		ctx[key] = values
 	}

@@ -18,9 +18,17 @@ on:
   push:
     branches: [main]
 
+# Keyed by commit, never by branch. This workflow's product is the immutable
+# short-SHA image for one commit, and no later commit can produce it: grouping
+# every main push under `main` and cancelling in progress meant each merge
+# killed its predecessor's build, leaving that commit with no image at all and
+# a pull by commit answering 404. A per-commit group has exactly one member, so
+# nothing here is ever superseded — publishes for adjacent merges run side by
+# side, each pushing its own tags. Registry retention is a separate workflow so
+# concurrent publishes never prune against each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.sha }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -131,24 +139,6 @@ jobs:
             "$TAG" | sort)
           test "$PLATFORMS" = "$(printf 'linux/amd64\nlinux/arm64')"
 
-  retention:
-    needs: manifest
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        image:
-          - sockerless-simulator-aws
-          - sockerless-simulator-gcp
-          - sockerless-simulator-azure
-    name: ${{ matrix.image }} retention
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - name: Retain the newest 20 immutable releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: ./scripts/prune-ghcr-images.sh "${{ github.repository_owner }}" "${{ matrix.image }}" 20
+  # Retention lives in prune-container-images.yml, which this workflow's
+  # completion triggers. Publishing and pruning need opposite concurrency
+  # settings; that workflow's header records why.

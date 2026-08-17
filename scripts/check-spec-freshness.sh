@@ -6,12 +6,74 @@
 # changed in a commit after the pin. GCP pins are Discovery "revision"
 # fields: drift means the live document's revision moved.
 #
-# Usage: scripts/check-spec-freshness.sh [aws|gcp|azure]   (default: all)
+# Usage: scripts/check-spec-freshness.sh [--baseline <ref>] [aws|gcp|azure]
+#        (default: all clouds, no baseline)
+#
+# Without --baseline every drift fails. That is the form the scheduled run on
+# main uses, and it is what keeps the vendored specifications from rotting.
+#
+# --baseline <ref> attributes each drift before failing on it. Upstream moves
+# continuously and independently of any branch: one unrelated branch absorbed
+# glue.smithy.json.gz at 16:44, vpcaccess-v1 and bigquery-v2 at 17:05, and
+# redis-v1 at 17:26 — three consecutive red runs in forty-two minutes, none of
+# them about the change under review. One of those was unsatisfiable, because
+# Google serves several Discovery revisions concurrently and the author's edge
+# answered the pinned revision however many times it probed while the runner's
+# edge answered a newer one; that pin is unchanged today and the gate is green,
+# so the runner's edge came back into line by itself.
+#
+# With a baseline, a row whose pin is byte-identical to the baseline's carries
+# drift the baseline already carried — upstream moved under the branch rather
+# than the branch letting the pin rot — and is reported as INHERITED without
+# failing. A row the branch changed, rolled back, or added is the branch's own
+# and is still held to upstream tip, so a branch can never leave freshness
+# worse than the base it started from. Inherited drift is relocated, not
+# forgiven: the scheduled run carries no baseline and fails on it there.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BASELINE=""
+if [ "${1:-}" = "--baseline" ]; then
+  BASELINE="${2:?--baseline needs a git ref}"
+  shift 2
+  if ! git -C "$ROOT" rev-parse --verify --quiet "$BASELINE^{commit}" >/dev/null; then
+    echo "error: baseline ref '$BASELINE' is not available in $ROOT; fetch it before running this check" >&2
+    exit 2
+  fi
+fi
 CLOUDS="${1:-aws gcp azure}"
 fail=0
+
+# baseline_pin prints the pin the baseline ref records for <file> in the
+# SOURCES document <sources>, and returns non-zero when the baseline records no
+# row for that file. The row layout is the same for all three clouds:
+#   | `file` | `origin` | `path` | licence | `pin` | timestamp |
+baseline_pin() {
+  local sources="$1" want="$2" rel row_file row_pin
+  rel="${sources#"$ROOT"/}"
+  while IFS='|' read -r _ row_file _ _ _ row_pin _; do
+    row_file="$(echo "$row_file" | tr -d ' \`')"
+    row_pin="$(echo "$row_pin" | tr -d ' \`')"
+    if [ "$row_file" = "$want" ]; then
+      printf '%s\n' "$row_pin"
+      return 0
+    fi
+  done < <(git -C "$ROOT" show "$BASELINE:$rel" 2>/dev/null | grep '^| `' || true)
+  return 1
+}
+
+# report_drift records one detected drift, failing the run unless the baseline
+# shows the branch inherited that row's pin untouched.
+report_drift() {
+  local sources="$1" file="$2" pin="$3" message="$4" base
+  if [ -n "$BASELINE" ] && base="$(baseline_pin "$sources" "$file")" && [ "$base" = "$pin" ]; then
+    echo "INHERITED $message"
+    echo "      pin unchanged from $BASELINE; the scheduled specification freshness run holds this one"
+    return 0
+  fi
+  echo "DRIFT $message"
+  fail=1
+}
 
 check_repo_pinned() {
   # SOURCES.md rows: | `file` | `repo` | `path` | lic | `sha` | time |
@@ -30,8 +92,8 @@ check_repo_pinned() {
     elif [ "$latest" = "$pin" ]; then
       echo "ok    $file"
     else
-      echo "DRIFT $file: pinned ${pin:0:12}, upstream tip ${latest:0:12} ($repo $path)"
-      fail=1
+      report_drift "$sources" "$file" "$pin" \
+        "$file: pinned ${pin:0:12}, upstream tip ${latest:0:12} ($repo $path)"
     fi
   done < <(grep '^| `' "$sources")
 }
@@ -67,9 +129,12 @@ check_aws_service_reference() {
       echo "?     $file: $service is not in the published service index"
       fail=1
     elif [ "$pinned" -lt "$latest" ]; then
-      echo "DRIFT $file: pinned $pinned, upstream modified $latest"
+      report_drift "$sources" "$file" "$pin" \
+        "$file: pinned $pinned, upstream modified $latest"
       # Capture the newer document, as the other clouds do, so the refresh does
       # not depend on the authoring machine's edge serving what the runner saw.
+      # Inherited drift is captured too: the artifact is what the follow-up
+      # refresh vendors, and it is only reachable from the run that saw it.
       if [ -n "$capture_dir" ]; then
         url="$(jq -er --arg s "$service" '.[] | select(.service == $s) | .url' "$index")"
         if curl -fsSL -o "$index.doc" "$url" 2>/dev/null; then
@@ -78,7 +143,6 @@ check_aws_service_reference() {
           echo "      captured modified $latest in $capture_dir/$(basename "$file")"
         fi
       fi
-      fail=1
     else
       echo "ok    $file"
     fi
@@ -135,12 +199,12 @@ check_gcp() {
       echo "?     $file: invalid recorded pin $pin"
       fail=1
     elif [ "$pinned" -lt "$newest" ]; then
-      echo "DRIFT $file: pinned $pin, newest sampled revision $newest (${#revisions[@]}/$probes probes succeeded)"
+      report_drift "$sources" "$file" "$pin" \
+        "$file: pinned $pin, newest sampled revision $newest (${#revisions[@]}/$probes probes succeeded)"
       if [ -n "$capture_dir" ] && [ -n "$newest_file" ]; then
         gzip -9 -n -c "$newest_file" >"$capture_dir/$file"
         echo "      captured revision $newest in $capture_dir/$file"
       fi
-      fail=1
     else
       echo "ok    $file (pinned $pinned, newest sampled $newest; ${#revisions[@]}/$probes probes succeeded)"
     fi

@@ -159,6 +159,14 @@ type ELBv2TargetDescription struct {
 	ID               string
 	Port             int
 	AvailabilityZone string
+	// DeregisteringAt is when DeregisterTargets was called for this target, and
+	// is the zero time for a registered one. Deregistering does not remove a
+	// target at once — "Elastic Load Balancing stops sending requests to
+	// targets that are deregistering. By default, Elastic Load Balancing waits
+	// 300 seconds before completing the deregistration process, which can help
+	// in-flight requests to the target to complete" — so the target group holds
+	// it, reporting `draining`, until the delay elapses.
+	DeregisteringAt time.Time
 }
 
 var (
@@ -594,28 +602,42 @@ func handleELBv2RegisterTargets(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "RegisterTargets", "", sim.RequestID(r.Context()))
 }
 
+// handleELBv2DeregisterTargets starts a target's deregistration rather than
+// finishing it: "The load balancer stops routing requests to a target as soon
+// as it is deregistered. The target enters the `draining` state until in-flight
+// requests have completed." The target group keeps the target for its
+// deregistration delay, after which the target loop drops it — immediately
+// here when the delay is zero, so a caller that turned the delay off sees the
+// target gone the moment the call returns.
 func handleELBv2DeregisterTargets(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("TargetGroupArn")
 	targets := parseELBv2Targets(r)
+	deregisteringAt := time.Now()
+	var draining []ELBv2TargetDescription
 	if !elbv2TargetGroups.Update(arn, func(tg *ELBv2TargetGroup) {
-		filtered := tg.Targets[:0]
-		for _, existing := range tg.Targets {
-			remove := false
+		draining = nil
+		for i := range tg.Targets {
+			if !tg.Targets[i].DeregisteringAt.IsZero() {
+				continue
+			}
 			for _, t := range targets {
-				if existing.ID == t.ID && (t.Port == 0 || existing.Port == t.Port) {
-					remove = true
+				if tg.Targets[i].ID == t.ID && (t.Port == 0 || tg.Targets[i].Port == t.Port) {
+					tg.Targets[i].DeregisteringAt = deregisteringAt
+					draining = append(draining, tg.Targets[i])
 					break
 				}
 			}
-			if !remove {
-				filtered = append(filtered, existing)
-			}
 		}
-		tg.Targets = filtered
 	}) {
 		elbv2ErrorXML(w, "TargetGroupNotFound", "Target group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	// The checker stops maintaining a verdict for a target the moment it starts
+	// draining, so the verdict it had reached goes with it.
+	for _, target := range draining {
+		elbv2ForgetTargetHealth(arn, target)
+	}
+	elbv2CompleteDueDeregistrations(deregisteringAt)
 	elbv2XMLResponse(w, "DeregisterTargets", "", sim.RequestID(r.Context()))
 }
 

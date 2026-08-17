@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -813,10 +814,13 @@ func handleCBStartSandbox(w http.ResponseWriter, r *http.Request) {
 	var env map[string]any
 	var serviceRole string
 	if req.ProjectName != "" {
-		if p, ok := cbProjects.Get(req.ProjectName); ok {
-			env = p.Environment
-			serviceRole = p.ServiceRole
+		p, ok := cbProjects.Get(req.ProjectName)
+		if !ok {
+			cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
+			return
 		}
+		env = p.Environment
+		serviceRole = p.ServiceRole
 	}
 	id := uuid.New().String()
 	now := cbEpochNow()
@@ -1028,20 +1032,32 @@ func handleCBStartCommandExecution(w http.ResponseWriter, r *http.Request) {
 		Seq:        cbNextSeq(&cbCmdSeq),
 	}
 	cbCommandExecs.Put(id, ce)
-	go cbRunCommandExecution(id, req.Command)
+	go cbRunCommandExecution(id, sb, req.Command)
 	cbWriteJSON(w, http.StatusOK, map[string]any{"commandExecution": ce})
 }
 
-// cbRunCommandExecution runs the command as a local process inside a temp
-// workspace and records the real terminal status and exit code — no synthetic
-// result.
-func cbRunCommandExecution(id, command string) {
+// cbRunCommandExecution runs the command in the sandbox's build environment
+// container — the same image a build of the sandbox's project runs in — and
+// records the real terminal status, exit code and captured output.
+func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
+	image := cbString(sandbox.Environment["image"])
+	if image == "" {
+		cbCompleteCommandExecution(id, -1, "",
+			"sandbox "+sandbox.ID+" has no build environment image to run the command in")
+		return
+	}
 	workDir, err := os.MkdirTemp("", "sockerless-cb-cmd-*")
 	if err != nil {
 		cbCompleteCommandExecution(id, -1, "", err.Error())
 		return
 	}
 	defer os.RemoveAll(workDir)
+
+	platform, err := localImagePlatform(context.Background(), image)
+	if err != nil {
+		cbCompleteCommandExecution(id, -1, "", err.Error())
+		return
+	}
 
 	var mu sync.Mutex
 	var stdout, stderr strings.Builder
@@ -1054,11 +1070,26 @@ func cbRunCommandExecution(id, command string) {
 			stdout.WriteString(line.Text + "\n")
 		}
 	})
-	handle := sim.StartProcess(sim.ProcessConfig{
-		Command: []string{"/bin/sh", "-c", command},
-		Dir:     filepath.Clean(workDir),
-		Env:     map[string]string{"PATH": os.Getenv("PATH"), "HOME": os.Getenv("HOME")},
+	handle, err := sim.StartContainerSync(sim.ContainerConfig{
+		Image:        image,
+		Architecture: platform,
+		Command:      []string{"/bin/sh"},
+		Args:         []string{"-c", command},
+		WorkingDir:   "/codebuild/output/src",
+		Binds:        []string{filepath.Clean(workDir) + ":/codebuild/output/src:z"},
+		Env: map[string]string{
+			"CODEBUILD_SRC_DIR":  "/codebuild/output/src",
+			"AWS_DEFAULT_REGION": awsRegion(),
+			"AWS_REGION":         awsRegion(),
+		},
+		ExtraHosts: hostMetadataExtraHosts(),
+		Labels:     map[string]string{"sockerless-codebuild-command": id},
+		Sandbox:    sim.SandboxFargate,
 	}, sink)
+	if err != nil {
+		cbCompleteCommandExecution(id, -1, "", fmt.Sprintf("start build environment %s: %v", image, err))
+		return
+	}
 	result := handle.Wait()
 	mu.Lock()
 	defer mu.Unlock()
@@ -1256,43 +1287,47 @@ func handleCBDeleteReport(w http.ResponseWriter, r *http.Request) {
 	cbMu.Lock()
 	defer cbMu.Unlock()
 
+	// "When a test report is deleted, its test cases are also deleted."
 	cbReports.Delete(req.Arn)
+	cbReportResults.Delete(req.Arn)
 	cbWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
+// handleCBDescribeTestCases answers with the test cases the report's raw data
+// files held. A report whose build produced no matching result file — or one
+// produced by a CODE_COVERAGE report group — has no test cases, and the answer
+// is the empty list the service returns for it.
 func handleCBDescribeTestCases(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReportArn  string `json:"reportArn"`
 		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		Filter     *struct {
+			Status  string `json:"status"`
+			Keyword string `json:"keyword"`
+		} `json:"filter"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	rep, ok := cbReports.Get(req.ReportArn)
-	if !ok {
+	if _, ok := cbReports.Get(req.ReportArn); !ok {
 		cbWriteError(w, "ResourceNotFoundException", "Report not found: "+req.ReportArn)
 		return
 	}
-	// A TEST report carries the test cases that produced its terminal status.
-	// The sim derives a representative test case from the stored report's
-	// status, matching the real TestCase shape exactly.
-	status := "SUCCEEDED"
-	if rep.Status != "" {
-		status = rep.Status
-	}
-	cases := []map[string]any{
-		{
-			"reportArn":             rep.Arn,
-			"testRawDataPath":       "reports/" + rep.Name + "/testcase-1.json",
-			"prefix":                rep.Name,
-			"name":                  "BuildSpecReportedTest",
-			"status":                status,
-			"durationInNanoSeconds": 1000000,
-			"message":               "",
-			"testSuiteName":         rep.Name,
-		},
+	results, _ := cbReportResults.Get(req.ReportArn)
+	cases := make([]CBTestCase, 0, len(results.TestCases))
+	for _, testCase := range results.TestCases {
+		if req.Filter != nil && req.Filter.Status != "" &&
+			!strings.EqualFold(req.Filter.Status, testCase.Status) {
+			continue
+		}
+		if req.Filter != nil && req.Filter.Keyword != "" &&
+			!strings.Contains(testCase.Name, req.Filter.Keyword) &&
+			!strings.Contains(testCase.Prefix, req.Filter.Keyword) {
+			continue
+		}
+		cases = append(cases, testCase)
 	}
 	page, nextTok := awsPage(cases, req.NextToken, req.MaxResults, 100)
 	resp := map[string]any{"testCases": page}
@@ -1302,35 +1337,53 @@ func handleCBDescribeTestCases(w http.ResponseWriter, r *http.Request) {
 	cbWriteJSON(w, http.StatusOK, resp)
 }
 
+// handleCBDescribeCodeCoverages answers with the per-file coverage the report's
+// raw data files held. A TEST report, or one whose build produced no matching
+// coverage file, has none.
 func handleCBDescribeCodeCoverages(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ReportArn  string `json:"reportArn"`
-		MaxResults int    `json:"maxResults"`
-		NextToken  string `json:"nextToken"`
+		ReportArn       string   `json:"reportArn"`
+		MaxResults      int      `json:"maxResults"`
+		NextToken       string   `json:"nextToken"`
+		SortBy          string   `json:"sortBy"`
+		SortOrder       string   `json:"sortOrder"`
+		MinLineCoverage *float64 `json:"minLineCoveragePercentage"`
+		MaxLineCoverage *float64 `json:"maxLineCoveragePercentage"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	rep, ok := cbReports.Get(req.ReportArn)
-	if !ok {
+	if _, ok := cbReports.Get(req.ReportArn); !ok {
 		cbWriteError(w, "ResourceNotFoundException", "Report not found: "+req.ReportArn)
 		return
 	}
-	// A CODE_COVERAGE report carries per-file coverage; the sim returns a
-	// representative file's coverage in the real CodeCoverage shape.
-	coverages := []map[string]any{
-		{
-			"id":                       rep.Arn + ":src/main.go",
-			"reportARN":                rep.Arn,
-			"filePath":                 "src/main.go",
-			"lineCoveragePercentage":   100.0,
-			"linesCovered":             10,
-			"linesMissed":              0,
-			"branchCoveragePercentage": 100.0,
-			"branchesCovered":          2,
-			"branchesMissed":           0,
-		},
+	results, _ := cbReportResults.Get(req.ReportArn)
+	coverages := make([]CBCodeCoverage, 0, len(results.CodeCoverages))
+	for _, coverage := range results.CodeCoverages {
+		if req.MinLineCoverage != nil && coverage.LineCoveragePercentage < *req.MinLineCoverage {
+			continue
+		}
+		if req.MaxLineCoverage != nil && coverage.LineCoveragePercentage > *req.MaxLineCoverage {
+			continue
+		}
+		coverages = append(coverages, coverage)
+	}
+	// sortBy is FILE_PATH or LINE_COVERAGE_PERCENTAGE; the default order is by
+	// file path, which is the order ingestion recorded.
+	if strings.EqualFold(req.SortBy, "LINE_COVERAGE_PERCENTAGE") {
+		sort.SliceStable(coverages, func(i, j int) bool {
+			return coverages[i].LineCoveragePercentage < coverages[j].LineCoveragePercentage
+		})
+	} else {
+		sort.SliceStable(coverages, func(i, j int) bool {
+			return coverages[i].FilePath < coverages[j].FilePath
+		})
+	}
+	if strings.EqualFold(req.SortOrder, "DESCENDING") {
+		for i, j := 0, len(coverages)-1; i < j; i, j = i+1, j-1 {
+			coverages[i], coverages[j] = coverages[j], coverages[i]
+		}
 	}
 	page, nextTok := awsPage(coverages, req.NextToken, req.MaxResults, 100)
 	resp := map[string]any{"codeCoverages": page}
@@ -1369,15 +1422,14 @@ func handleCBGetReportGroupTrend(w http.ResponseWriter, r *http.Request) {
 	}
 	reports = reports[:limit]
 
-	// Trend value: PASS_RATE is the fraction of SUCCEEDED reports (a real,
-	// derivable metric); other fields fall back to each report's pass state.
 	rawData := make([]map[string]any, 0, len(reports))
 	var sum, minVal, maxVal float64
 	first := true
 	for _, rep := range reports {
-		val := 0.0
-		if rep.Status == "SUCCEEDED" {
-			val = 100.0
+		val, ok := cbReportTrendValue(rep, req.TrendField)
+		if !ok {
+			cbWriteError(w, "InvalidInputException", "Invalid trendField: "+req.TrendField)
+			return
 		}
 		rawData = append(rawData, map[string]any{
 			"reportArn": rep.Arn,
@@ -1408,6 +1460,64 @@ func handleCBGetReportGroupTrend(w http.ResponseWriter, r *http.Request) {
 			"min":     fmt.Sprintf("%g", minVal),
 		},
 	})
+}
+
+// cbReportTrendValue is one report's value for a ReportGroupTrendFieldType,
+// measured from the raw result files that report ingested. Reports false for a
+// field the service does not define.
+func cbReportTrendValue(report CBReport, trendField string) (float64, bool) {
+	results, _ := cbReportResults.Get(report.Arn)
+	switch strings.ToUpper(trendField) {
+	case "", "PASS_RATE":
+		passed := 0
+		for _, testCase := range results.TestCases {
+			if testCase.Status == "SUCCEEDED" {
+				passed++
+			}
+		}
+		if len(results.TestCases) == 0 {
+			return 0, true
+		}
+		return float64(passed) * 100 / float64(len(results.TestCases)), true
+	case "DURATION":
+		var nanoseconds int64
+		for _, testCase := range results.TestCases {
+			nanoseconds += testCase.DurationInNanoSeconds
+		}
+		return float64(nanoseconds), true
+	case "TOTAL":
+		return float64(len(results.TestCases)), true
+	case "LINE_COVERAGE", "LINES_COVERED", "LINES_MISSED",
+		"BRANCH_COVERAGE", "BRANCHES_COVERED", "BRANCHES_MISSED":
+		var linesCovered, linesMissed, branchesCovered, branchesMissed int
+		for _, coverage := range results.CodeCoverages {
+			linesCovered += coverage.LinesCovered
+			linesMissed += coverage.LinesMissed
+			branchesCovered += coverage.BranchesCovered
+			branchesMissed += coverage.BranchesMissed
+		}
+		switch strings.ToUpper(trendField) {
+		case "LINES_COVERED":
+			return float64(linesCovered), true
+		case "LINES_MISSED":
+			return float64(linesMissed), true
+		case "BRANCHES_COVERED":
+			return float64(branchesCovered), true
+		case "BRANCHES_MISSED":
+			return float64(branchesMissed), true
+		case "LINE_COVERAGE":
+			if linesCovered+linesMissed == 0 {
+				return 0, true
+			}
+			return float64(linesCovered) * 100 / float64(linesCovered+linesMissed), true
+		default:
+			if branchesCovered+branchesMissed == 0 {
+				return 0, true
+			}
+			return float64(branchesCovered) * 100 / float64(branchesCovered+branchesMissed), true
+		}
+	}
+	return 0, false
 }
 
 // --- Resource policy ---------------------------------------------------------

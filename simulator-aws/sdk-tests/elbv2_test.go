@@ -185,9 +185,40 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 		Targets:        []elbtypes.TargetDescription{target, unreachableTarget},
 	})
 	require.NoError(t, err)
-	// The health checker puts the reachable target in service on its first
-	// successful check and takes the unreachable one out of service after
-	// UnhealthyThresholdCount consecutive failures.
+	// Registering a target is not on its own enough to have it health-checked:
+	// "Before the load balancer sends a health check request to a target, you
+	// must register it with a target group, specify its target group in a
+	// listener rule, and ensure that the Availability Zone of the target is
+	// enabled for the load balancer." Until then its targets are `unused` with
+	// `Target.NotInUse`.
+	unused, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
+		TargetGroupArn: aws.String(tgArn),
+	})
+	require.NoError(t, err)
+	require.Len(t, unused.TargetHealthDescriptions, 2)
+	for _, description := range unused.TargetHealthDescriptions {
+		assert.Equal(t, elbtypes.TargetHealthStateEnumUnused, description.TargetHealth.State)
+		assert.Equal(t, elbtypes.TargetHealthReasonEnumNotInUse, description.TargetHealth.Reason)
+		assert.Equal(t, "Target group is not configured to receive traffic from the load balancer",
+			aws.ToString(description.TargetHealth.Description))
+	}
+
+	listenerOut, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
+		LoadBalancerArn: aws.String(lbArn),
+		Protocol:        elbtypes.ProtocolEnumHttp,
+		Port:            aws.Int32(80),
+		DefaultActions: []elbtypes.Action{{
+			Type:           elbtypes.ActionTypeEnumForward,
+			TargetGroupArn: aws.String(tgArn),
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, listenerOut.Listeners, 1)
+
+	// Naming the target group in the listener's default rule is what puts it
+	// under the checker. The checker then puts the reachable target in service
+	// on its first successful check and takes the unreachable one out of
+	// service after UnhealthyThresholdCount consecutive failures.
 	waitForELBv2TargetHealth(t, tgArn, target, elbtypes.TargetHealthStateEnumHealthy)
 	waitForELBv2TargetHealth(t, tgArn, unreachableTarget, elbtypes.TargetHealthStateEnumUnhealthy)
 	health, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
@@ -221,18 +252,6 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 		unhealthy.TargetHealthDescriptions[0].TargetHealth.Reason)
 	assert.NotEmpty(t, aws.ToString(unhealthy.TargetHealthDescriptions[0].TargetHealth.Description))
 
-	listenerOut, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
-		LoadBalancerArn: aws.String(lbArn),
-		Protocol:        elbtypes.ProtocolEnumHttp,
-		Port:            aws.Int32(80),
-		DefaultActions: []elbtypes.Action{{
-			Type:           elbtypes.ActionTypeEnumForward,
-			TargetGroupArn: aws.String(tgArn),
-		}},
-	})
-	require.NoError(t, err)
-	require.Len(t, listenerOut.Listeners, 1)
-	waitForELBv2TargetHealth(t, tgArn, target, elbtypes.TargetHealthStateEnumHealthy)
 	proxiedReq, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/proxy-check", nil)
 	require.NoError(t, err)
 	proxiedReq.Host = lbDNSName
@@ -285,11 +304,30 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, limits.Limits)
 
+	// Deregistering does not remove a target at once: "The load balancer stops
+	// routing requests to a target as soon as it is deregistered. The target
+	// enters the `draining` state until in-flight requests have completed."
+	// This target group's deregistration_delay.timeout_seconds is 60, set
+	// above, so the targets report `draining` with
+	// `Target.DeregistrationInProgress` rather than disappearing.
 	_, err = elb.DeregisterTargets(ctx, &elbv2.DeregisterTargetsInput{
 		TargetGroupArn: aws.String(tgArn),
 		Targets:        []elbtypes.TargetDescription{target, unreachableTarget},
 	})
 	require.NoError(t, err)
+	draining, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
+		TargetGroupArn: aws.String(tgArn),
+	})
+	require.NoError(t, err)
+	require.Len(t, draining.TargetHealthDescriptions, 2)
+	for _, description := range draining.TargetHealthDescriptions {
+		assert.Equal(t, elbtypes.TargetHealthStateEnumDraining, description.TargetHealth.State)
+		assert.Equal(t, elbtypes.TargetHealthReasonEnumDeregistrationInProgress,
+			description.TargetHealth.Reason)
+		assert.Equal(t, "Target deregistration is in progress",
+			aws.ToString(description.TargetHealth.Description))
+	}
+
 	_, err = elb.DeleteListener(ctx, &elbv2.DeleteListenerInput{ListenerArn: aws.String(listenerArn)})
 	require.NoError(t, err)
 	_, err = elb.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: aws.String(tgArn)})
@@ -299,6 +337,152 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 
 	_, _ = ec2c.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{GroupId: sg2.GroupId})
 	_, _ = ec2c.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{GroupId: sgOut.GroupId})
+	_, _ = ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: subnet2.Subnet.SubnetId})
+	_, _ = ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: subnet1.Subnet.SubnetId})
+	_, _ = ec2c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(vpcID)})
+}
+
+// TestELBv2_HealthCheckMatcherGradesTheResponseCode holds the health check to
+// the target group's Matcher: "The codes to use when checking for a successful
+// response from a target ... The default value is 200." A target that answers
+// outside those codes is unhealthy with `Target.ResponseCodeMismatch` — "The
+// health checks did not return an expected HTTP code" — and the description
+// names the code it answered with. The target group is reached through a
+// listener rule rather than the listener's default action, which is the other
+// way a target group is "specified in a listener rule".
+//
+// Actions exercised: CreateTargetGroup (Matcher), CreateRule,
+// DescribeTargetHealth, DeleteRule.
+func TestELBv2_HealthCheckMatcherGradesTheResponseCode(t *testing.T) {
+	ec2c := ec2Client()
+	elb := elbv2Client()
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer targetServer.Close()
+	targetURL, err := url.Parse(targetServer.URL)
+	require.NoError(t, err)
+	targetHost, targetPortText, err := net.SplitHostPort(targetURL.Host)
+	require.NoError(t, err)
+	targetPort, err := strconv.Atoi(targetPortText)
+	require.NoError(t, err)
+
+	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.94.0.0/16")})
+	require.NoError(t, err)
+	vpcID := *vpcOut.Vpc.VpcId
+	subnet1, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId:            aws.String(vpcID),
+		CidrBlock:        aws.String("10.94.1.0/24"),
+		AvailabilityZone: aws.String("us-east-1a"),
+	})
+	require.NoError(t, err)
+	subnet2, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId:            aws.String(vpcID),
+		CidrBlock:        aws.String("10.94.2.0/24"),
+		AvailabilityZone: aws.String("us-east-1b"),
+	})
+	require.NoError(t, err)
+	lbOut, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
+		Name:    aws.String("sdk-matcher-lb"),
+		Type:    elbtypes.LoadBalancerTypeEnumApplication,
+		Subnets: []string{*subnet1.Subnet.SubnetId, *subnet2.Subnet.SubnetId},
+	})
+	require.NoError(t, err)
+	lbArn := *lbOut.LoadBalancers[0].LoadBalancerArn
+
+	// One target group counts the target's 418 a failure, the other counts it a
+	// success. They watch the same target on the same port, so the only thing
+	// that can separate their verdicts is the Matcher.
+	targetGroupArns := map[string]string{}
+	for name, matcher := range map[string]string{
+		"sdk-matcher-strict": "200",
+		"sdk-matcher-teapot": "200,418",
+	} {
+		tgOut, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
+			Name:                       aws.String(name),
+			Protocol:                   elbtypes.ProtocolEnumHttp,
+			Port:                       aws.Int32(80),
+			VpcId:                      aws.String(vpcID),
+			TargetType:                 elbtypes.TargetTypeEnumIp,
+			Matcher:                    &elbtypes.Matcher{HttpCode: aws.String(matcher)},
+			HealthCheckIntervalSeconds: aws.Int32(5),
+			HealthCheckTimeoutSeconds:  aws.Int32(2),
+			UnhealthyThresholdCount:    aws.Int32(2),
+		})
+		require.NoError(t, err)
+		targetGroupArns[name] = *tgOut.TargetGroups[0].TargetGroupArn
+	}
+
+	listenerOut, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
+		LoadBalancerArn: aws.String(lbArn),
+		Protocol:        elbtypes.ProtocolEnumHttp,
+		Port:            aws.Int32(80),
+		DefaultActions: []elbtypes.Action{{
+			Type: elbtypes.ActionTypeEnumFixedResponse,
+			FixedResponseConfig: &elbtypes.FixedResponseActionConfig{
+				StatusCode: aws.String("404"),
+			},
+		}},
+	})
+	require.NoError(t, err)
+	listenerArn := *listenerOut.Listeners[0].ListenerArn
+
+	target := elbtypes.TargetDescription{Id: aws.String(targetHost), Port: aws.Int32(int32(targetPort))}
+	priority := int32(1)
+	for name, tgArn := range targetGroupArns {
+		_, err = elb.RegisterTargets(ctx, &elbv2.RegisterTargetsInput{
+			TargetGroupArn: aws.String(tgArn),
+			Targets:        []elbtypes.TargetDescription{target},
+		})
+		require.NoError(t, err)
+		_, err = elb.CreateRule(ctx, &elbv2.CreateRuleInput{
+			ListenerArn: aws.String(listenerArn),
+			Priority:    aws.Int32(priority),
+			Conditions: []elbtypes.RuleCondition{{
+				Field:  aws.String("path-pattern"),
+				Values: []string{"/" + name + "/*"},
+			}},
+			Actions: []elbtypes.Action{{
+				Type:           elbtypes.ActionTypeEnumForward,
+				TargetGroupArn: aws.String(tgArn),
+			}},
+		})
+		require.NoError(t, err)
+		priority++
+	}
+
+	waitForELBv2TargetHealth(t, targetGroupArns["sdk-matcher-teapot"], target,
+		elbtypes.TargetHealthStateEnumHealthy)
+	waitForELBv2TargetHealth(t, targetGroupArns["sdk-matcher-strict"], target,
+		elbtypes.TargetHealthStateEnumUnhealthy)
+
+	mismatched, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
+		TargetGroupArn: aws.String(targetGroupArns["sdk-matcher-strict"]),
+	})
+	require.NoError(t, err)
+	require.Len(t, mismatched.TargetHealthDescriptions, 1)
+	assert.Equal(t, elbtypes.TargetHealthReasonEnumResponseCodeMismatch,
+		mismatched.TargetHealthDescriptions[0].TargetHealth.Reason)
+	assert.Equal(t, "Health checks failed with these codes: [418]",
+		aws.ToString(mismatched.TargetHealthDescriptions[0].TargetHealth.Description))
+
+	rules, err := elb.DescribeRules(ctx, &elbv2.DescribeRulesInput{ListenerArn: aws.String(listenerArn)})
+	require.NoError(t, err)
+	for _, rule := range rules.Rules {
+		if aws.ToString(rule.Priority) == "default" {
+			continue
+		}
+		_, err = elb.DeleteRule(ctx, &elbv2.DeleteRuleInput{RuleArn: rule.RuleArn})
+		require.NoError(t, err)
+	}
+	_, err = elb.DeleteListener(ctx, &elbv2.DeleteListenerInput{ListenerArn: aws.String(listenerArn)})
+	require.NoError(t, err)
+	for _, tgArn := range targetGroupArns {
+		_, err = elb.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: aws.String(tgArn)})
+		require.NoError(t, err)
+	}
+	_, err = elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
+	require.NoError(t, err)
 	_, _ = ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: subnet2.Subnet.SubnetId})
 	_, _ = ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: subnet1.Subnet.SubnetId})
 	_, _ = ec2c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(vpcID)})

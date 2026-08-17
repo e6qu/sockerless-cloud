@@ -89,6 +89,16 @@ func iamValidateServiceRole(roleARN, service string, actions map[string]string) 
 // populated (aws:CalledVia / aws:SourceArn / aws:SourceAccount / aws:Via-
 // AWSService=true). It returns true when the resource policy admits the service.
 func iamEvalServiceInitiated(docs []iamPolicyDoc, action, resource string, src iamServiceSource) bool {
+	ctx := iamServiceInitiatedConditionContext(src)
+	decision, _ := iamEvalDecisionForPrincipal(docs, action, resource, "service:"+src.Service, ctx)
+	return decision == "allowed"
+}
+
+// iamServiceInitiatedConditionContext is the condition context a
+// service-initiated delivery evaluates against. The source keys live only here:
+// a direct client call is not a service, so the request path never carries
+// them.
+func iamServiceInitiatedConditionContext(src iamServiceSource) map[string][]string {
 	ctx := map[string][]string{"aws:ViaAWSService": {"true"}}
 	if src.Service != "" {
 		ctx["aws:CalledVia"] = []string{src.Service}
@@ -99,8 +109,7 @@ func iamEvalServiceInitiated(docs []iamPolicyDoc, action, resource string, src i
 	if src.SourceAccount != "" {
 		ctx["aws:SourceAccount"] = []string{src.SourceAccount}
 	}
-	decision, _ := iamEvalDecisionForPrincipal(docs, action, resource, "service:"+src.Service, ctx)
-	return decision == "allowed"
+	return ctx
 }
 
 // iamServiceInitiation returns the originating-service context when the request

@@ -1,0 +1,57 @@
+# Registry retention for the simulator container packages.
+#
+# This is the retention half of "Publish container images", split into its own
+# workflow because the two have opposite concurrency requirements and sharing a
+# run forced one of them to be wrong:
+#
+#   - Publishing produces the immutable artifact for ONE commit. It must never
+#     be superseded, so it is keyed by commit and never cancelled, which lets
+#     the publishes for adjacent merges overlap.
+#   - Pruning enforces a bound on live registry state. Overlapping prunes race
+#     — both compute a delete set from the same listing, the second DELETE of a
+#     version 404s, and the retained-count assertions read a half-deleted
+#     package. It must be serialized, and only the newest run matters because
+#     it re-reads the registry and enforces the same bound.
+#
+# So retention runs here: one at a time, latest-wins. A superseded run is
+# cancelled before it has done anything a later run will not redo, and it no
+# longer drags a publish's conclusion down with it. The schedule is the
+# backstop that keeps the bound enforced when merges stop arriving, and
+# workflow_dispatch runs it on demand.
+name: Prune container images
+
+on:
+  workflow_run:
+    workflows: [Publish container images]
+    types: [completed]
+  schedule:
+    # 04:00 UTC daily.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: prune-container-images
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - sockerless-simulator-aws
+          - sockerless-simulator-gcp
+          - sockerless-simulator-azure
+    name: ${{ matrix.image }} retention
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Retain the newest 20 immutable releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/prune-ghcr-images.sh "${{ github.repository_owner }}" "${{ matrix.image }}" 20

@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 25. Resolved: 38.
+Open: 21. Resolved: 44.
 
 ## Open
 
@@ -178,46 +178,70 @@ the simulators from the sockerless monorepo, keeping their IDs
   bodies are now asserted on the wire in the SDK suite and through the Azure
   command-line client, which is as far as a real client can consume them.
 
-- **BUG-48 (three Elastic Load Balancing target-health fidelity gaps):** A
-  target group no listener rule references should report itself unused and not
-  be health-checked at all; the health-check matcher is ignored, so a response
-  code mismatch can never be reported; and deregistration delay with its
-  draining state is not modelled. Found while giving target health a real
-  checker. The first changes tests that register targets before creating a
-  listener, so it is not a drive-by edit.
+- **BUG-54 (the ECS reconciler bypasses the deregistration delay):** The service
+  reconciler adds and removes target-group targets immediately, while the API
+  handler now drains them for the configured delay. Real Elastic Load Balancing
+  deregisters through the delay however the removal was requested, so a scaled-in
+  service task disappears from the target group in a way a real one would not.
+  Fix shape: route the reconciler's removals through the same marking the
+  handler uses.
 
-- **BUG-49 (the simulator can start without a container client):** Under
-  container-engine pressure a run logged `container start failed: docker client
-  not initialized` while otherwise appearing healthy, so workloads failed
-  silently rather than the simulator refusing to start. Seen twice under load
-  and not reproducible in isolation. Fix shape: fail loudly at startup when the
-  engine client cannot be built, rather than deferring the discovery to the
-  first workload.
-
-- **BUG-50 (AWS CodeBuild reports invented test and coverage data):**
-  `DescribeTestCases` and `DescribeCodeCoverages` answer with a hardcoded test
-  case and a hardcoded hundred-percent coverage row, and the test asserts
-  exactly that shape, so the fabrication is pinned rather than caught. Real fix:
-  ingest the report files the buildspec declares from the build container.
-
-- **BUG-51 (two AWS workloads run as host processes, not containers):** An AWS
-  CodeBuild command and an AWS Glue Python job are dispatched through the
-  process starter rather than a container. The dispatch gate that was supposed
-  to forbid this never saw them, because it grepped for one spelling and did not
-  walk the shared package; it now names both as known violations so they cannot
-  be forgotten again.
-
-- **BUG-52 (the IAM derivation floor counts operations its probe never
-  reaches):** The conformance ratchet asserts two literals against two
-  hand-written tables, and the resource-derivation count includes roughly four
-  hundred operations for eight services absent from the probe's own switch, so
-  the published derivation figure is inflated by operations nothing measured.
-
-- **BUG-53 (an AWS surface has no reachable success path):** Nothing creates an
-  iterable form, so `ListIterableForms` and `BatchGetIterableForms` can only
-  ever answer an error — a resource type that exists as routes and nothing else.
+- **BUG-55 (AWS provider pins are checked by major version only):** Ten Terraform
+  files pin the AWS provider at an exact version while the freshness comparison
+  comes down to the major, so a pin ten minor versions behind is silent. Found
+  when the Terraform section of that check began running at all — it had globbed
+  a filename this repository does not use, so it had been exiting successfully on
+  no input. Decide whether major-only is the intended contract or the pins should
+  be held exactly; the Google and Azure modules pin no version at all.
 
 ## Resolved history
+
+- **BUG-48 (three Elastic Load Balancing target-health gaps):** A target group
+  no listener rule forwards to now reports its targets unused rather than being
+  health-checked, as the service requires before it checks anything; the
+  configured matcher grades the response code and a mismatch names it; and a
+  deregistering target drains for the configured delay instead of vanishing.
+  Found beside them: an HTTPS health check was only a connection attempt, so a
+  target answering an error over HTTPS reported healthy.
+
+- **BUG-49 (the simulator could start without a container client):** The filed
+  mechanism was wrong, and proving it wrong found the real one. Container mode
+  already refused to start against a missing, hanging or unhealthy engine — all
+  three verified against the unfixed binary. The reachable path was the
+  process runtime, which the engine-down message itself recommends: following
+  that advice produced a simulator reporting itself healthy, accepting work, and
+  failing it later in the background. Startup now refuses for any mode that
+  executes workloads, health no longer claims an execution capability the
+  process lacks, and the engine constructor returns an error instead of exiting,
+  which is what made any of this testable.
+
+- **BUG-50 (CodeBuild invented test and coverage data):** Reports are read from
+  the files the buildspec declares, out of the build container. Four formats are
+  ingested and the seven other documented ones are refused by name, so partial
+  support is loud rather than a silent fabrication. A build declaring no reports
+  produces none, and a pattern matching nothing produces the incomplete report
+  the service documents.
+
+- **BUG-51 (two workloads ran as host processes):** The CodeBuild command and
+  the Glue Python job run in containers, with the platform derived from the
+  image manifest like every other launcher here. With the last callers gone the
+  process substrate was unreachable and has been removed, and the dispatch gate
+  that failed to notice either of them now walks the whole module.
+
+- **BUG-52 (the derivation floor counted what it never measured):** 1,788 became
+  **1,687**. One hundred and one operations across five services were credited by
+  table membership while absent from the probe's own switch. The floor going
+  down is the honest outcome and the comment says so: no derivation was lost,
+  the number stopped crediting derivation nobody measured. The condition-key
+  ratchet was the same shape — twenty-four hand-written booleans no code had to
+  agree with — and probing them properly showed three keys never reach the
+  request path at all.
+
+- **BUG-53 (a surface with no reachable success path):** The vendored model has
+  no API that creates an iterable form, because it is the catalog object's own
+  repeating structure: a table asset's columns. It is derived from the table the
+  asset names, with item attachments and glossary terms merged on, so the
+  operations can succeed.
 
 - **BUG-47 (DescribeTargetHealth probed every target on the request path):**
   The read paid a full health-check timeout for each unresponsive target —

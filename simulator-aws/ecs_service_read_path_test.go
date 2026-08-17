@@ -43,6 +43,11 @@ func ecsSchedulerTestStores() {
 	ecsServiceRevisions = sim.MakeStore[ECSServiceRevisionRec](nil, "ecs_service_revisions")
 	ecsTaskProtections = sim.MakeStore[ECSTaskProtection](nil, "ecs_task_protections")
 	elbv2TargetGroups = sim.MakeStore[ELBv2TargetGroup](nil, "elbv2_target_groups")
+	// Whether a listener rule forwards to a target group decides whether its
+	// targets are health-checked at all, so a scheduler that reacts to target
+	// health reads these two stores as surely as it reads the target groups.
+	elbv2Listeners = sim.MakeStore[ELBv2Listener](nil, "elbv2_listeners")
+	elbv2Rules = sim.MakeStore[ELBv2Rule](nil, "elbv2_rules")
 	cwAlarms = sim.MakeStore[CWAlarm](nil, "cw_alarms")
 	ecsRevisions = map[string]int{}
 }

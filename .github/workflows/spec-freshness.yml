@@ -1,0 +1,60 @@
+# The blocking half of vendored-specification freshness.
+#
+# CI's check-deps job runs the same check with --baseline origin/main, which
+# holds a branch to the specification rows that branch touched. Rows it left
+# exactly as main recorded them are reported as INHERITED there, because
+# upstream moving during a branch's life says nothing about the change under
+# review — one unrelated branch was made red three times in forty-two minutes
+# by three different upstreams, and one of those drifts could not be satisfied
+# from the author's machine at all.
+#
+# Inherited drift is relocated here, not forgiven. This workflow runs against
+# main with no baseline, so every pin behind its upstream fails, and it fails
+# somewhere that belongs to nobody's branch. The drifted documents it sampled
+# are uploaded, and scripts/fetch-gcp-discovery.sh vendors a captured document
+# with GCP_DISCOVERY_FROM — which is how a revision the author's edge does not
+# serve gets pinned at all.
+name: Specification freshness
+
+on:
+  schedule:
+    # 06:00 UTC daily, an hour before the nightly fuzz run.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spec-freshness
+  cancel-in-progress: true
+
+jobs:
+  freshness:
+    name: vendored specifications (${{ matrix.cloud }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [aws, azure, gcp]
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+      - name: Install fetch tools
+        run: bash scripts/ci-apt-update.sh && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y jq
+      - name: Vendored specifications match upstream
+        id: freshness
+        run: bash scripts/check-spec-freshness.sh ${{ matrix.cloud }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/spec-drift
+      - name: Preserve the drifted specifications
+        if: ${{ !cancelled() && steps.freshness.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ${{ matrix.cloud }}-spec-drift
+          path: ${{ runner.temp }}/spec-drift
+          if-no-files-found: ignore
+          retention-days: 7

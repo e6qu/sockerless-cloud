@@ -14,8 +14,16 @@ on:
   # Reusable so tag pushes can get full PR-level CI.
   workflow_call:
 
+# Pull-request runs are keyed by head ref: a new push to a branch makes the
+# run under way obsolete, and only the latest commit's verdict is wanted, so
+# cancelling reclaims runners with nothing lost. Everything else is keyed by
+# commit. A push to main carries a verdict for that commit alone — grouping
+# main pushes together let each merge cancel its predecessor's CI, so a commit
+# that is permanently in main's history ends with no result and none can be
+# obtained without a manual re-run. A per-commit group has one member and is
+# never superseded.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -80,6 +88,17 @@ jobs:
       # requests are rate limited, and a throttled reply is indistinguishable
       # from "this action has no newer tag", so the token is passed explicitly
       # rather than left to whatever quota the runner happens to have.
+      #
+      # A dependency must also have been public for at least a day before this
+      # project adopts it, so the check holds versions younger than that instead
+      # of reporting them as drift. The adoption quarantine is exercised in both
+      # directions, with its negative controls, before the check itself runs —
+      # a held version that should have been drift is the one way this gate
+      # could go quiet without anyone noticing.
+      - name: Adoption quarantine is exercised, negative controls included
+        run: bash scripts/test-latest-deps-quarantine.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Check dependency freshness (bash)
         run: bash scripts/check-latest-deps.sh
         env:
@@ -88,11 +107,29 @@ jobs:
         run: zsh scripts/check-latest-deps.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Drift attribution is exercised, negative controls included
+        run: bash scripts/test-spec-freshness-baseline.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The freshness checks below attribute drift against main, so main's tip
+      # has to be a resolvable ref. The checkout is shallow; fetch just the one
+      # commit the attribution reads.
+      - name: Fetch main for drift attribution
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
       # Every cloud's vendored specifications are gated, not just one: the
       # check takes a cloud argument, and each cloud is its own step so a
       # drift names the cloud that drifted. Each captures the newer document
       # it sampled so the refresh does not depend on the authoring machine's
       # edge serving the same revision the runner saw.
+      #
+      # --baseline origin/main holds this branch to the rows it touched. A row
+      # whose pin the branch left as main recorded it drifted because upstream
+      # moved, not because the branch let it rot, and failing here made a
+      # branch's life a race against three separate upstreams — recorded in
+      # detail in the script's header. Those rows are reported as INHERITED and
+      # are failed by the scheduled Specification freshness workflow, which
+      # runs against main with no baseline. A row the branch changed, rolled
+      # back, or added is still held to upstream tip right here.
       - name: Check Amazon Web Services API specification freshness
         id: aws-spec-freshness
         # The AWS and Azure specifications live in GitHub repositories, so this
@@ -102,12 +139,16 @@ jobs:
         # pass a gate it could not evaluate — so the token is passed explicitly.
         # Google Cloud's Discovery documents are fetched from Google's own
         # endpoints and need no token.
-        run: bash scripts/check-spec-freshness.sh aws
+        run: bash scripts/check-spec-freshness.sh --baseline origin/main aws
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/aws-spec-drift
+      # Inherited drift no longer fails the step, so the capture is uploaded
+      # whenever one was taken rather than only on failure: the artifact is
+      # what the follow-up refresh vendors, and only the run that sampled the
+      # newer document can produce it.
       - name: Preserve drifted Amazon Web Services API specifications
-        if: failure() && steps.aws-spec-freshness.outcome == 'failure'
+        if: ${{ !cancelled() && steps.aws-spec-freshness.outcome != 'skipped' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: aws-smithy-drift
@@ -116,12 +157,12 @@ jobs:
           retention-days: 1
       - name: Check Microsoft Azure API specification freshness
         id: azure-spec-freshness
-        run: bash scripts/check-spec-freshness.sh azure
+        run: bash scripts/check-spec-freshness.sh --baseline origin/main azure
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/azure-spec-drift
       - name: Preserve drifted Microsoft Azure API specifications
-        if: failure() && steps.azure-spec-freshness.outcome == 'failure'
+        if: ${{ !cancelled() && steps.azure-spec-freshness.outcome != 'skipped' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: azure-spec-drift
@@ -130,11 +171,11 @@ jobs:
           retention-days: 1
       - name: Check Google Cloud API specification freshness
         id: gcp-spec-freshness
-        run: bash scripts/check-spec-freshness.sh gcp
+        run: bash scripts/check-spec-freshness.sh --baseline origin/main gcp
         env:
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/gcp-spec-drift
       - name: Preserve drifted Google Cloud API specifications
-        if: failure() && steps.gcp-spec-freshness.outcome == 'failure'
+        if: ${{ !cancelled() && steps.gcp-spec-freshness.outcome != 'skipped' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: gcp-discovery-drift
@@ -895,4 +936,9 @@ jobs:
         run: |
           bash scripts/test-workflow-timeouts.sh
           bash scripts/check-workflow-timeouts.sh
+        timeout-minutes: 5
+      - name: No commit's workflow run can be cancelled by a later commit
+        run: |
+          bash scripts/test-workflow-concurrency.sh
+          bash scripts/check-workflow-concurrency.sh
         timeout-minutes: 5

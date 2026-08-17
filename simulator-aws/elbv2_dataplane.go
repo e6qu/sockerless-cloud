@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -232,10 +233,97 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
+	// An HTTP or HTTPS health check is graded against the target group's
+	// Matcher — "The codes to use when checking for a successful response from
+	// a target" — so the check has to read the response code rather than treat
+	// any answer as an answer. Every other health-check protocol is a
+	// connection test, which is what a dial proves.
+	if strings.EqualFold(protocol, "HTTP") || strings.EqualFold(protocol, "HTTPS") {
+		return elbv2ProbeHTTPTarget(ctx, tg, protocol, address, timeout)
+	}
 	return realexec.ProbeTarget(ctx, realexec.ProbeSpec{
 		Protocol: protocol,
 		Address:  address,
-		Path:     tg.HealthCheckPath,
 		Timeout:  timeout,
 	})
+}
+
+// elbv2ResponseCodeMismatch is a health check that reached the target and read
+// an answer the target group's Matcher does not count as a success.
+type elbv2ResponseCodeMismatch struct {
+	StatusCode int
+}
+
+func (e elbv2ResponseCodeMismatch) Error() string {
+	return fmt.Sprintf("health check returned HTTP %d, which the target group's success codes exclude", e.StatusCode)
+}
+
+// elbv2ProbeHTTPTarget runs one HTTP or HTTPS health check and grades the
+// response code against the target group's Matcher.
+func elbv2ProbeHTTPTarget(ctx context.Context, tg ELBv2TargetGroup, protocol, address string, timeout time.Duration) error {
+	scheme := "http"
+	transport := http.DefaultTransport
+	if strings.EqualFold(protocol, "HTTPS") {
+		scheme = "https"
+		// "The load balancer establishes TLS connections with the targets using
+		// certificates that you install on the targets. The load balancer does
+		// not validate these certificates. Therefore, you can use self-signed
+		// certificates or certificates that have expired."
+		transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	}
+	// "HealthCheckPath — The destination for health checks on the targets ...
+	// The default is /."
+	path := tg.HealthCheckPath
+	if path == "" {
+		path = "/"
+	}
+	// "These protocols use the HTTP GET method to send health check requests."
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	target := url.URL{Scheme: scheme, Host: address, Path: path}
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, target.String(), nil)
+	if err != nil {
+		return err
+	}
+	client := http.Client{Timeout: timeout, Transport: transport}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	// "After each health check is completed, the load balancer node closes the
+	// connection that was established for the health check."
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if !elbv2HealthCheckCodeMatches(tg, resp.StatusCode) {
+		return elbv2ResponseCodeMismatch{StatusCode: resp.StatusCode}
+	}
+	return nil
+}
+
+// elbv2HealthCheckCodeMatches reports whether a health check response code is
+// one the target group's Matcher counts as a success: "You can specify multiple
+// values (for example, "200,202") or a range of values (for example,
+// "200-299"). The default value is 200."
+func elbv2HealthCheckCodeMatches(tg ELBv2TargetGroup, statusCode int) bool {
+	codes := tg.MatcherHttpCode
+	if codes == "" {
+		codes = elbv2DefaultMatcher()
+	}
+	for _, value := range strings.Split(codes, ",") {
+		low, high, isRange := strings.Cut(strings.TrimSpace(value), "-")
+		first, err := strconv.Atoi(strings.TrimSpace(low))
+		if err != nil {
+			continue
+		}
+		last := first
+		if isRange {
+			if last, err = strconv.Atoi(strings.TrimSpace(high)); err != nil {
+				continue
+			}
+		}
+		if statusCode >= first && statusCode <= last {
+			return true
+		}
+	}
+	return false
 }

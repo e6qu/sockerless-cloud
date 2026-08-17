@@ -102,10 +102,12 @@ func TestELBv2DataPlaneRoutesOnlyLoadBalancerHosts(t *testing.T) {
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
-	// A load balancer forwards only to targets its health checker has put in
-	// service, so run the check the checker would have run by now.
-	elbv2CheckTargetHealth(context.Background(), time.Now())
+	// A target group is health-checked only once a listener rule forwards to
+	// it, and a load balancer forwards only to targets its health checker has
+	// put in service, so the listener comes first and then the check the
+	// checker would have run by now.
 	elbv2Listeners.Put(listener.Arn, listener)
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 
 	req := httptest.NewRequest(http.MethodGet, "http://simulator/proxy-check", nil)
 	req.Host = lb.DNSName
@@ -254,10 +256,12 @@ func TestELBv2DataPlaneReturnsTargetRedirectsInsteadOfFollowingThem(t *testing.T
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
-	// A load balancer forwards only to targets its health checker has put in
-	// service, so run the check the checker would have run by now.
-	elbv2CheckTargetHealth(context.Background(), time.Now())
+	// A target group is health-checked only once a listener rule forwards to
+	// it, and a load balancer forwards only to targets its health checker has
+	// put in service, so the listener comes first and then the check the
+	// checker would have run by now.
 	elbv2Listeners.Put(listener.Arn, listener)
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 
 	for _, status := range []int{
 		http.StatusMovedPermanently,
@@ -376,10 +380,12 @@ func TestELBv2DataPlaneTunnelsUpgradedConnectionsBothWays(t *testing.T) {
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 	elbv2TargetGroups.Put(tg.Arn, tg)
-	// A load balancer forwards only to targets its health checker has put in
-	// service, so run the check the checker would have run by now.
-	elbv2CheckTargetHealth(context.Background(), time.Now())
+	// A target group is health-checked only once a listener rule forwards to
+	// it, and a load balancer forwards only to targets its health checker has
+	// put in service, so the listener comes first and then the check the
+	// checker would have run by now.
 	elbv2Listeners.Put(listener.Arn, listener)
+	elbv2CheckTargetHealth(context.Background(), time.Now())
 
 	dataPlane := httptest.NewServer(srv)
 	defer dataPlane.Close()

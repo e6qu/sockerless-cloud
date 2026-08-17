@@ -36,6 +36,68 @@ immediately exposed two real defects in one of them. A new gate makes that class
 of drift impossible to repeat, and the Azure Terraform harness — which had been
 skipping its entire stack behind capabilities it was itself dropping — now runs.
 
+The six bugs the sweep filed were closed in the same pass. Elastic Load
+Balancing target health gained the three behaviours its checker still lacked: a
+target group no listener rule forwards to reports its targets unused rather than
+being checked at all, the configured matcher grades the response code and a
+mismatch names it, and a deregistering target drains for the configured delay
+instead of vanishing. Beside them an HTTPS health check was only a connection
+attempt, so a target answering an error over HTTPS reported healthy.
+
+The report that a simulator could start without a container client was wrong
+about the mechanism, and disproving it found the real one: container mode
+already refused a missing, hanging or unhealthy engine, all three verified
+against the unfixed binary, while the reachable path was the process runtime the
+engine-down message itself recommends. Taking that advice produced a simulator
+that called itself healthy, accepted work and failed it later in the background.
+Startup now refuses for any mode that executes workloads, and health no longer
+claims a capability the process lacks.
+
+AWS CodeBuild reads test results and coverage from the files the buildspec
+declares, out of the build container; four formats are ingested and the seven
+other documented ones are refused by name, so partial support is loud rather
+than a fabrication. The CodeBuild command and the Glue Python job moved into
+containers, which left the process substrate unreachable, so it is gone. An
+asset's iterable forms are derived from the catalog table it names, so a surface
+that could only ever answer an error can now succeed.
+
+The identity-derivation floor fell from 1,788 to 1,687 because 101 operations
+across five services were credited by table membership while absent from the
+probe's own switch. The drop is the honest outcome, recorded in the floor's own
+comment: no derivation was lost, the count stopped crediting derivation nobody
+measured. The condition-key ratchet was the same shape — hand-written booleans
+no code had to agree with — and probing them showed three keys never reach the
+request path.
+
+## 2026-08-17 — Continuous integration that fails only for reasons this branch caused
+
+A publish is no longer cancelled by the next merge. The concurrency group was
+the branch name, so every merge killed its predecessor; nine publishes were
+cancelled and six commits sit on the default branch with no image in any
+package. Publishes are keyed per commit, and retention moved to its own
+workflow, because per-commit publishes overlap and two prunes racing each other
+corrupt the count. Retention holds only prunable releases to the limit, since
+versions coalesced onto immutable release tags cannot be deleted and counting
+them made the limit unsatisfiable and monotonic; coalescing is per architecture,
+which the rule now handles and a fixture proves.
+
+Specification freshness holds a branch to what it changed rather than to
+upstream's tip, with an unbaselined daily run so nothing rots unnoticed. Before
+this a branch could fail three times in forty-two minutes for drift nobody
+caused, one of them unsatisfiable locally because two edges served different
+revisions of the same document.
+
+Dependencies must be at least a day old before adoption: a release published
+minutes ago has had no time to be yanked or flagged, and that delay is the
+mitigation. A newer version inside the window is reported held rather than
+drift, one past it still fails, and an unknown publication time fails loudly
+rather than passing. Writing it surfaced two defects — an absent proxy timestamp
+renders as the year one and would have cleared the window instantly, and the
+Terraform section had never run at all, having globbed a filename this
+repository does not use. The quarantine is deliberately not applied to vendored
+specifications: it mitigates executing code we install, whereas a discovery
+document is inert data our own suites validate.
+
 ## 2026-08-16 — App Service Environments, Kube Environments and detectors
 
 An App Service Environment is a real placement scope rather than a stored

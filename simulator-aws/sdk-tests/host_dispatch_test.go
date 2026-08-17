@@ -18,25 +18,19 @@ import (
 // in specs/SIMULATOR_REAL_EXECUTION.md.
 //
 // The gate looks for both ways a handler can reach the host: `os/exec` directly,
-// and the shared `sim.StartProcess` wrapper around it. Watching only for
-// `os/exec` would miss every handler that dispatches through the wrapper —
-// which is where the dispatches actually are — so a gate that checked only the
-// import could not fail whatever the handlers did.
+// and a shared `sim.StartProcess` wrapper around it. Watching only for
+// `os/exec` would miss a handler that dispatched through a wrapper, so a gate
+// that checked only the import could not fail whatever the handlers did.
 //
 // It walks the whole module, not just the top-level directory, because the
-// wrapper and the container reaper live in shared/; both are named below.
+// container reaper lives in shared/ and is named below.
 func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
-	// Each entry is a file allowed to reach the host, with the reason. The
-	// substrate files implement the mechanism itself; the two handlers are
-	// known violations of this invariant that the gate reports rather than
-	// hides — they run an AWS CodeBuild command and an AWS Glue Python job as
-	// host processes and belong in containers, and until they move, this list
-	// keeps the invariant enforced for everything else.
+	// Each entry is a file allowed to reach the host, with the reason. Nothing
+	// runs a workload as a host process: there is no process substrate, and
+	// SIM_RUNTIME=process means API-only — serving the API surface without a
+	// container engine, never executing a workload outside one.
 	allowList := map[string]string{
-		"shared/process.go":          "the process substrate itself — the VM/real-execution path this invariant permits",
 		"shared/container_reaper.go": "reaps the sim's own containers through the docker CLI; not a workload",
-		"codebuild_extended.go":      "known violation: an AWS CodeBuild command execution runs as a host process instead of in a build container",
-		"glue.go":                    "known violation: an AWS Glue Python job runs as a host process instead of in a job container",
 	}
 
 	simDir, err := filepath.Abs("..")

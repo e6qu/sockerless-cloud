@@ -1,6 +1,13 @@
 # DO NEXT
 
-1. App Service is at 616 of 692. The recorded deferrals are done: backup and
+1. BUG-54 and BUG-55, both filed by the work that closed the sweep's bugs. The
+   Elastic Load Balancing reconciler removes a target the moment a service
+   deregisters it, bypassing the draining delay the health checker now honours,
+   so the two paths disagree about when a target stops existing. And the
+   dependency-freshness check compares Terraform provider constraints by major
+   version only, so a pinned AWS provider one minor behind reads as current —
+   found because the Terraform section of that script had never run.
+2. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read
    from the live workload container, App Service Environments and Kube
    Environments are served, and detectors compute from real container and site
@@ -8,31 +15,31 @@
    four metric-definition operations with no series behind them, and the
    outbound network-dependency catalog, which is Microsoft-published data.
    What remains in that swagger is the long tail below 692, not a deferral.
-2. BUG-43: the azurerm provider crashed applying an App Service backup block
+3. BUG-43: the azurerm provider crashed applying an App Service backup block
    against the simulator, after three real defects on that path were fixed. The
    Terraform leg was reverted rather than left failing; capture the provider's
    crash log and restore the stack once it applies.
-3. BUG-38: the shared registry-trust helper no longer silently no-ops, which
+4. BUG-38: the shared registry-trust helper no longer silently no-ops, which
    exposes two latent defects elsewhere — the Google Cloud build push test
    still takes the insecure path and now fails loudly, and the AWS and Google
    harness makefiles lack the shared engine-host temporary directory whose
    absence made Azure workloads mount empty directories.
-4. BUG-20 and BUG-36: the container reaper leaves workload containers running
+5. BUG-20 and BUG-36: the container reaper leaves workload containers running
    for hours after a run ends, and each cloud's suites still build their
    simulator to one shared path where a build can overwrite a binary another
    suite is executing. Both are the same family as the harness collisions
    already fixed.
-5. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
+6. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
    that the account's advertised endpoint works, and refuse two accounts
    sharing a name the way the service does.
-6. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
+7. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
    uploads the real service refuses and issues a token for any scope it is
    asked for, a virtual network drops subnets declared inline on it, and an
    Amazon ECR pull through a cache rule is never hydrated.
-7. BUG-32's consumer note: the sockerless AWS backend warns and continues when
+8. BUG-32's consumer note: the sockerless AWS backend warns and continues when
    repository creation fails, which now surfaces as a loud push failure rather
    than a silent success — correct, and matching the real service.
-8. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+9. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 

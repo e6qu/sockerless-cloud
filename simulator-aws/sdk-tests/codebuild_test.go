@@ -462,9 +462,15 @@ func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, lg.ReportGroups, rgArn)
 
-	// A build whose buildspec references the report group produces a Report.
+	// A build whose buildspec references the report group by ARN produces a
+	// Report in that group. Naming an existing group takes its ARN — a bare name
+	// would create "<project-name>-<report-group-name>" instead, which
+	// TestCodeBuild_CodeCoverageReport_SDK covers. The build writes the JUnit XML
+	// the reports entry declares, so the report has raw data to settle from.
 	proj := "cb-sdk-report-project"
-	buildspec := "version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\nreports:\n  " + rgName + ":\n    files:\n      - '**/*'\n"
+	buildspec := cbReportBuildspec(
+		"  "+rgArn+":\n    files:\n      - '**/*'\n    base-directory: test-results\n",
+		map[string]string{"junit.xml": `<testsuite name="unit"><testcase classname="pkg.T" name="one" time="0.1"/></testsuite>`})
 	_, err = c.CreateProject(ctx, &codebuild.CreateProjectInput{
 		Name:        aws.String(proj),
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String(buildspec)},

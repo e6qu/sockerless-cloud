@@ -153,9 +153,21 @@ var (
 	dockerClientErr  error
 )
 
+// engineUnavailableAdvice is what an operator can do about a container engine
+// the simulator could not reach.
+const engineUnavailableAdvice = "simulators require Docker or Podman for workload execution; " +
+	"install Docker/Podman, or set SIM_RUNTIME=process only for explicit API-only runs that do not execute workloads"
+
 // InitDocker initializes the shared Docker client and verifies connectivity.
-// Must be called at simulator startup. Fatally exits if Docker is not available.
-func InitDocker(provider string, preserveWorkloads bool, stateDir string) *client.Client {
+// Called at simulator startup for every runtime mode that executes workloads.
+//
+// It reports an error rather than exiting the process, so that the decision to
+// refuse to start belongs to startup — which can say what it was configuring
+// and can be exercised by a test — instead of to a library call. A simulator
+// that cannot reach an engine must not reach the point of serving requests: the
+// alternative is a process that answers its health check while every workload
+// it is asked to run fails at first use.
+func InitDocker(provider string, preserveWorkloads bool, stateDir string) (*client.Client, error) {
 	configureSimulatorIdentity(provider, stateDir)
 	dockerClientOnce.Do(func() {
 		dockerClient, dockerClientErr = client.New(client.FromEnv)
@@ -165,20 +177,24 @@ func InitDocker(provider string, preserveWorkloads bool, stateDir string) *clien
 		// Verify connectivity
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, dockerClientErr = dockerClient.Ping(ctx, client.PingOptions{})
+		if _, dockerClientErr = dockerClient.Ping(ctx, client.PingOptions{}); dockerClientErr != nil {
+			// A client that could not answer for the engine is not a client the
+			// rest of the process may find and use.
+			dockerClient = nil
+		}
 	})
 	if dockerClientErr != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: Docker/Podman not available: %v\n", dockerClientErr)
-		fmt.Fprintf(os.Stderr, "Simulators require Docker or Podman for workload execution. Install Docker/Podman, or set SIM_RUNTIME=process only for explicit API-only runs that do not execute workloads.\n")
-		os.Exit(1)
+		return nil, fmt.Errorf("container engine not available: %w (%s)", dockerClientErr, engineUnavailableAdvice)
+	}
+	if dockerClient == nil {
+		return nil, fmt.Errorf("container engine not available: no engine client was built (%s)", engineUnavailableAdvice)
 	}
 	if !preserveWorkloads {
 		if err := startContainerReaper(provider); err != nil {
-			fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("start container reaper: %w", err)
 		}
 	}
-	return dockerClient
+	return dockerClient, nil
 }
 
 // DockerClient returns the shared Docker client. InitDocker must have been called first.
@@ -186,12 +202,27 @@ func DockerClient() *client.Client {
 	return dockerClient
 }
 
+// RequireContainerRuntime reports why an operation that runs a container cannot
+// run in this process. Startup refuses to serve when a workload-executing mode
+// cannot reach an engine, so a missing client here means only one thing: the
+// simulator was deliberately started API-only. Naming that says which of the
+// two very different situations the caller is in — an engine that went away,
+// or a process that never had one — instead of leaving a nil variable to be
+// reported as if it were an engine fault.
+func RequireContainerRuntime(operation string) error {
+	if dockerClient != nil {
+		return nil
+	}
+	return fmt.Errorf("%s requires a container runtime: this simulator was started API-only (SIM_RUNTIME=%s) and holds no container engine client",
+		operation, RuntimeModeAPIOnly)
+}
+
 // ContainerPID returns the host PID of a running container's main process, used
 // to plumb a veth into the container's network namespace (the netns VPC fabric).
 func ContainerPID(containerID string) (int, error) {
 	cli := DockerClient()
-	if cli == nil {
-		return 0, fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("reading a container's process id"); err != nil {
+		return 0, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -248,8 +279,8 @@ func CleanupContainers() {
 // Stdout/stderr are streamed to the LogSink; call handle.Wait() to block until exit.
 func StartContainerSync(cfg ContainerConfig, sink LogSink) (*ContainerHandle, error) {
 	cli := DockerClient()
-	if cli == nil {
-		return nil, fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("starting a container"); err != nil {
+		return nil, err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -309,8 +340,8 @@ type ExistingContainer struct {
 // including exited containers whose terminal result has not yet been reconciled
 // into the durable cloud resource.
 func FindExistingContainers(labels map[string]string) ([]ExistingContainer, error) {
-	if dockerClient == nil {
-		return nil, fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("listing existing containers"); err != nil {
+		return nil, err
 	}
 	labelFilters := client.Filters{}
 	if simulatorStateID != "" {
@@ -376,8 +407,8 @@ func HasPersistentWorkloadIdentity() bool {
 // RemoveExistingContainer stops and removes a workload whose owning
 // control-plane process can no longer drive it.
 func RemoveExistingContainer(containerID string) error {
-	if dockerClient == nil {
-		return fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("removing a container"); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -391,8 +422,8 @@ func RemoveExistingContainer(containerID string) error {
 // without replacing it, preserving its filesystem, mounts, identity, and port
 // bindings.
 func StartExistingContainer(containerID string) error {
-	if dockerClient == nil {
-		return fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("starting an existing container"); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -404,8 +435,8 @@ func StartExistingContainer(containerID string) error {
 // earlier persistent simulator process. It never restarts the workload; callers
 // decide whether an exited cloud workload should remain terminal or resume.
 func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*ContainerHandle, error) {
-	if dockerClient == nil {
-		return nil, fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("adopting a running container"); err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	resultCh := make(chan ProcessResult, 1)
@@ -442,8 +473,8 @@ func StopContainer(containerID string) {
 // must not report its terminal state while its network endpoint or mounts are
 // still present.
 func WaitContainerRemoved(containerID string, timeout time.Duration) error {
-	if dockerClient == nil {
-		return fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("waiting for a container to be removed"); err != nil {
+		return err
 	}
 	deadline := time.Now().Add(timeout)
 	for {
@@ -488,8 +519,8 @@ func containerNotFoundError(err error) bool {
 // Callers own the lifecycle decision; this helper never enumerates or prunes
 // unrelated volumes.
 func RemoveVolume(name string) error {
-	if dockerClient == nil {
-		return fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("removing a volume"); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1104,8 +1135,8 @@ func ResolveLocalImage(image string) string {
 // via Docker's embedded DNS resolver.
 func EnsureDockerNetwork(name string) (string, error) {
 	cli := DockerClient()
-	if cli == nil {
-		return "", fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("creating a container network"); err != nil {
+		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -1166,8 +1197,8 @@ func EnsureVPCNetwork(name string) (string, error) {
 	vpcNetworkMu.Lock()
 	defer vpcNetworkMu.Unlock()
 	cli := DockerClient()
-	if cli == nil {
-		return "", fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("creating a VPC network"); err != nil {
+		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1341,8 +1372,8 @@ func RemoveDockerNetwork(name string) error {
 // already on the network, the call updates aliases and returns nil.
 func ConnectContainerToNetwork(containerName, networkName string, aliases []string) error {
 	cli := DockerClient()
-	if cli == nil {
-		return fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("attaching a container to a network"); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -1373,8 +1404,8 @@ func DisconnectContainerFromNetwork(containerName, networkName string) error {
 // which lets callers attach their own network fabric afterward.
 func DisconnectContainerNetworks(containerID string) error {
 	cli := DockerClient()
-	if cli == nil {
-		return fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("detaching a container from its networks"); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -1401,8 +1432,8 @@ type HostEntry struct {
 // attaching another Docker network to the namespace.
 func SyncContainerHostEntries(containerName, marker string, entries []HostEntry) error {
 	cli := DockerClient()
-	if cli == nil {
-		return fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("writing a container's host entries"); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -1472,8 +1503,8 @@ func RuntimeInfo() string {
 // outside that Linux host (notably inside a Podman machine), whereas the
 // runtime-reported bridge gateway is the actual packet coordinate.
 func DefaultContainerNetworkGatewayIPv4() (string, error) {
-	if dockerClient == nil {
-		return "", fmt.Errorf("docker client not initialized")
+	if err := RequireContainerRuntime("reading the container network gateway"); err != nil {
+		return "", err
 	}
 	networkName := "bridge"
 	if strings.Contains(strings.ToLower(RuntimeInfo()), "podman") {
