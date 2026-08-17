@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/e6qu/sockerless-cloud/compare/v0.12.0...v0.12.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **aws/ecs:** answer a service describe from state, and serve App Service Environments and detectors ([#31](https://github.com/e6qu/sockerless-cloud/issues/31)) ([36a8114](https://github.com/e6qu/sockerless-cloud/commit/36a81145cbb0d92181cac055c42367e0c10d5094))
+
 ## [0.12.0](https://github.com/e6qu/sockerless-cloud/compare/v0.11.0...v0.12.0) (2026-08-16)
 
 
