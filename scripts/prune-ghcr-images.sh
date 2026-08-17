@@ -37,8 +37,27 @@ jq -r --argjson keep "$keep" \
 gh api --paginate "$base?per_page=100" | jq -s 'add' >"$remaining_versions_file"
 
 remaining_releases="$(jq '[.[].metadata.container.tags[]? | select(test("^[0-9a-f]{12}$"))] | unique | length' "$remaining_versions_file")"
-if ((remaining_releases > keep)); then
-	echo "$package retained $remaining_releases releases; expected at most $keep" >&2
+
+# Only the releases this script is permitted to delete are held to the limit.
+# GHCR coalesces byte-identical tags into one indivisible package version, so a
+# short-SHA tag whose image is identical to a published vX.Y.Z release lives on
+# that release's package version. Those versions are immortal by policy -- a
+# published release must stay pullable forever -- and deleting one to satisfy a
+# short-SHA budget would unpublish the release with it.
+#
+# Counting them anyway made this gate fail on a correctly pruned package and
+# guaranteed it would keep failing: for sockerless-simulator-aws, 21 short-SHA
+# releases remained against a limit of 20, of which 10 were pinned to v0.3.0
+# through v0.12.0 and only 11 were prunable. Every release adds another, so once
+# the release count reaches the limit no amount of pruning can satisfy it.
+prunable_releases="$(jq '[.[]
+	| select(all((.metadata.container.tags // [])[];
+		test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-(amd64|arm64))?$"; "i") | not))
+	| (.metadata.container.tags // [])[]
+	| select(test("^[0-9a-f]{12}$"))
+] | unique | length' "$remaining_versions_file")"
+if ((prunable_releases > keep)); then
+	echo "$package retained $prunable_releases prunable releases; expected at most $keep" >&2
 	exit 1
 fi
 
