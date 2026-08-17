@@ -1,8 +1,10 @@
 package azure_sdk_test
 
 import (
+	"net/http"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
@@ -186,32 +188,97 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 // association link reads (empty for a subnet with no delegated services) and
 // the virtual-network DDoS protection status (empty with no attached public
 // IPs). Neither requires a real network host.
+//
+// The virtual network and subnet are created first, and that is the point of
+// the test rather than setup detail. An "empty collection" assertion against a
+// subnet that was never created is satisfied by a handler that answers
+// {"value":[]} for every URL of the right shape — which is what these two
+// handlers were — and it simultaneously blesses the simulator answering 200
+// where the real service answers ResourceNotFound. So the empty reads run
+// against a subnet that exists, and the refusal for one that does not is
+// asserted beside them.
+// The subnet has to be created, and creating a subnet builds real Linux
+// network fabric, so this joins the rest of the Microsoft.Network suite behind
+// the host-capability gate. It runs for real on the CI Linux cell. That is a
+// better trade than the version it replaces, which ran everywhere and proved
+// nothing: its subject did not exist on any host.
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
+	requireNetworkHost(t)
 	rg := "links-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, "links-vnet", armnetwork.VirtualNetwork{
+		Location: to.Ptr("eastus"),
+		Properties: &armnetwork.VirtualNetworkPropertiesFormat{
+			AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{to.Ptr("10.71.0.0/16")}},
+		},
+	}, nil)
+	require.NoError(t, err)
+	_, err = vnetPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, "links-vnet", "links-subnet", armnetwork.Subnet{
+		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.71.1.0/24")},
+	}, nil)
+	require.NoError(t, err)
+	_, err = subnetPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
 	navClient, err := armnetwork.NewResourceNavigationLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	navResp, err := navClient.List(ctx, rg, "links-vnet", "links-subnet", nil)
 	require.NoError(t, err)
-	assert.Empty(t, navResp.Value)
+	assert.Empty(t, navResp.Value, "a subnet no service has delegated carries no resource navigation links")
 
 	svcClient, err := armnetwork.NewServiceAssociationLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	svcResp, err := svcClient.List(ctx, rg, "links-vnet", "links-subnet", nil)
 	require.NoError(t, err)
-	assert.Empty(t, svcResp.Value)
+	assert.Empty(t, svcResp.Value, "a subnet no service has delegated carries no service association links")
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
-	require.NoError(t, err)
+	// The link collections belong to the subnet, so a subnet that does not
+	// exist has no collection to read. This is the discriminator that separates
+	// "genuinely empty" from "answers empty to anything".
+	_, err = navClient.List(ctx, rg, "links-vnet", "no-such-subnet", nil)
+	requireAzureNotFound(t, err, "resource navigation links under a subnet that does not exist")
+	_, err = svcClient.List(ctx, rg, "links-vnet", "no-such-subnet", nil)
+	requireAzureNotFound(t, err, "service association links under a subnet that does not exist")
+
 	ddosPoller, err := vnetClient.BeginListDdosProtectionStatus(ctx, rg, "links-vnet", nil)
 	require.NoError(t, err)
 	ddosPager, err := ddosPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, ddosPager)
+	// The operation's result is the paged list, so it has to be drained: a
+	// non-nil pager is produced by the SDK whatever the service answered.
+	statuses := 0
+	for ddosPager.More() {
+		page, err := ddosPager.NextPage(ctx)
+		require.NoError(t, err)
+		statuses += len(page.Value)
+	}
+	assert.Zero(t, statuses,
+		"no public IP is attached to this network, so no address has a DDoS protection status to report")
+}
+
+// requireAzureNotFound asserts a call was refused with Azure's ResourceNotFound
+// rather than merely failing: a transport error, a 500, or a deserialization
+// failure all satisfy a bare require.Error and none of them prove the service
+// looked the resource up.
+func requireAzureNotFound(t *testing.T, err error, what string) {
+	t.Helper()
+	require.Error(t, err, "%s must be refused", what)
+	var respErr *azcore.ResponseError
+	require.ErrorAs(t, err, &respErr, "%s must fail with an Azure error response, got %v", what, err)
+	require.Equal(t, http.StatusNotFound, respErr.StatusCode, "%s must be refused with 404, got %v", what, err)
+	require.Equal(t, "ResourceNotFound", respErr.ErrorCode, "%s must be refused as ResourceNotFound, got %v", what, err)
 }
 
 // TestNetwork_InterfaceLoadBalancerAssociations exercises the bidirectional

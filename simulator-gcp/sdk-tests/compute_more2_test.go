@@ -34,10 +34,14 @@ func TestCompute2_BackendBuckets_CRUD_IAM(t *testing.T) {
 
 	_, err = svc.BackendBuckets.Patch(more2Project, "sdk-bb-1", &compute.BackendBucket{Description: "patched"}).Do()
 	require.NoError(t, err)
+	patched, err := svc.BackendBuckets.Get(more2Project, "sdk-bb-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", patched.Description, "patch must land on the stored backend bucket")
+	assert.Equal(t, "gcs-bucket", patched.BucketName, "a patch must not drop the members it did not name")
 
 	list, err := svc.BackendBuckets.List(more2Project).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(b *compute.BackendBucket) string { return b.Name }, "sdk-bb-1")
 
 	// IAM triplet.
 	pol, err := svc.BackendBuckets.GetIamPolicy(more2Project, "sdk-bb-1").Do()
@@ -70,7 +74,7 @@ func TestCompute2_Licenses_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-lic-1", got.Name)
 	list, err := svc.Licenses.List(more2Project).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(l *compute.License) string { return l.Name }, "sdk-lic-1")
 	_, err = svc.Licenses.Delete(more2Project, "sdk-lic-1").Do()
 	require.NoError(t, err)
 }
@@ -90,11 +94,12 @@ func TestCompute2_SslPolicies_CRUD_AvailableFeatures(t *testing.T) {
 
 	list, err := svc.SslPolicies.List(more2Project).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(p *compute.SslPolicy) string { return p.Name }, "sdk-ssl-1")
 
 	agg, err := svc.SslPolicies.AggregatedList(more2Project).Do()
 	require.NoError(t, err)
-	assert.Contains(t, agg.Items, "global")
+	require.Contains(t, agg.Items, "global")
+	assertComputeListHasName(t, agg.Items["global"].SslPolicies, func(p *compute.SslPolicy) string { return p.Name }, "sdk-ssl-1")
 
 	_, err = svc.SslPolicies.Delete(more2Project, "sdk-ssl-1").Do()
 	require.NoError(t, err)
@@ -108,14 +113,22 @@ func TestCompute2_TargetSslProxies_CRUD_Setters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-tsp-1", got.Name)
 
-	_, err = svc.TargetSslProxies.SetBackendService(more2Project, "sdk-tsp-1", &compute.TargetSslProxiesSetBackendServiceRequest{Service: "https://www.googleapis.com/compute/v1/projects/test-project/regions/us-central1/backendServices/bs"}).Do()
+	// Each setter answers with the global operation that names the proxy it
+	// targeted and the verb it carried out, which is what a client polls and
+	// what gcloud reads to report the resource it changed.
+	backendOp, err := svc.TargetSslProxies.SetBackendService(more2Project, "sdk-tsp-1", &compute.TargetSslProxiesSetBackendServiceRequest{Service: "https://www.googleapis.com/compute/v1/projects/test-project/regions/us-central1/backendServices/bs"}).Do()
 	require.NoError(t, err)
-	_, err = svc.TargetSslProxies.SetSslCertificates(more2Project, "sdk-tsp-1", &compute.TargetSslProxiesSetSslCertificatesRequest{SslCertificates: []string{"projects/test-project/global/sslCertificates/cert"}}).Do()
+	assert.Equal(t, "setBackendService", backendOp.OperationType)
+	assert.Equal(t, "DONE", backendOp.Status)
+	assert.Contains(t, backendOp.TargetLink, "/global/targetSslProxies/sdk-tsp-1")
+	certOp, err := svc.TargetSslProxies.SetSslCertificates(more2Project, "sdk-tsp-1", &compute.TargetSslProxiesSetSslCertificatesRequest{SslCertificates: []string{"projects/test-project/global/sslCertificates/cert"}}).Do()
 	require.NoError(t, err)
+	assert.Equal(t, "setSslCertificates", certOp.OperationType)
+	assert.Contains(t, certOp.TargetLink, "/global/targetSslProxies/sdk-tsp-1")
 
 	list, err := svc.TargetSslProxies.List(more2Project).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(p *compute.TargetSslProxy) string { return p.Name }, "sdk-tsp-1")
 	_, err = svc.TargetSslProxies.Delete(more2Project, "sdk-tsp-1").Do()
 	require.NoError(t, err)
 }
@@ -129,9 +142,13 @@ func TestCompute2_ExternalVpnGateways_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-evpn-1", got.Name)
 	_, err = svc.ExternalVpnGateways.SetLabels(more2Project, "sdk-evpn-1", &compute.GlobalSetLabelsRequest{Labels: map[string]string{"env": "test"}}).Do()
 	require.NoError(t, err)
+	labelled, err := svc.ExternalVpnGateways.Get(more2Project, "sdk-evpn-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "test", labelled.Labels["env"], "setLabels must be readable back off the gateway")
+	assert.Equal(t, "FOUR_IPS_REDUNDANCY", labelled.RedundancyType, "setLabels must not disturb the rest of the resource")
 	list, err := svc.ExternalVpnGateways.List(more2Project).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(g *compute.ExternalVpnGateway) string { return g.Name }, "sdk-evpn-1")
 	_, err = svc.ExternalVpnGateways.Delete(more2Project, "sdk-evpn-1").Do()
 	require.NoError(t, err)
 }
@@ -148,6 +165,9 @@ func TestCompute2_ResourcePolicies_CRUD_IAM_Aggregated(t *testing.T) {
 
 	_, err = svc.ResourcePolicies.Patch(more2Project, more2Region, "sdk-rp-1", &compute.ResourcePolicy{Description: "patched"}).Do()
 	require.NoError(t, err)
+	patched, err := svc.ResourcePolicies.Get(more2Project, more2Region, "sdk-rp-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", patched.Description, "patch must land on the stored resource policy")
 
 	_, err = svc.ResourcePolicies.SetIamPolicy(more2Project, more2Region, "sdk-rp-1", &compute.RegionSetPolicyRequest{
 		Policy: &compute.Policy{Bindings: []*compute.Binding{{Role: "roles/compute.viewer", Members: []string{"user:example@example.com"}}}},
@@ -174,10 +194,11 @@ func TestCompute2_NodeTemplates_CRUD_Aggregated(t *testing.T) {
 	assert.Equal(t, "sdk-nt-1", got.Name)
 	list, err := svc.NodeTemplates.List(more2Project, more2Region).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(n *compute.NodeTemplate) string { return n.Name }, "sdk-nt-1")
 	agg, err := svc.NodeTemplates.AggregatedList(more2Project).Do()
 	require.NoError(t, err)
-	assert.Contains(t, agg.Items, "regions/"+more2Region)
+	require.Contains(t, agg.Items, "regions/"+more2Region)
+	assertComputeListHasName(t, agg.Items["regions/"+more2Region].NodeTemplates, func(n *compute.NodeTemplate) string { return n.Name }, "sdk-nt-1")
 	_, err = svc.NodeTemplates.Delete(more2Project, more2Region, "sdk-nt-1").Do()
 	require.NoError(t, err)
 }
@@ -191,7 +212,7 @@ func TestCompute2_NotificationEndpoints_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-ne-1", got.Name)
 	list, err := svc.RegionNotificationEndpoints.List(more2Project, more2Region).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(e *compute.NotificationEndpoint) string { return e.Name }, "sdk-ne-1")
 	_, err = svc.RegionNotificationEndpoints.Delete(more2Project, more2Region, "sdk-ne-1").Do()
 	require.NoError(t, err)
 }
@@ -205,9 +226,13 @@ func TestCompute2_VpnGateways_CRUD_Aggregated(t *testing.T) {
 	assert.Equal(t, "sdk-vpngw-1", got.Name)
 	_, err = svc.VpnGateways.SetLabels(more2Project, more2Region, "sdk-vpngw-1", &compute.RegionSetLabelsRequest{Labels: map[string]string{"env": "test"}}).Do()
 	require.NoError(t, err)
+	labelled, err := svc.VpnGateways.Get(more2Project, more2Region, "sdk-vpngw-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "test", labelled.Labels["env"], "setLabels must be readable back off the VPN gateway")
 	agg, err := svc.VpnGateways.AggregatedList(more2Project).Do()
 	require.NoError(t, err)
-	assert.Contains(t, agg.Items, "regions/"+more2Region)
+	require.Contains(t, agg.Items, "regions/"+more2Region)
+	assertComputeListHasName(t, agg.Items["regions/"+more2Region].VpnGateways, func(g *compute.VpnGateway) string { return g.Name }, "sdk-vpngw-1")
 	_, err = svc.VpnGateways.Delete(more2Project, more2Region, "sdk-vpngw-1").Do()
 	require.NoError(t, err)
 }
@@ -221,7 +246,7 @@ func TestCompute2_VpnTunnels_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-vpnt-1", got.Name)
 	list, err := svc.VpnTunnels.List(more2Project, more2Region).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(tn *compute.VpnTunnel) string { return tn.Name }, "sdk-vpnt-1")
 	_, err = svc.VpnTunnels.Delete(more2Project, more2Region, "sdk-vpnt-1").Do()
 	require.NoError(t, err)
 }
@@ -235,7 +260,7 @@ func TestCompute2_TargetVpnGateways_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-tvgw-1", got.Name)
 	list, err := svc.TargetVpnGateways.List(more2Project, more2Region).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(g *compute.TargetVpnGateway) string { return g.Name }, "sdk-tvgw-1")
 	_, err = svc.TargetVpnGateways.Delete(more2Project, more2Region, "sdk-tvgw-1").Do()
 	require.NoError(t, err)
 }
@@ -249,6 +274,9 @@ func TestCompute2_ServiceAttachments_CRUD_IAM_Aggregated(t *testing.T) {
 	assert.Equal(t, "sdk-sa-1", got.Name)
 	_, err = svc.ServiceAttachments.Patch(more2Project, more2Region, "sdk-sa-1", &compute.ServiceAttachment{Description: "patched"}).Do()
 	require.NoError(t, err)
+	patched, err := svc.ServiceAttachments.Get(more2Project, more2Region, "sdk-sa-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", patched.Description, "patch must land on the stored service attachment")
 	_, err = svc.ServiceAttachments.SetIamPolicy(more2Project, more2Region, "sdk-sa-1", &compute.RegionSetPolicyRequest{
 		Policy: &compute.Policy{Bindings: []*compute.Binding{{Role: "roles/compute.viewer", Members: []string{"user:example@example.com"}}}},
 	}).Do()
@@ -272,6 +300,9 @@ func TestCompute2_PacketMirrorings_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-pm-1", got.Name)
 	_, err = svc.PacketMirrorings.Patch(more2Project, more2Region, "sdk-pm-1", &compute.PacketMirroring{Description: "patched"}).Do()
 	require.NoError(t, err)
+	patched, err := svc.PacketMirrorings.Get(more2Project, more2Region, "sdk-pm-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", patched.Description, "patch must land on the stored packet mirroring policy")
 	_, err = svc.PacketMirrorings.Delete(more2Project, more2Region, "sdk-pm-1").Do()
 	require.NoError(t, err)
 }
@@ -361,6 +392,9 @@ func TestCompute2_NetworkAttachments_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-na-1", got.Name)
 	_, err = svc.NetworkAttachments.Patch(more2Project, more2Region, "sdk-na-1", &compute.NetworkAttachment{Description: "patched"}).Do()
 	require.NoError(t, err)
+	patched, err := svc.NetworkAttachments.Get(more2Project, more2Region, "sdk-na-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", patched.Description, "patch must land on the stored network attachment")
 	_, err = svc.NetworkAttachments.Delete(more2Project, more2Region, "sdk-na-1").Do()
 	require.NoError(t, err)
 }
@@ -374,6 +408,9 @@ func TestCompute2_RegionSecurityPolicies_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-rsp-1", got.Name)
 	_, err = svc.RegionSecurityPolicies.Patch(more2Project, more2Region, "sdk-rsp-1", &compute.SecurityPolicy{Description: "patched"}).Do()
 	require.NoError(t, err)
+	patched, err := svc.RegionSecurityPolicies.Get(more2Project, more2Region, "sdk-rsp-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", patched.Description, "patch must land on the stored security policy")
 	_, err = svc.RegionSecurityPolicies.Delete(more2Project, more2Region, "sdk-rsp-1").Do()
 	require.NoError(t, err)
 }
@@ -387,7 +424,7 @@ func TestCompute2_RegionSslCertificates_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-rsc-1", got.Name)
 	list, err := svc.RegionSslCertificates.List(more2Project, more2Region).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(c *compute.SslCertificate) string { return c.Name }, "sdk-rsc-1")
 	_, err = svc.RegionSslCertificates.Delete(more2Project, more2Region, "sdk-rsc-1").Do()
 	require.NoError(t, err)
 }
@@ -399,8 +436,13 @@ func TestCompute2_RegionTargetHttpsProxies_CRUD(t *testing.T) {
 	got, err := svc.RegionTargetHttpsProxies.Get(more2Project, more2Region, "sdk-rthp-1").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-rthp-1", got.Name)
-	_, err = svc.RegionTargetHttpsProxies.SetUrlMap(more2Project, more2Region, "sdk-rthp-1", &compute.UrlMapReference{UrlMap: "url-map-ref"}).Do()
+	// setUrlMap answers with the regional operation that names the proxy it
+	// targeted and the verb it carried out, which is what a client polls.
+	urlMapOp, err := svc.RegionTargetHttpsProxies.SetUrlMap(more2Project, more2Region, "sdk-rthp-1", &compute.UrlMapReference{UrlMap: "url-map-ref"}).Do()
 	require.NoError(t, err)
+	assert.Equal(t, "setUrlMap", urlMapOp.OperationType)
+	assert.Equal(t, "DONE", urlMapOp.Status)
+	assert.Contains(t, urlMapOp.TargetLink, "/regions/"+more2Region+"/targetHttpsProxies/sdk-rthp-1")
 	_, err = svc.RegionTargetHttpsProxies.Delete(more2Project, more2Region, "sdk-rthp-1").Do()
 	require.NoError(t, err)
 }
@@ -414,6 +456,10 @@ func TestCompute2_RegionSslPolicies_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-rssl-1", got.Name)
 	_, err = svc.RegionSslPolicies.Patch(more2Project, more2Region, "sdk-rssl-1", &compute.SslPolicy{Description: "patched"}).Do()
 	require.NoError(t, err)
+	patched, err := svc.RegionSslPolicies.Get(more2Project, more2Region, "sdk-rssl-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", patched.Description, "patch must land on the stored SSL policy")
+	assert.Equal(t, "TLS_1_2", patched.MinTlsVersion, "a patch must not drop the members it did not name")
 	_, err = svc.RegionSslPolicies.Delete(more2Project, more2Region, "sdk-rssl-1").Do()
 	require.NoError(t, err)
 }
@@ -428,9 +474,16 @@ func TestCompute2_Autoscalers_CRUD_PatchUpdate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-as-1", got.Name)
 
-	// autoscalers.patch / update target the autoscaler by query param.
+	// autoscalers.patch / update target the autoscaler by query param. The
+	// patch is read back before the update runs, because the update that
+	// follows rewrites the same member and would hide whether the patch ever
+	// landed.
 	_, err = svc.Autoscalers.Patch(more2Project, more2Zone, &compute.Autoscaler{Name: "sdk-as-1", Description: "patched"}).Autoscaler("sdk-as-1").Do()
 	require.NoError(t, err)
+	got1, err := svc.Autoscalers.Get(more2Project, more2Zone, "sdk-as-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", got1.Description)
+
 	_, err = svc.Autoscalers.Update(more2Project, more2Zone, &compute.Autoscaler{Name: "sdk-as-1", Description: "updated"}).Autoscaler("sdk-as-1").Do()
 	require.NoError(t, err)
 	got2, err := svc.Autoscalers.Get(more2Project, more2Zone, "sdk-as-1").Do()
@@ -439,7 +492,7 @@ func TestCompute2_Autoscalers_CRUD_PatchUpdate(t *testing.T) {
 
 	list, err := svc.Autoscalers.List(more2Project, more2Zone).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(a *compute.Autoscaler) string { return a.Name }, "sdk-as-1")
 	_, err = svc.Autoscalers.Delete(more2Project, more2Zone, "sdk-as-1").Do()
 	require.NoError(t, err)
 }
@@ -453,6 +506,9 @@ func TestCompute2_NodeGroups_CRUD_IAM_Aggregated(t *testing.T) {
 	assert.Equal(t, "sdk-ng-1", got.Name)
 	_, err = svc.NodeGroups.Patch(more2Project, more2Zone, "sdk-ng-1", &compute.NodeGroup{Description: "patched"}).Do()
 	require.NoError(t, err)
+	patched, err := svc.NodeGroups.Get(more2Project, more2Zone, "sdk-ng-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "patched", patched.Description, "patch must land on the stored node group")
 	_, err = svc.NodeGroups.SetIamPolicy(more2Project, more2Zone, "sdk-ng-1", &compute.ZoneSetPolicyRequest{
 		Policy: &compute.Policy{Bindings: []*compute.Binding{{Role: "roles/compute.viewer", Members: []string{"user:example@example.com"}}}},
 	}).Do()
@@ -511,7 +567,7 @@ func TestCompute2_TargetInstances_CRUD(t *testing.T) {
 	assert.Equal(t, "sdk-ti-1", got.Name)
 	list, err := svc.TargetInstances.List(more2Project, more2Zone).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(i *compute.TargetInstance) string { return i.Name }, "sdk-ti-1")
 	_, err = svc.TargetInstances.Delete(more2Project, more2Zone, "sdk-ti-1").Do()
 	require.NoError(t, err)
 }
@@ -539,9 +595,12 @@ func TestCompute2_InstantSnapshots_CRUD_SetLabels(t *testing.T) {
 	assert.Equal(t, "sdk-isnap-1", got.Name)
 	_, err = svc.InstantSnapshots.SetLabels(more2Project, more2Zone, "sdk-isnap-1", &compute.ZoneSetLabelsRequest{Labels: map[string]string{"env": "test"}}).Do()
 	require.NoError(t, err)
+	labelled, err := svc.InstantSnapshots.Get(more2Project, more2Zone, "sdk-isnap-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "test", labelled.Labels["env"], "setLabels must be readable back off the instant snapshot")
 	list, err := svc.InstantSnapshots.List(more2Project, more2Zone).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(s *compute.InstantSnapshot) string { return s.Name }, "sdk-isnap-1")
 	_, err = svc.InstantSnapshots.Delete(more2Project, more2Zone, "sdk-isnap-1").Do()
 	require.NoError(t, err)
 }

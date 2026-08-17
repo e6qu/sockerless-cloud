@@ -3,7 +3,6 @@ package azure_cli_test
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -141,21 +140,21 @@ func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
 	runCLI(t, azRest("PUT", appURL, body))
 	defer runCLI(t, azRest("DELETE", appURL, ""))
 
-	queryURL := baseURL + "/v1/workspaces/default/query"
-	kqlBody := `{"query": "ContainerAppConsoleLogs_CL | where ContainerAppName_s == \"` + appName + `\""}`
-	// Generous deadline so a slow real-replica start on a loaded CI runner doesn't
-	// expire before the arithmetic output is logged; the loop returns on first match.
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		out := runCLI(t, azRest("POST", queryURL, kqlBody))
-		if strings.Contains(out, "54") {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for ACA App replica log output")
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
+	// Generous deadline so a slow real-replica start on a loaded CI runner
+	// doesn't expire before the arithmetic output is logged.
+	//
+	// The assertion is on the decoded console lines rather than on a substring
+	// of the query response: "54" appears in the ISO-8601 TimeGenerated stamp
+	// of any row landing at 54 seconds past the minute, so a substring search
+	// passes for a replica that printed something else entirely — or that
+	// printed nothing and left only a stamp behind.
+	var lines []string
+	require.Eventually(t, func() bool {
+		lines = containerAppLogLines(t, "ContainerAppName_s", appName)
+		return len(lines) > 0
+	}, 30*time.Second, 250*time.Millisecond, "the replica's console output never reached Log Analytics")
+	assert.Contains(t, lines, "54",
+		"the replica evaluates 9 * 6 and prints the result; its console lines were %q", lines)
 }
 
 // TestContainerAppsApps_CLI_ConfigurationRoundTrip drives every

@@ -99,10 +99,12 @@ func TestSDK_CloudRunV2_ServiceIAM_RoundTrip(t *testing.T) {
 	createV2Service(t, services, parent, id)
 	resource := parent + "/services/" + id
 
-	// Default empty policy.
+	// A resource nobody has granted anything on carries a policy with no
+	// bindings — not an error, and not a policy carrying someone else's grants.
 	pol, err := services.GetIamPolicy(ctx, &iampb.GetIamPolicyRequest{Resource: resource})
 	require.NoError(t, err)
 	require.NotNil(t, pol)
+	assert.Empty(t, pol.GetBindings())
 
 	// Set a binding.
 	set, err := services.SetIamPolicy(ctx, &iampb.SetIamPolicyRequest{

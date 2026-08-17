@@ -31,7 +31,9 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	))
 	defer runCLI(t, gcloudCLI("dns", "managed-zones", "delete", "cli-xjob-zone"))
 
-	// Get zone ID so we can verify the Docker network exists.
+	// A private zone is backed by a real Docker user-defined network named for
+	// the zone's id, and that network is what carries the resolution below —
+	// so it is verified to exist rather than assumed.
 	out := runCLI(t, gcloudCLI("dns", "managed-zones", "describe", "cli-xjob-zone", "--format=json"))
 	var zone struct {
 		Id         string `json:"id"`
@@ -39,6 +41,10 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	}
 	parseJSON(t, out, &zone)
 	require.Equal(t, "private", zone.Visibility)
+	require.NotEmpty(t, zone.Id, "the zone must carry an id: %s", out)
+	zoneNetwork := "sim-" + zone.Id
+	require.NoError(t, exec.Command("docker", "network", "inspect", zoneNetwork).Run(),
+		"the private zone must be backed by the Docker network %q", zoneNetwork)
 
 	// 2. Create + run two Cloud Run Jobs via direct HTTP (gcloud run
 	// jobs create against the simulator's v2 endpoint is not reliably
@@ -105,6 +111,13 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	httpDoJSON(t, "POST", rrURL, fmt.Sprintf(
 		`{"name":"beta.cli-xjob.local.","type":"A","ttl":60,"rrdatas":[%q]}`, betaIP))
 
+	// The A records attach their containers to the zone's Docker network under
+	// the record's short name — the mechanism the resolution below rides on.
+	for _, name := range []string{alphaContainer, betaContainer} {
+		require.Contains(t, containerNetworks(t, name), zoneNetwork,
+			"%s must be attached to the private zone's Docker network", name)
+	}
+
 	// 4. Cross-job DNS: alpha resolves "beta" through its own resolver
 	// once the private-zone A records have attached both containers to
 	// the zone's backing Docker network.
@@ -131,21 +144,39 @@ func jobContainerName(executionName string) string {
 
 func containerIP(t *testing.T, name string) string {
 	t.Helper()
-	out, err := exec.Command("docker", "inspect", name).Output()
-	require.NoError(t, err)
-	var inspected []struct {
-		NetworkSettings struct {
-			Networks map[string]struct {
-				IPAddress string `json:"IPAddress"`
-			} `json:"Networks"`
-		} `json:"NetworkSettings"`
-	}
-	require.NoError(t, json.Unmarshal(out, &inspected))
-	require.NotEmpty(t, inspected)
-	for _, net := range inspected[0].NetworkSettings.Networks {
+	for _, net := range inspectContainerNetworks(t, name) {
 		if net.IPAddress != "" {
 			return net.IPAddress
 		}
 	}
 	return ""
+}
+
+// containerNetworks returns the names of the Docker networks a container is
+// attached to.
+func containerNetworks(t *testing.T, name string) []string {
+	t.Helper()
+	var names []string
+	for netName := range inspectContainerNetworks(t, name) {
+		names = append(names, netName)
+	}
+	return names
+}
+
+type dockerContainerNetwork struct {
+	IPAddress string `json:"IPAddress"`
+}
+
+func inspectContainerNetworks(t *testing.T, name string) map[string]dockerContainerNetwork {
+	t.Helper()
+	out, err := exec.Command("docker", "inspect", name).Output()
+	require.NoError(t, err)
+	var inspected []struct {
+		NetworkSettings struct {
+			Networks map[string]dockerContainerNetwork `json:"Networks"`
+		} `json:"NetworkSettings"`
+	}
+	require.NoError(t, json.Unmarshal(out, &inspected))
+	require.NotEmpty(t, inspected)
+	return inspected[0].NetworkSettings.Networks
 }

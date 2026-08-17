@@ -125,5 +125,6 @@ func TestCloudRunJobs_CLI_IAMPolicyOnMissingJob(t *testing.T) {
 		"--region="+location, "--format=json")
 	out, err := cmd.CombinedOutput()
 	require.Error(t, err, "get-iam-policy on an absent job must fail")
+	assert.Contains(t, string(out), "NOT_FOUND")
 	assert.Contains(t, string(out), "cli-job-never-created")
 }

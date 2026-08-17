@@ -9,6 +9,8 @@ package gcp_cli_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -50,11 +52,26 @@ func TestProjectsLifecycleCLI(t *testing.T) {
 	require.Equal(t, "organization", described.Parent.Type)
 	require.Equal(t, "123456789012", described.Parent.ID)
 
-	// Duplicate project ID: gcloud surfaces the real 409 as its
-	// "already in use" message.
+	// Duplicate project ID: the CLI fails. What it prints is gcloud's own
+	// rendering of the refusal and moves with the CLI release, so the contract
+	// is pinned where the service states it — the same create on the wire
+	// answers 409 ALREADY_EXISTS.
 	dupOut, dupErr := gcloudCLI("projects", "create", projectID).CombinedOutput()
 	require.Error(t, dupErr, "duplicate create must fail, got: %s", dupOut)
-	assert.Contains(t, string(dupOut), "already in use")
+
+	resp, err := httpDo("POST", baseURL+"/v1/projects", fmt.Sprintf(`{"projectId":%q}`, projectID))
+	require.NoError(t, err)
+	dupBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, 409, resp.StatusCode, "duplicate create on the wire: %s", dupBody)
+	var conflict struct {
+		Error struct {
+			Status  string `json:"status"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(dupBody, &conflict), "body: %s", dupBody)
+	assert.Equal(t, "ALREADY_EXISTS", conflict.Error.Status)
 
 	// list (gcloud sends filter=lifecycleState:ACTIVE) includes the project.
 	require.Contains(t, cliListProjectIDs(t), projectID)

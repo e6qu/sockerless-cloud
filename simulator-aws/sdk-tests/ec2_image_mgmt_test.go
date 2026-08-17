@@ -268,15 +268,29 @@ func TestEC2_ExportImageSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(exp.ExportImageTaskId))
 	assert.Equal(t, amiID, aws.ToString(exp.ImageId))
 
+	// The task just started is the one the read side returns, described by the
+	// image and destination it was started for. An empty list would execute no
+	// assertion at all, so the task is looked for by its identifier.
 	tasks, err := c.DescribeExportImageTasks(ctx, &ec2.DescribeExportImageTasksInput{})
 	require.NoError(t, err)
-	// The export task store is owned by the image-management read side; a
-	// freshly-exported task may or may not appear depending on which handler
-	// owns ExportImage, so only assert the call succeeds and any returned task
-	// is well-shaped.
-	for _, task := range tasks.ExportImageTasks {
-		assert.NotEmpty(t, aws.ToString(task.ExportImageTaskId))
+	var exported *types.ExportImageTask
+	for i, task := range tasks.ExportImageTasks {
+		if aws.ToString(task.ExportImageTaskId) == aws.ToString(exp.ExportImageTaskId) {
+			exported = &tasks.ExportImageTasks[i]
+		}
 	}
+	require.NotNil(t, exported, "the export task just started must be described")
+	assert.Equal(t, amiID, aws.ToString(exported.ImageId))
+	require.NotNil(t, exported.S3ExportLocation)
+	assert.Equal(t, "export-bucket", aws.ToString(exported.S3ExportLocation.S3Bucket))
+
+	// Filtering by the identifier returns that task and only that task.
+	byID, err := c.DescribeExportImageTasks(ctx, &ec2.DescribeExportImageTasksInput{
+		ExportImageTaskIds: []string{aws.ToString(exp.ExportImageTaskId)},
+	})
+	require.NoError(t, err)
+	require.Len(t, byID.ExportImageTasks, 1)
+	assert.Equal(t, aws.ToString(exp.ExportImageTaskId), aws.ToString(byID.ExportImageTasks[0].ExportImageTaskId))
 }
 
 // TestEC2_ImportImageSDK covers ImportImage and the DescribeImportImageTasks
@@ -295,9 +309,24 @@ func TestEC2_ImportImageSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(imp.ImportTaskId))
 
+	// The task just started is the one the read side returns, carrying the
+	// description it was started with.
 	tasks, err := c.DescribeImportImageTasks(ctx, &ec2.DescribeImportImageTasksInput{})
 	require.NoError(t, err)
-	for _, task := range tasks.ImportImageTasks {
-		assert.NotEmpty(t, aws.ToString(task.ImportTaskId))
+	var imported *types.ImportImageTask
+	for i, task := range tasks.ImportImageTasks {
+		if aws.ToString(task.ImportTaskId) == aws.ToString(imp.ImportTaskId) {
+			imported = &tasks.ImportImageTasks[i]
+		}
 	}
+	require.NotNil(t, imported, "the import task just started must be described")
+	assert.Equal(t, "imported from S3", aws.ToString(imported.Description))
+	assert.Equal(t, "x86_64", aws.ToString(imported.Architecture))
+
+	byID, err := c.DescribeImportImageTasks(ctx, &ec2.DescribeImportImageTasksInput{
+		ImportTaskIds: []string{aws.ToString(imp.ImportTaskId)},
+	})
+	require.NoError(t, err)
+	require.Len(t, byID.ImportImageTasks, 1)
+	assert.Equal(t, aws.ToString(imp.ImportTaskId), aws.ToString(byID.ImportImageTasks[0].ImportTaskId))
 }

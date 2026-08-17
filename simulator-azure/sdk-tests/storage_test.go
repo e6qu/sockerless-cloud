@@ -50,9 +50,15 @@ func TestStorage_CreateAccount(t *testing.T) {
 	assert.Contains(t, []int{200, 201, 202}, resp.StatusCode)
 }
 
+// TestStorage_GetAccount reads back an account it creates itself. Reading the
+// one TestStorage_CreateAccount leaves behind makes this pass or fail on the
+// order the package happens to run in, and `go test -run TestStorage_GetAccount`
+// fails outright — so the read proved nothing about the read.
 func TestStorage_GetAccount(t *testing.T) {
+	createStorageAccountInGroup(t, "storage-get-rg", "getstorageacct")
+
 	req, _ := http.NewRequestWithContext(ctx, "GET",
-		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/storage-rg/providers/Microsoft.Storage/storageAccounts/teststorage?api-version=2023-05-01",
+		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/storage-get-rg/providers/Microsoft.Storage/storageAccounts/getstorageacct?api-version=2023-05-01",
 		nil)
 	req.Header.Set("Authorization", simARMBearer)
 
@@ -62,9 +68,58 @@ func TestStorage_GetAccount(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var result map[string]any
-	data, _ := io.ReadAll(resp.Body)
-	json.Unmarshal(data, &result)
-	assert.Equal(t, "teststorage", result["name"])
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	// The decode error was discarded here, which let a body that is not JSON at
+	// all reach the assertion below as an empty map.
+	require.NoError(t, json.Unmarshal(data, &result), "decode the storage account: %s", data)
+	assert.Equal(t, "getstorageacct", result["name"])
+	assert.Equal(t, "eastus", result["location"])
+	assert.Equal(t, "StorageV2", result["kind"])
+	assert.Equal(t, "Microsoft.Storage/storageAccounts", result["type"])
+	assert.Equal(t,
+		"/subscriptions/"+subscriptionID+"/resourceGroups/storage-get-rg/providers/Microsoft.Storage/storageAccounts/getstorageacct",
+		result["id"], "the account reports its own canonical Azure Resource Manager id")
+
+	// What the create sent has to come back, not just the name.
+	sku, ok := result["sku"].(map[string]any)
+	require.True(t, ok, "the account carries its sku: %s", data)
+	assert.Equal(t, "Standard_LRS", sku["name"])
+	properties, ok := result["properties"].(map[string]any)
+	require.True(t, ok, "the account carries a properties object: %s", data)
+	assert.Equal(t, "Hot", properties["accessTier"])
+}
+
+// createStorageAccountInGroup puts a resource group and a Standard_LRS StorageV2
+// account into it, so a test that reads an account owns the one it reads.
+func createStorageAccountInGroup(t *testing.T, rg, name string) {
+	t.Helper()
+	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
+		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"?api-version=2023-07-01",
+		strings.NewReader(`{"location":"eastus"}`))
+	rgReq.Header.Set("Content-Type", "application/json")
+	rgReq.Header.Set("Authorization", simARMBearer)
+	rgResp, err := http.DefaultClient.Do(rgReq)
+	require.NoError(t, err)
+	rgResp.Body.Close()
+
+	account := map[string]any{
+		"location":   "eastus",
+		"kind":       "StorageV2",
+		"sku":        map[string]string{"name": "Standard_LRS"},
+		"properties": map[string]any{"accessTier": "Hot"},
+	}
+	body, err := json.Marshal(account)
+	require.NoError(t, err)
+	req, _ := http.NewRequestWithContext(ctx, "PUT",
+		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Storage/storageAccounts/"+name+"?api-version=2023-05-01",
+		strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", simARMBearer)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Contains(t, []int{200, 201, 202}, resp.StatusCode, "create storage account %s", name)
 }
 
 func TestStorage_ARMListKeysCanonical512BitPerAccount(t *testing.T) {

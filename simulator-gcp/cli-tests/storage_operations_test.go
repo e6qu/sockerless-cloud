@@ -46,6 +46,25 @@ func operationNameFrom(t *testing.T, out string) string {
 	return ""
 }
 
+// assertStorageOperationStillDone reads a bucket operation back and pins the
+// record a best-effort advance or cancel leaves behind: the operation is still
+// there, still done, and still carries no error.
+func assertStorageOperationStillDone(t *testing.T, name string) {
+	t.Helper()
+	out := runCLI(t, gcloudCLI("storage", "operations", "describe", name, "--format=json"))
+	var op struct {
+		Name  string `json:"name"`
+		Done  bool   `json:"done"`
+		Error *struct {
+			Code int `json:"code"`
+		} `json:"error"`
+	}
+	parseJSONObject(t, out, &op)
+	assert.Equal(t, name, op.Name, "output: %s", out)
+	assert.True(t, op.Done, "the operation stays settled: %s", out)
+	assert.Nil(t, op.Error, "the operation is not turned into a failure: %s", out)
+}
+
 func TestGCSCLI_BucketRelocateAndOperations(t *testing.T) {
 	const bucket = "cli-storage-ops-bucket"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us"))
@@ -85,10 +104,21 @@ func TestGCSCLI_BucketRelocateAndOperations(t *testing.T) {
 		"projects/_/buckets/"+bucket, "--server-filter=done = false", "--format=value(name)"))
 	assert.NotContains(t, running, name)
 
-	// Advancing and cancelling both resolve the operation first.
+	// Advancing and cancelling both resolve the operation first. The
+	// relocation finished inside the request that started it, so both are the
+	// late calls the methods contemplate: each answers an empty body and
+	// leaves the settled record exactly as it stands, which is read back off
+	// the operation rather than inferred from the exit status.
 	runCLI(t, gcloudCLI("storage", "buckets", "relocate",
 		"--operation="+name, "--finalize", "--ttl=7h"))
+	assertStorageOperationStillDone(t, name)
+
 	runCLI(t, gcloudCLI("storage", "operations", "cancel", name))
+	assertStorageOperationStillDone(t, name)
+
+	// And the bucket the relocation moved is still where it moved it.
+	assert.Equal(t, "US-EAST1", strings.TrimSpace(runCLI(t, gcloudCLI(
+		"storage", "buckets", "describe", "gs://"+bucket, "--format=value(location)"))))
 
 	// An identifier the service never minted is not an operation, from any of
 	// the three commands.

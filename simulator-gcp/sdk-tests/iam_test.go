@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -90,10 +91,19 @@ func TestIAM_GetServiceAccount(t *testing.T) {
 	assert.Equal(t, created.Email, got.Email)
 }
 
+// iamAccountNames reduces a serviceAccounts.list response to its resource names.
+func iamAccountNames(resp *iam.ListServiceAccountsResponse) []string {
+	names := make([]string, 0, len(resp.Accounts))
+	for _, a := range resp.Accounts {
+		names = append(names, a.Name)
+	}
+	return names
+}
+
 func TestIAM_ListServiceAccounts(t *testing.T) {
 	svc := iamService(t)
 
-	_, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
+	created, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
 		&iam.CreateServiceAccountRequest{
 			AccountId: "list-sa",
 			ServiceAccount: &iam.ServiceAccount{
@@ -104,7 +114,8 @@ func TestIAM_ListServiceAccounts(t *testing.T) {
 
 	resp, err := svc.Projects.ServiceAccounts.List("projects/test-project").Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(resp.Accounts), 1)
+	assert.Contains(t, iamAccountNames(resp), created.Name,
+		"the service account just created must be listed")
 }
 
 // TestIAM_ListServiceAccountsPagination covers the pageSize/pageToken support
@@ -143,8 +154,22 @@ func TestIAM_DeleteServiceAccount(t *testing.T) {
 		}).Do()
 	require.NoError(t, err)
 
+	// The account is readable and listed before the delete, so its absence
+	// afterwards is the delete's doing and not a create that never landed.
+	before, err := svc.Projects.ServiceAccounts.List("projects/test-project").Do()
+	require.NoError(t, err)
+	require.Contains(t, iamAccountNames(before), created.Name)
+
 	_, err = svc.Projects.ServiceAccounts.Delete(created.Name).Do()
 	require.NoError(t, err)
+
+	_, err = svc.Projects.ServiceAccounts.Get(created.Name).Do()
+	requireGoogleErr(t, err, 404, "NOT_FOUND")
+
+	after, err := svc.Projects.ServiceAccounts.List("projects/test-project").Do()
+	require.NoError(t, err)
+	assert.NotContains(t, iamAccountNames(after), created.Name,
+		"a deleted service account must be gone from the list")
 }
 
 // iamCredentialsService points the iamcredentials SDK at the sim. The
@@ -401,6 +426,7 @@ func TestIAM_ProjectIAMPolicy(t *testing.T) {
 		&cloudresourcemanager.GetIamPolicyRequest{}).Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, policy.Etag)
+	assert.Empty(t, policy.Bindings, "a project nobody has granted a role on has no bindings")
 
 	// SetIamPolicy — add a binding.
 	updated, err := svc.Projects.SetIamPolicy(project,
@@ -645,6 +671,10 @@ func TestIAM_ServiceAccountAsResourceIAM(t *testing.T) {
 	pol, err := svc.Projects.ServiceAccounts.GetIamPolicy(sa.Name).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, pol.Etag)
+	require.Empty(t, pol.Bindings, "a service account nobody has granted a role on has no bindings")
+	reread, err := svc.Projects.ServiceAccounts.GetIamPolicy(sa.Name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, pol.Etag, reread.Etag, "the default policy's etag must persist across reads")
 
 	// setIamPolicy — grant serviceAccountUser to a member.
 	set, err := svc.Projects.ServiceAccounts.SetIamPolicy(sa.Name,
@@ -1026,7 +1056,14 @@ func TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime(t *testin
 			expiry, err := time.Parse(time.RFC3339, resp.ExpireTime)
 			require.NoError(t, err, "expireTime is RFC3339: %q", resp.ExpireTime)
 			got := expiry.Sub(before)
-			assert.InDelta(t, tc.want.Seconds(), got.Seconds(), 30,
+			// The tolerance scales with the lifetime and stays well under half
+			// the distance to the next candidate in the table, so a response
+			// pinned to any other lifetime — the one-hour default above all —
+			// fails. A flat 30 seconds would swallow the one-second case whole.
+			// The floor of three seconds covers the request round trip plus the
+			// second-precision truncation of an RFC3339 expireTime.
+			tolerance := math.Max(3, tc.want.Seconds()*0.05)
+			assert.InDelta(t, tc.want.Seconds(), got.Seconds(), tolerance,
 				"expireTime must track the requested lifetime, not a fixed hour")
 		})
 	}

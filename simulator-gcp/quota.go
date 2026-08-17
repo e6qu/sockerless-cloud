@@ -38,11 +38,26 @@ type quotaDebit struct {
 
 // regionalCPUQuota tracks CPU-min debits per (project, region) within a
 // sliding window. Zero budget = quota disabled.
+//
+// now reads the clock the window is measured against. It is nil in the
+// simulator, where the wall clock is the only clock that matters; a test drives
+// the roll-off from a clock it controls so the boundary is decided by the
+// window rather than by how the host scheduled the test.
 type regionalCPUQuota struct {
 	mu       sync.Mutex
 	budget   float64
 	window   time.Duration
 	debitsBy map[string][]quotaDebit // key = project|region
+	now      func() time.Time
+}
+
+// clock returns the current time on whichever clock this quota measures its
+// window against.
+func (q *regionalCPUQuota) clock() time.Time {
+	if q.now != nil {
+		return q.now()
+	}
+	return time.Now()
 }
 
 // quotaKey concatenates project + region into a stable map key.
@@ -101,7 +116,7 @@ func (q *regionalCPUQuota) tryDebit(project, region string, cpu float64) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	key := quotaKey(project, region)
-	now := time.Now()
+	now := q.clock()
 	used := q.activeBudget(now, key)
 	if used+cpu > q.budget {
 		return false

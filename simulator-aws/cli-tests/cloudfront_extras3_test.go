@@ -388,20 +388,129 @@ func TestCloudFrontWebACLAndAliasCLI(t *testing.T) {
 }
 
 // TestCloudFrontListDistributionsByResourceCLI covers the ListDistributionsBy*
-// projections over the existing distribution store.
+// projections. Each is asserted against a distribution that really carries the
+// resource being projected on, and against an identifier no distribution
+// carries, so a projection that ignores its filter — answering with everything,
+// or with nothing — fails one arm or the other.
 func TestCloudFrontListDistributionsByResourceCLI(t *testing.T) {
-	_, _ = cfExtras3CreateDistributionCLI(t)
+	stamp := time.Now().Format("150405.000000000")
+	cachePolicy := "cp-" + stamp
+	originPolicy := "orp-" + stamp
+	headersPolicy := "rhp-" + stamp
+	keyGroup := "kg-" + stamp
+	anycastIPList := "aipl-" + stamp
+	webACL := "arn:aws:wafv2:us-east-1:000000000000:global/webacl/cli-" + stamp + "/1"
+	distributionConf := fmt.Sprintf(`{
+		"CallerReference":"cli-extras3-byresource-%s",
+		"Comment":"cli extras3 by-resource",
+		"Enabled":true,
+		"AnycastIpListId":"%s",
+		"ConnectionMode":"tenant-only",
+		"WebACLId":"%s",
+		"Origins":{"Quantity":1,"Items":[{"Id":"o1","DomainName":"example.com","CustomOriginConfig":{"HTTPPort":80,"HTTPSPort":443,"OriginProtocolPolicy":"http-only","OriginSslProtocols":{"Quantity":1,"Items":["TLSv1.2"]}}}]},
+		"DefaultCacheBehavior":{"TargetOriginId":"o1","ViewerProtocolPolicy":"allow-all","CachePolicyId":"%s","OriginRequestPolicyId":"%s","ResponseHeadersPolicyId":"%s","TrustedKeyGroups":{"Enabled":true,"Quantity":1,"Items":["%s"]}},
+		"ViewerCertificate":{"CloudFrontDefaultCertificate":true},
+		"Restrictions":{"GeoRestriction":{"RestrictionType":"none","Quantity":0}}
+	}`, stamp, anycastIPList, webACL, cachePolicy, originPolicy, headersPolicy, keyGroup)
 
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-cache-policy-id", "--cache-policy-id", "cp-123", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-origin-request-policy-id", "--origin-request-policy-id", "orp-123", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-response-headers-policy-id", "--response-headers-policy-id", "rhp-123", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-key-group", "--key-group-id", "kg-123", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-vpc-origin-id", "--vpc-origin-id", "vo-123", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-realtime-log-config", "--realtime-log-config-name", "rtl-123", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-anycast-ip-list-id", "--anycast-ip-list-id", "aipl-123", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-web-acl-id", "--web-acl-id", "webacl-123", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-connection-mode", "--connection-mode", "direct", "--output", "json"))
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-owned-resource", "--resource-arn", "arn:aws:wafv2:us-east-1:111122223333:global/webacl/x/y", "--output", "json"))
+	out := runCLI(t, awsCLI("cloudfront", "create-distribution",
+		"--distribution-config", distributionConf, "--output", "json"))
+	var create struct {
+		Distribution struct {
+			Id string `json:"Id"`
+		} `json:"Distribution"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &create))
+	id := create.Distribution.Id
+	require.NotEmpty(t, id)
+	t.Cleanup(func() { cfExtras3DeleteDistributionCLI(id) })
+
+	// The projections that answer with a DistributionIdList.
+	for _, projection := range []struct {
+		name      string
+		command   string
+		flag      string
+		matching  string
+		unrelated string
+	}{
+		{"cache policy", "list-distributions-by-cache-policy-id", "--cache-policy-id", cachePolicy, "cp-unrelated-" + stamp},
+		{"origin request policy", "list-distributions-by-origin-request-policy-id", "--origin-request-policy-id", originPolicy, "orp-unrelated-" + stamp},
+		{"response headers policy", "list-distributions-by-response-headers-policy-id", "--response-headers-policy-id", headersPolicy, "rhp-unrelated-" + stamp},
+		{"key group", "list-distributions-by-key-group", "--key-group-id", keyGroup, "kg-unrelated-" + stamp},
+	} {
+		matched := cfDistributionIDsCLI(t, "cloudfront", projection.command, projection.flag, projection.matching, "--output", "json")
+		require.Containsf(t, matched, id, "the distribution carrying this %s must be projected onto it", projection.name)
+		unrelated := cfDistributionIDsCLI(t, "cloudfront", projection.command, projection.flag, projection.unrelated, "--output", "json")
+		require.NotContainsf(t, unrelated, id, "a %s the distribution does not carry must not project it", projection.name)
+	}
+
+	// The projections that answer with a DistributionList.
+	require.Contains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-anycast-ip-list-id",
+		"--anycast-ip-list-id", anycastIPList, "--output", "json"), id)
+	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-anycast-ip-list-id",
+		"--anycast-ip-list-id", "aipl-unrelated-"+stamp, "--output", "json"), id)
+
+	require.Contains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-web-acl-id",
+		"--web-acl-id", webACL, "--output", "json"), id)
+	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-web-acl-id",
+		"--web-acl-id", webACL+"-other", "--output", "json"), id)
+
+	// This distribution is tenant-only, so the direct projection must not carry
+	// it: the mode selects, not merely the distribution's existence.
+	require.Contains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-connection-mode",
+		"--connection-mode", "tenant-only", "--output", "json"), id)
+	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-connection-mode",
+		"--connection-mode", "direct", "--output", "json"), id)
+
+	// It names no VPC origin, no real-time log configuration and owns no other
+	// account's resource, so none of those three projects it.
+	require.NotContains(t, cfDistributionIDsCLI(t, "cloudfront", "list-distributions-by-vpc-origin-id",
+		"--vpc-origin-id", "vo-"+stamp, "--output", "json"), id)
+	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-realtime-log-config",
+		"--realtime-log-config-name", "rtl-"+stamp, "--output", "json"), id)
+	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-owned-resource",
+		"--resource-arn", "arn:aws:wafv2:us-east-1:111122223333:global/webacl/x/y", "--output", "json"), id)
+}
+
+// cfDistributionIDsCLI runs a ListDistributionsBy* projection that answers with
+// a DistributionIdList and returns the identifiers in it.
+func cfDistributionIDsCLI(t *testing.T, args ...string) []string {
+	t.Helper()
+	var list struct {
+		DistributionIdList struct {
+			Items    []string `json:"Items"`
+			Quantity int      `json:"Quantity"`
+		} `json:"DistributionIdList"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI(args...))), &list))
+	require.Equalf(t, len(list.DistributionIdList.Items), list.DistributionIdList.Quantity,
+		"Quantity must count the items returned by %v", args)
+	return list.DistributionIdList.Items
+}
+
+// cfDistributionSummaryIDsCLI runs a ListDistributionsBy* projection that
+// answers with a DistributionList and returns the identifiers in it.
+func cfDistributionSummaryIDsCLI(t *testing.T, args ...string) []string {
+	t.Helper()
+	var list struct {
+		DistributionList struct {
+			Items []struct {
+				Id string `json:"Id"`
+			} `json:"Items"`
+			Quantity int `json:"Quantity"`
+		} `json:"DistributionList"`
+	}
+	// Quantity is deliberately not asserted here: these operations are
+	// paginated, and the CLI merges the pages it walks into one document whose
+	// Items are the concatenation while Quantity is whatever the client's merge
+	// left there. The wire's own Quantity is asserted against the response the
+	// SDK receives, in the sdk-tests twin of this test.
+	require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI(args...))), &list))
+	ids := make([]string, 0, len(list.DistributionList.Items))
+	for _, item := range list.DistributionList.Items {
+		ids = append(ids, item.Id)
+	}
+	return ids
 }
 
 // TestCloudFrontUpdateAnycastIpListCLI covers update-anycast-ip-list.

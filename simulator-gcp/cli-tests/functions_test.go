@@ -2,7 +2,9 @@ package gcp_cli_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +38,8 @@ func TestFunctions_CreateAndGet(t *testing.T) {
 		}
 	}`)
 
-	// Create returns an LRO operation
+	// Create returns an LRO whose settled response carries the function it
+	// created, under the resource name the caller asked for.
 	var op struct {
 		Done     bool `json:"done"`
 		Response struct {
@@ -44,6 +47,10 @@ func TestFunctions_CreateAndGet(t *testing.T) {
 		} `json:"response"`
 	}
 	parseJSON(t, out, &op)
+	assert.True(t, op.Done, "the create operation is settled when it is returned: %s", out)
+	assert.Equal(t,
+		fmt.Sprintf("projects/%s/locations/%s/functions/cli-test-func", project, location),
+		op.Response.Name, "the operation's response is the function it created")
 
 	// GET the function
 	getURL := functionsURL("cli-test-func")
@@ -85,15 +92,16 @@ func TestFunctions_List(t *testing.T) {
 		} `json:"functions"`
 	}
 	parseJSON(t, out, &result)
-	require.NotEmpty(t, result.Functions)
 
-	found := false
+	// The list has to hold the function this test created, by its full
+	// resource name — the presence of some other function proves nothing.
+	names := make([]string, 0, len(result.Functions))
 	for _, f := range result.Functions {
-		if f.Name != "" {
-			found = true
-		}
+		names = append(names, f.Name)
 	}
-	assert.True(t, found, "Expected to find functions in list")
+	assert.Contains(t, names,
+		fmt.Sprintf("projects/%s/locations/%s/functions/list-test-func", project, location),
+		"the list must hold the function that was just created")
 
 	// Cleanup
 	httpDoJSON(t, "DELETE", functionsURL("list-test-func"), "")
@@ -110,14 +118,22 @@ func TestFunctions_CLI_InvokeAndCheckLogs(t *testing.T) {
 	// Invoke the function
 	httpDoJSON(t, "POST", baseURL+"/v2-functions-invoke/cli-invoke-fn", "{}")
 
-	// Query Cloud Logging for the function's log entries
-	out := runCLI(t, gcloudCLI("logging", "read",
-		`resource.type="cloud_run_revision" AND resource.labels.service_name="cli-invoke-fn"`,
-		"--format", "json",
-	))
-
-	// Verify "Function invoked" appears in logs
-	assert.Contains(t, out, "Function invoked", "expected invocation log entry")
+	// Query Cloud Logging for the function's log entries. Ingestion is
+	// asynchronous, so the read is polled rather than run once, and the
+	// assertion is on an entry whose textPayload is the invocation line.
+	var out string
+	var payloads []string
+	require.Eventually(t, func() bool {
+		out = runCLI(t, gcloudCLI("logging", "read",
+			`resource.type="cloud_run_revision" AND resource.labels.service_name="cli-invoke-fn"`,
+			"--format", "json",
+		))
+		payloads = logTextPayloads(out)
+		return slices.Contains(payloads, "Function invoked")
+	}, 60*time.Second, 250*time.Millisecond,
+		"the invocation never produced a Cloud Logging entry")
+	assert.Contains(t, payloads, "Function invoked",
+		"expected an invocation log entry: %s", out)
 
 	// Cleanup
 	httpDoJSON(t, "DELETE", functionsURL("cli-invoke-fn"), "")

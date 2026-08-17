@@ -663,6 +663,26 @@ jobs:
             cloud: aws
             tf_packages: "./rds-snapshot"
             timeout_minutes: 12
+          - suite: aws AWS Certificate Manager validation
+            cloud: aws
+            tf_packages: "./acm-validation"
+            timeout_minutes: 12
+          - suite: aws Amazon ECS Express Mode
+            cloud: aws
+            tf_packages: "./ecs-express"
+            timeout_minutes: 12
+          - suite: aws plan idempotency
+            cloud: aws
+            tf_packages: "./idempotency-fidelity"
+            timeout_minutes: 12
+          - suite: aws Amazon EC2 launch template
+            cloud: aws
+            tf_packages: "./launch-template"
+            timeout_minutes: 12
+          - suite: aws Amazon EC2 network interface
+            cloud: aws
+            tf_packages: "./network-interface"
+            timeout_minutes: 12
           - suite: gcp
             cloud: gcp
             timeout_minutes: 12
@@ -849,6 +869,9 @@ jobs:
         timeout-minutes: 5
       - name: Check AWS SDK shard coverage
         run: bash scripts/check-sdk-shard-coverage.sh
+        timeout-minutes: 5
+      - name: Check AWS Terraform shard coverage
+        run: bash scripts/check-tf-shard-coverage.sh
         timeout-minutes: 5
       - name: Mux-overlap scan
         run: bash scripts/scan-mux-overlap.sh

@@ -93,9 +93,21 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, tokenID, "projects/-/serviceAccounts/tf-test-runner-sa@",
 		"the access-token data source names the impersonated account; got %s", tokenID)
 	require.Equal(t, "600s", outputs.must(t, "service_account_access_token_lifetime"),
-		"the reduced lifetime must survive the round trip")
+		"the data source carries the lifetime it requested")
 	require.Equal(t, true, outputs.mustValue(t, "service_account_access_token_minted"),
 		"a reduced lifetime must still mint a token")
+
+	// What generateAccessToken actually did with that lifetime. `lifetime` is a
+	// request member the data source never re-reads, so the state attribute
+	// above is the configured literal; the token's own claim span is the API's
+	// answer. An implementation that ignored the request and applied the
+	// documented one-hour default reports 3600 here.
+	require.Equal(t, float64(600),
+		outputs.mustNumber(t, "service_account_access_token_lifetime_seconds"),
+		"the minted token must expire 600s after it was issued, not at the one-hour default")
+	require.Equal(t, "tf-test-runner-sa@test-project.iam.gserviceaccount.com",
+		outputs.must(t, "service_account_access_token_subject"),
+		"the token must be minted for the impersonated account, not for the caller")
 
 	dnsRecordID := outputs.must(t, "dns_record_set_id")
 	require.Contains(t, dnsRecordID, "projects/test-project/managedZones/tf-test-zone/rrsets/www.tf-test.example.com./A",
@@ -370,11 +382,22 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		"google_project_organization_policy round-trips its constraint through setOrgPolicy + getOrgPolicy")
 	require.Equal(t, true, outputs.mustValue(t, "project_org_policy_enforced"),
 		"the boolean policy reads back enforced")
+	// etag and update_time have no counterpart in configuration, so they come
+	// from getOrgPolicy alone: a policy the API did not store reads back with
+	// neither.
+	require.NotEmpty(t, outputs.must(t, "project_org_policy_etag"),
+		"the stored policy must carry the etag its write returned")
+	require.Regexp(t, `^\d{4}-\d{2}-\d{2}T`, outputs.must(t, "project_org_policy_update_time"),
+		"the stored policy must carry the RFC3339 timestamp of its write")
 	require.Equal(t, []any{"in:us-locations"},
 		outputs.mustValue(t, "folder_org_policy_allowed_values"),
 		"google_folder_organization_policy round-trips its allowed values")
 	require.Equal(t, "constraints/iam.disableServiceAccountCreation",
 		outputs.must(t, "organization_org_policy_constraint"))
+	// Written enforced = false, against the project policy's enforced = true:
+	// the pair separates a stored boolean policy from a constant answer.
+	require.Equal(t, false, outputs.mustValue(t, "organization_org_policy_enforced"),
+		"an unenforced boolean policy must read back unenforced")
 
 	// The provider normalizes the API's "liens/{id}" resource name down to the
 	// bare id in state, so what a lien round-trips through terraform is the
@@ -402,9 +425,15 @@ func requireIPv4InCIDR(t *testing.T, value, cidr string, msgAndArgs ...any) {
 	require.True(t, block.Contains(ip), msgAndArgs...)
 }
 
-func cleanTerraformWorkspace(t *testing.T) {
+// cleanTerraformArtifacts empties a terraform working directory of everything a
+// previous run put there: the provider cache and lock file, the state and its
+// backup, and any crash log. A run aborted before its destroy leaves state
+// naming resources this simulator process has never heard of, which turns the
+// next apply into an update against phantom resources and the next destroy into
+// a failure — so every suite starts from an empty workspace rather than
+// inheriting one.
+func cleanTerraformArtifacts(t *testing.T, dir string) {
 	t.Helper()
-	dir := filepath.Dir(mustAbs("main.tf"))
 	for _, name := range []string{
 		".terraform",
 		".terraform.lock.hcl",
@@ -415,6 +444,20 @@ func cleanTerraformWorkspace(t *testing.T) {
 		err := os.RemoveAll(filepath.Join(dir, name))
 		require.NoError(t, err, "clean terraform workspace artifact %s", name)
 	}
+}
+
+// cleanTerraformWorkspace empties the root working directory, the one main.tf
+// lives in.
+func cleanTerraformWorkspace(t *testing.T) {
+	t.Helper()
+	cleanTerraformArtifacts(t, filepath.Dir(mustAbs("main.tf")))
+}
+
+// cleanTerraformFixture empties a fixture working directory, named relative to
+// the root the way terraformCmdInDir names one.
+func cleanTerraformFixture(t *testing.T, dir string) {
+	t.Helper()
+	cleanTerraformArtifacts(t, filepath.Join(filepath.Dir(mustAbs("main.tf")), dir))
 }
 
 type tfOutputs map[string]struct {

@@ -328,9 +328,9 @@ func TestSSM_ResourceDataSync(t *testing.T) {
 	}
 	assert.True(t, found, "ListResourceDataSync must include created sync")
 
-	// UpdateResourceDataSync updates a sync's source definition (tolerant: applies
-	// to the SyncFromSource type; exercised here for round-trip coverage).
-	_, _ = c.UpdateResourceDataSync(ctx, &ssm.UpdateResourceDataSyncInput{
+	// UpdateResourceDataSync changes the sync's source definition, and the
+	// change is what a later list returns.
+	_, err = c.UpdateResourceDataSync(ctx, &ssm.UpdateResourceDataSyncInput{
 		SyncName: aws.String(syncName),
 		SyncType: aws.String("SyncToDestination"),
 		SyncSource: &ssmtypes.ResourceDataSyncSource{
@@ -338,6 +338,19 @@ func TestSSM_ResourceDataSync(t *testing.T) {
 			SourceRegions: []string{"us-east-1", "us-west-2"},
 		},
 	})
+	require.NoError(t, err)
+
+	updated, err := c.ListResourceDataSync(ctx, &ssm.ListResourceDataSyncInput{})
+	require.NoError(t, err)
+	var source *ssmtypes.ResourceDataSyncSourceWithState
+	for _, it := range updated.ResourceDataSyncItems {
+		if aws.ToString(it.SyncName) == syncName {
+			source = it.SyncSource
+		}
+	}
+	require.NotNil(t, source, "the updated sync must still be listed with its source")
+	assert.Equal(t, "singleAccountMultiRegions", aws.ToString(source.SourceType))
+	assert.Equal(t, []string{"us-east-1", "us-west-2"}, source.SourceRegions)
 
 	// Delete and confirm gone.
 	_, err = c.DeleteResourceDataSync(ctx, &ssm.DeleteResourceDataSyncInput{SyncName: aws.String(syncName)})

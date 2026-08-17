@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -43,20 +44,26 @@ func createV2Function(t *testing.T, svc *cloudfunctions.Service, parent, id stri
 func TestSDK_CloudFunctionsV2_ListLocations(t *testing.T) {
 	svc := newCloudFunctionsV2Service(t)
 
-	resp, err := svc.Projects.Locations.List("projects/test-project").Do()
+	const parent = "projects/test-project"
+	resp, err := svc.Projects.Locations.List(parent).Do()
 	require.NoError(t, err)
-	require.NotEmpty(t, resp.Locations)
+	require.NotEmpty(t, resp.Locations, "an empty list would satisfy every per-item check below")
 
-	var found bool
+	ids := make([]string, 0, len(resp.Locations))
 	for _, loc := range resp.Locations {
-		assert.NotEmpty(t, loc.Name)
-		assert.NotEmpty(t, loc.LocationId)
-		if loc.LocationId == "us-central1" {
-			found = true
-			assert.Equal(t, "projects/test-project/locations/us-central1", loc.Name)
-		}
+		require.NotEmpty(t, loc.LocationId)
+		ids = append(ids, loc.LocationId)
+		// A Location's name is the parent plus its own id; a mismatch would
+		// break every client that derives one from the other.
+		assert.Equal(t, parent+"/locations/"+loc.LocationId, loc.Name)
+		assert.Equal(t, loc.LocationId, loc.DisplayName)
+		assert.Equal(t, loc.LocationId, loc.Labels["cloud.googleapis.com/region"])
 	}
-	assert.True(t, found, "expected us-central1 in the location list")
+	// Cloud Functions is offered on at least one region of each continent the
+	// runtime targets; the deployment region the rest of this suite uses must
+	// be among them.
+	assert.Subset(t, ids, []string{"us-central1", "europe-west1", "asia-east1"})
+	assert.Len(t, ids, len(resp.Locations), "every location must carry a locationId")
 }
 
 func TestSDK_CloudFunctionsV2_ListRuntimes(t *testing.T) {
@@ -64,19 +71,20 @@ func TestSDK_CloudFunctionsV2_ListRuntimes(t *testing.T) {
 
 	resp, err := svc.Projects.Locations.Runtimes.List("projects/test-project/locations/us-central1").Do()
 	require.NoError(t, err)
-	require.NotEmpty(t, resp.Runtimes)
+	require.NotEmpty(t, resp.Runtimes, "an empty list would satisfy every per-item check below")
 
-	var sawGo bool
+	names := make([]string, 0, len(resp.Runtimes))
 	for _, rt := range resp.Runtimes {
-		assert.NotEmpty(t, rt.Name)
-		assert.NotEmpty(t, rt.DisplayName)
-		if strings.HasPrefix(rt.Name, "go") {
-			sawGo = true
-			assert.Equal(t, "GEN_2", rt.Environment)
-			assert.Equal(t, "GA", rt.Stage)
-		}
+		require.NotEmpty(t, rt.Name)
+		assert.NotEmpty(t, rt.DisplayName, "runtime %s carries no displayName", rt.Name)
+		// Every runtime the v2 API lists is a 2nd-gen runtime.
+		assert.Equal(t, "GEN_2", rt.Environment, "runtime %s", rt.Name)
+		assert.Equal(t, "GA", rt.Stage, "runtime %s", rt.Name)
+		names = append(names, rt.Name)
 	}
-	assert.True(t, sawGo, "expected at least one Go runtime")
+	// The runtimes createV2Function deploys with must be offered, alongside a
+	// representative of each other language family.
+	assert.Subset(t, names, []string{"go122", "go121", "nodejs20", "python312", "java21"})
 }
 
 func TestSDK_CloudFunctionsV2_ListAndGetOperations(t *testing.T) {
@@ -139,28 +147,95 @@ func TestSDK_CloudFunctionsV2_IAMPolicy(t *testing.T) {
 	assert.Equal(t, []string{"cloudfunctions.functions.invoke"}, tip.Permissions)
 }
 
-func TestSDK_CloudFunctionsV2_GenerateUploadUrl(t *testing.T) {
-	svc := newCloudFunctionsV2Service(t)
-	parent := "projects/test-project/locations/us-central1"
-
+// generateUploadURL calls generateUploadUrl for a location. The source bucket it
+// names is the location's own, so a second endpoint's URL can be checked against
+// it rather than against a bucket name spelled out in the test.
+func generateUploadURL(t *testing.T, svc *cloudfunctions.Service, parent string) *cloudfunctions.GenerateUploadUrlResponse {
+	t.Helper()
 	resp, err := svc.Projects.Locations.Functions.GenerateUploadUrl(parent, &cloudfunctions.GenerateUploadUrlRequest{
 		Environment: "GEN_2",
 	}).Do()
 	require.NoError(t, err)
-	assert.NotEmpty(t, resp.UploadUrl)
+	return resp
+}
+
+// endpointHost is the host:port the simulator serves on — the host of every URL
+// the simulator hands back to a client.
+func endpointHost(t *testing.T) string {
+	t.Helper()
+	u, err := url.Parse(baseURL)
+	require.NoError(t, err)
+	return u.Host
+}
+
+func TestSDK_CloudFunctionsV2_GenerateUploadUrl(t *testing.T) {
+	svc := newCloudFunctionsV2Service(t)
+	parent := "projects/test-project/locations/us-central1"
+
+	resp := generateUploadURL(t, svc, parent)
 	require.NotNil(t, resp.StorageSource)
-	assert.NotEmpty(t, resp.StorageSource.Bucket)
-	assert.NotEmpty(t, resp.StorageSource.Object)
+	require.NotEmpty(t, resp.StorageSource.Bucket)
+	require.NotEmpty(t, resp.StorageSource.Object)
+	require.NotEmpty(t, resp.UploadUrl)
+
+	// The upload URL and the storageSource describe one destination: the client
+	// PUTs the function's zip at the URL and then hands the storageSource to
+	// CreateFunction, so a URL addressing any other bucket or object would
+	// create a function whose source went somewhere else.
+	upload, err := url.Parse(resp.UploadUrl)
+	require.NoError(t, err, "uploadUrl must be an absolute URL: %q", resp.UploadUrl)
+	assert.Equal(t, endpointHost(t), upload.Host, "the upload URL must address the service that issued it")
+	assert.Equal(t, "/upload/storage/v1/b/"+resp.StorageSource.Bucket+"/o", upload.Path,
+		"the upload URL must target the bucket the response names")
+	assert.Equal(t, "resumable", upload.Query().Get("uploadType"),
+		"a source upload is a resumable session the client PUTs chunks to")
+	assert.Equal(t, resp.StorageSource.Object, upload.Query().Get("name"),
+		"the upload URL must target the object the response names")
+
+	// Two calls hand out two objects: concurrent deployments must not overwrite
+	// each other's source.
+	other := generateUploadURL(t, svc, parent)
+	assert.Equal(t, resp.StorageSource.Bucket, other.StorageSource.Bucket,
+		"a location has one function-source bucket")
+	assert.NotEqual(t, resp.StorageSource.Object, other.StorageSource.Object,
+		"each generateUploadUrl must hand out an object of its own")
 }
 
 func TestSDK_CloudFunctionsV2_GenerateDownloadUrl(t *testing.T) {
 	svc := newCloudFunctionsV2Service(t)
 	parent := "projects/test-project/locations/us-central1"
 	name := createV2Function(t, svc, parent, "sdk-v2-download-fn")
+	otherName := createV2Function(t, svc, parent, "sdk-v2-download-fn-2")
 
 	resp, err := svc.Projects.Locations.Functions.GenerateDownloadUrl(name, &cloudfunctions.GenerateDownloadUrlRequest{}).Do()
 	require.NoError(t, err)
-	assert.NotEmpty(t, resp.DownloadUrl)
+	require.NotEmpty(t, resp.DownloadUrl)
+
+	download, err := url.Parse(resp.DownloadUrl)
+	require.NoError(t, err, "downloadUrl must be an absolute URL: %q", resp.DownloadUrl)
+	assert.Equal(t, endpointHost(t), download.Host, "the download URL must address the service that issued it")
+	assert.Equal(t, "media", download.Query().Get("alt"),
+		"a source download reads the object's bytes, not its metadata")
+
+	// The archive lives in the location's function-source bucket — the same one
+	// generateUploadUrl writes to.
+	sourceBucket := generateUploadURL(t, svc, parent).StorageSource.Bucket
+	assert.True(t, strings.HasPrefix(download.Path, "/download/storage/v1/b/"+sourceBucket+"/o/"),
+		"download path %q must address the function-source bucket %q", download.Path, sourceBucket)
+	assert.True(t, strings.HasSuffix(download.Path, ".zip"),
+		"a function's source archive is a zip: %q", download.Path)
+
+	// Each function's source archive is its own: two functions must never be
+	// handed the same download target.
+	otherResp, err := svc.Projects.Locations.Functions.GenerateDownloadUrl(otherName, &cloudfunctions.GenerateDownloadUrlRequest{}).Do()
+	require.NoError(t, err)
+	assert.NotEqual(t, resp.DownloadUrl, otherResp.DownloadUrl,
+		"two functions must not share a source-download URL")
+
+	// A function the service does not hold has no source to download.
+	_, err = svc.Projects.Locations.Functions.GenerateDownloadUrl(
+		parent+"/functions/sdk-v2-no-such-fn", &cloudfunctions.GenerateDownloadUrlRequest{}).Do()
+	requireGoogleErr(t, err, 404, "NOT_FOUND")
 }
 
 func TestSDK_CloudFunctionsV2_UpgradeLifecycle(t *testing.T) {

@@ -1304,6 +1304,17 @@ func handleOrgDescribeEffectivePolicy(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "InvalidInputException", "PolicyType is required", http.StatusBadRequest)
 		return
 	}
+	if !orgEffectivePolicyTypes[req.PolicyType] {
+		// EffectivePolicyType is a narrower set than PolicyType. A service
+		// control policy has no effective form — it is evaluated as an
+		// intersection along the path at authorization time rather than merged
+		// into one document — so asking for one is a validation failure, not an
+		// empty answer.
+		sim.AWSErrorf(w, "InvalidInputException", http.StatusBadRequest,
+			"1 validation error detected: Value '%s' at 'policyType' failed to satisfy constraint: Member must satisfy enum value set: [%s]",
+			req.PolicyType, strings.Join(orgEffectivePolicyTypeNames, ", "))
+		return
+	}
 	targetID := req.TargetId
 	if targetID == "" {
 		targetID = awsAccountID()
@@ -1312,9 +1323,10 @@ func handleOrgDescribeEffectivePolicy(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
 		return
 	}
-	// The effective policy is the merge of every attached policy of this type
-	// along the path. The sim merges the directly-attached and root-attached
-	// contents; an empty result is itself a valid effective policy.
+	// The effective policy is the one this type resolves to for the target:
+	// the nearest attachment walking from the target up to the root. A target
+	// with no attachment of the type anywhere on its path has no effective
+	// policy at all, which is its own error below.
 	content := orgEffectivePolicyContent(targetID, req.PolicyType)
 	if content == "" {
 		sim.AWSError(w, "EffectivePolicyNotFoundException", "If you ran this action on the management account, this policy type is not enabled. If you ran the action on a member account, the account doesn't have an effective policy of this type.", http.StatusBadRequest)
@@ -1329,6 +1341,32 @@ func handleOrgDescribeEffectivePolicy(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
+
+// orgEffectivePolicyTypeNames is the EffectivePolicyType enum — the policy
+// types that resolve to a single effective document for a target. It is
+// deliberately smaller than the PolicyType enum, which also carries
+// SERVICE_CONTROL_POLICY and RESOURCE_CONTROL_POLICY.
+var orgEffectivePolicyTypeNames = []string{
+	"TAG_POLICY",
+	"BACKUP_POLICY",
+	"AISERVICES_OPT_OUT_POLICY",
+	"CHATBOT_POLICY",
+	"DECLARATIVE_POLICY_EC2",
+	"SECURITYHUB_POLICY",
+	"INSPECTOR_POLICY",
+	"UPGRADE_ROLLOUT_POLICY",
+	"BEDROCK_POLICY",
+	"S3_POLICY",
+	"NETWORK_SECURITY_DIRECTOR_POLICY",
+}
+
+var orgEffectivePolicyTypes = func() map[string]bool {
+	set := make(map[string]bool, len(orgEffectivePolicyTypeNames))
+	for _, name := range orgEffectivePolicyTypeNames {
+		set[name] = true
+	}
+	return set
+}()
 
 func orgEffectivePolicyContent(targetID, policyType string) string {
 	// Walk from the target up to the root, collecting the first policy content

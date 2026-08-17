@@ -24,8 +24,14 @@ import (
 
 const (
 	cliOrgPolicyBoolean = "constraints/iam.disableServiceAccountKeyCreation"
-	cliOrgPolicyList    = "constraints/gcp.resourceLocations"
-	cliOrganizationID   = "123456789012"
+	// cliOrgPolicyInherited is set at the organization and read at a project
+	// under it. Every project in this simulator hangs off that organization,
+	// so it is deliberately a constraint no service in the slice acts on and
+	// no other test writes — enforcing it changes nothing but the policy reads
+	// it is set for.
+	cliOrgPolicyInherited = "constraints/compute.requireOsLogin"
+	cliOrgPolicyList      = "constraints/gcp.resourceLocations"
+	cliOrganizationID     = "123456789012"
 )
 
 // cliV2Folder is the Cloud Resource Manager v2 Folder shape gcloud prints.
@@ -80,6 +86,32 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	parseJSONObject(t, out, &effective)
 	require.NotNil(t, effective.BooleanPolicy)
 	assert.True(t, effective.BooleanPolicy.Enforced)
+
+	// Read on the node that set the policy, the effective read and the direct
+	// read agree, so agreement there says nothing about resolution. What
+	// separates them is a policy set higher in the hierarchy: it is in force at
+	// the project below, and the project still sets nothing of its own.
+	runCLI(t, gcloudCLI("resource-manager", "org-policies", "enable-enforce",
+		cliOrgPolicyInherited, "--organization="+cliOrganizationID, "--format=json"))
+	t.Cleanup(func() {
+		_, _ = gcloudCLI("resource-manager", "org-policies", "delete",
+			cliOrgPolicyInherited, "--organization="+cliOrganizationID).CombinedOutput()
+	})
+
+	out = runCLI(t, gcloudCLI("resource-manager", "org-policies", "describe",
+		cliOrgPolicyInherited, "--project="+projectID, "--format=json"))
+	var ownPolicy cliOrgPolicy
+	parseJSONObject(t, out, &ownPolicy)
+	assert.Nil(t, ownPolicy.BooleanPolicy,
+		"the project sets no policy of its own for this constraint: %s", out)
+
+	out = runCLI(t, gcloudCLI("resource-manager", "org-policies", "describe",
+		cliOrgPolicyInherited, "--project="+projectID, "--effective", "--format=json"))
+	var inherited cliOrgPolicy
+	parseJSONObject(t, out, &inherited)
+	require.NotNil(t, inherited.BooleanPolicy, "output: %s", out)
+	assert.True(t, inherited.BooleanPolicy.Enforced,
+		"the organization's policy is the one in force at the project under it")
 
 	// list shows the policies set on the resource.
 	out = runCLI(t, gcloudCLI("resource-manager", "org-policies", "list",
@@ -274,6 +306,8 @@ func TestResourceManagerLiensCLI(t *testing.T) {
 	require.True(t, strings.HasPrefix(created.Name, "liens/"), "output: %s", out)
 	assert.Equal(t, "projects/"+projectID, created.Parent)
 	assert.Equal(t, "cli lien coverage", created.Reason)
+	assert.Equal(t, []string{"resourcemanager.projects.delete"}, created.Restrictions,
+		"the lien holds the restriction it was created with")
 
 	out = runCLI(t, gcloudCLI("alpha", "resource-manager", "liens", "list",
 		"--project="+projectID, "--format=json"))

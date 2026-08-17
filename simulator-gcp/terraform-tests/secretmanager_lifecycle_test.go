@@ -13,6 +13,7 @@ import (
 
 func TestTerraformSecretManagerUpdateDelete(t *testing.T) {
 	fixtureDir := filepath.Join("fixtures", "secretmanager-lifecycle")
+	cleanTerraformFixture(t, fixtureDir)
 
 	out, err := runTimed(t, "terraform init", terraformCmdInDir(fixtureDir, "init"))
 	require.NoError(t, err, "terraform init failed:\n%s", out)

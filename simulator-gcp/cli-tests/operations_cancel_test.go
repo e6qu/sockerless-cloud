@@ -81,6 +81,20 @@ func TestCloudLoggingCLI_OperationsCancel(t *testing.T) {
 		"--format=json",
 	))
 
+	// What the cancel did is read off the operation, not off the cancel's own
+	// empty body: this operation was already complete when its name reached
+	// the client, so the outcome the method documents is "the operation
+	// completed despite cancellation" — the recorded result stands untouched.
+	// A cancel that dropped the record, blanked its response or turned it into
+	// an error does not survive this read.
+	out = runCLI(t, gcloudCLI("logging", "operations", "describe", opID,
+		"--location", "us-central1",
+		"--project", project,
+		"--format=json",
+	))
+	assertOperationCompletedDespiteCancel(t, out, op.Name,
+		fmt.Sprintf("projects/%s/locations/us-central1/buckets/cli-cancel-bucket", project))
+
 	// A name no operation was minted under must not be cancellable.
 	err := gcloudCLI("logging", "operations", "cancel", "never-minted",
 		"--location", "us-central1",
@@ -107,21 +121,72 @@ func TestMemorystoreRedisCLI_OperationsCancel(t *testing.T) {
 			"--region", location, "--quiet", "--format=json").Run()
 	})
 
+	// The list is region-wide and every service's operations share it, so the
+	// create's operation is the one whose metadata targets this instance —
+	// not whichever row happens to come first.
+	instanceName := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, name)
 	out := runCLI(t, gcloudCLI("redis", "operations", "list",
 		"--region", location, "--format=json"))
 	var ops []struct {
-		Name string `json:"name"`
+		Name     string `json:"name"`
+		Metadata struct {
+			Target string `json:"target"`
+		} `json:"metadata"`
+		Response struct {
+			Name string `json:"name"`
+		} `json:"response"`
 	}
 	parseJSON(t, out, &ops)
-	require.NotEmpty(t, ops, "the create minted an operation")
-	opID := ops[0].Name[strings.LastIndex(ops[0].Name, "/")+1:]
+	opName := ""
+	for _, op := range ops {
+		if op.Metadata.Target == instanceName || op.Response.Name == instanceName {
+			opName = op.Name
+		}
+	}
+	require.NotEmpty(t, opName, "the create minted an operation targeting %s: %s", instanceName, out)
+	opID := opName[strings.LastIndex(opName, "/")+1:]
 
 	runCLI(t, gcloudCLI("redis", "operations", "cancel", opID,
 		"--region", location, "--quiet", "--format=json"))
 
-	require.Error(t, gcloudCLI("redis", "operations", "cancel", "never-minted",
-		"--region", location, "--quiet", "--format=json").Run(),
-		"gcloud must report the NOT_FOUND the service answers")
+	// Read the operation back: the create finished inside the request that
+	// returned it, so the cancel leaves the settled record exactly as it
+	// stands rather than erasing or failing it.
+	described := runCLI(t, gcloudCLI("redis", "operations", "describe", opID,
+		"--region", location, "--format=json"))
+	assertOperationCompletedDespiteCancel(t, described, opName, instanceName)
+
+	badOut, badErr := gcloudCLI("redis", "operations", "cancel", "never-minted",
+		"--region", location, "--quiet", "--format=json").CombinedOutput()
+	require.Error(t, badErr, "cancelling a name no operation was minted under must fail: %s", badOut)
+	assert.Contains(t, string(badOut), "NOT_FOUND",
+		"gcloud must report the NOT_FOUND the service answers: %s", badOut)
+	assert.Contains(t, string(badOut), "never-minted")
+}
+
+// assertOperationCompletedDespiteCancel reads a cancelled operation's record
+// and pins the outcome CancelOperation documents for work that had already
+// finished: the operation is still named what it was, still done, carries no
+// error, and still carries the resource its method produced.
+func assertOperationCompletedDespiteCancel(t *testing.T, out, wantName, wantResource string) {
+	t.Helper()
+	var settled struct {
+		Name     string `json:"name"`
+		Done     bool   `json:"done"`
+		Response struct {
+			Name string `json:"name"`
+		} `json:"response"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	parseJSONObject(t, out, &settled)
+	assert.Equal(t, wantName, settled.Name, "output: %s", out)
+	assert.True(t, settled.Done, "the operation stays settled after the cancel: %s", out)
+	assert.Nil(t, settled.Error, "a completed operation is not turned into a failure by a cancel: %s", out)
+	assert.Equal(t, wantResource, settled.Response.Name,
+		"the recorded result stands after the cancel: %s", out)
 }
 
 // TestCloudSQLCLI_OperationsCancel drives `gcloud sql operations cancel`.
@@ -172,6 +237,13 @@ func TestServiceUsageCLI_OperationsCancel(t *testing.T) {
 		"Service Usage names its operations operations/{id}; got %q", op.Name)
 
 	httpDoJSON(t, "POST", fmt.Sprintf("%s/v1/%s:cancel", baseURL, op.Name), `{}`)
+
+	// The enable finished inside the request that returned the operation, so
+	// the cancel is the late one the method describes: the record still stands
+	// after it, carrying the EnableServiceResponse the enable produced.
+	assertOperationCompletedDespiteCancel(t,
+		httpDoJSON(t, "GET", fmt.Sprintf("%s/v1/%s", baseURL, op.Name), ""),
+		op.Name, fmt.Sprintf("projects/%s/services/pubsub.googleapis.com", project))
 
 	resp, err := httpDo("POST", fmt.Sprintf("%s/v1/operations/never-minted:cancel", baseURL), `{}`)
 	require.NoError(t, err)

@@ -369,6 +369,11 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 		op  *cloudbuild.Operation
 		err error
 	}
+	// The project is shared with the other builds in this file, so record which
+	// builds already exist: the one this test cancels has to be the one this
+	// test started.
+	preexisting := buildIDs(t, svc)
+
 	done := make(chan createResult, 1)
 	go func() {
 		op, err := svc.Projects.Builds.Create(cancelProject, build).Do()
@@ -377,7 +382,7 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 
 	// The build record is written before its steps run and moves to WORKING
 	// when they start, so the client can see the build go live.
-	id := awaitBuildStatus(t, svc, "WORKING", 120*time.Second)
+	id := awaitBuildStatus(t, svc, preexisting, "WORKING", 120*time.Second)
 	// Well inside the step's own hour: the build is executing its RUN, so the
 	// cancel below is cancelling work that is genuinely in flight rather than
 	// racing a step that has not begun.
@@ -392,6 +397,11 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	case res := <-done:
 		require.NoError(t, res.err)
 		require.NotNil(t, res.op)
+		// The operation the create returned is the operation of the build this
+		// test cancelled — the two identify the same build, so the cancel above
+		// cannot have hit a build some other test left running.
+		require.Equal(t, id, buildIDFromOperationName(t, res.op.Name),
+			"the cancelled build is the build this test started")
 		require.True(t, res.op.Done)
 		require.NotNil(t, res.op.Error, "a cancelled build's operation carries an error")
 		assert.EqualValues(t, 1, res.op.Error.Code,
@@ -436,23 +446,53 @@ func TestSDK_CloudBuild_RegionalOperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// awaitBuildStatus waits for the project's single in-flight build to reach a
-// status and returns its id.
-func awaitBuildStatus(t *testing.T, svc *cloudbuild.Service, status string, within time.Duration) string {
+// buildIDs returns the ids of every build the project currently holds. Taken
+// before a create, it is the set awaitBuildStatus must ignore so a build another
+// test left behind can never be mistaken for this one's.
+func buildIDs(t *testing.T, svc *cloudbuild.Service) map[string]bool {
+	t.Helper()
+	list, err := svc.Projects.Builds.List(cancelProject).Do()
+	require.NoError(t, err)
+	ids := make(map[string]bool, len(list.Builds))
+	for _, b := range list.Builds {
+		ids[b.Id] = true
+	}
+	return ids
+}
+
+// awaitBuildStatus waits for a build outside `ignore` to reach a status and
+// returns its id. The project is shared with the other builds in this file, so
+// the caller snapshots the ids that already exist and this only ever reports a
+// build the caller's own create started.
+func awaitBuildStatus(t *testing.T, svc *cloudbuild.Service, ignore map[string]bool, status string, within time.Duration) string {
 	t.Helper()
 	deadline := time.Now().Add(within)
 	for time.Now().Before(deadline) {
 		list, err := svc.Projects.Builds.List(cancelProject).Do()
 		require.NoError(t, err)
 		for _, b := range list.Builds {
+			if ignore[b.Id] {
+				continue
+			}
 			if b.Status == status {
 				return b.Id
 			}
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("no build reached %s", status)
+	t.Fatalf("no new build reached %s", status)
 	return ""
+}
+
+// buildIDFromOperationName extracts the build id from a Cloud Build build
+// operation's name, which is `operations/build/{project}/{id}`.
+func buildIDFromOperationName(t *testing.T, name string) string {
+	t.Helper()
+	parts := strings.Split(name, "/")
+	require.Len(t, parts, 4, "a build operation is named operations/build/{project}/{id}, got %q", name)
+	require.Equal(t, "operations", parts[0])
+	require.Equal(t, "build", parts[1])
+	return parts[3]
 }
 
 func buildStatus(t *testing.T, svc *cloudbuild.Service, id string) string {

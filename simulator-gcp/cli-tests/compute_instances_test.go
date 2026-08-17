@@ -26,24 +26,56 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 		"--zone="+zone,
 		"--format=value(name,status)").CombinedOutput()
 	require.NoError(t, err, "describe: %s", out)
-	body := strings.ToLower(string(out))
-	require.Contains(t, body, name)
-	require.Contains(t, body, "running")
+	body := strings.Fields(strings.TrimSpace(string(out)))
+	require.Equal(t, []string{name, "RUNNING"}, body,
+		"describe reports the instance the create made, running")
+
+	// Each transition below is read back off the instance rather than trusted
+	// from the command's exit status: Compute Engine reports a stopped
+	// instance as TERMINATED and a restarted one as RUNNING, and a lifecycle
+	// verb that returned a DONE operation without moving the instance would
+	// leave the previous status in place here.
 
 	out, err = gcloudCLI("compute", "instances", "stop", name,
 		"--zone="+zone,
 		"--quiet").CombinedOutput()
 	require.NoError(t, err, "stop: %s", out)
+	require.Equal(t, "TERMINATED", computeInstanceStatus(t, name, zone),
+		"a stopped instance reports TERMINATED")
 
 	out, err = gcloudCLI("compute", "instances", "start", name,
 		"--zone="+zone,
 		"--quiet").CombinedOutput()
 	require.NoError(t, err, "start: %s", out)
+	require.Equal(t, "RUNNING", computeInstanceStatus(t, name, zone),
+		"a restarted instance reports RUNNING again")
 
 	out, err = gcloudCLI("compute", "instances", "delete", name,
 		"--zone="+zone,
 		"--quiet").CombinedOutput()
 	require.NoError(t, err, "delete: %s", out)
+
+	// The deleted instance is gone from both reads: describing it fails and
+	// the zone's list no longer holds it.
+	out, err = gcloudCLI("compute", "instances", "describe", name,
+		"--zone="+zone, "--format=value(status)").CombinedOutput()
+	require.Error(t, err, "describing a deleted instance must fail: %s", out)
+
+	out, err = gcloudCLI("compute", "instances", "list",
+		"--filter=zone:("+zone+")", "--format=value(name)").CombinedOutput()
+	require.NoError(t, err, "instances list: %s", out)
+	require.NotContains(t, string(out), name,
+		"a deleted instance must not appear in the zone's instance list")
+}
+
+// computeInstanceStatus reads one instance's lifecycle status through the CLI.
+func computeInstanceStatus(t *testing.T, name, zone string) string {
+	t.Helper()
+	out, err := gcloudCLI("compute", "instances", "describe", name,
+		"--zone="+zone,
+		"--format=value(status)").CombinedOutput()
+	require.NoError(t, err, "describe: %s", out)
+	return strings.TrimSpace(string(out))
 }
 
 // TestGcloudComputeInstances_AsyncInsertOperation drives the asynchronous

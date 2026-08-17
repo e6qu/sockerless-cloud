@@ -77,7 +77,24 @@ func TestCompute_ListNetworks(t *testing.T) {
 
 	resp, err := svc.Networks.List("test-project").Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(resp.Items), 1)
+	assertComputeListHasName(t, resp.Items, func(n *compute.Network) string { return n.Name }, "list-net")
+}
+
+// computeTestNetwork provisions a VPC network the calling test owns and returns
+// the reference a resource attaches to it with, deleting it when the test ends.
+// Compute Engine builds a real network fabric behind a VPC, which needs the
+// host's Linux networking capabilities, so a host without them cannot hold the
+// network a resource points at.
+func computeTestNetwork(t *testing.T, svc *compute.Service, project, name string) string {
+	t.Helper()
+	requireNetworkHost(t)
+	_, err := svc.Networks.Insert(project, &compute.Network{Name: name, AutoCreateSubnetworks: false}).Context(ctx).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = svc.Networks.Delete(project, name).Context(ctx).Do() })
+	got, err := svc.Networks.Get(project, name).Context(ctx).Do()
+	require.NoError(t, err)
+	require.Equal(t, name, got.Name)
+	return "projects/" + project + "/global/networks/" + name
 }
 
 func TestCompute_RegionalAddressAndManualRouterNAT(t *testing.T) {
@@ -152,13 +169,16 @@ func TestCompute_RegionalAddressAndManualRouterNAT(t *testing.T) {
 // TestCompute_Firewall_CreateGetListDelete pins the firewall rule
 // surface that runner setup flows hit. Real GCP rejects unknown
 // directions / negative priorities; the sim defaults to INGRESS +
-// priority=1000 like real GCP.
+// priority=1000 like real GCP. The rule is created against a VPC network
+// this test provisions, so it never rides on a network another test left
+// behind.
 func TestCompute_Firewall_CreateGetListDelete(t *testing.T) {
 	svc := computeService(t)
+	network := computeTestNetwork(t, svc, "test-project", "fw-crud-network")
 
 	rule := &compute.Firewall{
 		Name:         "fw-allow-runner-ingress",
-		Network:      "projects/test-project/global/networks/test-network",
+		Network:      network,
 		Direction:    "INGRESS",
 		Priority:     900,
 		SourceRanges: []string{"10.0.0.0/8"},
@@ -174,6 +194,8 @@ func TestCompute_Firewall_CreateGetListDelete(t *testing.T) {
 	got, err := svc.Firewalls.Get("test-project", rule.Name).Context(ctx).Do()
 	require.NoError(t, err)
 	assert.Equal(t, rule.Name, got.Name)
+	assert.Contains(t, got.Network, "fw-crud-network",
+		"the rule must stay attached to the network it was created against")
 	assert.Equal(t, "INGRESS", got.Direction)
 	assert.Equal(t, int64(900), got.Priority)
 	require.Len(t, got.Allowed, 1)
@@ -200,20 +222,22 @@ func TestCompute_Firewall_CreateGetListDelete(t *testing.T) {
 
 func TestCompute_Firewall_DefaultsToIngressPriority1000(t *testing.T) {
 	svc := computeService(t)
+	network := computeTestNetwork(t, svc, "test-project", "fw-defaults-network")
 
 	rule := &compute.Firewall{
 		Name:    "fw-defaults",
-		Network: "projects/test-project/global/networks/test-network",
+		Network: network,
 		Allowed: []*compute.FirewallAllowed{
 			{IPProtocol: "icmp"},
 		},
 	}
 	_, err := svc.Firewalls.Insert("test-project", rule).Context(ctx).Do()
 	require.NoError(t, err)
-	defer svc.Firewalls.Delete("test-project", rule.Name).Context(ctx).Do()
+	t.Cleanup(func() { _, _ = svc.Firewalls.Delete("test-project", rule.Name).Context(ctx).Do() })
 
 	got, err := svc.Firewalls.Get("test-project", rule.Name).Context(ctx).Do()
 	require.NoError(t, err)
+	assert.Contains(t, got.Network, "fw-defaults-network")
 	assert.Equal(t, "INGRESS", got.Direction, "default direction must match real GCP")
 	assert.Equal(t, int64(1000), got.Priority, "default priority must match real GCP")
 }
@@ -246,7 +270,7 @@ func TestCompute_Disks_CRUD(t *testing.T) {
 
 	list, err := svc.Disks.List(project, zone).Context(ctx).Do()
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(d *compute.Disk) string { return d.Name }, "ephemeral-1")
 
 	_, err = svc.Disks.Resize(project, zone, "ephemeral-1",
 		&compute.DisksResizeRequest{SizeGb: 50}).Context(ctx).Do()
@@ -388,10 +412,10 @@ func TestCompute_GlobalHTTPLoadBalancerChain(t *testing.T) {
 
 	hcList, err := svc.HealthChecks.List(project).Context(ctx).Do()
 	require.NoError(t, err)
-	assert.NotEmpty(t, hcList.Items)
+	assertComputeListHasName(t, hcList.Items, func(h *compute.HealthCheck) string { return h.Name }, hc.Name)
 	frList, err := svc.GlobalForwardingRules.List(project).Context(ctx).Do()
 	require.NoError(t, err)
-	assert.NotEmpty(t, frList.Items)
+	assertComputeListHasName(t, frList.Items, func(f *compute.ForwardingRule) string { return f.Name }, fr.Name)
 
 	_, err = svc.GlobalForwardingRules.Delete(project, fr.Name).Context(ctx).Do()
 	require.NoError(t, err)
@@ -448,7 +472,7 @@ func TestCompute_InstanceGroups_Lifecycle(t *testing.T) {
 
 	list, err := svc.InstanceGroups.List(project, zone).Context(ctx).Do()
 	require.NoError(t, err)
-	require.NotEmpty(t, list.Items)
+	assertComputeListHasName(t, list.Items, func(g *compute.InstanceGroup) string { return g.Name }, group.Name)
 
 	_, err = svc.InstanceGroups.RemoveInstances(project, zone, group.Name, &compute.InstanceGroupsRemoveInstancesRequest{
 		Instances: []*compute.InstanceReference{{Instance: member}},
@@ -525,7 +549,7 @@ func TestCompute_Instances_Lifecycle(t *testing.T) {
 
 	list, err := svc.Instances.List(project, zone).Context(ctx).Do()
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(i *compute.Instance) string { return i.Name }, "sdk-vm-1")
 
 	_, err = svc.Instances.Stop(project, zone, "sdk-vm-1").Context(ctx).Do()
 	require.NoError(t, err)
@@ -760,22 +784,47 @@ func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
 	assert.NotEmpty(t, op.InsertTime)
 	assert.NotEmpty(t, op.StartTime)
 	assert.Empty(t, op.EndTime)
-	assert.Less(t, insertTook, 30*time.Second,
+	// The insert answers as soon as the instance is recorded; booting a machine
+	// takes orders of magnitude longer than that, so a response that waited for
+	// the boot could not come back inside this budget.
+	assert.Less(t, insertTook, 2*time.Second,
 		"the insert must return before the boot finishes, not after it")
 
-	// The instance exists while its operation is still running, in a state
-	// that precedes RUNNING.
-	booting, err := svc.Instances.Get(project, zone, inst.Name).Context(ctx).Do()
-	require.NoError(t, err)
-	assert.Contains(t, []string{"PROVISIONING", "STAGING", "RUNNING"}, booting.Status)
+	// The instance exists while its operation is still running, in a state that
+	// precedes RUNNING. Sampling from the moment the insert answered until the
+	// operation settles is how a client watches a boot; a simulator that booted
+	// inside the insert request would have no pre-RUNNING state left to show by
+	// the time it answered, so nothing would ever be sampled in one.
+	deadline := time.Now().Add(5 * time.Minute)
+	sawPreRunning := false
+	var lastInstanceStatus string
+	for {
+		// A GET of the operation reports the same operation, not a fabricated
+		// verdict.
+		polled, err := svc.ZoneOperations.Get(project, zone, op.Name).Context(ctx).Do()
+		require.NoError(t, err)
+		require.Equal(t, op.Name, polled.Name)
+		require.Equal(t, "insert", polled.OperationType)
 
-	// A GET of the operation reports the same operation, not a fabricated
-	// verdict, and eventually settles DONE.
-	polled, err := svc.ZoneOperations.Get(project, zone, op.Name).Context(ctx).Do()
-	require.NoError(t, err)
-	assert.Equal(t, op.Name, polled.Name)
-	assert.Contains(t, []string{"RUNNING", "DONE"}, polled.Status)
+		booting, err := svc.Instances.Get(project, zone, inst.Name).Context(ctx).Do()
+		require.NoError(t, err, "the instance must be visible while its insert operation runs")
+		lastInstanceStatus = booting.Status
+		if polled.Status == "RUNNING" &&
+			(booting.Status == "PROVISIONING" || booting.Status == "STAGING") {
+			sawPreRunning = true
+			break
+		}
+		if polled.Status == "DONE" {
+			break
+		}
+		require.True(t, time.Now().Before(deadline),
+			"the insert operation never settled (last instance status %s)", lastInstanceStatus)
+	}
+	require.True(t, sawPreRunning,
+		"the instance was never observed before RUNNING while its insert operation ran; last status %s",
+		lastInstanceStatus)
 
+	// The operation eventually settles DONE.
 	done := awaitZoneOperation(t, svc, project, zone, op.Name)
 	require.Nil(t, done.Error, "the insert operation failed: %+v", done.Error)
 	assert.Equal(t, int64(100), done.Progress)

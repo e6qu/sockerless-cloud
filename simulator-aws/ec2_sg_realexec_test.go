@@ -20,9 +20,7 @@ import (
 // (the CI real-exec job runs as root); the metadata-only tier is covered by the
 // SDK validation/storage tests that run everywhere.
 func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
-	if err := realexec.DetectNetworkCapabilities().Require(); err != nil {
-		t.Skipf("real EC2 networking capabilities unavailable: %v", err)
-	}
+	requireRealNetworkFabric(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

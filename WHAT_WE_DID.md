@@ -1,5 +1,41 @@
 # WHAT WE DID
 
+## 2026-08-17 — A sweep for tests that proved nothing
+
+Every simulator was audited against a taxonomy of fake tests drawn from real
+examples found here in the preceding days: assertions on wording that varies by
+engine or platform, tests racing their own preconditions, calls whose responses
+nothing checked, tests depending on state another suite created, skips that read
+as passes, negative controls that could not fail, coverage inflated without
+behaviour behind it, and tolerances too wide to fail. Each candidate was judged
+by breaking the behaviour it names and watching whether it noticed, usually
+through a build overlay so the tree was never modified.
+
+The sweep found defects, not just weak tests. A Google Cloud service account's
+sign-blob and sign-JSON-web-token operations returned a keyed hash labelled as
+an RSA signature, under a per-process key that rotated on restart, so nothing
+could verify it; the test checked that the result was base64 with two dots.
+Those operations now sign with a persisted per-account RSA key whose public half
+is published through the real key surface. Azure Container Instances ran
+workloads on the host's architecture rather than the image's, hidden because the
+test that forbade a hardcoded platform grepped two files by name and the
+offending expression was in a third. Two Azure subnet child collections were
+constants, hidden because both tests addressed a subnet that no test created.
+Amazon CloudFront filtered distributions by neither connection mode nor anycast
+list because it modelled neither field. An image export or import returned a
+task identifier and stored nothing. A deleted web-application-firewall key was
+still decodable from its own token, so deletion was unobservable.
+
+Whole suites turned out never to have run. Five Terraform packages were absent
+from both the makefile and the workflow, so they had never compiled anywhere; a
+shell filter meant a security-group firewall test had never been built; two fuzz
+targets had been spending the nightly budget on routes that do not exist; and a
+576-line file containing no statements existed only to satisfy a gate that greps
+added test lines, where a comment suffices. Wiring the Terraform packages up
+immediately exposed two real defects in one of them. A new gate makes that class
+of drift impossible to repeat, and the Azure Terraform harness — which had been
+skipping its entire stack behind capabilities it was itself dropping — now runs.
+
 ## 2026-08-16 — App Service Environments, Kube Environments and detectors
 
 An App Service Environment is a real placement scope rather than a stored

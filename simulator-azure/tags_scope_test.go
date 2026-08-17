@@ -268,6 +268,17 @@ func TestTagsDefaultRefusesScopesThatHoldNoResource(t *testing.T) {
 		t.Fatalf("create resource group: status %d: %s", status, body)
 	}
 
+	// The untracked-type case needs a vault that exists, so that the only
+	// reason its child scope has no tag holder is the type itself. Hanging it
+	// off a vault that was never created makes it indistinguishable from the
+	// case above — both would 404 for the missing parent, and the untracked
+	// type would go unexercised.
+	vaultPath := rgPath + "/providers/Microsoft.KeyVault/vaults/tags-404-vault"
+	if status, body := tagsTestServe(t, srv, http.MethodPut, vaultPath+tagsTestAPI,
+		`{"location":"eastus","properties":{"tenantId":"11111111-1111-1111-1111-111111111111","sku":{"family":"A","name":"standard"}}}`); status != http.StatusOK {
+		t.Fatalf("create vault: status %d: %s", status, body)
+	}
+
 	for _, tc := range []struct {
 		name  string
 		scope string
@@ -280,7 +291,7 @@ func TestTagsDefaultRefusesScopesThatHoldNoResource(t *testing.T) {
 		},
 		{
 			name:  "type the registry does not track",
-			scope: rgPath + "/providers/Microsoft.KeyVault/vaults/never-created/secrets/nope",
+			scope: vaultPath + "/secrets/nope",
 			code:  "ResourceNotFound",
 		},
 		{

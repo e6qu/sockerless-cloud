@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -92,16 +93,58 @@ func TestFirestore_DocumentCommitBatchGetRunQuery(t *testing.T) {
 	assertProtoJSONTimestamp(t, got.CreateTime)
 	assertProtoJSONTimestamp(t, got.UpdateTime)
 
+	// A second document in the same collection, on the other side of the query
+	// filter below: without it a runQuery that ignored `where` would still
+	// return only the matching document.
+	const collection = "projects/test-project/databases/(default)/documents/sdk-users"
+	otherName := collection + "/bob"
+	_, err = svc.Projects.Databases.Documents.Commit("projects/test-project/databases/(default)", &firestore.CommitRequest{
+		Writes: []*firestore.Write{{
+			Update: &firestore.Document{
+				Name: otherName,
+				Fields: map[string]firestore.Value{
+					"team": {StringValue: "storage"},
+					"role": {StringValue: "admin"},
+				},
+			},
+		}},
+	}).Do()
+	require.NoError(t, err)
+
+	// batchGet answers one BatchGetDocumentsResponse per requested name, in
+	// request order: a stored document comes back under `found`, an absent one
+	// under `missing`. Decoding the array is what separates the two — a
+	// substring check over the body passes on any echo of the request.
+	missingName := collection + "/missing"
 	batchResp, err := http.Post(baseURL+"/v1/projects/test-project/databases/(default)/documents:batchGet",
 		"application/json",
-		strings.NewReader(`{"documents":["`+docName+`","projects/test-project/databases/(default)/documents/sdk-users/missing"]}`))
+		strings.NewReader(`{"documents":["`+docName+`","`+missingName+`"]}`))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, batchResp.StatusCode)
 	batchBody, _ := io.ReadAll(batchResp.Body)
 	batchResp.Body.Close()
-	assert.Contains(t, string(batchBody), docName)
-	assert.Contains(t, string(batchBody), "sdk-users/missing")
 
+	var batch []struct {
+		Found    *firestore.Document `json:"found"`
+		Missing  string              `json:"missing"`
+		ReadTime string              `json:"readTime"`
+	}
+	require.NoError(t, json.Unmarshal(batchBody, &batch), "batchGet body: %s", batchBody)
+	require.Len(t, batch, 2, "one response per requested document: %s", batchBody)
+
+	require.NotNil(t, batch[0].Found, "the stored document must come back under `found`: %s", batchBody)
+	assert.Empty(t, batch[0].Missing)
+	assert.Equal(t, docName, batch[0].Found.Name)
+	assert.Equal(t, "platform", batch[0].Found.Fields["team"].StringValue)
+	assertProtoJSONTimestamp(t, batch[0].ReadTime)
+
+	assert.Nil(t, batch[1].Found, "an absent document must not come back under `found`: %s", batchBody)
+	assert.Equal(t, missingName, batch[1].Missing)
+	assertProtoJSONTimestamp(t, batch[1].ReadTime)
+
+	// runQuery answers one RunQueryResponse per matching document. The
+	// collection now holds two documents and the filter selects one, so a
+	// response carrying both would mean the `where` clause was dropped.
 	queryResp, err := http.Post(baseURL+"/v1/projects/test-project/databases/(default)/documents:runQuery",
 		"application/json",
 		strings.NewReader(`{"structuredQuery":{"from":[{"collectionId":"sdk-users"}],"where":{"fieldFilter":{"field":{"fieldPath":"team"},"op":"EQUAL","value":{"stringValue":"platform"}}}}}`))
@@ -109,5 +152,30 @@ func TestFirestore_DocumentCommitBatchGetRunQuery(t *testing.T) {
 	require.Equal(t, http.StatusOK, queryResp.StatusCode)
 	queryBody, _ := io.ReadAll(queryResp.Body)
 	queryResp.Body.Close()
-	assert.Contains(t, string(queryBody), docName)
+
+	var results []struct {
+		Document *firestore.Document `json:"document"`
+		ReadTime string              `json:"readTime"`
+	}
+	require.NoError(t, json.Unmarshal(queryBody, &results), "runQuery body: %s", queryBody)
+	require.Len(t, results, 1, "team==platform selects one of the two documents: %s", queryBody)
+	require.NotNil(t, results[0].Document)
+	assert.Equal(t, docName, results[0].Document.Name)
+	assert.Equal(t, "platform", results[0].Document.Fields["team"].StringValue)
+	assertProtoJSONTimestamp(t, results[0].ReadTime)
+
+	// The excluded document is reachable by its own filter value, so its
+	// absence above is the filter's doing and not a write that never landed.
+	otherResp, err := http.Post(baseURL+"/v1/projects/test-project/databases/(default)/documents:runQuery",
+		"application/json",
+		strings.NewReader(`{"structuredQuery":{"from":[{"collectionId":"sdk-users"}],"where":{"fieldFilter":{"field":{"fieldPath":"team"},"op":"EQUAL","value":{"stringValue":"storage"}}}}}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, otherResp.StatusCode)
+	otherBody, _ := io.ReadAll(otherResp.Body)
+	otherResp.Body.Close()
+	results = results[:0]
+	require.NoError(t, json.Unmarshal(otherBody, &results), "runQuery body: %s", otherBody)
+	require.Len(t, results, 1, "runQuery body: %s", otherBody)
+	require.NotNil(t, results[0].Document)
+	assert.Equal(t, otherName, results[0].Document.Name)
 }

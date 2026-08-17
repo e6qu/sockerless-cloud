@@ -94,14 +94,34 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 // TestNetwork_SubnetLinksAndVnetDdos exercises the subnet resource/service
 // association link reads and the virtual-network DDoS protection status through
 // `az rest` (all empty without delegated services or attached public IPs).
+//
+// The virtual network and subnet are created first. Reading a child collection
+// of a subnet that was never created and asserting the collection is empty
+// proves nothing about the collection — a handler answering {"value":[]} to any
+// URL of that shape satisfies it — and it pins the simulator answering 200
+// where the real service answers ResourceNotFound. The refusal for a subnet
+// that does not exist is asserted alongside, so "empty" and "absent" stay
+// distinguishable.
+//
+// Creating the subnet builds real Linux network fabric, so this joins the rest
+// of the Microsoft.Network suite behind the host-capability gate and runs for
+// real on the CI Linux cell — a better trade than the version it replaces,
+// which ran everywhere and proved nothing because its subject existed nowhere.
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
+	requireNetworkHost(t)
+	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet", networkMoreAPIVersion)
+	runCLI(t, azRest("PUT", vnetURL,
+		`{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.93.0.0/16"]}}}`))
+	subnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-links-subnet", networkMoreAPIVersion)
+	runCLI(t, azRest("PUT", subnetURL, `{"properties":{"addressPrefix":"10.93.1.0/24"}}`))
+
 	navURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-links-subnet/ResourceNavigationLinks", networkMoreAPIVersion)
 	out := runCLI(t, azRest("GET", navURL, ""))
 	var nav struct {
 		Value []any `json:"value"`
 	}
 	parseJSON(t, out, &nav)
-	assert.Empty(t, nav.Value)
+	assert.Empty(t, nav.Value, "a subnet no service has delegated carries no resource navigation links")
 
 	svcURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-links-subnet/ServiceAssociationLinks", networkMoreAPIVersion)
 	out = runCLI(t, azRest("GET", svcURL, ""))
@@ -109,7 +129,16 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 		Value []any `json:"value"`
 	}
 	parseJSON(t, out, &svc)
-	assert.Empty(t, svc.Value)
+	assert.Empty(t, svc.Value, "a subnet no service has delegated carries no service association links")
+
+	// The discriminator: these collections belong to the subnet, so a subnet
+	// that does not exist has no collection to read.
+	missingNav := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-no-such-subnet/ResourceNavigationLinks", networkMoreAPIVersion)
+	assert.Contains(t, runNetworkCLIExpectFailure(t, azRest("GET", missingNav, "")), "ResourceNotFound",
+		"resource navigation links under a subnet that does not exist must be refused as ResourceNotFound")
+	missingSvc := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-no-such-subnet/ServiceAssociationLinks", networkMoreAPIVersion)
+	assert.Contains(t, runNetworkCLIExpectFailure(t, azRest("GET", missingSvc, "")), "ResourceNotFound",
+		"service association links under a subnet that does not exist must be refused as ResourceNotFound")
 
 	ddosURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/ddosProtectionStatus", networkMoreAPIVersion)
 	out = runCLI(t, azRest("POST", ddosURL, ""))
@@ -117,5 +146,5 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 		Value []any `json:"value"`
 	}
 	parseJSON(t, out, &ddos)
-	assert.Empty(t, ddos.Value)
+	assert.Empty(t, ddos.Value, "no public IP is attached to this network, so no address has a DDoS protection status")
 }

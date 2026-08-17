@@ -265,10 +265,24 @@ func TestGCS_DeleteObject(t *testing.T) {
 	err := client.Bucket("del-obj-bucket").Create(ctx, "test-project", nil)
 	require.NoError(t, err)
 
-	w := client.Bucket("del-obj-bucket").Object("temp.txt").NewWriter(ctx)
-	w.Write([]byte("temp"))
-	w.Close()
-
-	err = client.Bucket("del-obj-bucket").Object("temp.txt").Delete(ctx)
+	object := client.Bucket("del-obj-bucket").Object("temp.txt")
+	w := object.NewWriter(ctx)
+	_, err = w.Write([]byte("temp"))
 	require.NoError(t, err)
+	require.NoError(t, w.Close())
+
+	// The object exists before the delete, so the delete below has something to
+	// remove.
+	attrs, err := object.Attrs(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(len("temp")), attrs.Size)
+
+	require.NoError(t, object.Delete(ctx))
+
+	// The delete removed the object: a read of its metadata reports it gone.
+	_, err = object.Attrs(ctx)
+	assert.ErrorIs(t, err, storage.ErrObjectNotExist)
+
+	// A second delete has nothing left to remove.
+	assert.ErrorIs(t, object.Delete(ctx), storage.ErrObjectNotExist)
 }

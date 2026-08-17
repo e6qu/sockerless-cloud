@@ -148,6 +148,8 @@ func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
 
 	_, err = client.CreateService(ctx, mkSvc("projects/qt/locations/us-central1", "svc-b"))
 	require.Error(t, err, "us-central1 second deploy should be rejected")
+	assert.Contains(t, err.Error(), "Quota exceeded for total allowable CPU per project per region",
+		"the rejection must be the quota rejection, not some other failure")
 
 	// europe-west1 has its own bucket; deploy there must succeed.
 	op, err = client.CreateService(ctx, mkSvc("projects/qt/locations/europe-west1", "svc-c"))

@@ -518,45 +518,98 @@ func TestGCS_ObjectMetadataValidation(t *testing.T) {
 	}
 }
 
+// gcsListPage fetches one page of a GCS JSON API list, returning the item names
+// in wire order and the page's nextPageToken. listURL must already carry a query
+// string; the page size rides on it as `maxResults`, the parameter the GCS JSON
+// API and the Go storage client's BucketIterator/ObjectIterator PageSize send.
+func gcsListPage(t *testing.T, listURL, pageToken string) (names []string, next string) {
+	t.Helper()
+	u := listURL
+	if pageToken != "" {
+		u += "&pageToken=" + url.QueryEscape(pageToken)
+	}
+	resp, err := http.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "list %s: %s", u, body)
+	var decoded struct {
+		Items         []map[string]any `json:"items"`
+		NextPageToken string           `json:"nextPageToken"`
+	}
+	require.NoError(t, json.Unmarshal(body, &decoded))
+	for _, item := range decoded.Items {
+		n, ok := item["name"].(string)
+		require.Truef(t, ok, "list item carries no name: %v", item)
+		names = append(names, n)
+	}
+	return names, decoded.NextPageToken
+}
+
+// gcsWalkOnePerPage walks a maxResults=1 list to exhaustion and asserts the full
+// pagination contract: exactly one item per page, a nextPageToken on every page
+// but the last, none on the last, and no item on two pages. It returns the items
+// in page order, which must equal the unpaginated listing.
+func gcsWalkOnePerPage(t *testing.T, listURL string, wantPages int) []string {
+	t.Helper()
+	require.Positive(t, wantPages, "a one-per-page walk needs at least one item")
+	seen := map[string]bool{}
+	order := make([]string, 0, wantPages)
+	var token string
+	for page := 1; page <= wantPages; page++ {
+		names, next := gcsListPage(t, listURL+"&maxResults=1", token)
+		require.Lenf(t, names, 1, "maxResults=1 must return exactly one item (page %d of %d)", page, wantPages)
+		require.Falsef(t, seen[names[0]], "%q was returned on more than one page", names[0])
+		seen[names[0]] = true
+		order = append(order, names[0])
+		if page < wantPages {
+			require.NotEmptyf(t, next, "page %d of %d must carry a nextPageToken", page, wantPages)
+		} else {
+			require.Emptyf(t, next, "the last page must carry no nextPageToken, got %q", next)
+		}
+		token = next
+	}
+	return order
+}
+
+// gcsRequireBadPageToken asserts the service rejects a token it never issued.
+// Accepting one would silently restart the walk at the first page and make a
+// caller re-read rows it already processed.
+func gcsRequireBadPageToken(t *testing.T, listURL string) {
+	t.Helper()
+	resp, err := http.Get(listURL + "&pageToken=not-a-token-this-service-issued")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "body: %s", body)
+	assert.Contains(t, string(body), "pageToken")
+}
+
 func TestGCS_ListBuckets_Pagination(t *testing.T) {
 	names := []string{"pag-bucket-a", "pag-bucket-b", "pag-bucket-c"}
 	for _, n := range names {
 		gcsRESTCreate(t, n)
 		t.Cleanup(func() {
 			req, _ := http.NewRequest("DELETE", baseURL+"/storage/v1/b/"+n, nil)
-			http.DefaultClient.Do(req)
+			resp, err := http.DefaultClient.Do(req)
+			if assert.NoError(t, err, "delete bucket %s", n) {
+				resp.Body.Close()
+			}
 		})
 	}
 
-	seen := map[string]bool{}
-	var pageToken string
-	for {
-		u := baseURL + "/storage/v1/b?project=p&pageSize=1"
-		if pageToken != "" {
-			u += "&pageToken=" + url.QueryEscape(pageToken)
-		}
-		req, _ := http.NewRequest("GET", u, nil)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		var body struct {
-			Items         []map[string]any `json:"items"`
-			NextPageToken string           `json:"nextPageToken"`
-		}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-		resp.Body.Close()
-		for _, item := range body.Items {
-			if n, ok := item["name"].(string); ok {
-				seen[n] = true
-			}
-		}
-		pageToken = body.NextPageToken
-		if pageToken == "" {
-			break
-		}
-	}
-	for _, n := range names {
-		assert.True(t, seen[n], "bucket %s should appear via pagination", n)
-	}
+	listURL := baseURL + "/storage/v1/b?project=p"
+
+	// An unpaginated list is the ground truth: it must return every bucket and
+	// no token at all.
+	all, next := gcsListPage(t, listURL, "")
+	require.Empty(t, next, "a list without maxResults returns everything and no token")
+	require.Subset(t, all, names, "the buckets just created must be listed")
+
+	assert.Equal(t, all, gcsWalkOnePerPage(t, listURL, len(all)),
+		"the one-bucket-per-page walk must reproduce the unpaginated listing, in order")
+
+	gcsRequireBadPageToken(t, listURL)
 }
 
 func TestGCS_ListObjects_Pagination(t *testing.T) {
@@ -564,43 +617,32 @@ func TestGCS_ListObjects_Pagination(t *testing.T) {
 	gcsRESTCreate(t, bucket)
 	t.Cleanup(func() {
 		req, _ := http.NewRequest("DELETE", baseURL+"/storage/v1/b/"+bucket, nil)
-		http.DefaultClient.Do(req)
+		resp, err := http.DefaultClient.Do(req)
+		if assert.NoError(t, err, "delete bucket %s", bucket) {
+			resp.Body.Close()
+		}
 	})
 
-	for _, name := range []string{"obj-a", "obj-b", "obj-c"} {
+	want := []string{"obj-a", "obj-b", "obj-c"}
+	for _, name := range want {
 		body := bytes.NewReader([]byte("data"))
 		req, _ := http.NewRequest("POST", fmt.Sprintf("%s/upload/storage/v1/b/%s/o?uploadType=media&name=%s", baseURL, bucket, name), body)
 		req.Header.Set("Content-Type", "text/plain")
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
+		uploaded, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode, "upload %s: %s", name, uploaded)
 	}
 
-	seen := map[string]bool{}
-	var pageToken string
-	for {
-		u := fmt.Sprintf("%s/storage/v1/b/%s/o?pageSize=1", baseURL, bucket)
-		if pageToken != "" {
-			u += "&pageToken=" + url.QueryEscape(pageToken)
-		}
-		req, _ := http.NewRequest("GET", u, nil)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		var body struct {
-			Items         []map[string]any `json:"items"`
-			NextPageToken string           `json:"nextPageToken"`
-		}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-		resp.Body.Close()
-		for _, item := range body.Items {
-			if n, ok := item["name"].(string); ok {
-				seen[n] = true
-			}
-		}
-		pageToken = body.NextPageToken
-		if pageToken == "" {
-			break
-		}
-	}
-	assert.Equal(t, map[string]bool{"obj-a": true, "obj-b": true, "obj-c": true}, seen)
+	// The bucket holds exactly these three objects, so both the unpaginated
+	// listing and the one-per-page walk are pinned exactly.
+	listURL := fmt.Sprintf("%s/storage/v1/b/%s/o?projection=noAcl", baseURL, bucket)
+	all, next := gcsListPage(t, listURL, "")
+	require.Equal(t, want, all)
+	require.Empty(t, next, "a list without maxResults returns everything and no token")
+
+	assert.Equal(t, want, gcsWalkOnePerPage(t, listURL, len(want)))
+
+	gcsRequireBadPageToken(t, listURL)
 }

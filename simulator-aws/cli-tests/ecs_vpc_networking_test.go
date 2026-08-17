@@ -327,23 +327,39 @@ func startHostProbeServer(t *testing.T) string {
 	return "http://" + net.JoinHostPort(hostPrimaryIPv4(t), strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)) + "/probe"
 }
 
-// ecsNetnsTierActive mirrors the sim's netns-tier gate (Linux + tools +
-// CAP_NET_ADMIN/CAP_SYS_ADMIN) so tier-specific tests only run when ECS will
-// actually use the real netns fabric.
-func ecsNetnsTierActive() bool {
+// requireECSNetnsTier gates a test on the netns tier ECS uses for real VPC
+// networking, separating the two reasons that tier can be unavailable.
+//
+// A kernel that does not offer network namespaces to this process — a non-Linux
+// host, or one without CAP_NET_ADMIN/CAP_SYS_ADMIN — is a platform gate: the
+// test cannot run here whatever is installed. A missing `ip`, `nft`, `nsenter`
+// or `sysctl` is not: those are packages, and a test that quietly disappears
+// when one is absent reports green having proved nothing. On a host that has
+// the capabilities, a missing tool therefore fails loudly and names itself, so
+// the only tests covering link-local task metadata and route-table egress
+// cannot silently stop covering them.
+func requireECSNetnsTier(t *testing.T) {
+	t.Helper()
 	if runtime.GOOS != "linux" {
-		return false
-	}
-	for _, bin := range []string{"ip", "nft", "nsenter", "sysctl"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			return false
-		}
+		t.Skip("platform gate: the real netns fabric needs a Linux kernel")
 	}
 	caps, err := linuxEffectiveCapabilitiesForTest()
 	if err != nil {
-		return false
+		t.Skipf("platform gate: this host's effective capabilities are unreadable: %v", err)
 	}
-	return hasLinuxCapability(caps, 12) && hasLinuxCapability(caps, 21)
+	if !hasLinuxCapability(caps, 12) || !hasLinuxCapability(caps, 21) {
+		t.Skip("platform gate: the real netns fabric needs CAP_NET_ADMIN and CAP_SYS_ADMIN")
+	}
+	var missing []string
+	for _, bin := range []string{"ip", "nft", "nsenter", "sysctl"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			missing = append(missing, bin)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("this host can run the netns fabric but is missing %s — install them rather than skipping the tier they cover",
+			strings.Join(missing, ", "))
+	}
 }
 
 func linuxEffectiveCapabilitiesForTest() (uint64, error) {
@@ -535,9 +551,7 @@ func TestECSVPCOverlappingCIDR(t *testing.T) {
 }
 
 func TestECSVPCNetnsTaskMetadataLinkLocal(t *testing.T) {
-	if !ecsNetnsTierActive() {
-		t.Skip("link-local task metadata DNAT requires the netns fabric (Linux + CAP_NET_ADMIN)")
-	}
+	requireECSNetnsTier(t)
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	_, subnet := mkVPCSubnet(t, q, "10.62.0.0/16", "10.62.0.0/24")
@@ -567,9 +581,7 @@ func TestECSVPCNetnsTaskMetadataLinkLocal(t *testing.T) {
 }
 
 func TestECSVPCNetnsRouteTableEgress(t *testing.T) {
-	if !ecsNetnsTierActive() {
-		t.Skip("route-table egress enforcement requires the netns fabric (Linux + CAP_NET_ADMIN)")
-	}
+	requireECSNetnsTier(t)
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	probeURL := startHostProbeServer(t)
 

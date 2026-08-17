@@ -1,11 +1,17 @@
 package gcp_sdk_test
 
 import (
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,7 +43,12 @@ func crmV3Service(t *testing.T) *crm.Service {
 	return svc
 }
 
-func TestResourceManagerV3_FetchResourceSemantics(t *testing.T) {
+// TestResourceManagerV3_FetchResourceSemanticsNameValidation pins how
+// fetchResourceSemantics reads its fullResourceName. Semantics are optional
+// metadata no API in this cloud slice assigns, so every resource answers with
+// its own name and an empty map; what the method decides is whether the name it
+// was handed is a full resource name at all, and that is what this covers.
+func TestResourceManagerV3_FetchResourceSemanticsNameValidation(t *testing.T) {
 	const fullName = "//cloudresourcemanager.googleapis.com/projects/735298346210"
 	resp, err := simAuthHTTPClient().Get(baseURL + "/v3:fetchResourceSemantics?fullResourceName=" + url.QueryEscape(fullName))
 	require.NoError(t, err)
@@ -49,15 +60,35 @@ func TestResourceManagerV3_FetchResourceSemantics(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	assert.Equal(t, fullName, got.FullResourceName)
-	assert.Empty(t, got.Semantics)
+	assert.Empty(t, got.Semantics, "no API in this slice assigns semantics, so none come back")
 
-	invalid, err := simAuthHTTPClient().Get(baseURL + "/v3:fetchResourceSemantics")
-	require.NoError(t, err)
-	defer invalid.Body.Close()
-	invalidBody, err := io.ReadAll(invalid.Body)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, invalid.StatusCode, string(invalidBody))
-	assert.Contains(t, string(invalidBody), "INVALID_ARGUMENT")
+	// A full resource name is "//{service}/{resource path}". Each of these
+	// breaks one part of that shape and must be refused rather than answered
+	// with an empty semantics map.
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{"absent", ""},
+		{"empty", "?fullResourceName="},
+		{"no leading slashes", "?fullResourceName=" + url.QueryEscape("cloudresourcemanager.googleapis.com/projects/1")},
+		{"single leading slash", "?fullResourceName=" + url.QueryEscape("/cloudresourcemanager.googleapis.com/projects/1")},
+		{"no service", "?fullResourceName=" + url.QueryEscape("///projects/1")},
+		{"no resource path", "?fullResourceName=" + url.QueryEscape("//cloudresourcemanager.googleapis.com")},
+		{"empty resource path", "?fullResourceName=" + url.QueryEscape("//cloudresourcemanager.googleapis.com/")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			invalid, err := simAuthHTTPClient().Get(baseURL + "/v3:fetchResourceSemantics" + tc.query)
+			require.NoError(t, err)
+			defer invalid.Body.Close()
+			invalidBody, err := io.ReadAll(invalid.Body)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusBadRequest, invalid.StatusCode, string(invalidBody))
+			assert.Contains(t, string(invalidBody), "INVALID_ARGUMENT")
+			assert.NotContains(t, string(invalidBody), "semantics",
+				"a refused name must not also be answered")
+		})
+	}
 }
 
 func TestResourceManagerV3_ProjectLifecycle(t *testing.T) {
@@ -330,10 +361,16 @@ func TestResourceManagerV3_TagValues(t *testing.T) {
 	require.Len(t, pol.Bindings, 1)
 }
 
+// TestIAMCredentials_SignBlobAndJwt drives the two IAM Credentials signing
+// methods the way a relying party drives them: sign, then fetch the public half
+// of the named key from the IAM service-account keys surface and verify the
+// signature against it. That is the whole point of a signature — a caller that
+// only checked the encoding of the bytes would accept any bytes at all.
 func TestIAMCredentials_SignBlobAndJwt(t *testing.T) {
 	// The credential ops require the service account to exist; create it via
 	// the IAM SDK first (same flow a real caller's IaC would have run).
-	_, err := iamService(t).Projects.ServiceAccounts.Create("projects/test-project",
+	iamSvc := iamService(t)
+	_, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
 		&iam.CreateServiceAccountRequest{
 			AccountId:      "signer",
 			ServiceAccount: &iam.ServiceAccount{DisplayName: "Signer SA"},
@@ -343,30 +380,108 @@ func TestIAMCredentials_SignBlobAndJwt(t *testing.T) {
 	svc := iamCredentialsService(t)
 	const name = "projects/-/serviceAccounts/signer@test-project.iam.gserviceaccount.com"
 
+	payload := []byte("hello-sign")
 	blob, err := svc.Projects.ServiceAccounts.SignBlob(name, &iamcredentials.SignBlobRequest{
-		Payload: base64.StdEncoding.EncodeToString([]byte("hello-sign")),
+		Payload: base64.StdEncoding.EncodeToString(payload),
 	}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, blob.KeyId)
 	require.NotEmpty(t, blob.SignedBlob)
-	_, derr := base64.StdEncoding.DecodeString(blob.SignedBlob)
-	assert.NoError(t, derr, "signedBlob must be valid base64")
+	signature, derr := base64.StdEncoding.DecodeString(blob.SignedBlob)
+	require.NoError(t, derr, "signedBlob must be valid base64")
 
+	// The key the signature names must be the account's system-managed key,
+	// the one Google holds and never hands out, published on the keys surface.
+	pub := systemManagedPublicKey(t, iamSvc, name, blob.KeyId)
+
+	blobDigest := sha256.Sum256(payload)
+	require.NoError(t,
+		rsa.VerifyPKCS1v15(pub, crypto.SHA256, blobDigest[:], signature),
+		"signedBlob must verify as RSASSA-PKCS1-v1_5 over SHA-256 of the payload, under the reported keyId")
+
+	claims := map[string]string{
+		"sub": "signer@test-project.iam.gserviceaccount.com",
+		"aud": "https://example.googleapis.com/",
+		"iss": "signer@test-project.iam.gserviceaccount.com",
+	}
+	claimsJSON, err := json.Marshal(claims)
+	require.NoError(t, err)
 	jwt, err := svc.Projects.ServiceAccounts.SignJwt(name, &iamcredentials.SignJwtRequest{
-		Payload: `{"sub":"signer@test-project.iam.gserviceaccount.com","aud":"x"}`,
+		Payload: string(claimsJSON),
 	}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, jwt.KeyId)
 	require.NotEmpty(t, jwt.SignedJwt)
-	assert.Equal(t, 2, countDots(jwt.SignedJwt), "signedJwt must be a 3-part JWS")
+
+	parts := strings.Split(jwt.SignedJwt, ".")
+	require.Len(t, parts, 3, "signedJwt must be a 3-part JWS")
+
+	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
+	require.NoError(t, err, "the JWS header must be base64url without padding")
+	var header struct {
+		Alg string `json:"alg"`
+		Typ string `json:"typ"`
+		Kid string `json:"kid"`
+	}
+	require.NoError(t, json.Unmarshal(headerJSON, &header))
+	assert.Equal(t, "RS256", header.Alg)
+	assert.Equal(t, "JWT", header.Typ)
+	assert.Equal(t, jwt.KeyId, header.Kid,
+		"the header's kid must name the key the response reports, so a verifier can find the public half")
+
+	// The claim set is the caller's, passed through untouched: signJwt signs
+	// what it was given rather than composing claims of its own.
+	claimsSegment, err := base64.RawURLEncoding.DecodeString(parts[1])
+	require.NoError(t, err, "the JWS claims must be base64url without padding")
+	var roundTripped map[string]string
+	require.NoError(t, json.Unmarshal(claimsSegment, &roundTripped))
+	assert.Equal(t, claims, roundTripped)
+
+	jwtPub := systemManagedPublicKey(t, iamSvc, name, jwt.KeyId)
+	jwtDigest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	jwtSig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	require.NoError(t, err, "the JWS signature must be base64url without padding")
+	require.NoError(t,
+		rsa.VerifyPKCS1v15(jwtPub, crypto.SHA256, jwtDigest[:], jwtSig),
+		"signedJwt must verify as RS256 over its own signing input, under the reported keyId")
 }
 
-func countDots(s string) int {
-	n := 0
-	for _, c := range s {
-		if c == '.' {
-			n++
+// systemManagedPublicKey resolves the public half of a service account's
+// system-managed key from the IAM keys surface — list the account's
+// system-managed keys, find the one the signature named, and read its
+// publicKeyData. This is the route a relying party takes to verify a signature
+// it was handed, and it is the only way to tell a real signature from arbitrary
+// bytes.
+func systemManagedPublicKey(t *testing.T, svc *iam.Service, saName, keyID string) *rsa.PublicKey {
+	t.Helper()
+
+	list, err := svc.Projects.ServiceAccounts.Keys.List(saName).KeyTypes("SYSTEM_MANAGED").Do()
+	require.NoError(t, err)
+	var keyName string
+	for _, key := range list.Keys {
+		assert.Equal(t, "SYSTEM_MANAGED", key.KeyType,
+			"a keyTypes=SYSTEM_MANAGED listing must not carry user-managed keys")
+		if strings.HasSuffix(key.Name, "/keys/"+keyID) {
+			keyName = key.Name
+			assert.Equal(t, "KEY_ALG_RSA_2048", key.KeyAlgorithm)
 		}
 	}
-	return n
+	require.NotEmpty(t, keyName,
+		"the signature's keyId %q must name one of the account's published keys", keyID)
+
+	// publicKeyData is served only when the caller names the encoding it wants,
+	// as the real API serves it.
+	key, err := svc.Projects.ServiceAccounts.Keys.Get(keyName).PublicKeyType("TYPE_RAW_PUBLIC_KEY").Do()
+	require.NoError(t, err)
+	require.NotEmpty(t, key.PublicKeyData, "the published key must carry its public half")
+
+	raw, err := base64.StdEncoding.DecodeString(key.PublicKeyData)
+	require.NoError(t, err, "publicKeyData must be base64")
+	block, _ := pem.Decode(raw)
+	require.NotNil(t, block, "TYPE_RAW_PUBLIC_KEY carries a PEM public key: %s", raw)
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	require.NoError(t, err, "the published public key must be PKIX DER inside its PEM block")
+	pub, ok := parsed.(*rsa.PublicKey)
+	require.True(t, ok, "a KEY_ALG_RSA_2048 key must publish an RSA public key, got %T", parsed)
+	return pub
 }

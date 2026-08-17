@@ -1073,10 +1073,28 @@ func handleExportImage(w http.ResponseWriter, r *http.Request) {
 	bucket := r.FormValue("S3ExportLocation.S3Bucket")
 	prefix := r.FormValue("S3ExportLocation.S3Prefix")
 	taskID := ec2ID("export-ami")
+	tags := parseTags(r)
+
+	// The task the caller is handed is the task DescribeExportImageTasks
+	// answers for, so the identifier this response carries is one a client can
+	// actually poll.
+	ec2ExportImageTasks.Put(taskID, EC2ExportImageTask{
+		ExportImageTaskId: taskID,
+		ImageId:           imageID,
+		Description:       r.FormValue("Description"),
+		DiskImageFormat:   format,
+		RoleName:          r.FormValue("RoleName"),
+		S3Bucket:          bucket,
+		S3Prefix:          prefix,
+		Status:            "active",
+		Progress:          "0",
+		Tags:              tags,
+	})
+
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ExportImageResponse %s><requestId>%s</requestId><exportImageTaskId>%s</exportImageTaskId><imageId>%s</imageId><roleName>%s</roleName><diskImageFormat>%s</diskImageFormat><description>%s</description><s3ExportLocation><s3Bucket>%s</s3Bucket><s3Prefix>%s</s3Prefix></s3ExportLocation><status>active</status><progress>0</progress>%s</ExportImageResponse>`,
 		ec2Xmlns(), generateUUID(), taskID, imageID, xmlEscape(r.FormValue("RoleName")), format,
-		xmlEscape(r.FormValue("Description")), xmlEscape(bucket), xmlEscape(prefix), writeTagSetXML(parseTags(r)))
+		xmlEscape(r.FormValue("Description")), xmlEscape(bucket), xmlEscape(prefix), writeTagSetXML(tags))
 }
 
 func handleImportImage(w http.ResponseWriter, r *http.Request) {
@@ -1089,10 +1107,32 @@ func handleImportImage(w http.ResponseWriter, r *http.Request) {
 	if platform == "" {
 		platform = "Linux"
 	}
+	licenseType := ec2Default(r.FormValue("LicenseType"), "BYOL")
+	tags := parseTags(r)
+
+	// As with an export, the import task is recorded under the identifier the
+	// response names, so DescribeImportImageTasks can answer for it.
+	ec2ImportImageTasks.Put(taskID, EC2ImportImageTask{
+		ImportTaskId:  taskID,
+		Architecture:  arch,
+		Description:   r.FormValue("Description"),
+		Hypervisor:    "xen",
+		Platform:      platform,
+		LicenseType:   licenseType,
+		Status:        "active",
+		StatusMessage: "pending",
+		Progress:      "2",
+		Format:        r.FormValue("DiskContainer.1.Format"),
+		S3Bucket:      r.FormValue("DiskContainer.1.UserBucket.S3Bucket"),
+		S3Key:         r.FormValue("DiskContainer.1.UserBucket.S3Key"),
+		Url:           r.FormValue("DiskContainer.1.Url"),
+		Tags:          tags,
+	})
+
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ImportImageResponse %s><requestId>%s</requestId><importTaskId>%s</importTaskId><architecture>%s</architecture><platform>%s</platform><description>%s</description><licenseType>%s</licenseType><hypervisor>xen</hypervisor><status>active</status><statusMessage>pending</statusMessage><progress>2</progress><snapshotDetailSet/>%s</ImportImageResponse>`,
 		ec2Xmlns(), generateUUID(), taskID, arch, platform, xmlEscape(r.FormValue("Description")),
-		ec2Default(r.FormValue("LicenseType"), "BYOL"), writeTagSetXML(parseTags(r)))
+		licenseType, writeTagSetXML(tags))
 }
 
 func handleCreateRestoreImageTask(w http.ResponseWriter, r *http.Request) {

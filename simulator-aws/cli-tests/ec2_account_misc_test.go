@@ -1,8 +1,11 @@
 package aws_cli_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestEC2CLI_IdFormatRoundTrip exercises the account-level ID-format settings
@@ -277,9 +280,28 @@ func TestEC2CLI_NetworkAclAssociationRoundTrip(t *testing.T) {
 // get-vpc-resources-blocking-encryption-enforcement, and
 // get-flow-logs-integration-template.
 func TestEC2CLI_MiscHonestEmpty(t *testing.T) {
-	runCLI(t, awsCLI("ec2", "describe-vpc-endpoint-associations"))
-	runCLI(t, awsCLI("ec2", "describe-elastic-gpus"))
-	runCLI(t, awsCLI("ec2", "enable-reachability-analyzer-organization-sharing"))
+	// The two readers answer with the empty collection the account really has,
+	// and the emptiness is asserted rather than assumed: a handler answering
+	// with someone else's resources would fail here.
+	var associations struct {
+		VpcEndpointAssociations []json.RawMessage `json:"VpcEndpointAssociations"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("ec2", "describe-vpc-endpoint-associations", "--output", "json")), &associations)
+	assert.Empty(t, associations.VpcEndpointAssociations)
+
+	var gpus struct {
+		ElasticGpuSet []json.RawMessage `json:"ElasticGpuSet"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("ec2", "describe-elastic-gpus", "--output", "json")), &gpus)
+	assert.Empty(t, gpus.ElasticGpuSet)
+
+	// Enabling organization sharing for the reachability analyzer reports
+	// whether it took, which is the only thing the operation returns.
+	var sharing struct {
+		ReturnValue bool `json:"ReturnValue"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("ec2", "enable-reachability-analyzer-organization-sharing", "--output", "json")), &sharing)
+	assert.True(t, sharing.ReturnValue)
 }
 
 // TestEC2CLI_ClientVpnExportRoundTrip exercises

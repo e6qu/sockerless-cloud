@@ -2,7 +2,7 @@ package gcp_sdk_test
 
 import (
 	"context"
-	"sort"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/pubsub"
 	pubsubpb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -80,14 +81,16 @@ func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
 	require.Equal(t, topicID, topic.ID(), "topic.ID must match")
 	require.Equal(t, "test", cfg.Labels["env"], "GetTopic must round-trip labels")
 
-	// ListTopics includes the new topic.
+	// ListTopics includes the new topic. Only iterator.Done ends the walk; any
+	// other error is a failed RPC, not the end of the collection.
 	it := c.Topics(ctx)
 	var names []string
 	for {
 		tt, err := it.Next()
-		if err != nil {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
+		require.NoError(t, err, "ListTopics iteration")
 		names = append(names, tt.ID())
 	}
 	require.Contains(t, names, topicID, "ListTopics must include created topic")
@@ -111,9 +114,10 @@ func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
 	var subNames []string
 	for {
 		ss, err := subs.Next()
-		if err != nil {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
+		require.NoError(t, err, "ListSubscriptions iteration")
 		subNames = append(subNames, ss.ID())
 	}
 	require.Contains(t, subNames, "crud-sub", "ListSubscriptions must include created subscription")
@@ -174,7 +178,6 @@ func TestPubSub_GRPC_PublishPull(t *testing.T) {
 		require.Contains(t, gotData, w.data, "message data %q must be delivered", w.data)
 		require.Equal(t, w.attr, gotAttrs[w.data], "attributes for %q must round-trip", w.data)
 	}
-	sort.Strings(gotIds)
 	require.ElementsMatch(t, pres.GetMessageIds(), gotIds, "assigned message ids must be returned")
 
 	// Acknowledge the pulled messages.
@@ -233,8 +236,14 @@ func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 	require.NotEqual(t, first[0].GetAckId(), redelivered.GetAckId(), "redelivery must carry a fresh ackId")
 }
 
-// TestPubSub_GRPC_ModifyAckDeadline proves that extending an inflight message's
-// deadline keeps it from being redelivered before the extended deadline elapses.
+// TestPubSub_GRPC_ModifyAckDeadline proves that ModifyAckDeadline moves the
+// deadline it names in both directions: extending an inflight message's deadline
+// keeps it from being redelivered while the original short deadline elapses, and
+// then dropping the same message's deadline to zero — the nack a subscriber
+// sends to hand a message straight back — returns it to the queue at once.
+//
+// The second half is the positive control for the first: without it, a sim that
+// simply never redelivered anything would satisfy the empty-pull assertion.
 func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
 	c := newPSGRPCClient(t, "ps-grpc-proj")
 	sc := psRawSubscriber(t)
@@ -267,6 +276,29 @@ func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
 	// redelivered because the deadline was extended.
 	time.Sleep(4 * time.Second)
 	require.Empty(t, psPullN(t, sc, subName, 1), "extended message must not be redelivered before the new deadline")
+
+	// The same call in the other direction: a zero deadline expires the message
+	// immediately, so it comes back to the queue and is redelivered with a fresh
+	// ackId. This proves the empty pull above was the extension holding the
+	// message, not a subscription that had stopped delivering.
+	_, err = sc.ModifyAckDeadline(ctx, &pubsubpb.ModifyAckDeadlineRequest{
+		Subscription: subName, AckIds: []string{pulled[0].GetAckId()}, AckDeadlineSeconds: 0,
+	})
+	require.NoError(t, err, "ModifyAckDeadline to zero")
+
+	var redelivered *pubsubpb.ReceivedMessage
+	require.Eventually(t, func() bool {
+		got := psPullN(t, sc, subName, 1)
+		if len(got) == 0 {
+			return false
+		}
+		redelivered = got[0]
+		return true
+	}, 15*time.Second, 250*time.Millisecond,
+		"a deadline moved to zero returns the message to the queue")
+	require.Equal(t, "mod-test", string(redelivered.GetMessage().GetData()))
+	require.NotEqual(t, pulled[0].GetAckId(), redelivered.GetAckId(),
+		"redelivery carries a fresh ackId")
 }
 
 // TestPubSub_GRPC_StreamingPull drives the high-level client's Receive path

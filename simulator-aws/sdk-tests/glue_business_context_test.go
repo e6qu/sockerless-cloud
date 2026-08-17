@@ -166,17 +166,30 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 	require.Len(t, search.Items, 1)
 	assert.Equal(t, "quarterly-sales", aws.ToString(search.Items[0].Id))
 
+	// No operation in this surface creates an iterable form on an asset, so a
+	// form name never resolves and both readers answer with the service's
+	// not-found error. The error code is asserted rather than the mere presence
+	// of an error, so a handler that failed for any other reason — an unrouted
+	// operation, a decode failure — would not pass for it.
 	_, err = client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
 		AssetIdentifier:  aws.String("quarterly-sales"),
 		IterableFormName: aws.String("columns"),
 	})
-	require.Error(t, err)
+	assert.Equal(t, "EntityNotFoundException", errCode(t, err))
 	_, err = client.BatchGetIterableForms(ctx, &glue.BatchGetIterableFormsInput{
 		AssetIdentifier:  aws.String("quarterly-sales"),
 		IterableFormName: aws.String("columns"),
 		ItemIdentifiers:  []string{"amount"},
 	})
-	require.Error(t, err)
+	assert.Equal(t, "EntityNotFoundException", errCode(t, err))
+
+	// The asset itself must be the other half of that decision: an asset that
+	// does not exist is reported against the asset, not the form.
+	_, err = client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
+		AssetIdentifier:  aws.String("no-such-asset"),
+		IterableFormName: aws.String("columns"),
+	})
+	assert.Equal(t, "EntityNotFoundException", errCode(t, err))
 
 	_, err = client.DeleteAttachment(ctx, &glue.DeleteAttachmentInput{
 		AssetIdentifier: aws.String("quarterly-sales"),

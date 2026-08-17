@@ -5,51 +5,101 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Workload-dispatch invariant.
 //
-// No sim handler may execute a workload via `os/exec`. Container/FaaS workloads
-// run on a Docker host (StartContainerSync / StartHTTPContainer) honouring the
-// workload's Architecture field. VM-level resources may only use the dedicated
-// Firecracker/Linux-networking real-execution substrate described in
-// specs/SIMULATOR_REAL_EXECUTION.md and feedback_sim_host_model.md.
+// No sim handler may execute a workload as a process on the host. Container and
+// FaaS workloads run on a Docker host (StartContainerSync / StartHTTPContainer)
+// honouring the workload's Architecture field; VM-level resources may only use
+// the dedicated Firecracker/Linux-networking real-execution substrate described
+// in specs/SIMULATOR_REAL_EXECUTION.md.
 //
-// Allowlist: sim infrastructure files that legitimately spawn other
-// processes that are NOT workloads (the docker CLI, etc.).
-func TestNoOsExecOfWorkloads(t *testing.T) {
+// The gate looks for both ways a handler can reach the host: `os/exec` directly,
+// and the shared `sim.StartProcess` wrapper around it. Watching only for
+// `os/exec` would miss every handler that dispatches through the wrapper —
+// which is where the dispatches actually are — so a gate that checked only the
+// import could not fail whatever the handlers did.
+//
+// It walks the whole module, not just the top-level directory, because the
+// wrapper and the container reaper live in shared/; both are named below.
+func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
+	// Each entry is a file allowed to reach the host, with the reason. The
+	// substrate files implement the mechanism itself; the two handlers are
+	// known violations of this invariant that the gate reports rather than
+	// hides — they run an AWS CodeBuild command and an AWS Glue Python job as
+	// host processes and belong in containers, and until they move, this list
+	// keeps the invariant enforced for everything else.
 	allowList := map[string]string{
-		// (no production aws/*.go files use os/exec — kept empty to
-		// surface any reintroduction. See cloudbuild.go in the GCP sim
-		// for the docker-CLI exception pattern.)
+		"shared/process.go":          "the process substrate itself — the VM/real-execution path this invariant permits",
+		"shared/container_reaper.go": "reaps the sim's own containers through the docker CLI; not a workload",
+		"codebuild_extended.go":      "known violation: an AWS CodeBuild command execution runs as a host process instead of in a build container",
+		"glue.go":                    "known violation: an AWS Glue Python job runs as a host process instead of in a job container",
 	}
 
-	simDir, _ := filepath.Abs("..")
-	entries, err := os.ReadDir(simDir)
-	if err != nil {
-		t.Fatalf("read sim dir: %v", err)
-	}
+	simDir, err := filepath.Abs("..")
+	require.NoError(t, err)
 
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
-			continue
+	scanned := 0
+	var offenders []string
+	require.NoError(t, filepath.WalkDir(simDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		if strings.HasSuffix(e.Name(), "_test.go") {
-			continue
+		if entry.IsDir() {
+			switch entry.Name() {
+			case "dist", "testdata", "sdk-tests", "cli-tests", "terraform-tests":
+				return filepath.SkipDir
+			}
+			return nil
 		}
-		if reason, ok := allowList[e.Name()]; ok {
-			t.Logf("allowlisted %s: %s", e.Name(), reason)
-			continue
+		if !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
 		}
-		path := filepath.Join(simDir, e.Name())
+		relative, err := filepath.Rel(simDir, path)
+		if err != nil {
+			return err
+		}
 		body, err := os.ReadFile(path)
 		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
+			return err
 		}
+		scanned++
 		text := string(body)
-		// "os/exec" import OR exec.Command call.
-		if strings.Contains(text, `"os/exec"`) || strings.Contains(text, "exec.Command") {
-			t.Errorf("%s imports os/exec or calls exec.Command — workloads must dispatch via Docker, or through the dedicated VM real-execution substrate. See specs/SIMULATOR_REAL_EXECUTION.md and feedback_sim_host_model.md.", e.Name())
+		dispatches := strings.Contains(text, `"os/exec"`) ||
+			strings.Contains(text, "exec.Command") ||
+			strings.Contains(text, "sim.StartProcess(") ||
+			strings.Contains(text, "sim.ProcessConfig{")
+		if !dispatches {
+			return nil
 		}
+		if reason, ok := allowList[relative]; ok {
+			t.Logf("allowlisted %s: %s", relative, reason)
+			return nil
+		}
+		offenders = append(offenders, relative)
+		return nil
+	}))
+
+	// A walk that reached nothing would report clean without having looked.
+	require.Greaterf(t, scanned, 200, "the gate read only %d files under %s", scanned, simDir)
+
+	require.Emptyf(t, offenders,
+		"these files dispatch a process on the host — a workload must run on the Docker host, or through the dedicated VM real-execution substrate (specs/SIMULATOR_REAL_EXECUTION.md): %s",
+		strings.Join(offenders, ", "))
+
+	// Every allowlist entry must still name a file that reaches the host, so a
+	// dispatch removed from one of them drops off this list instead of
+	// silently licensing whatever the file becomes next.
+	for relative := range allowList {
+		body, err := os.ReadFile(filepath.Join(simDir, relative))
+		require.NoErrorf(t, err, "allowlisted %s no longer exists — remove it from the list", relative)
+		text := string(body)
+		require.Truef(t,
+			strings.Contains(text, `"os/exec"`) || strings.Contains(text, "exec.Command") ||
+				strings.Contains(text, "sim.StartProcess(") || strings.Contains(text, "sim.ProcessConfig{"),
+			"allowlisted %s no longer dispatches a host process — remove it from the list", relative)
 	}
 }

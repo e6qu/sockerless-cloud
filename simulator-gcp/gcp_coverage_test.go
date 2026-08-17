@@ -278,6 +278,9 @@ var (
 //     method it does not implement. The fan-in pattern matches every verb on
 //     the resource, so its own rejection is the only evidence that the verb
 //     is unserved. NOT served.
+//   - A 5xx — the handler was reached and broke, which the recovered-panic
+//     middleware also surfaces this way. A method that cannot answer is not a
+//     method the simulator serves. NOT served.
 //   - Anything else — served. That deliberately includes a structured
 //     404 NOT_FOUND for a resource that does not exist (a mounted handler ran,
 //     looked the resource up and answered), 400 INVALID_ARGUMENT (the handler
@@ -298,6 +301,8 @@ func gcpClassifyProbe(status int, body string) gcpProbeResult {
 		return gcpProbeResult{served: false, why: "mux miss: no pattern for this HTTP method"}
 	case gcpUnknownMethodError.MatchString(body):
 		return gcpProbeResult{served: false, why: "handler reports the method/verb as unknown: " + excerpt}
+	case status >= http.StatusInternalServerError:
+		return gcpProbeResult{served: false, why: "handler failed with " + http.StatusText(status) + ": " + excerpt}
 	}
 	return gcpProbeResult{served: true, why: "handler answered " + http.StatusText(status) + ": " + excerpt}
 }
@@ -589,14 +594,17 @@ func (p *gcpCoverageProbe) methodServed(d *discoveryDoc, m discoveryMethod) gcpP
 }
 
 // docCoverage returns the served count for one Discovery document.
-func (p *gcpCoverageProbe) docCoverage(d *discoveryDoc) int {
-	served := 0
+func (p *gcpCoverageProbe) docCoverage(d *discoveryDoc) (served int, unserved []string) {
 	for _, m := range d.Methods {
-		if p.methodServed(d, m).served {
+		res := p.methodServed(d, m)
+		if res.served {
 			served++
+			continue
 		}
+		unserved = append(unserved, m.HTTPMethod+" "+m.Path+"  ("+res.why+")")
 	}
-	return served
+	sort.Strings(unserved)
+	return served, unserved
 }
 
 // TestServiceConformance_GCPCoverageProbeIsSound guards the probe itself: a
@@ -644,59 +652,37 @@ func TestServiceConformance_GCPCoverageFloor(t *testing.T) {
 			t.Errorf("%s: vendored Discovery document has no gcpMethodFloor entry — add one at its measured coverage", name)
 		}
 	}
-	for name, floor := range gcpMethodFloor {
+	names := make([]string, 0, len(gcpMethodFloor))
+	for name := range gcpMethodFloor {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	totalServed, totalSpellings := 0, 0
+	for _, name := range names {
+		floor := gcpMethodFloor[name]
 		d, ok := byFile[name]
 		if !ok {
 			t.Errorf("%s: floor set but no vendored Discovery document found", name)
 			continue
 		}
-		served := p.docCoverage(d)
-		if served != floor {
-			t.Errorf("%s: coverage %d/%d != floor %d — update gcpMethodFloor (a drop is a regression; more is a ratchet-up).",
-				name, served, len(d.Methods), floor)
-		}
-	}
-}
-
-// TestServiceConformance_GCPCoverage reports per-document coverage
-// (informational — never fails): the served fraction at a glance, then every
-// method that is not served with the probe result that says so. The detail is
-// the work list for closing a gap and the evidence behind each floor.
-func TestServiceConformance_GCPCoverage(t *testing.T) {
-	docs := loadDiscoveryDocs(t)
-	p := newGCPCoverageProbe(t)
-	type row struct {
-		name        string
-		served, tot int
-		unserved    []string
-	}
-	var rows []row
-	for _, d := range docs {
-		r := row{name: strings.TrimSuffix(d.File, ".discovery.json.gz"), tot: len(d.Methods)}
-		for _, m := range d.Methods {
-			res := p.methodServed(d, m)
-			if res.served {
-				r.served++
-				continue
-			}
-			r.unserved = append(r.unserved, m.HTTPMethod+" "+m.Path+"  ("+res.why+")")
-		}
-		rows = append(rows, r)
-	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
-	ts, tt := 0, 0
-	for _, r := range rows {
-		ts += r.served
-		tt += r.tot
-		t.Logf("%-32s %d/%d", r.name, r.served, r.tot)
-	}
-	t.Logf("TOTAL: %d/%d GCP Discovery methods served", ts, tt)
-
-	for _, r := range rows {
-		if len(r.unserved) == 0 {
+		served, unserved := p.docCoverage(d)
+		totalServed += served
+		totalSpellings += len(d.Methods)
+		t.Logf("%-32s %d/%d method spellings served", name, served, len(d.Methods))
+		if served == floor {
 			continue
 		}
-		sort.Strings(r.unserved)
-		t.Logf("%s — %d method spelling(s) not served:\n  %s", r.name, len(r.unserved), strings.Join(r.unserved, "\n  "))
+		// The unserved list is the evidence behind the number that moved: it is
+		// the work list for closing a gap, and it names what stopped being
+		// served when a floor drops.
+		t.Errorf("%s: coverage %d/%d != floor %d — update gcpMethodFloor (a drop is a regression; more is a ratchet-up).\n  %d spelling(s) not served:\n    %s",
+			name, served, len(d.Methods), floor, len(unserved), strings.Join(unserved, "\n    "))
 	}
+
+	// Discovery describes most methods twice — an expanded flatPath and a
+	// {+name} template — and both spellings render to the same URI, so this
+	// total counts spellings, not distinct methods. It is roughly twice the
+	// method count for the documents that declare both.
+	t.Logf("TOTAL: %d/%d GCP Discovery method spellings served", totalServed, totalSpellings)
 }

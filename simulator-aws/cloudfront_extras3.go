@@ -527,9 +527,9 @@ func registerCloudFrontExtras3(srv *sim.Server) {
 	mux.HandleFunc("GET /"+v+"/distributionsByKeyGroupId/{KeyGroupId}", cloudTrailRecordedREST("ListDistributionsByKeyGroup", "cloudfront.amazonaws.com", nil, cfDistsByIDListHandler("KeyGroupId", cfDistMatchesKeyGroup)))
 	mux.HandleFunc("GET /"+v+"/distributionsByVpcOriginId/{VpcOriginId}", cloudTrailRecordedREST("ListDistributionsByVpcOriginId", "cloudfront.amazonaws.com", nil, cfDistsByIDListHandler("VpcOriginId", cfDistMatchesVpcOrigin)))
 	mux.HandleFunc("POST /"+v+"/distributionsByRealtimeLogConfig", cloudTrailRecordedREST("ListDistributionsByRealtimeLogConfig", "cloudfront.amazonaws.com", nil, handleCFListDistributionsByRealtimeLogConfig))
-	mux.HandleFunc("GET /"+v+"/distributionsByAnycastIpListId/{AnycastIpListId}", cloudTrailRecordedREST("ListDistributionsByAnycastIpListId", "cloudfront.amazonaws.com", nil, cfDistsByListHandler("AnycastIpListId", func(string, CFDistribution) bool { return false })))
+	mux.HandleFunc("GET /"+v+"/distributionsByAnycastIpListId/{AnycastIpListId}", cloudTrailRecordedREST("ListDistributionsByAnycastIpListId", "cloudfront.amazonaws.com", nil, cfDistsByListHandler("AnycastIpListId", cfDistMatchesAnycastIpList)))
 	mux.HandleFunc("GET /"+v+"/distributionsByWebACLId/{WebACLId}", cloudTrailRecordedREST("ListDistributionsByWebACLId", "cloudfront.amazonaws.com", nil, cfDistsByListHandler("WebACLId", cfDistMatchesWebACL)))
-	mux.HandleFunc("GET /"+v+"/distributionsByConnectionMode/{ConnectionMode}", cloudTrailRecordedREST("ListDistributionsByConnectionMode", "cloudfront.amazonaws.com", nil, cfDistsByListHandler("ConnectionMode", func(string, CFDistribution) bool { return true })))
+	mux.HandleFunc("GET /"+v+"/distributionsByConnectionMode/{ConnectionMode}", cloudTrailRecordedREST("ListDistributionsByConnectionMode", "cloudfront.amazonaws.com", nil, cfDistsByListHandler("ConnectionMode", cfDistMatchesConnectionMode)))
 	mux.HandleFunc("GET /"+v+"/distributionsByOwnedResource/{ResourceArn}", cloudTrailRecordedREST("ListDistributionsByOwnedResource", "cloudfront.amazonaws.com", nil, handleCFListDistributionsByOwnedResource))
 
 	// Anycast IP List update + managed certificate details
@@ -1477,6 +1477,23 @@ func cfDistMatchesVpcOrigin(id string, d CFDistribution) bool {
 
 func cfDistMatchesWebACL(id string, d CFDistribution) bool {
 	return d.DistributionConfig.WebACLId == id
+}
+
+// cfDistMatchesAnycastIpList selects the distributions served from one Anycast
+// static IP list, which a distribution names in its own configuration.
+func cfDistMatchesAnycastIpList(id string, d CFDistribution) bool {
+	return d.DistributionConfig.AnycastIpListId == id
+}
+
+// cfDistMatchesConnectionMode selects the distributions in one connection mode.
+// A configuration that names no mode is direct, which is the service's default,
+// so an unset mode is matched by "direct" and by nothing else.
+func cfDistMatchesConnectionMode(mode string, d CFDistribution) bool {
+	configured := d.DistributionConfig.ConnectionMode
+	if configured == "" {
+		configured = "direct"
+	}
+	return configured == mode
 }
 
 func handleCFListDistributionsByRealtimeLogConfig(w http.ResponseWriter, r *http.Request) {

@@ -36,8 +36,10 @@ const (
 )
 
 // orgPolicyProject creates a project parented at the simulator's organization
-// so hierarchy resolution has a full chain to walk, and clears the policies the
-// test sets so a later test reads an unpolicied project.
+// so hierarchy resolution has a full chain to walk, and returns its resource
+// name. Each caller uses its own project id, so the policies a test sets stay
+// inside that test's own hierarchy; the policies set higher up — on the shared
+// organization — are cleared by the test that set them.
 func orgPolicyProject(t *testing.T, projectID string) string {
 	t.Helper()
 	svc := crmV1Service(t)
@@ -48,6 +50,29 @@ func orgPolicyProject(t *testing.T, projectID string) string {
 	}).Do()
 	require.NoError(t, err)
 	return "projects/" + projectID
+}
+
+// clearOrganizationOrgPolicy removes a constraint's policy from the shared
+// organization and proves it is gone. The organization is the one node every
+// org-policy test walks through, so a clear that silently failed would leave a
+// later test reading an enforcement it never set — the failure is reported here,
+// where it can be traced, rather than surfacing as a puzzling unrelated failure.
+// It reports rather than aborts so the rest of a test's cleanups still run.
+func clearOrganizationOrgPolicy(t *testing.T, svc *crmv1.Service, constraint string) {
+	t.Helper()
+	const org = "organizations/123456789012"
+	_, err := svc.Organizations.ClearOrgPolicy(org,
+		&crmv1.ClearOrgPolicyRequest{Constraint: constraint}).Do()
+	if !assert.NoError(t, err, "clearing %s from %s", constraint, org) {
+		return
+	}
+	cleared, err := svc.Organizations.GetOrgPolicy(org,
+		&crmv1.GetOrgPolicyRequest{Constraint: constraint}).Do()
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Nil(t, cleared.BooleanPolicy, "the cleared constraint holds no boolean policy")
+	assert.Nil(t, cleared.ListPolicy, "the cleared constraint holds no list policy")
 }
 
 func TestOrgPolicy_ProjectBooleanLifecycle(t *testing.T) {
@@ -266,8 +291,7 @@ func TestOrgPolicy_EffectivePolicyResolvesThroughTheHierarchy(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = svc.Organizations.ClearOrgPolicy("organizations/123456789012",
-			&crmv1.ClearOrgPolicyRequest{Constraint: orgPolicyBooleanConstraint}).Do()
+		clearOrganizationOrgPolicy(t, svc, orgPolicyBooleanConstraint)
 	})
 
 	eff, err = svc.Projects.GetEffectiveOrgPolicy(project, &crmv1.GetEffectiveOrgPolicyRequest{
@@ -302,8 +326,7 @@ func TestOrgPolicy_EffectivePolicyResolvesThroughTheHierarchy(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = svc.Organizations.ClearOrgPolicy("organizations/123456789012",
-			&crmv1.ClearOrgPolicyRequest{Constraint: orgPolicyListConstraint}).Do()
+		clearOrganizationOrgPolicy(t, svc, orgPolicyListConstraint)
 	})
 	eff, err = svc.Projects.GetEffectiveOrgPolicy(project, &crmv1.GetEffectiveOrgPolicyRequest{
 		Constraint: orgPolicyListConstraint,
@@ -581,10 +604,13 @@ func TestResourceManagerV2_Folders(t *testing.T) {
 	assert.Equal(t, "roles/resourcemanager.folderAdmin", policy.Bindings[0].Role)
 
 	perms, err := svc.Folders.TestIamPermissions(created.Name, &crmv2.TestIamPermissionsRequest{
-		Permissions: []string{"resourcemanager.folders.get"},
+		Permissions: []string{"resourcemanager.folders.get", "resourcemanager.folders.list"},
 	}).Do()
 	require.NoError(t, err)
-	assert.NotNil(t, perms)
+	assert.ElementsMatch(t,
+		[]string{"resourcemanager.folders.get", "resourcemanager.folders.list"},
+		perms.Permissions,
+		"the response carries the requested set")
 
 	_, err = svc.Folders.Get("folders/999999999999").Do()
 	require.ErrorAs(t, err, &apiErr)
@@ -654,12 +680,14 @@ func TestResourceManagerV1_OrganizationsAndAncestry(t *testing.T) {
 	require.Len(t, orgPolicy.Bindings, 1)
 	assert.Equal(t, "roles/resourcemanager.organizationAdmin", orgPolicy.Bindings[0].Role)
 
-	// An unrouted organization custom method is a method miss, not a story
-	// about the organization.
-	_, err = v3.Organizations.TestIamPermissions("organizations/123456789012", &crm.TestIamPermissionsRequest{
-		Permissions: []string{"resourcemanager.organizations.get"},
+	orgPerms, err := v3.Organizations.TestIamPermissions("organizations/123456789012", &crm.TestIamPermissionsRequest{
+		Permissions: []string{"resourcemanager.organizations.get", "resourcemanager.organizations.getIamPolicy"},
 	}).Do()
 	require.NoError(t, err)
+	assert.ElementsMatch(t,
+		[]string{"resourcemanager.organizations.get", "resourcemanager.organizations.getIamPolicy"},
+		orgPerms.Permissions,
+		"the response carries the requested set")
 
 	// getAncestry walks from the project up to the organization.
 	const projectID = "sdk-ancestry-proj"

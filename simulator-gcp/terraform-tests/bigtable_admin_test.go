@@ -65,6 +65,42 @@ resource "google_bigtable_table" "main" {
     family = "cf1"
   }
 }
+
+output "instance_id" {
+  value = google_bigtable_instance.main.id
+}
+
+output "instance_label_env" {
+  value = google_bigtable_instance.main.labels.env
+}
+
+# The cluster is a separate resource in the Bigtable admin API — created by
+# CreateInstance and read back by ListClusters — so its members are what the
+# provider re-reads rather than what it wrote. A cluster the read lost its zone,
+# node count or storage type on reports the loss here.
+output "cluster_id" {
+  value = google_bigtable_instance.main.cluster[0].cluster_id
+}
+
+output "cluster_zone" {
+  value = google_bigtable_instance.main.cluster[0].zone
+}
+
+output "cluster_num_nodes" {
+  value = google_bigtable_instance.main.cluster[0].num_nodes
+}
+
+output "cluster_storage_type" {
+  value = google_bigtable_instance.main.cluster[0].storage_type
+}
+
+output "table_id" {
+  value = google_bigtable_table.main.id
+}
+
+output "table_column_families" {
+  value = [for cf in google_bigtable_table.main.column_family : cf.family]
+}
 `), 0o644))
 
 	out, err := runTimed(t, "terraform init bigtable", terraformCmdInDir(dir, "init"))
@@ -75,4 +111,26 @@ resource "google_bigtable_table" "main" {
 	})
 	out, err = runTimed(t, "terraform apply bigtable", terraformCmdInDir(dir, "apply", "-auto-approve"))
 	require.NoError(t, err, "%s", out)
+
+	// What the provider read back out of the admin API after the create. An
+	// apply that only checks its own exit status passes against a simulator
+	// that accepted the instance and lost its labels, its cluster shape or the
+	// table's column family.
+	outputs := readOutputsInDir(t, dir)
+	require.Equal(t, "projects/test-project/instances/tf-bt-focused", outputs.must(t, "instance_id"))
+	require.Equal(t, "terraform", outputs.must(t, "instance_label_env"),
+		"instance labels must survive CreateInstance + GetInstance")
+	require.Equal(t, "tf-bt-focused-c1", outputs.must(t, "cluster_id"))
+	require.Equal(t, "us-central1-a", outputs.must(t, "cluster_zone"))
+	require.Equal(t, float64(1), outputs.mustNumber(t, "cluster_num_nodes"))
+	require.Equal(t, "SSD", outputs.must(t, "cluster_storage_type"))
+	require.Equal(t, "projects/test-project/instances/tf-bt-focused/tables/app_table",
+		outputs.must(t, "table_id"))
+	require.Equal(t, []any{"cf1"}, outputs.mustValue(t, "table_column_families"),
+		"the table's column family must survive CreateTable + GetTable")
+
+	// A second plan must be empty: a member the simulator drops or renames on
+	// read-back surfaces here as perpetual drift even when no output covers it.
+	out, err = runTimed(t, "terraform plan bigtable", terraformCmdInDir(dir, "plan", "-detailed-exitcode"))
+	require.NoError(t, err, "Bigtable re-plan is not empty:\n%s", out)
 }

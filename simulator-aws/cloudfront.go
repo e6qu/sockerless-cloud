@@ -46,6 +46,12 @@ type CFDistributionConfig struct {
 	HttpVersion          string               `xml:"HttpVersion,omitempty"`
 	IsIPV6Enabled        *bool                `xml:"IsIPV6Enabled,omitempty"`
 	Staging              *bool                `xml:"Staging,omitempty"`
+	// AnycastIpListId names the Anycast static IP list the distribution serves
+	// from; ConnectionMode is "direct" (the default) or "tenant-only". These
+	// are what the ListDistributionsByAnycastIpListId and
+	// ListDistributionsByConnectionMode projections select on.
+	AnycastIpListId string `xml:"AnycastIpListId,omitempty"`
+	ConnectionMode  string `xml:"ConnectionMode,omitempty"`
 }
 
 type CFAliases struct {

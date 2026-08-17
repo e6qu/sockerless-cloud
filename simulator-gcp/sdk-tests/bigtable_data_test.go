@@ -365,8 +365,11 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 	t.Run("LabelFilter", func(t *testing.T) {
 		tbl := newTable(t)
 		row := readFiltered(t, tbl, bigtable.LabelFilter("tagged"))
-		// Every surviving cell carries the "tagged" label.
-		assert.NotEmpty(t, row)
+		// LabelFilter is a transformer, not a predicate: it labels every cell
+		// it passes and drops none, so the whole row survives.
+		assert.ElementsMatch(t, []string{
+			"f1/f1:a=a3", "f1/f1:a=a2", "f1/f1:a=a1", "f1/f1:b=b3", "f2/f2:a=c3",
+		}, btCellStr(row))
 		for _, items := range row {
 			for _, ri := range items {
 				assert.Contains(t, ri.Labels, "tagged")
@@ -574,9 +577,10 @@ func TestBigtable_DataPlane_SampleRowKeys(t *testing.T) {
 	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
 	tbl := btSetupDataPlane(t, "bt-samp-proj", "bt-samp-inst", "samp", "cf")
 
-	// Seed >= 100 rows so the sampler's "every ~100 rows" cadence produces
-	// at least two samples (plus the trailing empty key).
-	for i := 0; i < 150; i++ {
+	// 150 rows spans the sampler's every-100-rows cadence, so the sample set is
+	// more than one point: the first row, the row a hundred on, and the last.
+	const rows = 150
+	for i := 0; i < rows; i++ {
 		m := bigtable.NewMutation()
 		m.Set("cf", "v", 1000, []byte("x"))
 		require.NoError(t, tbl.Apply(ctx, "k"+pad3(i), m))
@@ -584,20 +588,11 @@ func TestBigtable_DataPlane_SampleRowKeys(t *testing.T) {
 
 	keys, err := tbl.SampleRowKeys(ctx)
 	require.NoError(t, err)
-	require.NotEmpty(t, keys, "SampleRowKeys must return at least one key")
-	// Returned keys are real row keys present in the table (the sim emits
-	// existing keys, never synthetic).
-	present := map[string]bool{}
-	var pk []string
-	for i := 0; i < 150; i++ {
-		k := "k" + pad3(i)
-		present[k] = true
-		pk = append(pk, k)
-	}
-	_ = pk
-	for _, k := range keys {
-		assert.True(t, present[k], "sampled key %q must be a real row key", k)
-	}
+	// Exactly the sample points the cadence defines, in ascending row-key
+	// order — the order a client relies on to cut a scan into shards. A
+	// sampler that collapsed to a single point, or that emitted keys the table
+	// does not hold, answers differently here.
+	assert.Equal(t, []string{"k000", "k100", "k149"}, keys)
 }
 
 func pad3(n int) string {

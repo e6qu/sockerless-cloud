@@ -232,14 +232,57 @@ func TestOrganizations_Policies(t *testing.T) {
 	assert.Equal(t, root, aws.ToString(tfp.Targets[0].TargetId))
 	assert.Equal(t, orgtypes.TargetTypeRoot, tfp.Targets[0].Type)
 
-	// Effective SCP at the root resolves to our attached content.
-	eff, err := c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
+	// A service control policy has no effective form — EffectivePolicyType is a
+	// narrower enum than PolicyType, because an SCP is evaluated as an
+	// intersection along the path rather than merged into one document — so
+	// asking for one is a validation failure rather than a document.
+	_, err = c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
 		PolicyType: orgtypes.EffectivePolicyType("SERVICE_CONTROL_POLICY"),
 		TargetId:   aws.String(root),
 	})
-	if err == nil {
-		assert.NotEmpty(t, aws.ToString(eff.EffectivePolicy.PolicyContent))
-	}
+	assert.Equal(t, "InvalidInputException", errCode(t, err),
+		"SERVICE_CONTROL_POLICY is not an EffectivePolicyType")
+
+	// A tag policy does have one, and it resolves to the content attached to
+	// this target rather than to any other policy in the organization.
+	tagContent := `{"tags":{"CostCenter":{"tag_key":{"@@assign":"CostCenter"}}}}`
+	tagPolicy, err := c.CreatePolicy(ctx, &organizations.CreatePolicyInput{
+		Name:        aws.String("TagCostCenter"),
+		Description: aws.String("requires a cost centre tag key"),
+		Type:        orgtypes.PolicyTypeTagPolicy,
+		Content:     aws.String(tagContent),
+	})
+	require.NoError(t, err)
+	tagPolicyID := aws.ToString(tagPolicy.Policy.PolicySummary.Id)
+	_, err = c.AttachPolicy(ctx, &organizations.AttachPolicyInput{
+		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
+	})
+	require.NoError(t, err)
+
+	eff, err := c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
+		PolicyType: orgtypes.EffectivePolicyTypeTagPolicy,
+		TargetId:   aws.String(root),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, eff.EffectivePolicy)
+	assert.JSONEq(t, tagContent, aws.ToString(eff.EffectivePolicy.PolicyContent),
+		"the effective policy must be the content attached to this target")
+	assert.Equal(t, root, aws.ToString(eff.EffectivePolicy.TargetId))
+	assert.Equal(t, orgtypes.EffectivePolicyTypeTagPolicy, eff.EffectivePolicy.PolicyType)
+
+	// Detached, the target has no effective tag policy at all, which the
+	// service reports as its own error rather than as an empty document.
+	_, err = c.DetachPolicy(ctx, &organizations.DetachPolicyInput{
+		PolicyId: aws.String(tagPolicyID), TargetId: aws.String(root),
+	})
+	require.NoError(t, err)
+	_, err = c.DescribeEffectivePolicy(ctx, &organizations.DescribeEffectivePolicyInput{
+		PolicyType: orgtypes.EffectivePolicyTypeTagPolicy,
+		TargetId:   aws.String(root),
+	})
+	assert.Equal(t, "EffectivePolicyNotFoundException", errCode(t, err))
+	_, err = c.DeletePolicy(ctx, &organizations.DeletePolicyInput{PolicyId: aws.String(tagPolicyID)})
+	require.NoError(t, err)
 
 	_, err = c.DetachPolicy(ctx, &organizations.DetachPolicyInput{PolicyId: aws.String(pid), TargetId: aws.String(root)})
 	require.NoError(t, err)

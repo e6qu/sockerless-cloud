@@ -20,13 +20,18 @@ import (
 )
 
 // Differential testing of the Firestore slice against Google's own Firestore
-// emulator (BUG-2158 + the #649 transform/precondition work): the same SDK
-// operations run against the sim (REST transport) and the emulator (gRPC), and
-// the observable outcome must match. As with the DynamoDB-Local differential,
-// the emulator is a REFERENCE, not a ceiling — a case where the sim is more
-// faithful (or where the REST vs gRPC transports legitimately differ) is recorded
-// in fsDiffKnownDivergences with a justification and asserted exactly, never used
-// to regress the sim.
+// emulator: the same SDK operations run against the sim (REST transport) and the
+// emulator (gRPC), and the observable outcome must match. As with the
+// DynamoDB-Local differential, the emulator is a REFERENCE, not a ceiling — a
+// case where the sim is more faithful (or where the REST vs gRPC transports
+// legitimately differ) is recorded in fsDiffKnownDivergences with a
+// justification and asserted exactly, never used to regress the sim.
+//
+// Every scenario also carries the outcome the simulator must produce, asserted
+// unconditionally. The emulator cross-checks that expectation; it does not
+// stand in for it. Without the explicit expectation a defect the sim and the
+// emulator shared would agree its way to green, and the whole suite would prove
+// nothing on a host where the emulator is unavailable.
 
 type fsDiffResult struct {
 	value   string // canonical JSON of the observed document data, or a sentinel
@@ -69,6 +74,10 @@ func TestFirestore_DifferentialVsEmulator(t *testing.T) {
 	for _, sc := range firestoreDiffScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
 			simRes := fsCapture(sc.run(simC, sc.name))
+			// The scenario's own expectation is the primary assertion: it holds
+			// whatever the emulator does.
+			fsAssertEqual(t, "sim", sc.want(), simRes)
+
 			oracleRes := fsCapture(sc.run(oracle, sc.name))
 			if div, ok := fsDiffKnownDivergences[sc.name]; ok {
 				fsAssertEqual(t, "sim (documented divergence: "+div.reason+")", div.sim, simRes)
@@ -87,6 +96,18 @@ func TestFirestore_DifferentialVsEmulator(t *testing.T) {
 type fsDiffScenario struct {
 	name string
 	run  func(c *firestore.Client, name string) (map[string]any, error)
+	// wantData is the document data the scenario must leave behind, and
+	// wantErrCode the gRPC status name the scenario must fail with. Exactly one
+	// is set; want() renders them into the comparable result the capture yields.
+	wantData    map[string]any
+	wantErrCode string
+}
+
+func (s fsDiffScenario) want() fsDiffResult {
+	if s.wantErrCode != "" {
+		return fsDiffResult{errCode: s.wantErrCode}
+	}
+	return fsDiffResult{value: fsCanon(s.wantData)}
 }
 
 func fsCapture(data map[string]any, err error) fsDiffResult {
@@ -105,85 +126,123 @@ func fsAssertEqual(t *testing.T, side string, want, got fsDiffResult) {
 
 func firestoreDiffScenarios() []fsDiffScenario {
 	return []fsDiffScenario{
-		{"set-get-roundtrip", func(c *firestore.Client, name string) (map[string]any, error) {
-			doc := c.Collection(name).Doc("d1")
-			if _, err := doc.Set(ctx, map[string]any{"name": "alice", "age": int64(30), "active": true}); err != nil {
-				return nil, err
-			}
-			snap, err := doc.Get(ctx)
-			if err != nil {
-				return nil, err
-			}
-			return snap.Data(), nil
-		}},
-		{"increment-transform", func(c *firestore.Client, name string) (map[string]any, error) {
-			doc := c.Collection(name).Doc("d1")
-			if _, err := doc.Set(ctx, map[string]any{"n": int64(10)}); err != nil {
-				return nil, err
-			}
-			if _, err := doc.Update(ctx, []firestore.Update{{Path: "n", Value: firestore.Increment(5)}}); err != nil {
-				return nil, err
-			}
-			snap, err := doc.Get(ctx)
-			if err != nil {
-				return nil, err
-			}
-			return snap.Data(), nil
-		}},
-		{"array-union-remove", func(c *firestore.Client, name string) (map[string]any, error) {
-			doc := c.Collection(name).Doc("d1")
-			if _, err := doc.Set(ctx, map[string]any{"tags": []string{"a", "b"}}); err != nil {
-				return nil, err
-			}
-			if _, err := doc.Update(ctx, []firestore.Update{
-				{Path: "tags", Value: firestore.ArrayUnion("b", "c")},
-			}); err != nil {
-				return nil, err
-			}
-			snap, err := doc.Get(ctx)
-			if err != nil {
-				return nil, err
-			}
-			return snap.Data(), nil
-		}},
-		{"transaction-read-modify-write", func(c *firestore.Client, name string) (map[string]any, error) {
-			doc := c.Collection(name).Doc("d1")
-			if _, err := doc.Set(ctx, map[string]any{"balance": int64(100)}); err != nil {
-				return nil, err
-			}
-			err := c.RunTransaction(ctx, func(_ context.Context, tx *firestore.Transaction) error {
-				snap, err := tx.Get(doc)
-				if err != nil {
-					return err
+		{
+			name: "set-get-roundtrip",
+			run: func(c *firestore.Client, name string) (map[string]any, error) {
+				doc := c.Collection(name).Doc("d1")
+				if _, err := doc.Set(ctx, map[string]any{"name": "alice", "age": int64(30), "active": true}); err != nil {
+					return nil, err
 				}
-				bal, err := snap.DataAt("balance")
+				snap, err := doc.Get(ctx)
 				if err != nil {
-					return err
+					return nil, err
 				}
-				return tx.Set(doc, map[string]any{"balance": bal.(int64) - 30})
-			})
-			if err != nil {
+				return snap.Data(), nil
+			},
+			wantData: map[string]any{"name": "alice", "age": int64(30), "active": true},
+		},
+		{
+			name: "increment-transform",
+			run: func(c *firestore.Client, name string) (map[string]any, error) {
+				doc := c.Collection(name).Doc("d1")
+				if _, err := doc.Set(ctx, map[string]any{"n": int64(10)}); err != nil {
+					return nil, err
+				}
+				if _, err := doc.Update(ctx, []firestore.Update{{Path: "n", Value: firestore.Increment(5)}}); err != nil {
+					return nil, err
+				}
+				snap, err := doc.Get(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return snap.Data(), nil
+			},
+			// Increment adds to the stored value; it does not replace it.
+			wantData: map[string]any{"n": int64(15)},
+		},
+		{
+			name: "array-union-remove",
+			run: func(c *firestore.Client, name string) (map[string]any, error) {
+				doc := c.Collection(name).Doc("d1")
+				if _, err := doc.Set(ctx, map[string]any{"tags": []string{"a", "b"}}); err != nil {
+					return nil, err
+				}
+				// ArrayUnion appends only the elements not already present.
+				if _, err := doc.Update(ctx, []firestore.Update{
+					{Path: "tags", Value: firestore.ArrayUnion("b", "c")},
+				}); err != nil {
+					return nil, err
+				}
+				// ArrayRemove drops every occurrence of each element it names,
+				// and ignores one the array does not hold.
+				if _, err := doc.Update(ctx, []firestore.Update{
+					{Path: "tags", Value: firestore.ArrayRemove("a", "absent")},
+				}); err != nil {
+					return nil, err
+				}
+				snap, err := doc.Get(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return snap.Data(), nil
+			},
+			wantData: map[string]any{"tags": []any{"b", "c"}},
+		},
+		{
+			name: "transaction-read-modify-write",
+			run: func(c *firestore.Client, name string) (map[string]any, error) {
+				doc := c.Collection(name).Doc("d1")
+				if _, err := doc.Set(ctx, map[string]any{"balance": int64(100)}); err != nil {
+					return nil, err
+				}
+				err := c.RunTransaction(ctx, func(_ context.Context, tx *firestore.Transaction) error {
+					snap, err := tx.Get(doc)
+					if err != nil {
+						return err
+					}
+					bal, err := snap.DataAt("balance")
+					if err != nil {
+						return err
+					}
+					return tx.Set(doc, map[string]any{"balance": bal.(int64) - 30})
+				})
+				if err != nil {
+					return nil, err
+				}
+				snap, err := doc.Get(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return snap.Data(), nil
+			},
+			// The transaction body read 100 and committed 100-30.
+			wantData: map[string]any{"balance": int64(70)},
+		},
+		{
+			name: "update-missing-precondition",
+			run: func(c *firestore.Client, name string) (map[string]any, error) {
+				// Update emits currentDocument.exists=true, so a missing doc is
+				// a precondition failure reported as NotFound.
+				_, err := c.Collection(name).Doc("nope").Update(ctx, []firestore.Update{{Path: "x", Value: 1}})
 				return nil, err
-			}
-			snap, err := doc.Get(ctx)
-			if err != nil {
+			},
+			wantErrCode: "NotFound",
+		},
+		{
+			name: "create-on-existing",
+			run: func(c *firestore.Client, name string) (map[string]any, error) {
+				doc := c.Collection(name).Doc("d1")
+				if _, err := doc.Create(ctx, map[string]any{"n": int64(1)}); err != nil {
+					return nil, err
+				}
+				_, err := doc.Create(ctx, map[string]any{"n": int64(2)}) // already exists
 				return nil, err
-			}
-			return snap.Data(), nil
-		}},
-		{"update-missing-precondition", func(c *firestore.Client, name string) (map[string]any, error) {
-			// Update on a missing doc must fail (NotFound) on both.
-			_, err := c.Collection(name).Doc("nope").Update(ctx, []firestore.Update{{Path: "x", Value: 1}})
-			return nil, err
-		}},
-		{"create-on-existing", func(c *firestore.Client, name string) (map[string]any, error) {
-			doc := c.Collection(name).Doc("d1")
-			if _, err := doc.Create(ctx, map[string]any{"n": int64(1)}); err != nil {
-				return nil, err
-			}
-			_, err := doc.Create(ctx, map[string]any{"n": int64(2)}) // already exists
-			return nil, err
-		}},
+			},
+			// Create emits currentDocument.exists=false; the sim answers the
+			// ALREADY_EXISTS condition at HTTP 409, which the gax REST transport
+			// maps to Aborted (see fsDiffKnownDivergences).
+			wantErrCode: "Aborted",
+		},
 	}
 }
 
@@ -248,11 +307,7 @@ func startFirestoreEmulator(t *testing.T) (host string, stop func()) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Start(); err != nil {
-		// The emulator component (Java-backed) isn't installed/launchable here —
-		// a capability gate, like the realexec/Docker gates elsewhere. It runs for
-		// real where the cloud-firestore-emulator component + a JRE are present
-		// (locally, and in CI once the component installs).
-		t.Skipf("could not launch the Firestore emulator (skipping differential): %v", err)
+		t.Fatalf("could not launch the Firestore emulator; install the cloud-firestore-emulator gcloud component and a JRE (the gcp CI job provides both): %v", err)
 	}
 	stop = func() {
 		if cmd.Process != nil {
@@ -271,9 +326,6 @@ func startFirestoreEmulator(t *testing.T) (host string, stop func()) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	stop()
-	// The component/JRE isn't usable in this environment — gate out rather than
-	// fail the suite on an emulator that won't start. The captured output makes
-	// the cause visible in the logs.
-	t.Skipf("Firestore emulator did not open %s in time (skipping differential)\n%s", host, out.String())
+	t.Fatalf("Firestore emulator did not open %s in time; its output was:\n%s", host, out.String())
 	return "", func() {}
 }

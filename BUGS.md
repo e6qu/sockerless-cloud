@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 21. Resolved: 38.
+Open: 25. Resolved: 38.
 
 ## Open
 
@@ -193,6 +193,29 @@ the simulators from the sockerless monorepo, keeping their IDs
   and not reproducible in isolation. Fix shape: fail loudly at startup when the
   engine client cannot be built, rather than deferring the discovery to the
   first workload.
+
+- **BUG-50 (AWS CodeBuild reports invented test and coverage data):**
+  `DescribeTestCases` and `DescribeCodeCoverages` answer with a hardcoded test
+  case and a hardcoded hundred-percent coverage row, and the test asserts
+  exactly that shape, so the fabrication is pinned rather than caught. Real fix:
+  ingest the report files the buildspec declares from the build container.
+
+- **BUG-51 (two AWS workloads run as host processes, not containers):** An AWS
+  CodeBuild command and an AWS Glue Python job are dispatched through the
+  process starter rather than a container. The dispatch gate that was supposed
+  to forbid this never saw them, because it grepped for one spelling and did not
+  walk the shared package; it now names both as known violations so they cannot
+  be forgotten again.
+
+- **BUG-52 (the IAM derivation floor counts operations its probe never
+  reaches):** The conformance ratchet asserts two literals against two
+  hand-written tables, and the resource-derivation count includes roughly four
+  hundred operations for eight services absent from the probe's own switch, so
+  the published derivation figure is inflated by operations nothing measured.
+
+- **BUG-53 (an AWS surface has no reachable success path):** Nothing creates an
+  iterable form, so `ListIterableForms` and `BatchGetIterableForms` can only
+  ever answer an error — a resource type that exists as routes and nothing else.
 
 ## Resolved history
 

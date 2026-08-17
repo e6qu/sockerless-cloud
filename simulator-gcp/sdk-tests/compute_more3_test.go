@@ -49,14 +49,19 @@ func TestCompute3_RegionalForwardingRules_CRUD_SetTarget(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-fr-1", got.Name)
 
+	const target = "https://www.googleapis.com/compute/v1/projects/test-project/regions/us-central1/targetInstances/ti"
 	_, err = svc.ForwardingRules.SetTarget(more3Project, more3Region, "sdk-fr-1", &compute.TargetReference{
-		Target: "https://www.googleapis.com/compute/v1/projects/test-project/regions/us-central1/targetInstances/ti",
+		Target: target,
 	}).Do()
 	require.NoError(t, err)
+	retargeted, err := svc.ForwardingRules.Get(more3Project, more3Region, "sdk-fr-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, target, retargeted.Target, "setTarget must repoint the rule at the target it named")
+	assert.Equal(t, "10.0.0.1", retargeted.IPAddress, "setTarget must not disturb the rest of the rule")
 
 	list, err := svc.ForwardingRules.List(more3Project, more3Region).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(f *compute.ForwardingRule) string { return f.Name }, "sdk-fr-1")
 
 	_, err = svc.ForwardingRules.Delete(more3Project, more3Region, "sdk-fr-1").Do()
 	require.NoError(t, err)
@@ -76,7 +81,7 @@ func TestCompute3_RegionalTargetTcpProxies_CRUD(t *testing.T) {
 
 	list, err := svc.RegionTargetTcpProxies.List(more3Project, more3Region).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(p *compute.TargetTcpProxy) string { return p.Name }, "sdk-rtcp-1")
 
 	_, err = svc.RegionTargetTcpProxies.Delete(more3Project, more3Region, "sdk-rtcp-1").Do()
 	require.NoError(t, err)
@@ -96,17 +101,25 @@ func TestCompute3_Commitments_CRUD_Aggregated(t *testing.T) {
 
 	list, err := svc.RegionCommitments.List(more3Project, more3Region).Do()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(list.Items), 1)
+	assertComputeListHasName(t, list.Items, func(c *compute.Commitment) string { return c.Name }, "sdk-cmt-1")
 
 	agg, err := svc.RegionCommitments.AggregatedList(more3Project).Do()
 	require.NoError(t, err)
-	assert.NotNil(t, agg.Items)
+	require.Contains(t, agg.Items, "regions/"+more3Region)
+	assertComputeListHasName(t, agg.Items["regions/"+more3Region].Commitments, func(c *compute.Commitment) string { return c.Name }, "sdk-cmt-1")
 
+	// Turning auto-renew on is the one edit an operator makes to a running
+	// commitment, so it is the member the update has to move.
 	_, err = svc.RegionCommitments.Update(more3Project, more3Region, "sdk-cmt-1", &compute.Commitment{
-		Name: "sdk-cmt-1",
-		Plan: "TWELVE_MONTH",
+		Name:      "sdk-cmt-1",
+		Plan:      "TWELVE_MONTH",
+		AutoRenew: true,
 	}).Do()
 	require.NoError(t, err)
+	updated, err := svc.RegionCommitments.Get(more3Project, more3Region, "sdk-cmt-1").Do()
+	require.NoError(t, err)
+	assert.True(t, updated.AutoRenew, "update must land on the stored commitment")
+	assert.Equal(t, "TWELVE_MONTH", updated.Plan)
 }
 
 func TestCompute3_ZonalNetworkEndpointGroups_Members(t *testing.T) {
@@ -239,10 +252,15 @@ func TestCompute3_Routers_Update_RoutePolicies(t *testing.T) {
 		Description: "updated",
 	}).Do()
 	require.NoError(t, err)
+	updated, err := svc.Routers.Get(more3Project, more3Region, "sdk-router-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "updated", updated.Description, "update must land on the stored router")
+	assert.Contains(t, updated.Network, "/global/networks/default")
 
 	agg, err := svc.Routers.AggregatedList(more3Project).Do()
 	require.NoError(t, err)
-	assert.NotNil(t, agg.Items)
+	require.Contains(t, agg.Items, "regions/"+more3Region)
+	assertComputeListHasName(t, agg.Items["regions/"+more3Region].Routers, func(rt *compute.Router) string { return rt.Name }, "sdk-router-1")
 
 	_, err = svc.Routers.UpdateRoutePolicy(more3Project, more3Region, "sdk-router-1", &compute.RoutePolicy{
 		Name:        "rp-1",
@@ -263,11 +281,19 @@ func TestCompute3_Routers_Update_RoutePolicies(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, bgp.Result)
 
+	// preview answers with the configuration it was handed, without applying
+	// it, so an operator can diff it against the router that is running.
 	preview, err := svc.Routers.Preview(more3Project, more3Region, "sdk-router-1", &compute.Router{
-		Name: "sdk-router-1",
+		Name:        "sdk-router-1",
+		Description: "previewed",
 	}).Do()
 	require.NoError(t, err)
-	assert.NotNil(t, preview)
+	require.NotNil(t, preview.Resource)
+	assert.Equal(t, "sdk-router-1", preview.Resource.Name)
+	assert.Equal(t, "previewed", preview.Resource.Description)
+	stillRunning, err := svc.Routers.Get(more3Project, more3Region, "sdk-router-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "updated", stillRunning.Description, "preview must not apply the configuration it previewed")
 
 	_, err = svc.Routers.Delete(more3Project, more3Region, "sdk-router-1").Do()
 	require.NoError(t, err)

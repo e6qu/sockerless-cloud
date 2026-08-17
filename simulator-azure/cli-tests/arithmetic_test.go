@@ -59,17 +59,68 @@ func TestContainerApps_CLI_ArithmeticEval(t *testing.T) {
 	}, 60*time.Second, 300*time.Millisecond)
 	assert.Equal(t, "Succeeded", execResult.Properties.Status)
 
-	// Poll Log Analytics until the output is ingested.
-	queryURL := baseURL + "/v1/workspaces/default/query"
-	kqlBody := `{"query": "ContainerAppConsoleLogs_CL | where ContainerGroupName_s == \"` + jobName + `\""}`
+	// Poll Log Analytics until the output is ingested, then assert on the log
+	// lines themselves. A substring search for "14" over the whole response
+	// document is not an arithmetic assertion: the payload carries ISO-8601
+	// TimeGenerated stamps and identifiers, so any row landing at 14 minutes
+	// or 14 seconds past the hour satisfies it and the workload could have
+	// printed anything at all.
+	var lines []string
 	require.Eventually(t, func() bool {
-		out = runCLI(t, azRest("POST", queryURL, kqlBody))
-		return strings.Contains(out, "14")
-	}, 60*time.Second, 300*time.Millisecond)
-	assert.Contains(t, out, "14", "expected '14' in Log Analytics")
+		lines = containerAppLogLines(t, "ContainerGroupName_s", jobName)
+		return len(lines) > 0
+	}, 60*time.Second, 300*time.Millisecond, "the job's console output never reached Log Analytics")
+	assert.Contains(t, lines, "14",
+		"the workload evaluates (3 + 4) * 2 and prints the result; its console lines were %q", lines)
 
 	// Cleanup
 	runCLI(t, azRest("DELETE", jobURL, ""))
+}
+
+// containerAppLogLines reads the console lines Log Analytics holds for one
+// workload, selected by the column the workload kind is recorded under —
+// ContainerGroupName_s for a job, ContainerAppName_s for an app — and decoded
+// out of the query response's PrimaryResult table rather than matched as a
+// substring of the whole document. The column index is resolved from the
+// response's own column list, so a schema change surfaces as a failure here
+// rather than as a silently-empty result.
+func containerAppLogLines(t *testing.T, filterColumn, name string) []string {
+	t.Helper()
+	queryURL := baseURL + "/v1/workspaces/default/query"
+	kqlBody := `{"query": "ContainerAppConsoleLogs_CL | where ` + filterColumn + ` == \"` + name + `\""}`
+	out := runCLI(t, azRest("POST", queryURL, kqlBody))
+
+	var response struct {
+		Tables []struct {
+			Name    string `json:"name"`
+			Columns []struct {
+				Name string `json:"name"`
+			} `json:"columns"`
+			Rows [][]any `json:"rows"`
+		} `json:"tables"`
+	}
+	parseJSON(t, out, &response)
+	require.NotEmpty(t, response.Tables, "the query response carries no table: %s", out)
+
+	table := response.Tables[0]
+	require.Equal(t, "PrimaryResult", table.Name, "the first table of a query response is the primary result: %s", out)
+	logColumn := -1
+	for i, column := range table.Columns {
+		if column.Name == "Log_s" {
+			logColumn = i
+		}
+	}
+	require.NotEqual(t, -1, logColumn,
+		"ContainerAppConsoleLogs_CL must project the Log_s column; got columns %+v", table.Columns)
+
+	lines := make([]string, 0, len(table.Rows))
+	for _, row := range table.Rows {
+		require.Greater(t, len(row), logColumn, "a row is shorter than the column list declares: %v", row)
+		line, ok := row[logColumn].(string)
+		require.True(t, ok, "Log_s is declared a string but row %v holds %T", row, row[logColumn])
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func TestContainerApps_CLI_ArithmeticInvalid(t *testing.T) {

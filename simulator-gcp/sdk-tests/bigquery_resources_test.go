@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -158,9 +159,15 @@ func TestBigQueryRowAccessPolicies(t *testing.T) {
 	// IAM verbs on a row access policy: getIamPolicy + testIamPermissions only
 	// (no setIamPolicy is exposed by BigQuery for row access policies).
 	resource := "projects/" + project + "/datasets/" + dataset + "/tables/" + table + "/rowAccessPolicies/" + p1
+	// A row access policy carries no IAM policy of its own until one is
+	// written, and BigQuery exposes no setIamPolicy for it — so the read is the
+	// documented empty policy: no bindings, and an etag a caller could pass
+	// back for optimistic concurrency.
 	pol, err := svc.RowAccessPolicies.GetIamPolicy(resource, &bigquery.GetIamPolicyRequest{}).Do()
 	require.NoError(t, err)
-	require.NotNil(t, pol)
+	require.Empty(t, pol.Bindings)
+	require.NotEmpty(t, pol.Etag, "an empty policy still carries the etag a write must match")
+	require.Equal(t, int64(1), pol.Version)
 	perms, err := svc.RowAccessPolicies.TestIamPermissions(resource, &bigquery.TestIamPermissionsRequest{
 		Permissions: []string{"bigquery.rowAccessPolicies.getIamPolicy"},
 	}).Do()
@@ -246,11 +253,35 @@ func TestBigQueryTablesIAM(t *testing.T) {
 func TestBigQueryDatasetUndelete(t *testing.T) {
 	svc := bqService(t)
 	const project, dataset = "sock-proj", "ds_undelete"
-	bqMakeDataset(t, svc, project, dataset)
+
+	// Distinguishing metadata: undelete has to answer with the stored dataset,
+	// so an implementation that fabricated one — or that answered from the
+	// request alone — would lose these.
+	created, err := svc.Datasets.Insert(project, &bigquery.Dataset{
+		DatasetReference: &bigquery.DatasetReference{ProjectId: project, DatasetId: dataset},
+		FriendlyName:     "Undelete fixture",
+		Description:      "restored by datasets.undelete",
+		Labels:           map[string]string{"env": "undelete"},
+	}).Do()
+	require.NoError(t, err)
+	require.NotZero(t, created.CreationTime)
 
 	und, err := svc.Datasets.Undelete(project, dataset, &bigquery.UndeleteDatasetRequest{}).Do()
 	require.NoError(t, err)
 	require.Equal(t, dataset, und.DatasetReference.DatasetId)
+	require.Equal(t, project, und.DatasetReference.ProjectId)
+	require.Equal(t, created.Id, und.Id)
+	require.Equal(t, created.SelfLink, und.SelfLink)
+	require.Equal(t, created.Location, und.Location)
+	require.Equal(t, "Undelete fixture", und.FriendlyName)
+	require.Equal(t, "restored by datasets.undelete", und.Description)
+	require.Equal(t, map[string]string{"env": "undelete"}, und.Labels)
+	require.Equal(t, created.CreationTime, und.CreationTime,
+		"undelete restores the dataset that existed, keeping the moment it was created")
+
+	// A dataset that was never created has nothing to restore.
+	_, err = svc.Datasets.Undelete(project, "ds_undelete_absent", &bigquery.UndeleteDatasetRequest{}).Do()
+	requireGoogleErr(t, err, http.StatusNotFound, "NOT_FOUND")
 }
 
 func TestBigQueryJobCancelAndDelete(t *testing.T) {
@@ -271,12 +302,19 @@ func TestBigQueryJobCancelAndDelete(t *testing.T) {
 	require.NotNil(t, job.JobReference)
 	jobID := job.JobReference.JobId
 	require.NotEmpty(t, jobID)
+	require.NotNil(t, job.Status)
+	require.Equal(t, "DONE", job.Status.State, "the query job settles within its insert")
 
-	// jobs.cancel on a finished job returns its terminal state.
+	// jobs.cancel on a finished job returns its terminal state — the state is
+	// the answer, not the identifier echoed back.
 	cancel, err := svc.Jobs.Cancel(project, jobID).Do()
 	require.NoError(t, err)
+	require.Equal(t, "bigquery#jobCancelResponse", cancel.Kind)
 	require.NotNil(t, cancel.Job)
 	require.Equal(t, jobID, cancel.Job.JobReference.JobId)
+	require.NotNil(t, cancel.Job.Status, "the cancelled job must carry a status")
+	require.Equal(t, "DONE", cancel.Job.Status.State,
+		"a synchronous query job is already finished, so the cancel reports it DONE")
 
 	// jobs.delete removes the job record.
 	require.NoError(t, svc.Jobs.Delete(project, jobID).Do())

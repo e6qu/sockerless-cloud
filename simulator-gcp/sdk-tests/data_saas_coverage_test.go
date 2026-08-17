@@ -1,6 +1,10 @@
 package gcp_sdk_test
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -167,7 +171,37 @@ func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 	require.Equal(t, int64(1), int64(qr.TotalRows))
 	require.Len(t, qr.Rows, 1)
 	assert.Equal(t, "b", qr.Rows[0].F[0].V)
-	assert.Equal(t, int64(0), qr.TotalBytesProcessed, "GetQueryResultsResponse carries totalBytesProcessed")
+	assert.Equal(t, "bigquery#getQueryResultsResponse", qr.Kind)
+
+	// GetQueryResultsResponse and QueryResponse are different schemas over the
+	// same result: getQueryResults declares totalBytesProcessed and no
+	// totalBytesBilled, so the member set is checked on the wire — the
+	// generated struct cannot express a member it does not declare, and a
+	// numeric member's zero value cannot distinguish "sent as 0" from "absent".
+	members := bqGetQueryResultsMembers(t, proj, jobID)
+	assert.Contains(t, members, "totalBytesProcessed",
+		"getQueryResults must carry the totalBytesProcessed member it declares")
+	assert.NotContains(t, members, "totalBytesBilled",
+		"totalBytesBilled is a QueryResponse member; GetQueryResultsResponse does not declare it")
+}
+
+// bqGetQueryResultsMembers reads jobs.getQueryResults over raw HTTP and returns
+// the member names of the response object. The Discovery-generated struct drops
+// anything it does not declare, so only the wire shows which members were sent.
+func bqGetQueryResultsMembers(t *testing.T, project, jobID string) []string {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("%s/bigquery/v2/projects/%s/queries/%s", baseURL, project, jobID))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(body, &decoded))
+	members := make([]string, 0, len(decoded))
+	for k := range decoded {
+		members = append(members, k)
+	}
+	return members
 }
 
 // TestFSCoverage_CreateUpdateDeleteBatchWrite covers the untested firestore

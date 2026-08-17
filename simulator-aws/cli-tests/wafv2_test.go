@@ -138,13 +138,37 @@ func TestWAFv2_IPSet_Lifecycle(t *testing.T) {
 	id := createResult.Summary.Id
 	lock := createResult.Summary.LockToken
 
-	runCLI(t, awsCLI("wafv2", "get-ip-set",
+	getOut := runCLI(t, awsCLI("wafv2", "get-ip-set",
 		"--name", name, "--scope", "CLOUDFRONT", "--id", id, "--output", "json"))
+	var getResult struct {
+		IPSet struct {
+			Name             string   `json:"Name"`
+			Id               string   `json:"Id"`
+			IPAddressVersion string   `json:"IPAddressVersion"`
+			Addresses        []string `json:"Addresses"`
+			ARN              string   `json:"ARN"`
+		} `json:"IPSet"`
+		LockToken string `json:"LockToken"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(getOut), &getResult))
+	require.Equal(t, name, getResult.IPSet.Name)
+	require.Equal(t, id, getResult.IPSet.Id)
+	require.Equal(t, "IPV4", getResult.IPSet.IPAddressVersion)
+	require.ElementsMatch(t, []string{"203.0.113.0/24", "198.51.100.10/32"}, getResult.IPSet.Addresses,
+		"the addresses read back must be the ones created")
+	require.Contains(t, getResult.IPSet.ARN, "ipset/"+name+"/"+id)
 
 	runCLI(t, awsCLI("wafv2", "delete-ip-set",
 		"--name", name, "--scope", "CLOUDFRONT", "--id", id,
 		"--lock-token", lock,
 	))
+
+	// A deleted IP set is gone from both the read and the list.
+	deleted := runCLIExpectError(t, awsCLI("wafv2", "get-ip-set",
+		"--name", name, "--scope", "CLOUDFRONT", "--id", id, "--output", "json"))
+	require.Contains(t, deleted, "WAFNonexistentItemException")
+	listOut := runCLI(t, awsCLI("wafv2", "list-ip-sets", "--scope", "CLOUDFRONT", "--output", "json"))
+	require.NotContains(t, listOut, id)
 }
 
 func TestWAFv2_LoggingConfiguration_Lifecycle(t *testing.T) {

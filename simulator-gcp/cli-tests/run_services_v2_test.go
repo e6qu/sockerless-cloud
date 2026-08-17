@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI-level smoke for the v2 Cloud Run Services routes — the v2 REST
+// Wire-level coverage of the v2 Cloud Run Services routes — the v2 REST
 // surface used by run.NewServicesRESTClient. The v1 Knative service
 // surface (`/apis/serving.knative.dev/v1/namespaces/{ns}/services`) is
 // covered by the sdk-tests.
@@ -54,7 +54,11 @@ func TestCloudRunV2Services_Wire_RejectsUnknownUpdateMask(t *testing.T) {
 	assert.Equal(t, "one", got.Labels["stage"], "a rejected mask must leave the service untouched")
 }
 
-func TestCloudRunV2Services_CLI_CreateGetDelete(t *testing.T) {
+// TestCloudRunV2Services_Wire_CreateGetDelete drives the v2 Services routes at
+// the wire level. `gcloud run services` resolves the regional Cloud Run host,
+// which no endpoint coordinate points at a loopback simulator, so the requests
+// go on the wire directly — the same convention the worker-pool tests follow.
+func TestCloudRunV2Services_Wire_CreateGetDelete(t *testing.T) {
 	createBody := `{
 		"labels": {"sockerless_managed": "true"},
 		"template": {

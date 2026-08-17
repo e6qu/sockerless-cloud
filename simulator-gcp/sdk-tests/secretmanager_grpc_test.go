@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	smpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 	"google.golang.org/grpc"
@@ -457,6 +459,7 @@ func TestSecretManager_GRPC_NotFoundCodes(t *testing.T) {
 	// CreateSecret on an existing secret → AlreadyExists.
 	parent := smGRPCProjectParent(t)
 	name := smGRPCCreateSecret(t, c, parent, "dup")
+	require.Equal(t, parent+"/secrets/dup", name)
 	_, err = c.CreateSecret(ctx, &smpb.CreateSecretRequest{
 		Parent:   parent,
 		SecretId: "dup",
@@ -465,7 +468,11 @@ func TestSecretManager_GRPC_NotFoundCodes(t *testing.T) {
 		}},
 	})
 	requireGRPCCode(t, err, codes.AlreadyExists)
-	_ = name
+
+	// The rejected duplicate did not disturb the secret that was already there.
+	after, err := c.GetSecret(ctx, &smpb.GetSecretRequest{Name: name})
+	require.NoError(t, err)
+	require.Equal(t, name, after.GetName())
 }
 
 // ---------------------------------------------------------------------------
@@ -473,20 +480,18 @@ func TestSecretManager_GRPC_NotFoundCodes(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // smGRPCListAllSecrets exhausts the ListSecrets iterator under the parent.
+// iterator.Done is the only sentinel that ends the walk; any other error is a
+// failed RPC and fails the test rather than passing for a short list.
 func smGRPCListAllSecrets(t *testing.T, c *secretmanager.Client, parent string) []string {
 	t.Helper()
 	it := c.ListSecrets(ctx, &smpb.ListSecretsRequest{Parent: parent})
 	var out []string
 	for {
 		s, err := it.Next()
-		if err != nil {
-			break
+		if errors.Is(err, iterator.Done) {
+			return out
 		}
 		require.NoError(t, err, "ListSecrets iteration must not error")
 		out = append(out, s.GetName())
-		if err != nil && err.Error() != "" {
-			break
-		}
 	}
-	return out
 }

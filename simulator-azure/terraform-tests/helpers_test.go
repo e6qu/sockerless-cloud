@@ -204,6 +204,20 @@ func runTerraformTestsInDocker() int {
 
 	args := []string{
 		"run", "--rm",
+		// The Terraform stack drives Microsoft.Network and Microsoft.Compute,
+		// whose handlers build real Linux network fabric — namespaces, bridges,
+		// veth pairs, routes, nftables rules — and refuse to run without
+		// CAP_NET_ADMIN and CAP_SYS_ADMIN (realexec.DetectNetworkCapabilities).
+		// Two things are needed for the test process to hold them, and this is
+		// the real-network harness the Makefile's docker-sdk-test target already
+		// spells: --privileged, so the container is granted the capabilities at
+		// all, and no SOCKERLESS_DOCKER_TEST_UIDGID, so the entrypoint does not
+		// setpriv down to the host user — dropping to an unprivileged uid clears
+		// the effective set again, privileged container or not. The image
+		// already carries ip, nft and sysctl. Without both, the stack's
+		// capability gate fires and the entire apply, assert and destroy round
+		// trip never runs.
+		"--privileged",
 		"--security-opt", "label=disable",
 		"--group-add", dockerSocketGroup(),
 		"--group-add", "0",
@@ -212,8 +226,6 @@ func runTerraformTestsInDocker() int {
 		"-w", "/src/simulator-azure/terraform-tests",
 		"-e", "HOME=/tmp/sockerless-home",
 		"-e", "USER=sockerless",
-		"-e", fmt.Sprintf("SOCKERLESS_DOCKER_TEST_UIDGID=%d:%d", os.Getuid(), os.Getgid()),
-		"-e", "SOCKERLESS_DOCKER_TEST_GROUPS=" + dockerSocketGroup() + ",0",
 		"-e", "SOCKERLESS_AZURE_TF_IN_DOCKER=1",
 		"-e", "GOWORK=off",
 		"-e", "CGO_ENABLED=0",
