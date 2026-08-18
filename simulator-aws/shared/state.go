@@ -20,6 +20,14 @@ type Store[T any] interface {
 	// for read-modify-write that must not race a concurrent writer the way a
 	// separate Update-then-Put pair would.
 	Upsert(id string, fn func(*T))
+	// Generation is a counter this store increments on every write that
+	// changed it. Two reads that observe the same generation observed the
+	// same contents, so a caller that derives an index from List can keep
+	// that index until the generation moves instead of rebuilding it per
+	// request. It says nothing about *what* changed and is meaningless
+	// across processes: a restarted simulator restores its rows but starts
+	// counting from zero again.
+	Generation() uint64
 }
 
 // StateStore is an alias for backward compatibility.
@@ -28,8 +36,9 @@ type StateStore[T any] = MemoryStore[T]
 
 // MemoryStore is an in-memory implementation of Store backed by a map.
 type MemoryStore[T any] struct {
-	mu    sync.RWMutex
-	items map[string]T
+	mu         sync.RWMutex
+	items      map[string]T
+	generation uint64
 }
 
 // NewStateStore creates a new in-memory store. Returns Store[T] for interface compatibility.
@@ -128,6 +137,7 @@ func (s *MemoryStore[T]) Put(id string, item T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.items[id] = cloneStoreValue(item)
+	s.generation++
 }
 
 func (s *MemoryStore[T]) Delete(id string) bool {
@@ -136,8 +146,16 @@ func (s *MemoryStore[T]) Delete(id string) bool {
 	_, ok := s.items[id]
 	if ok {
 		delete(s.items, id)
+		s.generation++
 	}
 	return ok
+}
+
+// Generation reports the write counter described on Store.
+func (s *MemoryStore[T]) Generation() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.generation
 }
 
 // List returns snapshots of all stored items.
@@ -181,6 +199,7 @@ func (s *MemoryStore[T]) Update(id string, fn func(*T)) bool {
 	v = cloneStoreValue(v)
 	fn(&v)
 	s.items[id] = cloneStoreValue(v)
+	s.generation++
 	return true
 }
 
@@ -193,4 +212,5 @@ func (s *MemoryStore[T]) Upsert(id string, fn func(*T)) {
 	v = cloneStoreValue(v)
 	fn(&v)
 	s.items[id] = cloneStoreValue(v)
+	s.generation++
 }
