@@ -1,5 +1,65 @@
 # WHAT WE DID
 
+## 2026-08-18 — A second sweep, and the gate that keeps the class out
+
+The first sweep was a reading of every simulator against a taxonomy. This one
+is mechanical: `scripts/check-fake-tests.go` decides seven classes of
+can't-fail test from the syntax tree, and `scripts/check-fake-tests.sh` turns
+its report into a gate — classes with no instances left held at zero, the two
+with a standing population carrying a floor that may only fall.
+
+Building it was itself an exercise in the thing it looks for. Its first run
+reported twenty-four collections as permanently empty; every one was a map
+filled by index assignment the detector could not see, and two more were
+counter maps grown with `++`. Its first `no-assertion` run reported twenty-two
+tests, eleven of which asserted through a helper one call away. Its first
+`any-error` run reported ninety-one, nineteen of which named the error through
+a package helper. A detector whose findings nobody can act on is a fake test
+with a different shape, so each was fixed — helpers resolved transitively,
+growth recognised in every form the repository uses — before a single finding
+was acted on. What the calibrated detectors then reported was small and real.
+
+The classes now at zero are at zero because nothing was there: no self
+comparison, no wait that cannot be false, no empty subtest, no table that never
+runs, no `t.Fatal` off the test goroutine. Three real findings came out of the
+rest. A parser-depth test discarded both return values of all three guards, so
+it detected a stack overflow and nothing else — a guard quietly stopped
+refusing would have passed; each refusal is now named. And two filter tests —
+one for traffic capture, one for mirroring — asserted only that the filtered-out
+protocol was absent, which a capture or mirror that recorded nothing at all
+also satisfies; both now generate the protocol the filter names and require it
+through.
+
+Fourteen error-path assertions that accepted any error at all were given the
+service's own refusal: an export without a passphrase, a configuration write
+without an idempotency token, a distribution with no origins, four Logic Apps
+reads that must 404, and five Google Cloud identity refusals. A transport
+fault, a 500 and a body the client could not decode all satisfied them before.
+Sixty-two remain, each needing its service's real code read out of the handler
+and the vendored model, and the floor holds them visible while they burn down.
+
+The gate was proved by planting one instance of each held-at-zero class and
+watching it fail, then removing them and watching it pass.
+
+## 2026-08-18 — The App Service Environment pagers, which did close here
+
+BUG-45 recorded that three App Service Environment operations hand back a pager
+the SDK panics on, and concluded that nothing about it could be fixed in the
+simulator. That was wrong, and the specification says so: suspend, resume and
+change-virtual-network are all declared long-running with their final state via
+Location, with 202 a documented response. Answering the collection
+synchronously was the divergence. On a synchronous answer azcore selects its
+no-op poller, whose result field is a zero value of the poller's type parameter
+— here a pager — so it allocates a fresh pager with a nil handler and assigns
+it over the one the client built, leaving every read to dereference nil.
+
+The three now answer 202 and record the collection as the operation's result,
+which the Location poll serves; the suite drains the pager the generated client
+returns rather than working around it over raw HTTP. The same mechanism is
+covered directly: a running operation's Location answers 202 with no body, a
+succeeded one answers with the result and never the status envelope, and a
+failed one carries the error and no payload.
+
 ## 2026-08-17 — A sweep for tests that proved nothing
 
 Every simulator was audited against a taxonomy of fake tests drawn from real

@@ -962,6 +962,9 @@ jobs:
       - name: No new skip-if-tool-absent tests
         run: bash scripts/check-no-tool-absent-skips.sh
         timeout-minutes: 5
+      - name: No test passes without exercising what it names
+        run: bash scripts/check-fake-tests.sh
+        timeout-minutes: 5
       - name: Check container publication contract
         run: bash scripts/check-container-publication.sh
         timeout-minutes: 5

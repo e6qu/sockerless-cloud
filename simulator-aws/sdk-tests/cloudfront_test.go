@@ -212,5 +212,9 @@ func TestCloudFrontDistributionRejectsInvalidConfig(t *testing.T) {
 			},
 		},
 	})
-	require.Error(t, err, "zero origins must be rejected, not silently accepted")
+	// Named rather than merely non-nil: a bare error assertion is satisfied by
+	// a transport failure or a 500, neither of which shows the service
+	// validated the distribution at all.
+	assert.Equal(t, "InvalidArgument", errCode(t, err),
+		"zero origins must be rejected as an invalid argument, not silently accepted")
 }

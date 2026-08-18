@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"strings"
@@ -26,6 +27,22 @@ func iamService(t *testing.T) *iam.Service {
 	)
 	require.NoError(t, err)
 	return svc
+}
+
+// requireGoogleAPIRefusal holds an error to the refusal the service makes: its
+// HTTP status, and a fragment of the message that names the reason. A bare
+// "an error happened" is also satisfied by a transport fault, a 500, or a
+// response the client could not decode, none of which shows the service
+// validated anything.
+func requireGoogleAPIRefusal(t *testing.T, err error, status int, contains, what string) {
+	t.Helper()
+	require.Error(t, err, "%s must be refused", what)
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr, "%s must fail with a Google API error, got %v", what, err)
+	require.Equal(t, status, apiErr.Code, "%s must be refused with %d, got %v", what, status, err)
+	if contains != "" {
+		require.Contains(t, apiErr.Message, contains, "%s must say why", what)
+	}
 }
 
 func TestIAM_CreateServiceAccount(t *testing.T) {
@@ -243,7 +260,8 @@ func TestIAMCredentials_GenerateIdToken_RejectsUnknownSA(t *testing.T) {
 		"projects/test-project/serviceAccounts/missing@test-project.iam.gserviceaccount.com",
 		&iamcredentials.GenerateIdTokenRequest{Audience: "https://x"},
 	).Do()
-	require.Error(t, err)
+	requireGoogleAPIRefusal(t, err, http.StatusNotFound, "not found",
+		"an identity token for a service account that does not exist")
 }
 
 func TestIAMCredentials_GenerateIdToken_RequiresAudience(t *testing.T) {
@@ -260,7 +278,8 @@ func TestIAMCredentials_GenerateIdToken_RequiresAudience(t *testing.T) {
 	_, err = credSvc.Projects.ServiceAccounts.GenerateIdToken(created.Name,
 		&iamcredentials.GenerateIdTokenRequest{}, // no audience
 	).Do()
-	require.Error(t, err)
+	requireGoogleAPIRefusal(t, err, http.StatusBadRequest, "audience is required",
+		"an identity token with no audience")
 }
 
 func TestIAM_ServiceAccountKeysCRUD(t *testing.T) {
@@ -524,7 +543,8 @@ func TestIAM_ProjectIAMPolicyInvalidMember(t *testing.T) {
 					Bindings: []*cloudresourcemanager.Binding{{Role: "roles/viewer", Members: []string{bad}}},
 				},
 			}).Do()
-		require.Error(t, err, "member %q must be rejected", bad)
+		requireGoogleAPIRefusal(t, err, http.StatusBadRequest, "invalid member",
+			fmt.Sprintf("the member %q", bad))
 	}
 
 	// Legitimate members (including the bare allUsers/allAuthenticatedUsers)
@@ -1120,7 +1140,8 @@ func TestIAMCredentials_TwelveHourLifetimeNeedsTheOrganizationPolicy(t *testing.
 	request := &iamcredentials.GenerateAccessTokenRequest{Scope: scope, Lifetime: "43200s"}
 
 	_, err = credSvc.Projects.ServiceAccounts.GenerateAccessToken(created.Name, request).Do()
-	require.Error(t, err, "twelve hours is refused before the policy lists the account")
+	requireGoogleAPIRefusal(t, err, http.StatusBadRequest, "3600",
+		"twelve hours before the policy lists the account")
 
 	_, err = crm.Projects.SetOrgPolicy(resource, &cloudresourcemanager.SetOrgPolicyRequest{
 		Policy: &cloudresourcemanager.OrgPolicy{
@@ -1147,5 +1168,6 @@ func TestIAMCredentials_TwelveHourLifetimeNeedsTheOrganizationPolicy(t *testing.
 		&iam.CreateServiceAccountRequest{AccountId: "unlisted-lifetime-sa"}).Do()
 	require.NoError(t, err)
 	_, err = credSvc.Projects.ServiceAccounts.GenerateAccessToken(other.Name, request).Do()
-	require.Error(t, err, "an account the policy does not list keeps the one-hour ceiling")
+	requireGoogleAPIRefusal(t, err, http.StatusBadRequest, "3600",
+		"an account the policy does not list, which keeps the one-hour ceiling")
 }

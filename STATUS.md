@@ -82,7 +82,14 @@ Current state of the sockerless-cloud repository.
 
 - **Tests that cannot pass without proving something**: every simulator has
   been audited against a taxonomy of fake tests, each candidate judged by
-  breaking the behaviour it names and watching whether it noticed. The suites
+  breaking the behaviour it names and watching whether it noticed, and the
+  class is now held by a gate rather than by a reading.
+  `scripts/check-fake-tests.go` decides seven of its shapes from the syntax
+  tree and `scripts/check-fake-tests.sh` holds five of them at zero — no self
+  comparison, no wait that cannot be false, no empty subtest, no table that
+  never runs, no `t.Fatal` off the test goroutine — while error assertions that
+  accept any error, and the other two populated classes, carry floors that may
+  only fall. The suites
   that had never run — five Terraform packages absent from the makefile and the
   workflow, a security-group firewall test excluded by a shell filter, two fuzz
   targets aimed at routes that do not exist — run now, and gates make each

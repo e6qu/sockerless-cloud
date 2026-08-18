@@ -22,7 +22,7 @@ Surface registered in `simulator-azure/functions.go` (and related files grouped 
 | `GET /providers/Microsoft.Web/sourcecontrols/{sourceControlType}` | ✓ `simulator-azure/web_deploy_extras.go:710::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /providers/Microsoft.Web/sourcecontrols/{sourceControlType}` | ✓ `simulator-azure/web_deploy_extras.go:721::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/hostingEnvironments` | ✓ `simulator-azure/web_environments.go:653::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/kubeEnvironments` | ✓ `simulator-azure/web_environments.go:1772::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/kubeEnvironments` | ✓ `simulator-azure/web_environments.go:1805::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/customhostnameSites` | ✓ `simulator-azure/web_hostnames_global.go:167::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /subscriptions/{subscriptionId}/providers/Microsoft.Web/listSitesAssignedToHostName` | ✓ `simulator-azure/web_hostnames_global.go:238::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/serverfarms` | ✓ `simulator-azure/web_more_extra.go:277::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

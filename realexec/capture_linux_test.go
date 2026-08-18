@@ -150,6 +150,32 @@ func TestCaptureHonoursItsFilters(t *testing.T) {
 	if got := capture.Status().Packets; got != 0 {
 		t.Errorf("capture filtered to TCP recorded %d ICMP packets", got)
 	}
+
+	// The other half, and the one that makes the first half mean anything: the
+	// filter must admit the protocol it names. Recording nothing at all also
+	// satisfies "no ICMP packets", so a capture that was simply broken — a
+	// filter compiled to reject everything, a capture that never attached —
+	// would pass on the assertion above alone.
+	//
+	// Nothing listens on the far side, so the connection is refused; that
+	// refusal is itself TCP crossing the interface, which is what the filter
+	// is being asked about.
+	if out, err := exec.Command("ip", "netns", "exec", namespace,
+		"bash", "-c", "exec 3<>/dev/tcp/"+peerAddress+"/9").CombinedOutput(); err != nil {
+		t.Logf("TCP connect to %s:9 was refused, as expected: %v\n%s", peerAddress, err, out)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	var packets uint64
+	for time.Now().Before(deadline) {
+		if packets = capture.Status().Packets; packets > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if packets == 0 {
+		t.Error("capture filtered to TCP recorded no packets while real TCP crossed the interface, " +
+			"so it excludes everything rather than excluding ICMP")
+	}
 }
 
 func TestCaptureStopsAtItsTimeLimit(t *testing.T) {

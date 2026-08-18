@@ -44,15 +44,20 @@ func TestACM_ExportCertificate(t *testing.T) {
 		_, _ = c.DeleteCertificate(context.Background(), &acm.DeleteCertificateInput{CertificateArn: aws.String(arn)})
 	})
 
-	// Missing passphrase is rejected.
+	// Missing passphrase is rejected as an invalid parameter, not as some
+	// other failure: a bare "an error happened" is also satisfied by a
+	// transport fault or a 500, neither of which proves the service validated
+	// anything.
 	_, err = c.ExportCertificate(ctx, &acm.ExportCertificateInput{CertificateArn: aws.String(arn)})
-	require.Error(t, err)
+	assert.Equal(t, "InvalidParameterValueException", errCode(t, err),
+		"an export without a passphrase must be refused as an invalid parameter")
 
 	_, err = c.ExportCertificate(ctx, &acm.ExportCertificateInput{
 		CertificateArn: aws.String(arn),
 		Passphrase:     []byte("x"),
 	})
-	require.Error(t, err, "a non-PRIVATE certificate must not be exportable")
+	assert.Equal(t, "RequestInProgressException", errCode(t, err),
+		"a non-PRIVATE certificate must not be exportable")
 }
 
 // TestACM_RevokeCertificate proves the private-certificate-only operation
@@ -94,11 +99,14 @@ func TestACM_AccountConfiguration(t *testing.T) {
 	require.NotNil(t, got.ExpiryEvents.DaysBeforeExpiry)
 	assert.EqualValues(t, 30, *got.ExpiryEvents.DaysBeforeExpiry)
 
-	// PutAccountConfiguration without an IdempotencyToken must fail.
+	// PutAccountConfiguration without an IdempotencyToken is refused as an
+	// invalid parameter — the token is what makes the write idempotent, so a
+	// request without one is malformed rather than merely unlucky.
 	_, err = c.PutAccountConfiguration(ctx, &acm.PutAccountConfigurationInput{
 		ExpiryEvents: &acmtypes.ExpiryEventsConfiguration{DaysBeforeExpiry: aws.Int32(15)},
 	})
-	require.Error(t, err)
+	assert.Equal(t, "InvalidParameterValueException", errCode(t, err),
+		"a configuration write without an idempotency token must be refused as an invalid parameter")
 }
 
 // TestACM_SearchCertificates pins SearchCertificates filtering by metadata

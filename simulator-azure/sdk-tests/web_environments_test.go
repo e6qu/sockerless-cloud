@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -69,31 +71,57 @@ func environmentsClient(t *testing.T) *armappservice.EnvironmentsClient {
 	return client
 }
 
+// asePagedSiteNames drains the pager an App Service Environment lifecycle
+// operation answers with and returns the app names in it. Draining it is the
+// assertion that matters: the pager is what the generated client hands back
+// for these operations, and until the simulator answered the documented 202
+// the SDK handed back one whose handler was nil, so any read of it panicked.
+func asePagedSiteNames[T any](t *testing.T, pager *runtime.Pager[T]) []string {
+	t.Helper()
+	require.NotNil(t, pager)
+	var names []string
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		require.NoError(t, err)
+		for _, site := range sitesOfPage(any(page)) {
+			names = append(names, *site.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// sitesOfPage reads the WebAppCollection out of whichever per-operation
+// response type the page carries. The three operations each generate their
+// own response struct wrapping the same collection.
+func sitesOfPage(page any) []*armappservice.Site {
+	switch typed := page.(type) {
+	case armappservice.EnvironmentsClientSuspendResponse:
+		return typed.Value
+	case armappservice.EnvironmentsClientResumeResponse:
+		return typed.Value
+	case armappservice.EnvironmentsClientChangeVnetResponse:
+		return typed.Value
+	}
+	return nil
+}
+
 // aseActionApps invokes one of the three App Service Environment operations
 // that answer with the collection of apps they moved — suspend, resume and
 // changeVirtualNetwork — and returns that collection, decoded through the
 // SDK's own WebAppCollection model.
 //
-// The operations are driven through the generated client too, immediately
-// after each call here; this reads the terminal body over the wire because
-// the generated client cannot hand it back. BeginSuspend, BeginResume and
-// BeginChangeVnet are generated as pageable long-running operations returning
-// *runtime.Poller[*runtime.Pager[…]]: the client builds a pager up front and
-// passes it to the poller as its Response. On the 200 the specification
-// documents — completion in the initial response, which is what a service
-// that finished the work inside the request answers — azcore selects its
-// NopPoller, whose result field is a zero value of the poller's type
-// parameter. That type parameter is *runtime.Pager[…], so the nil pager makes
-// encoding/json allocate a fresh one with a zero PagingHandler, and
-// NopPoller.Result assigns it over the pager the client built. Both
-// Pager.More and Pager.NextPage then call through the nil handler, so reading
-// the poller's result in any way is a nil-pointer dereference. Only the 202 +
-// Location branch escapes it: there the terminal body is unmarshaled into the
-// client's own pager through Pager.UnmarshalJSON, which sets the current page
-// and leaves the handler intact.
-//
-// So each operation's effect is asserted through the apps and the environment
-// it moved, and the collection it answers with is asserted here.
+// All three are long-running with their final state via Location, so the
+// collection is read from the Location poll rather than from the response to
+// the POST. That is also what makes them readable through the generated
+// client: on a synchronous 200 azcore selects its NopPoller, whose result
+// field is a zero value of the poller's type parameter — here
+// *runtime.Pager[…] — so encoding/json allocates a fresh pager with a zero
+// PagingHandler and NopPoller.Result assigns it over the pager the client
+// built, leaving every read to call through a nil handler. The 202 + Location
+// branch unmarshals the terminal body into the client's own pager through
+// Pager.UnmarshalJSON, which sets the current page and leaves the handler
+// intact.
 func aseActionApps(t *testing.T, action, body string) []*armappservice.Site {
 	t.Helper()
 	url := fmt.Sprintf(
@@ -114,10 +142,33 @@ func aseActionApps(t *testing.T, action, body string) []*armappservice.Site {
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
-	var collection armappservice.WebAppCollection
-	require.NoError(t, json.Unmarshal(raw, &collection), string(raw))
-	return collection.Value
+	require.Equal(t, http.StatusAccepted, resp.StatusCode, string(raw))
+	location := resp.Header.Get("Location")
+	require.NotEmpty(t, location,
+		"a long-running operation whose final state comes via Location must send one")
+
+	// Poll the Location the way a client does: 202 while the operation runs,
+	// then the operation's own result.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		pollReq, pollErr := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
+		require.NoError(t, pollErr)
+		pollReq.Header.Set("Authorization", simARMBearer)
+		pollResp, pollErr := http.DefaultClient.Do(pollReq)
+		require.NoError(t, pollErr)
+		body, pollErr := io.ReadAll(pollResp.Body)
+		pollResp.Body.Close()
+		require.NoError(t, pollErr)
+		if pollResp.StatusCode == http.StatusOK {
+			var collection armappservice.WebAppCollection
+			require.NoError(t, json.Unmarshal(body, &collection), string(body))
+			return collection.Value
+		}
+		require.Equal(t, http.StatusAccepted, pollResp.StatusCode, string(body))
+		require.True(t, time.Now().Before(deadline),
+			"the %s operation never completed at its Location", action)
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // aseAppStates reduces an app collection to name→state so an assertion names
@@ -440,8 +491,13 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 		"suspend answers with the apps it stopped, in the state it left them")
 	suspendPoller, err := client.BeginSuspend(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
-	_, err = suspendPoller.PollUntilDone(ctx, nil)
+	suspendPager, err := suspendPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
+	// The result is a pager, and reading it is the whole point: an operation
+	// that answered synchronously would hand back a pager with a nil handler
+	// here and panic on the first read.
+	assert.Equal(t, []string{"sdk-ase-app"}, asePagedSiteNames(t, suspendPager),
+		"the suspend operation's own result names the apps it stopped")
 	afterSuspend, err := client.Get(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
 	assert.True(t, *afterSuspend.Properties.Suspended)
@@ -455,8 +511,10 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 		"resume answers with the apps it started, in the state it left them")
 	resumePoller, err := client.BeginResume(ctx, aseRG, aseName, nil)
 	require.NoError(t, err)
-	_, err = resumePoller.PollUntilDone(ctx, nil)
+	resumePager, err := resumePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
+	assert.Equal(t, []string{"sdk-ase-app"}, asePagedSiteNames(t, resumePager),
+		"the resume operation's own result names the apps it started")
 	resumedSite, err := webApps.Get(ctx, aseRG, "sdk-ase-app", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Running", *resumedSite.Properties.State)

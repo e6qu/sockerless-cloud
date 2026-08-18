@@ -9,6 +9,13 @@ name: release-please
 on:
   push:
     branches: [main]
+  # A release run that fails transiently — the GitHub API answering 503 during
+  # an incident is what prompted this — cannot otherwise be retried: the failed
+  # run is not retryable, and the workflow has no trigger but a push, so the
+  # release waits for an unrelated merge. Dispatch reruns it against main
+  # without one; release-please recomputes the release from commit history, so
+  # running it again is safe at any time.
+  workflow_dispatch:
 
 permissions:
   contents: write
