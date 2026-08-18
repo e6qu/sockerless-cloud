@@ -48,6 +48,17 @@ protocol was absent, which a capture or mirror that recorded nothing at all
 also satisfies; both now generate the protocol the filter names and require it
 through.
 
+Two of those weak assertions turned out to be testing nothing whatsoever, and
+only tightening them revealed it. A Certificate Manager export with no
+passphrase, and a configuration write with no idempotency token, never reach
+the service at all: the generated client validates its own required members and
+refuses to send the request. The bare error assertions were passing on that
+client-side failure. Demonstrated rather than argued — with the simulator's
+passphrase validation deleted, the original test still passes; the replacement
+fails. Both now assert the client's refusal for what it is and drive the
+service's own validation over the wire, signed the way the client signs, since
+that refusal is unreachable through the typed client.
+
 Fourteen error-path assertions that accepted any error at all were given the
 service's own refusal: an export without a passphrase, a configuration write
 without an idempotency token, a distribution with no origins, four Logic Apps

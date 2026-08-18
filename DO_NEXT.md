@@ -7,6 +7,14 @@
    ones already done are the pattern to follow. Lower the floor with each
    batch — the gate fails when the count drops below it, so progress cannot be
    silently lost.
+
+   Expect some of them to be testing nothing at all rather than testing
+   loosely. Two of the fourteen already tightened turned out to be assertions
+   on requests the generated client refuses to send, so the service never saw
+   them; the simulator's matching validation could be deleted with the test
+   still green. A bare error assertion on a call that omits a required member
+   is the shape to suspect, and the wire is where the service's own refusal
+   has to be driven.
 2. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read
    from the live workload container, App Service Environments and Kube
