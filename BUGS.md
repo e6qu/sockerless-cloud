@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 48.
+Open: 19. Resolved: 49.
 
 ## Open
 
@@ -178,6 +178,22 @@ the simulators from the sockerless monorepo, keeping their IDs
   path rely on it.
 
 ## Resolved history
+
+- **BUG-58 (a job deleted the shared Go caches and saved the emptiness):** The
+  AWS SDK job freed disk before its timed run by deleting the Go build and
+  module caches, and `actions/setup-go` saves at post-job, so the run stored
+  what was left — nothing — under the key every Go job in the workflow shares.
+  A branch's first run is not an exact hit in its own scope, which is what
+  makes it save. Measured: the entry under
+  `setup-go-…-go-1.25.12-69c66a05…` was 224,164,847 bytes on the reference
+  branch and 7,564 bytes on `refs/heads/main`, written the minute the previous
+  pull request merged; every branch cut afterwards inherited the empty one and
+  built cold, and the pre-build step that takes 3m16s warm hit its six-minute
+  ceiling twice. The deletion was buying 6 GB on a 145 GB disk that was 43%
+  used, so it no longer touches the Go caches — the container images and apt
+  lists are the part worth reclaiming — and the pre-build budget now fits the
+  cold build it exists to absorb. The poisoned entry was deleted so the next
+  run on the default branch writes a real one.
 
 - **BUG-45 (the Azure SDK's environment lifecycle pagers panicked):** Closed by
   changing the simulator, which this entry had concluded was impossible. Suspend,

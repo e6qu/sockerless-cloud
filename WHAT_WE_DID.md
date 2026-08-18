@@ -1,5 +1,23 @@
 # WHAT WE DID
 
+## 2026-08-18 — The cache a job emptied and then saved
+
+The AWS SDK job freed disk before its timed run by deleting the Go build and
+module caches. `actions/setup-go` saves at post-job, and a branch's first run —
+having restored the default branch's entry rather than its own — is not an
+exact hit in its own scope, so it saves. What it saved was the emptiness: the
+entry under the key every Go job shares went from 224,164,847 bytes to 7,564,
+written the minute the previous pull request merged, and every branch cut after
+that inherited it and built cold. The pre-build step that takes 3m16s against a
+warm cache hit its six-minute ceiling twice before the cause was visible.
+
+The deletion was buying 6 GB on a 145 GB disk that was 43% used. It no longer
+touches the Go caches; the container images and the apt lists are the part
+worth reclaiming, and the pre-build budget now fits the cold build the step
+exists to absorb rather than sitting just under twice the warm cost. The
+poisoned entry was deleted so the next run on the default branch writes a real
+one.
+
 ## 2026-08-18 — A second sweep, and the gate that keeps the class out
 
 The first sweep was a reading of every simulator against a taxonomy. This one

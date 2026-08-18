@@ -480,12 +480,28 @@ jobs:
           bash scripts/ci-go-mod-download.sh simulator-aws
           cd simulator-aws && make build
           cd sdk-tests && CGO_ENABLED=0 go test -c -o /tmp/aws-sdk-tests.test .
-        timeout-minutes: 6
+        # This step exists to absorb a cold build, so its budget has to fit
+        # one: measured at 3m16s against a warm cache and over six minutes
+        # against an empty one. Six minutes was under twice the warm cost,
+        # which is no margin for the case the step is for.
+        timeout-minutes: 10
+      # Free disk before the timed run — but never the Go caches. Deleting
+      # those poisons the cache for every later job: setup-go saves at
+      # post-job, a branch's first run restores the default branch's entry and
+      # is therefore not an exact hit in its own scope, so it saves what it
+      # has, which after this step is nothing. Measured on this branch: the
+      # entry under the shared key went from 224,164,847 bytes to 7,564, and
+      # the pre-build step that takes 3m16s warm hit its six-minute ceiling
+      # twice.
+      #
+      # The deletion was not buying much either. Measured on the run before it:
+      # 83 GB free before, 89 GB after, on a 145 GB disk at 43% used. The
+      # container images and apt lists are the part worth reclaiming.
       - name: Free AWS SDK runner disk before execution
         run: |
           df -h
-          go clean -cache -testcache -modcache
-          rm -rf "$HOME/.cache/go-build" "$HOME/go/pkg/mod" "$RUNNER_TEMP/go-build"
+          go clean -testcache
+          rm -rf "$RUNNER_TEMP/go-build"
           docker image prune -af
           sudo apt-get clean
           df -h

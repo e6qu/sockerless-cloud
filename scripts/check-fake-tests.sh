@@ -72,7 +72,14 @@ report=$(mktemp)
 totals=$(mktemp)
 trap 'rm -f "$report" "$totals"' EXIT
 
-go run scripts/check-fake-tests.go "${SCAN_DIRS[@]}" >"$report" 2>"$totals"
+# The analyzer's own failure must be visible: redirecting both streams into
+# temporary files the trap deletes made a build error exit 1 with nothing
+# printed at all, which is a gate that fails for a reason nobody can read.
+if ! go run scripts/check-fake-tests.go "${SCAN_DIRS[@]}" >"$report" 2>"$totals"; then
+	echo "check-fake-tests: the analyzer did not run:" >&2
+	cat "$totals" >&2
+	exit 1
+fi
 
 count_of() { grep -c "^$1 " "$report" || true; }
 
