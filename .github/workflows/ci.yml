@@ -78,7 +78,7 @@ jobs:
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - name: Install script check tools
-        run: bash scripts/ci-apt-update.sh && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y jq shellcheck zsh
+        run: bash scripts/ci-apt-install.sh jq shellcheck zsh
       - name: Check shell scripts
         run: |
           shellcheck -x -s bash scripts/*.sh
@@ -245,8 +245,7 @@ jobs:
           key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - name: Install Firecracker test dependencies
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iptables iputils-ping nftables openssh-client squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iptables iputils-ping nftables openssh-client squashfs-tools
       - name: Install Firecracker
         run: bash scripts/install-firecracker.sh
       - name: Run Firecracker arithmetic smoke
@@ -337,8 +336,7 @@ jobs:
         run: az version
       - name: Install real-execution tools
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
       - name: Install Caddy
         # TestArtifactRegistryCLI_DockerLoginPushPull serves the Google Artifact
@@ -444,8 +442,7 @@ jobs:
         # 15-minute budget.
         if: matrix.suite == 'compute'
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
       # Download modules and compile the unit-test binaries in their own
       # budgeted step, so the timed test run below isn't eaten by a cold
@@ -672,8 +669,7 @@ jobs:
           key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - name: Install real-execution tools
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
       - name: Install Session Manager plugin
         run: |
@@ -811,8 +807,7 @@ jobs:
           terraform_wrapper: false
       - name: Install real-execution tools
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
       - name: Install Caddy
         run: |

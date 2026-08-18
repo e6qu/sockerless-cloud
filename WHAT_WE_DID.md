@@ -1,5 +1,23 @@
 # WHAT WE DID
 
+## 2026-08-18 — Two ways a run failed without anything being wrong with it
+
+A store soak ran twenty-four readers spinning without pause against
+twenty-four writers. On a machine with fewer cores than the reader pool the
+readers held every processor and the writers crawled: twelve seconds at full
+parallelism, thirty at four processors, forty-six at two, and on the runner two
+minutes thirty-seven without finishing — which surfaced as a package-wide
+timeout panic naming a test that was only slow. The reader pool is sized to the
+machine now and yields between passes, which keeps the hazard it exists for and
+gives the writers somewhere to run: three seconds at four processors, and the
+module's whole unit-test step in eighty-four.
+
+Two other jobs died in `apt-get update`, each after three honest retries over
+ten minutes, while installing seven packages of which five ship on the runner
+image. The index is refreshed only when something is actually missing now, so a
+degraded mirror cannot fail a job that had no question to ask of it. A package
+that genuinely is unavailable still fails loudly.
+
 ## 2026-08-18 — The cache a job emptied and then saved
 
 The AWS SDK job freed disk before its timed run by deleting the Go build and

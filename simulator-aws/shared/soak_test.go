@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -157,11 +158,19 @@ func TestStoreUpdateNoLostWriteSoak(t *testing.T) {
 // value read surfaces under -race.
 func TestStoreFilterVsDeleteSoak(t *testing.T) {
 	const (
-		readers = 24
 		writers = 24
 		iters   = 600
 		keys    = 24
 	)
+	// The readers spin without pausing, so a fixed pool starves the writers
+	// they are supposed to be racing on any machine with fewer cores than the
+	// pool: this test finishes in twelve seconds at full parallelism, thirty
+	// at four processors and forty-six at two, and on a continuous-integration
+	// runner it ran two and a half minutes without finishing and took the
+	// package's whole budget down with it. Sizing the pool to the machine
+	// keeps the hazard — a Filter result racing a concurrent Delete — while
+	// leaving the writers processors to run on.
+	readers := max(2, runtime.GOMAXPROCS(0)/2)
 	for name, store := range soakStores(t) {
 		t.Run(name, func(t *testing.T) {
 			for k := 0; k < keys; k++ {
@@ -180,6 +189,10 @@ func TestStoreFilterVsDeleteSoak(t *testing.T) {
 						for _, v := range store.List() {
 							_ = v.Name + v.Payload
 						}
+						// Yield between passes so a writer waiting on the
+						// store's lock can take it; without this the readers
+						// hold a processor continuously.
+						runtime.Gosched()
 					}
 				}()
 			}

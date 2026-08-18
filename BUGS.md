@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 49.
+Open: 19. Resolved: 51.
 
 ## Open
 
@@ -178,6 +178,27 @@ the simulators from the sockerless monorepo, keeping their IDs
   path rely on it.
 
 ## Resolved history
+
+- **BUG-59 (a soak test starved the writers it was racing):** The store soak
+  ran twenty-four readers spinning without pause against twenty-four writers,
+  so on a machine with fewer cores than the reader pool the readers held every
+  processor and the writers crawled. Measured: twelve seconds at full
+  parallelism, thirty at four processors, forty-six at two — and on a
+  four-processor continuous-integration runner it ran two minutes thirty-seven
+  without finishing and took the whole module's five-and-a-half-minute budget
+  down with it, as a package-wide timeout panic naming a test that was merely
+  slow. The reader pool is now sized to the machine and yields between passes,
+  which keeps the hazard it exists for — a Filter result racing a concurrent
+  Delete — while leaving the writers somewhere to run: three seconds at four
+  processors, two at two, and the module's whole unit-test step in eighty-four.
+
+- **BUG-60 (a degraded package mirror failed jobs that needed nothing from
+  it):** Two jobs of one run died in `apt-get update`, each after three honest
+  retries over ten minutes, while installing seven packages of which five ship
+  on the runner image. The index is now refreshed only when something is
+  actually missing, so a degraded mirror cannot fail a job with no question to
+  ask of it. A genuinely unavailable package still fails loudly; the retries
+  and the loud failure are unchanged.
 
 - **BUG-58 (a job deleted the shared Go caches and saved the emptiness):** The
   AWS SDK job freed disk before its timed run by deleting the Go build and
