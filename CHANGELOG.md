@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/e6qu/sockerless-cloud/compare/v0.12.1...v0.12.2) (2026-08-18)
+
+
+### Performance Improvements
+
+* **aws/dynamodb:** read the partition a Query addresses, not the whole table ([#38](https://github.com/e6qu/sockerless-cloud/issues/38)) ([6ee2d0c](https://github.com/e6qu/sockerless-cloud/commit/6ee2d0ce7c6c6db99087d1652741c872ddd8cc31))
+
 ## [0.12.1](https://github.com/e6qu/sockerless-cloud/compare/v0.12.0...v0.12.1) (2026-08-17)
 
 
