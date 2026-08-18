@@ -2,9 +2,12 @@ package azure_cli_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Azure CLI coverage for App Service Environments
@@ -32,6 +35,25 @@ const aseCLIAPIVersion = "2025-03-01"
 
 func aseCLIURL(path string) string {
 	return armURL("Microsoft.Web", path, aseCLIAPIVersion)
+}
+
+// aseCLIOperationResult drives one of the App Service Environment operations
+// whose final state comes via Location and returns the body the Location poll
+// answered with. The operation answers 202 with no body, so a client that read
+// only the response to the POST would see nothing and could conclude the
+// environment moved no apps at all; the collection lives at the Location.
+func aseCLIOperationResult(t *testing.T, resource, body string) string {
+	t.Helper()
+	location := azRestResponseHeader(t, azRest("POST", aseCLIURL(resource), body, "--debug"), "Location")
+	require.NotEmpty(t, location,
+		"a long-running operation whose final state comes via Location must send one")
+	var out string
+	require.Eventually(t, func() bool {
+		out = runCLI(t, azRest("GET", location, ""))
+		return strings.Contains(out, `"value"`)
+	}, 30*time.Second, 250*time.Millisecond,
+		"the Location poll never produced the operation's result")
+	return out
 }
 
 // TestAppServiceEnvironmentCLI drives one App Service Environment through the
@@ -73,28 +95,26 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 	assert.Contains(t, inbound, "App Service Environment VIP")
 	assert.Contains(t, inbound, "10.80.2.0/24", "the environment's own subnet is an inbound dependency")
 
-	// Suspend, resume and move. Each answers with the collection of apps in the
-	// environment — this one hosts none, so the empty collection Microsoft's
-	// own examples for these three operations show — and each leaves its mark:
-	// the suspended flag, and an internal address re-derived from the subnet
-	// the environment was moved into. The Azure CLI reads these bodies straight
-	// off the wire, which is what the Go SDK's generated pageable long-running
-	// clients for the same three operations cannot do.
-	suspended := runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/suspend"), ""))
-	assert.Contains(t, suspended, `"value": []`)
+	// Suspend, resume and move. All three are long-running with their final
+	// state via Location, so each answers 202 and the collection of apps it
+	// moved is read from the Location poll — this environment hosts none, so
+	// the empty collection Microsoft's own examples for these three operations
+	// show. Each also leaves its mark: the suspended flag, and an internal
+	// address re-derived from the subnet the environment was moved into.
+	assert.Contains(t, aseCLIOperationResult(t, "hostingEnvironments/cli-ase/suspend", ""),
+		`"value": []`)
 	afterSuspend := runCLI(t, azRest("GET", aseURL, ""))
 	assert.Contains(t, afterSuspend, `"suspended": true`)
 
-	resumed := runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/resume"), ""))
-	assert.Contains(t, resumed, `"value": []`)
+	assert.Contains(t, aseCLIOperationResult(t, "hostingEnvironments/cli-ase/resume", ""),
+		`"value": []`)
 
 	runCLI(t, azRest("PUT", armURL("Microsoft.Network", "virtualNetworks/cli-ase-vnet/subnets/cli-ase-subnet-2", "2024-05-01"),
 		`{"properties":{"addressPrefix":"10.80.6.0/24"}}`))
 	movedSubnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/cli-ase-vnet/subnets/cli-ase-subnet-2",
 		subscriptionID, resourceGroup)
-	moved := runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/changeVirtualNetwork"),
-		fmt.Sprintf(`{"id":%q}`, movedSubnetID)))
-	assert.Contains(t, moved, `"value": []`)
+	assert.Contains(t, aseCLIOperationResult(t, "hostingEnvironments/cli-ase/changeVirtualNetwork",
+		fmt.Sprintf(`{"id":%q}`, movedSubnetID)), `"value": []`)
 	afterMove := runCLI(t, azRest("GET", aseURL, ""))
 	assert.Contains(t, afterMove, `"suspended": false`, "resuming cleared the suspended flag")
 	assert.Contains(t, afterMove, "10.80.6.4", "the move re-derived the address from the new subnet")
