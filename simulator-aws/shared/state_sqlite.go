@@ -8,6 +8,7 @@ import (
 	"log"
 	"reflect"
 	"sync"
+	"sync/atomic"
 )
 
 const persistenceEnvelopeMagic = "SLP1"
@@ -101,6 +102,10 @@ type SQLiteStore[T any] struct {
 	db    *sql.DB
 	table string
 	mu    sync.Mutex // serialize writes (SQLite is single-writer)
+	// generation is bumped inside mu by every write that changed the table,
+	// and read without it, so a reader never blocks behind a writer just to
+	// ask whether its derived index is still current. See Store.Generation.
+	generation atomic.Uint64
 }
 
 // NewSQLiteStore creates a persistent store backed by a SQLite table.
@@ -154,6 +159,7 @@ func (s *SQLiteStore[T]) Put(id string, item T) {
 		id, data); err != nil {
 		s.fatalDBErr("Put", id, err)
 	}
+	s.generation.Add(1)
 }
 
 func (s *SQLiteStore[T]) Delete(id string) bool {
@@ -168,7 +174,15 @@ func (s *SQLiteStore[T]) Delete(id string) bool {
 	if err != nil {
 		s.fatalDBErr("Delete rows-affected", id, err)
 	}
+	if n > 0 {
+		s.generation.Add(1)
+	}
 	return n > 0
+}
+
+// Generation reports the write counter described on Store.
+func (s *SQLiteStore[T]) Generation() uint64 {
+	return s.generation.Load()
 }
 
 func (s *SQLiteStore[T]) List() []T {
@@ -241,6 +255,7 @@ func (s *SQLiteStore[T]) Update(id string, fn func(*T)) bool {
 		id, updated); err != nil {
 		s.fatalDBErr("Update write", id, err)
 	}
+	s.generation.Add(1)
 	return true
 }
 
@@ -272,6 +287,7 @@ func (s *SQLiteStore[T]) Upsert(id string, fn func(*T)) {
 		id, updated); err != nil {
 		s.fatalDBErr("Upsert write", id, err)
 	}
+	s.generation.Add(1)
 }
 
 // MakeStore returns a SQLiteStore if db is non-nil, or a MemoryStore
