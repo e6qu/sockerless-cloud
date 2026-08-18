@@ -2868,8 +2868,18 @@ func kmsVersionNumber(versionName string) (int, bool) {
 	if i < 0 {
 		return 0, false
 	}
-	n, err := strconv.Atoi(versionName[i+len("/cryptoKeyVersions/"):])
+	segment := versionName[i+len("/cryptoKeyVersions/"):]
+	n, err := strconv.Atoi(segment)
 	if err != nil || n < 1 {
+		return 0, false
+	}
+	// The segment has to be the number, not merely parse to it. Atoi accepts a
+	// leading sign and leading zeros, so `/cryptoKeyVersions/01` and
+	// `/cryptoKeyVersions/+1` both addressed version 1 — extra names for a
+	// resource that has exactly one, which is how a caller comes to believe it
+	// read a version it never named. Cloud KMS numbers versions from one and
+	// writes them plainly.
+	if strconv.Itoa(n) != segment {
 		return 0, false
 	}
 	return n, true

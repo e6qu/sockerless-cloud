@@ -910,8 +910,15 @@ func sbAMQPReadFrame(r *bufio.Reader) ([]byte, error) {
 	}
 	frame := make([]byte, size)
 	copy(frame, header)
-	_, err := io.ReadFull(r, frame[8:])
-	return frame, err
+	if _, err := io.ReadFull(r, frame[8:]); err != nil {
+		// A frame that did not arrive whole is not a frame. Returning the
+		// partly filled buffer beside the error handed a caller that checked
+		// only one of the two a body the peer never sent — the size it claimed,
+		// zero-padded — on a pre-authentication path where the peer chooses
+		// both the size and where to stop sending.
+		return nil, err
+	}
+	return frame, nil
 }
 
 func (t *sbAMQPRawTransport) Write(data []byte) error {

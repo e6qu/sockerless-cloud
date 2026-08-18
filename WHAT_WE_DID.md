@@ -1,5 +1,31 @@
 # WHAT WE DID
 
+## 2026-08-18 — What the repaired fuzz targets found on their first real night
+
+The sweep found two fuzz targets spending the nightly budget on routes that do
+not exist, and a third whose only assertion was that a recorder's code was not
+zero — which it never is. The first nightly run after they reached real code
+reported three defects, one per cloud family touched.
+
+Cloud KMS read `/cryptoKeyVersions/0000000000000000001` as version 1, because
+`strconv.Atoi` accepts leading zeros and a leading sign. A key version has one
+name; this gave it several, and a caller could read a version it had not named.
+The segment must be the number now, not merely parse to it.
+
+BigQuery trimmed backticks from the two ends of a whole reference and left any
+inside it, so `0.` followed by a quoted `0` parsed to a table literally named
+with a backtick — an identifier BigQuery cannot have, addressing a table that
+can never exist while looking to the caller like a reference that parsed.
+
+The Service Bus AMQP frame reader returned its partly filled buffer beside the
+error when a body arrived short: the size the peer claimed, zero-padded, to any
+caller that checked one of the two return values rather than both. The reported
+case was 3,157,808 bytes, on a pre-authentication path where the peer chooses
+both the size and where to stop sending.
+
+Every failing input is a seed now, so an ordinary test run catches a regression
+rather than the next nightly.
+
 ## 2026-08-18 — A DynamoDB Query that read the table instead of the partition
 
 Issue #37 reported an authenticated page timing out with forty-four concurrent

@@ -860,6 +860,16 @@ func bqParseTableRef(defaultProject, ref string) (string, string, string, error)
 	if project == "" || dataset == "" || table == "" {
 		return "", "", "", fmt.Errorf("invalid table reference %q", ref)
 	}
+	// Trimming quotes from the ends of the whole reference leaves any backtick
+	// inside it in place, so "0.`0" parsed to a table literally named "`0" — an
+	// identifier BigQuery cannot have, addressing a table that can never exist
+	// while looking to the caller like a reference that parsed. A backtick
+	// delimits a reference; it is never part of one.
+	for _, component := range []string{project, dataset, table} {
+		if strings.Contains(component, "`") {
+			return "", "", "", fmt.Errorf("invalid table reference %q", ref)
+		}
+	}
 	return project, dataset, table, nil
 }
 

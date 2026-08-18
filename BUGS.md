@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 52.
+Open: 19. Resolved: 53.
 
 ## Open
 
@@ -178,6 +178,25 @@ the simulators from the sockerless monorepo, keeping their IDs
   path rely on it.
 
 ## Resolved history
+
+- **BUG-62 (three parsers accepted input the services cannot produce, found by
+  the nightly fuzz run):** The first nightly run after the repaired fuzz targets
+  reached real code reported three, each a parser that answered rather than
+  refused. Cloud KMS read `/cryptoKeyVersions/0000000000000000001` as version 1
+  because `strconv.Atoi` accepts leading zeros and a leading sign, so a resource
+  with exactly one name had several and a caller could read a version it never
+  named; the segment must now be the number, not merely parse to it. BigQuery
+  trimmed backticks from the ends of a whole reference and left any inside it,
+  so `0.` + "`0" parsed to a table literally named "`0" — an identifier BigQuery
+  cannot have, addressing a table that can never exist while looking like a
+  reference that parsed; a backtick inside a component is now refused. And the
+  Service Bus AMQP frame reader returned its partly filled buffer beside the
+  error when a body arrived short, handing a caller that checked only one of the
+  two the size the peer claimed, zero-padded — 3,157,808 bytes in the reported
+  case, on a pre-authentication path where the peer chooses both the size and
+  where to stop sending; a frame that did not arrive whole now comes back nil.
+  Each failing input is a seed now, so ordinary `go test` catches a regression
+  without waiting for a nightly.
 
 - **BUG-61 (a Query read the whole table, item by item, under one lock):**
   Reported as issue #37: an authenticated page timed out with forty-four
