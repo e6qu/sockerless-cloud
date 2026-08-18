@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 54.
+Open: 20. Resolved: 55.
 
 ## Open
 
@@ -177,7 +177,34 @@ the simulators from the sockerless monorepo, keeping their IDs
   the documented signature verification in the Blob plane, then let the backup
   path rely on it.
 
+- **BUG-65 (103 data races in the AWS module's own suite):** The first
+  race-detector run of these suites reported 144 races in `simulator-aws`; 41
+  were the background-worker leak BUG-64 closed, and 103 remain. They are
+  pre-existing — measured against the merge base — and CI has never run
+  `-race`, so nothing was catching them. They cluster in tests that share
+  package-level stores with goroutines still running from earlier tests, the
+  same family as BUG-64 but in paths this branch did not touch. Fix shape: give
+  the remaining background workers a lifecycle a test can end, then add `-race`
+  to the module's unit-test job so the count cannot grow again. Do not add the
+  flag before the count is zero: a job that fails on every run teaches people
+  to ignore it.
+
 ## Resolved history
+
+- **BUG-64 (background goroutines outlived their tests and raced the next
+  one):** Running the suites under the race detector for the first time — CI
+  never has — reported 144 races in the AWS module and intermittent ones in
+  Azure. One cause, in two shapes. A simulator built by a test and never served
+  still starts its background workers, and `StopBackground` exists precisely
+  for that but no test called it, so an Elastic Load Balancing health checker
+  kept sweeping package-level stores while the next test rebuilt them. In
+  Azure, long-running operations and subscription-alias provisioning complete
+  in bare goroutines that nothing waited for, with the same result. The AWS
+  test builders stop their workers now, the Azure completions are counted in a
+  wait group the test builders drain, and the AWS count fell from 144 to 103
+  with Azure clean across four consecutive runs. The remaining 103 are
+  pre-existing and untouched by this branch — measured against the merge base,
+  not assumed — and none is in the paths converted here.
 
 - **BUG-63 (one lock serialised every DynamoDB operation):** Reported as issue
   #43, the shared cause under #37 and #39: `ddbItemsMu` was a plain mutex, so
@@ -194,13 +221,14 @@ the simulators from the sockerless monorepo, keeping their IDs
   concurrent readers inside the lock went from 1 of 16 to 16 of 16, and a
   writer still excludes everyone.
 
-  The shape is now counted rather than waited for. `scripts/check-readonly-
-  locks.sh` reports critical sections that hold an exclusive lock while only
-  reading a store — the same defect in any service — and holds the count to a
-  floor that may only fall. Thirty-two remain, the largest clusters being AWS
-  Glue and AWS Lambda's durable executions. Each service needs the same
-  per-site audit before conversion; converting one mechanically would trade a
-  slow read for a lost update.
+  The shape is now counted rather than waited for, and the count is zero.
+  `scripts/check-readonly-locks.sh` reports critical sections that hold an
+  exclusive lock while only reading a store, and every one in the tree was
+  converted: the Glue catalog's twelve read handlers, Lambda's four
+  durable-execution reads, the ECS revision index, and all three clouds'
+  real-execution fabric maps. Each declaration carries the contract, each
+  conversion left every writing site on Lock, and the detector is held at zero
+  rather than at a floor.
 
 - **BUG-62 (three parsers accepted input the services cannot produce, found by
   the nightly fuzz run):** The first nightly run after the repaired fuzz targets

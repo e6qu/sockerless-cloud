@@ -357,8 +357,12 @@ var (
 	// simulator assembled without it, or a test that mounts one data plane.
 	// An empty store answers the question truthfully (nothing is registered,
 	// so nothing is associated); a nil one panicked in the middle of serving.
-	ecsTasks          sim.Store[ECSTask] = sim.NewStateStore[ECSTask]()
-	ecsRevisionMu     sync.Mutex
+	ecsTasks sim.Store[ECSTask] = sim.NewStateStore[ECSTask]()
+	// ecsRevisionMu guards the task-definition revision index. Resolving a
+	// revision is a read on the hot path of every describe and every task
+	// start; registering one is the write. Reads take RLock, writes keep Lock,
+	// and neither is reentrant.
+	ecsRevisionMu     sync.RWMutex
 	ecsRevisions      map[string]int // family -> latest revision
 	ecsProcessHandles sync.Map       // map[taskID]*ecsTaskProcesses
 	// ecsTaskLifecycleLocks serialize asynchronous task startup with StopTask
@@ -896,9 +900,9 @@ func handleECSDescribeTaskDefinition(w http.ResponseWriter, r *http.Request) {
 
 	// If no revision specified, find the latest active one
 	if !strings.Contains(key, ":") {
-		ecsRevisionMu.Lock()
+		ecsRevisionMu.RLock()
 		rev, exists := ecsRevisions[key]
-		ecsRevisionMu.Unlock()
+		ecsRevisionMu.RUnlock()
 		if exists {
 			key = fmt.Sprintf("%s:%d", key, rev)
 		}

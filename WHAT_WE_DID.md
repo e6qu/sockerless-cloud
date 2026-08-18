@@ -25,12 +25,33 @@ exclusive lock while only reading a store, and the gate holds the count to a
 floor that may only fall. Thirty-two remain, in AWS Glue, Lambda durable
 executions, Amazon ECS revisions and the EC2 real-execution fabric.
 
-Deliberately not converted in bulk. Every site holding a lock has to be
-classified before its read paths can be narrowed, and the detector itself
-proves why haste would be wrong: its first run reported ninety-nine findings,
-including functions whose whole job is removal, because `delete` is a builtin
-rather than a method and the detector could not see it writing. A mechanical
-sweep on that output would have turned a slow read into a lost update.
+Then converted, all of them, once the detector could be trusted — and getting
+it there was the work. Its first run reported ninety-nine findings, including
+functions whose whole job is removal, because `delete` is a builtin rather than
+a method. Teaching it to follow calls transitively cut that to eleven and
+silently dropped the largest true cluster, because writing an HTTP response
+counts as a write if you let it. Excluding the response writer brought the
+Glue handlers back at twenty-three. A mechanical sweep on any of the three
+earlier numbers would have converted writers to read locks and traded slow
+reads for lost updates.
+
+What the trustworthy number described was converted service by service: the
+Glue catalog's twelve read handlers, Lambda's four durable-execution reads, the
+ECS revision index, and all three clouds' real-execution fabric maps. Every
+declaration carries the contract; every writing site kept its exclusive lock.
+The detector is held at zero now rather than at a floor.
+
+Running the suites under the race detector afterwards — CI never has — found
+something else entirely: 144 races in the AWS module, none of them from the
+lock change. A simulator a test builds but never serves still starts its
+background workers, and `StopBackground` exists for exactly that but no test
+called it, so a load-balancer health checker kept sweeping stores while the
+next test rebuilt them. Azure had the same shape in bare goroutines that
+complete long-running operations and provision subscription aliases. The AWS
+builders stop their workers now and the Azure completions are counted in a wait
+group its builders drain: 144 down to 103, Azure clean across four consecutive
+runs. The remaining 103 are pre-existing, measured against the merge base
+rather than assumed, and filed rather than left silent.
 
 ## 2026-08-18 — What the repaired fuzz targets found on their first real night
 

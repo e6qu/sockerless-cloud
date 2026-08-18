@@ -710,7 +710,12 @@ type lambdaDurableCallbackState struct {
 }
 
 var (
-	lambdaDurableMu            sync.Mutex
+	// lambdaDurableMu guards the durable-execution stores. Reading an
+	// execution, its history or its state excludes nothing but a writer, and
+	// polling those three is what a durable-execution client spends its time
+	// doing. A section that writes, or reads and then writes based on what it
+	// read, keeps taking Lock; neither is reentrant.
+	lambdaDurableMu            sync.RWMutex
 	lambdaDurableStore         sim.Store[lambdaDurableExecution]
 	lambdaDurableCallbackStore sim.Store[lambdaDurableCallbackState]
 	// keyed by DurableExecutionArn.
@@ -1132,7 +1137,7 @@ func lambdaDurableArnFromLabel(r *http.Request) string {
 
 func handleLambdaGetDurableExecution(w http.ResponseWriter, r *http.Request) {
 	arn := lambdaDurableArnFromLabel(r)
-	lambdaDurableMu.Lock()
+	lambdaDurableMu.RLock()
 	stored, ok := lambdaDurableExecs[arn]
 	var de lambdaDurableExecution
 	if ok {
@@ -1544,7 +1549,7 @@ func lambdaCompleteDurableWait(arn, operationID string, delay time.Duration) {
 
 func handleLambdaGetDurableExecutionHistory(w http.ResponseWriter, r *http.Request) {
 	arn := lambdaDurableArnFromLabel(r)
-	lambdaDurableMu.Lock()
+	lambdaDurableMu.RLock()
 	de, ok := lambdaDurableExecs[arn]
 	var events []lambdaDurableEvent
 	if ok {
@@ -1583,7 +1588,7 @@ func handleLambdaGetDurableExecutionHistory(w http.ResponseWriter, r *http.Reque
 
 func handleLambdaGetDurableExecutionState(w http.ResponseWriter, r *http.Request) {
 	arn := lambdaDurableArnFromLabel(r)
-	lambdaDurableMu.Lock()
+	lambdaDurableMu.RLock()
 	de, ok := lambdaDurableExecs[arn]
 	var ops []lambdaDurableOperation
 	checkpointToken := ""
@@ -1655,7 +1660,7 @@ func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.
 			"StartedBefore must be an ISO 8601 timestamp", http.StatusBadRequest)
 		return
 	}
-	lambdaDurableMu.Lock()
+	lambdaDurableMu.RLock()
 	executions := make([]map[string]any, 0)
 	for _, de := range lambdaDurableExecs {
 		if de.FunctionArn != fnArn+":"+qualifiedVersion {

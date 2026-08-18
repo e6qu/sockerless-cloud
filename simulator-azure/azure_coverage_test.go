@@ -621,6 +621,10 @@ func newAzureProber(t *testing.T) *azureProber {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	// Long-running operations complete in a goroutine. One still running
+	// when this test ends would read and write the stores while the next
+	// test rebuilds them.
+	t.Cleanup(AwaitAzureAsyncOperations)
 	now := time.Now()
 	// AzureBearerVerificationMiddleware rejects every /subscriptions/ and
 	// /providers/ request that does not carry a simulator-minted Azure

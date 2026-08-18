@@ -1,13 +1,12 @@
 # DO NEXT
 
-1. Thirty-two read-only critical sections still hold an exclusive lock, held by
-   the floor in `scripts/check-readonly-locks.sh`. The clusters are AWS Glue
-   (`glueMu`, a dozen read handlers), AWS Lambda durable executions, Amazon ECS
-   revisions and the EC2 real-execution fabric. Amazon DynamoDB is the worked
-   example: classify every site the lock has before converting any of them,
-   because a section that reads and then writes based on what it read becomes a
-   lost update under a read lock, and measure the result by counting concurrent
-   readers rather than by timing a burst. Lower the floor with each service.
+1. BUG-65: 103 data races remain in the AWS module's own suite, pre-existing
+   and unmeasured until now because CI never ran `-race`. They are the same
+   family as the background workers this branch gave a lifecycle — tests
+   sharing package-level stores with goroutines from earlier tests — but in
+   paths it did not touch. Give those workers an ending a test can wait for,
+   then add `-race` to the module's unit-test job, in that order: a job that
+   fails on every run teaches people to ignore it.
 2. Sixty-two error-path assertions still accept any error at all, held by the
    floor in `scripts/check-fake-tests.sh`. Each needs its service's real
    refusal read out of the handler and the vendored model before it can be

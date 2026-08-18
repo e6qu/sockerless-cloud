@@ -15,8 +15,11 @@ import (
 )
 
 var (
-	gcpRealHost           = realexec.NewHost()
-	gcpRealMu             sync.Mutex
+	gcpRealHost = realexec.NewHost()
+	// gcpRealMu guards the real-execution fabric maps. Resolving an instance's
+	// mirror targets only reads them; anything that creates or tears down
+	// fabric keeps taking Lock.
+	gcpRealMu             sync.RWMutex
 	gcpRealNetworks       = map[string]*realexec.Network{}
 	gcpRealSubnets        = map[string]*realexec.Subnet{}
 	gcpRealSubnetNetworks = map[string]string{}

@@ -38,11 +38,13 @@ readonly SCAN_DIRS=(
 	ui-auth
 )
 
-# The count on the day this landed, with Amazon DynamoDB's item store already
-# converted. It is what is left to audit, not what is acceptable: raising it to
-# make a run green re-admits the defect this exists to keep out. Lower it as
-# services are converted.
-readonly READONLY_LOCK_FLOOR=32
+# Zero, and it stays zero. Every read-only critical section in the tree takes a
+# read lock: Amazon DynamoDB's item store, the Glue catalog, Lambda's durable
+# executions, the ECS revision index and all three clouds' real-execution
+# fabric maps. A new one is a new defect, not a number to raise — a read path
+# that takes an exclusive lock makes a service's read concurrency one, which is
+# what three separate bug reports turned out to be.
+readonly READONLY_LOCK_FLOOR=0
 
 report=$(mktemp)
 totals=$(mktemp)

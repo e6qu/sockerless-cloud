@@ -81,6 +81,8 @@ func TestShauthIsMountedAlongsideAWSAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator with Shauth configured: %v", err)
 	}
+	// Built but never served, so its background workers are this test's to stop.
+	t.Cleanup(srv.StopBackground)
 	ensureConsoleRegistered(srv)
 
 	get := func(path string) int {
@@ -123,6 +125,7 @@ func TestShauthAbsentWhenUnconfiguredAWS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	t.Cleanup(srv.StopBackground)
 	ensureConsoleRegistered(srv)
 	req := httptest.NewRequest(http.MethodGet, uiauth.SessionPath, nil)
 	rec := httptest.NewRecorder()

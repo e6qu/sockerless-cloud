@@ -177,9 +177,9 @@ func ecsServiceTaskDefinition(ref string) (ECSTaskDefinition, bool) {
 		}
 	}
 	if !strings.Contains(key, ":") {
-		ecsRevisionMu.Lock()
+		ecsRevisionMu.RLock()
 		revision, ok := ecsRevisions[key]
-		ecsRevisionMu.Unlock()
+		ecsRevisionMu.RUnlock()
 		if !ok {
 			return ECSTaskDefinition{}, false
 		}

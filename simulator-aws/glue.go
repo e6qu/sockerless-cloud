@@ -326,7 +326,13 @@ var (
 	glueSchemaVers    sim.Store[GlueSchemaVersion]
 	glueResourcePols  sim.Store[GlueResourcePolicy]
 	glueCatalogSettgs sim.Store[GlueCatalogSettings]
-	glueMu            sync.Mutex
+	// glueMu guards the Glue catalog stores across operations. It is a
+	// read-write lock because the read handlers — every Get and Search below —
+	// exclude nothing but a writer, and a catalog read is most of what this
+	// service serves. A section that writes, or reads and then writes based on
+	// what it read, must keep taking Lock for the whole span; neither is
+	// reentrant.
+	glueMu sync.RWMutex
 )
 
 // glueResourcePolicyKey is the single store key for the catalog resource policy.
@@ -2359,8 +2365,8 @@ func handleGlueGetPartitionIndexes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	descriptors := []map[string]any{}
 	for _, idx := range gluePartIndexes.List() {
@@ -3521,8 +3527,8 @@ func handleGlueGetTableVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	if _, ok := glueTables.Get(glueTableKey(req.DatabaseName, req.TableName)); !ok {
 		glueWriteError(w, "EntityNotFoundException", "Table not found: "+req.TableName)
@@ -3554,8 +3560,8 @@ func handleGlueGetTableVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	if _, ok := glueTables.Get(glueTableKey(req.DatabaseName, req.TableName)); !ok {
 		glueWriteError(w, "EntityNotFoundException", "Table not found: "+req.TableName)
@@ -3702,8 +3708,8 @@ func handleGlueGetColumnStatisticsForTable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	if !glueRequirePartitionTable(w, req.DatabaseName, req.TableName) {
 		return
@@ -3786,8 +3792,8 @@ func handleGlueGetColumnStatisticsForPartition(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	if _, ok := gluePartitions.Get(gluePartitionKey(req.DatabaseName, req.TableName, req.PartitionValues)); !ok {
 		glueWriteError(w, "EntityNotFoundException", "Partition not found")
@@ -3866,8 +3872,8 @@ func handleGluePutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	rp, ok := glueResourcePols.Get(glueResourcePolicyKey)
 	if !ok {
@@ -3928,8 +3934,8 @@ func handleGluePutDataCatalogEncryptionSettings(w http.ResponseWriter, r *http.R
 }
 
 func handleGlueGetDataCatalogEncryptionSettings(w http.ResponseWriter, r *http.Request) {
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	settings, _ := glueCatalogSettgs.Get(glueCatalogSettingsKey)
 	dcs := settings.DataCatalogEncryptionSettings
@@ -3959,8 +3965,8 @@ func handleGlueImportCatalogToGlue(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueGetCatalogImportStatus(w http.ResponseWriter, r *http.Request) {
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	settings, _ := glueCatalogSettgs.Get(glueCatalogSettingsKey)
 	status := map[string]any{"ImportCompleted": settings.ImportCompleted}

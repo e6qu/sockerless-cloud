@@ -32,13 +32,20 @@ import (
 	"strings"
 )
 
-// mutatingMethods are the store and container methods that write. A critical
-// section calling any of them is doing more than reading.
+// mutatingMethods are the methods that write state a lock could be guarding. A
+// critical section calling any of them is doing more than reading.
+//
+// Writing an HTTP response is deliberately absent. Including Write and Flush
+// made every request handler a writer, which silently emptied the largest true
+// cluster this detector had found — a dozen read-only Glue handlers — because
+// they all answer with a response body. What matters is whether the section
+// mutates the state the lock guards, not whether it eventually says something
+// to the caller.
 var mutatingMethods = map[string]bool{
 	"Put": true, "Delete": true, "Update": true, "Upsert": true, "Set": true,
 	"Add": true, "Store": true, "Remove": true, "Clear": true, "Reset": true,
-	"Insert": true, "Append": true, "Swap": true, "CompareAndSwap": true,
-	"Inc": true, "Dec": true, "Close": true, "Write": true, "Flush": true,
+	"Insert": true, "Swap": true, "CompareAndSwap": true,
+	"Inc": true, "Dec": true,
 }
 
 type finding struct {
@@ -54,6 +61,7 @@ func main() {
 	}
 	fset := token.NewFileSet()
 	var findings []finding
+	byDir := map[string][]string{}
 	for _, root := range roots {
 		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
@@ -66,16 +74,38 @@ func main() {
 				}
 				return nil
 			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
+			if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+				byDir[filepath.Dir(path)] = append(byDir[filepath.Dir(path)], path)
 			}
-			file, perr := parser.ParseFile(fset, path, nil, 0)
-			if perr != nil {
-				return nil
-			}
-			findings = append(findings, scan(fset, file, path)...)
 			return nil
 		})
+	}
+	dirs := make([]string, 0, len(byDir))
+	for dir := range byDir {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	for _, dir := range dirs {
+		files := map[string]*ast.File{}
+		for _, path := range byDir[dir] {
+			if file, perr := parser.ParseFile(fset, path, nil, 0); perr == nil {
+				files[path] = file
+			}
+		}
+		// A section that calls a function which writes is writing, however
+		// many calls deep. Without this the detector reported functions whose
+		// whole purpose is mutation — configuring a host route, reapplying a
+		// security group, publishing a version — as read-only, because the
+		// write was one call away.
+		writers := writingFuncs(files)
+		paths := make([]string, 0, len(files))
+		for path := range files {
+			paths = append(paths, path)
+		}
+		sort.Strings(paths)
+		for _, path := range paths {
+			findings = append(findings, scan(fset, files[path], path, writers)...)
+		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].pos < findings[j].pos })
 	for _, f := range findings {
@@ -84,7 +114,7 @@ func main() {
 	fmt.Fprintf(os.Stderr, "readonly-lock findings: %d\n", len(findings))
 }
 
-func scan(fset *token.FileSet, file *ast.File, path string) []finding {
+func scan(fset *token.FileSet, file *ast.File, path string, writers map[string]bool) []finding {
 	var out []finding
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -95,7 +125,7 @@ func scan(fset *token.FileSet, file *ast.File, path string) []finding {
 		if lock == "" {
 			continue
 		}
-		if writesSomething(fn.Body) {
+		if writesSomething(fn.Body, writers) {
 			continue
 		}
 		// Only sections that read a store are reported. A lock held over a
@@ -145,7 +175,7 @@ func exclusiveLock(body *ast.BlockStmt) (string, token.Pos) {
 // writesSomething reports whether the body does anything but read. It is
 // deliberately generous: anything the detector cannot prove is a read counts
 // as a write, so a report is worth reading rather than worth suppressing.
-func writesSomething(body *ast.BlockStmt) bool {
+func writesSomething(body *ast.BlockStmt, writers map[string]bool) bool {
 	declared := map[string]bool{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		if assign, ok := n.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
@@ -192,8 +222,16 @@ func writesSomething(body *ast.BlockStmt) bool {
 				}
 			}
 		case *ast.CallExpr:
-			if sel, ok := node.Fun.(*ast.SelectorExpr); ok && mutatingMethods[sel.Sel.Name] {
-				writes = true
+			if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
+				// A call on the response writer mutates the response, not the
+				// state the lock guards. Counting w.Header().Set as a write
+				// excluded every request handler that answers with a header —
+				// which is all of them — and emptied the detector of exactly
+				// the read paths it exists to find.
+				if !onResponseWriter(sel.X) &&
+					(mutatingMethods[sel.Sel.Name] || writers[sel.Sel.Name]) {
+					writes = true
+				}
 			}
 			// The builtins that mutate are calls to a plain identifier, not to
 			// a method, and missing them made the detector report functions
@@ -202,6 +240,9 @@ func writesSomething(body *ast.BlockStmt) bool {
 			if id, ok := node.Fun.(*ast.Ident); ok {
 				switch id.Name {
 				case "delete", "clear", "copy", "panic":
+					writes = true
+				}
+				if writers[id.Name] {
 					writes = true
 				}
 			}
@@ -247,4 +288,55 @@ func readsAStore(body *ast.BlockStmt) bool {
 		return true
 	})
 	return found
+}
+
+// writingFuncs returns the names of the package's functions that write, closed
+// transitively over calls between them.
+func writingFuncs(files map[string]*ast.File) map[string]bool {
+	bodies := map[string]*ast.FuncDecl{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+				bodies[fn.Name.Name] = fn
+			}
+		}
+	}
+	writers := map[string]bool{}
+	for name, fn := range bodies {
+		if writesSomething(fn.Body, nil) {
+			writers[name] = true
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for name, fn := range bodies {
+			if writers[name] {
+				continue
+			}
+			if writesSomething(fn.Body, writers) {
+				writers[name] = true
+				changed = true
+			}
+		}
+	}
+	return writers
+}
+
+// onResponseWriter reports whether an expression is rooted at the HTTP response
+// writer, by the name the handlers in this repository give it.
+func onResponseWriter(expr ast.Expr) bool {
+	for {
+		switch node := expr.(type) {
+		case *ast.Ident:
+			return node.Name == "w" || node.Name == "rw"
+		case *ast.SelectorExpr:
+			expr = node.X
+		case *ast.CallExpr:
+			expr = node.Fun
+		case *ast.IndexExpr:
+			expr = node.X
+		default:
+			return false
+		}
+	}
 }

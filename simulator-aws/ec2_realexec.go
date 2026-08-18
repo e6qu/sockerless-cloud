@@ -15,8 +15,13 @@ import (
 )
 
 var (
-	ec2RealHost       = realexec.NewHost()
-	ec2RealMu         sync.Mutex
+	ec2RealHost = realexec.NewHost()
+	// ec2RealMu guards the real-execution fabric maps. Reads — resolving a
+	// security group's member addresses, listing the attachments to reapply —
+	// exclude nothing but a writer. Anything that creates, mutates or tears
+	// down fabric keeps taking Lock; neither is reentrant, and no section here
+	// calls another.
+	ec2RealMu         sync.RWMutex
 	ec2RealVPCs       = map[string]*realexec.Network{}
 	ec2RealSubnets    = map[string]*realexec.Subnet{}
 	ec2RealNICs       = map[string]*realexec.NamespaceNIC{}
@@ -571,13 +576,13 @@ func ec2SGMemberCIDRs(groupID string) []string {
 			}
 		}
 	}
-	ec2RealMu.Lock()
+	ec2RealMu.RLock()
 	for _, attachment := range ec2RealLambdaNICs {
 		if stringInSlice(groupID, attachment.SecurityGroupIDs) {
 			add(attachment.PrivateIP)
 		}
 	}
-	ec2RealMu.Unlock()
+	ec2RealMu.RUnlock()
 	var out []string
 	for cidr := range seen {
 		out = append(out, cidr)
@@ -990,12 +995,12 @@ func ec2ReapplyRealSecurityGroup(ctx context.Context, groupID string) error {
 			return err
 		}
 	}
-	ec2RealMu.Lock()
+	ec2RealMu.RLock()
 	lambdaAttachments := make(map[string]ec2RealLambdaNIC, len(ec2RealLambdaNICs))
 	for invocationID, attachment := range ec2RealLambdaNICs {
 		lambdaAttachments[invocationID] = attachment
 	}
-	ec2RealMu.Unlock()
+	ec2RealMu.RUnlock()
 	for invocationID, attachment := range lambdaAttachments {
 		if !stringInSlice(groupID, attachment.SecurityGroupIDs) {
 			continue
