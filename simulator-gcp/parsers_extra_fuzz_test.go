@@ -17,6 +17,9 @@ func FuzzBQParseTableRef(f *testing.F) {
 	seeds := []string{
 		"", "t", "d.t", "p.d.t", "`p.d.t`", "...", ".", "a.b.c.d.e",
 		"`", "``", "`a`", "p..t", "é.ê.ë",
+		// Found by this target on the nightly run: trimming quotes from the
+		// ends leaves one in the middle, so this parsed to a table named "`0".
+		"0.`0", "`p`.`d`.`t`", "p.d.`t",
 	}
 	for _, s := range seeds {
 		f.Add(s)

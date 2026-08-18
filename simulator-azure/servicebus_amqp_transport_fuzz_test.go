@@ -28,6 +28,11 @@ func FuzzSBAMQPReadFrame(f *testing.F) {
 	// oracle has to notice rather than be rescued from.
 	f.Add([]byte{0x01, 0x00, 0x00, 0x01, 0, 0, 0, 0})
 	f.Add([]byte{0, 0, 0, 12, 2, 0, 0, 0, 1, 2, 3, 4})
+	// Found by this target on the nightly run: a size the bound admits, with
+	// the body cut short. The reader answered with the whole buffer it had
+	// reserved — the size the peer claimed, zero-padded — beside the error.
+	f.Add([]byte{0, 0, 0, 12, 2, 0, 0, 0, 1})
+	f.Add([]byte{0x00, 0x30, 0x2f, 0x30, 2, 0, 0, 0, 1, 2, 3, 4})
 	f.Fuzz(func(t *testing.T, data []byte) {
 		frame, err := sbAMQPReadFrame(bufio.NewReader(bytes.NewReader(data)))
 
