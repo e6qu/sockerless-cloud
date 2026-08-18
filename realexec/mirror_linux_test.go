@@ -206,6 +206,28 @@ func TestMirrorHonoursItsFilter(t *testing.T) {
 	if packets := observed.Status().Packets; packets != 0 {
 		t.Errorf("%d filtered-out packets reached the collector", packets)
 	}
+
+	// The other half, and the one that makes the first half mean anything: the
+	// filter must forward the protocol it names. A mirror that forwards
+	// nothing — a filter compiled to reject everything, a session that never
+	// attached — also forwards no ICMP, and would pass on the assertions above
+	// alone.
+	generateMirroredTCPTraffic(t, sourceNS)
+	if awaitPackets(t, func() uint64 { return mirror.Status().Packets }, 5*time.Second) == 0 {
+		t.Error("the mirror forwarded nothing under a TCP-only filter while real TCP crossed the link, " +
+			"so it excludes everything rather than excluding ICMP")
+	}
+}
+
+// generateMirroredTCPTraffic makes TCP cross the mirrored interface. Nothing
+// listens on the far side, so the connection is refused — and that refusal is
+// itself a TCP exchange on the link, which is what a TCP filter is asked about.
+func generateMirroredTCPTraffic(t *testing.T, namespace string) {
+	t.Helper()
+	if out, err := exec.Command("ip", "netns", "exec", namespace,
+		"bash", "-c", "exec 3<>/dev/tcp/"+peerAddress+"/9").CombinedOutput(); err != nil {
+		t.Logf("TCP connect to %s:9 was refused, as expected: %v\n%s", peerAddress, err, out)
+	}
 }
 
 // A session with nowhere to deliver is refused rather than started: it would

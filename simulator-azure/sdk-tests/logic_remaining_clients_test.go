@@ -332,19 +332,22 @@ func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
 	_, err = tracePager.NextPage(ctx)
 	require.NoError(t, err)
 
-	// Item reads under those empty collections are 404s.
+	// Item reads under those empty collections are 404s. Each is held to the
+	// refusal it names rather than to "an error happened": a transport fault,
+	// a 500 and a deserialisation failure all satisfy a bare error assertion,
+	// and none of them shows the service looked the item up.
 	_, err = repetitions.Get(ctx, rg, wfName, runName, actionName, "000000", nil)
-	require.Error(t, err, "a repetition that does not exist must 404")
+	requireAzureNotFound(t, err, "a repetition that does not exist")
 
 	_, err = scopeReps.Get(ctx, rg, wfName, runName, actionName, "000000", nil)
-	require.Error(t, err, "a scope repetition that does not exist must 404")
+	requireAzureNotFound(t, err, "a scope repetition that does not exist")
 
 	_, err = reqHistories.Get(ctx, rg, wfName, runName, actionName, "000000", nil)
-	require.Error(t, err, "a request history that does not exist must 404")
+	requireAzureNotFound(t, err, "a request history that does not exist")
 
 	_, err = repReqHistories.Get(ctx, rg, wfName, runName, actionName, "000000", "000000", nil)
-	require.Error(t, err, "a repetition request history that does not exist must 404")
+	requireAzureNotFound(t, err, "a repetition request history that does not exist")
 
 	_, err = runOps.Get(ctx, rg, wfName, runName, "00000000-0000-0000-0000-000000000000", nil)
-	require.Error(t, err, "a run operation that does not exist must 404")
+	requireAzureNotFound(t, err, "a run operation that does not exist")
 }

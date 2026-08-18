@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 20. Resolved: 47.
+Open: 19. Resolved: 51.
 
 ## Open
 
@@ -15,26 +15,24 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
 
-- **BUG-56 (the job fan-out throttles GitHub's own action download):** Two jobs
-  of one run died in setup with `429 (Too Many Requests)` fetching
-  `actions/setup-go` from codeload, after the three attempts the runner makes on
-  its own — `sim (aws cli ecs)` and `browser (simulator-aws)` on run
-  32037273208, then `sim (aws cli appdata2)` on run 32038906020, then five jobs
-  on run 32039692114 — with no repository code executed in any of them. It
-  recurs on every push, and worsens as the workflow grows: one of those five
-  died fetching an `actions/setup-java` step scoped to a different cloud, which
-  is how the aggravating factor surfaced. The runner downloads every action a
-  workflow references before it evaluates any step's condition, so an action
-  used by one job costs every job in the matrix a fetch; that step was replaced
-  by one reading the runtime the runner already has. The workflow starts
-  around forty-six jobs at once and every one of them downloads the same three
-  action tarballs within seconds of each other, which is the burst being
-  throttled. It presents as an unrelated pair of red cells that pass on a
-  re-run, so it costs a re-run each time and, worse, teaches a reader to re-run
-  red cells. Fix shape: cut the simultaneous fan-out (a matrix `max-parallel`
-  low enough that the tarball fetches spread out, traded against wall clock), or
-  stop fetching the actions per job at all. Do not paper over it with a retry
-  wrapper: the runner already retried three times.
+- **BUG-56 (action downloads failed during a GitHub incident, and the fan-out
+  is the standing risk):** Filed as "the job fan-out throttles GitHub's own
+  action download", which the evidence does not support. Every `429` fetching
+  an action tarball from codeload landed after 2026-08-17T13:40Z, the minute
+  GitHub opened a critical incident (Actions degraded, API degraded, Issues in
+  major outage); the run immediately before it had ten failures and not one was
+  a throttle, and the run at `94a8e3c` — still forty-six jobs, still fetching
+  the same tarballs — went 46 of 46 green. The incident was the cause. What
+  remains true, and is why this stays open rather than being struck: the runner
+  downloads every action a workflow references before evaluating any step's
+  condition, so each of the forty-six jobs fetches every action the workflow
+  names, and a step scoped to one cloud costs all of them. That was measured —
+  a gcp-only `actions/setup-java` step was fetched by the azure job — and the
+  step was replaced by one reading the runtime the runner already ships. Fix
+  shape, if the throttling recurs outside an incident: cut the number of
+  actions the workflow references, and only then consider a matrix
+  `max-parallel`, which trades wall clock on every run against a burst that has
+  not been shown to be the problem.
 
 - **BUG-20 (the container reaper leaves workload containers running for
   days):** Simulator workload containers outlive the simulator that created
@@ -179,27 +177,65 @@ the simulators from the sockerless monorepo, keeping their IDs
   the documented signature verification in the Blob plane, then let the backup
   path rely on it.
 
-- **BUG-45 (the Azure SDK's environment lifecycle pagers panic):** Three App
-  Service Environment operations — suspend, resume and change-virtual-network —
-  are declared both long-running and pageable, and the generated client hands
-  back a poller whose result type is a pager. On the synchronous branch the
-  SDK's no-op poller unmarshals the terminal body into a nil pager, allocating a
-  fresh one with a zero handler and assigning it over the client's pre-built
-  pager, so every read calls through a nil handler and panics. Only that branch
-  is affected; the accepted-plus-location branch unmarshals into the client's
-  own pager and reads correctly. A second, separate defect applies to both
-  branches: iterating with the `More` loop Microsoft's own generated example
-  uses yields zero pages. The simulator is faithful — it emits the collection
-  the specification and Microsoft's examples document, verified by the runtime
-  validator, and answers synchronously because the work genuinely completes in
-  the handler; manufacturing an accepted response and a location for finished
-  work would be a fake completion signal. Nothing here closes by changing the
-  simulator. It closes when the SDK stops generating these three as pageable,
-  or when its no-op poller stops overwriting a caller-supplied response. The
-  bodies are now asserted on the wire in the SDK suite and through the Azure
-  command-line client, which is as far as a real client can consume them.
-
 ## Resolved history
+
+- **BUG-59 (a soak test starved the writers it was racing):** The store soak
+  ran twenty-four readers spinning without pause against twenty-four writers,
+  so on a machine with fewer cores than the reader pool the readers held every
+  processor and the writers crawled. Measured: twelve seconds at full
+  parallelism, thirty at four processors, forty-six at two — and on a
+  four-processor continuous-integration runner it ran two minutes thirty-seven
+  without finishing and took the whole module's five-and-a-half-minute budget
+  down with it, as a package-wide timeout panic naming a test that was merely
+  slow. The reader pool is now sized to the machine and yields between passes,
+  which keeps the hazard it exists for — a Filter result racing a concurrent
+  Delete — while leaving the writers somewhere to run: three seconds at four
+  processors, two at two, and the module's whole unit-test step in eighty-four.
+
+- **BUG-60 (a degraded package mirror failed jobs that needed nothing from
+  it):** Two jobs of one run died in `apt-get update`, each after three honest
+  retries over ten minutes, while installing seven packages of which five ship
+  on the runner image. The index is now refreshed only when something is
+  actually missing, so a degraded mirror cannot fail a job with no question to
+  ask of it. A genuinely unavailable package still fails loudly; the retries
+  and the loud failure are unchanged.
+
+- **BUG-58 (a job deleted the shared Go caches and saved the emptiness):** The
+  AWS SDK job freed disk before its timed run by deleting the Go build and
+  module caches, and `actions/setup-go` saves at post-job, so the run stored
+  what was left — nothing — under the key every Go job in the workflow shares.
+  A branch's first run is not an exact hit in its own scope, which is what
+  makes it save. Measured: the entry under
+  `setup-go-…-go-1.25.12-69c66a05…` was 224,164,847 bytes on the reference
+  branch and 7,564 bytes on `refs/heads/main`, written the minute the previous
+  pull request merged; every branch cut afterwards inherited the empty one and
+  built cold, and the pre-build step that takes 3m16s warm hit its six-minute
+  ceiling twice. The deletion was buying 6 GB on a 145 GB disk that was 43%
+  used, so it no longer touches the Go caches — the container images and apt
+  lists are the part worth reclaiming — and the pre-build budget now fits the
+  cold build it exists to absorb. The poisoned entry was deleted so the next
+  run on the default branch writes a real one.
+
+- **BUG-45 (the Azure SDK's environment lifecycle pagers panicked):** Closed by
+  changing the simulator, which this entry had concluded was impossible. Suspend,
+  resume and change-virtual-network are declared long-running with their final
+  state via Location and with 202 a documented response, so answering the
+  collection synchronously was the divergence, not the client's problem: on a
+  synchronous answer azcore selects its no-op poller, whose result field is a
+  zero value of the poller's type parameter — here a pager — so it allocates a
+  fresh pager with a nil handler and assigns it over the one the client built,
+  and every read panics. The three now answer 202 and record the collection as
+  the operation's result, which the Location poll serves. The generated client
+  reads its own pager, which the suite now drains rather than discarding —
+  taking the first page directly, since a long-running operation's pager is
+  created already holding it and `More` consults that page's `nextLink`, so the
+  `More` loop Microsoft's own example uses yields nothing for a single-page
+  result. That was the second defect this entry recorded, and it is a client
+  idiom rather than a simulator divergence. The
+  earlier reasoning — that manufacturing an accepted response for finished work
+  would be a fake completion signal — had it backwards: the service answers 202
+  here, the specification documents it, and the operation completes for real
+  behind it.
 
 - **BUG-57 (AttachPolicy accepted a policy type the root had not enabled):**
   Attaching a policy now requires its type to be enabled in the root, which is

@@ -135,6 +135,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: fake-tests
+        name: No test passes without exercising what it names
+        entry: bash scripts/check-fake-tests.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: embedded-ui-build-order
         name: Embedded web interfaces build before Go binaries
         entry: bash scripts/check-embedded-ui-build-order.sh

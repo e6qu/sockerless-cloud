@@ -78,7 +78,7 @@ jobs:
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - name: Install script check tools
-        run: bash scripts/ci-apt-update.sh && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y jq shellcheck zsh
+        run: bash scripts/ci-apt-install.sh jq shellcheck zsh
       - name: Check shell scripts
         run: |
           shellcheck -x -s bash scripts/*.sh
@@ -245,8 +245,7 @@ jobs:
           key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - name: Install Firecracker test dependencies
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iptables iputils-ping nftables openssh-client squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iptables iputils-ping nftables openssh-client squashfs-tools
       - name: Install Firecracker
         run: bash scripts/install-firecracker.sh
       - name: Run Firecracker arithmetic smoke
@@ -337,8 +336,7 @@ jobs:
         run: az version
       - name: Install real-execution tools
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
       - name: Install Caddy
         # TestArtifactRegistryCLI_DockerLoginPushPull serves the Google Artifact
@@ -444,8 +442,7 @@ jobs:
         # 15-minute budget.
         if: matrix.suite == 'compute'
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
       # Download modules and compile the unit-test binaries in their own
       # budgeted step, so the timed test run below isn't eaten by a cold
@@ -480,12 +477,28 @@ jobs:
           bash scripts/ci-go-mod-download.sh simulator-aws
           cd simulator-aws && make build
           cd sdk-tests && CGO_ENABLED=0 go test -c -o /tmp/aws-sdk-tests.test .
-        timeout-minutes: 6
+        # This step exists to absorb a cold build, so its budget has to fit
+        # one: measured at 3m16s against a warm cache and over six minutes
+        # against an empty one. Six minutes was under twice the warm cost,
+        # which is no margin for the case the step is for.
+        timeout-minutes: 10
+      # Free disk before the timed run — but never the Go caches. Deleting
+      # those poisons the cache for every later job: setup-go saves at
+      # post-job, a branch's first run restores the default branch's entry and
+      # is therefore not an exact hit in its own scope, so it saves what it
+      # has, which after this step is nothing. Measured on this branch: the
+      # entry under the shared key went from 224,164,847 bytes to 7,564, and
+      # the pre-build step that takes 3m16s warm hit its six-minute ceiling
+      # twice.
+      #
+      # The deletion was not buying much either. Measured on the run before it:
+      # 83 GB free before, 89 GB after, on a 145 GB disk at 43% used. The
+      # container images and apt lists are the part worth reclaiming.
       - name: Free AWS SDK runner disk before execution
         run: |
           df -h
-          go clean -cache -testcache -modcache
-          rm -rf "$HOME/.cache/go-build" "$HOME/go/pkg/mod" "$RUNNER_TEMP/go-build"
+          go clean -testcache
+          rm -rf "$RUNNER_TEMP/go-build"
           docker image prune -af
           sudo apt-get clean
           df -h
@@ -656,8 +669,7 @@ jobs:
           key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
       - name: Install real-execution tools
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
       - name: Install Session Manager plugin
         run: |
@@ -795,8 +807,7 @@ jobs:
           terraform_wrapper: false
       - name: Install real-execution tools
         run: |
-          bash scripts/ci-apt-update.sh
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
+          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
           bash scripts/install-firecracker.sh
       - name: Install Caddy
         run: |
@@ -961,6 +972,9 @@ jobs:
         timeout-minutes: 5
       - name: No new skip-if-tool-absent tests
         run: bash scripts/check-no-tool-absent-skips.sh
+        timeout-minutes: 5
+      - name: No test passes without exercising what it names
+        run: bash scripts/check-fake-tests.sh
         timeout-minutes: 5
       - name: Check container publication contract
         run: bash scripts/check-container-publication.sh

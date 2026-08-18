@@ -1,5 +1,117 @@
 # WHAT WE DID
 
+## 2026-08-18 — Two ways a run failed without anything being wrong with it
+
+A store soak ran twenty-four readers spinning without pause against
+twenty-four writers. On a machine with fewer cores than the reader pool the
+readers held every processor and the writers crawled: twelve seconds at full
+parallelism, thirty at four processors, forty-six at two, and on the runner two
+minutes thirty-seven without finishing — which surfaced as a package-wide
+timeout panic naming a test that was only slow. The reader pool is sized to the
+machine now and yields between passes, which keeps the hazard it exists for and
+gives the writers somewhere to run: three seconds at four processors, and the
+module's whole unit-test step in eighty-four.
+
+Two other jobs died in `apt-get update`, each after three honest retries over
+ten minutes, while installing seven packages of which five ship on the runner
+image. The index is refreshed only when something is actually missing now, so a
+degraded mirror cannot fail a job that had no question to ask of it. A package
+that genuinely is unavailable still fails loudly.
+
+## 2026-08-18 — The cache a job emptied and then saved
+
+The AWS SDK job freed disk before its timed run by deleting the Go build and
+module caches. `actions/setup-go` saves at post-job, and a branch's first run —
+having restored the default branch's entry rather than its own — is not an
+exact hit in its own scope, so it saves. What it saved was the emptiness: the
+entry under the key every Go job shares went from 224,164,847 bytes to 7,564,
+written the minute the previous pull request merged, and every branch cut after
+that inherited it and built cold. The pre-build step that takes 3m16s against a
+warm cache hit its six-minute ceiling twice before the cause was visible.
+
+The deletion was buying 6 GB on a 145 GB disk that was 43% used. It no longer
+touches the Go caches; the container images and the apt lists are the part
+worth reclaiming, and the pre-build budget now fits the cold build the step
+exists to absorb rather than sitting just under twice the warm cost. The
+poisoned entry was deleted so the next run on the default branch writes a real
+one.
+
+## 2026-08-18 — A second sweep, and the gate that keeps the class out
+
+The first sweep was a reading of every simulator against a taxonomy. This one
+is mechanical: `scripts/check-fake-tests.go` decides seven classes of
+can't-fail test from the syntax tree, and `scripts/check-fake-tests.sh` turns
+its report into a gate — classes with no instances left held at zero, the two
+with a standing population carrying a floor that may only fall.
+
+Building it was itself an exercise in the thing it looks for. Its first run
+reported twenty-four collections as permanently empty; every one was a map
+filled by index assignment the detector could not see, and two more were
+counter maps grown with `++`. Its first `no-assertion` run reported twenty-two
+tests, eleven of which asserted through a helper one call away. Its first
+`any-error` run reported ninety-one, nineteen of which named the error through
+a package helper. A detector whose findings nobody can act on is a fake test
+with a different shape, so each was fixed — helpers resolved transitively,
+growth recognised in every form the repository uses — before a single finding
+was acted on. What the calibrated detectors then reported was small and real.
+
+The classes now at zero are at zero because nothing was there: no self
+comparison, no wait that cannot be false, no empty subtest, no table that never
+runs, no `t.Fatal` off the test goroutine. Three real findings came out of the
+rest. A parser-depth test discarded both return values of all three guards, so
+it detected a stack overflow and nothing else — a guard quietly stopped
+refusing would have passed; each refusal is now named. And two filter tests —
+one for traffic capture, one for mirroring — asserted only that the filtered-out
+protocol was absent, which a capture or mirror that recorded nothing at all
+also satisfies; both now generate the protocol the filter names and require it
+through.
+
+Two of those weak assertions turned out to be testing nothing whatsoever, and
+only tightening them revealed it. A Certificate Manager export with no
+passphrase, and a configuration write with no idempotency token, never reach
+the service at all: the generated client validates its own required members and
+refuses to send the request. The bare error assertions were passing on that
+client-side failure. Demonstrated rather than argued — with the simulator's
+passphrase validation deleted, the original test still passes; the replacement
+fails. Both now assert the client's refusal for what it is and drive the
+service's own validation over the wire, signed the way the client signs, since
+that refusal is unreachable through the typed client.
+
+Fourteen error-path assertions that accepted any error at all were given the
+service's own refusal: an export without a passphrase, a configuration write
+without an idempotency token, a distribution with no origins, four Logic Apps
+reads that must 404, and five Google Cloud identity refusals. A transport
+fault, a 500 and a body the client could not decode all satisfied them before.
+Sixty-two remain, each needing its service's real code read out of the handler
+and the vendored model, and the floor holds them visible while they burn down.
+
+The gate was proved by planting one instance of each held-at-zero class and
+watching it fail, then removing them and watching it pass.
+
+## 2026-08-18 — The App Service Environment pagers, which did close here
+
+BUG-45 recorded that three App Service Environment operations hand back a pager
+the SDK panics on, and concluded that nothing about it could be fixed in the
+simulator. That was wrong, and the specification says so: suspend, resume and
+change-virtual-network are all declared long-running with their final state via
+Location, with 202 a documented response. Answering the collection
+synchronously was the divergence. On a synchronous answer azcore selects its
+no-op poller, whose result field is a zero value of the poller's type parameter
+— here a pager — so it allocates a fresh pager with a nil handler and assigns
+it over the one the client built, leaving every read to dereference nil.
+
+The three now answer 202 and record the collection as the operation's result,
+which the Location poll serves; the suite drains the pager the generated client
+returns rather than working around it over raw HTTP. Draining it takes the
+first page directly rather than through the `More` loop Microsoft's generated
+example uses: a long-running operation's pager is created already holding its
+first page and `More` consults that page's `nextLink`, so for a single-page
+result the example's loop yields nothing at all — the second defect the bug
+recorded, and a client-side idiom rather than a simulator one. The same mechanism is
+covered directly: a running operation's Location answers 202 with no body, a
+succeeded one answers with the result and never the status envelope, and a
+failed one carries the error and no payload.
+
 ## 2026-08-17 — A sweep for tests that proved nothing
 
 Every simulator was audited against a taxonomy of fake tests drawn from real

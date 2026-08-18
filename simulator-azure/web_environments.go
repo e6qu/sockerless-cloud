@@ -1419,7 +1419,7 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 			return
 		}
 		webHostingEnvironments.Put(row.ID, row)
-		writeARMCollection(w, r, aseSortedSites(row.ID))
+		aseAcceptedCollection(w, r, row, aseSortedSites(row.ID))
 	})
 
 	// AppServiceEnvironments_Reboot — reboot the machines of the environment.
@@ -1483,6 +1483,39 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 // aseAccepted answers the two operations the specification declares with a
 // 202-only contract, with the poll coordinates ARM puts on an accepted
 // long-running operation.
+
+// aseAcceptedCollection answers an App Service Environment operation that is
+// long-running with its final state via Location and whose result is a
+// collection of the apps it moved. The collection is recorded as the
+// operation's result, so the Location poll serves it once the operation
+// completes.
+//
+// Answering the collection synchronously instead is a shape the generated
+// client cannot read: for an operation declared both long-running and
+// pageable, the SDK builds a pager, hands it to the poller as the response to
+// fill, and — on the synchronous branch — its no-op poller unmarshals the
+// terminal body into a fresh zero-valued pager and assigns that over the one
+// it built, so every read calls through a nil handler and panics. The service
+// answers 202 here, and the specification documents it; matching that is what
+// makes the operation readable.
+func aseAcceptedCollection(w http.ResponseWriter, r *http.Request, row AppServiceEnvironmentResource, sites []Site) {
+	page, token := armPage(r, sites)
+	body := map[string]any{"value": page}
+	if token != "" {
+		body["nextLink"] = armNextLink(r, token)
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+			"The operation result could not be rendered: %v", err)
+		return
+	}
+	opID := issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
+		return payload, nil
+	})
+	aseAccepted(w, r, row, opID)
+}
+
 func aseAccepted(w http.ResponseWriter, r *http.Request, row AppServiceEnvironmentResource, opID string) {
 	sub := sim.PathParam(r, "subscriptionId")
 	apiVersion := r.URL.Query().Get("api-version")
@@ -1510,7 +1543,7 @@ func aseSetSuspended(suspended bool) http.HandlerFunc {
 		}
 		row.Properties.Suspended = boolPtr(suspended)
 		webHostingEnvironments.Put(row.ID, row)
-		writeARMCollection(w, r, aseSortedSites(row.ID))
+		aseAcceptedCollection(w, r, row, aseSortedSites(row.ID))
 	}
 }
 
