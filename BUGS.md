@@ -177,17 +177,23 @@ the simulators from the sockerless monorepo, keeping their IDs
   the documented signature verification in the Blob plane, then let the backup
   path rely on it.
 
-- **BUG-65 (103 data races in the AWS module's own suite):** The first
-  race-detector run of these suites reported 144 races in `simulator-aws`; 41
-  were the background-worker leak BUG-64 closed, and 103 remain. They are
-  pre-existing — measured against the merge base — and CI has never run
-  `-race`, so nothing was catching them. They cluster in tests that share
-  package-level stores with goroutines still running from earlier tests, the
-  same family as BUG-64 but in paths this branch did not touch. Fix shape: give
-  the remaining background workers a lifecycle a test can end, then add `-race`
-  to the module's unit-test job so the count cannot grow again. Do not add the
-  flag before the count is zero: a job that fails on every run teaches people
-  to ignore it.
+- **BUG-65 (three data races remain in the AWS module's own suite):** The first
+  race-detector run of these suites reported 144 in `simulator-aws`; three
+  remain, all in one test. Everything between was one cause: asynchronous
+  simulator work — reconciliations, builds, deployments, certificate validation
+  — ran in goroutines nothing tracked, so one still running when its test ended
+  read package-level stores while the next test replaced them. Fifteen of those
+  now run through `simGo`, which counts them; `AwaitSimulatorBackground` drains
+  to quiescence rather than waiting once, because the work chains; and every
+  store reset in the suite waits first.
+  `TestUnansweredHealthCheckReportsTimeout` still races the target-health
+  checker, which a server starts rather than `simGo` — a long-lived worker
+  belongs to its server's lifecycle, and that test reaches the checker without
+  owning one. Fix shape: give the test a server it stops, or route the sweep it
+  drives through the counted path. Add `-race` to the module's unit-test job
+  once it is zero, not before: a job that fails on every run teaches people to
+  ignore it.
+
 
 ## Resolved history
 
