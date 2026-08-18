@@ -46,10 +46,13 @@ func ddbQueryConcurrencyStores(t *testing.T) {
 	db, err := sim.OpenDB(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ddbItems = sim.MakeStore[map[string]any](db, "ddb_items")
 	ddbItemNames = sim.MakeStore[string](db, "ddb_item_names")
 	ddbTables = sim.MakeStore[DDBTable](db, "ddb_tables")
-	ddbItemsMu = sync.RWMutex{}
+	ddbResetItemLocks()
 	ddbKeyGen.Add(1)
 }
 
@@ -156,14 +159,14 @@ func TestDDBQueryCopiesOnlyWhatItReturns(t *testing.T) {
 	require.Equal(t, "sk-01000", out.Items[0]["sk"].(map[string]any)["S"])
 
 	// The returned item is a copy: mutating the stored item must not change it.
-	ddbItemsMu.Lock()
 	storedKey := ddbItemKey(definition, map[string]any{
 		"pk": map[string]any{"S": "tenant"}, "sk": map[string]any{"S": "sk-01000"},
 	})
+	release := ddbLockItemKeys(true, storedKey)
 	stored, ok := ddbItems.Get(storedKey)
 	require.True(t, ok, "the seeded item must be readable at the key the simulator files it under: %s", storedKey)
 	stored["payload"].(map[string]any)["M"].(map[string]any)["body"] = map[string]any{"S": "mutated"}
-	ddbItemsMu.Unlock()
+	release()
 	body := out.Items[0]["payload"].(map[string]any)["M"].(map[string]any)["body"].(map[string]any)["S"]
 	require.Equal(t, "body-01000", body,
 		"a query result that aliases stored state lets a later write rewrite an answered response")
@@ -322,8 +325,7 @@ func TestDDBReadsRunConcurrently(t *testing.T) {
 	// construction, whatever the machine is doing.
 	var inside, peak atomic.Int64
 	observe := func() {
-		ddbItemsMu.RLock()
-		defer ddbItemsMu.RUnlock()
+		defer ddbLockTables(false, table)()
 		now := inside.Add(1)
 		defer inside.Add(-1)
 		for {
@@ -371,16 +373,89 @@ func TestDDBReadsRunConcurrently(t *testing.T) {
 		go func() {
 			defer writers.Done()
 			for range 25 {
-				ddbItemsMu.Lock()
+				release := ddbLockTables(true, table)
 				if !writerInside.CompareAndSwap(false, true) {
 					raced.Store(true)
 				}
 				time.Sleep(100 * time.Microsecond)
 				writerInside.Store(false)
-				ddbItemsMu.Unlock()
+				release()
 			}
 		}()
 	}
 	writers.Wait()
 	require.False(t, raced.Load(), "two writers held the item lock at once")
+}
+
+// TestDDBUnrelatedTablesDoNotContend is the property striping exists for: a
+// write to one table must not exclude readers of another. Under a single lock
+// — even a read-write one — a writer holding it stops every reader of every
+// table, which is what made unrelated services queue behind each other.
+func TestDDBUnrelatedTablesDoNotContend(t *testing.T) {
+	ddbQueryConcurrencyStores(t)
+	ddbSeedQueryTable(t, "busy", 20, 1)
+	ddbSeedQueryTable(t, "quiet", 20, 1)
+
+	// Hold the busy table's stripe for writing, and read the quiet one while it
+	// is held. A shared lock makes this block until the writer lets go.
+	writing := make(chan struct{})
+	releaseWriter := make(chan struct{})
+	go func() {
+		release := ddbLockTables(true, "busy")
+		close(writing)
+		<-releaseWriter
+		release()
+	}()
+	<-writing
+	defer close(releaseWriter)
+
+	read := make(chan struct{})
+	go func() {
+		defer close(read)
+		release := ddbLockTables(false, "quiet")
+		release()
+	}()
+	select {
+	case <-read:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reading one table blocked while another table was being written: " +
+			"the item lock is shared across tables, so unrelated tables contend")
+	}
+}
+
+// TestDDBCrossTableOperationsCannotDeadlock covers what striping costs: an
+// operation spanning several tables takes several locks, and two of them
+// naming the same tables in opposite orders would deadlock if the order were
+// the caller's. It is not — ddbLockTables sorts — so this finishes.
+func TestDDBCrossTableOperationsCannotDeadlock(t *testing.T) {
+	ddbQueryConcurrencyStores(t)
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		ddbSeedQueryTable(t, name, 5, 1)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var wg sync.WaitGroup
+		for i := range 8 {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				for range 50 {
+					// Deliberately opposite orders between the two halves.
+					if i%2 == 0 {
+						ddbLockTables(true, "alpha", "beta", "gamma")()
+					} else {
+						ddbLockTables(true, "gamma", "beta", "alpha")()
+					}
+				}
+			}(i)
+		}
+		wg.Wait()
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("multi-table operations deadlocked: the stripes are being taken in the caller's order")
+	}
 }

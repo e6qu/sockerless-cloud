@@ -25,6 +25,9 @@ func awslogsTaskDefinition(logGroup, streamPrefix string) ECSTaskDefinition {
 }
 
 func resetCloudWatchLogStoresForTest() {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	cwLogGroups = sim.MakeStore[CWLogGroup](nil, "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](nil, "cw_log_streams")
 	cwLogEvents = sim.MakeStore[[]CWLogEvent](nil, "cw_log_events")

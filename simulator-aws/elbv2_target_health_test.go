@@ -29,6 +29,11 @@ import (
 // container's published port and the service store to wake service schedulers,
 // so both must be real stores even when a test registers targets directly.
 func elbv2TargetHealthTestStores() {
+	// Work started by whatever ran before this must finish before the stores it
+	// is reading are replaced. A sweep reacts to target health by requesting a
+	// service reconciliation, so draining has to cover the work the checker
+	// itself started, not only the work the previous test asked for directly.
+	AwaitSimulatorBackground()
 	elbv2LoadBalancers = sim.MakeStore[ELBv2LoadBalancer](nil, "elbv2_load_balancers")
 	elbv2TargetGroups = sim.MakeStore[ELBv2TargetGroup](nil, "elbv2_target_groups")
 	elbv2Listeners = sim.MakeStore[ELBv2Listener](nil, "elbv2_listeners")
@@ -391,6 +396,9 @@ func TestTargetGroupOutsideEveryListenerRuleReportsUnused(t *testing.T) {
 
 	now := time.Now()
 	elbv2SweepTargets(context.Background(), now)
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 
 	health := elbv2TargetHealthFor(tg, target)
 	require.Equal(t, elbv2TargetStateUnused, health.State)
@@ -407,6 +415,9 @@ func TestTargetGroupOutsideEveryListenerRuleReportsUnused(t *testing.T) {
 	putELBv2ListenerForTargetGroup(tg)
 	require.Equal(t, elbv2TargetStateInitial, elbv2TargetHealthFor(tg, target).State)
 	elbv2SweepTargets(context.Background(), now.Add(time.Second))
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	require.Equal(t, elbv2TargetStateHealthy, elbv2TargetHealthFor(tg, target).State)
 	require.Positive(t, checks.Load())
 }
@@ -544,6 +555,9 @@ func TestDeregisteringTargetDrainsForTheDeregistrationDelay(t *testing.T) {
 
 	now := time.Now()
 	elbv2SweepTargets(context.Background(), now)
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	require.Equal(t, elbv2TargetStateHealthy, elbv2TargetHealthFor(tg, target).State)
 	checked := checks.Load()
 
@@ -574,6 +588,9 @@ func TestDeregisteringTargetDrainsForTheDeregistrationDelay(t *testing.T) {
 	deregisteredAt := drained.Targets[0].DeregisteringAt
 	require.False(t, deregisteredAt.IsZero())
 	elbv2SweepTargets(context.Background(), deregisteredAt.Add((delaySeconds-1)*time.Second))
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	require.Equal(t, checked, checks.Load(),
 		"the checker health-checked a target that is deregistering")
 	stillDraining, ok := elbv2TargetGroups.Get(tg.Arn)
@@ -582,6 +599,9 @@ func TestDeregisteringTargetDrainsForTheDeregistrationDelay(t *testing.T) {
 		"the target left the target group before its deregistration delay elapsed")
 
 	elbv2SweepTargets(context.Background(), deregisteredAt.Add(delaySeconds*time.Second))
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	deregistered, ok := elbv2TargetGroups.Get(tg.Arn)
 	require.True(t, ok)
 	require.Empty(t, deregistered.Targets,
@@ -623,6 +643,9 @@ func TestReRegisteringADrainingTargetReturnsItToService(t *testing.T) {
 
 	now := time.Now()
 	elbv2SweepTargets(context.Background(), now)
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	require.Equal(t, elbv2TargetStateHealthy, elbv2TargetHealthFor(tg, target).State)
 
 	deregister := httptest.NewRecorder()
@@ -645,6 +668,9 @@ func TestReRegisteringADrainingTargetReturnsItToService(t *testing.T) {
 	require.Equal(t, elbv2TargetStateInitial, elbv2TargetHealthFor(returned, returned.Targets[0]).State)
 
 	elbv2SweepTargets(context.Background(), now.Add(time.Minute))
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	inService, ok := elbv2TargetGroups.Get(tg.Arn)
 	require.True(t, ok)
 	require.Len(t, inService.Targets, 1)
@@ -681,6 +707,9 @@ func TestServiceScaleInDrainsItsTargetRatherThanDroppingIt(t *testing.T) {
 	require.True(t, registered.Targets[0].DeregisteringAt.IsZero())
 
 	elbv2SweepTargets(context.Background(), time.Now())
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	require.Equal(t, elbv2TargetStateHealthy,
 		elbv2TargetHealthFor(registered, registered.Targets[0]).State)
 
@@ -702,12 +731,18 @@ func TestServiceScaleInDrainsItsTargetRatherThanDroppingIt(t *testing.T) {
 	deregisteredAt := drained.Targets[0].DeregisteringAt
 	require.False(t, deregisteredAt.IsZero())
 	elbv2SweepTargets(context.Background(), deregisteredAt.Add((delaySeconds-1)*time.Second))
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	stillDraining, ok := elbv2TargetGroups.Get(tg.Arn)
 	require.True(t, ok)
 	require.Len(t, stillDraining.Targets, 1,
 		"the target left the target group before its deregistration delay elapsed")
 
 	elbv2SweepTargets(context.Background(), deregisteredAt.Add(delaySeconds*time.Second))
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	gone, ok := elbv2TargetGroups.Get(tg.Arn)
 	require.True(t, ok)
 	require.Empty(t, gone.Targets,
@@ -749,6 +784,9 @@ func TestServiceTaskRunningAgainCancelsItsDrain(t *testing.T) {
 		"the target stayed in deregistration after its task was running again")
 
 	elbv2SweepTargets(context.Background(), time.Now())
+	// A sweep can request a service reconciliation; let it finish before the
+	// test reads or replaces what it touches.
+	AwaitSimulatorBackground()
 	inService, ok := elbv2TargetGroups.Get(tg.Arn)
 	require.True(t, ok)
 	require.Equal(t, elbv2TargetStateHealthy,

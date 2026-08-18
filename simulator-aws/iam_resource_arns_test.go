@@ -777,6 +777,9 @@ func TestIAMEnforce_SSMParameterScopedGrant(t *testing.T) {
 // is merely well-shaped would still deny every policy written against the real
 // one.
 func TestIAMResourceARNs_RDSResolvesTheIdentifiersNoRequestNames(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	rdsCustomEngineVersions = sim.MakeStore[RDSCustomEngineVersion](nil, "rds_custom_engine_versions")
 	rdsProxyTargetGroups = sim.MakeStore[RDSProxyTargetGroup](nil, "rds_proxy_target_groups")
 
@@ -1137,6 +1140,9 @@ func iamAutoScalingRequest(action string, params map[string]string) *http.Reques
 // actually given, which is the only thing a policy written against that resource
 // can match.
 func TestIAMResourceARNs_AutoScalingResolvesTheARNTheResourceHas(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	autoScalingGroups = sim.MakeStore[AutoScalingGroup](nil, "autoscaling_groups")
 	asLaunchConfigurations = sim.MakeStore[ASLaunchConfiguration](nil, "autoscaling_launch_configurations")
 

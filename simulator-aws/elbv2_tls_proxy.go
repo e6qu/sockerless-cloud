@@ -108,10 +108,10 @@ func elbv2StartTLSProxy(listener ELBv2Listener) error {
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
 		}
-		go func() {
+		simGo(func() {
 			_ = p.srv.Serve(tlsListener)
 			close(p.done)
-		}()
+		})
 	}
 	elbv2TLSProxies[listener.Arn] = p
 	return nil
@@ -303,14 +303,14 @@ func (p *elbv2TLSProxy) handleStream(client net.Conn) {
 	}
 	defer upstream.Close()
 	errs := make(chan error, 2)
-	go func() {
+	simGo(func() {
 		_, err := io.Copy(upstream, client)
 		errs <- err
-	}()
-	go func() {
+	})
+	simGo(func() {
 		_, err := io.Copy(client, upstream)
 		errs <- err
-	}()
+	})
 	<-errs
 }
 

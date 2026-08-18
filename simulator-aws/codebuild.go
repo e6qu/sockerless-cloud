@@ -261,7 +261,7 @@ func cbAdoptBuildWorkload(
 		return false, fmt.Errorf("adopt %s %s container: %w", resourceName, id, err)
 	}
 	cbRegisterBuildCancel(id, handle.Cancel)
-	go func() {
+	simGo(func() {
 		result := handle.Wait()
 		cbUnregisterBuildCancel(id)
 		reason := ""
@@ -271,7 +271,7 @@ func cbAdoptBuildWorkload(
 			reason = fmt.Sprintf("Build command exited with status %d", result.ExitCode)
 		}
 		complete(id, result.ExitCode, reason)
-	}()
+	})
 	return true, nil
 }
 

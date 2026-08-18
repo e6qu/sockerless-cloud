@@ -12,6 +12,9 @@ import (
 // resetTagStores re-creates the in-memory stores the resolvers read, so each
 // case starts clean without a *sim.Server.
 func resetTagStores() {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	lambdaFunctions = sim.MakeStore[LambdaFunction](nil, "lambda_functions")
 	sqsQueues = sim.MakeStore[SQSQueue](nil, "sqs_queues")
 	snsTopics = sim.MakeStore[SNSTopic](nil, "sns_topics")

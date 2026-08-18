@@ -12,6 +12,9 @@ import (
 // ecrOCITestStores re-seeds the ECR control-plane stores the registry data
 // plane consults, so each case starts from a registry holding nothing.
 func ecrOCITestStores() {
+	// Work started by whatever ran before this must finish before the
+	// stores it is reading are replaced.
+	AwaitSimulatorBackground()
 	ecrRepositories = sim.MakeStore[ECRRepository](nil, "ecr_repositories")
 	ecrRepoCreationTemplates = sim.MakeStore[ECRRepositoryCreationTemplate](nil, "ecr_repo_creation_templates")
 	ecrRepoPolicies = sim.MakeStore[string](nil, "ecr_repo_policies")

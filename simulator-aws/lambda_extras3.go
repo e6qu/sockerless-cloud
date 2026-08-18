@@ -977,7 +977,7 @@ func lambdaStartDurableCoordinator(arn string, function LambdaFunction) {
 	changeCh := execution.ChangeCh
 	lambdaDurableMu.Unlock()
 
-	go func() {
+	simGo(func() {
 		var executionTimer <-chan time.Time
 		if timeoutSeconds > 0 {
 			timer := time.NewTimer(timeoutRemaining)
@@ -1020,7 +1020,7 @@ func lambdaStartDurableCoordinator(arn string, function LambdaFunction) {
 				return
 			}
 		}
-	}()
+	})
 }
 
 func lambdaWaitForDurableExecution(ctx context.Context, arn string) ([]byte, bool) {

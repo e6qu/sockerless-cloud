@@ -90,7 +90,7 @@ func ecsRequestServiceReconcile(key string) {
 	if key == "" {
 		return
 	}
-	go ecsReconcileService(key)
+	simGo(func() { ecsReconcileService(key) })
 }
 
 func ecsServiceLock(key string) *sync.Mutex {

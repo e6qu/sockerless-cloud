@@ -17,6 +17,9 @@ import (
 // half `aws ecr get-login-password` prints.
 func ecrAuthTestToken(t *testing.T) (authorizationToken, password string) {
 	t.Helper()
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ecrAuthorizationTokens = sim.MakeStore[ECRAuthorizationToken](nil, "ecr_authorization_tokens")
 	token, expires, err := ecrIssueAuthorizationToken()
 	if err != nil {
@@ -185,6 +188,9 @@ func TestECRDataPlaneRefusesAnExpiredAuthorizationToken(t *testing.T) {
 // half is real credential material: two calls never produce the same token, and
 // the password is neither derived from the registry nor short enough to guess.
 func TestECRAuthorizationTokensAreUnguessableAndDistinct(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ecrAuthorizationTokens = sim.MakeStore[ECRAuthorizationToken](nil, "ecr_authorization_tokens")
 	seen := map[string]bool{}
 	for i := 0; i < 8; i++ {

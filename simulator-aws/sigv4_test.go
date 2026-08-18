@@ -14,6 +14,9 @@ import (
 // resetCredentialStores re-creates the in-memory credential stores the SigV4
 // gate resolves against, so each case starts from a known set.
 func resetCredentialStores() {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	iamAccessKeys = sim.MakeStore[IAMAccessKey](nil, "iam_access_keys")
 	iamTempCreds = sim.MakeStore[IAMTempCred](nil, "iam_temp_creds")
 }

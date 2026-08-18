@@ -17,6 +17,9 @@ import (
 
 func amplifyResetHostingState() {
 	amplifyResetStores()
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	r53Zones = sim.MakeStore[r53StoredZone](nil, "route53_zones")
 	wafAssociations = sim.MakeStore[wafAssociation](nil, "wafv2_associations")
 	amplifyHostingMu.Lock()

@@ -16,6 +16,9 @@ import (
 // the wire/store splits (webhook appId hydration, deployment rows).
 
 func amplifyResetStores() {
+	// Work started by whatever ran before this must finish before the
+	// stores it is reading are replaced.
+	AwaitSimulatorBackground()
 	amplifyApps = sim.MakeStore[amplifyStoredApp](nil, "amplify_apps")
 	amplifyWebhooks = sim.MakeStore[amplifyStoredWebhook](nil, "amplify_webhooks")
 	amplifyJobs = sim.MakeStore[amplifyStoredJob](nil, "amplify_jobs")

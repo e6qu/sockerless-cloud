@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 // startStubUpstream answers every A query with one fixed address and reports how
 // many queries it was asked. It stands in for the recursive resolver the host
 // would provide.
-func startStubUpstream(t *testing.T, answer [4]byte, asked *int) string {
+func startStubUpstream(t *testing.T, answer [4]byte, asked *atomic.Int64) string {
 	t.Helper()
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -36,7 +37,7 @@ func startStubUpstream(t *testing.T, answer [4]byte, asked *int) string {
 			if qerr != nil {
 				continue
 			}
-			*asked++
+			asked.Add(1)
 			b := dnsmessage.NewBuilder(nil, dnsmessage.Header{
 				ID: hdr.ID, Response: true, RCode: dnsmessage.RCodeSuccess,
 			})
@@ -64,6 +65,9 @@ func withEmptyZoneStore(t *testing.T) {
 	t.Helper()
 	previous := r53Zones
 	t.Cleanup(func() { r53Zones = previous })
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	r53Zones = sim.MakeStore[r53StoredZone](nil, "route53_zones")
 }
 
@@ -91,7 +95,10 @@ func queryBytes(t *testing.T, name string) []byte {
 // which failed with ENOTFOUND while the resolver itself was perfectly reachable.
 func TestRoute53DNSForwardsNamesOutsideItsZones(t *testing.T) {
 	withEmptyZoneStore(t)
-	asked := 0
+	// Counted from the stub's own goroutine and read from the test's, so it
+	// has to be atomic — an int here is a data race the detector reports
+	// against the test rather than the simulator.
+	var asked atomic.Int64
 	upstream := startStubUpstream(t, [4]byte{203, 0, 113, 7}, &asked)
 	t.Setenv(route53UpstreamOverride, upstream)
 
@@ -99,8 +106,8 @@ func TestRoute53DNSForwardsNamesOutsideItsZones(t *testing.T) {
 	if err != nil {
 		t.Fatalf("answer query: %v", err)
 	}
-	if asked != 1 {
-		t.Fatalf("upstream was asked %d times, want exactly 1", asked)
+	if got := asked.Load(); got != 1 {
+		t.Fatalf("upstream was asked %d times, want exactly 1", got)
 	}
 
 	var p dnsmessage.Parser

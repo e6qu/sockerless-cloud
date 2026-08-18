@@ -83,6 +83,9 @@ func TestDynamoDBTableSettingsPersistAcrossStoreReopen(t *testing.T) {
 		t.Fatalf("persisted DynamoDB tags = %#v, want env=dev", got.Tags)
 	}
 
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
 	ddbItemNames = sim.MakeStore[string](nil, "ddb_item_names")
 	callDynamoDBHandler(t, handleDDBDeleteTable, `{"TableName":"jobs"}`)

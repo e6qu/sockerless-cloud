@@ -25,6 +25,9 @@ import (
 // looked dead but was only busy.
 func TestCreateSnapshotReturnsBeforeCapturingData(t *testing.T) {
 	t.Setenv("SIM_EBS_DATA_DIR", t.TempDir())
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 	ec2Snapshots = sim.MakeStore[EC2Snapshot](nil, "ec2_snapshots")
 

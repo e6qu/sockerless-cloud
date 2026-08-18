@@ -34,6 +34,9 @@ import (
 // group stores on the goroutine it reconciles on, so all of them must be real
 // stores even when a test only exercises a subset.
 func ecsSchedulerTestStores() {
+	// Reconciliations requested by whatever ran before this must finish before
+	// the stores they read are replaced.
+	AwaitSimulatorBackground()
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

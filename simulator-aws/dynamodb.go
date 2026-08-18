@@ -186,31 +186,6 @@ var (
 	// where itemKey is a deterministic encoding of the primary-key
 	// attribute values (HASH#<value> or HASH#<v>|RANGE#<v>).
 	ddbItems sim.Store[map[string]any]
-	// ddbItemsMu guards the item store across operations, which is what makes
-	// a transactional write or a read-modify-write atomic against the rest of
-	// the service. It is a read-write lock because most of what it guards is
-	// reading: GetItem, Query, Scan and the snapshot helpers exclude nothing
-	// but a writer, so a burst of reads runs at the width of the machine
-	// rather than one at a time.
-	//
-	// The contract, and the only thing that makes this safe:
-	//
-	//   - A critical section that only reads the store — Get, List, and
-	//     copying what it found — takes RLock.
-	//   - A critical section that writes, or that reads and then writes based
-	//     on what it read, takes Lock for the whole span. Read-modify-write
-	//     under RLock is a lost update, not a faster read.
-	//   - Neither is reentrant, and RLock is not reentrant either: a reader
-	//     that takes RLock while already holding it deadlocks behind any
-	//     writer that arrived in between. No critical section here calls
-	//     another.
-	//
-	// Before this was a read-write lock, every DynamoDB operation queued
-	// behind every other one: a workspace create fanning out into a few dozen
-	// GetItem and UpdateItem calls served them one at a time, each caller
-	// paying for everyone ahead of it, and single-item reads that are not
-	// O(table) by any measure took thirteen seconds.
-	ddbItemsMu sync.RWMutex
 )
 
 // writeDDBJSON writes a DynamoDB success response with the awsJson1_0
@@ -1180,8 +1155,7 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	defer ddbLockTables(true, req.TableName)()
 	itemKey := ddbItemKey(t, req.Item)
 	old, exists := ddbItems.Get(itemKey)
 
@@ -1301,8 +1275,7 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	defer ddbLockTables(true, req.TableName)()
 	itemKey := ddbItemKey(t, req.Key)
 	item, existed := ddbItems.Get(itemKey)
 	if condOK, err := ddbEvalCondition(item, existed, req.ConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
@@ -1320,6 +1293,12 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	oldItem := ddbCloneItem(item)
+	// An update works on a copy and publishes that, so a stored item is never
+	// mutated after it is published. That invariant is what lets a reader copy
+	// what it found outside the lock instead of inside it: the map it is
+	// holding cannot change under it. Mutating in place made every read pay
+	// for its copy while excluding every other reader.
+	item = ddbCloneItem(item)
 	if item == nil {
 		item = map[string]any{}
 		// Copy primary-key attrs from Key into the new item.
@@ -1418,20 +1397,24 @@ func ddbCloneItem(item map[string]any) map[string]any {
 }
 
 func ddbItemSnapshot(itemKey string) (map[string]any, bool) {
-	ddbItemsMu.RLock()
-	defer ddbItemsMu.RUnlock()
+	release := ddbLockItemKeys(false, itemKey)
 	item, ok := ddbItems.Get(itemKey)
+	release()
 	if !ok {
 		return nil, false
 	}
+	// Copied after the stripe is released. A published item is never mutated
+	// in place — every writer publishes a copy — so the map found under the
+	// lock cannot change while it is being copied, and the copy is the
+	// expensive half of a read.
 	return ddbCloneItem(item), true
 }
 
-// ddbSnapshotBatch is how many stored items one acquisition of ddbItemsMu
+// ddbSnapshotBatch is how many stored items one acquisition of a table stripe
 // copies out for a scanning read.
 //
 // A Query addresses one partition and #38 narrowed it to those keys, but Scan
-// walks the table by definition, and it took ddbItemsMu once per key. That made
+// walks the table by definition, and it took the item lock once per key. That made
 // concurrent scans interleave on a process-wide mutex per item rather than per
 // request, which degrades with both table size and concurrency -- the shape that
 // left 44 concurrent DynamoDB reads in flight and none of them answered.
@@ -1442,16 +1425,22 @@ func ddbItemSnapshot(itemKey string) (map[string]any, bool) {
 const ddbSnapshotBatch = 256
 
 // ddbItemSnapshots copies out every stored item present in itemKeys under a
-// single acquisition of ddbItemsMu. Keys with no stored item are absent from the
+// single acquisition per table. Keys with no stored item are absent from the
 // result, matching ddbItemSnapshot's not-found case.
 func ddbItemSnapshots(itemKeys []string) map[string]map[string]any {
-	out := make(map[string]map[string]any, len(itemKeys))
-	ddbItemsMu.RLock()
-	defer ddbItemsMu.RUnlock()
+	found := make(map[string]map[string]any, len(itemKeys))
+	release := ddbLockItemKeys(false, itemKeys...)
 	for _, itemKey := range itemKeys {
 		if item, ok := ddbItems.Get(itemKey); ok {
-			out[itemKey] = ddbCloneItem(item)
+			found[itemKey] = item
 		}
+	}
+	release()
+	// Copied after the stripes are released, for the reason ddbItemSnapshot
+	// gives: a published item never changes, so the copy does not need the lock.
+	out := make(map[string]map[string]any, len(found))
+	for itemKey, item := range found {
+		out[itemKey] = ddbCloneItem(item)
 	}
 	return out
 }
@@ -1517,8 +1506,7 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	defer ddbLockTables(true, req.TableName)()
 	itemKey := ddbItemKey(t, req.Key)
 	oldItem, existed := ddbItems.Get(itemKey)
 	if condOK, err := ddbEvalCondition(oldItem, existed, req.ConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
@@ -1643,9 +1631,9 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// The key condition is evaluated against the stored item because the
 	// expression evaluator never writes to what it reads; only a match is
 	// cloned, which is what callers may keep.
+	var matched []map[string]any
 	func() {
-		ddbItemsMu.RLock()
-		defer ddbItemsMu.RUnlock()
+		defer ddbLockTables(false, req.TableName)()
 		var lastScannedStored map[string]any
 		for i, k := range remaining {
 			stored, ok2 := ddbItems.Get(k)
@@ -1658,7 +1646,7 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 			scanned++
 			lastScannedStored = stored
 			if filterExpr.match(stored, true) {
-				items = append(items, ddbCloneItem(stored))
+				matched = append(matched, stored)
 			}
 			if req.Limit > 0 && scanned >= req.Limit {
 				if i+1 < len(remaining) {
@@ -1673,6 +1661,12 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 			lastScanned = ddbCloneItem(lastScannedStored)
 		}
 	}()
+	// The matches are copied once the stripe is released: a published item is
+	// never mutated in place, so the copy is safe outside the lock and no
+	// other reader waits for it.
+	for _, stored := range matched {
+		items = append(items, ddbCloneItem(stored))
+	}
 	if items == nil {
 		items = []map[string]any{}
 	}
@@ -2077,8 +2071,13 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	// A batch spans whatever tables it names, and their stripes are taken in
+	// one ordered call so two concurrent batches cannot deadlock on each other.
+	batchTables := make([]string, 0, len(req.RequestItems))
+	for table := range req.RequestItems {
+		batchTables = append(batchTables, table)
+	}
+	defer ddbLockTables(true, batchTables...)()
 	// Validate the whole batch first (real DynamoDB rejects before applying):
 	// 1..25 total requests, every table exists, every put item within depth.
 	total := 0
@@ -2196,8 +2195,19 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	// A transaction spans the tables its items name, and takes their stripes in
+	// one ordered call: the whole transaction has to be atomic against anything
+	// else touching those tables, and two concurrent transactions naming the
+	// same tables in different orders must not be able to deadlock.
+	transactTables := make([]string, 0, len(req.TransactItems))
+	for _, ti := range req.TransactItems {
+		for _, op := range []*txWrite{ti.Put, ti.Update, ti.Delete, ti.ConditionCheck} {
+			if op != nil {
+				transactTables = append(transactTables, op.TableName)
+			}
+		}
+	}
+	defer ddbLockTables(true, transactTables...)()
 
 	// Validate exactly-one-op + the table exists, and evaluate EVERY item's
 	// condition so CancellationReasons reflects all items (real DynamoDB returns
@@ -2294,7 +2304,10 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		case ti.Update != nil:
 			t, _ := ddbTables.Get(ti.Update.TableName)
 			key := ddbItemKey(t, ti.Update.Key)
-			item, _ := ddbItems.Get(key)
+			stored, _ := ddbItems.Get(key)
+			// Copy before mutating, as UpdateItem does: a published item is
+			// never changed in place.
+			item := ddbCloneItem(stored)
 			if item == nil {
 				item = map[string]any{}
 				for k, v := range ti.Update.Key {
@@ -2395,7 +2408,7 @@ var ddbKeyIndex struct {
 }
 
 // ddbKeyGen is bumped (atomically) on every item-name Put/Delete so the index
-// cache knows to rebuild. Mutations already hold ddbItemsMu, but the read path
+// cache knows to rebuild. Mutations already hold their table stripe, but the read path
 // (Query/Scan) does not, so a dedicated counter keeps the cache coherent.
 var ddbKeyGen atomic.Uint64
 

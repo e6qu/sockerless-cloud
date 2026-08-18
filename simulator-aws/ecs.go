@@ -3423,7 +3423,7 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 				// the user process, and closes the user's stdin when the
 				// frame's FIN flag is set so readers like `cat`, `tar`, and
 				// `gzip` see EOF. Match that contract.
-				go func() {
+				simGo(func() {
 					defer attach.CloseWrite() //nolint:errcheck
 					for {
 						_, msg, rerr := conn.ReadMessage()
@@ -3448,7 +3448,7 @@ func handleECSExecWebSocket(sessionID string) http.HandlerFunc {
 							return
 						}
 					}
-				}()
+				})
 
 				// Bridge: Docker exec → WebSocket wrapped in SSM
 				// AgentMessage frames. The backend's SSM decoder

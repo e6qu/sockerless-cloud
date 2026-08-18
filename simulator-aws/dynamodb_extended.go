@@ -219,12 +219,11 @@ func ddbStreamArn(stream string) string {
 }
 
 // ddbTableItemsSnapshot copies every stored item for a table into a fresh map
-// keyed by the per-item store key. Reads under ddbItemsMu.
+// keyed by the per-item store key. Reads under the table's stripe.
 func ddbTableItemsSnapshot(tableName string) map[string]map[string]any {
 	out := map[string]map[string]any{}
 	prefix := tableName + "/"
-	ddbItemsMu.RLock()
-	defer ddbItemsMu.RUnlock()
+	defer ddbLockTables(false, tableName)()
 	for _, k := range ddbItemNames.List() {
 		if strings.HasPrefix(k, prefix) {
 			if item, ok := ddbItems.Get(k); ok {
@@ -421,8 +420,8 @@ func handleDDBListBackups(w http.ResponseWriter, r *http.Request) {
 // under a new table name (re-keying from the source table prefix to target).
 func ddbRestoreItems(items map[string]map[string]any, srcTable, dstTable string) {
 	srcPrefix := srcTable + "/"
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	// Both tables: the source is read from and the target is written to.
+	defer ddbLockTables(true, srcTable, dstTable)()
 	for k, item := range items {
 		// Re-derive the store key under the target table so a same-shaped
 		// recreate is queryable; the key suffix (hash[|range]) is reused.
