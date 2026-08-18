@@ -73,7 +73,12 @@ it over the one the client built, leaving every read to dereference nil.
 
 The three now answer 202 and record the collection as the operation's result,
 which the Location poll serves; the suite drains the pager the generated client
-returns rather than working around it over raw HTTP. The same mechanism is
+returns rather than working around it over raw HTTP. Draining it takes the
+first page directly rather than through the `More` loop Microsoft's generated
+example uses: a long-running operation's pager is created already holding its
+first page and `More` consults that page's `nextLink`, so for a single-page
+result the example's loop yields nothing at all — the second defect the bug
+recorded, and a client-side idiom rather than a simulator one. The same mechanism is
 covered directly: a running operation's Location answers 202 with no body, a
 succeeded one answers with the result and never the status envelope, and a
 failed one carries the error and no payload.

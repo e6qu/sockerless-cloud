@@ -76,10 +76,23 @@ func environmentsClient(t *testing.T) *armappservice.EnvironmentsClient {
 // assertion that matters: the pager is what the generated client hands back
 // for these operations, and until the simulator answered the documented 202
 // the SDK handed back one whose handler was nil, so any read of it panicked.
+//
+// The first page is taken directly rather than through the More loop that
+// Microsoft's generated example uses. A long-running operation's pager is
+// created already holding its first page, and More consults that page's
+// nextLink — so for a single-page result More is false from the start and the
+// example's loop yields nothing at all. NextPage returns the page already in
+// hand on its first call, which is how the first page is reached; the loop
+// then collects any that follow.
 func asePagedSiteNames[T any](t *testing.T, pager *runtime.Pager[T]) []string {
 	t.Helper()
 	require.NotNil(t, pager)
+	first, err := pager.NextPage(ctx)
+	require.NoError(t, err)
 	var names []string
+	for _, site := range sitesOfPage(any(first)) {
+		names = append(names, *site.Name)
+	}
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		require.NoError(t, err)

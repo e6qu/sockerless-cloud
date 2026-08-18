@@ -205,7 +205,12 @@ the simulators from the sockerless monorepo, keeping their IDs
   fresh pager with a nil handler and assigns it over the one the client built,
   and every read panics. The three now answer 202 and record the collection as
   the operation's result, which the Location poll serves. The generated client
-  reads its own pager, which the suite now drains rather than discarding. The
+  reads its own pager, which the suite now drains rather than discarding —
+  taking the first page directly, since a long-running operation's pager is
+  created already holding it and `More` consults that page's `nextLink`, so the
+  `More` loop Microsoft's own example uses yields nothing for a single-page
+  result. That was the second defect this entry recorded, and it is a client
+  idiom rather than a simulator divergence. The
   earlier reasoning — that manufacturing an accepted response for finished work
   would be a fake completion signal — had it backwards: the service answers 202
   here, the specification documents it, and the operation completes for real
