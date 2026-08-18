@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.3](https://github.com/e6qu/sockerless-cloud/compare/v0.12.2...v0.12.3) (2026-08-18)
+
+
+### Bug Fixes
+
+* refuse the three inputs the nightly fuzz run found the parsers accepting ([#42](https://github.com/e6qu/sockerless-cloud/issues/42)) ([1339496](https://github.com/e6qu/sockerless-cloud/commit/1339496bee98bc6e2dabda55e1f03aa45d13f2f4))
+
 ## [0.12.2](https://github.com/e6qu/sockerless-cloud/compare/v0.12.1...v0.12.2) (2026-08-18)
 
 
