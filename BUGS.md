@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 51.
+Open: 19. Resolved: 52.
 
 ## Open
 
@@ -178,6 +178,26 @@ the simulators from the sockerless monorepo, keeping their IDs
   path rely on it.
 
 ## Resolved history
+
+- **BUG-61 (a Query read the whole table, item by item, under one lock):**
+  Reported as issue #37: an authenticated page timed out with forty-four
+  concurrent `Query` requests in flight, each over a minute old and the count
+  climbing rather than draining, ninety-one goroutines blocked on the same
+  mutex inside `ddbItemSnapshot`. Two costs, both now gone. The scan took the
+  process-wide item lock once per candidate and deep copied each candidate
+  through JSON before deciding it did not match, so concurrent queries
+  interleaved item by item; the scan now holds the lock once and copies only
+  what it returns. And a query examined every item in the table, when DynamoDB
+  requires the key condition to fix the partition key with an equality — the
+  items a query can return are one contiguous run of the sorted key space. The
+  partition is read out of the compiled key condition, so an aliased name and a
+  reversed comparison narrow the same way, and a condition that does not fix a
+  partition still examines the full set and answers identically. Measured on
+  one machine against the database-backed store the simulator runs on, forty
+  concurrent queriers over a two-thousand-item table in forty partitions: 8.02s
+  before, 0.43s after. A counting store proves the narrowing is wired into the
+  query rather than merely available to it — 600 of 600 items read before, at
+  most 30 after.
 
 - **BUG-59 (a soak test starved the writers it was racing):** The store soak
   ran twenty-four readers spinning without pause against twenty-four writers,

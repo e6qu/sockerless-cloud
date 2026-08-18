@@ -1,5 +1,40 @@
 # WHAT WE DID
 
+## 2026-08-18 — A DynamoDB Query that read the table instead of the partition
+
+Issue #37 reported an authenticated page timing out with forty-four concurrent
+queries in flight, each over a minute old, and ninety-one goroutines blocked on
+one mutex inside the per-item snapshot. The report named the per-item lock, and
+fixing that alone was not enough: measured against the database-backed store
+the simulator runs on, holding the lock once and copying only the matches took
+forty concurrent queriers from 8.65s to 5.20s. Worth having, and not the
+problem.
+
+The problem was that a query examined every item in the table. DynamoDB
+requires the key condition to fix the partition key with an equality, so the
+items a query can return are one contiguous run of the sorted key space — the
+reason a Query is cheap in the first place. The partition is now read out of
+the compiled key condition rather than the request text, so an aliased name and
+a reversed comparison narrow the same way, and a condition that does not fix a
+partition examines the full set exactly as before and answers identically.
+Together: 8.02s to 0.43s for the same forty concurrent queriers.
+
+Two things went wrong while proving it, both worth recording. The first
+reproduction used a memory-backed store and showed the fix making no difference
+at all — the simulator files items in a database, where each per-item read
+costs something, and a memory store hid the entire effect. The second measured
+one partition, where narrowing cannot help by construction. Only a fixture
+shaped like the real thing — database-backed, many partitions — showed either
+cost. And the narrowing immediately failed a test whose seeded keys were
+invented rather than produced by the simulator's own key function, which is the
+kind of fixture that tests a table the simulator could never have written.
+
+The deterministic assertion counts the store reads one query performs, because
+whether a query reads one partition or the whole table changes nothing it
+answers, only what it touches: 600 of 600 items before, at most 30 after. A
+helper asserted on its own would have stayed green with the call removed, which
+is what the first version of that test did.
+
 ## 2026-08-18 — Two ways a run failed without anything being wrong with it
 
 A store soak ran twenty-four readers spinning without pause against

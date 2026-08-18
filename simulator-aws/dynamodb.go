@@ -1530,7 +1530,16 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// it descending — the basis of every "latest N" access pattern. The
 	// candidate key set is built in the scan direction so ExclusiveStartKey
 	// resume + Limit + LastEvaluatedKey all work in that direction.
-	remaining := ddbQueryCandidateKeys(ddbTableSortedKeys(prefix), t, req.ExclusiveStartKey, prefix,
+	candidates := ddbTableSortedKeys(prefix)
+	// A Query addresses one partition, so the items it can return are a
+	// contiguous run of the sorted key space rather than the whole table. When
+	// the partition cannot be read out of the key condition — a query on a
+	// secondary index, whose key attributes are not the table's — the full set
+	// stands and the key condition decides, exactly as before.
+	if partition, ok := ddbQueryPartitionPrefix(t, keyExpr); ok && req.IndexName == "" {
+		candidates = ddbKeysInPartition(candidates, partition)
+	}
+	remaining := ddbQueryCandidateKeys(candidates, t, req.ExclusiveStartKey, prefix,
 		req.ScanIndexForward == nil || *req.ScanIndexForward)
 
 	// Query reads only the items matching the KeyConditionExpression; Limit caps
@@ -1540,26 +1549,50 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	scanned := 0
 	var lastScanned map[string]any
 	exhausted := true
-	for i, k := range remaining {
-		it, ok2 := ddbItemSnapshot(k)
-		if !ok2 {
-			continue
-		}
-		if !keyExpr.match(it, true) {
-			continue
-		}
-		scanned++
-		lastScanned = it
-		if filterExpr.match(it, true) {
-			items = append(items, it)
-		}
-		if req.Limit > 0 && scanned >= req.Limit {
-			if i+1 < len(remaining) {
-				exhausted = false
+	// One critical section for the whole scan, and a clone only for the items
+	// the query actually returns.
+	//
+	// Taking the item lock per candidate made concurrent queries interleave on
+	// a process-wide mutex — each acquiring it, reading one item, and deep
+	// copying that item through JSON before deciding it did not match the key
+	// condition at all. The cost was N acquisitions and N clones per query, so
+	// concurrent queries fought item by item rather than query by query: forty
+	// four of them left every request over a minute old and the in-flight
+	// count climbing rather than draining.
+	//
+	// The key condition is evaluated against the stored item because the
+	// expression evaluator never writes to what it reads; only a match is
+	// cloned, which is what callers may keep.
+	func() {
+		ddbItemsMu.Lock()
+		defer ddbItemsMu.Unlock()
+		var lastScannedStored map[string]any
+		for i, k := range remaining {
+			stored, ok2 := ddbItems.Get(k)
+			if !ok2 {
+				continue
 			}
-			break
+			if !keyExpr.match(stored, true) {
+				continue
+			}
+			scanned++
+			lastScannedStored = stored
+			if filterExpr.match(stored, true) {
+				items = append(items, ddbCloneItem(stored))
+			}
+			if req.Limit > 0 && scanned >= req.Limit {
+				if i+1 < len(remaining) {
+					exhausted = false
+				}
+				break
+			}
 		}
-	}
+		// The resume cursor is read from the last key-matching item, so it too
+		// has to leave the critical section as a copy.
+		if lastScannedStored != nil {
+			lastScanned = ddbCloneItem(lastScannedStored)
+		}
+	}()
 	if items == nil {
 		items = []map[string]any{}
 	}
