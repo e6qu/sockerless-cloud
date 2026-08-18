@@ -219,12 +219,12 @@ func ddbStreamArn(stream string) string {
 }
 
 // ddbTableItemsSnapshot copies every stored item for a table into a fresh map
-// keyed by the per-item store key. Holds ddbItemsMu while reading.
+// keyed by the per-item store key. Reads under ddbItemsMu.
 func ddbTableItemsSnapshot(tableName string) map[string]map[string]any {
 	out := map[string]map[string]any{}
 	prefix := tableName + "/"
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	ddbItemsMu.RLock()
+	defer ddbItemsMu.RUnlock()
 	for _, k := range ddbItemNames.List() {
 		if strings.HasPrefix(k, prefix) {
 			if item, ok := ddbItems.Get(k); ok {

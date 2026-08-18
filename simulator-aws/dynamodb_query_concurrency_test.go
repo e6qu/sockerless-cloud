@@ -49,7 +49,7 @@ func ddbQueryConcurrencyStores(t *testing.T) {
 	ddbItems = sim.MakeStore[map[string]any](db, "ddb_items")
 	ddbItemNames = sim.MakeStore[string](db, "ddb_item_names")
 	ddbTables = sim.MakeStore[DDBTable](db, "ddb_tables")
-	ddbItemsMu = sync.Mutex{}
+	ddbItemsMu = sync.RWMutex{}
 	ddbKeyGen.Add(1)
 }
 
@@ -300,4 +300,87 @@ func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 	require.True(t, ddbKeyInPartition(table+"/tenant-007|sk-1", table+"/tenant-007"))
 	require.False(t, ddbKeyInPartition(table+"/tenant-0070|sk-1", table+"/tenant-007"),
 		"a prefix must not swallow a longer partition name")
+}
+
+// TestDDBReadsRunConcurrently is the property issue #43 is about: the item lock
+// guards the store across whole operations, which is what makes a
+// read-modify-write atomic, but reading is most of what it guards. Under an
+// exclusive lock every GetItem queued behind every other one, and single-item
+// reads that are O(1) by any measure took thirteen seconds on a busy service.
+//
+// Parallelism is measured rather than timed: each reader records that it is
+// inside the critical section, and the test asserts that more than one was
+// inside at once. A duration would only say "fast today"; an overlap count
+// says the lock admits readers together, which is the change.
+func TestDDBReadsRunConcurrently(t *testing.T) {
+	ddbQueryConcurrencyStores(t)
+	const table, items, partitions = "reads", 400, 8
+	definition := ddbSeedQueryTable(t, table, items, partitions)
+
+	// A reader that holds the read lock briefly and reports the peak number of
+	// holders it saw. Against an exclusive lock the peak is one by
+	// construction, whatever the machine is doing.
+	var inside, peak atomic.Int64
+	observe := func() {
+		ddbItemsMu.RLock()
+		defer ddbItemsMu.RUnlock()
+		now := inside.Add(1)
+		defer inside.Add(-1)
+		for {
+			was := peak.Load()
+			if now <= was || peak.CompareAndSwap(was, now) {
+				break
+			}
+		}
+		// Hold the lock for a moment doing what a read does, so overlap has
+		// somewhere to happen.
+		key := ddbItemKey(definition, map[string]any{
+			"pk": map[string]any{"S": "tenant-000"}, "sk": map[string]any{"S": "sk-00000"},
+		})
+		if item, ok := ddbItems.Get(key); ok {
+			_ = ddbCloneItem(item)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	const readers = 16
+	var wg sync.WaitGroup
+	for range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 20 {
+				observe()
+			}
+		}()
+	}
+	wg.Wait()
+
+	t.Logf("peak concurrent readers inside the item lock: %d of %d", peak.Load(), readers)
+	require.Greater(t, peak.Load(), int64(1),
+		"no two readers were ever inside the item lock together: reads are still serialised, "+
+			"so every GetItem queues behind every other operation")
+
+	// And a writer still excludes everyone: the atomicity the lock exists for
+	// is not what was traded away.
+	writerInside := atomic.Bool{}
+	var raced atomic.Bool
+	var writers sync.WaitGroup
+	for range 4 {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			for range 25 {
+				ddbItemsMu.Lock()
+				if !writerInside.CompareAndSwap(false, true) {
+					raced.Store(true)
+				}
+				time.Sleep(100 * time.Microsecond)
+				writerInside.Store(false)
+				ddbItemsMu.Unlock()
+			}
+		}()
+	}
+	writers.Wait()
+	require.False(t, raced.Load(), "two writers held the item lock at once")
 }

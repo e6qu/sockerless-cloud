@@ -185,8 +185,32 @@ var (
 	// ddbItems holds per-table item maps. Keyed by `<table>/<itemKey>`,
 	// where itemKey is a deterministic encoding of the primary-key
 	// attribute values (HASH#<value> or HASH#<v>|RANGE#<v>).
-	ddbItems   sim.Store[map[string]any]
-	ddbItemsMu sync.Mutex
+	ddbItems sim.Store[map[string]any]
+	// ddbItemsMu guards the item store across operations, which is what makes
+	// a transactional write or a read-modify-write atomic against the rest of
+	// the service. It is a read-write lock because most of what it guards is
+	// reading: GetItem, Query, Scan and the snapshot helpers exclude nothing
+	// but a writer, so a burst of reads runs at the width of the machine
+	// rather than one at a time.
+	//
+	// The contract, and the only thing that makes this safe:
+	//
+	//   - A critical section that only reads the store — Get, List, and
+	//     copying what it found — takes RLock.
+	//   - A critical section that writes, or that reads and then writes based
+	//     on what it read, takes Lock for the whole span. Read-modify-write
+	//     under RLock is a lost update, not a faster read.
+	//   - Neither is reentrant, and RLock is not reentrant either: a reader
+	//     that takes RLock while already holding it deadlocks behind any
+	//     writer that arrived in between. No critical section here calls
+	//     another.
+	//
+	// Before this was a read-write lock, every DynamoDB operation queued
+	// behind every other one: a workspace create fanning out into a few dozen
+	// GetItem and UpdateItem calls served them one at a time, each caller
+	// paying for everyone ahead of it, and single-item reads that are not
+	// O(table) by any measure took thirteen seconds.
+	ddbItemsMu sync.RWMutex
 )
 
 // writeDDBJSON writes a DynamoDB success response with the awsJson1_0
@@ -1394,8 +1418,8 @@ func ddbCloneItem(item map[string]any) map[string]any {
 }
 
 func ddbItemSnapshot(itemKey string) (map[string]any, bool) {
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	ddbItemsMu.RLock()
+	defer ddbItemsMu.RUnlock()
 	item, ok := ddbItems.Get(itemKey)
 	if !ok {
 		return nil, false
@@ -1422,8 +1446,8 @@ const ddbSnapshotBatch = 256
 // result, matching ddbItemSnapshot's not-found case.
 func ddbItemSnapshots(itemKeys []string) map[string]map[string]any {
 	out := make(map[string]map[string]any, len(itemKeys))
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	ddbItemsMu.RLock()
+	defer ddbItemsMu.RUnlock()
 	for _, itemKey := range itemKeys {
 		if item, ok := ddbItems.Get(itemKey); ok {
 			out[itemKey] = ddbCloneItem(item)
@@ -1620,8 +1644,8 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// expression evaluator never writes to what it reads; only a match is
 	// cloned, which is what callers may keep.
 	func() {
-		ddbItemsMu.Lock()
-		defer ddbItemsMu.Unlock()
+		ddbItemsMu.RLock()
+		defer ddbItemsMu.RUnlock()
 		var lastScannedStored map[string]any
 		for i, k := range remaining {
 			stored, ok2 := ddbItems.Get(k)

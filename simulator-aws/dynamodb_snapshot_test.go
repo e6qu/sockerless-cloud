@@ -10,7 +10,7 @@ import (
 
 func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
-	ddbItemsMu = sync.Mutex{}
+	ddbItemsMu = sync.RWMutex{}
 
 	const itemKey = "snap/S#item"
 	item := map[string]any{
@@ -68,7 +68,7 @@ func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
 // items, which surfaces as a Scan missing rows rather than as a crash.
 func TestDDBBatchedSnapshotsSpanBatchBoundaries(t *testing.T) {
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
-	ddbItemsMu = sync.Mutex{}
+	ddbItemsMu = sync.RWMutex{}
 
 	// Deliberately more than two batches, with holes so absent keys are covered.
 	const total = ddbSnapshotBatch*2 + 37

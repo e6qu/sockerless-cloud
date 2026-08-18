@@ -1,6 +1,14 @@
 # DO NEXT
 
-1. Sixty-two error-path assertions still accept any error at all, held by the
+1. Thirty-two read-only critical sections still hold an exclusive lock, held by
+   the floor in `scripts/check-readonly-locks.sh`. The clusters are AWS Glue
+   (`glueMu`, a dozen read handlers), AWS Lambda durable executions, Amazon ECS
+   revisions and the EC2 real-execution fabric. Amazon DynamoDB is the worked
+   example: classify every site the lock has before converting any of them,
+   because a section that reads and then writes based on what it read becomes a
+   lost update under a read lock, and measure the result by counting concurrent
+   readers rather than by timing a burst. Lower the floor with each service.
+2. Sixty-two error-path assertions still accept any error at all, held by the
    floor in `scripts/check-fake-tests.sh`. Each needs its service's real
    refusal read out of the handler and the vendored model before it can be
    named, so this burns down a service at a time rather than in one pass; the
@@ -15,7 +23,7 @@
    still green. A bare error assertion on a call that omits a required member
    is the shape to suspect, and the wire is where the service's own refusal
    has to be driven.
-2. App Service is at 616 of 692. The recorded deferrals are done: backup and
+3. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read
    from the live workload container, App Service Environments and Kube
    Environments are served, and detectors compute from real container and site
@@ -23,31 +31,31 @@
    four metric-definition operations with no series behind them, and the
    outbound network-dependency catalog, which is Microsoft-published data.
    What remains in that swagger is the long tail below 692, not a deferral.
-3. BUG-43: the azurerm provider crashed applying an App Service backup block
+4. BUG-43: the azurerm provider crashed applying an App Service backup block
    against the simulator, after three real defects on that path were fixed. The
    Terraform leg was reverted rather than left failing; capture the provider's
    crash log and restore the stack once it applies.
-4. BUG-38: the shared registry-trust helper no longer silently no-ops, which
+5. BUG-38: the shared registry-trust helper no longer silently no-ops, which
    exposes two latent defects elsewhere — the Google Cloud build push test
    still takes the insecure path and now fails loudly, and the AWS and Google
    harness makefiles lack the shared engine-host temporary directory whose
    absence made Azure workloads mount empty directories.
-5. BUG-20 and BUG-36: the container reaper leaves workload containers running
+6. BUG-20 and BUG-36: the container reaper leaves workload containers running
    for hours after a run ends, and each cloud's suites still build their
    simulator to one shared path where a build can overwrite a binary another
    suite is executing. Both are the same family as the harness collisions
    already fixed.
-6. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
+7. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
    that the account's advertised endpoint works, and refuse two accounts
    sharing a name the way the service does.
-7. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
+8. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
    uploads the real service refuses and issues a token for any scope it is
    asked for, a virtual network drops subnets declared inline on it, and an
    Amazon ECR pull through a cache rule is never hydrated.
-8. BUG-32's consumer note: the sockerless AWS backend warns and continues when
+9. BUG-32's consumer note: the sockerless AWS backend warns and continues when
    repository creation fails, which now surfaces as a loud push failure rather
    than a silent success — correct, and matching the real service.
-9. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+10. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 

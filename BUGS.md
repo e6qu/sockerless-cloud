@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 53.
+Open: 19. Resolved: 54.
 
 ## Open
 
@@ -178,6 +178,29 @@ the simulators from the sockerless monorepo, keeping their IDs
   path rely on it.
 
 ## Resolved history
+
+- **BUG-63 (one lock serialised every DynamoDB operation):** Reported as issue
+  #43, the shared cause under #37 and #39: `ddbItemsMu` was a plain mutex, so
+  reads excluded each other and a workspace create fanning out into a few dozen
+  GetItem and UpdateItem calls served them one at a time — single-item reads
+  that are O(1) by any measure taking thirteen seconds. It is a read-write lock
+  now, with the contract written where it is declared: a section that only
+  reads takes RLock; a section that writes, or reads and then writes based on
+  what it read, takes Lock for the whole span, which is what keeps a
+  read-modify-write atomic; neither is reentrant. Every one of its thirteen
+  sites was classified before the change — four pure reads, nine writers
+  including the three PartiQL paths that explicitly need the whole operation.
+  Measured rather than timed, because a duration only says "fast today": peak
+  concurrent readers inside the lock went from 1 of 16 to 16 of 16, and a
+  writer still excludes everyone.
+
+  The shape is now counted rather than waited for. `scripts/check-readonly-
+  locks.sh` reports critical sections that hold an exclusive lock while only
+  reading a store — the same defect in any service — and holds the count to a
+  floor that may only fall. Thirty-two remain, the largest clusters being AWS
+  Glue and AWS Lambda's durable executions. Each service needs the same
+  per-site audit before conversion; converting one mechanically would trade a
+  slow read for a lost update.
 
 - **BUG-62 (three parsers accepted input the services cannot produce, found by
   the nightly fuzz run):** The first nightly run after the repaired fuzz targets

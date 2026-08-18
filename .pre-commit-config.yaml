@@ -142,6 +142,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: readonly-locks
+        name: No read path holds an exclusive lock
+        entry: bash scripts/check-readonly-locks.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: embedded-ui-build-order
         name: Embedded web interfaces build before Go binaries
         entry: bash scripts/check-embedded-ui-build-order.sh
