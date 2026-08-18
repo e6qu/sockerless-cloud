@@ -1403,6 +1403,62 @@ func ddbItemSnapshot(itemKey string) (map[string]any, bool) {
 	return ddbCloneItem(item), true
 }
 
+// ddbSnapshotBatch is how many stored items one acquisition of ddbItemsMu
+// copies out for a scanning read.
+//
+// A Query addresses one partition and #38 narrowed it to those keys, but Scan
+// walks the table by definition, and it took ddbItemsMu once per key. That made
+// concurrent scans interleave on a process-wide mutex per item rather than per
+// request, which degrades with both table size and concurrency -- the shape that
+// left 44 concurrent DynamoDB reads in flight and none of them answered.
+//
+// Scan stops as soon as its Limit is met, so snapshotting every remaining key
+// would copy items the request never examines. A batch bounds that overshoot at
+// one batch while cutting lock acquisitions by orders of magnitude.
+const ddbSnapshotBatch = 256
+
+// ddbItemSnapshots copies out every stored item present in itemKeys under a
+// single acquisition of ddbItemsMu. Keys with no stored item are absent from the
+// result, matching ddbItemSnapshot's not-found case.
+func ddbItemSnapshots(itemKeys []string) map[string]map[string]any {
+	out := make(map[string]map[string]any, len(itemKeys))
+	ddbItemsMu.Lock()
+	defer ddbItemsMu.Unlock()
+	for _, itemKey := range itemKeys {
+		if item, ok := ddbItems.Get(itemKey); ok {
+			out[itemKey] = ddbCloneItem(item)
+		}
+	}
+	return out
+}
+
+// ddbBatchedSnapshots hands out snapshots for an ordered key list, loading them
+// a batch at a time so a caller that stops early has only copied the batch it
+// stopped in.
+type ddbBatchedSnapshots struct {
+	keys   []string
+	batch  map[string]map[string]any
+	loaded int
+}
+
+func newDDBBatchedSnapshots(keys []string) *ddbBatchedSnapshots {
+	return &ddbBatchedSnapshots{keys: keys}
+}
+
+// at returns the snapshot for keys[i], loading the batch containing i if needed.
+func (s *ddbBatchedSnapshots) at(i int, itemKey string) (map[string]any, bool) {
+	if s.batch == nil || i >= s.loaded {
+		end := i + ddbSnapshotBatch
+		if end > len(s.keys) {
+			end = len(s.keys)
+		}
+		s.batch = ddbItemSnapshots(s.keys[i:end])
+		s.loaded = end
+	}
+	item, ok := s.batch[itemKey]
+	return item, ok
+}
+
 // ddbAttrEqual compares two attribute values structurally via JSON
 // canonicalization so attrs present-and-different are detected.
 func ddbAttrEqual(a, b any) bool {
@@ -1770,8 +1826,9 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 	scanned := 0
 	var lastScanned map[string]any
 	exhausted := true
+	snapshots := newDDBBatchedSnapshots(remaining)
 	for i, k := range remaining {
-		it, ok2 := ddbItemSnapshot(k)
+		it, ok2 := snapshots.at(i, k)
 		if !ok2 {
 			continue
 		}
