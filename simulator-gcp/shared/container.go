@@ -92,7 +92,8 @@ var (
 
 // InitDocker initializes the shared Docker client and verifies connectivity.
 // Must be called at simulator startup. Fatally exits if Docker is not available.
-func InitDocker(provider string) *client.Client {
+func InitDocker(provider, stateDir string) *client.Client {
+	configureSimulatorIdentity(provider, stateDir)
 	dockerClientOnce.Do(func() {
 		dockerClient, dockerClientErr = client.New(client.FromEnv)
 		if dockerClientErr != nil {
@@ -112,6 +113,7 @@ func InitDocker(provider string) *client.Client {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
 		os.Exit(1)
 	}
+	sweepOrphanedWorkloads(dockerClient)
 	return dockerClient
 }
 

@@ -76,6 +76,65 @@ func startContainerReaper(provider string) error {
 	return command.Process.Release()
 }
 
+// A run's workloads are collectable from their labels alone.
+//
+// The reaper above is a detached child that waits for its parent and then
+// collects that run. It is the fast path and it is not enough: the child dies
+// with the harness container it lives in, and it dies with the machine. Runs
+// were observed leaking workloads for two days — twenty-two containers, five of
+// them still running between two and twenty-five hours after the runs that made
+// them ended — which consumes the host continuously and accumulates into the
+// engine state that makes `ContainerList(All: true)` fail outright.
+//
+// So the next simulator over the same state collects what the last one left. A
+// simulator's state directory is the one thing that cannot be shared: two
+// simulators over one state directory are not two runs, they are a mistake.
+// Sweeping by that identity is therefore precise — it never touches a
+// concurrent suite's workloads, which is what a sweep by provider alone would
+// do, and CI runs the SDK, CLI and Terraform suites of one cloud at once.
+//
+// A run with no state directory is not swept, because nothing identifies its
+// successor; its detached reaper stays its only collector.
+func sweepOrphanedWorkloads(engine *client.Client) {
+	if engine == nil || simulatorStateID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	filters := client.Filters{}.Add("label", "sockerless-sim-state="+simulatorStateID)
+	containers, err := engine.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: filters})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sweep workloads left by an earlier run: %v\n", err)
+		return
+	}
+	for _, workload := range containers.Items {
+		if workload.Labels["sockerless-sim-run"] == simulatorRunID {
+			continue
+		}
+		timeout := 5
+		_, _ = engine.ContainerStop(ctx, workload.ID, client.ContainerStopOptions{Timeout: &timeout})
+		if _, err := engine.ContainerRemove(ctx, workload.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
+			// One container that will not go is no reason to leave the rest.
+			fmt.Fprintf(os.Stderr, "remove workload %s left by run %s: %v\n",
+				workload.ID, workload.Labels["sockerless-sim-run"], err)
+		}
+	}
+	networks, err := engine.NetworkList(ctx, client.NetworkListOptions{Filters: filters})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sweep networks left by an earlier run: %v\n", err)
+		return
+	}
+	for _, workloadNetwork := range networks.Items {
+		if workloadNetwork.Labels["sockerless-sim-run"] == simulatorRunID {
+			continue
+		}
+		if _, err := engine.NetworkRemove(ctx, workloadNetwork.ID, client.NetworkRemoveOptions{}); err != nil {
+			fmt.Fprintf(os.Stderr, "remove network %s left by run %s: %v\n",
+				workloadNetwork.ID, workloadNetwork.Labels["sockerless-sim-run"], err)
+		}
+	}
+}
+
 // RunContainerReaper handles the detached cleanup mode before a simulator
 // initializes its API server. It returns false for an ordinary invocation.
 func RunContainerReaper() bool {

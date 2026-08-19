@@ -126,8 +126,15 @@ func NewServer(cfg Config) (*Server, error) {
 	if runtime == "" {
 		runtime = "docker"
 	}
+	// The state directory is resolved before the engine client is built,
+	// because it identifies this simulator to the workload sweep: a run
+	// collects what an earlier run over the same state left behind.
+	dataDir := cfg.DataDir
+	if dataDir == "" {
+		dataDir = fmt.Sprintf("/tmp/sockerless-sim-%s", cfg.Provider)
+	}
 	if runtime != "process" {
-		InitDocker(cfg.Provider)
+		InitDocker(cfg.Provider, dataDir)
 		logger.Info().Str("runtime", RuntimeInfo()).Msg("container runtime initialized")
 	}
 
@@ -144,10 +151,6 @@ func NewServer(cfg Config) (*Server, error) {
 	// the error and let the caller decide (typically log.Fatal in
 	// main).
 	if cfg.Persist {
-		dataDir := cfg.DataDir
-		if dataDir == "" {
-			dataDir = fmt.Sprintf("/tmp/sockerless-sim-%s", cfg.Provider)
-		}
 		db, err := OpenDB(dataDir)
 		if err != nil {
 			return nil, fmt.Errorf("open persistence at %s: %w", dataDir, err)
