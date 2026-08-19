@@ -56,7 +56,10 @@ func simGo(f func()) {
 // reconciliation that has not begun satisfies that by being cancelled. Waiting
 // instead would add the full steady-state window to every test that drains, for
 // work whose result the next test would immediately discard.
-var simPendingTimers sync.Map // *simTimer -> struct{}
+var (
+	simPendingTimers sync.Map // *simTimer -> struct{}
+	simDraining      atomic.Bool
+)
 
 type simTimer struct {
 	timer    *time.Timer
@@ -66,6 +69,19 @@ type simTimer struct {
 
 // simAfterFunc runs f after d, counted from now rather than from the fire.
 func simAfterFunc(d time.Duration, f func()) *simTimer {
+	// A drain is a barrier: nothing scheduled after it begins may touch the
+	// stores it is draining. Arming the timer anyway makes the barrier
+	// unreachable rather than late, because the two Amazon ECS reconciliations
+	// that schedule these re-arm from inside a reconciliation — so every round
+	// of the drain stopped a timer, waited, and found a fresh one armed by the
+	// work it had just waited for. Under the race detector that ground for over
+	// five minutes and a CI job timed out on it.
+	//
+	// Nothing in production reaches this: AwaitSimulatorBackground is called by
+	// tests, between cases, and never by a running simulator.
+	if simDraining.Load() {
+		return &simTimer{}
+	}
 	simBackgroundWG.Add(1)
 	simBackgroundStarted.Add(1)
 	pending := &simTimer{}
@@ -95,8 +111,12 @@ func simAfterFunc(d time.Duration, f func()) *simTimer {
 }
 
 // Stop cancels the timer, reporting whether it stopped it before it fired. A
-// timer that had already fired releases its own count when f returns.
+// timer that had already fired releases its own count when f returns, and one
+// that a drain refused to arm has nothing to stop.
 func (t *simTimer) Stop() bool {
+	if t.timer == nil {
+		return false
+	}
 	stopped := t.timer.Stop()
 	if stopped {
 		t.release()
@@ -111,6 +131,8 @@ func (t *simTimer) Stop() bool {
 // returned. Waiting once left exactly those chained goroutines running into the
 // next test.
 func AwaitSimulatorBackground() {
+	simDraining.Store(true)
+	defer simDraining.Store(false)
 	for range 100 {
 		before := simBackgroundStarted.Load()
 		simPendingTimers.Range(func(key, _ any) bool {

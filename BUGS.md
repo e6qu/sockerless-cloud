@@ -206,7 +206,7 @@ the simulators from the sockerless monorepo, keeping their IDs
   `AwaitSimulatorBackground` drains to quiescence rather than waiting once,
   because the work chains.
 
-  The residue had two causes the earlier count hid, and neither was the
+  The residue had three causes the earlier count hid, and none was the
   long-lived worker this entry previously guessed at. Amazon ECS defers three
   reconciliations with `time.AfterFunc`, which registers nothing until it
   fires: between the schedule and the fire a drain sees quiescence, the stores
@@ -219,6 +219,18 @@ the simulators from the sockerless monorepo, keeping their IDs
   saw nil, both built a chain, and both wrote it. That one is a live defect
   rather than a test artefact — a real deployment's first two requests race
   identically — and it was fixed in all three clouds' copies.
+
+  The last two were `realexec.TCPProxy.Close`, which waited for its accept loop
+  and not for the handlers that loop had already spawned. It therefore returned
+  while a handler was still calling the caller's target resolver — which for an
+  Elastic Load Balancing stream listener reads the load-balancer and
+  target-group stores — so a test that closed its proxy and moved on raced its
+  own teardown. Also a live defect rather than a test artefact: any caller that
+  closes a proxy and then tears down what it proxies to has the same race.
+  Close now closes in-flight connections and waits for every handler, and two
+  tests pin both halves — that it blocks while a handler is mid-resolve, and
+  that it does not wait out an idle stream, since a proxied stream is meant to
+  last for hours.
 
 
 - **BUG-64 (background goroutines outlived their tests and raced the next

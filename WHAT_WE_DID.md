@@ -59,8 +59,8 @@ process-wide counter now, and a test asserts an index refuses a store it was
 not built from.
 
 **The race count reached zero.** It began at 144 in `simulator-aws` and this
-finished the last thirteen, which had two causes and neither was the one the
-bug entry had guessed. Amazon ECS defers three reconciliations with
+finished the last fifteen, which had three causes and none was the one the bug
+entry had guessed. Amazon ECS defers three reconciliations with
 `time.AfterFunc`, which registers nothing until it fires — so a drain saw
 quiescence, the stores were replaced, and the timer woke into the next test's.
 A pending timer is background work from the moment it is scheduled now, and a
@@ -70,9 +70,21 @@ were in the shared server: `finalHandler` built the outermost handler chain on
 first use and cached it in an unguarded field, so two concurrent first requests
 both saw nil, both built a chain, and both wrote it. That is a live defect
 rather than a test artefact — a real deployment's first two requests race
-identically — and all three clouds' copies are fixed. A `race (simulator-*)`
-job runs the detector over all three modules on every pull request, because a
-race found by running the detector by hand is a race that comes back.
+identically — and all three clouds' copies are fixed.
+
+The last two were `realexec.TCPProxy.Close`, which waited for its accept loop
+but not for the handlers that loop had spawned, so it returned while a handler
+was still calling the caller's target resolver — reading, for a stream
+listener, the load-balancer and target-group stores a test was busy replacing.
+Any caller that closes a proxy and then tears down what it proxies to has that
+race, not just a test. Close now ends in-flight connections and waits for every
+handler.
+
+A `race (simulator-*)` job runs the detector over all three modules on every
+pull request, because a race found by running the detector by hand is a race
+that comes back — and this branch is its own evidence: the first count of zero
+was taken from runs made while the tree was being edited, and a clean run
+afterwards found two more.
 
 **Every error-path assertion names its error.** The `any-error` class began at
 62 assertions satisfied by any failure at all, and is at zero. Each one now

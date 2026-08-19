@@ -55,8 +55,10 @@ Current state of the sockerless-cloud repository.
   `race (simulator-*)` CI job rather than by memory. The first detector run of
   `simulator-aws` reported 144: asynchronous simulator work in untracked
   goroutines and timers, still reading package-level stores after the test that
-  started it had ended, plus a shared-server handler chain that two concurrent
-  first requests each built and wrote. `background_work.go` counts goroutines
+  started it had ended, plus two shutdown paths that reported completion while
+  work was still running — a shared-server handler chain that two concurrent
+  first requests each built and wrote, and a TCP proxy whose Close waited for
+  its accept loop but not for the handlers it had spawned. `background_work.go` counts goroutines
   (`simGo`) and pending timers (`simAfterFunc`) alike, and
   `AwaitSimulatorBackground` drains to quiescence, stopping timers that have
   not fired.

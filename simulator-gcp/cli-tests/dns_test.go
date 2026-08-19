@@ -187,6 +187,8 @@ func TestDNS_DeleteZone(t *testing.T) {
 	// Verify it's gone - describe should fail
 	failure := gcloudCLIFails(t, gcloudCLI("dns", "managed-zones", "describe",
 		"delete-test-zone", "--format=json"))
-	assert.Contains(t, failure, "404",
-		"describing a deleted managed zone must answer 404, got: %s", failure)
+	// gcloud renders the service's 404 as NOT_FOUND for this command group;
+	// the bare status code is how `gcloud storage` renders it.
+	assert.Contains(t, failure, "NOT_FOUND",
+		"describing a deleted managed zone must be refused as not found, got: %s", failure)
 }
