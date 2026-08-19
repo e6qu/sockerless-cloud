@@ -34,10 +34,11 @@ func TestQueueMessageUpdateCLI(t *testing.T) {
 	require.NotEmpty(t, dequeued[0].PopReceipt, "the dequeue must carry a pop receipt: %s", out)
 
 	// A pop receipt the service never issued updates nothing.
-	err := azStorageQueue("message", "update", "--queue-name", queue,
+	failure := runCLIExpectFailure(t, azStorageQueue("message", "update", "--queue-name", queue,
 		"--id", dequeued[0].ID, "--pop-receipt", "not-the-receipt",
-		"--visibility-timeout", "600", "--content", "work item").Run()
-	require.Error(t, err, "az storage message update must reject a pop receipt the service did not issue")
+		"--visibility-timeout", "600", "--content", "work item"))
+	assert.Contains(t, failure, "PopReceiptMismatch",
+		"a pop receipt the service never issued must be refused as a mismatch, got: %s", failure)
 
 	out = runCLI(t, azStorageQueue("message", "update", "--queue-name", queue,
 		"--id", dequeued[0].ID, "--pop-receipt", dequeued[0].PopReceipt,
@@ -62,9 +63,10 @@ func TestQueueMessageUpdateCLI(t *testing.T) {
 	assert.Empty(t, peeked, "the message must stay invisible for the timeout the update set: %s", out)
 
 	// The superseded receipt can no longer delete the message; the fresh one can.
-	err = azStorageQueue("message", "delete", "--queue-name", queue,
-		"--id", dequeued[0].ID, "--pop-receipt", dequeued[0].PopReceipt).Run()
-	require.Error(t, err, "the superseded pop receipt must not delete the message")
+	failure = runCLIExpectFailure(t, azStorageQueue("message", "delete", "--queue-name", queue,
+		"--id", dequeued[0].ID, "--pop-receipt", dequeued[0].PopReceipt))
+	assert.Contains(t, failure, "PopReceiptMismatch",
+		"the superseded pop receipt must be refused as a mismatch, got: %s", failure)
 	runCLI(t, azStorageQueue("message", "delete", "--queue-name", queue,
 		"--id", dequeued[0].ID, "--pop-receipt", updated.PopReceipt))
 }

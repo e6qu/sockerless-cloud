@@ -17,6 +17,21 @@ name: Publish container images
 on:
   push:
     branches: [main]
+  # A commit can also be published by hand. Cancelled publishes left six main
+  # commits with no image at all — `36a81145`, `b52cc80e`, `c06550c5`,
+  # `b9d651f1`, `b01a8e29`, `418e0c84` — and a consumer pinning any of them
+  # meets a bare 404 in the registry. The concurrency key below stops that
+  # happening again, but it cannot produce the images that were never built,
+  # and no push event can be replayed for a commit already in main's history.
+  # Naming the commit here builds exactly what that commit would have built.
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: >-
+          Full commit SHA to publish. Defaults to the tip of the ref this run
+          was dispatched from.
+        required: false
+        type: string
 
 # Keyed by commit, never by branch. This workflow's product is the immutable
 # short-SHA image for one commit, and no later commit can produce it: grouping
@@ -27,7 +42,7 @@ on:
 # side, each pushing its own tags. Registry retention is a separate workflow so
 # concurrent publishes never prune against each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.sha }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ inputs.commit || github.sha }}
   cancel-in-progress: false
 
 env:
@@ -40,11 +55,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       short_sha: ${{ steps.revision.outputs.short_sha }}
+      commit: ${{ steps.revision.outputs.commit }}
     steps:
       - id: revision
         env:
-          REVISION: ${{ github.sha }}
-        run: echo "short_sha=${REVISION:0:12}" >> "$GITHUB_OUTPUT"
+          REVISION: ${{ inputs.commit || github.sha }}
+        run: |
+          if [ ${#REVISION} -ne 40 ]; then
+            echo "publish needs a full 40-character commit SHA, got: $REVISION" >&2
+            exit 1
+          fi
+          echo "commit=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${REVISION:0:12}" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -66,6 +88,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
 
       - uses: docker/setup-buildx-action@v4.2.0
 
@@ -85,7 +109,7 @@ jobs:
           platforms: ${{ matrix.arch.platform }}
           push: true
           provenance: false
-          labels: org.opencontainers.image.revision=${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ needs.prepare.outputs.commit }}
           tags: ${{ env.REGISTRY }}/e6qu/${{ matrix.image.name }}:${{ needs.prepare.outputs.short_sha }}-${{ matrix.arch.suffix }}
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch.suffix }}
           cache-to: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch.suffix }},mode=max

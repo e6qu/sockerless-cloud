@@ -63,6 +63,18 @@ type TCPProxy struct {
 	target  ProxyTarget
 	done    chan struct{}
 	once    sync.Once
+
+	// A closed proxy must have stopped resolving targets, not merely stopped
+	// accepting connections. Close used to wait for the accept loop alone,
+	// while the handlers it had already spawned kept calling the caller's
+	// resolver — which in the AWS simulator reads the load-balancer and target
+	// stores. A test that closed its proxy and moved on therefore raced its own
+	// teardown, and the race detector caught exactly that. These track the
+	// handlers so Close can mean what it says.
+	mu       sync.Mutex
+	closing  bool
+	conns    map[net.Conn]struct{}
+	handlers sync.WaitGroup
 }
 
 func StartTCPProxy(listenAddress string, target ProxyTarget) (*TCPProxy, error) {
@@ -73,18 +85,57 @@ func StartTCPProxy(listenAddress string, target ProxyTarget) (*TCPProxy, error) 
 	if err != nil {
 		return nil, err
 	}
-	p := &TCPProxy{Address: ln.Addr().String(), ln: ln, target: target, done: make(chan struct{})}
+	p := &TCPProxy{
+		Address: ln.Addr().String(),
+		ln:      ln,
+		target:  target,
+		done:    make(chan struct{}),
+		conns:   map[net.Conn]struct{}{},
+	}
 	go p.serve()
 	return p, nil
 }
 
+// Close stops the proxy and returns once no handler is still running. In-flight
+// client connections are closed rather than waited out: a proxied stream can
+// last for hours by design, so waiting for one to end would make Close block
+// for as long as its busiest connection.
 func (p *TCPProxy) Close() error {
 	var err error
 	p.once.Do(func() {
 		err = p.ln.Close()
+		// The accept loop has stopped, so no further handler can be added and
+		// the wait below cannot race an Add.
 		<-p.done
+
+		p.mu.Lock()
+		p.closing = true
+		for conn := range p.conns {
+			_ = conn.Close()
+		}
+		p.mu.Unlock()
+
+		p.handlers.Wait()
 	})
 	return err
+}
+
+// track registers a client connection, reporting false if the proxy is already
+// closing — in which case the handler must not start.
+func (p *TCPProxy) track(conn net.Conn) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closing {
+		return false
+	}
+	p.conns[conn] = struct{}{}
+	return true
+}
+
+func (p *TCPProxy) untrack(conn net.Conn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.conns, conn)
 }
 
 func (p *TCPProxy) serve() {
@@ -94,12 +145,20 @@ func (p *TCPProxy) serve() {
 		if err != nil {
 			return
 		}
-		go p.handle(conn)
+		p.handlers.Add(1)
+		go func() {
+			defer p.handlers.Done()
+			p.handle(conn)
+		}()
 	}
 }
 
 func (p *TCPProxy) handle(client net.Conn) {
 	defer client.Close()
+	if !p.track(client) {
+		return
+	}
+	defer p.untrack(client)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	address, err := p.target(ctx)

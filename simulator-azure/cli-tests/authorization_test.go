@@ -101,9 +101,9 @@ func TestRoleAssignment_Delete(t *testing.T) {
 	runCLI(t, azRest("DELETE", url, ""))
 
 	// Verify deletion
-	cmd := azRest("GET", url, "")
-	_, err := cmd.CombinedOutput()
-	assert.Error(t, err, "Expected GET to fail after deletion")
+	failure := runCLIExpectFailure(t, azRest("GET", url, ""))
+	assert.Contains(t, failure, "RoleAssignmentNotFound",
+		"a deleted role assignment must answer GET with RoleAssignmentNotFound, got: %s", failure)
 }
 
 // TestRoleAssignment_RejectsUnknownRoleDefinition pins that a role assignment

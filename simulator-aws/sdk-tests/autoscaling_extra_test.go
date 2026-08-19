@@ -434,5 +434,5 @@ func TestAutoScaling_CancelInstanceRefreshNotFound(t *testing.T) {
 	_, err := c.CancelInstanceRefresh(ctx, &autoscaling.CancelInstanceRefreshInput{
 		AutoScalingGroupName: aws.String(group),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "ActiveInstanceRefreshNotFound")
 }

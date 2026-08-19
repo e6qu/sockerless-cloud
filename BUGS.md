@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 20. Resolved: 55.
+Open: 19. Resolved: 57.
 
 ## Open
 
@@ -177,25 +177,66 @@ the simulators from the sockerless monorepo, keeping their IDs
   the documented signature verification in the Blob plane, then let the backup
   path rely on it.
 
-- **BUG-65 (three data races remain in the AWS module's own suite):** The first
-  race-detector run of these suites reported 144 in `simulator-aws`; three
-  remain, all in one test. Everything between was one cause: asynchronous
-  simulator work — reconciliations, builds, deployments, certificate validation
-  — ran in goroutines nothing tracked, so one still running when its test ended
-  read package-level stores while the next test replaced them. Fifteen of those
-  now run through `simGo`, which counts them; `AwaitSimulatorBackground` drains
-  to quiescence rather than waiting once, because the work chains; and every
-  store reset in the suite waits first.
-  `TestUnansweredHealthCheckReportsTimeout` still races the target-health
-  checker, which a server starts rather than `simGo` — a long-lived worker
-  belongs to its server's lifecycle, and that test reaches the checker without
-  owning one. Fix shape: give the test a server it stops, or route the sweep it
-  drives through the counted path. Add `-race` to the module's unit-test job
-  once it is zero, not before: a job that fails on every run teaches people to
-  ignore it.
-
 
 ## Resolved history
+
+- **BUG-66 (a read lock released with `Unlock` killed the simulator
+  mid-suite):** Converting Amazon Lambda's durable executions to read locks
+  left four `lambdaDurableMu.Unlock()` calls behind their new `RLock()`.
+  `sync.RWMutex` answers that with `fatal error: sync: Unlock of unlocked
+  RWMutex`, which no handler can recover: the first `GetDurableExecution` to
+  arrive took the whole process down, and the `aws sdk services-a-m` job
+  reported not one failure but every test after it, each unable to connect to a
+  port nothing was listening on any more. Neither the compiler nor `go vet`
+  sees a mismatch — both calls are real methods on a real receiver — so
+  `scripts/check-lock-pairing.{go,sh}` reads it out of the syntax tree instead,
+  at a floor of zero in pre-commit and CI. It reported exactly those four and
+  nothing else, and stays silent on the release-to-upgrade pattern that has all
+  four calls.
+
+- **BUG-65 (asynchronous work outran the tests that started it, and the shared
+  server built its handler chain twice):** The first race-detector run of these
+  suites reported 144 races in `simulator-aws`; the count is zero now, and the
+  `race (simulator-*)` CI job holds all three modules there.
+
+  Most of the 144 were one cause: asynchronous simulator work —
+  reconciliations, builds, deployments, certificate validation — ran in
+  goroutines nothing tracked, so work still in flight when its test ended read
+  package-level stores the next test was replacing. `simGo` counts those, and
+  `AwaitSimulatorBackground` drains to quiescence rather than waiting once,
+  because the work chains.
+
+  The residue had three causes the earlier count hid, and none was the
+  long-lived worker this entry previously guessed at. Amazon ECS defers three
+  reconciliations with `time.AfterFunc`, which registers nothing until it
+  fires: between the schedule and the fire a drain sees quiescence, the stores
+  are replaced, and the timer then wakes into the next test's. `simAfterFunc`
+  counts a pending timer from the moment it is scheduled, and a drain is a
+  barrier: it stops the timers that have not fired and drops the work requested
+  while it runs, rather than waiting either out. The barrier is load-bearing
+  rather than an optimisation — a reconciliation requests another whenever it
+  moves a task, so a drain that kept admitting them waited on a group that
+  refilled itself. On a developer machine that chain converged in microseconds;
+  under the race detector on a CI runner it did not, and the job was killed with
+  a reconciliation still runnable after eight minutes. The other twelve were in
+  `shared.(*Server).finalHandler`, which built the outermost handler chain on
+  first use and cached it in a plain field: two concurrent first requests both
+  saw nil, both built a chain, and both wrote it. That one is a live defect
+  rather than a test artefact — a real deployment's first two requests race
+  identically — and it was fixed in all three clouds' copies.
+
+  The last two were `realexec.TCPProxy.Close`, which waited for its accept loop
+  and not for the handlers that loop had already spawned. It therefore returned
+  while a handler was still calling the caller's target resolver — which for an
+  Elastic Load Balancing stream listener reads the load-balancer and
+  target-group stores — so a test that closed its proxy and moved on raced its
+  own teardown. Also a live defect rather than a test artefact: any caller that
+  closes a proxy and then tears down what it proxies to has the same race.
+  Close now closes in-flight connections and waits for every handler, and two
+  tests pin both halves — that it blocks while a handler is mid-resolve, and
+  that it does not wait out an idle stream, since a proxied stream is meant to
+  last for hours.
+
 
 - **BUG-64 (background goroutines outlived their tests and raced the next
   one):** Running the suites under the race detector for the first time — CI

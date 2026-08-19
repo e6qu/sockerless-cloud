@@ -174,7 +174,7 @@ func TestLogs_PutBearerTokenAuthentication(t *testing.T) {
 		LogGroupIdentifier:               aws.String("/test/bearer-token-missing"),
 		BearerTokenAuthenticationEnabled: aws.Bool(true),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 }
 
 // TestLogs_UpdateDeliveryConfiguration creates a vended-log delivery and then

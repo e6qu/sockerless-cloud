@@ -165,7 +165,7 @@ func TestCloudWatch_AlarmContributors(t *testing.T) {
 	_, err = client.DescribeAlarmContributors(ctx, &cloudwatch.DescribeAlarmContributorsInput{
 		AlarmName: aws.String("no-such-alarm"),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "ResourceNotFound")
 }
 
 // TestCloudWatch_MetricWidgetImage verifies GetMetricWidgetImage returns real,

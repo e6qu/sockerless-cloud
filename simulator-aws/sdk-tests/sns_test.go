@@ -204,7 +204,7 @@ func TestSNS_NonExistentTopic(t *testing.T) {
 	_, err := client.GetTopicAttributes(ctx, &sns.GetTopicAttributesInput{
 		TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:nope"),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "NotFound")
 	assert.True(t,
 		strings.Contains(err.Error(), "NotFound") ||
 			strings.Contains(err.Error(), "does not exist"),

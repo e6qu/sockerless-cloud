@@ -143,7 +143,7 @@ var (
 	firehoseStreams   sim.Store[FirehoseDeliveryStream]
 	firehoseRecordsMu sync.Mutex
 	firehoseTimersMu  sync.Mutex
-	firehoseTimers    = map[string]*time.Timer{}
+	firehoseTimers    = map[string]*simTimer{}
 )
 
 func registerFirehose(r *sim.AWSRouter, srv *sim.Server) {
@@ -576,7 +576,7 @@ func firehoseScheduleFlush(name string, delay time.Duration) {
 	if _, exists := firehoseTimers[name]; exists {
 		return
 	}
-	firehoseTimers[name] = time.AfterFunc(delay, func() {
+	firehoseTimers[name] = simAfterFunc(delay, func() {
 		firehoseTimersMu.Lock()
 		delete(firehoseTimers, name)
 		firehoseTimersMu.Unlock()

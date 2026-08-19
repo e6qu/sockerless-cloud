@@ -289,14 +289,14 @@ func TestIAM_ChangePassword(t *testing.T) {
 		OldPassword: aws.String("OldPass-123!"),
 		NewPassword: aws.String("short"),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "PasswordPolicyViolation")
 
 	// Wrong old password → error.
 	_, err = userClient.ChangePassword(ctx, &iam.ChangePasswordInput{
 		OldPassword: aws.String("WrongOld-1!"),
 		NewPassword: aws.String("ValidNewPass-123!"),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "InvalidUserType")
 
 	// Valid change.
 	_, err = userClient.ChangePassword(ctx, &iam.ChangePasswordInput{

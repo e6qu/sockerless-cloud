@@ -306,7 +306,7 @@ func TestKMS_KeyRotation(t *testing.T) {
 		KeyId:                aws.String(keyId),
 		RotationPeriodInDays: aws.Int32(10),
 	})
-	require.Error(t, err, "RotationPeriodInDays below 90 must be rejected")
+	requireAWSErrorCode(t, err, "ValidationException")
 
 	// Disable reverts to false.
 	_, err = c.DisableKeyRotation(ctx, &kms.DisableKeyRotationInput{KeyId: aws.String(keyId)})

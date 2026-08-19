@@ -160,10 +160,10 @@ func TestArtifactRegistryCLI_DockerLoginPushPull(t *testing.T) {
 	// through the same engine and succeeds, so the credential is the only thing
 	// that separates the refusal from the success.
 	const rejectedToken = "not-a-real-access-token"
-	gateway.requireTokenServiceRefusal(t, rejectedToken)
+	refusedToken := gateway.requireTokenServiceRefusal(t, rejectedToken)
 	gateway.requireRejectedCredential(t, http.MethodGet, "/v2/", "Bearer "+rejectedToken)
 	wrong, wrongErr := dockerCLI(t, rejectedToken, "login", "--username", arRegistryLoginUsername, "--password-stdin", gateway.coordinate)
-	requireEngineRefused(t, wrong, wrongErr, "a login with a credential the registry rejects")
+	requireEngineRefused(t, refusedToken, wrong, wrongErr, "a login with a credential the registry rejects")
 
 	// The access token the Google Cloud CLI prints logs in.
 	loggedIn, err := dockerCLI(t, token, "login", "--username", arRegistryLoginUsername, "--password-stdin", gateway.coordinate)
@@ -218,19 +218,19 @@ func TestArtifactRegistryCLI_DockerLoginPushPull(t *testing.T) {
 	// token service, which issues a token to an uncredentialled caller just the
 	// same, and the data plane then denies that anonymous identity at the
 	// repository resource.
-	gateway.requireAnonymousRefusal(t, http.MethodPost, "/v2/"+imagePath+"/blobs/uploads/",
+	deniedUpload := gateway.requireAnonymousRefusal(t, http.MethodPost, "/v2/"+imagePath+"/blobs/uploads/",
 		"repository:"+imagePath+":pull,push", arCLIPermUpload, resource)
 	refusedPush, refusedPushErr := dockerCLI(t, "", "push", reference)
-	requireEngineRefused(t, refusedPush, refusedPushErr, "a push with no credential")
+	requireEngineRefused(t, deniedUpload, refusedPush, refusedPushErr, "a push with no credential")
 
 	// The read a pull starts with is refused the same way, and the engine
 	// brings nothing back.
-	gateway.requireAnonymousRefusal(t, http.MethodGet, "/v2/"+imagePath+"/manifests/v1",
+	deniedManifest := gateway.requireAnonymousRefusal(t, http.MethodGet, "/v2/"+imagePath+"/manifests/v1",
 		"repository:"+imagePath+":pull", arCLIPermDownload, resource)
 	removed, err = dockerCLI(t, "", "image", "rm", "-f", reference)
 	require.NoError(t, err, "remove the local copy before the unauthenticated pull: %s", removed)
 	refusedPull, refusedPullErr := dockerCLI(t, "", "pull", reference)
-	requireEngineRefused(t, refusedPull, refusedPullErr, "a pull with no credential")
+	requireEngineRefused(t, deniedManifest, refusedPull, refusedPullErr, "a pull with no credential")
 	_, err = dockerCLI(t, "", "image", "inspect", reference)
 	require.Error(t, err, "a pull with no credential must leave nothing behind")
 }
@@ -375,7 +375,7 @@ func (g *arRegistryGateway) waitForRegistryChallenge(t *testing.T) {
 //	    'https://us-central1-docker.pkg.dev/v2/token?service=…&scope=…'
 //	HTTP/2 401
 //	{"errors":[{"code":"UNAUTHORIZED","message":"authentication failed"}]}
-func (g *arRegistryGateway) requireTokenServiceRefusal(t *testing.T, password string) {
+func (g *arRegistryGateway) requireTokenServiceRefusal(t *testing.T, password string) int {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet,
 		"https://"+g.coordinate+"/v2/token?service="+url.QueryEscape(g.coordinate), http.NoBody)
@@ -392,6 +392,7 @@ func (g *arRegistryGateway) requireTokenServiceRefusal(t *testing.T, password st
 	code, message := arCLIRegistryError(t, string(body))
 	assert.Equal(t, "UNAUTHORIZED", code)
 	assert.Equal(t, "authentication failed", message)
+	return resp.StatusCode
 }
 
 // requireRejectedCredential drives one Docker Registry HTTP API v2 request with
@@ -427,7 +428,7 @@ func (g *arRegistryGateway) requireRejectedCredential(t *testing.T, method, path
 // with, the manifest read a pull begins with — sent over the same TLS
 // coordinate, in the same credential state, by a client trusting the same
 // authority.
-func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, wantScope, permission, resource string) {
+func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, wantScope, permission, resource string) int {
 	t.Helper()
 
 	resp, body := g.do(t, method, path, "")
@@ -464,6 +465,9 @@ func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, 
 		fmt.Sprintf("Unauthenticated request. Unauthenticated requests do not have permission %q on resource %q (or it may not exist)",
 			permission, resource),
 		message)
+	// The status the engine's own request finally meets: the resource's denial,
+	// not the challenge that sent it to the token service.
+	return resp.StatusCode
 }
 
 // buildArtifactRegistryTestImage builds a single-layer image whose only content
@@ -548,8 +552,13 @@ func dockerCLI(t *testing.T, stdin string, args ...string) (string, error) {
 //
 // Asserting the registry's refusal at the registry is what keeps all of that
 // out of the claim while still proving the credential is what was missing.
-func requireEngineRefused(t *testing.T, output string, err error, what string) {
+// The registry's status is a parameter rather than a convention, so the engine
+// half of the claim cannot be written without the registry half that identifies
+// it: a bare "the command failed" is exactly what this pair exists not to be.
+func requireEngineRefused(t *testing.T, registryStatus int, output string, err error, what string) {
 	t.Helper()
+	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, registryStatus,
+		"%s: the registry must have refused the request the engine makes here", what)
 	require.Error(t, err, "%s must be refused: %s", what, output)
 }
 

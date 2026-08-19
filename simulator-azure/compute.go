@@ -631,22 +631,53 @@ func registerAzureLoadBalancerDataPlane(srv *sim.Server) {
 	})
 }
 
+// azureLBsByFrontendAddress indexes load balancers by the address their
+// frontends answer on. The lookup below runs in a handler wrapper, so every
+// request into the simulator pays it before any handler runs — the same shape
+// that put 84.8% of the AWS simulator's CPU in one Amazon ECS task scan.
+var azureLBsByFrontendAddress sim.GenerationIndex[LoadBalancer]
+
+// azureLoadBalancerFrontendAddresses returns every address a load balancer
+// answers on. It reads the public-IP store, which the index rebuild pays once
+// rather than once per request.
+func azureLoadBalancerFrontendAddresses(lb LoadBalancer) []string {
+	var addresses []string
+	for _, frontend := range lb.Properties.FrontendIPConfigurations {
+		pipID := propertySubResourceID(frontend.Properties, "publicIPAddress")
+		if pipID == "" {
+			continue
+		}
+		if pip, ok := azurePublicIPs.Get(pipID); ok {
+			addresses = append(addresses, strings.ToLower(pip.Properties.PublicIPAddress))
+		}
+	}
+	return addresses
+}
+
 func azureLoadBalancerFromDataPlaneHost(host string) (LoadBalancer, LoadBalancerChild, bool) {
 	hostname := host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		hostname = h
 	}
 	hostname = strings.TrimSuffix(strings.ToLower(hostname), ".")
-	for _, lb := range azureLBs.List() {
-		for _, frontend := range lb.Properties.FrontendIPConfigurations {
-			pipID := propertySubResourceID(frontend.Properties, "publicIPAddress")
-			if pipID == "" {
-				continue
-			}
-			pip, ok := azurePublicIPs.Get(pipID)
-			if ok && strings.EqualFold(pip.Properties.PublicIPAddress, hostname) {
-				return lb, frontend, true
-			}
+	if hostname == "" {
+		return LoadBalancer{}, LoadBalancerChild{}, false
+	}
+	lb, ok := azureLBsByFrontendAddress.Lookup(azureLBs, hostname,
+		azureLoadBalancerFrontendAddresses)
+	if !ok {
+		return LoadBalancer{}, LoadBalancerChild{}, false
+	}
+	// The frontend is resolved from the matched load balancer alone, so this
+	// costs a walk of its own configurations rather than of every one stored.
+	for _, frontend := range lb.Properties.FrontendIPConfigurations {
+		pipID := propertySubResourceID(frontend.Properties, "publicIPAddress")
+		if pipID == "" {
+			continue
+		}
+		if pip, found := azurePublicIPs.Get(pipID); found &&
+			strings.EqualFold(pip.Properties.PublicIPAddress, hostname) {
+			return lb, frontend, true
 		}
 	}
 	return LoadBalancer{}, LoadBalancerChild{}, false

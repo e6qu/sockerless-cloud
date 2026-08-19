@@ -213,7 +213,7 @@ func TestLogs_DeleteLogStream(t *testing.T) {
 	_, err = cw.DeleteLogStream(ctx, &cloudwatchlogs.DeleteLogStreamInput{
 		LogGroupName: aws.String(group), LogStreamName: aws.String("s1"),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 }
 
 // TestLogs_ExportTaskRoundTrip covers CreateExportTask, DescribeExportTasks, and

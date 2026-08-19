@@ -850,18 +850,23 @@ func eventGridPublishScopeFromHost(host string) (eventGridPublishScope, bool) {
 		hostname = hostname[:i]
 	}
 	name := strings.Split(hostname, ".")[0]
-	for _, topic := range eventGridTopics.List() {
-		if topic.Name == name {
-			return eventGridPublishScope{resource: topic}, true
-		}
+	if topic, ok := eventGridTopicsByName.Lookup(eventGridTopics, name,
+		func(t EventGridTopic) []string { return []string{t.Name} }); ok {
+		return eventGridPublishScope{resource: topic}, true
 	}
-	for _, domain := range eventGridDomains.List() {
-		if domain.Name == name {
-			return eventGridPublishScope{resource: domain, isDomain: true}, true
-		}
+	if domain, ok := eventGridDomainsByName.Lookup(eventGridDomains, name,
+		func(d EventGridTopic) []string { return []string{d.Name} }); ok {
+		return eventGridPublishScope{resource: domain, isDomain: true}, true
 	}
 	return eventGridPublishScope{}, false
 }
+
+// Both stores are read by a handler wrapper, so every request into the
+// simulator paid two full scans before reaching its own handler.
+var (
+	eventGridTopicsByName  sim.GenerationIndex[EventGridTopic]
+	eventGridDomainsByName sim.GenerationIndex[EventGridTopic]
+)
 
 func eventGridWebhookEndpoint(es EventGridEventSubscription) string {
 	dest, ok := es.Properties["destination"].(map[string]any)

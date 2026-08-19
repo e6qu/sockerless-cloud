@@ -93,6 +93,7 @@ func main() {
 		}
 		asserting := assertingFuncs(files)
 		identifying := identifyingFuncs(files)
+		deferring := deferringFuncs(files)
 		paths := make([]string, 0, len(files))
 		for path := range files {
 			paths = append(paths, path)
@@ -102,7 +103,7 @@ func main() {
 			if !strings.HasSuffix(path, "_test.go") {
 				continue
 			}
-			findings = append(findings, scan(fset, files[path], path, asserting, identifying)...)
+			findings = append(findings, scan(fset, files[path], path, asserting, identifying, deferring)...)
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool {
@@ -127,7 +128,7 @@ func main() {
 	}
 }
 
-func scan(fset *token.FileSet, file *ast.File, path string, asserting, identifying map[string]bool) []finding {
+func scan(fset *token.FileSet, file *ast.File, path string, asserting, identifying, deferring map[string]bool) []finding {
 	var out []finding
 	at := func(p token.Pos) string {
 		pos := fset.Position(p)
@@ -223,7 +224,7 @@ func scan(fset *token.FileSet, file *ast.File, path string, asserting, identifyi
 
 		out = append(out, sleepThenAssert(fset, fn, path)...)
 		out = append(out, statusOnly(fset, fn, path)...)
-		out = append(out, anyError(fset, fn, path, identifying)...)
+		out = append(out, anyError(fset, fn, path, identifying, deferring)...)
 	}
 	return out
 }
@@ -571,8 +572,13 @@ func statusOnly(fset *token.FileSet, fn *ast.FuncDecl, path string) []finding {
 // anyError reports an error-path assertion that accepts any error at all. A
 // transport failure, a 500, and a deserialisation error all satisfy a bare
 // Error assertion, and none of them prove the service refused anything.
-func anyError(fset *token.FileSet, fn *ast.FuncDecl, path string, identifying map[string]bool) []finding {
+func anyError(fset *token.FileSet, fn *ast.FuncDecl, path string, identifying, deferring map[string]bool) []finding {
 	var out []finding
+	if deferring[fn.Name.Name] {
+		// This helper hands its error back; its callers carry the obligation,
+		// and each of them is checked in its own right.
+		return nil
+	}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		block, ok := n.(*ast.BlockStmt)
 		if !ok {
@@ -615,7 +621,20 @@ func anyError(fset *token.FileSet, fn *ast.FuncDecl, path string, identifying ma
 				(sel.Sel.Name == "Contains" || sel.Sel.Name == "Equal"):
 				// A message or code compared after the fact identifies it too.
 				identified = true
+			case pkg.Name == "strings" && inspectsAnErrorMessage(call):
+				// assert.True(t, strings.Contains(err.Error(), "was not found"))
+				// pins the refusal as surely as ErrorContains does, and a
+				// disjunction of two such checks does not fit ErrorContains at
+				// all.
+				identified = true
 			case (pkg.Name == "assert" || pkg.Name == "require") && sel.Sel.Name == "Error":
+				bare = append(bare, call.Pos())
+			}
+			return true
+		})
+		// A helper that hands its error back moved the obligation here.
+		ast.Inspect(block, func(inner ast.Node) bool {
+			if call, ok := inner.(*ast.CallExpr); ok && callsAsserting(call, deferring) {
 				bare = append(bare, call.Pos())
 			}
 			return true
@@ -631,6 +650,22 @@ func anyError(fset *token.FileSet, fn *ast.FuncDecl, path string, identifying ma
 		return false
 	})
 	return out
+}
+
+// inspectsAnErrorMessage reports whether a strings call reads an error's
+// message — strings.Contains(err.Error(), "was not found") and its relatives.
+func inspectsAnErrorMessage(call *ast.CallExpr) bool {
+	for _, arg := range call.Args {
+		inner, ok := arg.(*ast.CallExpr)
+		if !ok {
+			continue
+		}
+		if sel, ok := inner.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Error" &&
+			len(inner.Args) == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // successStatus reports whether an expression names a 2xx HTTP status.
@@ -708,4 +743,124 @@ func identifyingFuncs(files map[string]*ast.File) map[string]bool {
 		}
 	}
 	return identifying
+}
+
+// deferringFuncs returns the names of helpers that require an error and then
+// hand it — or the output that carries it — back to their caller.
+//
+// Such a helper is not a fake: `gcloudCLIFails` requires the command to fail
+// and returns its combined output precisely so the caller can assert the 404 in
+// it, and every caller does. Reporting the helper would push people to fix a
+// test that is already right. But excusing it silently would leave a hole,
+// because a caller that ignored what it was handed back would then be flagged
+// by nothing at all: the bare assertion lives in the helper, not in the caller.
+//
+// So the obligation moves rather than disappears. A call to one of these
+// helpers counts as a bare error assertion at the call site, which is where the
+// identification has to happen.
+func deferringFuncs(files map[string]*ast.File) map[string]bool {
+	deferring := map[string]bool{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Type.Results == nil || len(fn.Type.Results.List) == 0 {
+				continue
+			}
+			asserted := bareErrorOperands(fn.Body)
+			if len(asserted) == 0 {
+				continue
+			}
+			returned := returnedIdents(fn.Body)
+			for name := range asserted {
+				if returned[name] || returned[siblingOf(fn.Body, name)] {
+					deferring[fn.Name.Name] = true
+					break
+				}
+			}
+		}
+	}
+	return deferring
+}
+
+// bareErrorOperands returns the identifiers a body passes to require.Error or
+// assert.Error.
+func bareErrorOperands(body *ast.BlockStmt) map[string]bool {
+	operands := map[string]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) < 2 {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Error" {
+			return true
+		}
+		if pkg, _ := sel.X.(*ast.Ident); pkg == nil ||
+			(pkg.Name != "assert" && pkg.Name != "require") {
+			return true
+		}
+		if id, ok := call.Args[1].(*ast.Ident); ok {
+			operands[id.Name] = true
+		}
+		return true
+	})
+	return operands
+}
+
+// returnedIdents returns the identifiers a body hands back, seeing through the
+// conversions and calls a return wraps them in — `return string(out)` returns
+// out.
+func returnedIdents(body *ast.BlockStmt) map[string]bool {
+	returned := map[string]bool{}
+	var record func(expr ast.Expr)
+	record = func(expr ast.Expr) {
+		switch e := expr.(type) {
+		case *ast.Ident:
+			returned[e.Name] = true
+		case *ast.CallExpr:
+			for _, arg := range e.Args {
+				record(arg)
+			}
+		case *ast.UnaryExpr:
+			record(e.X)
+		}
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		if ret, ok := n.(*ast.ReturnStmt); ok {
+			for _, result := range ret.Results {
+				record(result)
+			}
+		}
+		return true
+	})
+	return returned
+}
+
+// siblingOf returns the other name bound alongside name in a multiple
+// assignment — the `out` of `out, err := cmd.CombinedOutput()`. A helper that
+// requires err and returns out has still handed the failure to its caller.
+func siblingOf(body *ast.BlockStmt, name string) string {
+	sibling := ""
+	ast.Inspect(body, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) < 2 {
+			return true
+		}
+		holds := false
+		for _, lhs := range assign.Lhs {
+			if id, ok := lhs.(*ast.Ident); ok && id.Name == name {
+				holds = true
+			}
+		}
+		if !holds {
+			return true
+		}
+		for _, lhs := range assign.Lhs {
+			if id, ok := lhs.(*ast.Ident); ok && id.Name != name && id.Name != "_" {
+				sibling = id.Name
+			}
+		}
+		return true
+	})
+	return sibling
 }

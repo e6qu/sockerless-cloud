@@ -122,7 +122,7 @@ func TestSNS_GetEndpointAttributes_NotFound(t *testing.T) {
 	_, err := c.GetEndpointAttributes(ctx, &sns.GetEndpointAttributesInput{
 		EndpointArn: aws.String("arn:aws:sns:us-east-1:000000000000:endpoint/GCM/none/x"),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "NotFound")
 	assert.True(t,
 		strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "does not exist"),
 		"expected NotFound, got %v", err)

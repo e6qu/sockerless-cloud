@@ -335,7 +335,7 @@ func TestCompute_Disks_AggregatedList(t *testing.T) {
 func TestCompute_Disks_Get_NotFound(t *testing.T) {
 	svc := computeService(t)
 	_, err := svc.Disks.Get("test-project", "us-central1-a", "does-not-exist").Context(ctx).Do()
-	require.Error(t, err, "get on missing disk must 404")
+	requireGoogleErrCode(t, err, http.StatusNotFound)
 }
 
 // TestCompute_GlobalHTTPLoadBalancerChain exercises the public Compute

@@ -8,6 +8,8 @@ import (
 	"cloud.google.com/go/bigtable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // TestBigtable_DataPlane exercises the Cloud Bigtable data API (BUG-2159) via the
@@ -567,7 +569,8 @@ func TestBigtable_DataPlane_ApplyBulk(t *testing.T) {
 	require.NoError(t, err2, "top-level error is transport-only; per-entry failures come back via errs")
 	require.Len(t, errs2, 2, "a partial failure must populate the per-entry slice")
 	assert.NoError(t, errs2[0])
-	assert.Error(t, errs2[1], "unknown column family must surface as a per-entry error")
+	assert.Equal(t, codes.NotFound, status.Code(errs2[1]),
+		"an unknown column family must come back as that entry's NotFound: %v", errs2[1])
 }
 
 // TestBigtable_DataPlane_SampleRowKeys directly exercises SampleRowKeys —

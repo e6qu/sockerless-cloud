@@ -1143,7 +1143,7 @@ func handleLambdaGetDurableExecution(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		de = *stored
 	}
-	lambdaDurableMu.Unlock()
+	lambdaDurableMu.RUnlock()
 	if !ok {
 		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Durable execution not found: %s", arn)
@@ -1555,7 +1555,7 @@ func handleLambdaGetDurableExecutionHistory(w http.ResponseWriter, r *http.Reque
 	if ok {
 		events = append([]lambdaDurableEvent(nil), de.Events...)
 	}
-	lambdaDurableMu.Unlock()
+	lambdaDurableMu.RUnlock()
 	if !ok {
 		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Durable execution not found: %s", arn)
@@ -1596,7 +1596,7 @@ func handleLambdaGetDurableExecutionState(w http.ResponseWriter, r *http.Request
 		ops = append([]lambdaDurableOperation(nil), de.Operations...)
 		checkpointToken = de.CheckpointToken
 	}
-	lambdaDurableMu.Unlock()
+	lambdaDurableMu.RUnlock()
 	if !ok {
 		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Durable execution not found: %s", arn)
@@ -1700,7 +1700,7 @@ func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.
 		}
 		executions = append(executions, item)
 	}
-	lambdaDurableMu.Unlock()
+	lambdaDurableMu.RUnlock()
 	sort.Slice(executions, func(i, j int) bool {
 		left, leftOK := executions[i]["StartTimestamp"].(float64)
 		right, rightOK := executions[j]["StartTimestamp"].(float64)

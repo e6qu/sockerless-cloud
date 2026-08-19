@@ -82,10 +82,10 @@ func amplifyHostingTarget(host string) (appID, branch string, ok bool) {
 	}
 
 	if strings.HasSuffix(hostname, ".cloudfront.net") {
-		for _, stored := range amplifyApps.List() {
-			if amplifyCloudFrontDomain(stored.App.AppId) != hostname {
-				continue
-			}
+		if stored, found := amplifyAppsByDistribution.Lookup(amplifyApps, hostname,
+			func(a amplifyStoredApp) []string {
+				return []string{amplifyCloudFrontDomain(a.App.AppId)}
+			}); found {
 			// The distribution host carries no subdomain prefix to pick a
 			// branch from; serve the production branch, or the app's only
 			// branch.
@@ -104,8 +104,14 @@ func amplifyHostingTarget(host string) (appID, branch string, ok bool) {
 
 	// Custom domains: only verified subdomains of an AVAILABLE association
 	// serve traffic. Verification is evaluated read-time against the sim's
-	// own Route 53 (amplify_domains.go).
-	for _, stored := range amplifyDomains.List() {
+	// own Route 53 (amplify_domains.go), so the index keys on the hostnames a
+	// stored association declares and verification is evaluated for the one
+	// row a request matches. Reading every association here — and evaluating
+	// each one's verification, which reads the Route 53 zone store in turn —
+	// was the cost every request that is not for Amplify paid, this being the
+	// fall-through for every other hostname the simulator serves.
+	for _, stored := range amplifyDomainsBySubdomain.LookupAll(amplifyDomains, hostname,
+		amplifyDomainSubdomainHosts) {
 		stored = amplifyEvaluateDomainVerification(stored)
 		if stored.Domain.DomainStatus != AmplifyDomainStatusAvailable {
 			continue
@@ -124,6 +130,28 @@ func amplifyHostingTarget(host string) (appID, branch string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+// The Amplify hosting wrapper decides whether to claim a request, so both of
+// these ran for every request into the simulator before any handler did.
+var (
+	amplifyAppsByDistribution sim.GenerationIndex[amplifyStoredApp]
+	amplifyDomainsBySubdomain sim.GenerationIndex[amplifyStoredDomain]
+)
+
+// amplifyDomainSubdomainHosts returns every hostname an association declares,
+// before verification is evaluated: the index selects candidates and the caller
+// decides whether the one it matched actually serves.
+func amplifyDomainSubdomainHosts(stored amplifyStoredDomain) []string {
+	hosts := make([]string, 0, len(stored.Domain.SubDomains))
+	for _, sub := range stored.Domain.SubDomains {
+		host := stored.Domain.DomainName
+		if sub.SubDomainSetting.Prefix != "" {
+			host = sub.SubDomainSetting.Prefix + "." + stored.Domain.DomainName
+		}
+		hosts = append(hosts, strings.ToLower(host))
+	}
+	return hosts
 }
 
 // ---------- active deployment content ----------

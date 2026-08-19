@@ -208,7 +208,7 @@ func TestEC2_BundleTasksSDK(t *testing.T) {
 	assert.Empty(t, bt.BundleTasks)
 
 	_, err = c.CancelBundleTask(ctx, &ec2.CancelBundleTaskInput{BundleId: aws.String("bun-12345678")})
-	require.Error(t, err, "no bundle tasks exist so cancel is rejected")
+	requireAWSErrorCode(t, err, "InvalidBundleID.NotFound")
 }
 
 func TestEC2_ConversionTasksSDK(t *testing.T) {
@@ -220,7 +220,7 @@ func TestEC2_ConversionTasksSDK(t *testing.T) {
 	// CancelConversionTask rejects an unknown task (the sim runs no live
 	// conversion backend, so there is never a real task to cancel).
 	_, err = c.CancelConversionTask(ctx, &ec2.CancelConversionTaskInput{ConversionTaskId: aws.String("import-i-ffffffff")})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "InvalidConversionTaskId")
 }
 
 // TestEC2_StoreImageTaskSDK covers CreateStoreImageTask on a real AMI to an S3

@@ -368,7 +368,7 @@ func TestEventBridge_TestEventPatternSDK(t *testing.T) {
 		EventPattern: aws.String(`{"source":"sockerless.tep"}`),
 		Event:        aws.String(`{"id":"3","account":"000000000000","source":"sockerless.tep"}`),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "InvalidEventPatternException")
 }
 
 // TestEventBridge_ListRuleNamesByTargetSDK creates a rule with a target and

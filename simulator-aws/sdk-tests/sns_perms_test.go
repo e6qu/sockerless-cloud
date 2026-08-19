@@ -105,7 +105,7 @@ func TestSNS_GetSubscriptionAttributes_NotFound(t *testing.T) {
 	_, err := snsC.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
 		SubscriptionArn: aws.String("arn:aws:sns:us-east-1:000000000000:nope:00000000-0000-0000-0000-000000000000"),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "NotFound")
 	assert.True(t,
 		strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "does not exist"),
 		"expected NotFound, got %v", err)

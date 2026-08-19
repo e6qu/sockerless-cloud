@@ -760,5 +760,6 @@ func TestSDK_Web_GetSubscriptionOperation(t *testing.T) {
 	_, err = global.GetSubscriptionOperationWithAsyncResponse(ctx, "eastus", opID, nil)
 	require.NoError(t, err, "an operation the service issued answers 204")
 	_, err = global.GetSubscriptionOperationWithAsyncResponse(ctx, "eastus", "00000000-dead-beef-0000-000000000000", nil)
-	require.Error(t, err, "an operation the service never issued answers 404")
+	requireAzureErrorCode(t, err, "ResourceNotFound",
+		"an operation the service never issued")
 }

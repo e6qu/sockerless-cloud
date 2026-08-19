@@ -52,17 +52,19 @@ func acaIngressTargetPort(app ContainerApp) int32 {
 	return 8080
 }
 
+// acaAppsByIngressFqdn indexes container apps by the FQDN their ingress
+// answers on. The lookup below runs in a handler wrapper, so every request into
+// the simulator pays it before any handler runs.
+var acaAppsByIngressFqdn sim.GenerationIndex[ContainerApp]
+
 // acaAppByIngressFqdn returns the App whose ingress FQDN equals host.
 func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 	if host == "" {
 		return ContainerApp{}, false
 	}
-	for _, a := range acaApps.List() {
-		if a.Properties.LatestRevisionFqdn != "" && a.Properties.LatestRevisionFqdn == host {
-			return a, true
-		}
-	}
-	return ContainerApp{}, false
+	return acaAppsByIngressFqdn.Lookup(acaApps, host, func(a ContainerApp) []string {
+		return []string{a.Properties.LatestRevisionFqdn}
+	})
 }
 
 // proxyACAIngress forwards the request to the App's running replica container's

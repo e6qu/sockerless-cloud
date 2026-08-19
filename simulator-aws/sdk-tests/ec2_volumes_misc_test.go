@@ -132,7 +132,7 @@ func TestEC2_RecycleBinSDK(t *testing.T) {
 
 	// A volume not in the bin is rejected by RestoreVolumeFromRecycleBin.
 	_, err = c.RestoreVolumeFromRecycleBin(ctx, &ec2.RestoreVolumeFromRecycleBinInput{VolumeId: aws.String("vol-deadbeef")})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "InvalidVolume.NotFound")
 }
 
 // TestEC2_ReplaceRootVolumeSDK covers the replace-root-volume task + Mac

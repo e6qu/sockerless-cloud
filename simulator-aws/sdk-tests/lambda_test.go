@@ -741,7 +741,7 @@ func TestLambda_VpcConfig_RejectsUnknownSubnet(t *testing.T) {
 			SubnetIds: []string{"subnet-doesnotexistanywhere"},
 		},
 	})
-	require.Error(t, err, "CreateFunction with an unknown subnet must fail like real Lambda")
+	requireAWSErrorCode(t, err, "InvalidParameterValueException")
 }
 
 func TestLambda_ListFunctions_Pagination(t *testing.T) {

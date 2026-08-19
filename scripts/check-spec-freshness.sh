@@ -69,6 +69,16 @@ report_drift() {
   if [ -n "$BASELINE" ] && base="$(baseline_pin "$sources" "$file")" && [ "$base" = "$pin" ]; then
     echo "INHERITED $message"
     echo "      pin unchanged from $BASELINE; the scheduled specification freshness run holds this one"
+    # Not failing the branch is not the same as saying nothing. Inherited drift
+    # printed only into a passing job's log is drift nobody reads: the daily
+    # scheduled run fails somewhere that belongs to no branch, and the capture
+    # it uploads expires. A warning annotation puts the row in front of the one
+    # person who can act on it — whoever holds the open pull request, which is
+    # where the refresh has to land anyway, because this project keeps exactly
+    # one open at a time.
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      echo "::warning title=Vendored specification is behind upstream::${message} — inherited from ${BASELINE} rather than caused by this branch, so it does not fail here. Bundle the refresh into this pull request; the daily run has nowhere else to put it."
+    fi
     return 0
   fi
   echo "DRIFT $message"

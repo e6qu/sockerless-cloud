@@ -110,5 +110,6 @@ func TestSDK_ManagedEnvironmentsStorages_ParentValidation(t *testing.T) {
 			},
 		},
 	}, nil)
-	require.Error(t, err, "storage write under a missing environment must fail")
+	requireAzureErrorCode(t, err, "ParentResourceNotFound",
+		"a storage write under a missing environment")
 }

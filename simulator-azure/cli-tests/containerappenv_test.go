@@ -51,13 +51,16 @@ func TestContainerAppEnv_Delete(t *testing.T) {
 	// provisioningState=Deleting until the operation completes, then GET
 	// fails with 404. Poll like a real client.
 	deadline := time.Now().Add(10 * time.Second)
-	var err error
+	var failure string
 	for time.Now().Before(deadline) {
-		_, err = azRest("GET", url, "").CombinedOutput()
+		out, err := azRest("GET", url, "").CombinedOutput()
 		if err != nil {
+			failure = string(out)
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	assert.Error(t, err, "Expected GET to fail after the delete operation completes")
+	assert.Contains(t, failure, "ResourceNotFound",
+		"a deleted managed environment must answer GET with ResourceNotFound once the"+
+			" delete operation completes, got: %s", failure)
 }

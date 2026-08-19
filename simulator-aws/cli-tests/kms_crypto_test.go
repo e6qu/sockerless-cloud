@@ -122,12 +122,14 @@ func TestKMSCLI_GenerateVerifyMac(t *testing.T) {
 	parseJSON(t, verifyOut, &verify)
 	assert.True(t, verify.MacValid)
 
-	err := awsCLI("kms", "verify-mac",
+	out, err := awsCLI("kms", "verify-mac",
 		"--key-id", keyId,
 		"--message", b64("mac-this-TAMPERED"),
 		"--mac", mac.Mac,
-		"--mac-algorithm", "HMAC_SHA_256").Run()
-	require.Error(t, err, "VerifyMac of a tampered message must fail")
+		"--mac-algorithm", "HMAC_SHA_256").CombinedOutput()
+	require.Error(t, err, "VerifyMac of a tampered message must fail: %s", out)
+	assert.Contains(t, string(out), "KMSInvalidMacException",
+		"the MAC must be refused as invalid, not fail some other way: %s", out)
 }
 
 // TestKMSCLI_DataKeyPair covers generate-data-key-pair and

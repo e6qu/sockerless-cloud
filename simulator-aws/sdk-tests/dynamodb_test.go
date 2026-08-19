@@ -240,7 +240,7 @@ func TestDynamoDB_QueryOnGSI(t *testing.T) {
 		KeyConditionExpression:    aws.String("GSIPK = :g"),
 		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":g": &ddbtypes.AttributeValueMemberS{Value: "group1"}},
 	})
-	require.Error(t, err, "querying an unknown index must fail with ValidationException")
+	requireAWSErrorCode(t, err, "ValidationException")
 }
 
 // TestDynamoDB_BatchAndTransact covers BatchWriteItem/BatchGetItem and the
@@ -289,7 +289,7 @@ func TestDynamoDB_BatchAndTransact(t *testing.T) {
 		return e
 	}
 	require.NoError(t, txPut())
-	require.Error(t, txPut(), "second transactional put must be cancelled by the condition")
+	requireAWSErrorCode(t, txPut(), "TransactionCanceledException")
 
 	// TransactGetItems.
 	tg, err := c.TransactGetItems(ctx, &dynamodb.TransactGetItemsInput{

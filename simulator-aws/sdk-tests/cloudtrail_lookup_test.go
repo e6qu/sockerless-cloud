@@ -206,7 +206,7 @@ func TestCloudTrailRecordsRESTServiceAPICallsSDK(t *testing.T) {
 	})
 
 	_, err = lambdac.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String("missing-ct-function")})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 
 	api, err := apigw.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:         aws.String("ct-rest-api"),

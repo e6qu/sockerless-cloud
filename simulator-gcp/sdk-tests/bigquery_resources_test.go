@@ -218,7 +218,7 @@ func TestBigQueryModels(t *testing.T) {
 	require.Empty(t, list.Models)
 
 	_, err = svc.Models.Get(project, dataset, "nope").Do()
-	require.Error(t, err)
+	requireGoogleErrCode(t, err, http.StatusNotFound)
 }
 
 func TestBigQueryTablesIAM(t *testing.T) {

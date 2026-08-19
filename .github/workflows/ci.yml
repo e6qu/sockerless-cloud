@@ -69,7 +69,14 @@ jobs:
   check-deps:
     name: check-deps (deps + actions + scripts)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Every step here queries a live upstream — the GitHub API for two clouds'
+    # specifications and Google's Discovery endpoints for the third, each
+    # sampled several times — so the job's duration tracks those services
+    # rather than anything in this repository. It has run in 4m52s and been
+    # cancelled at the ten-minute ceiling on the same content; 15 is the
+    # project's maximum and the honest budget for work that is mostly waiting
+    # on somebody else's network.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -904,6 +911,64 @@ jobs:
         timeout-minutes: 5
       - run: cd "ui/packages/${{ matrix.package }}" && bun run test:e2e
 
+  race:
+    # The simulators' own unit tests under the race detector.
+    #
+    # Its own job rather than a step in `sim`: that job's 15-minute ceiling is
+    # already close for the Azure SDK suite, and a race build is slower than a
+    # plain one. Its own job also means a race failure names itself in the check
+    # list instead of hiding inside a suite that failed for some other reason.
+    #
+    # The first race-detector run of the AWS module reported 144 races. Every
+    # one was asynchronous simulator work — reconciliations, builds,
+    # deployments, certificate validation — running in goroutines and timers
+    # that nothing tracked, so work still in flight when its test ended read
+    # package-level stores the next test was replacing. simulator-aws/
+    # background_work.go counts all of it now. They were found by running the
+    # detector by hand, and a race found by hand is a race that comes back.
+    # The module and its shared package are separate jobs, each with the full
+    # fifteen-minute ceiling. The go-test deadline is per test binary and the
+    # two are an order of magnitude apart under the detector — 60s against 224s
+    # on a developer machine, and CI's cores are slower still — so a single job
+    # sized for both would either starve one or overrun the ceiling. The `sim`
+    # job splits its suites for the same reason.
+    name: race (simulator-${{ matrix.cloud }} ${{ matrix.pkg }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [aws, gcp, azure]
+        # A dimension rather than two include entries: an include object is
+        # merged into the combinations that already exist, so two of them both
+        # setting the same key would collapse to one job per cloud instead of
+        # two. The include below only attaches the package path to a dimension
+        # value that already exists, which is what include is for.
+        pkg: [module, shared]
+        include:
+          - { pkg: module, pkgs: '.' }
+          - { pkg: shared, pkgs: './shared' }
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # The detector needs cgo, so the test binary is built differently from
+      # every other job here and gets its own compile budget.
+      - name: Pre-build the race test binary
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
+          cd simulator-${{ matrix.cloud }}
+          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null ${{ matrix.pkgs }}
+        timeout-minutes: 4
+      - name: Run unit tests under the race detector
+        run: |
+          cd simulator-${{ matrix.cloud }}
+          make race-test RACE_TEST_TIMEOUT=10m30s RACE_TEST_PKGS='${{ matrix.pkgs }}'
+        timeout-minutes: 11
+
   simulators-quality:
     name: simulators (dead code + copy-paste)
     runs-on: ubuntu-latest
@@ -978,6 +1043,12 @@ jobs:
         timeout-minutes: 5
       - name: No read path holds an exclusive lock
         run: bash scripts/check-readonly-locks.sh
+        timeout-minutes: 5
+      - name: Every read-write lock is released by its matching call
+        run: bash scripts/check-lock-pairing.sh
+        timeout-minutes: 5
+      - name: No request path reads a whole store to find one row
+        run: bash scripts/check-store-scans.sh
         timeout-minutes: 5
       - name: Check container publication contract
         run: bash scripts/check-container-publication.sh
