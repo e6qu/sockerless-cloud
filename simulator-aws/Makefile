@@ -60,9 +60,12 @@ unit-test: ## go test the simulator module's own package-internal tests (fast; A
 # what keeps the count at zero: a suite whose races are only measured by hand is
 # a suite whose races come back.
 RACE_TEST_TIMEOUT ?= 20m
+# CI runs the module and its shared package as separate jobs, because the
+# deadline is per test binary and the two are an order of magnitude apart.
+RACE_TEST_PKGS ?= ./...
 
 race-test: ## go test the simulator module's own tests under the race detector
-	CGO_ENABLED=1 go test -tags noui -race -count=1 -timeout $(RACE_TEST_TIMEOUT) ./...
+	CGO_ENABLED=1 go test -tags noui -race -count=1 -timeout $(RACE_TEST_TIMEOUT) $(RACE_TEST_PKGS)
 
 shared-test: ## go test the shared/ helper module
 	cd shared && $(GO_ENV) go test -v -count=1 ./...

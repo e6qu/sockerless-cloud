@@ -926,13 +926,28 @@ jobs:
     # package-level stores the next test was replacing. simulator-aws/
     # background_work.go counts all of it now. They were found by running the
     # detector by hand, and a race found by hand is a race that comes back.
-    name: race (simulator-${{ matrix.cloud }})
+    # The module and its shared package are separate jobs, each with the full
+    # fifteen-minute ceiling. The go-test deadline is per test binary and the
+    # two are an order of magnitude apart under the detector — 60s against 224s
+    # on a developer machine, and CI's cores are slower still — so a single job
+    # sized for both would either starve one or overrun the ceiling. The `sim`
+    # job splits its suites for the same reason.
+    name: race (simulator-${{ matrix.cloud }} ${{ matrix.pkg }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         cloud: [aws, gcp, azure]
+        # A dimension rather than two include entries: an include object is
+        # merged into the combinations that already exist, so two of them both
+        # setting the same key would collapse to one job per cloud instead of
+        # two. The include below only attaches the package path to a dimension
+        # value that already exists, which is what include is for.
+        pkg: [module, shared]
+        include:
+          - { pkg: module, pkgs: '.' }
+          - { pkg: shared, pkgs: './shared' }
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -942,21 +957,17 @@ jobs:
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       # The detector needs cgo, so the test binary is built differently from
       # every other job here and gets its own compile budget.
-      - name: Pre-build the race test binaries
+      - name: Pre-build the race test binary
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
-          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null .
-          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null ./shared
-        timeout-minutes: 5
-      - name: Run module unit tests under the race detector
-        # The deadline is per test binary, and the shared package's OCI soak
-        # test is the long pole: 228s on a developer machine under -race, where
-        # the module's own package takes 60s. A 5m30s deadline was under that
-        # once CI's slower cores were in it, and the job timed out rather than
-        # reporting a race.
-        run: cd simulator-${{ matrix.cloud }} && make race-test RACE_TEST_TIMEOUT=8m30s
-        timeout-minutes: 9
+          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null ${{ matrix.pkgs }}
+        timeout-minutes: 4
+      - name: Run unit tests under the race detector
+        run: |
+          cd simulator-${{ matrix.cloud }}
+          make race-test RACE_TEST_TIMEOUT=10m30s RACE_TEST_PKGS='${{ matrix.pkgs }}'
+        timeout-minutes: 11
 
   simulators-quality:
     name: simulators (dead code + copy-paste)

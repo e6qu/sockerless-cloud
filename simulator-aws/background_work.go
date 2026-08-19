@@ -28,10 +28,31 @@ import (
 var (
 	simBackgroundWG      sync.WaitGroup
 	simBackgroundStarted atomic.Uint64
+	// simDraining is set for the duration of AwaitSimulatorBackground. While
+	// it is set, work requested is dropped rather than started: a drain is a
+	// barrier, and work asked for after it begins is exactly what the barrier
+	// exists to keep out of the next test.
+	simDraining atomic.Bool
 )
 
 // simGo runs f in a goroutine that AwaitSimulatorBackground can wait for.
+//
+// Once a drain has begun the work is dropped rather than started. This is not
+// an optimisation: an Amazon ECS reconciliation requests another one whenever
+// it moves a task, so the work feeds itself, and a drain that keeps admitting
+// it waits on a group that is never empty. On a developer machine the chain
+// happened to converge and the drain returned in microseconds; under the race
+// detector on a CI runner it did not, and the job was killed with a
+// reconciliation still runnable after eight minutes. Bounding the drain's
+// rounds could not help, because the wait inside a round never returned.
+//
+// Dropping it is what the barrier means rather than a shortcut around it: every
+// caller of AwaitSimulatorBackground is a test replacing the stores that work
+// would read, and its own comment says so. Nothing in production drains.
 func simGo(f func()) {
+	if simDraining.Load() {
+		return
+	}
 	simBackgroundWG.Add(1)
 	simBackgroundStarted.Add(1)
 	go func() {
@@ -56,10 +77,7 @@ func simGo(f func()) {
 // reconciliation that has not begun satisfies that by being cancelled. Waiting
 // instead would add the full steady-state window to every test that drains, for
 // work whose result the next test would immediately discard.
-var (
-	simPendingTimers sync.Map // *simTimer -> struct{}
-	simDraining      atomic.Bool
-)
+var simPendingTimers sync.Map // *simTimer -> struct{}
 
 type simTimer struct {
 	timer    *time.Timer

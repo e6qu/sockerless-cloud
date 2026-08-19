@@ -211,9 +211,14 @@ the simulators from the sockerless monorepo, keeping their IDs
   reconciliations with `time.AfterFunc`, which registers nothing until it
   fires: between the schedule and the fire a drain sees quiescence, the stores
   are replaced, and the timer then wakes into the next test's. `simAfterFunc`
-  counts a pending timer from the moment it is scheduled, and a drain stops the
-  ones that have not fired rather than waiting out a steady-state window whose
-  result the next test would discard. The other twelve were in
+  counts a pending timer from the moment it is scheduled, and a drain is a
+  barrier: it stops the timers that have not fired and drops the work requested
+  while it runs, rather than waiting either out. The barrier is load-bearing
+  rather than an optimisation — a reconciliation requests another whenever it
+  moves a task, so a drain that kept admitting them waited on a group that
+  refilled itself. On a developer machine that chain converged in microseconds;
+  under the race detector on a CI runner it did not, and the job was killed with
+  a reconciliation still runnable after eight minutes. The other twelve were in
   `shared.(*Server).finalHandler`, which built the outermost handler chain on
   first use and cached it in a plain field: two concurrent first requests both
   saw nil, both built a chain, and both wrote it. That one is a live defect

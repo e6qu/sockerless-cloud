@@ -64,8 +64,12 @@ entry had guessed. Amazon ECS defers three reconciliations with
 `time.AfterFunc`, which registers nothing until it fires — so a drain saw
 quiescence, the stores were replaced, and the timer woke into the next test's.
 A pending timer is background work from the moment it is scheduled now, and a
-drain stops the ones that have not fired rather than waiting out a
-steady-state window whose result the next test would discard. The other twelve
+drain is a barrier: it stops the timers that have not fired and drops the work
+requested while it runs. That second half is load-bearing, not tidiness — a
+reconciliation requests another whenever it moves a task, so a drain that kept
+admitting them waited on a group that refilled itself, and CI killed the job
+with a reconciliation still runnable after eight minutes where a developer
+machine had converged in microseconds. The other twelve
 were in the shared server: `finalHandler` built the outermost handler chain on
 first use and cached it in an unguarded field, so two concurrent first requests
 both saw nil, both built a chain, and both wrote it. That is a live defect
