@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.5](https://github.com/e6qu/sockerless-cloud/compare/v0.12.4...v0.12.5) (2026-08-19)
+
+
+### Bug Fixes
+
+* pair every read lock with RUnlock, index the request paths that scanned a store, and hold the race count at zero ([#48](https://github.com/e6qu/sockerless-cloud/issues/48)) ([b4fd1f3](https://github.com/e6qu/sockerless-cloud/commit/b4fd1f3db35ed3df49c12202bc06cefb211a32e5))
+
 ## [0.12.4](https://github.com/e6qu/sockerless-cloud/compare/v0.12.3...v0.12.4) (2026-08-19)
 
 
