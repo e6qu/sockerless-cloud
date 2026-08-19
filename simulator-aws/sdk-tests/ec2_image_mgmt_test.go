@@ -178,7 +178,7 @@ func TestEC2_ImageWatermarkSDK(t *testing.T) {
 	_, err = c.AttachImageWatermark(ctx, &ec2.AttachImageWatermarkInput{
 		ImageId: aws.String("ami-00000000deadbeef"), WatermarkName: aws.String("x"),
 	})
-	require.Error(t, err, "attaching a watermark to an unknown AMI must fail")
+	requireAWSErrorCode(t, err, "InvalidAMIID.NotFound")
 }
 
 // TestEC2_ImageReferencesSDK covers DescribeImageReferences (instances that

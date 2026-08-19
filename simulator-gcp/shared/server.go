@@ -12,6 +12,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,11 +36,18 @@ type Server struct {
 	// after a request has been claimed. WrapHandler wraps this, so a
 	// host-addressed data plane intercepts ahead of the generic path handlers
 	// while still being observed by the outer chain built in finalHandler.
-	routed  http.Handler
-	handler http.Handler
-	db      *sql.DB         // nil when persistence disabled
-	tracker *ProcessTracker // nil when persistence disabled
-	uiAuth  *uiauth.Auth
+	routed http.Handler
+	// handler is the outermost chain, built on first use. It is read on every
+	// request and written by the first request to arrive, so it is guarded:
+	// without the lock two concurrent first requests both saw nil, both built
+	// a chain, and both wrote it — twelve of the thirteen races the detector
+	// found in this repository, and a live defect rather than a test artefact,
+	// since a real deployment's first two requests race exactly the same way.
+	handlerMu sync.RWMutex
+	handler   http.Handler
+	db        *sql.DB         // nil when persistence disabled
+	tracker   *ProcessTracker // nil when persistence disabled
+	uiAuth    *uiauth.Auth
 
 	// routePatterns records every mux pattern registered through
 	// Handle/HandleFunc, in registration order. The spec-conformance
@@ -181,6 +189,8 @@ func (s *Server) RoutePatterns() []string {
 // data planes and the spec-validation capture use this to observe or route
 // requests before generic path handlers.
 func (s *Server) WrapHandler(middleware func(http.Handler) http.Handler) {
+	s.handlerMu.Lock()
+	defer s.handlerMu.Unlock()
 	s.routed = middleware(s.routed)
 	s.handler = nil
 }
@@ -191,6 +201,17 @@ func (s *Server) WrapHandler(middleware func(http.Handler) http.Handler) {
 // every wrapper, so a request a host-addressed data plane claims is observed
 // like any other.
 func (s *Server) finalHandler() http.Handler {
+	// Every request takes this path, so the built chain is read under the read
+	// lock and the build happens once behind the write lock.
+	s.handlerMu.RLock()
+	built := s.handler
+	s.handlerMu.RUnlock()
+	if built != nil {
+		return built
+	}
+
+	s.handlerMu.Lock()
+	defer s.handlerMu.Unlock()
 	if s.handler == nil {
 		h := s.routed
 		h = LoggingMiddleware(s.logger, s.config.Provider)(h)

@@ -145,9 +145,9 @@ func TestECRCLI_DockerLoginPushPull(t *testing.T) {
 	// the credential is the only thing that separates the refusal from the
 	// success.
 	const wrongPassword = "not-the-password"
-	gateway.requireRefusal(t, http.MethodGet, "/v2/", wrongPassword)
+	refusedLogin := gateway.requireRefusal(t, http.MethodGet, "/v2/", wrongPassword)
 	wrong, wrongErr := dockerCLI(t, wrongPassword, "login", "--username", ecrRegistryLoginUsername, "--password-stdin", gateway.coordinate)
-	requireEngineRefused(t, wrong, wrongErr, "a login with the wrong password")
+	requireEngineRefused(t, refusedLogin, wrong, wrongErr, "a login with the wrong password")
 
 	// The authorization token's password logs in.
 	loggedIn, err := dockerCLI(t, password, "login", "--username", ecrRegistryLoginUsername, "--password-stdin", gateway.coordinate)
@@ -184,17 +184,17 @@ func TestECRCLI_DockerLoginPushPull(t *testing.T) {
 
 	// The registry refuses the upload a push starts with when no credential
 	// comes with it, and the engine, holding none, cannot push.
-	gateway.requireRefusal(t, http.MethodPost, "/v2/"+repo+"/blobs/uploads/", "")
+	refusedUpload := gateway.requireRefusal(t, http.MethodPost, "/v2/"+repo+"/blobs/uploads/", "")
 	refusedPush, refusedPushErr := dockerCLI(t, "", "push", reference)
-	requireEngineRefused(t, refusedPush, refusedPushErr, "a push with no credential")
+	requireEngineRefused(t, refusedUpload, refusedPush, refusedPushErr, "a push with no credential")
 
 	// The read a pull starts with is refused the same way, and the engine
 	// brings nothing back.
-	gateway.requireRefusal(t, http.MethodGet, "/v2/"+repo+"/manifests/v1", "")
+	refusedManifest := gateway.requireRefusal(t, http.MethodGet, "/v2/"+repo+"/manifests/v1", "")
 	removed, err = dockerCLI(t, "", "image", "rm", "-f", reference)
 	require.NoError(t, err, "remove the local copy before the unauthenticated pull: %s", removed)
 	refusedPull, refusedPullErr := dockerCLI(t, "", "pull", reference)
-	requireEngineRefused(t, refusedPull, refusedPullErr, "a pull with no credential")
+	requireEngineRefused(t, refusedManifest, refusedPull, refusedPullErr, "a pull with no credential")
 	_, err = dockerCLI(t, "", "image", "inspect", reference)
 	require.Error(t, err, "a pull with no credential must leave nothing behind")
 }
@@ -312,7 +312,7 @@ func (g *ecrRegistryGateway) waitForRegistryChallenge(t *testing.T) {
 // begins with, the blob upload a push begins with, the manifest read a pull
 // begins with — sent over the same TLS coordinate, in the same credential
 // state, by a client trusting the same authority.
-func (g *ecrRegistryGateway) requireRefusal(t *testing.T, method, path, password string) {
+func (g *ecrRegistryGateway) requireRefusal(t *testing.T, method, path, password string) int {
 	t.Helper()
 	req, err := http.NewRequest(method, "https://"+g.coordinate+path, http.NoBody)
 	require.NoError(t, err)
@@ -332,6 +332,7 @@ func (g *ecrRegistryGateway) requireRefusal(t *testing.T, method, path, password
 		"the refusal must carry Amazon ECR's Basic challenge, naming the login server the request reached")
 	assert.Equal(t, "registry/2.0", resp.Header.Get("Docker-Distribution-Api-Version"))
 	assert.Equal(t, "Not Authorized", strings.TrimSpace(string(body)))
+	return resp.StatusCode
 }
 
 // buildECRTestImage builds a single-layer image whose only content is unique to
@@ -416,8 +417,13 @@ func dockerCLI(t *testing.T, stdin string, args ...string) (string, error) {
 // Asserting the registry's refusal at the registry is what keeps both of those
 // renderings out of the claim while still proving the credential is what was
 // missing.
-func requireEngineRefused(t *testing.T, output string, err error, what string) {
+// The registry's status is a parameter rather than a convention, so the engine
+// half of the claim cannot be written without the registry half that identifies
+// it: a bare "the command failed" is exactly what this pair exists not to be.
+func requireEngineRefused(t *testing.T, registryStatus int, output string, err error, what string) {
 	t.Helper()
+	require.Equal(t, http.StatusUnauthorized, registryStatus,
+		"%s: the registry must have refused the request the engine makes here", what)
 	require.Error(t, err, "%s must be refused: %s", what, output)
 }
 

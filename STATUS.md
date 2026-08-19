@@ -51,6 +51,39 @@ Current state of the sockerless-cloud repository.
   lifecycle and both list scopes). VPC networks allocate bridge subnets from
   a host-side pool with ENI addresses as real secondary interface addresses,
   so same-CIDR VPCs coexist.
+- **Data races**: zero across all three simulator modules, held by the
+  `race (simulator-*)` CI job rather than by memory. The first detector run of
+  `simulator-aws` reported 144: asynchronous simulator work in untracked
+  goroutines and timers, still reading package-level stores after the test that
+  started it had ended, plus a shared-server handler chain that two concurrent
+  first requests each built and wrote. `background_work.go` counts goroutines
+  (`simGo`) and pending timers (`simAfterFunc`) alike, and
+  `AwaitSimulatorBackground` drains to quiescence, stopping timers that have
+  not fired.
+- **Request-path indexes**: every handler wrapper that decides whether to claim
+  a request answers from an index keyed by the store's `Generation()` rather
+  than by decoding every row — Elastic Load Balancing, AWS Amplify hosting,
+  Azure Load Balancer, Azure Container Apps ingress, Azure Application Gateway
+  and Azure Event Grid's publish scope, plus the Amazon ECS target resolution a
+  profile of the deployed simulator found at 84.8% of all its CPU. Those
+  wrappers run ahead of every service's handler, so the scan was paid by an
+  Amazon DynamoDB call as much as by a proxied page load. `GenerationIndex`
+  lives in `shared/index.go` in the two clouds that have such a wrapper — Google
+  Cloud has none, and an abstraction with no caller is what the dead-code gate
+  exists to refuse. Generations are unique across every store in the process, so
+  a replaced store cannot be served a stale index, and
+  `scripts/check-store-scans.sh` holds the remaining count — all of it behind a
+  guard — to a floor that may only fall.
+- **Error-path assertions**: every one of them names the code its service
+  returns. The class began at 62 assertions that accepted any error at all —
+  a transport fault, a 500 and a deserialisation failure all satisfied them —
+  and `scripts/check-fake-tests.sh` now holds `any-error` at zero alongside its
+  five other zero classes.
+- **Lock discipline**: two gates at a floor of zero.
+  `scripts/check-readonly-locks.sh` fails a read-only critical section that
+  takes an exclusive lock, and `scripts/check-lock-pairing.sh` fails an `RLock`
+  released with `Unlock` or a `Lock` released with `RUnlock` — a mismatch
+  `go vet` cannot see and `sync` answers with a process-wide fatal error.
 - **Data-plane authentication**: Azure Event Grid publish and all three
   container registries authenticate every caller against the credentials their
   control planes mint and rotate — Amazon ECR with Basic and a real twelve-hour

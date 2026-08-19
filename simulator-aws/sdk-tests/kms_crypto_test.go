@@ -144,7 +144,7 @@ func TestKMS_GenerateVerifyMac(t *testing.T) {
 		Mac:          macOut.Mac,
 		MacAlgorithm: kmstypes.MacAlgorithmSpecHmacSha256,
 	})
-	require.Error(t, err, "VerifyMac of a tampered message must fail")
+	requireAWSErrorCode(t, err, "KMSInvalidMacException")
 }
 
 // TestKMS_GenerateDataKeyPair covers GenerateDataKeyPair (real keypair +

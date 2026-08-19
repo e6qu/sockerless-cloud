@@ -133,7 +133,7 @@ func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
 			Key:              ddbKey("m"),
 			UpdateExpression: aws.String(expr),
 		})
-		require.Error(t, err, "malformed expression %q must be rejected", expr)
+		requireAWSErrorCode(t, err, "ValidationException")
 	}
 
 	// A clause keyword preceded by an invalid-UTF-8 byte previously panicked the

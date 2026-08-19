@@ -199,5 +199,7 @@ func TestAppAutoScaling_PolicyRequiresTarget(t *testing.T) {
 			},
 		},
 	})
-	require.Error(t, err, "PutScalingPolicy without a registered target must fail")
+	// No scalable target is registered for the resource, so the policy has
+	// nothing to attach to.
+	requireAWSErrorCode(t, err, "ObjectNotFoundException")
 }

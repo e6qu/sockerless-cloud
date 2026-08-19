@@ -120,7 +120,7 @@ func TestLogs_StartLiveTail_UnknownGroup(t *testing.T) {
 	_, err := cw.StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
 		LogGroupIdentifiers: []string{"arn:aws:logs:us-east-1:123456789012:log-group:no-such-group"},
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 }
 
 // TestLogs_GetLogObject streams a stored log object back over the event stream

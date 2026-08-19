@@ -96,7 +96,7 @@ func TestContainerAppEnvStorages_ParentValidation(t *testing.T) {
 	orphanURL := caeURL("managedEnvironments/cli-no-such-env/storages/orphan")
 	body := `{"properties":{"azureFile":{"accountName":"simstorageacct",` +
 		`"shareName":"simshare","accessMode":"ReadOnly"}}}`
-	cmd := azRest("PUT", orphanURL, body)
-	_, err := cmd.CombinedOutput()
-	assert.Error(t, err, "storage write under a missing environment must fail")
+	failure := runCLIExpectFailure(t, azRest("PUT", orphanURL, body))
+	assert.Contains(t, failure, "ParentResourceNotFound",
+		"a storage write under a missing environment must be refused for its absent parent, got: %s", failure)
 }

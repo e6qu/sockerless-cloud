@@ -21,7 +21,14 @@ expect_count 1 '          - { platform: linux/amd64, runner: ubuntu-latest, suff
 expect_count 1 '          - { platform: linux/arm64, runner: ubuntu-24.04-arm, suffix: arm64 }'
 expect_count 1 "          tags: ${gha}{{ env.REGISTRY }}/e6qu/${gha}{{ matrix.image.name }}:${gha}{{ needs.prepare.outputs.short_sha }}-${gha}{{ matrix.arch.suffix }}"
 expect_count 1 '          provenance: false'
-expect_count 1 "          labels: org.opencontainers.image.revision=${gha}{{ github.sha }}"
+# The revision label names the commit being published, which is not always the
+# commit that triggered the run: the workflow takes a `commit` input so the six
+# main commits a cancelled publish left with no image can each be built by SHA,
+# and `github.sha` on such a dispatch is the ref's tip rather than the commit
+# whose tree was checked out. `prepare` resolves the two into one output and
+# rejects anything that is not a full 40-character SHA, so this is the label
+# that always names what was built.
+expect_count 1 "          labels: org.opencontainers.image.revision=${gha}{{ needs.prepare.outputs.commit }}"
 if [[ "$(grep -Fc "test \"\$MEDIA_TYPE\" = \"application/vnd.oci.image.manifest.v1+json\"" "$workflow")" != 1 ]]; then
 	echo 'publication workflow must verify both architecture tags are direct OCI manifests' >&2
 	exit 1
@@ -33,8 +40,11 @@ fi
 # A publish produces the immutable artifact for one commit and no later commit
 # can produce it, so its concurrency group is the commit and nothing supersedes
 # it. scripts/check-workflow-concurrency.sh states the rule for every workflow;
-# these two literals pin the shape for the one that publishes images.
-expect_count 1 "  group: ${gha}{{ github.workflow }}-${gha}{{ github.repository }}-${gha}{{ github.sha }}"
+# these two literals pin the shape for the one that publishes images. The group
+# names the commit being published rather than the one that triggered the run,
+# so a by-SHA dispatch rebuilding an imageless commit does not share a group
+# with a push to the ref it was dispatched from.
+expect_count 1 "  group: ${gha}{{ github.workflow }}-${gha}{{ github.repository }}-${gha}{{ inputs.commit || github.sha }}"
 expect_count 1 '  cancel-in-progress: false'
 
 for image in sockerless-simulator-aws sockerless-simulator-gcp sockerless-simulator-azure; do

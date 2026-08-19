@@ -100,7 +100,7 @@ func TestSecretsManager_DuplicateNameRejected(t *testing.T) {
 		Name:         aws.String("dup-name"),
 		SecretString: aws.String("second"),
 	})
-	require.Error(t, err, "second create must fail like real AWS (ResourceExistsException)")
+	requireAWSErrorCode(t, err, "ResourceExistsException")
 }
 
 func TestSecretsManager_ListAndTag(t *testing.T) {

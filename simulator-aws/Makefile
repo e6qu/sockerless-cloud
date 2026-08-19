@@ -39,7 +39,7 @@ include $(REPO_ROOT_REL)/make/go-app.mk
 # Each sub-tree (sdk-tests, cli-tests, terraform-tests, shared) is a
 # separate Go module; the CI calls these directly.
 
-.PHONY: unit-test shared-test sdk-test cli-test terraform-test terraform-https-test terraform-https-test-docker
+.PHONY: unit-test race-test shared-test sdk-test cli-test terraform-test terraform-https-test terraform-https-test-docker
 
 # CI passes a deadline under its step budget so a hung test fails with a
 # named Go stack instead of an opaque step kill; locally the default matches
@@ -48,6 +48,21 @@ UNIT_TEST_TIMEOUT ?= 10m
 
 unit-test: ## go test the simulator module's own package-internal tests (fast; AST/unit guards, no Docker/real-exec)
 	$(GO_ENV) go test -tags noui -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
+
+# The same tests under the race detector. Separate from unit-test because the
+# detector needs cgo, which unit-test deliberately does not have.
+#
+# The first race-detector run of this package reported 144 races. Every one was
+# asynchronous simulator work — reconciliations, builds, deployments,
+# certificate validation — running in goroutines and timers nothing tracked, so
+# work still in flight when a test ended read package-level stores the next test
+# was replacing. background_work.go counts all of it now, and this target is
+# what keeps the count at zero: a suite whose races are only measured by hand is
+# a suite whose races come back.
+RACE_TEST_TIMEOUT ?= 20m
+
+race-test: ## go test the simulator module's own tests under the race detector
+	CGO_ENABLED=1 go test -tags noui -race -count=1 -timeout $(RACE_TEST_TIMEOUT) ./...
 
 shared-test: ## go test the shared/ helper module
 	cd shared && $(GO_ENV) go test -v -count=1 ./...

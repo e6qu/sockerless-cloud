@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 )
 
 // SQLiteStore is a persistent implementation of Store backed by SQLite.
@@ -15,6 +16,9 @@ type SQLiteStore[T any] struct {
 	db    *sql.DB
 	table string
 	mu    sync.Mutex // serialize writes (SQLite is single-writer)
+	// generation is advanced by every write that changed the table, from the
+	// process-wide counter described on Store.Generation.
+	generation atomic.Uint64
 }
 
 // NewSQLiteStore creates a persistent store backed by a SQLite table.
@@ -25,7 +29,9 @@ func NewSQLiteStore[T any](db *sql.DB, table string) (*SQLiteStore[T], error) {
 	if err != nil {
 		return nil, fmt.Errorf("create table %s: %w", table, err)
 	}
-	return &SQLiteStore[T]{db: db, table: table}, nil
+	store := &SQLiteStore[T]{db: db, table: table}
+	store.generation.Store(nextStoreGeneration())
+	return store, nil
 }
 
 // fatalDBErr panics on an UNEXPECTED SQLite error (a failed write, a query
@@ -68,6 +74,7 @@ func (s *SQLiteStore[T]) Put(id string, item T) {
 		id, data); err != nil {
 		s.fatalDBErr("Put", id, err)
 	}
+	s.generation.Store(nextStoreGeneration())
 }
 
 func (s *SQLiteStore[T]) Delete(id string) bool {
@@ -81,6 +88,9 @@ func (s *SQLiteStore[T]) Delete(id string) bool {
 	n, err := result.RowsAffected()
 	if err != nil {
 		s.fatalDBErr("Delete rows-affected", id, err)
+	}
+	if n > 0 {
+		s.generation.Store(nextStoreGeneration())
 	}
 	return n > 0
 }
@@ -155,6 +165,7 @@ func (s *SQLiteStore[T]) Update(id string, fn func(*T)) bool {
 		id, updated); err != nil {
 		s.fatalDBErr("Update write", id, err)
 	}
+	s.generation.Store(nextStoreGeneration())
 	return true
 }
 
@@ -181,3 +192,6 @@ func MakeStore[T any](db *sql.DB, table string) Store[T] {
 	}
 	return NewStateStore[T]()
 }
+
+// Generation reports the write counter described on Store.
+func (s *SQLiteStore[T]) Generation() uint64 { return s.generation.Load() }

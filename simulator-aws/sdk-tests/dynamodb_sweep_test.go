@@ -121,7 +121,7 @@ func TestDDBItemDepthLimit(t *testing.T) {
 	}
 	_, err := c.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(tbl),
 		Item: map[string]ddbtypes.AttributeValue{"pk": sS("deep"), "d": av}})
-	require.Error(t, err, "an item nested past 32 levels must be rejected")
+	requireAWSErrorCode(t, err, "ValidationException")
 	assert.True(t, strings.Contains(err.Error(), "ValidationException") || strings.Contains(err.Error(), "nesting"))
 }
 

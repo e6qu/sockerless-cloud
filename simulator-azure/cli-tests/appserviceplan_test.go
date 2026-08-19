@@ -49,9 +49,9 @@ func TestAppServicePlan_Delete(t *testing.T) {
 	runCLI(t, azRest("PUT", url, `{"location":"eastus"}`))
 	runCLI(t, azRest("DELETE", url, ""))
 
-	cmd := azRest("GET", url, "")
-	_, err := cmd.CombinedOutput()
-	assert.Error(t, err, "Expected GET to fail after deletion")
+	failure := runCLIExpectFailure(t, azRest("GET", url, ""))
+	assert.Contains(t, failure, "ResourceNotFound",
+		"a deleted App Service plan must answer GET with ResourceNotFound, got: %s", failure)
 }
 
 // TestAppServicePlan_ServerFarmsCasing covers the capital-F "serverFarms"

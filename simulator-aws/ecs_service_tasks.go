@@ -21,7 +21,7 @@ import (
 
 var (
 	ecsServiceReconcileLocks  sync.Map // map[service store key]*sync.Mutex
-	ecsServiceStabilityTimers sync.Map // map[service store key]*time.Timer
+	ecsServiceStabilityTimers sync.Map // map[service store key]*simTimer
 )
 
 // ecsUnhealthyTaskReplacedReason is the stopped reason the service scheduler
@@ -114,7 +114,7 @@ func ecsContinueServiceStabilization(key string) {
 		ecsCancelServiceStabilization(key)
 		return
 	}
-	timer := time.AfterFunc(ecsServiceSteadyStateWindow, func() {
+	timer := simAfterFunc(ecsServiceSteadyStateWindow, func() {
 		ecsServiceStabilityTimers.Delete(key)
 		ecsRequestServiceReconcile(key)
 	})
@@ -128,7 +128,7 @@ func ecsCancelServiceStabilization(key string) {
 	if !ok {
 		return
 	}
-	if timer, timerOK := value.(*time.Timer); timerOK {
+	if timer, timerOK := value.(*simTimer); timerOK {
 		timer.Stop()
 	}
 }
@@ -164,7 +164,7 @@ func ecsRequestServiceReconcileForTask(task ECSTask) {
 	if task.LastStatus == ECSTaskStatusRunning && task.StartedAt != nil {
 		delay := time.Until(time.Unix(*task.StartedAt, 0).Add(ecsServiceSteadyStateWindow))
 		if delay > 0 {
-			time.AfterFunc(delay, func() { ecsRequestServiceReconcile(key) })
+			simAfterFunc(delay, func() { ecsRequestServiceReconcile(key) })
 		}
 	}
 }

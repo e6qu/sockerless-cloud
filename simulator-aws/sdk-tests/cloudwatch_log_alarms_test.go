@@ -162,7 +162,8 @@ func TestCloudWatch_PutLogAlarmRejectsBadRequest(t *testing.T) {
 	in.QueryResultsToEvaluate = aws.Int32(2)
 	in.QueryResultsToAlarm = aws.Int32(5)
 	_, err := client.PutLogAlarm(ctx, in)
-	require.Error(t, err)
+	// QueryResultsToAlarm exceeds QueryResultsToEvaluate.
+	requireAWSErrorCode(t, err, "InvalidParameterValue")
 
 	metricName := "sdk-log-alarm-conflict"
 	_, err = client.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
@@ -182,5 +183,5 @@ func TestCloudWatch_PutLogAlarmRejectsBadRequest(t *testing.T) {
 
 	_, err = client.PutLogAlarm(ctx, putLogAlarmInput(metricName, group, "count(*) as hits", 1,
 		cwtypes.ComparisonOperatorGreaterThanThreshold))
-	require.Error(t, err, "an alarm name already held by a metric alarm must conflict")
+	requireAWSErrorCode(t, err, "ResourceConflict")
 }

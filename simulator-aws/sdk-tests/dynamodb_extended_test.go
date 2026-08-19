@@ -224,7 +224,7 @@ func TestDDB_ResourcePolicy(t *testing.T) {
 	_, err = c.DeleteResourcePolicy(ctx, &dynamodb.DeleteResourcePolicyInput{ResourceArn: aws.String(arn)})
 	require.NoError(t, err)
 	_, err = c.GetResourcePolicy(ctx, &dynamodb.GetResourcePolicyInput{ResourceArn: aws.String(arn)})
-	require.Error(t, err, "deleted policy must GetResourcePolicy→PolicyNotFoundException")
+	requireAWSErrorCode(t, err, "PolicyNotFoundException")
 }
 
 // TestDDB_KinesisStreaming covers Enable/Describe/Update/Disable Kinesis

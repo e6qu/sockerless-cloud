@@ -285,7 +285,7 @@ func TestDDBLegacyExpected(t *testing.T) {
 		Item:      map[string]ddbtypes.AttributeValue{"pk": sS("u")},
 		Expected:  map[string]ddbtypes.ExpectedAttributeValue{"pk": {Exists: aws.Bool(false)}},
 	})
-	require.Error(t, err, "Expected{Exists:false} must fail once the item exists")
+	requireAWSErrorCode(t, err, "ConditionalCheckFailedException")
 }
 
 // TestDDBConsistentReadOnGSI — ConsistentRead against a GSI is rejected.
@@ -316,7 +316,7 @@ func TestDDBConsistentReadOnGSI(t *testing.T) {
 		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":v": sS("a")},
 		ConsistentRead:            aws.Bool(true),
 	})
-	require.Error(t, err, "ConsistentRead on a GSI must be rejected")
+	requireAWSErrorCode(t, err, "ValidationException")
 	assert.True(t, strings.Contains(err.Error(), "ValidationException") || strings.Contains(err.Error(), "onsistent"))
 }
 
@@ -394,5 +394,5 @@ func TestDDBArithmeticNonNumericRejected(t *testing.T) {
 		UpdateExpression:          aws.String("SET n = :s + :one"),
 		ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{":s": sS("hello"), ":one": sN("1")},
 	})
-	require.Error(t, err, "arithmetic on a string operand must be rejected")
+	requireAWSErrorCode(t, err, "ValidationException")
 }

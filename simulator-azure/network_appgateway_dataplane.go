@@ -92,7 +92,13 @@ func applicationGatewayFromDataPlaneHost(host string) (ApplicationGateway, Appli
 	if hostname == "" {
 		return ApplicationGateway{}, ApplicationGatewayFrontendIPConfiguration{}, false
 	}
-	for _, gw := range azureApplicationGateways.List() {
+	// Every request into the simulator reaches this wrapper before any
+	// handler, so the address match answers from an index rather than by
+	// reading and decoding every stored gateway. Operational state is checked
+	// on the matched row rather than in the index, so a gateway that starts or
+	// stops needs no invalidation beyond the store's own generation.
+	for _, gw := range azureApplicationGatewaysByFrontend.LookupAll(
+		azureApplicationGateways, hostname, applicationGatewayFrontendAddresses) {
 		if !strings.EqualFold(gw.Properties.OperationalState, "Running") {
 			continue
 		}
@@ -107,6 +113,20 @@ func applicationGatewayFromDataPlaneHost(host string) (ApplicationGateway, Appli
 		}
 	}
 	return ApplicationGateway{}, ApplicationGatewayFrontendIPConfiguration{}, false
+}
+
+// azureApplicationGatewaysByFrontend indexes gateways by the addresses their
+// frontends answer on.
+var azureApplicationGatewaysByFrontend sim.GenerationIndex[ApplicationGateway]
+
+// applicationGatewayFrontendAddresses returns every address a gateway's
+// frontends answer on, whatever its operational state.
+func applicationGatewayFrontendAddresses(gw ApplicationGateway) []string {
+	addresses := make([]string, 0, len(gw.Properties.FrontendIPConfigurations))
+	for _, fe := range gw.Properties.FrontendIPConfigurations {
+		addresses = append(addresses, strings.ToLower(applicationGatewayFrontendAddress(fe)))
+	}
+	return addresses
 }
 
 // applicationGatewayFrontendAddress reports the address clients reach a

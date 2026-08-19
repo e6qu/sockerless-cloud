@@ -185,7 +185,8 @@ func TestDNS_DeleteZone(t *testing.T) {
 	runCLI(t, gcloudCLI("dns", "managed-zones", "delete", "delete-test-zone"))
 
 	// Verify it's gone - describe should fail
-	cmd := gcloudCLI("dns", "managed-zones", "describe", "delete-test-zone", "--format=json")
-	_, err := cmd.CombinedOutput()
-	assert.Error(t, err, "Expected describe to fail after deletion")
+	failure := gcloudCLIFails(t, gcloudCLI("dns", "managed-zones", "describe",
+		"delete-test-zone", "--format=json"))
+	assert.Contains(t, failure, "404",
+		"describing a deleted managed zone must answer 404, got: %s", failure)
 }

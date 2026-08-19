@@ -28,18 +28,39 @@ func registerELBv2DataPlane(srv *sim.Server) {
 	})
 }
 
-func elbv2LoadBalancerFromDataPlaneHost(host string) (ELBv2LoadBalancer, bool) {
+// elbv2LoadBalancersByDNSName indexes load balancers by the hostname their
+// data plane answers on.
+//
+// This lookup is the first thing every request into the simulator meets: the
+// middleware above runs ahead of every service's handler, so an Amazon DynamoDB
+// call pays it too. Answering it by reading and JSON-decoding the whole
+// load-balancer store is the same defect the Amazon ECS task scan was, on a
+// hotter path — invisible so far only because a deployment holds a handful of
+// load balancers against a few hundred tasks.
+var elbv2LoadBalancersByDNSName sim.GenerationIndex[ELBv2LoadBalancer]
+
+// elbv2DataPlaneHostname normalises a Host header to the name a load balancer
+// is indexed under: no port, lower case, no trailing root dot.
+func elbv2DataPlaneHostname(host string) string {
 	hostname := host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		hostname = h
 	}
-	hostname = strings.TrimSuffix(strings.ToLower(hostname), ".")
-	for _, lb := range elbv2LoadBalancers.List() {
-		if strings.EqualFold(strings.TrimSuffix(lb.DNSName, "."), hostname) {
-			return lb, true
-		}
+	return strings.TrimSuffix(strings.ToLower(hostname), ".")
+}
+
+func elbv2LoadBalancerFromDataPlaneHost(host string) (ELBv2LoadBalancer, bool) {
+	hostname := elbv2DataPlaneHostname(host)
+	if hostname == "" {
+		return ELBv2LoadBalancer{}, false
 	}
-	return ELBv2LoadBalancer{}, false
+	// A load balancer still being created has no DNS name yet and answers on
+	// nothing; the index drops the empty key, so a malformed request with no
+	// Host header cannot match it.
+	return elbv2LoadBalancersByDNSName.Lookup(elbv2LoadBalancers, hostname,
+		func(lb ELBv2LoadBalancer) []string {
+			return []string{strings.TrimSuffix(strings.ToLower(lb.DNSName), ".")}
+		})
 }
 
 func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBalancer) {

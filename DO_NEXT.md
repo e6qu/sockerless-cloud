@@ -1,27 +1,20 @@
 # DO NEXT
 
-1. BUG-65: 103 data races remain in the AWS module's own suite, pre-existing
-   and unmeasured until now because CI never ran `-race`. They are the same
-   family as the background workers this branch gave a lifecycle — tests
-   sharing package-level stores with goroutines from earlier tests — but in
-   paths it did not touch. Give those workers an ending a test can wait for,
-   then add `-race` to the module's unit-test job, in that order: a job that
-   fails on every run teaches people to ignore it.
-2. Sixty-two error-path assertions still accept any error at all, held by the
-   floor in `scripts/check-fake-tests.sh`. Each needs its service's real
-   refusal read out of the handler and the vendored model before it can be
-   named, so this burns down a service at a time rather than in one pass; the
-   ones already done are the pattern to follow. Lower the floor with each
-   batch — the gate fails when the count drops below it, so progress cannot be
-   silently lost.
-
-   Expect some of them to be testing nothing at all rather than testing
-   loosely. Two of the fourteen already tightened turned out to be assertions
-   on requests the generated client refuses to send, so the service never saw
-   them; the simulator's matching validation could be deleted with the test
-   still green. A bare error assertion on a call that omits a required member
-   is the shape to suspect, and the wire is where the service's own refusal
-   has to be driven.
+1. Fifty-eight full store reads remain on request paths, held by the floor in
+   `scripts/check-store-scans.sh`. Every unguarded one is converted: the
+   handler wrappers that decide whether to claim a request no longer scan. What
+   is left is reached only after a wrapper has claimed a request or matched a
+   resource — AWS WAF evaluation once a web ACL is associated, Amplify's job
+   and artifact reads once a host has resolved to an app — so none is paid by a
+   request the feature has nothing to do with. They are still worth converting,
+   and `GenerationIndex` in each cloud's `shared/index.go` is the tool; lower
+   the floor with each batch.
+2. Six commits on `main` carry no container image — `36a81145`, `b52cc80e`,
+   `c06550c5`, `b9d651f1`, `b01a8e29`, `418e0c84` — because a merge cancelled
+   each publish before the per-commit concurrency key fixed that. The publish
+   workflow now takes a `commit` input, so each can be built by dispatching it
+   by SHA; running those six dispatches pushes images to GHCR and is a
+   deliberate act, not something CI should do on its own.
 3. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read
    from the live workload container, App Service Environments and Kube
@@ -30,31 +23,38 @@
    four metric-definition operations with no series behind them, and the
    outbound network-dependency catalog, which is Microsoft-published data.
    What remains in that swagger is the long tail below 692, not a deferral.
-4. BUG-43: the azurerm provider crashed applying an App Service backup block
+4. Issue #34's third item is a decision, not an omission: it proposes that the
+   scheduled specification-freshness run open its own bump pull request, and
+   this project allows exactly one open pull request at a time, so that would
+   contradict `scripts/check-single-open-pr.sh` on any day a branch is in
+   flight. Inherited drift is now reported as a warning annotation on the open
+   pull request instead, which is where the refresh has to land anyway. If a
+   bump PR is still wanted, the one-PR rule has to give first.
+5. BUG-43: the azurerm provider crashed applying an App Service backup block
    against the simulator, after three real defects on that path were fixed. The
    Terraform leg was reverted rather than left failing; capture the provider's
    crash log and restore the stack once it applies.
-5. BUG-38: the shared registry-trust helper no longer silently no-ops, which
+6. BUG-38: the shared registry-trust helper no longer silently no-ops, which
    exposes two latent defects elsewhere — the Google Cloud build push test
    still takes the insecure path and now fails loudly, and the AWS and Google
    harness makefiles lack the shared engine-host temporary directory whose
    absence made Azure workloads mount empty directories.
-6. BUG-20 and BUG-36: the container reaper leaves workload containers running
+7. BUG-20 and BUG-36: the container reaper leaves workload containers running
    for hours after a run ends, and each cloud's suites still build their
    simulator to one shared path where a build can overwrite a binary another
    suite is executing. Both are the same family as the harness collisions
    already fixed.
-7. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
+8. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
    that the account's advertised endpoint works, and refuse two accounts
    sharing a name the way the service does.
-8. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
+9. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
    uploads the real service refuses and issues a token for any scope it is
    asked for, a virtual network drops subnets declared inline on it, and an
    Amazon ECR pull through a cache rule is never hydrated.
-9. BUG-32's consumer note: the sockerless AWS backend warns and continues when
+10. BUG-32's consumer note: the sockerless AWS backend warns and continues when
    repository creation fails, which now surfaces as a loud push failure rather
    than a silent success — correct, and matching the real service.
-10. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+11. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 

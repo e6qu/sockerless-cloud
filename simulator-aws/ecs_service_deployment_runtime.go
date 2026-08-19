@@ -320,7 +320,7 @@ func ecsScheduleServiceRetry(key string, at int64) {
 	if delay < 0 {
 		delay = 0
 	}
-	timer := time.AfterFunc(delay, func() {
+	timer := simAfterFunc(delay, func() {
 		ecsServiceRetryTimers.Delete(key)
 		ecsRequestServiceReconcile(key)
 	})
@@ -334,7 +334,7 @@ func ecsCancelServiceRetry(key string) {
 	if !ok {
 		return
 	}
-	if timer, timerOK := value.(*time.Timer); timerOK {
+	if timer, timerOK := value.(*simTimer); timerOK {
 		timer.Stop()
 	}
 }

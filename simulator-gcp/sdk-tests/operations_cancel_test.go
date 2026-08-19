@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"strings"
 	"testing"
@@ -291,8 +292,8 @@ func TestSDK_CloudLogging_OperationsCancel(t *testing.T) {
 			require.NoError(t, sc.cancel(op.Name),
 				"cancelling a completed operation is not an error")
 
-			require.Error(t, sc.cancel(sc.loc+"/operations/never-minted"),
-				"a name no operation was minted under is not cancellable")
+			requireGoogleErrCode(t, sc.cancel(sc.loc+"/operations/never-minted"),
+				http.StatusNotFound)
 		})
 	}
 }

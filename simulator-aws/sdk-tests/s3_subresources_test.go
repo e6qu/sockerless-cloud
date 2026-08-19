@@ -106,7 +106,7 @@ func TestS3_AbortMultipart(t *testing.T) {
 		UploadId:        aws.String(uploadID),
 		MultipartUpload: &types.CompletedMultipartUpload{},
 	})
-	require.Error(t, err, "Complete after Abort must fail")
+	requireAWSErrorCode(t, err, "NoSuchUpload")
 }
 
 // TestS3_ObjectTagging exercises PutObjectTagging → GetObjectTagging

@@ -1,5 +1,103 @@
 # WHAT WE DID
 
+## 2026-08-19 — A fatal lock mismatch, two request-path scans, and the last races
+
+`main` was red on `aws sdk services-a-m`, and the failure named the wrong
+thing: dozens of tests reporting `connection refused` against a port nothing
+was listening on. The simulator had died a few tests earlier with `fatal error:
+sync: Unlock of unlocked RWMutex`. Converting Amazon Lambda's durable
+executions to read locks had left four `Unlock()` calls behind their new
+`RLock()`, and `sync` answers that by taking the process down — not a request
+that fails, but every request after it.
+
+Neither the compiler nor `go vet` sees a mismatch: both calls are real methods
+on a real receiver, and only executing the path proves the pair wrong, so a
+handler no test exercises can carry the defect indefinitely. The syntax tree
+shows it plainly, and `scripts/check-lock-pairing.{go,sh}` reads it there, at a
+floor of zero in pre-commit and CI. It reported exactly those four, stays
+silent on the release-to-upgrade pattern that legitimately has all four calls,
+and a synthetic control confirms it catches the mirror-image mistake.
+
+**A whole class of request-path scans became indexes.** A CPU profile of the
+deployed simulator, taken under twelve concurrent requests, put 84.8% of all
+its CPU in `ecsPublishedTargetPort` — 99.7% of that JSON-decoding every stored
+Amazon ECS task, stopped ones included, once per proxied request. The guest has
+two vCPUs, so the data plane ran at an effective concurrency of two: a static
+JSON health endpoint behind the load balancer answered in 1.3s where the same
+endpoint directly proxied answered in 0.13s, and it grew linearly from there.
+Target resolution is 964 ns/op now, down from 1,437,485 on 201 tasks.
+
+It was reported as one function's problem, and it is a class. The load
+balancer's own hostname match had the identical shape on a hotter path still —
+a handler wrapper, so every request into the simulator paid it before any
+handler ran, an Amazon DynamoDB call as much as a proxied page load — and it
+was invisible only because a deployment holds a handful of load balancers
+against a few hundred tasks. Nothing but a profile of a live deployment would
+have found either.
+
+So the shape is what got fixed. `GenerationIndex`, in `shared/index.go` in the
+two clouds that have such a wrapper, answers a lookup from a store and rebuilds only when the
+store's generation moves; a resource that is deleted, renamed or replaced
+leaves the index on the next lookup with no invalidation call anywhere in its
+lifecycle. Every handler wrapper that decides whether to claim a request now
+uses it — Elastic Load Balancing, AWS Amplify hosting, Azure Load Balancer,
+Azure Container Apps ingress, Azure Application Gateway, Azure Event Grid's
+publish scope — and `scripts/check-store-scans.sh` holds the rest, all of it
+behind a guard, to a floor that may only fall. Google Cloud has no such wrapper
+and so has no copy of the helper: the dead-code gate refused one, correctly. Amplify's was the worst of them:
+its custom-domain branch is the fall-through for every hostname the simulator
+serves, and it evaluated each stored association's verification against the
+Route 53 zone store as it went.
+
+Two defects fell out of building it. The scan let a request with no `Host`
+header match a load balancer whose DNS name was still empty. And a generation
+was only unique within one store instance, so when a test replaced a
+package-level store the replacement started counting from zero too and an index
+built from the old store was served for the new one — a load balancer that no
+longer existed still answering on its hostname. Generations are drawn from one
+process-wide counter now, and a test asserts an index refuses a store it was
+not built from.
+
+**The race count reached zero.** It began at 144 in `simulator-aws` and this
+finished the last thirteen, which had two causes and neither was the one the
+bug entry had guessed. Amazon ECS defers three reconciliations with
+`time.AfterFunc`, which registers nothing until it fires — so a drain saw
+quiescence, the stores were replaced, and the timer woke into the next test's.
+A pending timer is background work from the moment it is scheduled now, and a
+drain stops the ones that have not fired rather than waiting out a
+steady-state window whose result the next test would discard. The other twelve
+were in the shared server: `finalHandler` built the outermost handler chain on
+first use and cached it in an unguarded field, so two concurrent first requests
+both saw nil, both built a chain, and both wrote it. That is a live defect
+rather than a test artefact — a real deployment's first two requests race
+identically — and all three clouds' copies are fixed. A `race (simulator-*)`
+job runs the detector over all three modules on every pull request, because a
+race found by running the detector by hand is a race that comes back.
+
+**Every error-path assertion names its error.** The `any-error` class began at
+62 assertions satisfied by any failure at all, and is at zero. Each one now
+carries the code read out of its handler — `ObjectNotFoundException` for a
+scaling policy with no target, `ActiveInstanceRefreshNotFound` for a cancel
+with no refresh, `PopReceiptMismatch` for a superseded Azure queue receipt,
+`InvalidAMIID.NotFound` for a watermark on an absent image. Two of the 62 were
+the detector's fault rather than the tests': a message read through
+`strings.Contains(err.Error(), …)` identifies a refusal as surely as
+`ErrorContains` does, and a helper that hands its error back to its caller has
+moved the obligation rather than dodged it — so a caller that ignores what such
+a helper returns is now reported in the helper's place. The last two were the
+container-engine refusal helpers, whose registry-side half was asserted by
+convention in the caller; the registry's observed status is a parameter now, so
+the engine half cannot be written without it.
+
+**Release plumbing.** The publish workflow takes a `commit` input, so the six
+main commits a cancelled publish left with no image can each be built by SHA —
+no push event can be replayed for a commit already in history. Inherited
+specification drift, which deliberately does not fail a branch, is reported as
+a warning annotation on the open pull request rather than only in a passing
+job's log: the daily run that does fail on it belongs to no branch, and this
+project keeps exactly one pull request open, so that is where a refresh has to
+land.
+
 ## 2026-08-18 — One lock, and the shape behind three bug reports
 
 Issue #43 is the cause under #37 and #39: the mutex guarding the DynamoDB item

@@ -54,9 +54,9 @@ func TestMonitorWorkspace_Delete(t *testing.T) {
 	runCLI(t, azRest("PUT", url, `{"location":"eastus","properties":{}}`))
 	runCLI(t, azRest("DELETE", url, ""))
 
-	cmd := azRest("GET", url, "")
-	_, err := cmd.CombinedOutput()
-	assert.Error(t, err, "Expected GET to fail after deletion")
+	failure := runCLIExpectFailure(t, azRest("GET", url, ""))
+	assert.Contains(t, failure, "ResourceNotFound",
+		"a deleted Azure Monitor workspace must answer GET with ResourceNotFound, got: %s", failure)
 }
 
 // App Insights (Microsoft.Insights/components) CLI coverage via az rest.

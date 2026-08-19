@@ -163,7 +163,7 @@ func TestSecretsManager_GetRandomPassword(t *testing.T) {
 	_, err = client.GetRandomPassword(ctx, &secretsmanager.GetRandomPasswordInput{
 		PasswordLength: aws.Int64(1),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "InvalidParameterException")
 	assert.True(t, strings.Contains(err.Error(), "PasswordLength"),
 		"expected error to mention PasswordLength; got %v", err)
 }

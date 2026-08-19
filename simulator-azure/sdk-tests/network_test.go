@@ -213,7 +213,8 @@ func TestNetwork_NSGRule_RejectsDuplicatePriority(t *testing.T) {
 	// Second rule: same priority + direction — must fail.
 	_, err = rulesClient.BeginCreateOrUpdate(ctx, "nsg-prio-rg", "prio-nsg", "duplicate",
 		makeRule(200, armnetwork.SecurityRuleDirectionInbound), nil)
-	require.Error(t, err, "duplicate Priority+Direction must fail like real Azure")
+	requireAzureErrorCode(t, err, "SecurityRuleParameterPriorityAlreadyTaken",
+		"a second rule with the same priority and direction")
 
 	// Third rule: same priority but EGRESS — should succeed (priority
 	// space is per-direction, not global).

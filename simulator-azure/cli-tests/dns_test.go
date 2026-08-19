@@ -133,9 +133,9 @@ func TestPrivateDNS_DeleteZone(t *testing.T) {
 	runCLI(t, azRest("DELETE", zoneURL, ""))
 
 	// Verify deletion - GET should fail
-	cmd := azRest("GET", zoneURL, "")
-	_, err := cmd.CombinedOutput()
-	assert.Error(t, err, "Expected GET to fail after deletion")
+	failure := runCLIExpectFailure(t, azRest("GET", zoneURL, ""))
+	assert.Contains(t, failure, "ResourceNotFound",
+		"a deleted Azure Private DNS zone must answer GET with ResourceNotFound, got: %s", failure)
 }
 
 func TestPrivateDNS_RecordSetListAndDelete(t *testing.T) {

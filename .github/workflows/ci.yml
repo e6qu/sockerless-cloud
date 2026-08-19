@@ -904,6 +904,47 @@ jobs:
         timeout-minutes: 5
       - run: cd "ui/packages/${{ matrix.package }}" && bun run test:e2e
 
+  race:
+    # The simulators' own unit tests under the race detector.
+    #
+    # Its own job rather than a step in `sim`: that job's 15-minute ceiling is
+    # already close for the Azure SDK suite, and a race build is slower than a
+    # plain one. Its own job also means a race failure names itself in the check
+    # list instead of hiding inside a suite that failed for some other reason.
+    #
+    # The first race-detector run of the AWS module reported 144 races. Every
+    # one was asynchronous simulator work — reconciliations, builds,
+    # deployments, certificate validation — running in goroutines and timers
+    # that nothing tracked, so work still in flight when its test ended read
+    # package-level stores the next test was replacing. simulator-aws/
+    # background_work.go counts all of it now. They were found by running the
+    # detector by hand, and a race found by hand is a race that comes back.
+    name: race (simulator-${{ matrix.cloud }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [aws, gcp, azure]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # The detector needs cgo, so the test binary is built differently from
+      # every other job here and gets its own compile budget.
+      - name: Pre-build the race test binaries
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
+          cd simulator-${{ matrix.cloud }}
+          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null .
+        timeout-minutes: 8
+      - name: Run module unit tests under the race detector
+        run: cd simulator-${{ matrix.cloud }} && make race-test RACE_TEST_TIMEOUT=5m30s
+        timeout-minutes: 6
+
   simulators-quality:
     name: simulators (dead code + copy-paste)
     runs-on: ubuntu-latest
@@ -978,6 +1019,12 @@ jobs:
         timeout-minutes: 5
       - name: No read path holds an exclusive lock
         run: bash scripts/check-readonly-locks.sh
+        timeout-minutes: 5
+      - name: Every read-write lock is released by its matching call
+        run: bash scripts/check-lock-pairing.sh
+        timeout-minutes: 5
+      - name: No request path reads a whole store to find one row
+        run: bash scripts/check-store-scans.sh
         timeout-minutes: 5
       - name: Check container publication contract
         run: bash scripts/check-container-publication.sh

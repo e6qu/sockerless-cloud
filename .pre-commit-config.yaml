@@ -149,6 +149,20 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: lock-pairing
+        name: Every read-write lock is released by its matching call
+        entry: bash scripts/check-lock-pairing.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: store-scans
+        name: No request path reads a whole store to find one row
+        entry: bash scripts/check-store-scans.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: embedded-ui-build-order
         name: Embedded web interfaces build before Go binaries
         entry: bash scripts/check-embedded-ui-build-order.sh

@@ -129,7 +129,7 @@ func TestKMS_GenerateRandom(t *testing.T) {
 	assert.NotEqual(t, out.Plaintext, out2.Plaintext, "GenerateRandom must return fresh randomness")
 
 	_, err = c.GenerateRandom(ctx, &kms.GenerateRandomInput{NumberOfBytes: aws.Int32(2048)})
-	require.Error(t, err, "NumberOfBytes above 1024 must be rejected")
+	requireAWSErrorCode(t, err, "ValidationException")
 }
 
 // TestKMS_ListKeyPolicies pins the single "default" policy name real KMS

@@ -108,7 +108,7 @@ func TestSSM_AvailablePatches(t *testing.T) {
 	_, err = c.DescribeEffectivePatchesForPatchBaseline(ctx, &ssm.DescribeEffectivePatchesForPatchBaselineInput{
 		BaselineId: aws.String("pb-doesnotexist00000"),
 	})
-	require.Error(t, err)
+	requireAWSErrorCode(t, err, "DoesNotExistException")
 
 	props, err := c.DescribePatchProperties(ctx, &ssm.DescribePatchPropertiesInput{
 		OperatingSystem: ssmtypes.OperatingSystemAmazonLinux2,

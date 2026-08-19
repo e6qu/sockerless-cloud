@@ -3,6 +3,7 @@ package simulator
 import (
 	"reflect"
 	"sync"
+	"sync/atomic"
 )
 
 // Store is the interface for a typed key-value store.
@@ -20,15 +21,34 @@ type Store[T any] interface {
 	// for read-modify-write that must not race a concurrent writer the way a
 	// separate Update-then-Put pair would.
 	Upsert(id string, fn func(*T))
-	// Generation is a counter this store increments on every write that
+	// Generation is a counter this store advances on every write that
 	// changed it. Two reads that observe the same generation observed the
 	// same contents, so a caller that derives an index from List can keep
 	// that index until the generation moves instead of rebuilding it per
-	// request. It says nothing about *what* changed and is meaningless
-	// across processes: a restarted simulator restores its rows but starts
-	// counting from zero again.
+	// request. It says nothing about *what* changed.
+	//
+	// The values are drawn from one counter shared by every store in the
+	// process, so a generation identifies a state of a particular store and
+	// not merely a number of writes. A per-store counter starting at zero
+	// looked equivalent and was not: tests replace a package-level store
+	// between cases, the replacement began at zero too, and an index built
+	// from the old store matched the new one's generation and was served for
+	// it — a load balancer that no longer existed still answering on its
+	// hostname. Two stores never share a generation now.
+	//
+	// It remains meaningless across processes: a restarted simulator restores
+	// its rows but starts counting from wherever the new process's counter
+	// begins.
 	Generation() uint64
 }
+
+// storeGenerations is the counter every store's Generation draws from. It is
+// process-wide so that no two stores, and no two states of one store, can
+// present the same generation to a caller caching something derived from it.
+var storeGenerations atomic.Uint64
+
+// nextStoreGeneration returns a generation no store has presented before.
+func nextStoreGeneration() uint64 { return storeGenerations.Add(1) }
 
 // StateStore is an alias for backward compatibility.
 // New code should use Store[T] interface or MemoryStore[T] directly.
@@ -44,7 +64,8 @@ type MemoryStore[T any] struct {
 // NewStateStore creates a new in-memory store. Returns Store[T] for interface compatibility.
 func NewStateStore[T any]() *MemoryStore[T] {
 	return &MemoryStore[T]{
-		items: make(map[string]T),
+		items:      make(map[string]T),
+		generation: nextStoreGeneration(),
 	}
 }
 
@@ -137,7 +158,7 @@ func (s *MemoryStore[T]) Put(id string, item T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.items[id] = cloneStoreValue(item)
-	s.generation++
+	s.generation = nextStoreGeneration()
 }
 
 func (s *MemoryStore[T]) Delete(id string) bool {
@@ -146,7 +167,7 @@ func (s *MemoryStore[T]) Delete(id string) bool {
 	_, ok := s.items[id]
 	if ok {
 		delete(s.items, id)
-		s.generation++
+		s.generation = nextStoreGeneration()
 	}
 	return ok
 }
@@ -199,7 +220,7 @@ func (s *MemoryStore[T]) Update(id string, fn func(*T)) bool {
 	v = cloneStoreValue(v)
 	fn(&v)
 	s.items[id] = cloneStoreValue(v)
-	s.generation++
+	s.generation = nextStoreGeneration()
 	return true
 }
 
@@ -212,5 +233,5 @@ func (s *MemoryStore[T]) Upsert(id string, fn func(*T)) {
 	v = cloneStoreValue(v)
 	fn(&v)
 	s.items[id] = cloneStoreValue(v)
-	s.generation++
+	s.generation = nextStoreGeneration()
 }

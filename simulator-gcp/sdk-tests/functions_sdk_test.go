@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func newFunctionsClient(t *testing.T) *functions.FunctionClient {
@@ -151,5 +153,6 @@ func TestSDK_CloudFunctions_DeleteFunction(t *testing.T) {
 	_, err = client.GetFunction(ctx, &functionspb.GetFunctionRequest{
 		Name: "projects/test-project/locations/us-central1/functions/sdk-delete-fn",
 	})
-	assert.Error(t, err, "function should not exist after deletion")
+	assert.Equal(t, codes.NotFound, status.Code(err),
+		"a deleted function must be gone, not merely unreadable: %v", err)
 }

@@ -123,7 +123,7 @@ func TestKinesisSDK_ResourcePolicy(t *testing.T) {
 	_, err = client.GetResourcePolicy(ctx, &kinesis.GetResourcePolicyInput{
 		ResourceARN: aws.String(streamARN),
 	})
-	require.Error(t, err, "GetResourcePolicy after delete must fail")
+	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 }
 
 // TestKinesisSDK_MergeAndSplitShards exercises SplitShard then MergeShards,
@@ -326,7 +326,7 @@ func TestKinesisSDK_UpdateMaxRecordSize(t *testing.T) {
 		StreamARN:          aws.String(streamARN),
 		MaxRecordSizeInKiB: aws.Int32(99999),
 	})
-	require.Error(t, err, "out-of-range MaxRecordSizeInKiB must be rejected")
+	requireAWSErrorCode(t, err, "ValidationException")
 }
 
 // TestKinesisSDK_UpdateStreamWarmThroughput sets a warm-throughput target and
