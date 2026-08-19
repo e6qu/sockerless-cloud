@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.4](https://github.com/e6qu/sockerless-cloud/compare/v0.12.3...v0.12.4) (2026-08-19)
+
+
+### Performance Improvements
+
+* **aws/dynamodb:** stripe the item lock, publish items copy-on-write, and end every background worker ([#45](https://github.com/e6qu/sockerless-cloud/issues/45)) ([bd6b1c5](https://github.com/e6qu/sockerless-cloud/commit/bd6b1c597e4ea89ca98976866780b5ecb9553e53))
+
 ## [0.12.3](https://github.com/e6qu/sockerless-cloud/compare/v0.12.2...v0.12.3) (2026-08-18)
 
 
