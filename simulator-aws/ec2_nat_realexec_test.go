@@ -28,6 +28,9 @@ func TestEC2RealNATGatewayDataPlane(t *testing.T) {
 	defer cancel()
 
 	// Fresh in-memory stores for this test.
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ec2Vpcs = sim.MakeStore[EC2Vpc](nil, "ec2_vpcs")
 	ec2Subnets = sim.MakeStore[EC2Subnet](nil, "ec2_subnets")
 	ec2NatGateways = sim.MakeStore[EC2NatGateway](nil, "ec2_nat_gateways")

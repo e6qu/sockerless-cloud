@@ -20,6 +20,9 @@ func TestAllocateSubnetIPReusesStoppedECSTaskAddress(t *testing.T) {
 		ecsTasks = previousTasks
 	})
 
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ec2Subnets = sim.MakeStore[EC2Subnet](nil, "ec2_subnets")
 	ec2SubnetIPCursor = sim.MakeStore[uint32](nil, "ec2_subnet_ip_cursor")
 	ec2NetworkInterfaces = sim.MakeStore[EC2NetworkInterface](nil, "ec2_network_interfaces")

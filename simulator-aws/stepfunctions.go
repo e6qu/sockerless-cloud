@@ -1014,7 +1014,7 @@ func sfnRunTopLevelDefinition(def sfnDefinition, input string, cancel <-chan str
 	timeoutFired := make(chan struct{})
 	done := make(chan struct{})
 	defer close(done)
-	go func() {
+	simGo(func() {
 		select {
 		case <-cancel:
 			close(combined)
@@ -1023,7 +1023,7 @@ func sfnRunTopLevelDefinition(def sfnDefinition, input string, cancel <-chan str
 			close(combined)
 		case <-done:
 		}
-	}()
+	})
 	output, status, err := sfnRunDefDepthRuntime(def, input, combined, 0, variables, executionARN)
 	select {
 	case <-timeoutFired:

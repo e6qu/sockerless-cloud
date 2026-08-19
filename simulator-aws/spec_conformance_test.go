@@ -123,6 +123,13 @@ func buildConformanceSimulator(t *testing.T) (*sim.Server, *sim.AWSRouter, *sim.
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	// A simulator built but never served still starts its background workers,
+	// and they keep reading package-level state after the test that built them
+	// has finished — the next test to build one reassigns those stores under a
+	// checker still sweeping them, which the race detector reports as a write
+	// racing a read with neither in the test's own code. Stopping them is the
+	// caller's job, as StopBackground's own documentation says.
+	t.Cleanup(srv.StopBackground)
 	return srv, jsonRouter, queryRouter
 }
 

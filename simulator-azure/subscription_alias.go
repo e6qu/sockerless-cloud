@@ -274,7 +274,12 @@ func handleSubscriptionAliasCreate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Counted with the other background completions so a test can wait for it:
+	// an alias still provisioning when its test ends writes the subscription
+	// stores while the next test rebuilds them.
+	azureAsyncOpsWG.Add(1)
 	go func() {
+		defer azureAsyncOpsWG.Done()
 		// The subscription materializes while the alias provisions — the
 		// same async window real subscription creation has.
 		time.Sleep(50 * time.Millisecond)

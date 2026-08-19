@@ -22,6 +22,10 @@ func TestBareRootReachesConsoleWhileCosmosKeepsAPIRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	// Long-running operations complete in a goroutine. One still running
+	// when this test ends would read and write the stores while the next
+	// test rebuilds them.
+	t.Cleanup(AwaitAzureAsyncOperations)
 	// A browser at the bare origin carries none of Cosmos's data-plane headers.
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))

@@ -1,5 +1,58 @@
 # WHAT WE DID
 
+## 2026-08-18 — One lock, and the shape behind three bug reports
+
+Issue #43 is the cause under #37 and #39: the mutex guarding the DynamoDB item
+store was exclusive, so reads excluded each other and a workspace create that
+fans out into a few dozen single-item calls served them one at a time. It is a
+read-write lock now, and the contract lives where it is declared — reads take
+RLock, anything that writes or reads-then-writes takes Lock for the whole span,
+and neither is reentrant. All thirteen of its sites were classified first: four
+pure reads, nine writers, including the three PartiQL paths that need the whole
+operation and would become lost updates under a read lock.
+
+The result is measured rather than timed. Each reader records that it is inside
+the critical section and the test asserts more than one was there at once: peak
+concurrent readers went from 1 of 16 to 16 of 16, and a separate assertion holds
+writers to still excluding each other. A duration would only have said "fast on
+this machine today".
+
+Three bug reports in two days were the same shape — a lock taken for reading,
+so a service's read concurrency is one — and each was found by someone watching
+a page time out. That shape is now counted:
+`scripts/check-readonly-locks.go` reports critical sections that hold an
+exclusive lock while only reading a store, and the gate holds the count to a
+floor that may only fall. Thirty-two remain, in AWS Glue, Lambda durable
+executions, Amazon ECS revisions and the EC2 real-execution fabric.
+
+Then converted, all of them, once the detector could be trusted — and getting
+it there was the work. Its first run reported ninety-nine findings, including
+functions whose whole job is removal, because `delete` is a builtin rather than
+a method. Teaching it to follow calls transitively cut that to eleven and
+silently dropped the largest true cluster, because writing an HTTP response
+counts as a write if you let it. Excluding the response writer brought the
+Glue handlers back at twenty-three. A mechanical sweep on any of the three
+earlier numbers would have converted writers to read locks and traded slow
+reads for lost updates.
+
+What the trustworthy number described was converted service by service: the
+Glue catalog's twelve read handlers, Lambda's four durable-execution reads, the
+ECS revision index, and all three clouds' real-execution fabric maps. Every
+declaration carries the contract; every writing site kept its exclusive lock.
+The detector is held at zero now rather than at a floor.
+
+Running the suites under the race detector afterwards — CI never has — found
+something else entirely: 144 races in the AWS module, none of them from the
+lock change. A simulator a test builds but never serves still starts its
+background workers, and `StopBackground` exists for exactly that but no test
+called it, so a load-balancer health checker kept sweeping stores while the
+next test rebuilt them. Azure had the same shape in bare goroutines that
+complete long-running operations and provision subscription aliases. The AWS
+builders stop their workers now and the Azure completions are counted in a wait
+group its builders drain: 144 down to 103, Azure clean across four consecutive
+runs. The remaining 103 are pre-existing, measured against the merge base
+rather than assumed, and filed rather than left silent.
+
 ## 2026-08-18 — What the repaired fuzz targets found on their first real night
 
 The sweep found two fuzz targets spending the nightly budget on routes that do

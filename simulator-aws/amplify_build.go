@@ -331,7 +331,7 @@ func amplifyScheduleRealBuild(appID, branch, jobID, urlBase, repo, specText stri
 }
 
 func amplifyScheduleRealBuildMode(appID, branch, jobID, urlBase, repo, specText string, env map[string]string, commitID string, recovering bool) {
-	go func() {
+	simGo(func() {
 		if !amplifyStartJobSummary(jobID, recovering) {
 			return // stopped before it started
 		}
@@ -339,7 +339,7 @@ func amplifyScheduleRealBuildMode(appID, branch, jobID, urlBase, repo, specText 
 		if amplifyFinishJob(jobID, status) && status == AmplifyJobStatusSucceed {
 			amplifyMarkProductionDeploy(appID, branch, jobID)
 		}
-	}()
+	})
 }
 
 func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, env map[string]string, commitID string) AmplifyJobStatus {

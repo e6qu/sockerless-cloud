@@ -9,8 +9,11 @@ import (
 )
 
 func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
-	ddbItemsMu = sync.Mutex{}
+	ddbResetItemLocks()
 
 	const itemKey = "snap/S#item"
 	item := map[string]any{
@@ -26,10 +29,10 @@ func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
 	if !ok {
 		t.Fatal("snapshot missing stored item")
 	}
-	ddbItemsMu.Lock()
+	release := ddbLockItemKeys(true, itemKey)
 	item["version"] = map[string]any{"N": "1"}
 	item["payload"].(map[string]any)["M"].(map[string]any)["body"] = map[string]any{"S": "mutated"}
-	ddbItemsMu.Unlock()
+	release()
 	if got := snap["version"].(map[string]any)["N"]; got != "0" {
 		t.Fatalf("snapshot version changed with stored item: %v", got)
 	}
@@ -54,21 +57,24 @@ func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
 		}(i)
 	}
 	for n := 0; n < 1000; n++ {
-		ddbItemsMu.Lock()
+		writeRelease := ddbLockItemKeys(true, itemKey)
 		item["version"] = map[string]any{"N": fmt.Sprintf("%d", n)}
 		item[fmt.Sprintf("attr-%d", n%16)] = map[string]any{"S": fmt.Sprintf("value-%d", n)}
-		ddbItemsMu.Unlock()
+		writeRelease()
 	}
 	wg.Wait()
 }
 
 // Scan hands its key list to ddbBatchedSnapshots, which loads ddbSnapshotBatch
-// items per acquisition of ddbItemsMu instead of one. The refill boundary is the
+// items per acquisition of the table stripe instead of one. The refill boundary is the
 // part worth pinning down: an off-by-one there silently drops or double-reads
 // items, which surfaces as a Scan missing rows rather than as a crash.
 func TestDDBBatchedSnapshotsSpanBatchBoundaries(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
-	ddbItemsMu = sync.Mutex{}
+	ddbResetItemLocks()
 
 	// Deliberately more than two batches, with holes so absent keys are covered.
 	const total = ddbSnapshotBatch*2 + 37
@@ -114,11 +120,11 @@ func TestDDBBatchedSnapshotsSpanBatchBoundaries(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a stored item")
 	}
-	ddbItemsMu.Lock()
+	mutate := ddbLockItemKeys(true, first)
 	live, _ := ddbItems.Get(first)
 	live["index"] = map[string]any{"N": "999"}
 	ddbItems.Put(first, live)
-	ddbItemsMu.Unlock()
+	mutate()
 	if got := item["index"].(map[string]any)["N"]; got != "1" {
 		t.Fatalf("snapshot observed a later mutation: %v", got)
 	}

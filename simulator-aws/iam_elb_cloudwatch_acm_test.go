@@ -267,6 +267,9 @@ func TestIAMResourceARNs_CloudMapTakesTheIdOrResolvesTheName(t *testing.T) {
 // queue is what the reference authorizes the cancel against. An unknown
 // handle resolves to nothing rather than to an invented queue.
 func TestIAMResourceARNs_SQSResolvesACancelledMoveThroughItsTask(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	sqsMoveTasks = sim.MakeStore[SQSMessageMoveTask](nil, "sqs_move_tasks")
 	const dead = "arn:aws:sqs:us-east-1:123456789012:orders-dlq"
 	sqsMoveTasks.Put("f81d4fae-7dec-11d0-a765-00a0c91e6bf6", SQSMessageMoveTask{
@@ -284,6 +287,9 @@ func TestIAMResourceARNs_SQSResolvesACancelledMoveThroughItsTask(t *testing.T) {
 // what knows which namespace and service the operation acted on, and their
 // recorded ARNs are what the gate asks for.
 func TestIAMResourceARNs_CloudMapResolvesAnOperationToWhatItActedOn(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	cmNamespaces = sim.MakeStore[CMNamespace](nil, "cloudmap_namespaces")
 	cmServices = sim.MakeStore[CMService](nil, "cloudmap_services")
 	cmOperations = sim.MakeStore[CMOperation](nil, "cloudmap_operations")

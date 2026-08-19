@@ -1376,7 +1376,7 @@ func amplifyScheduleDeployment(appID, branch, jobID, urlBase string, uploads []a
 }
 
 func amplifyScheduleDeploymentMode(appID, branch, jobID, urlBase string, uploads []amplifyUploadedArtifact, recovering bool) {
-	go func() {
+	simGo(func() {
 		if recovering {
 			stored, ok := amplifyJobs.Get(jobID)
 			if !ok || (stored.Job.Summary.Status != AmplifyJobStatusPending && stored.Job.Summary.Status != AmplifyJobStatusRunning) {
@@ -1405,7 +1405,7 @@ func amplifyScheduleDeploymentMode(appID, branch, jobID, urlBase string, uploads
 			return
 		}
 		amplifyMarkProductionDeploy(appID, branch, jobID)
-	}()
+	})
 }
 
 // amplifyDeploymentManifestError reports why a settling deployment's

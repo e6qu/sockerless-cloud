@@ -24,6 +24,9 @@ func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ec2Vpcs = sim.MakeStore[EC2Vpc](nil, "ec2_vpcs")
 	ec2Subnets = sim.MakeStore[EC2Subnet](nil, "ec2_subnets")
 	ec2SecurityGroups = sim.MakeStore[EC2SecurityGroup](nil, "ec2_security_groups")
@@ -164,6 +167,9 @@ func TestEC2RealSecurityGroupHostFirewall(t *testing.T) {
 // hosts since the package's realexec dependency is build-gated, but the function
 // under test is pure Go.
 func TestEC2RealSecurityGroupBuildRules(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ec2SecurityGroups = sim.MakeStore[EC2SecurityGroup](nil, "ec2_security_groups")
 	ec2NetworkInterfaces = sim.MakeStore[EC2NetworkInterface](nil, "ec2_network_interfaces")
 	ec2Instances = sim.MakeStore[EC2Instance](nil, "ec2_instances")

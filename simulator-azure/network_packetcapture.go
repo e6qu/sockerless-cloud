@@ -125,8 +125,8 @@ func packetCaptureTargetInterface(target string) (namespace, iface string, err e
 	if len(vm.Properties.NetworkProfile.NetworkInterfaces) == 0 {
 		return "", "", fmt.Errorf("target virtual machine %q has no network interface to capture", target)
 	}
-	azureRealMu.Lock()
-	defer azureRealMu.Unlock()
+	azureRealMu.RLock()
+	defer azureRealMu.RUnlock()
 	for _, ref := range vm.Properties.NetworkProfile.NetworkInterfaces {
 		if tap := azureRealVMNICs[ref.ID]; tap != nil {
 			return tap.NetworkNamespace(), tap.TapName, nil

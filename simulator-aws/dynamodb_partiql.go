@@ -1030,7 +1030,8 @@ func pqlErrf(code, format string, a ...any) *pqlError {
 }
 
 // executePartiQL runs one parsed statement against the item engine. The caller
-// must hold ddbItemsMu for the duration (read-modify-write atomicity). limit and
+// must hold the statement's table stripe for the duration (read-modify-write
+// atomicity). limit and
 // nextToken apply to SELECT only.
 func executePartiQL(st *partiQLStmt, limit int, nextToken string) (*pqlResult, *pqlError) {
 	t, ok := ddbTables.Get(st.Table)
@@ -1466,9 +1467,11 @@ func handleDDBExecuteStatement(w http.ResponseWriter, r *http.Request) {
 		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest, "%v", err)
 		return
 	}
-	ddbItemsMu.Lock()
+	// The parsed statement names its table, so only that table's stripe is
+	// taken. A SELECT reads; everything else writes.
+	release := ddbLockTables(st.Kind != pqlSelect, st.Table)
 	res, perr := executePartiQL(st, req.Limit, req.NextToken)
-	ddbItemsMu.Unlock()
+	release()
 	if perr != nil {
 		pqlWriteError(w, perr)
 		return
@@ -1521,10 +1524,24 @@ func handleDDBBatchExecuteStatement(w http.ResponseWriter, r *http.Request) {
 	// Each statement runs independently; a per-statement failure is reported in
 	// its Responses entry's Error and does NOT fail the batch (HTTP 200).
 	responses := make([]map[string]any, len(req.Statements))
-	ddbItemsMu.Lock()
+	// Parsing happens before any stripe is taken, because the tables a batch
+	// touches are only knowable from the parsed statements — and the stripes
+	// have to be acquired together, in one ordered call, or two batches naming
+	// the same tables in different orders could deadlock.
+	parsed := make([]*partiQLStmt, len(req.Statements))
+	parseErrs := make([]*pqlError, len(req.Statements))
+	batchTables := make([]string, 0, len(req.Statements))
 	for i, s := range req.Statements {
-		entry := map[string]any{}
 		st, perr := pqlParseForBatch(s.Statement, s.Parameters)
+		parsed[i], parseErrs[i] = st, perr
+		if perr == nil {
+			batchTables = append(batchTables, st.Table)
+		}
+	}
+	defer ddbLockTables(true, batchTables...)()
+	for i := range req.Statements {
+		entry := map[string]any{}
+		st, perr := parsed[i], parseErrs[i]
 		if perr != nil {
 			entry["Error"] = pqlBatchError(perr)
 			responses[i] = entry
@@ -1551,7 +1568,6 @@ func handleDDBBatchExecuteStatement(w http.ResponseWriter, r *http.Request) {
 		}
 		responses[i] = entry
 	}
-	ddbItemsMu.Unlock()
 	writeDDBJSON(w, http.StatusOK, map[string]any{"Responses": responses})
 }
 
@@ -1605,8 +1621,14 @@ func handleDDBExecuteTransaction(w http.ResponseWriter, r *http.Request) {
 		stmts[i] = st
 	}
 
-	ddbItemsMu.Lock()
-	defer ddbItemsMu.Unlock()
+	// Every statement is parsed by now, so the transaction's tables are known
+	// and their stripes are taken together — the validate pass and the apply
+	// pass have to be atomic against anything else touching those tables.
+	transactTables := make([]string, 0, len(stmts))
+	for _, st := range stmts {
+		transactTables = append(transactTables, st.Table)
+	}
+	defer ddbLockTables(true, transactTables...)()
 
 	// Validation pass: confirm each statement would succeed without mutating.
 	reasons := make([]map[string]any, len(stmts))

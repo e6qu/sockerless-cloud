@@ -17,8 +17,11 @@ import (
 )
 
 var (
-	azureRealHost    = realexec.NewHost()
-	azureRealMu      sync.Mutex
+	azureRealHost = realexec.NewHost()
+	// azureRealMu guards the real-execution fabric maps. Resolving a capture's
+	// target interface only reads them; anything that creates or tears down
+	// fabric keeps taking Lock.
+	azureRealMu      sync.RWMutex
 	azureRealVnets   = map[string]*realexec.Network{}
 	azureRealSubnets = map[string]*realexec.Subnet{}
 	azureRealNICs    = map[string]*realexec.NamespaceNIC{}

@@ -260,12 +260,12 @@ func sfnRunTaskValue(state sfnState, input, context any, cancel <-chan struct{})
 		err   *sfnExecutionError
 	}
 	done := make(chan taskResult, 1)
-	go func() {
+	simGo(func() {
 		value, taskErr := sfnInvokeTaskResource(
 			state.Resource, input, inputJSON, context, cancel, sfnTaskHeartbeat(state, input, context),
 		)
 		done <- taskResult{value: value, err: taskErr}
-	}()
+	})
 	if timeout <= 0 {
 		select {
 		case <-cancel:
@@ -1211,7 +1211,7 @@ func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-ch
 	var workers sync.WaitGroup
 	for worker := 0; worker < maxConcurrency; worker++ {
 		workers.Add(1)
-		go func() {
+		simGo(func() {
 			defer workers.Done()
 			for index := range work {
 				if mapRun != nil {
@@ -1291,16 +1291,16 @@ func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-ch
 				}
 				resultCh <- itemResult{index: index, output: value}
 			}
-		}()
+		})
 	}
-	go func() {
+	simGo(func() {
 		for index := range items {
 			work <- index
 		}
 		close(work)
 		workers.Wait()
 		close(resultCh)
-	}()
+	})
 	var firstError *sfnExecutionError
 	for result := range resultCh {
 		if mapRun != nil {

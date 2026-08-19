@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 53.
+Open: 20. Resolved: 55.
 
 ## Open
 
@@ -177,7 +177,64 @@ the simulators from the sockerless monorepo, keeping their IDs
   the documented signature verification in the Blob plane, then let the backup
   path rely on it.
 
+- **BUG-65 (three data races remain in the AWS module's own suite):** The first
+  race-detector run of these suites reported 144 in `simulator-aws`; three
+  remain, all in one test. Everything between was one cause: asynchronous
+  simulator work — reconciliations, builds, deployments, certificate validation
+  — ran in goroutines nothing tracked, so one still running when its test ended
+  read package-level stores while the next test replaced them. Fifteen of those
+  now run through `simGo`, which counts them; `AwaitSimulatorBackground` drains
+  to quiescence rather than waiting once, because the work chains; and every
+  store reset in the suite waits first.
+  `TestUnansweredHealthCheckReportsTimeout` still races the target-health
+  checker, which a server starts rather than `simGo` — a long-lived worker
+  belongs to its server's lifecycle, and that test reaches the checker without
+  owning one. Fix shape: give the test a server it stops, or route the sweep it
+  drives through the counted path. Add `-race` to the module's unit-test job
+  once it is zero, not before: a job that fails on every run teaches people to
+  ignore it.
+
+
 ## Resolved history
+
+- **BUG-64 (background goroutines outlived their tests and raced the next
+  one):** Running the suites under the race detector for the first time — CI
+  never has — reported 144 races in the AWS module and intermittent ones in
+  Azure. One cause, in two shapes. A simulator built by a test and never served
+  still starts its background workers, and `StopBackground` exists precisely
+  for that but no test called it, so an Elastic Load Balancing health checker
+  kept sweeping package-level stores while the next test rebuilt them. In
+  Azure, long-running operations and subscription-alias provisioning complete
+  in bare goroutines that nothing waited for, with the same result. The AWS
+  test builders stop their workers now, the Azure completions are counted in a
+  wait group the test builders drain, and the AWS count fell from 144 to 103
+  with Azure clean across four consecutive runs. The remaining 103 are
+  pre-existing and untouched by this branch — measured against the merge base,
+  not assumed — and none is in the paths converted here.
+
+- **BUG-63 (one lock serialised every DynamoDB operation):** Reported as issue
+  #43, the shared cause under #37 and #39: `ddbItemsMu` was a plain mutex, so
+  reads excluded each other and a workspace create fanning out into a few dozen
+  GetItem and UpdateItem calls served them one at a time — single-item reads
+  that are O(1) by any measure taking thirteen seconds. It is a read-write lock
+  now, with the contract written where it is declared: a section that only
+  reads takes RLock; a section that writes, or reads and then writes based on
+  what it read, takes Lock for the whole span, which is what keeps a
+  read-modify-write atomic; neither is reentrant. Every one of its thirteen
+  sites was classified before the change — four pure reads, nine writers
+  including the three PartiQL paths that explicitly need the whole operation.
+  Measured rather than timed, because a duration only says "fast today": peak
+  concurrent readers inside the lock went from 1 of 16 to 16 of 16, and a
+  writer still excludes everyone.
+
+  The shape is now counted rather than waited for, and the count is zero.
+  `scripts/check-readonly-locks.sh` reports critical sections that hold an
+  exclusive lock while only reading a store, and every one in the tree was
+  converted: the Glue catalog's twelve read handlers, Lambda's four
+  durable-execution reads, the ECS revision index, and all three clouds'
+  real-execution fabric maps. Each declaration carries the contract, each
+  conversion left every writing site on Lock, and the detector is held at zero
+  rather than at a floor.
 
 - **BUG-62 (three parsers accepted input the services cannot produce, found by
   the nightly fuzz run):** The first nightly run after the repaired fuzz targets

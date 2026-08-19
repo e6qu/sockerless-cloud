@@ -90,7 +90,7 @@ func ecsRequestServiceReconcile(key string) {
 	if key == "" {
 		return
 	}
-	go ecsReconcileService(key)
+	simGo(func() { ecsReconcileService(key) })
 }
 
 func ecsServiceLock(key string) *sync.Mutex {
@@ -177,9 +177,9 @@ func ecsServiceTaskDefinition(ref string) (ECSTaskDefinition, bool) {
 		}
 	}
 	if !strings.Contains(key, ":") {
-		ecsRevisionMu.Lock()
+		ecsRevisionMu.RLock()
 		revision, ok := ecsRevisions[key]
-		ecsRevisionMu.Unlock()
+		ecsRevisionMu.RUnlock()
 		if !ok {
 			return ECSTaskDefinition{}, false
 		}

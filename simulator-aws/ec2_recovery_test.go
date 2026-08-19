@@ -7,6 +7,9 @@ import (
 )
 
 func TestRecoverEC2InstancesStopsInstancesWithoutBackingVMs(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ec2Instances = sim.MakeStore[EC2Instance](nil, "ec2_instances")
 	ec2Instances.Put("i-lost-running", EC2Instance{InstanceId: "i-lost-running", State: "running"})
 	ec2Instances.Put("i-lost-pending", EC2Instance{InstanceId: "i-lost-pending", State: "pending"})

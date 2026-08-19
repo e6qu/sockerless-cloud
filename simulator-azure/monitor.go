@@ -14,7 +14,9 @@ import (
 
 // logMu protects the read-modify-write cycle on monitorLogs entries.
 // StateStore is individually thread-safe, but Get+append+Put is not atomic.
-var logMu sync.Mutex
+// logMu guards the Azure Monitor log rows. Reading a site's retained container
+// output excludes nothing but a writer; ingesting a row keeps taking Lock.
+var logMu sync.RWMutex
 var azureMonitorWorkspaces sim.Store[Workspace]
 
 // Workspace represents an Azure Log Analytics Workspace.

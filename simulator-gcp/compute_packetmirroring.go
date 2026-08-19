@@ -285,8 +285,8 @@ func gcpInstanceMirrorTargets(instancePath string) []realexec.MirrorTarget {
 		return nil
 	}
 	var targets []realexec.MirrorTarget
-	gcpRealMu.Lock()
-	defer gcpRealMu.Unlock()
+	gcpRealMu.RLock()
+	defer gcpRealMu.RUnlock()
 	for _, ni := range inst.NetworkInterfaces {
 		nicID := inst.SelfLink + "/" + ni.Name
 		if tap := gcpRealVMNICs[nicID]; tap != nil {

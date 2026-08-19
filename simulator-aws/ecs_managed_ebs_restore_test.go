@@ -22,6 +22,9 @@ import (
 // without performing it.
 func TestPrepareManagedEBSVolumesDefersSnapshotRestore(t *testing.T) {
 	t.Setenv("SIM_EBS_DATA_DIR", t.TempDir())
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ec2Snapshots = sim.MakeStore[EC2Snapshot](nil, "ec2_snapshots")
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

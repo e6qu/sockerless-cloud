@@ -29,6 +29,10 @@ func buildResourcePolicySim(t *testing.T) *sim.Server {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	// Built but never served: its background workers keep reading
+	// package-level stores after this test ends, and the next test to build a
+	// simulator reassigns those stores underneath them.
+	t.Cleanup(srv.StopBackground)
 	return srv
 }
 

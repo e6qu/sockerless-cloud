@@ -533,8 +533,8 @@ func handleGlueSearchTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	search := strings.ToLower(strings.TrimSpace(req.SearchText))
 	var matched []GlueTable
@@ -614,8 +614,8 @@ func handleGlueListSchemas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	registryFilter := ""
 	if req.RegistryId != nil {
@@ -1228,8 +1228,8 @@ func handleGlueGetResourcePolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	all := glueResourcePols.List()
 	sort.Slice(all, func(i, j int) bool { return all[i].CreateTime < all[j].CreateTime })
@@ -1276,8 +1276,8 @@ func handleGlueGetMapping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	glueMu.Lock()
-	defer glueMu.Unlock()
+	glueMu.RLock()
+	defer glueMu.RUnlock()
 
 	src, ok := glueTables.Get(glueTableKey(req.Source.DatabaseName, req.Source.TableName))
 	if !ok {

@@ -325,6 +325,10 @@ func TestRoutesExistInSwaggerSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	// Long-running operations complete in a goroutine. One still running
+	// when this test ends would read and write the stores while the next
+	// test rebuilds them.
+	t.Cleanup(AwaitAzureAsyncOperations)
 
 	var offenders []string
 	for _, pattern := range srv.RoutePatterns() {
@@ -372,6 +376,10 @@ func TestVendoredSwaggerSpecsAreConsumed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
+	// Long-running operations complete in a goroutine. One still running
+	// when this test ends would read and write the stores while the next
+	// test rebuilds them.
+	t.Cleanup(AwaitAzureAsyncOperations)
 
 	used := map[string]bool{}
 	for _, pattern := range srv.RoutePatterns() {

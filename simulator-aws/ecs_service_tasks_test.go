@@ -17,6 +17,9 @@ func TestECSStopServiceTasks_DrainsNonStopped(t *testing.T) {
 	// schedule an asynchronous service reconciliation that reads the scheduler,
 	// deployment-record, and alarm stores, so they must be real stores even
 	// though the drain itself never touches them.
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")

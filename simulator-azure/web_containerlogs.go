@@ -21,9 +21,9 @@ import (
 // webSiteContainerLogText assembles the retained container log lines for a
 // site (AppRoleName is the site name funcLogSink stamps on every row).
 func webSiteContainerLogText(siteName string) []byte {
-	logMu.Lock()
+	logMu.RLock()
 	rows, _ := monitorLogs.Get("default:AppTraces")
-	logMu.Unlock()
+	logMu.RUnlock()
 	var buf bytes.Buffer
 	for _, row := range rows {
 		if row["AppRoleName"] != siteName {
