@@ -449,18 +449,35 @@ func TestARDataPlaneServesARepositoryTheControlPlaneCreated(t *testing.T) {
 	}
 }
 
-// TestARTokenServiceIssuesAnAnonymousTokenThatTheDataPlaneRefuses covers the
-// Artifact Registry behaviour that a client without credentials still gets a
-// token: the token service never refuses a scope, and it is the data plane that
-// refuses the identity behind the token at the resource. This is the path a
-// `docker pull` with no prior `docker login` takes, and the reason its error is
-// a `denied:` naming the permission rather than an authentication failure.
-func TestARTokenServiceIssuesAnAnonymousTokenThatTheDataPlaneRefuses(t *testing.T) {
+// TestARTokenServiceRefusesAScopeAndIssuesTheRest covers both halves of the
+// Artifact Registry token service. A repository scope an uncredentialled caller
+// cannot reach is refused at the mint, the denial naming the permission and the
+// resource — the path a `docker pull` with no prior `docker login` takes, and
+// the reason its error is a `denied:` rather than an authentication failure. A
+// scope naming no repository is minted anyway, and the token it yields carries
+// an identity rather than a permission, so the data plane evaluates access per
+// request against the repository addressed.
+func TestARTokenServiceRefusesAScopeAndIssuesTheRest(t *testing.T) {
 	_, baseURL := arTestServer(t)
 	arTestCreateRepository(t, baseURL, "test-project", "us-central1", "my-repo")
 
 	resp, body := arTestDo(t, http.MethodGet,
 		baseURL+"/v2/token?service=registry&scope=repository:test-project/my-repo/app:pull", "")
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("token service status = %d, want 403 (body %s)", resp.StatusCode, body)
+	}
+	deniedCode, deniedMessage := arTestErrorBody(t, body)
+	if deniedCode != "DENIED" {
+		t.Errorf("mint code = %q, want DENIED", deniedCode)
+	}
+	wantDenied := fmt.Sprintf("Unauthenticated request. Unauthenticated requests do not have permission %q on resource %q (or it may not exist)",
+		arPermDownload, "projects/test-project/locations/us-central1/repositories/my-repo")
+	if deniedMessage != wantDenied {
+		t.Errorf("mint message =\n  %s\nwant\n  %s", deniedMessage, wantDenied)
+	}
+
+	resp, body = arTestDo(t, http.MethodGet,
+		baseURL+"/v2/token?service=registry&scope=registry:catalog:*", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("token service status = %d, want 200 (body %s)", resp.StatusCode, body)
 	}

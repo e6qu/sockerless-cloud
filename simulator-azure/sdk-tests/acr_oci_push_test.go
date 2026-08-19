@@ -49,10 +49,21 @@ func TestACR_OCIChunkedPush(t *testing.T) {
 	auth := fixture.basic(fixture.passwords[0])
 	repo := "shim/registry/app"
 
+	// Captured from `k8sprow.azurecr.io/v2/` and `upstream.azurecr.io/v2/` with
+	// anonymous tokens from their own `/oauth2/token`, and identical from
+	// `mcr.microsoft.com/v2/`: the two-byte body `{}` with no trailing newline,
+	// declared `application/json; charset=utf-8`. Alone of the three registries
+	// the shared implementation serves, Azure Container Registry sends a body
+	// here — Amazon ECR and Google Artifact Registry send none.
 	resp := acrDo(t, http.MethodGet, fixture.endpoint()+"/v2/", nil, "", auth)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "registry/2.0", resp.Header.Get("Docker-Distribution-API-Version"))
+	ping, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 	resp.Body.Close()
+	assert.Equal(t, "{}", string(ping))
+	assert.Equal(t, "2", resp.Header.Get("Content-Length"))
+	assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
 
 	layer := []byte("azure-acr-layer-bytes-content")
 	digest := acrDigest(layer)

@@ -63,8 +63,14 @@ func TestMain(m *testing.M) {
 		log.Fatalf("az CLI is required for the Azure CLI tests; install the Azure CLI (https://aka.ms/azure-cli): %v", err)
 	}
 
-	// Build simulator
-	binaryPath, _ = filepath.Abs("../simulator-azure")
+	// Each suite builds the simulator it runs into a path of its own. The
+	// three suites share one working tree, so a single `../simulator-azure`
+	// would have one suite's `go build -o` overwrite the binary another is
+	// executing the moment they run at the same time.
+	binaryPath, _ = filepath.Abs("../.build/cli-tests/simulator-azure")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		log.Fatalf("Failed to create simulator build dir: %v", err)
+	}
 	simDir, _ := filepath.Abs("..")
 	build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
 	build.Dir = simDir

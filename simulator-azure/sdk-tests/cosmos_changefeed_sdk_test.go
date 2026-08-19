@@ -29,7 +29,7 @@ func cosmosChangeFeedPage(t *testing.T, account, coll, continuation string, maxI
 	t.Helper()
 	req, err := http.NewRequest("GET", baseURL+"/dbs/cfdb/colls/"+coll+"/docs", nil)
 	require.NoError(t, err)
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = cosmosDataPlaneHost(t, account)
 	req.Header.Set("A-IM", "Incremental feed")
 	if continuation != "" {
 		req.Header.Set("If-None-Match", continuation)
@@ -158,7 +158,7 @@ func TestCosmosConflictFeed_EmptySingleRegion(t *testing.T) {
 
 	req, err := http.NewRequest("GET", baseURL+"/dbs/cfdb/colls/items/conflicts", nil)
 	require.NoError(t, err)
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = cosmosDataPlaneHost(t, account)
 	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

@@ -219,19 +219,16 @@ func ddbStreamArn(stream string) string {
 }
 
 // ddbTableItemsSnapshot copies every stored item for a table into a fresh map
-// keyed by the per-item store key. Reads under the table's stripe.
+// keyed by the per-item store key.
+//
+// The table's stripe is held while the stored maps are collected and released
+// before any of them is copied, which is what ddbItemSnapshots does: a
+// published item is never mutated in place, so the deep copy — the expensive
+// half, and the half that scales with the table — does not need the lock. A
+// backup or an export of a large table used to hold every other reader of that
+// table off for the whole JSON round trip of every row it held.
 func ddbTableItemsSnapshot(tableName string) map[string]map[string]any {
-	out := map[string]map[string]any{}
-	prefix := tableName + "/"
-	defer ddbLockTables(false, tableName)()
-	for _, k := range ddbItemNames.List() {
-		if strings.HasPrefix(k, prefix) {
-			if item, ok := ddbItems.Get(k); ok {
-				out[k] = ddbCloneItem(item)
-			}
-		}
-	}
-	return out
+	return ddbItemSnapshots(ddbTableSortedKeys(tableName + "/"))
 }
 
 // --- Backups -----------------------------------------------------------------

@@ -116,7 +116,20 @@ func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 		if !reg.authorized(w, r, "") {
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{})
+		// Google Artifact Registry answers the authorized ping with status 200,
+		// `content-length: 0`, an empty body, and — the part no client would
+		// guess — `content-type: text/html; charset=UTF-8`. Captured from
+		// `us-docker.pkg.dev/v2/` with a token from its own token service;
+		// `gcr.io/v2/` answers identically.
+		//
+		// The three registries this file's copies serve do not agree here, so
+		// this is not shared behaviour: Amazon ECR sends no `content-type` at
+		// all, and Azure Container Registry sends the two-byte body `{}`. A
+		// `{}` here was Docker Distribution's answer, which is what the
+		// reference implementation sends and none of these three do.
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if reg.SkipPath != nil && reg.SkipPath(path) {
@@ -209,27 +222,25 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 		w.WriteHeader(http.StatusAccepted)
 
 	case http.MethodPatch:
-		// PATCH /v2/{repo}/blobs/uploads/{uuid} — append a chunk.
-		data, err := ociReadBody(r)
-		if err != nil {
-			ociError(w, "UNSUPPORTED", err.Error(), http.StatusUnsupportedMediaType)
-			return
-		}
-		// Atomic append: concurrent chunk PATCHes for the same upload must not
-		// race a Get→append→Put (a lost chunk → DIGEST_INVALID on finalize).
-		var end int
-		ok := reg.Uploads.Update(uploadID, func(u *OCIUpload) {
-			u.Data = append(u.Data, data...)
-			end = len(u.Data)
-		})
-		if !ok {
-			ociError(w, "BLOB_UPLOAD_UNKNOWN", "upload not found", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Location", fmt.Sprintf("/v2/%s/blobs/uploads/%s", repo, uploadID))
-		w.Header().Set("Docker-Upload-UUID", uploadID)
-		w.Header().Set("Range", fmt.Sprintf("0-%d", maxInt(end-1, 0)))
-		w.WriteHeader(http.StatusAccepted)
+		// PATCH /v2/{repo}/blobs/uploads/{uuid} — the chunk of a chunked upload,
+		// which Google Artifact Registry does not implement: "Artifact Registry
+		// doesn't support Docker chunked uploads. … You must use monolithic
+		// uploads when you push container images to Artifact Registry."
+		// ("Support for the Docker Registry API", cloud.google.com).
+		//
+		// This registry used to accept the chunk and append it, which made a
+		// client that chunks succeed here and fail against the service. The
+		// refusal carries the Docker Registry HTTP API v2 error code for an
+		// operation a registry does not implement — `UNSUPPORTED`, "the
+		// operation is unsupported" — with 405, the status the specification
+		// pairs with a verb a route does not serve. Google documents the
+		// limitation but not the response, so the code and status are the
+		// specification's rather than a capture; what is certain is that
+		// appending the chunk is wrong.
+		w.Header().Set("Allow", "POST, PUT, GET, DELETE")
+		ociError(w, "UNSUPPORTED",
+			"Artifact Registry does not support chunked uploads; push the blob with a monolithic upload",
+			http.StatusMethodNotAllowed)
 
 	case http.MethodPut:
 		// PUT /v2/{repo}/blobs/uploads/{uuid}?digest=… — finalize. Any trailing

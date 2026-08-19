@@ -17,8 +17,9 @@ import (
 // resources, so the faithful client surface is the Cosmos REST data plane — the
 // same /dbs/{db}/colls/{coll}/{sprocs,udfs,triggers} paths, bodies, and
 // response shapes a real Cosmos client uses internally. These tests drive that
-// REST surface over raw HTTP with the established x-ms-cosmos-account routing
-// header (the same pattern as cosmos_query_sdk_test.go), and assert the REAL
+// REST surface over raw HTTP, addressed at the account's own advertised
+// documentEndpoint host (the same pattern as cosmos_query_sdk_test.go), and
+// assert the REAL
 // effect of a stored-procedure execution on the collection — proving the sim
 // actually performs the documented server-side operation, not a faked success.
 //
@@ -50,7 +51,7 @@ func cosmosScript(t *testing.T, method, account, path, body string, headers map[
 	}
 	req, err := http.NewRequest(method, baseURL+path, br)
 	require.NoError(t, err)
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = cosmosDataPlaneHost(t, account)
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)

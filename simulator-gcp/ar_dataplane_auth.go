@@ -597,12 +597,45 @@ func arDecodeRegistryToken(credential string) (arRegistryTokenEnvelope, bool) {
 // Basic credential from its credential store, and presents the token it returns
 // as the Bearer of the retried request.
 //
-// It never refuses a scope: an uncredentialled request is issued a token just
-// the same, and it is the data plane that then refuses that identity at the
-// resource. The routes are mounted in artifactregistry.go beside the /v2/
-// subtree the challenge protects.
+// A scope the caller cannot reach is refused at the mint. The live service
+// answers an uncredentialled mint for a repository scope with the same denial
+// the data plane gives, naming the IAM permission and the resource:
+//
+//	$ curl 'https://europe-west1-docker.pkg.dev/v2/token?service=europe-west1-docker.pkg.dev&scope=repository:no-such-project/no-such-repo/app:pull'
+//	HTTP/2 403
+//	{"errors":[{"code":"DENIED","message":"Unauthenticated request. Unauthenticated requests do not have permission \"artifactregistry.repositories.downloadArtifacts\" on resource \"projects/no-such-project/locations/europe-west1/repositories/no-such-repo\" (or it may not exist)"}]}
+//
+// and the same shape for `:push` and `:pull,push`, naming
+// `artifactregistry.repositories.uploadArtifacts`. A scope that names no
+// repository is minted anonymously as before — `registry:catalog:*` and a
+// request carrying no scope at all both return a token — which is what lets a
+// client reach the base endpoint and discover the challenge.
+//
+// What is still not a gate is the scope of a token once issued: one minted for
+// `repository:cloudrun/container/hello:pull` serves a request against
+// `cloudrun/container/job` too, so the data plane re-evaluates access per
+// request against the repository addressed. Both hold at once — the mint
+// refuses what the caller plainly cannot reach, and the token it does issue
+// carries an identity rather than a permission.
+//
+// The routes are mounted in artifactregistry.go beside the /v2/ subtree the
+// challenge protects.
 func arTokenServiceHandler(w http.ResponseWriter, r *http.Request) {
 	envelope := arRegistryTokenEnvelope{TokenID: arTokenID(), Product: arRegistryTokenProduct}
+	if strings.TrimSpace(r.Header.Get("Authorization")) == "" {
+		if repo, permission, scoped := arScopedRepository(r); scoped {
+			if resource, located := arRepositoryResource(r, repo); located {
+				arPermissionDenied(w, arPrincipal{anonymous: true}, permission, resource)
+				return
+			}
+			// The scope named a repository at a coordinate that names no
+			// location, and this registry holds none by that name, so there is
+			// no Artifact Registry resource to report a verdict about. A
+			// location is not invented to name one, exactly as the data plane
+			// does not: the token is issued, and the data plane answers
+			// NAME_UNKNOWN when the client presents it.
+		}
+	}
 	if authorization := strings.TrimSpace(r.Header.Get("Authorization")); authorization != "" {
 		principal, _, err := arAuthenticate(r)
 		if err != nil {
@@ -631,6 +664,35 @@ func arTokenServiceHandler(w http.ResponseWriter, r *http.Request) {
 		"token":      base64.StdEncoding.EncodeToString(token),
 		"expires_in": int(arRegistryTokenTTL.Seconds()),
 	})
+}
+
+// arScopedRepository reads the repository a token request asks for out of its
+// `scope` parameter, with the IAM permission the actions it asks for require.
+//
+// The scope grammar is the Docker Registry v2 one,
+// `repository:<name>:<action>[,<action>…]`, and Artifact Registry maps it onto
+// two permissions: anything that includes `push` needs uploadArtifacts, and
+// everything else — `pull`, and `delete`, whose mint the live service answers
+// with the download permission — needs downloadArtifacts. A scope of any other
+// type, `registry:catalog:*` among them, names no repository.
+func arScopedRepository(r *http.Request) (string, string, bool) {
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	rest, ok := strings.CutPrefix(scope, "repository:")
+	if !ok {
+		return "", "", false
+	}
+	name, actions, ok := strings.Cut(rest, ":")
+	if !ok || name == "" {
+		return "", "", false
+	}
+	permission := arPermDownload
+	for _, action := range strings.Split(actions, ",") {
+		if strings.EqualFold(strings.TrimSpace(action), "push") {
+			permission = arPermUpload
+			break
+		}
+	}
+	return name, permission, true
 }
 
 // arTokenServiceMethodNotAllowed answers every verb the token service does not

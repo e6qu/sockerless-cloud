@@ -215,9 +215,8 @@ func TestArtifactRegistryCLI_DockerLoginPushPull(t *testing.T) {
 	// The registry refuses the upload a push starts with when no credential
 	// comes with it, and the engine, holding none, cannot push. Artifact
 	// Registry's refusal is a two-step: the challenge sends the client to the
-	// token service, which issues a token to an uncredentialled caller just the
-	// same, and the data plane then denies that anonymous identity at the
-	// repository resource.
+	// token service, and the token service refuses the scope it was told to ask
+	// for.
 	deniedUpload := gateway.requireAnonymousRefusal(t, http.MethodPost, "/v2/"+imagePath+"/blobs/uploads/",
 		"repository:"+imagePath+":pull,push", arCLIPermUpload, resource)
 	refusedPush, refusedPushErr := dockerCLI(t, "", "push", reference)
@@ -416,10 +415,10 @@ func (g *arRegistryGateway) requireRejectedCredential(t *testing.T, method, path
 // requireAnonymousRefusal walks the whole exchange a container engine holding
 // no credential performs against Artifact Registry, and requires the service's
 // own answer at each step: the request draws a Bearer challenge naming the
-// token service, the service and the scope; the token service issues a token to
-// the uncredentialled caller regardless; and the retry under that token is
-// denied at the repository resource with HTTP 403, the `DENIED` code, and the
-// IAM permission the method needs.
+// token service, the service and the scope; and the token service refuses that
+// scope with HTTP 403, the `DENIED` code, and the IAM permission the method
+// needs. The engine reports a `denied:` because the mint denied it, which is
+// where the live service denies it too.
 //
 // This is the registry half of the refusals the engine meets, asserted where
 // the coordinate cannot distort it (requireEngineRefused explains what the
@@ -442,18 +441,33 @@ func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, 
 	assert.Equal(t, "UNAUTHORIZED", code)
 	assert.Equal(t, "not authenticated: No valid credential was supplied.", message)
 
-	// Artifact Registry issues a token to an uncredentialled caller rather than
-	// refusing the scope, which is why the engine gets past the challenge at all
-	// and why the refusal it finally reports comes from the resource.
+	// The engine asks the token service for the scope the challenge named, and
+	// Artifact Registry refuses that scope to an uncredentialled caller. This is
+	// where the exchange ends and where the `denied:` the user reads comes from.
 	resp, body = g.do(t, http.MethodGet,
 		"/v2/token?service="+url.QueryEscape(g.coordinate)+"&scope="+url.QueryEscape(wantScope), "")
+	require.Equalf(t, http.StatusForbidden, resp.StatusCode,
+		"the token service must refuse the scope %s to an uncredentialled caller: %s", wantScope, body)
+	code, message = arCLIRegistryError(t, body)
+	assert.Equal(t, "DENIED", code)
+	assert.Equal(t,
+		fmt.Sprintf("Unauthenticated request. Unauthenticated requests do not have permission %q on resource %q (or it may not exist)",
+			permission, resource),
+		message)
+
+	// A token the mint does issue carries an identity rather than a permission,
+	// so the data plane evaluates access per request against the repository
+	// addressed — and refuses the anonymous identity there too. `registry:catalog`
+	// names no repository, so it is minted without a credential.
+	resp, body = g.do(t, http.MethodGet,
+		"/v2/token?service="+url.QueryEscape(g.coordinate)+"&scope="+url.QueryEscape("registry:catalog:*"), "")
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
 	var issued struct {
 		Token     string `json:"token"`
 		ExpiresIn int    `json:"expires_in"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(body), &issued))
-	require.NotEmpty(t, issued.Token, "the token service must issue a token to an uncredentialled caller")
+	require.NotEmpty(t, issued.Token, "the token service must issue a token for a scope naming no repository")
 	assert.Equal(t, 43200, issued.ExpiresIn)
 
 	resp, body = g.do(t, method, path, "Bearer "+issued.Token)
@@ -465,8 +479,8 @@ func (g *arRegistryGateway) requireAnonymousRefusal(t *testing.T, method, path, 
 		fmt.Sprintf("Unauthenticated request. Unauthenticated requests do not have permission %q on resource %q (or it may not exist)",
 			permission, resource),
 		message)
-	// The status the engine's own request finally meets: the resource's denial,
-	// not the challenge that sent it to the token service.
+	// The status the engine's own request finally meets: a denial, whether the
+	// mint refused the scope or the resource refused the identity.
 	return resp.StatusCode
 }
 

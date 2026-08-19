@@ -34,15 +34,22 @@ func arDo(t *testing.T, method, url string, body []byte, contentType string) *ht
 	return resp
 }
 
-// TestArtifactRegistry_OCIChunkedPush covers the OCI Distribution
-// chunked blob upload (POST → PATCH → PUT) that previously 405'd on PATCH, then
-// a manifest push + pull round-trip.
+// TestArtifactRegistry_OCIMonolithicPush covers the blob upload Artifact
+// Registry serves — the monolithic one — then a manifest push + pull
+// round-trip, and requires the chunked upload it does not serve to be refused.
+//
+// Google is explicit: "Artifact Registry doesn't support Docker chunked
+// uploads. … You must use monolithic uploads when you push container images to
+// Artifact Registry" ("Support for the Docker Registry API"). This registry
+// accepted the chunk anyway and this test asserted that acceptance, so it
+// pinned behaviour the service does not have: a client that chunks passed here
+// and would fail against Artifact Registry.
 //
 // The requests carry the access token the suite's shared transport attaches, so
 // the whole exchange is authenticated the way Artifact Registry requires; the
 // repository is created through the control plane first because the data plane
 // refuses a repository that does not exist.
-func TestArtifactRegistry_OCIChunkedPush(t *testing.T) {
+func TestArtifactRegistry_OCIMonolithicPush(t *testing.T) {
 	arCreateRepository(t, "test-project", "us-central1", "my-repo")
 	repo := "test-project/my-repo/app"
 
@@ -59,12 +66,18 @@ func TestArtifactRegistry_OCIChunkedPush(t *testing.T) {
 	require.NotEmpty(t, loc)
 	resp.Body.Close()
 
-	// PATCH chunk — the operation that previously returned 405.
+	// The chunk of a chunked upload is refused.
 	resp = arDo(t, http.MethodPatch, baseURL+loc, layer, "application/octet-stream")
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	refusal, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 	resp.Body.Close()
+	assert.Contains(t, string(refusal), "UNSUPPORTED")
+	assert.Contains(t, string(refusal), "monolithic")
 
-	resp = arDo(t, http.MethodPut, baseURL+loc+"?digest="+digest, nil, "")
+	// The monolithic upload Artifact Registry requires: the whole blob rides in
+	// the PUT that finalizes the session.
+	resp = arDo(t, http.MethodPut, baseURL+loc+"?digest="+digest, layer, "application/octet-stream")
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 

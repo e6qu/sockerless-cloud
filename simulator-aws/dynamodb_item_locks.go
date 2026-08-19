@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // The item store is guarded per table rather than by one lock for the whole
@@ -32,6 +33,12 @@ import (
 //
 // Nothing may take a second item lock while holding one: the ordering rule
 // covers the sets a single call asks for, not a nested acquisition.
+
+// ddbStripeAcquisitions counts the stripes taken, one per lock acquired rather
+// than one per call. It is how the concurrency tests observe the cost of an
+// operation: whether a read takes one stripe or one per item changes nothing
+// about the answer it produces, so nothing else distinguishes the two.
+var ddbStripeAcquisitions atomic.Uint64
 
 // ddbItemLocks holds one read-write lock per table, created on first use.
 var ddbItemLocks = struct {
@@ -79,6 +86,7 @@ func ddbLockTables(write bool, tables ...string) func() {
 	sort.Strings(unique)
 
 	locks := make([]*sync.RWMutex, 0, len(unique))
+	ddbStripeAcquisitions.Add(uint64(len(unique)))
 	for _, table := range unique {
 		lock := ddbTableLock(table)
 		if write {

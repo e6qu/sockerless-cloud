@@ -102,11 +102,21 @@ func TestECR_OCIDataPlane(t *testing.T) {
 	repo := "oci-test-repo/app"
 	ecrCreateRepository(t, repo)
 
-	// Base / version route.
+	// Base / version route. Captured from `public.ecr.aws/v2/` with a Bearer
+	// token from its own token service: status 200, `content-length: 0`, an
+	// empty body, and no `content-type` header at all. The `{}` this used to
+	// answer is Docker Distribution's, and Amazon ECR is not Docker
+	// Distribution — nor do the two other registries the shared implementation
+	// serves agree with it or with each other.
 	resp := ociDo(t, http.MethodGet, baseURL+"/v2/", nil, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "registry/2.0", resp.Header.Get("Docker-Distribution-API-Version"))
+	pingBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 	resp.Body.Close()
+	assert.Empty(t, pingBody)
+	assert.Equal(t, "0", resp.Header.Get("Content-Length"))
+	assert.Empty(t, resp.Header.Get("Content-Type"))
 
 	// Chunked blob upload: POST (init) → PATCH (chunk) → PUT (finalize).
 	layer := []byte("the-image-layer-bytes-go-here")

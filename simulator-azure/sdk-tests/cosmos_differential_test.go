@@ -445,14 +445,36 @@ func cosmosCanonValue(v any) any {
 
 // ── emulator lifecycle ───────────────────────────────────────────────────────
 
+// cosmosEmulatorEngine runs one container-engine command under a bound and
+// returns its combined output.
+//
+// Every engine call in the bring-up below used to be unbounded, and the
+// readiness budget covered only the probing that happens once the container is
+// running. When the engine itself stopped answering — this host's Podman does,
+// leaving a container sitting in `Created` — `docker run` never returned, the
+// whole suite hit Go's twenty-minute test timeout, and the panic named this
+// test rather than the engine. A bound turns that into one failing test that
+// says which engine command hung, and leaves the rest of the suite's result
+// intact.
+func cosmosEmulatorEngine(bound time.Duration, args ...string) ([]byte, error) {
+	cctx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, "docker", args...).CombinedOutput()
+	if cctx.Err() != nil {
+		return out, fmt.Errorf("`docker %s` did not return within %s: %w",
+			strings.Join(args, " "), bound, cctx.Err())
+	}
+	return out, err
+}
+
 func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	t.Helper()
 	const image = "mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview"
-	if exec.Command("docker", "image", "inspect", image).Run() != nil {
+	if _, err := cosmosEmulatorEngine(60*time.Second, "image", "inspect", image); err != nil {
 		// CI pre-pulls the image so the job budget stays predictable; a host
 		// that lacks it pulls it here, once. The oracle is required, so a
 		// failed pull is a failure, never a skip.
-		if pullOut, perr := exec.Command("docker", "pull", image).CombinedOutput(); perr != nil {
+		if pullOut, perr := cosmosEmulatorEngine(10*time.Minute, "pull", image); perr != nil {
 			t.Fatalf("pulling Cosmos emulator image %s: %v\n%s", image, perr, pullOut)
 		}
 	}
@@ -479,19 +501,19 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	// the leak by hand. The label makes the leak identifiable and this run
 	// removes it, so the suite recovers on its own.
 	const emulatorLabel = "sockerless-sim-azure-cosmos-emulator=differential"
-	stale, _ := exec.Command("docker", "ps", "-aq", "--filter", "label="+emulatorLabel).Output()
+	stale, _ := cosmosEmulatorEngine(60*time.Second, "ps", "-aq", "--filter", "label="+emulatorLabel)
 	for _, id := range strings.Fields(string(stale)) {
-		_ = exec.Command("docker", "rm", "-f", id).Run()
+		_, _ = cosmosEmulatorEngine(60*time.Second, "rm", "-f", id)
 	}
-	runOut, err := exec.Command("docker", "run", "-d", "--rm",
+	runOut, err := cosmosEmulatorEngine(3*time.Minute, "run", "-d", "--rm",
 		"--label", emulatorLabel,
 		"-p", fmt.Sprintf("127.0.0.1:%d:%d", hostPort, hostPort),
-		image, "--protocol", "http", "--port", fmt.Sprintf("%d", hostPort)).CombinedOutput()
+		image, "--protocol", "http", "--port", fmt.Sprintf("%d", hostPort))
 	if err != nil {
 		t.Fatalf("starting Cosmos emulator: %v\n%s", err, runOut)
 	}
 	id := trimSpace(string(runOut))
-	stop = func() { _ = exec.Command("docker", "rm", "-f", id).Run() }
+	stop = func() { _, _ = cosmosEmulatorEngine(60*time.Second, "rm", "-f", id) }
 
 	endpoint = fmt.Sprintf("http://127.0.0.1:%d/", hostPort)
 	probe := newCosmosSDKClient(t, endpoint, cosmosEmulatorKey, "")
@@ -509,7 +531,7 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 		lastProbeErr = perr
 		time.Sleep(2 * time.Second)
 	}
-	logs, _ := exec.Command("docker", "logs", "--tail", "30", id).CombinedOutput()
+	logs, _ := cosmosEmulatorEngine(60*time.Second, "logs", "--tail", "30", id)
 	stop()
 	// The emulator's own log said healthy once while the probe still could
 	// not reach it, and the probe's error was the half this message lacked.

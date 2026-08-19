@@ -14,6 +14,15 @@
 # are uploaded, and scripts/fetch-gcp-discovery.sh vendors a captured document
 # with GCP_DISCOVERY_FROM — which is how a revision the author's edge does not
 # serve gets pinned at all.
+#
+# The bump job then puts the refresh somewhere. A red scheduled run and a
+# week-long artifact are not a place to put a pin: the refresh has to become a
+# commit, and until it does, every branch inherits the same drift and every run
+# re-reports it. So the run opens the bump as its own pull request — but only
+# when no pull request is open, because this project allows exactly one at a
+# time and scripts/check-single-open-pr.sh enforces it. While one is open, the
+# refresh belongs in it: check-deps annotates that pull request with each
+# inherited row, which is where the person who can act on it is looking.
 name: Specification freshness
 
 on:
@@ -58,3 +67,86 @@ jobs:
           path: ${{ runner.temp }}/spec-drift
           if-no-files-found: ignore
           retention-days: 7
+
+  bump:
+    name: open the bump pull request
+    needs: freshness
+    if: ${{ !cancelled() && needs.freshness.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      # This repository allows exactly one open pull request at a time, and
+      # scripts/check-single-open-pr.sh fails every commit while a second
+      # exists. A bump opened on top of somebody's branch would therefore break
+      # their next commit rather than help them, so it is opened only when
+      # nothing is open. While a pull request is in flight, check-deps already
+      # annotates it with each inherited row and the refresh belongs there.
+      - name: Nothing else may be open
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          open=$(gh pr list --state open --json number --jq 'length')
+          echo "open=$open" >> "$GITHUB_OUTPUT"
+          if [ "$open" != "0" ]; then
+            echo "::notice title=Specification bump deferred to the open pull request::${open} pull request(s) open; this project allows one at a time. The drifted rows are annotated on it by check-deps and the refresh belongs in that branch."
+          fi
+      - name: Install fetch tools
+        if: ${{ steps.gate.outputs.open == '0' }}
+        run: bash scripts/ci-apt-install.sh jq
+      # The Google documents the matrix sampled. Google serves several Discovery
+      # revisions concurrently, so a document re-fetched here may be the older
+      # one this runner's edge answers with; the capture is the revision the
+      # freshness run will keep seeing.
+      - name: Collect the drifted specifications the run sampled
+        if: ${{ steps.gate.outputs.open == '0' }}
+        uses: actions/download-artifact@v7.0.1
+        with:
+          pattern: '*-spec-drift'
+          merge-multiple: true
+          path: ${{ runner.temp }}/spec-drift
+      - name: Re-vendor every drifted specification
+        if: ${{ steps.gate.outputs.open == '0' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/spec-drift
+        run: bash scripts/refresh-drifted-specs.sh
+      - name: Open the pull request
+        if: ${{ steps.gate.outputs.open == '0' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "::notice title=No specification bump to open::the freshness matrix failed but nothing re-vendored; the report names rows it could not reach rather than rows behind upstream."
+            exit 0
+          fi
+          # One branch, reused. A new branch per run would leave a trail of
+          # stale ones for the same job.
+          branch=spec-freshness-bump
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$branch"
+          git add specs/cloud-api
+          git commit -m 'chore(specs): refresh the vendored specifications behind upstream' \
+            -m "$(git diff --cached --name-only | sed 's/^/- /')"
+          git push --force origin "$branch"
+          cat > "$RUNNER_TEMP/bump-body.md" <<'BODY'
+          Opened by the scheduled specification-freshness run, which fails on `main` when a vendored pin is behind its upstream and until now had nowhere to put the refresh.
+
+          Every file here was re-vendored through the fetcher that owns its corpus, so the pins and timestamps in `SOURCES.md` are recorded exactly as a hand-run refresh records them. Google Discovery documents are vendored from what that run sampled rather than re-fetched, because Google serves several revisions concurrently and this runner's edge may answer with the older one.
+
+          Review the diffs for behaviour the simulators now have to serve: a widened pattern can retire a `spec-violation-allowlist.txt` entry, and a new operation raises a measured-coverage floor.
+          BODY
+          # A YAML block scalar indents every line of the heredoc with it.
+          sed -i 's/^          //' "$RUNNER_TEMP/bump-body.md"
+          gh pr create --base main --head "$branch" \
+            --title 'chore(specs): refresh the vendored specifications behind upstream' \
+            --body-file "$RUNNER_TEMP/bump-body.md"
