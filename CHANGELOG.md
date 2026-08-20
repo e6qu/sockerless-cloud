@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/e6qu/sockerless-cloud/compare/v0.13.0...v0.13.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **azure/web:** run the azurerm backup crash to ground, and make the scan floor measure a real class ([#54](https://github.com/e6qu/sockerless-cloud/issues/54)) ([e544e33](https://github.com/e6qu/sockerless-cloud/commit/e544e33656c2ec390d46caf10aef813831a65e49))
+
 ## [0.13.0](https://github.com/e6qu/sockerless-cloud/compare/v0.12.6...v0.13.0) (2026-08-20)
 
 
