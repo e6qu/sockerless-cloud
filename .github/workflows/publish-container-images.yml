@@ -39,8 +39,14 @@ on:
 # killed its predecessor's build, leaving that commit with no image at all and
 # a pull by commit answering 404. A per-commit group has exactly one member, so
 # nothing here is ever superseded — publishes for adjacent merges run side by
-# side, each pushing its own tags. Registry retention is a separate workflow so
-# concurrent publishes never prune against each other.
+# side, each pushing its own tags.
+#
+# Registry retention is a separate workflow, triggered by this one's completion.
+# That separation keeps two prunes from racing each other; it does NOT keep a
+# prune away from a publish, because the publish that triggers it is rarely the
+# only one running. A publish between its two per-arch pushes looks like an
+# obsolete remnant to the selector, and was deleted as one — so the pruner
+# spares anything younger than its grace window (scripts/prune-ghcr-images.sh).
 concurrency:
   group: ${{ github.workflow }}-${{ github.repository }}-${{ inputs.commit || github.sha }}
   cancel-in-progress: false

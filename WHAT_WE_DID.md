@@ -26,9 +26,12 @@ cached image exactly as it sees a pushed one.
 
 **Google Artifact Registry refuses what Google says it refuses.** Chunked
 uploads: "You must use monolithic uploads when you push container images to
-Artifact Registry". The registry accepted the chunk and a test asserted that
-acceptance, so a client that chunks passed here and would fail against the
-service. The consumer was checked in the same change and does not chunk, and a
+Artifact Registry". The line is between one write into an upload session and
+several, not between `PATCH` and `PUT` — an engine's `docker push` sends the
+whole blob in a single `PATCH`, and that push succeeds against the live service.
+Refusing the first write broke a real `docker push` on CI while passing locally,
+because this host's Podman sends the blob on the `PUT` instead; the second write
+is the chunking Google names, and that is what is refused. The consumer was checked in the same change and does not chunk, and a
 real `docker push` through the CLI harness still succeeds — which is the same
 thing that makes it work against the live service. The token service also
 refuses at the mint a repository scope an uncredentialled caller cannot reach,
@@ -83,13 +86,24 @@ their own job's regexes, since the Azure shards are written in the same shape.
 Moving `main`'s protection onto the two new contexts is a merge-time step, and
 BUG-41 stays open until it is done.
 
+**A prune that deletes a publish still in flight.** The six imageless commits
+were dispatched, and three of them failed at the manifest step with `not found`
+for a per-arch tag their own job had pushed minutes earlier. Registry retention
+is triggered by the completion of a publish, and the publish that triggers it is
+rarely the only one running; a release is "complete" only once both per-arch
+tags exist, so a publish between its two pushes is indistinguishable from an
+abandoned remnant and was deleted as one. The workflow header claimed the
+separation kept concurrent publishes from pruning against each other, and it
+never did. Age is the only thing in the listing that tells the two apart, so the
+pruner spares anything younger than a two-hour window. Filed as BUG-67 with the
+three commits still to re-publish.
+
 **Two things noticed on the way.** The Cosmos differential test made unbounded
 container-engine calls, so an engine that stopped answering took the whole
 suite's twenty-minute timeout and the panic named the test rather than the
-engine; every engine call it makes is bounded now. And the six commits on
-`main` that carried no container image — a merge cancelled each publish before
-the per-commit concurrency key fixed that — were published by SHA, two of them
-under identifiers `DO_NEXT.md` had recorded wrongly.
+engine; every engine call it makes is bounded now. And two of the six imageless
+commits were recorded in `DO_NEXT.md` under identifiers that do not exist — the
+eighth hex digit had been invented when padding a seven-character list.
 
 ## 2026-08-19 — A fatal lock mismatch, two request-path scans, and the last races
 

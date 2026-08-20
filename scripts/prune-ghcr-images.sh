@@ -26,7 +26,13 @@ trap 'rm -f "$versions_file" "$remaining_versions_file"' EXIT
 
 gh api --paginate "$base?per_page=100" | jq -s 'add' >"$versions_file"
 
-jq -r --argjson keep "$keep" \
+# A publish takes minutes per architecture, and this prune is triggered by
+# another publish finishing, so it can run while a sibling is between its two
+# per-arch pushes. Two hours is comfortably longer than any publish and only
+# delays retention by one cycle.
+grace="${PRUNE_GRACE_SECONDS:-7200}"
+
+jq -r --argjson keep "$keep" --argjson grace "$grace" \
 	-f "$(dirname "${BASH_SOURCE[0]}")/select-obsolete-container-versions.jq" \
 	"$versions_file" |
 	while IFS= read -r version_id; do

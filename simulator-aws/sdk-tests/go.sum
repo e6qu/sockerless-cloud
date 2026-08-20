@@ -32,8 +32,8 @@ github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.6 h1:0nDzjwLdP
 github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.6/go.mod h1:V6A+fimdxgLSVwFZavG8C1+H7z+cF5erpqD87oL78i0=
 github.com/aws/aws-sdk-go-v2/service/autoscaling v1.72.1 h1:dphKqIDUM4m9Lz6rPgTJFkgUFC8oUiABxPN4DohkrXM=
 github.com/aws/aws-sdk-go-v2/service/autoscaling v1.72.1/go.mod h1:GAUQKj/AD0M/V2yO652a6BOJiLhsLKZ+jQ7bFfbZDDk=
-github.com/aws/aws-sdk-go-v2/service/batch v1.68.6 h1:3aFJ6Red2kQBAfrii5c4bq9fqnQSVxE96gVTjSaOiCs=
-github.com/aws/aws-sdk-go-v2/service/batch v1.68.6/go.mod h1:S7Qaws+9V1PsynezOZJjEqPNKcdk2Ht5bU9c3z0LYn0=
+github.com/aws/aws-sdk-go-v2/service/batch v1.68.7 h1:bECyc0PEYH1fSQSgVaCznfY7918YhYd75yOEwrco1Z0=
+github.com/aws/aws-sdk-go-v2/service/batch v1.68.7/go.mod h1:S7Qaws+9V1PsynezOZJjEqPNKcdk2Ht5bU9c3z0LYn0=
 github.com/aws/aws-sdk-go-v2/service/budgets v1.46.6 h1:rA0Q6W1ufyd6EL0yCPJQ9aiQ4p/adEEd5Gjf4AnKqYQ=
 github.com/aws/aws-sdk-go-v2/service/budgets v1.46.6/go.mod h1:vnvKw6MtJZsDBJYjA7xpkx+DyyEfELgq2IBVP202+zw=
 github.com/aws/aws-sdk-go-v2/service/cloudfront v1.67.6 h1:A22L70zWECDsLtxsoFGqAWXrCHaj3FpoVtJ501RqQ4o=
@@ -48,8 +48,8 @@ github.com/aws/aws-sdk-go-v2/service/codebuild v1.72.6 h1:jyaVM1ebLuP/qLgSKfGEcB
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.72.6/go.mod h1:r/uzFgy8VM8VfI0QjTEEkAFvwljWNtYDuqjRrOJwsik=
 github.com/aws/aws-sdk-go-v2/service/dynamodb v1.63.3 h1:cVfESNZmZ8L9TkOeNo6u/eNR0ZphBuS1J2GjLBLmEdA=
 github.com/aws/aws-sdk-go-v2/service/dynamodb v1.63.3/go.mod h1:n9exrC9k5S+0t6X6LQKHcv7ap1jAEAHY2Sbqhu9mS34=
-github.com/aws/aws-sdk-go-v2/service/ec2 v1.321.2 h1:jcHDG5dFHYfpGUfEKmBbG8XtJHcJinqLpiIsjz2c4Uw=
-github.com/aws/aws-sdk-go-v2/service/ec2 v1.321.2/go.mod h1:0YYJ+4BAgeIkRucGTesOdWnVnxhodrwWo6+lJ6Wmndg=
+github.com/aws/aws-sdk-go-v2/service/ec2 v1.321.3 h1:D/jnJv0FOeJKpRguRNC4tptuJ7y1yYYk/dKVTPmHQJs=
+github.com/aws/aws-sdk-go-v2/service/ec2 v1.321.3/go.mod h1:0YYJ+4BAgeIkRucGTesOdWnVnxhodrwWo6+lJ6Wmndg=
 github.com/aws/aws-sdk-go-v2/service/ecr v1.60.6 h1:RbjO6G1wu+q43r0322sDABXi9vq/YZp254BBKAeLtRI=
 github.com/aws/aws-sdk-go-v2/service/ecr v1.60.6/go.mod h1:snsosIuclt9tpFKzldCnu1ykT5SYEND/bK9qTJmoJ+o=
 github.com/aws/aws-sdk-go-v2/service/ecs v1.90.2 h1:qVT/ixJEmfC2SAv4FdkpTFRLt7remszYCY/DuguobWg=

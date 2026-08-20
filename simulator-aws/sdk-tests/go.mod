@@ -15,7 +15,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.37.6
 	github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.6
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.72.1
-	github.com/aws/aws-sdk-go-v2/service/batch v1.68.6
+	github.com/aws/aws-sdk-go-v2/service/batch v1.68.7
 	github.com/aws/aws-sdk-go-v2/service/budgets v1.46.6
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.67.6
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.6
@@ -23,7 +23,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.82.2
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.72.6
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.63.3
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.321.2
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.321.3
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.60.6
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.90.2
 	github.com/aws/aws-sdk-go-v2/service/efs v1.44.6

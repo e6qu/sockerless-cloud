@@ -12,7 +12,12 @@
    `scripts/check-required-status-checks.sh --verify-branch-protection` confirms
    the two agree afterwards. BUG-41 stays open until it is done.
 
-2. Fifty-eight full store reads remain on request paths, held by the floor in
+2. Re-dispatch the three publishes a concurrent prune killed (BUG-67), once the
+   grace window is on `main`: `b9d651fb5a1c`, `b01a8e29385e` and `418e0c8482f2`
+   still carry no image. `gh workflow run publish-container-images.yml --ref
+   main -f commit=<full sha>`, one at a time rather than six at once.
+
+3. Fifty-eight full store reads remain on request paths, held by the floor in
    `scripts/check-store-scans.sh`. Every unguarded one is converted: the handler
    wrappers that decide whether to claim a request no longer scan. What is left
    is reached only after a wrapper has claimed a request or matched a resource,
@@ -24,22 +29,22 @@
    makes cheaper. Separate the two in the analyzer before converting, so the
    floor measures the class that can reach zero.
 
-3. BUG-44: the Blob data plane implements no shared-access-signature
+4. BUG-44: the Blob data plane implements no shared-access-signature
    authorization, so `webParseBackupStorageURL` can only check that the
    mandatory parameters are present. Implement the documented signature
    verification in the Blob plane, then let the backup path rely on it.
 
-4. BUG-27: real Azure creates the subnets supplied in the `subnets` member of a
+5. BUG-27: real Azure creates the subnets supplied in the `subnets` member of a
    virtual network PUT — what `az network vnet create --subnet-name` sends —
    and the simulator drops them, so a later read 404s. Persisting them must also
    realise the network-namespace fabric, so it lands with a Linux CI test.
 
-5. BUG-43: `terraform-provider-azurerm v5.1.0` crashed with no captured stack
+6. BUG-43: `terraform-provider-azurerm v5.1.0` crashed with no captured stack
    applying an `azurerm_linux_function_app` carrying a `backup` block against
    the simulator. Capture the crash log, establish whether the simulator returns
    something the provider cannot parse, and add the reverted Terraform leg back.
 
-6. App Service is at 616 of 692. The recorded deferrals are done: backup and
+7. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read
    from the live workload container, App Service Environments and Kube
    Environments are served, and detectors compute from real container and site
@@ -48,7 +53,7 @@
    outbound network-dependency catalog, which is Microsoft-published data. What
    remains in that swagger is the long tail below 692, not a deferral.
 
-7. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+8. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 
@@ -66,6 +71,14 @@
   in the sockerless repository alongside the next pin bump, not here.
 
 ## Tooling quirks that are not simulator defects
+
+- The two container engines take different blob-upload paths, so a registry
+  upload change cannot be judged on a local run. Docker's `docker push` opens
+  the session with POST, sends the whole blob in a single `PATCH` and finalizes
+  with `PUT`; this host's Podman sends the blob on the `PUT` and never issues
+  the `PATCH` at all. A refusal added to the `PATCH` therefore passed every
+  local suite and broke `TestArtifactRegistryCLI_DockerLoginPushPull` on CI.
+  Judge `/v2/` upload behaviour on the CI engine.
 
 - This host's Podman container store can acquire a dangling entry that makes
   every `ContainerList(All: true)` fail with `container not known`, which is

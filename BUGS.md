@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 10. Resolved: 66.
+Open: 11. Resolved: 66.
 
 ## Open
 
@@ -14,6 +14,24 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. |
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
+
+- **BUG-67 (a prune deletes a publish that is still in flight):** Registry
+  retention is triggered by the completion of a publish, and the publish that
+  triggers it is rarely the only one running. A release is "complete" to
+  `select-obsolete-container-versions.jq` only once both per-arch tags exist, so
+  a publish between its two pushes is indistinguishable from an abandoned
+  remnant — and was deleted as one. Measured: six publishes dispatched together
+  to fill in the commits that had no image, of which three failed at the
+  manifest step with `ERROR: ghcr.io/e6qu/sockerless-simulator-aws:<sha>-amd64:
+  not found` for a tag their own per-arch job had pushed minutes earlier, while
+  prune runs fired at 21:37, 21:39, 21:41 and 21:43. The workflow header claimed
+  the separation kept concurrent publishes from pruning against each other; it
+  never did. Nothing in the listing distinguishes half-pushed from abandoned, so
+  age does: the pruner spares any version younger than `PRUNE_GRACE_SECONDS`
+  (two hours), and the next prune collects it once it is old enough to judge.
+  `scripts/check-container-publication.sh` holds both directions on a fixture.
+  Three of the six commits still carry no image and need re-dispatching once
+  this is on `main`.
 
 - **BUG-56 (action downloads failed during a GitHub incident, and the fan-out
   is the standing risk):** Filed as "the job fan-out throttles GitHub's own

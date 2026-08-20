@@ -107,7 +107,7 @@ jobs:
       # freshness run will keep seeing.
       - name: Collect the drifted specifications the run sampled
         if: ${{ steps.gate.outputs.open == '0' }}
-        uses: actions/download-artifact@v7.0.1
+        uses: actions/download-artifact@v8.0.1
         with:
           pattern: '*-spec-drift'
           merge-multiple: true
