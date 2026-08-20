@@ -399,6 +399,29 @@ func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
 	assert.Empty(t, lmr.MapRuns)
 }
 
+// Budgets for the Distributed Map run below, named because the numbers are a
+// judgement rather than a habit.
+//
+// This test failed once on main (b391232c) after 13.51s, in a shard whose whole
+// run took 392s. It was not a simulator fault: every poll here spawns the real
+// vendor CLI through runCLI, which is a Python process with its own 60s
+// per-command ceiling. A 100ms poll interval against that is fiction -- the
+// loop cannot iterate faster than a CLI process starts, so the interval only
+// decides how hard the runner is hammered, and a "10 second" budget really buys
+// however many CLI invocations happen to fit. On a loaded runner that is very
+// few, and the work itself is not instant: two items through a Wait of one
+// second each, initially at MaxConcurrency 1.
+//
+// So the budgets are sized against the work plus CLI overhead rather than
+// against a stopwatch, and the interval is raised to something a CLI round trip
+// can actually meet. The same 10s/100ms pairing appears elsewhere in this
+// package for CLI-driven polls and is worth revisiting for the same reason.
+const (
+	sfnMapRunAppears   = 30 * time.Second
+	sfnMapRunCompletes = 60 * time.Second
+	sfnMapRunPoll      = 500 * time.Millisecond
+)
+
 // TestSFNCLI_DistributedMapRun drives a real Distributed Map through the
 // vendor CLI, then observes and updates its Map Run while child workflows run.
 func TestSFNCLI_DistributedMapRun(t *testing.T) {
@@ -446,7 +469,7 @@ func TestSFNCLI_DistributedMapRun(t *testing.T) {
 		}
 		mapRunArn = response.MapRuns[0].MapRunArn
 		return mapRunArn != ""
-	}, 10*time.Second, 100*time.Millisecond)
+	}, sfnMapRunAppears, sfnMapRunPoll)
 
 	runCLI(t, awsCLI("stepfunctions", "update-map-run",
 		"--map-run-arn", mapRunArn, "--max-concurrency", "2"))
@@ -473,7 +496,7 @@ func TestSFNCLI_DistributedMapRun(t *testing.T) {
 		return terminal.Status == "SUCCEEDED" &&
 			terminal.ItemCounts.Succeeded == 2 &&
 			terminal.ItemCounts.ResultsWritten == 2
-	}, 10*time.Second, 100*time.Millisecond)
+	}, sfnMapRunCompletes, sfnMapRunPoll)
 	out = runCLI(t, awsCLI("stepfunctions", "list-executions", "--map-run-arn", mapRunArn))
 	var children struct {
 		Executions []struct {
