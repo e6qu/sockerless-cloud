@@ -106,23 +106,40 @@ jobs:
         run: bash scripts/test-latest-deps-quarantine.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Attribution is the one change that can make this gate quieter, so it is
+      # the one change that could make it stop gating. The controls prove a pin
+      # the branch moved, and a pin the branch added, still fail with a baseline
+      # in hand — run before the check itself, as the quarantine's are.
+      - name: Dependency drift attribution is exercised, negative controls included
+        run: bash scripts/test-latest-deps-baseline.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Both freshness checks below attribute drift against main, so main's tip
+      # has to be a resolvable ref. The checkout is shallow; fetch just the one
+      # commit the attribution reads.
+      - name: Fetch main for drift attribution
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+      # --baseline origin/main holds this branch to the dependencies it pinned.
+      # The adoption quarantine guarantees a steady drip of new drift — a
+      # version becomes drift exactly 86400s after publication whether or not
+      # anybody pushed — and without a baseline that turned five of six
+      # consecutive main runs red in a single day on docker/setup-buildx-action,
+      # google.golang.org/grpc and aws-sdk-go-v2/service/organizations, none of
+      # which any of those commits touched. Inherited rows are reported and
+      # annotated here; the scheduled Dependency freshness workflow runs with no
+      # baseline and is what fails on them.
       - name: Check dependency freshness (bash)
-        run: bash scripts/check-latest-deps.sh
+        run: bash scripts/check-latest-deps.sh --baseline origin/main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Check dependency freshness (zsh)
-        run: zsh scripts/check-latest-deps.sh
+        run: zsh scripts/check-latest-deps.sh --baseline origin/main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Drift attribution is exercised, negative controls included
         run: bash scripts/test-spec-freshness-baseline.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # The freshness checks below attribute drift against main, so main's tip
-      # has to be a resolvable ref. The checkout is shallow; fetch just the one
-      # commit the attribution reads.
-      - name: Fetch main for drift attribution
-        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
       # Every cloud's vendored specifications are gated, not just one: the
       # check takes a cloud argument, and each cloud is its own step so a
       # drift names the cloud that drifted. Each captures the newer document
