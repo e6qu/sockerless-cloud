@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/e6qu/sockerless-cloud/compare/v0.12.6...v0.13.0) (2026-08-20)
+
+
+### Features
+
+* **azure/storage:** authorize every storage data-plane request, and create a network's inline subnets ([#52](https://github.com/e6qu/sockerless-cloud/issues/52)) ([b391232](https://github.com/e6qu/sockerless-cloud/commit/b391232cf1843e7860322a042e3b30cf9414f9a2))
+
 ## [0.12.6](https://github.com/e6qu/sockerless-cloud/compare/v0.12.5...v0.12.6) (2026-08-20)
 
 
