@@ -93,15 +93,19 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 	require.NoError(t, err)
 	loadBalancerArn := aws.ToString(loadBalancer.LoadBalancers[0].LoadBalancerArn)
 	loadBalancerDNS := aws.ToString(loadBalancer.LoadBalancers[0].DNSName)
-	listenerPort := availableELBv2ListenerPort(t)
-	listener, err := elbC.CreateListener(ctx, &elbv2.CreateListenerInput{
-		LoadBalancerArn: aws.String(loadBalancerArn), Protocol: elbtypes.ProtocolEnumHttp,
-		Port: aws.Int32(listenerPort),
-		DefaultActions: []elbtypes.Action{{
-			Type: elbtypes.ActionTypeEnumForward, TargetGroupArn: aws.String(targetGroupArn),
-		}},
+	var listener *elbv2.CreateListenerOutput
+	listenerPort := elbv2CreateListenerOnFreePort(t, func(port int32) error {
+		out, err := elbC.CreateListener(ctx, &elbv2.CreateListenerInput{
+			LoadBalancerArn: aws.String(loadBalancerArn), Protocol: elbtypes.ProtocolEnumHttp,
+			Port: aws.Int32(port),
+			DefaultActions: []elbtypes.Action{{
+				Type: elbtypes.ActionTypeEnumForward, TargetGroupArn: aws.String(targetGroupArn),
+			}},
+		})
+		listener = out
+		return err
 	})
-	require.NoError(t, err)
+	_ = listenerPort
 	listenerArn := aws.ToString(listener.Listeners[0].ListenerArn)
 	t.Cleanup(func() {
 		_, _ = elbC.DeleteListener(ctx, &elbv2.DeleteListenerInput{ListenerArn: aws.String(listenerArn)})

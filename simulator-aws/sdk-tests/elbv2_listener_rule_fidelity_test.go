@@ -52,35 +52,38 @@ func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 	tg2 := elbv2FidTargetGroup(t, elb, vpcID, "fid-auth-tg2")
 	lbArn := elbv2FidLoadBalancer(t, elb, subnetID, "fid-auth-alb", elbtypes.LoadBalancerTypeEnumApplication)
 	certArn := importELBv2Certificate(t, "auth.example.test")
-	listenerPort := availableELBv2ListenerPort(t)
-
 	// HTTPS listener whose default action authenticates via OIDC, then forwards.
-	ln, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
-		LoadBalancerArn: aws.String(lbArn), Protocol: elbtypes.ProtocolEnumHttps, Port: aws.Int32(listenerPort),
-		Certificates: []elbtypes.Certificate{{CertificateArn: aws.String(certArn)}},
-		SslPolicy:    aws.String("ELBSecurityPolicy-TLS13-1-2-2021-06"),
-		DefaultActions: []elbtypes.Action{
-			{
-				Type:  elbtypes.ActionTypeEnumAuthenticateOidc,
-				Order: aws.Int32(1),
-				AuthenticateOidcConfig: &elbtypes.AuthenticateOidcActionConfig{
-					Issuer:                           aws.String("https://idp.example.test"),
-					AuthorizationEndpoint:            aws.String("https://idp.example.test/authorize"),
-					TokenEndpoint:                    aws.String("https://idp.example.test/token"),
-					UserInfoEndpoint:                 aws.String("https://idp.example.test/userinfo"),
-					ClientId:                         aws.String("client-123"),
-					ClientSecret:                     aws.String("super-secret"),
-					Scope:                            aws.String("openid email"),
-					SessionCookieName:                aws.String("AWSELBAuthSessionCookie"),
-					SessionTimeout:                   aws.Int64(3600),
-					OnUnauthenticatedRequest:         elbtypes.AuthenticateOidcActionConditionalBehaviorEnumAuthenticate,
-					AuthenticationRequestExtraParams: map[string]string{"prompt": "login"},
+	var ln *elbv2.CreateListenerOutput
+	listenerPort := elbv2CreateListenerOnFreePort(t, func(port int32) error {
+		out, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
+			LoadBalancerArn: aws.String(lbArn), Protocol: elbtypes.ProtocolEnumHttps, Port: aws.Int32(port),
+			Certificates: []elbtypes.Certificate{{CertificateArn: aws.String(certArn)}},
+			SslPolicy:    aws.String("ELBSecurityPolicy-TLS13-1-2-2021-06"),
+			DefaultActions: []elbtypes.Action{
+				{
+					Type:  elbtypes.ActionTypeEnumAuthenticateOidc,
+					Order: aws.Int32(1),
+					AuthenticateOidcConfig: &elbtypes.AuthenticateOidcActionConfig{
+						Issuer:                           aws.String("https://idp.example.test"),
+						AuthorizationEndpoint:            aws.String("https://idp.example.test/authorize"),
+						TokenEndpoint:                    aws.String("https://idp.example.test/token"),
+						UserInfoEndpoint:                 aws.String("https://idp.example.test/userinfo"),
+						ClientId:                         aws.String("client-123"),
+						ClientSecret:                     aws.String("super-secret"),
+						Scope:                            aws.String("openid email"),
+						SessionCookieName:                aws.String("AWSELBAuthSessionCookie"),
+						SessionTimeout:                   aws.Int64(3600),
+						OnUnauthenticatedRequest:         elbtypes.AuthenticateOidcActionConditionalBehaviorEnumAuthenticate,
+						AuthenticationRequestExtraParams: map[string]string{"prompt": "login"},
+					},
 				},
+				{Type: elbtypes.ActionTypeEnumForward, Order: aws.Int32(2), TargetGroupArn: aws.String(tg1)},
 			},
-			{Type: elbtypes.ActionTypeEnumForward, Order: aws.Int32(2), TargetGroupArn: aws.String(tg1)},
-		},
+		})
+		ln = out
+		return err
 	})
-	require.NoError(t, err)
+	_ = listenerPort
 	listenerArn := aws.ToString(ln.Listeners[0].ListenerArn)
 
 	desc, err := elb.DescribeListeners(ctx, &elbv2.DescribeListenersInput{ListenerArns: []string{listenerArn}})
@@ -149,20 +152,23 @@ func TestELBv2_ListenerCertsAndMutualAuthSDK(t *testing.T) {
 	lbArn := elbv2FidLoadBalancer(t, elb, subnetID, "fid-cert-alb", elbtypes.LoadBalancerTypeEnumApplication)
 	defCert := importELBv2Certificate(t, "default.example.test")
 	sniCert := importELBv2Certificate(t, "sni.example.test")
-	listenerPort := availableELBv2ListenerPort(t)
-
 	ignoreExpiry := true
-	ln, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
-		LoadBalancerArn: aws.String(lbArn), Protocol: elbtypes.ProtocolEnumHttps, Port: aws.Int32(listenerPort),
-		Certificates: []elbtypes.Certificate{{CertificateArn: aws.String(defCert)}},
-		SslPolicy:    aws.String("ELBSecurityPolicy-2016-08"),
-		MutualAuthentication: &elbtypes.MutualAuthenticationAttributes{
-			Mode: aws.String("verify"), TrustStoreArn: aws.String("arn:aws:elasticloadbalancing:us-east-1:000000000000:truststore/ts/abc"),
-			IgnoreClientCertificateExpiry: &ignoreExpiry,
-		},
-		DefaultActions: []elbtypes.Action{{Type: elbtypes.ActionTypeEnumForward, TargetGroupArn: aws.String(tg)}},
+	var ln *elbv2.CreateListenerOutput
+	listenerPort := elbv2CreateListenerOnFreePort(t, func(port int32) error {
+		out, createErr := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
+			LoadBalancerArn: aws.String(lbArn), Protocol: elbtypes.ProtocolEnumHttps, Port: aws.Int32(port),
+			Certificates: []elbtypes.Certificate{{CertificateArn: aws.String(defCert)}},
+			SslPolicy:    aws.String("ELBSecurityPolicy-2016-08"),
+			MutualAuthentication: &elbtypes.MutualAuthenticationAttributes{
+				Mode: aws.String("verify"), TrustStoreArn: aws.String("arn:aws:elasticloadbalancing:us-east-1:000000000000:truststore/ts/abc"),
+				IgnoreClientCertificateExpiry: &ignoreExpiry,
+			},
+			DefaultActions: []elbtypes.Action{{Type: elbtypes.ActionTypeEnumForward, TargetGroupArn: aws.String(tg)}},
+		})
+		ln = out
+		return createErr
 	})
-	require.NoError(t, err)
+	_ = listenerPort
 	listenerArn := aws.ToString(ln.Listeners[0].ListenerArn)
 
 	// mutual_authentication round-trips.
@@ -172,7 +178,7 @@ func TestELBv2_ListenerCertsAndMutualAuthSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(ma.IgnoreClientCertificateExpiry))
 
 	// ModifyListener changes the SSL policy.
-	_, err = elb.ModifyListener(ctx, &elbv2.ModifyListenerInput{
+	_, err := elb.ModifyListener(ctx, &elbv2.ModifyListenerInput{
 		ListenerArn: aws.String(listenerArn), SslPolicy: aws.String("ELBSecurityPolicy-TLS13-1-2-2021-06"),
 	})
 	require.NoError(t, err)

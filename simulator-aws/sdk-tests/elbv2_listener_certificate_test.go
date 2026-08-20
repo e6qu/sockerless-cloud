@@ -27,7 +27,7 @@ func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	certArn := importELBv2Certificate(t, "listener.example.test")
-	listenerPort := availableELBv2ListenerPort(t)
+	var listenerPort int32
 
 	c := elbv2Client()
 	lb, err := c.CreateLoadBalancer(ctx, &elasticloadbalancingv2.CreateLoadBalancerInput{
@@ -45,16 +45,18 @@ func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	tgArn := aws.ToString(tg.TargetGroups[0].TargetGroupArn)
 
-	_, err = c.CreateListener(ctx, &elasticloadbalancingv2.CreateListenerInput{
-		LoadBalancerArn: aws.String(lbArn),
-		Protocol:        elbv2types.ProtocolEnumHttps,
-		Port:            aws.Int32(listenerPort),
-		Certificates:    []elbv2types.Certificate{{CertificateArn: aws.String(certArn)}},
-		DefaultActions: []elbv2types.Action{{
-			Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: aws.String(tgArn),
-		}},
+	listenerPort = elbv2CreateListenerOnFreePort(t, func(port int32) error {
+		_, err := c.CreateListener(ctx, &elasticloadbalancingv2.CreateListenerInput{
+			LoadBalancerArn: aws.String(lbArn),
+			Protocol:        elbv2types.ProtocolEnumHttps,
+			Port:            aws.Int32(port),
+			Certificates:    []elbv2types.Certificate{{CertificateArn: aws.String(certArn)}},
+			DefaultActions: []elbv2types.Action{{
+				Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: aws.String(tgArn),
+			}},
+		})
+		return err
 	})
-	require.NoError(t, err)
 
 	desc, err := c.DescribeListeners(ctx, &elasticloadbalancingv2.DescribeListenersInput{
 		LoadBalancerArn: aws.String(lbArn),
