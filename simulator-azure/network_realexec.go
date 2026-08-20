@@ -31,12 +31,20 @@ var (
 )
 
 func azureRequireNetworkHost(w http.ResponseWriter) bool {
-	if err := realexec.DetectNetworkCapabilities().Require(); err != nil {
-		sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
-			"real Azure networking requires Linux network namespace, bridge, veth, route, and nftables host capabilities: %v", err)
+	if err := azureNetworkHostError(); err != nil {
+		sim.AzureError(w, "OperationNotAllowed", err.Error(), http.StatusServiceUnavailable)
 		return false
 	}
 	return true
+}
+
+// azureNetworkHostError reports why this host cannot realize the netns fabric,
+// or nil when it can — for callers that write the refusal themselves.
+func azureNetworkHostError() error {
+	if err := realexec.DetectNetworkCapabilities().Require(); err != nil {
+		return fmt.Errorf("real Azure networking requires Linux network namespace, bridge, veth, route, and nftables host capabilities: %w", err)
+	}
+	return nil
 }
 
 // azureRealName derives the host-side name of a namespace, bridge, veth or tap

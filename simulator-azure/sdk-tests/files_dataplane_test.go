@@ -736,11 +736,17 @@ func TestFilesSDK_ServicePropertiesAndUserDelegationKey(t *testing.T) {
 	require.NotNil(t, props.HourMetrics.RetentionPolicy.Days)
 	assert.Equal(t, int32(9), *props.HourMetrics.RetentionPolicy.Days)
 
-	// Get User Delegation Key issues a key bound to the window it is asked for.
+	// Get User Delegation Key issues a key bound to the window it is asked
+	// for, and only to a Microsoft Entra caller: the operation is OAuth-only
+	// on Azure, so the probe carries a token whose audience is the storage
+	// resource rather than the Shared Key everything else in this file uses.
 	start := time.Now().UTC().Truncate(time.Second)
 	expiry := start.Add(time.Hour)
-	resp := storageRawBody(t, http.MethodPost, account, "file", "/?restype=service&comp=userdelegationkey",
-		"<KeyInfo><Start>"+start.Format(time.RFC3339)+"</Start><Expiry>"+expiry.Format(time.RFC3339)+"</Expiry></KeyInfo>")
+	storageBearer, _, err := fetchSimAccessToken("https://storage.azure.com/.default")
+	require.NoError(t, err)
+	resp := storageRawBodyAuthorized(t, http.MethodPost, account, "file", "/?restype=service&comp=userdelegationkey",
+		"<KeyInfo><Start>"+start.Format(time.RFC3339)+"</Start><Expiry>"+expiry.Format(time.RFC3339)+"</Expiry></KeyInfo>",
+		"Bearer "+storageBearer)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -821,7 +827,7 @@ func TestFilesSDK_ShareSoftDeleteAndRestore(t *testing.T) {
 
 // storageRawBody issues one storage data-plane request carrying a body at the
 // `<account>.<service>.<host>` coordinate.
-func storageRawBody(t *testing.T, method, account, service, target, body string) *http.Response {
+func storageRawBodyAuthorized(t *testing.T, method, account, service, target, body, authorization string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(baseURL, "/")+target, strings.NewReader(body))
 	require.NoError(t, err)
@@ -830,6 +836,12 @@ func storageRawBody(t *testing.T, method, account, service, target, body string)
 	require.True(t, ok, "baseURL must include a port: %s", baseURL)
 	req.Host = account + "." + service + ".localhost:" + port
 	req.Header.Set("x-ms-version", "2025-11-05")
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	// The data plane authorizes every request; one that carries no credential
+	// of its own presents the account key.
+	storageSignSharedKey(req, req.Host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp

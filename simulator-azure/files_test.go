@@ -59,6 +59,9 @@ func filesPlaneRequest(t *testing.T, srv *sim.Server, method, account, target st
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// The Files plane authorizes every request against the account's keys, so
+	// this carries the credential a client carries.
+	storageTestSignSharedKey(t, srv, req, account)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	return rec

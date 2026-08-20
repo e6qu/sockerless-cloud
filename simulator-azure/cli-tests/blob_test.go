@@ -11,14 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const storageAccountKey = "a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s="
-
 func azStorageContainer(args ...string) *exec.Cmd {
 	baseArgs := append([]string{"storage", "container"}, args...)
 	baseArgs = append(baseArgs,
 		"--auth-mode", "key",
 		"--account-name", "listpropsacct",
-		"--account-key", storageAccountKey,
+		"--account-key", cliStorageAccountKey("listpropsacct"),
 		"--blob-endpoint", baseURL+"/listpropsacct/",
 		"--only-show-errors",
 		"--output", "json",
@@ -78,7 +76,7 @@ func azStorageBlob(args ...string) *exec.Cmd {
 	baseArgs = append(baseArgs,
 		"--auth-mode", "key",
 		"--account-name", "listpropsacct",
-		"--account-key", storageAccountKey,
+		"--account-key", cliStorageAccountKey("listpropsacct"),
 		"--blob-endpoint", baseURL+"/listpropsacct/",
 		"--only-show-errors",
 		"--output", "json",

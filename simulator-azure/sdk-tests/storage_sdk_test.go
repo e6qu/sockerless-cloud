@@ -40,6 +40,11 @@ func (t storageSDKTransport) Do(req *http.Request) (*http.Response, error) {
 	u.Host = strings.TrimPrefix(baseURL, "http://")
 	u.Scheme = "http"
 	rewritten.URL = &u
+	// The storage data plane authorizes every request; this is where the
+	// suite's SDK clients present the account key. A client built with its own
+	// credential has already signed, and is left alone — see
+	// storage_credential_test.go.
+	storageSignSharedKey(rewritten, rewritten.Host)
 	client := t.inner
 	if client == nil {
 		client = http.DefaultClient
@@ -76,6 +81,8 @@ func storageRawRequest(t *testing.T, method, account, service, target string) *h
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(baseURL, "/")+target, nil)
 	require.NoError(t, err)
 	req.Host = fmt.Sprintf("%s.%s.localhost:%s", account, service, port)
+	// The data plane authorizes every request against the account's keys.
+	storageSignSharedKey(req, req.Host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp

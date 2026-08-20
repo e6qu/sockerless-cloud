@@ -109,7 +109,7 @@ func azStorageQueuePolicy(args ...string) *exec.Cmd {
 	baseArgs := append([]string{"storage", "queue", "policy"}, args...)
 	baseArgs = append(baseArgs,
 		"--account-name", queueCLIAccountName,
-		"--account-key", storageAccountKey,
+		"--account-key", cliStorageAccountKey(queueCLIAccountName),
 		"--queue-endpoint", baseURL+"/queue/"+queueCLIAccountName+"/",
 		"--only-show-errors",
 		"--output", "json",

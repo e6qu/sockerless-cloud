@@ -1,5 +1,81 @@
 # WHAT WE DID
 
+## 2026-08-21 — The storage data plane stops taking everyone's word for it
+
+BUG-44 was filed as "the Blob data plane authorizes no shared access
+signature" and understated itself: the whole Azure Storage data plane verified
+nothing. `Authorization: SharedKey …` was a routing signal, `sig=` was a
+routing signal, a request carrying neither was served anyway, and the storage
+CLI tests ran for months on one hardcoded fake key that az faithfully signed
+with into a void.
+
+blob_authorization.go now verifies all three credentials on Blob, Files,
+Queues and Tables alike, and the verification is pinned by Microsoft's own
+signers rather than by the simulator agreeing with itself — azblob's
+SharedKeyCredential and GetSASURL through the App Service backup tests,
+azqueue's and azfile's SignWithSharedKey through tests written for exactly
+that purpose, and the az CLI across the whole CLI suite. Five defects only
+those signers could catch, each found as a real failure and fixed:
+
+- A service Shared Access Signature has **sixteen** fields, not the nineteen
+  the combined reference reads — `saoid`, `suoid` and `scid` belong to a user
+  delegation signature, and signing them produces a string no client signs.
+- The string grew with the service version **the signature itself declares**:
+  `sr` and the snapshot time in 2018-11-09, `ses` in 2020-12-06. The az CLI's
+  bundled SDK signs an older layout than the current azblob module, and each
+  verifies only against its own.
+- The Queue service signs **eight** fields and the File service **thirteen**,
+  read out of azqueue's and azfile's own `SignWithSharedKey`.
+- The signed path is the **escaped** path: az percent-encodes the slash in a
+  nested directory name (`build%2Fartifacts`), and a verifier reading the
+  decoded path agrees with every client until the first path that needs
+  escaping.
+- `Content-Length` must come from the parsed request — Go's server moves it
+  out of the header map, so a handler reading the header signs a different
+  string than the client did.
+
+Path-style requests are verified against the path the client signed — the one
+still carrying the account segment, before the dispatcher's rewrite — and with
+the client's own account spelling, because az's storage SDK derives
+`queue/<account>` from a path-style endpoint and signs with that literal
+string. Batch sub-requests run under the outer request's authorization. Get
+User Delegation Key refuses everything but a storage-audience bearer. And
+webParseBackupStorageURL now verifies the signature it used to only count
+parameters on, which was the original bug.
+
+The suites had to become honest to prove any of this: 23 client constructions
+across six SDK-test files and every raw helper presented no credential, and
+the CLI suite's key was fake. The harness now provisions each account through
+the real ARM API and signs with the key listKeys serves — its own
+canonicalization written out independently, so harness and simulator cannot
+agree by construction — and the persistence tests provision on the child
+simulator they boot. The store-scan gate caught the new per-request account
+lookup scanning the account store and it now goes through a GenerationIndex.
+
+**BUG-27 rode along**: the vnet document's `subnets` member was a reference
+shape with no `properties`, so `az network vnet create --subnet-name` had its
+subnet silently dropped. The member now embeds full subnet documents and an
+inline subnet materializes exactly as its standalone PUT does — on an
+incapable host that means the standalone PUT's 503 instead of a 200 that
+dropped the subnet, which is the half a macOS run proves while Linux CI
+proves the created half.
+
+**Closed as repository state, not code**: BUG-41 (branch protection moved to
+the sharded Azure CLI contexts, plus eight Terraform contexts the manifest
+required and the live setting never enforced) and BUG-67 (the three publishes
+the prune race killed were re-dispatched after the grace window merged; every
+commit on `main` carries its image).
+
+**BUG-43 stays open with a ready repro**: a minimal azurerm 5.1.0
+function-app-with-backup stack against the sim behind the Caddy gateway,
+blocked locally only by macOS's `*.localhost` resolution — the capture has to
+run on a Linux host, and BUGS.md records the exact recipe.
+
+The consumer note that matters: `backends/azure-common/build.go` builds its
+blob client with `NewClientWithNoCredential` and a comment claiming the
+simulator "does not enforce storage bearer auth". It does now. DO_NEXT
+carries the fix shape for the next pin bump.
+
 ## 2026-08-20 — Registries that answer their own service, and workloads nobody could collect
 
 Nine recorded bugs closed, and one of them was not the bug it was filed as.

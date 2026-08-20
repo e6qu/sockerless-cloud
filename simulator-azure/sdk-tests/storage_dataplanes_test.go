@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,8 @@ func storageDataplaneReq(t *testing.T, method, account, service, path string, bo
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// The data plane authorizes every request against the account's keys.
+	storageSignSharedKey(req, req.Host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
@@ -249,6 +252,24 @@ func pathStyleStorageReq(t *testing.T, method, prefix, path string, body []byte,
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
+	}
+	// A path-style storage request authenticates with the account key over the
+	// path it carries; the ARM bearer above stays only on the requests that
+	// deliberately target an ARM path, which the reserved prefixes name. The
+	// bare form is `/{account}/…`; the per-service form is
+	// `/file|queue|table/{account}/…`, where the account is the second segment
+	// and the Table service signs its own, shorter string.
+	first, rest, _ := strings.Cut(strings.TrimPrefix(prefix, "/"), "/")
+	switch first {
+	case "subscriptions", "providers", "metadata", "v1":
+	case "file", "queue", "table":
+		account := rest
+		if account == "" {
+			account, _, _ = strings.Cut(strings.TrimPrefix(path, "/"), "/")
+		}
+		storageSignSharedKeyPathStyleService(req, first, account)
+	default:
+		storageSignSharedKeyPathStyleService(req, "blob", first)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

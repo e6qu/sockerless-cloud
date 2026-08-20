@@ -32,6 +32,12 @@ func storagePlaneHostRequest(t *testing.T, srv *sim.Server, method, host, target
 	}
 	req.Host = host
 	req.Header.Set("x-ms-version", "2025-01-05")
+	// The data plane authorizes every request, so a test that reaches it
+	// carries the credential a client carries. The account is the first label
+	// of the hostname it is addressed at.
+	if account, _, ok := strings.Cut(host, "."); ok && account != "" {
+		storageTestSignSharedKey(t, srv, req, account)
+	}
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	return rec

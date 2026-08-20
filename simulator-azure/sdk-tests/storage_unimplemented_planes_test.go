@@ -23,6 +23,10 @@ func storageEndpointRequest(t *testing.T, method, endpoint, target string) *http
 	require.NoError(t, err)
 	req.Host = host
 	req.Header.Set("x-ms-version", "2025-01-05")
+	// The served planes authorize every request against the account's keys;
+	// the unserved ones declare their gap before authorization, exactly as the
+	// dispatcher answers them before any handler.
+	storageSignSharedKey(req, host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp

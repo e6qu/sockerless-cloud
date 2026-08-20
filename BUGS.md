@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 66.
+Open: 7. Resolved: 70.
 
 ## Open
 
@@ -14,24 +14,6 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. |
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
-
-- **BUG-67 (a prune deletes a publish that is still in flight):** Registry
-  retention is triggered by the completion of a publish, and the publish that
-  triggers it is rarely the only one running. A release is "complete" to
-  `select-obsolete-container-versions.jq` only once both per-arch tags exist, so
-  a publish between its two pushes is indistinguishable from an abandoned
-  remnant — and was deleted as one. Measured: six publishes dispatched together
-  to fill in the commits that had no image, of which three failed at the
-  manifest step with `ERROR: ghcr.io/e6qu/sockerless-simulator-aws:<sha>-amd64:
-  not found` for a tag their own per-arch job had pushed minutes earlier, while
-  prune runs fired at 21:37, 21:39, 21:41 and 21:43. The workflow header claimed
-  the separation kept concurrent publishes from pruning against each other; it
-  never did. Nothing in the listing distinguishes half-pushed from abandoned, so
-  age does: the pruner spares any version younger than `PRUNE_GRACE_SECONDS`
-  (two hours), and the next prune collects it once it is old enough to judge.
-  `scripts/check-container-publication.sh` holds both directions on a fixture.
-  Three of the six commits still carry no image and need re-dispatching once
-  this is on `main`.
 
 - **BUG-56 (action downloads failed during a GitHub incident, and the fan-out
   is the standing risk):** Filed as "the job fan-out throttles GitHub's own
@@ -52,26 +34,6 @@ the simulators from the sockerless monorepo, keeping their IDs
   `max-parallel`, which trades wall clock on every run against a burst that has
   not been shown to be the problem.
 
-- **BUG-27 (a virtual network ignores the subnets declared inline on it):**
-  Real Azure creates subnets supplied in the `subnets` member of a virtual
-  network PUT — it is what `az network vnet create --subnet-name` sends — while
-  the simulator only re-collects rows that already exist, so an inline subnet
-  is silently dropped and a later read 404s. Persisting it must also realise
-  the network-namespace fabric, which cannot run on a non-Linux host, so this
-  lands with a Linux CI test pass rather than as a store-only change.
-
-- **BUG-41 (the Azure CLI suite's required status contexts have not moved
-  yet):** The suite ran unsharded at 680 seconds against a fourteen-minute step
-  allowance, with under two minutes of headroom. It is split: `sim (azure cli
-  A-M)` and `sim (azure cli N-Z)`, held to exactly one shard per test by
-  `scripts/check-azure-cli-shard-coverage.sh`, and `.github/required-status-checks.txt`
-  names the two new contexts. What remains is a repository setting, and it
-  cannot be done before the merge: main's protection still requires `sim (azure
-  cli)`, which this branch never emits, while the two new contexts are emitted
-  only by a workflow that is not on main yet. Move them in the same breath as
-  the merge — the command is in [DO_NEXT.md](DO_NEXT.md) — and
-  `scripts/check-required-status-checks.sh --verify-branch-protection` then
-  confirms the manifest and the setting agree.
 - **BUG-42 (the macOS Terraform harness skips the whole shared azurerm stack):**
   The harness drops to the host user through `setpriv`, stripping
   `CAP_NET_ADMIN` and `CAP_SYS_ADMIN`, so `TestTerraformApplyDestroy` skips on
@@ -89,21 +51,74 @@ the simulators from the sockerless monorepo, keeping their IDs
   tier reported for every plan, a container visible only on the control plane,
   and a plan tier that refused backups). The Terraform leg was reverted rather
   than left failing. Fix shape: capture the provider's crash log, establish
-  whether the simulator returns something the provider cannot parse, and add the
-  stack back once it applies cleanly.
+  whether the simulator returns something the simulator cannot parse, and add
+  the stack back once it applies cleanly. A standalone repro exists and stops
+  only at the host: simulator + the Caddy HTTPS gateway (`make/https-gateway`,
+  `SOCKERLESS_AZURE_SIM_PORT`, data-plane URLs advertised through the gateway
+  host) + a minimal azurerm 5.1.0 configuration of resource group, storage
+  account, container, `data azurerm_storage_account_sas`, S1 Linux plan and a
+  function app whose `backup` block points `storage_account_url` at the signed
+  container — but terraform on macOS cannot resolve `azure.sockerless.localhost`
+  (the documented `*.localhost` macOS limitation), so the capture must run in
+  the Linux Docker harness or on CI, with `TF_LOG=DEBUG`.
 
-- **BUG-44 (the Blob data plane authorizes no shared access signature):**
-  `webParseBackupStorageURL` checks that a backup's storage URL carries the
-  mandatory signature parameters but not that the signature is valid, because
-  the Blob data plane implements no shared-access-signature authorization at
-  all. Verifying it in the backup path alone would refuse URLs the data plane
-  itself accepts. This is the same shape as the registry and Cosmos gaps closed
-  earlier: the credential exists and nothing consumes it. Fix shape: implement
-  the documented signature verification in the Blob plane, then let the backup
-  path rely on it.
 
 
 ## Resolved history
+
+- **BUG-67 (a prune deleted a publish still in flight):** Fixed by the
+  two-hour grace window in `scripts/select-obsolete-container-versions.jq`, and
+  proven live: the three publishes the race had killed — `b9d651fb5a1c`,
+  `b01a8e29385e`, `418e0c8482f2` — were re-dispatched after the window landed
+  on `main` and all three completed, so every commit on `main` now carries its
+  immutable image.
+
+- **BUG-41 (the Azure CLI suite's required status contexts had not moved):**
+  Done as a repository setting after the sharding merged: `main`'s branch
+  protection now requires `sim (azure cli A-M)` and `sim (azure cli N-Z)`, and
+  syncing it to the manifest also surfaced and fixed eight Terraform contexts
+  `.github/required-status-checks.txt` required that the live setting had
+  never enforced. `scripts/check-required-status-checks.sh
+  --verify-branch-protection` reports a match.
+
+- **BUG-44 (the storage data plane authorized nothing):** Filed as "the Blob
+  data plane authorizes no shared access signature", and it was wider: the
+  whole plane verified nothing — `Authorization: SharedKey …` and `sig=` were
+  routing signals, a request carrying neither was served anyway, every
+  credential the simulator issues was decorative, and the storage CLI tests ran
+  on a hardcoded fake key that az signed with faithfully into a void.
+  blob_authorization.go now verifies all three credentials on Blob, Files,
+  Queues and Tables alike: Shared Key over the documented canonicalization
+  against both live key slots (the Table service signs its own shorter string),
+  a service Shared Access Signature over the layout its own `sv` defines, and
+  anonymous access only where the container's public access level allows it. A
+  Microsoft Entra bearer authorizes only with the storage audience, and Get
+  User Delegation Key is OAuth-only, as on Azure. Every layout is pinned by
+  Microsoft's own signers rather than by this simulator agreeing with itself:
+  azblob's SharedKeyCredential and GetSASURL through the App Service backup
+  tests, azqueue's and azfile's SignWithSharedKey through their own, and the az
+  CLI across the CLI suite. Five defects only those signers could find: a
+  service signature has sixteen fields, not the nineteen the combined reference
+  reads (`saoid`/`suoid`/`scid` belong to a user delegation signature); the
+  string grew with `sv` and a client signs its own version's layout; the Queue
+  and File services sign eight and thirteen fields respectively; the signed
+  path is the escaped path, which the decoded form corrupts at the first
+  `%2F`; and Content-Length must be read from the parsed request because Go's
+  server moves it out of the header map. webParseBackupStorageURL now verifies
+  the signature it used to only count parameters on.
+
+- **BUG-27 (a virtual network ignored the subnets declared inline on it):**
+  The vnet document's `subnets` member was a reference shape with no
+  `properties`, so `az network vnet create --subnet-name` had its subnet
+  silently dropped and a later read 404ed while the create answered 200. The
+  member now embeds full subnet documents, request and response alike, and an
+  inline subnet is materialized exactly as its standalone PUT materializes it —
+  the same fabric, the same App Service delegation path, the same refusal on a
+  host without the netns capabilities. The refusal is the other half of the
+  fix: an incapable host now answers the standalone PUT's 503 instead of a 200
+  that dropped the subnet, which is what
+  TestVirtualNetworkCreatesItsInlineSubnets proves on macOS while the Linux CI
+  runner proves the created half.
 
 - **BUG-20 (a killed run's workload containers were collectable by nobody):**
   The reaper is a detached child that waits for the simulator and then collects

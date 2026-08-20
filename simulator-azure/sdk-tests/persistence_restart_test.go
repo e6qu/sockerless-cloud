@@ -207,6 +207,11 @@ func restartRawReq(t *testing.T, method, endpoint, path, host, bearer string, bo
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// A storage-addressed request with no credential of its own presents the
+	// account key, as any real client must — read from the simulator instance
+	// this request targets, which for these tests is a child booted with its
+	// own state directory.
+	storageSignSharedKeyAt(req, endpoint, req.Host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
