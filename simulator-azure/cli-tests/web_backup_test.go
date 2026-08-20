@@ -49,7 +49,7 @@ func azBackupStorage(group string, args ...string) *exec.Cmd {
 	baseArgs = append(baseArgs,
 		"--auth-mode", "key",
 		"--account-name", backupCLIAccount,
-		"--account-key", storageAccountKey,
+		"--account-key", cliStorageAccountKey(backupCLIAccount),
 		"--blob-endpoint", baseURL+"/"+backupCLIAccount+"/",
 		"--only-show-errors",
 		"--output", "json",

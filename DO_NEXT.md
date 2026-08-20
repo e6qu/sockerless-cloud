@@ -1,23 +1,6 @@
 # DO NEXT
 
-1. Move `main`'s branch protection onto the Azure CLI shards, in the same
-   breath as this merge. The suite now runs as `sim (azure cli A-M)` and
-   `sim (azure cli N-Z)`; the protection still requires `sim (azure cli)`, which
-   nothing emits any more. Until both sides agree, one of them stalls:
-
-       gh api -X PATCH repos/e6qu/sockerless-cloud/branches/main/protection/required_status_checks \
-         -f 'contexts[]=sim (azure cli A-M)' -f 'contexts[]=sim (azure cli N-Z)' ...
-
-   The manifest `.github/required-status-checks.txt` already names them, and
-   `scripts/check-required-status-checks.sh --verify-branch-protection` confirms
-   the two agree afterwards. BUG-41 stays open until it is done.
-
-2. Re-dispatch the three publishes a concurrent prune killed (BUG-67), once the
-   grace window is on `main`: `b9d651fb5a1c`, `b01a8e29385e` and `418e0c8482f2`
-   still carry no image. `gh workflow run publish-container-images.yml --ref
-   main -f commit=<full sha>`, one at a time rather than six at once.
-
-3. Fifty-eight full store reads remain on request paths, held by the floor in
+1. Fifty-eight full store reads remain on request paths, held by the floor in
    `scripts/check-store-scans.sh`. Every unguarded one is converted: the handler
    wrappers that decide whether to claim a request no longer scan. What is left
    is reached only after a wrapper has claimed a request or matched a resource,
@@ -29,22 +12,18 @@
    makes cheaper. Separate the two in the analyzer before converting, so the
    floor measures the class that can reach zero.
 
-4. BUG-44: the Blob data plane implements no shared-access-signature
-   authorization, so `webParseBackupStorageURL` can only check that the
-   mandatory parameters are present. Implement the documented signature
-   verification in the Blob plane, then let the backup path rely on it.
-
-5. BUG-27: real Azure creates the subnets supplied in the `subnets` member of a
-   virtual network PUT — what `az network vnet create --subnet-name` sends —
-   and the simulator drops them, so a later read 404s. Persisting them must also
-   realise the network-namespace fabric, so it lands with a Linux CI test.
-
-6. BUG-43: `terraform-provider-azurerm v5.1.0` crashed with no captured stack
+2. BUG-43: `terraform-provider-azurerm v5.1.0` crashed with no captured stack
    applying an `azurerm_linux_function_app` carrying a `backup` block against
-   the simulator. Capture the crash log, establish whether the simulator returns
-   something the provider cannot parse, and add the reverted Terraform leg back.
+   the simulator. A standalone macOS repro stops at the host: terraform's
+   resolver does not resolve `azure.sockerless.localhost`, which is the
+   documented `*.localhost` macOS limitation, so the capture has to run inside
+   the Linux Docker harness (or on CI). A ready repro stack — sim + Caddy
+   gateway + a minimal azurerm 5.1.0 function-app-with-backup configuration —
+   is described in BUGS.md under BUG-43; run it on a Linux host, capture
+   TF_LOG=DEBUG, fix what the provider chokes on, and restore the Terraform
+   leg.
 
-7. App Service is at 616 of 692. The recorded deferrals are done: backup and
+3. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read
    from the live workload container, App Service Environments and Kube
    Environments are served, and detectors compute from real container and site
@@ -53,11 +32,21 @@
    outbound network-dependency catalog, which is Microsoft-published data. What
    remains in that swagger is the long tail below 692, not a deferral.
 
-8. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+4. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 
 ## Consumer follow-ups in the sockerless repository
+
+- `backends/azure-common/build.go` builds its blob data-plane client with
+  `azblob.NewClientWithNoCredential`, with a comment saying the simulator
+  endpoint "does not enforce storage bearer auth". The simulator now enforces
+  storage authorization on every data-plane request, so that client is refused
+  at the next pin bump — and it was never right against a sovereign cloud
+  either. Fix shape: read the account key the backend can already reach
+  (`armstorage` `ListKeys`, it holds the accounts client) and build with
+  `azblob.NewSharedKeyCredential`, which signs over plain HTTP; same code
+  against simulator and cloud, differing only in coordinates.
 
 - `backends/azure-common/acr_auth.go` asks Microsoft Entra for the
   `https://<registry>.azurecr.io/.default` scope and puts that raw token on

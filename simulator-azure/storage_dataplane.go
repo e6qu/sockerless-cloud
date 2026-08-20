@@ -225,16 +225,31 @@ func registerStorageDataPlane(srv *sim.Server) {
 				return
 			}
 			if account, rest, ok := splitServicePrefix(r.URL.Path, "file"); ok {
+				container, _ := storagePathResource(rest)
+				if !AuthorizeStorageDataPlane(w, r, "file", account, container, "") {
+					return
+				}
+				r = StorageMarkAuthorized(r)
 				r.URL.Path = "/" + rest
 				handleFilesDataPlane(w, r, account)
 				return
 			}
 			if account, rest, ok := splitServicePrefix(r.URL.Path, "queue"); ok {
+				container, _ := storagePathResource(rest)
+				if !AuthorizeStorageDataPlane(w, r, "queue", account, container, "") {
+					return
+				}
+				r = StorageMarkAuthorized(r)
 				r.URL.Path = "/" + rest
 				handleQueuesDataPlane(w, r, account)
 				return
 			}
 			if account, rest, ok := splitServicePrefix(r.URL.Path, "table"); ok {
+				container, _ := storagePathResource(rest)
+				if !AuthorizeStorageDataPlane(w, r, "table", account, container, "") {
+					return
+				}
+				r = StorageMarkAuthorized(r)
 				r.URL.Path = "/" + rest
 				handleTablesDataPlane(w, r, account)
 				return
@@ -297,6 +312,15 @@ func handleFilesDataPlane(w http.ResponseWriter, r *http.Request, account string
 	q := r.URL.Query()
 	restype, comp := q.Get("restype"), q.Get("comp")
 
+	// Every request into this plane carries a credential the account's keys
+	// signed, or reaches a resource whose public access level serves it. The
+	// Blob, Files and Queues planes share one authorization — see
+	// blob_authorization.go — because they share one set of account keys and one
+	// Shared Key scheme.
+	if !AuthorizeStorageDataPlane(w, r, "file", account, storageFirstSegment(path), "") {
+		return
+	}
+
 	// Service level.
 	if path == "" {
 		switch {
@@ -310,6 +334,9 @@ func handleFilesDataPlane(w http.ResponseWriter, r *http.Request, account string
 		case r.Method == http.MethodPut && restype == "service" && comp == "properties":
 			handleFilesSetServiceProperties(w, r, account)
 		case r.Method == http.MethodPost && restype == "service" && comp == "userdelegationkey":
+			if !RequireStorageOAuthBearer(w, r) {
+				return
+			}
 			handleFilesGetUserDelegationKey(w, r, account)
 		default:
 			writeStorageOperationNotImplemented(w, r, "Files")
@@ -1028,6 +1055,15 @@ func handleQueuesDataPlane(w http.ResponseWriter, r *http.Request, account strin
 	q := r.URL.Query()
 	restype, comp := q.Get("restype"), q.Get("comp")
 
+	// Every request into this plane carries a credential the account's keys
+	// signed, or reaches a resource whose public access level serves it. The
+	// Blob, Files and Queues planes share one authorization — see
+	// blob_authorization.go — because they share one set of account keys and one
+	// Shared Key scheme.
+	if !AuthorizeStorageDataPlane(w, r, "queue", account, storageFirstSegment(path), "") {
+		return
+	}
+
 	// Service level: /?comp=…
 	if path == "" {
 		switch {
@@ -1436,6 +1472,12 @@ func deleteTableDataPlaneProjection(account, table string) {
 }
 
 func handleTablesDataPlane(w http.ResponseWriter, r *http.Request, account string) {
+	// The Table service authorizes every request like its three siblings, over
+	// its own, shorter Shared Key string — see blob_authorization.go.
+	if !AuthorizeStorageDataPlane(w, r, "table", account, storageFirstSegment(strings.TrimPrefix(r.URL.Path, "/")), "") {
+		return
+	}
+
 	path := strings.TrimPrefix(r.URL.Path, "/")
 
 	// Transactional batch: POST /$batch (multipart/mixed change-set).
@@ -1865,4 +1907,21 @@ func jsonStringField(raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("expected a JSON string: %w", err)
 	}
 	return s, nil
+}
+
+// storageFirstSegment is the share or queue a data-plane path addresses, which
+// is the resource its authorization is evaluated against.
+func storageFirstSegment(path string) string {
+	if path == "" {
+		return ""
+	}
+	segment, _, _ := strings.Cut(path, "/")
+	return segment
+}
+
+// storagePathResource splits a path-style remainder into the container-level
+// resource and what follows it.
+func storagePathResource(rest string) (string, string) {
+	container, blobName, _ := strings.Cut(rest, "/")
+	return container, blobName
 }

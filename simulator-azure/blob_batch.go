@@ -148,7 +148,11 @@ func runBlobBatchSubRequest(parent *http.Request, account, container string, raw
 	}
 
 	rec := httptest.NewRecorder()
-	handleBlobDataPlane(rec, req, account)
+	// The batch's outer request carried the credential and was authorized
+	// before this handler ran; its sub-requests run under that authorization,
+	// which is the contract a client that batches with one credential relies
+	// on — the SDK does not sign each part separately.
+	handleBlobDataPlane(rec, StorageMarkAuthorized(req), account)
 	return blobBatchSerializeResponse(rec)
 }
 

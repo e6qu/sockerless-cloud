@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -54,19 +55,18 @@ type VirtualNetwork struct {
 }
 
 type VNetProperties struct {
-	AddressSpace                AddressSpace `json:"addressSpace"`
-	Subnets                     []SubnetRef  `json:"subnets,omitempty"`
-	PrivateEndpointVNetPolicies string       `json:"privateEndpointVNetPolicies,omitempty"`
-	ProvisioningState           string       `json:"provisioningState"`
+	AddressSpace AddressSpace `json:"addressSpace"`
+	// Subnets embeds the full child documents, which is the shape real Azure
+	// takes in and returns: `az network vnet create --subnet-name` sends the
+	// subnet inline here, and a reference-shaped member silently dropped its
+	// properties on the floor.
+	Subnets                     []Subnet `json:"subnets,omitempty"`
+	PrivateEndpointVNetPolicies string   `json:"privateEndpointVNetPolicies,omitempty"`
+	ProvisioningState           string   `json:"provisioningState"`
 }
 
 type AddressSpace struct {
 	AddressPrefixes []string `json:"addressPrefixes"`
-}
-
-type SubnetRef struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
 }
 
 // Subnet types
@@ -322,14 +322,6 @@ func registerNetwork(srv *sim.Server) {
 			},
 		}
 
-		// Collect subnet refs
-		subnetList := subnets.Filter(func(s Subnet) bool {
-			return strings.HasPrefix(s.ID, resourceID+"/subnets/")
-		})
-		for _, s := range subnetList {
-			vnet.Properties.Subnets = append(vnet.Properties.Subnets, SubnetRef{ID: s.ID, Name: s.Name})
-		}
-
 		vnets.Put(resourceID, vnet)
 		// Realize the IaaS netns fabric only where the host can (Linux + caps).
 		// A VNet that only ever carries App Service-delegated subnets needs no
@@ -343,6 +335,32 @@ func registerNetwork(srv *sim.Server) {
 				return
 			}
 		}
+
+		// Subnets declared inline are created exactly as their standalone PUTs
+		// create them — real Azure does, and `az network vnet create
+		// --subnet-name` depends on it. They materialize after the network's
+		// own fabric, which is the order the standalone path guarantees by
+		// refusing a subnet whose network does not exist.
+		for _, inline := range req.Properties.Subnets {
+			if inline.Name == "" {
+				sim.AzureError(w, "InvalidRequestContent",
+					"A subnet declared on a virtual network must carry a name.", http.StatusBadRequest)
+				return
+			}
+			built := azureBuildSubnet(resourceID+"/subnets/"+inline.Name, inline.Name, inline)
+			if code, message, status := azureMaterializeSubnet(r.Context(), vnetName, built); code != "" {
+				sim.AzureError(w, code, message, status)
+				return
+			}
+		}
+
+		// The response embeds every subnet the network holds, inline-declared
+		// and pre-existing alike.
+		subnetList := subnets.Filter(func(s Subnet) bool {
+			return strings.HasPrefix(s.ID, resourceID+"/subnets/")
+		})
+		vnet.Properties.Subnets = append(vnet.Properties.Subnets, subnetList...)
+		vnets.Put(resourceID, vnet)
 
 		// go-azure-sdk expects 200 for sync creates
 		sim.WriteJSON(w, http.StatusOK, vnet)
@@ -367,9 +385,7 @@ func registerNetwork(srv *sim.Server) {
 		subnetList := subnets.Filter(func(s Subnet) bool {
 			return strings.HasPrefix(s.ID, resourceID+"/subnets/")
 		})
-		for _, s := range subnetList {
-			vnet.Properties.Subnets = append(vnet.Properties.Subnets, SubnetRef{ID: s.ID, Name: s.Name})
-		}
+		vnet.Properties.Subnets = append(vnet.Properties.Subnets, subnetList...)
 
 		sim.WriteJSON(w, http.StatusOK, vnet)
 	})
@@ -431,57 +447,9 @@ func registerNetwork(srv *sim.Server) {
 			return
 		}
 
-		privateEndpointPolicies := req.Properties.PrivateEndpointNetworkPolicies
-		if privateEndpointPolicies == "" {
-			privateEndpointPolicies = "Disabled"
-		}
-		privateLinkPolicies := req.Properties.PrivateLinkServiceNetworkPolicies
-		if privateLinkPolicies == "" {
-			privateLinkPolicies = "Enabled"
-		}
-
-		sn := Subnet{
-			ID:   resourceID,
-			Name: subnetName,
-			Type: "Microsoft.Network/virtualNetworks/subnets",
-			Properties: SubnetProperties{
-				AddressPrefix:                     req.Properties.AddressPrefix,
-				AddressPrefixes:                   req.Properties.AddressPrefixes,
-				NetworkSecurityGroup:              req.Properties.NetworkSecurityGroup,
-				NatGateway:                        req.Properties.NatGateway,
-				RouteTable:                        req.Properties.RouteTable,
-				Delegations:                       req.Properties.Delegations,
-				ProvisioningState:                 "Succeeded",
-				PrivateEndpointNetworkPolicies:    privateEndpointPolicies,
-				PrivateLinkServiceNetworkPolicies: privateLinkPolicies,
-				ServiceEndpointPolicies:           req.Properties.ServiceEndpointPolicies,
-			},
-		}
-		// A subnet delegated to Microsoft.Web/serverFarms is App Service's
-		// regional-VNet-integration subnet. App Service workloads are containers,
-		// not netns VMs, so Azure realizes such a subnet as the App Service
-		// container network — the sim realizes it as a Docker user-defined
-		// network (the same mechanism the ACA managed environment uses), and an
-		// App Service site joins it via swift VNet integration. No netns fabric.
-		if subnetIsWebDelegated(sn) {
-			if _, err := sim.EnsureDockerNetwork(dockerNetForVNet(vnetName)); err != nil {
-				sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "failed to realize App Service subnet network: %v", err)
-				return
-			}
-			subnets.Put(resourceID, sn)
-			sim.WriteJSON(w, http.StatusOK, sn)
-			return
-		}
-		if !azureRequireNetworkHost(w) {
-			return
-		}
-		if err := azureCreateRealSubnet(r.Context(), sn); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to create real subnet network fabric: %v", err)
-			return
-		}
-		subnets.Put(resourceID, sn)
-		if err := azureReapplyRealNSGs(r.Context()); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
+		sn := azureBuildSubnet(resourceID, subnetName, req)
+		if code, message, status := azureMaterializeSubnet(r.Context(), vnetName, sn); code != "" {
+			sim.AzureError(w, code, message, status)
 			return
 		}
 
@@ -1036,10 +1004,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 			return
 		}
 		vnet, _ := azureVnets.Get(id)
-		vnet.Properties.Subnets = nil
-		for _, s := range azureSubnets.Filter(func(s Subnet) bool { return strings.HasPrefix(s.ID, id+"/subnets/") }) {
-			vnet.Properties.Subnets = append(vnet.Properties.Subnets, SubnetRef{ID: s.ID, Name: s.Name})
-		}
+		vnet.Properties.Subnets = azureSubnets.Filter(func(s Subnet) bool { return strings.HasPrefix(s.ID, id+"/subnets/") })
 		sim.WriteJSON(w, http.StatusOK, vnet)
 	})
 
@@ -1198,10 +1163,7 @@ func azureApplyTagsPatch(w http.ResponseWriter, r *http.Request, update func(map
 func azureRefreshedVnets(prefix string) []VirtualNetwork {
 	vnets := azureVnets.Filter(func(v VirtualNetwork) bool { return strings.HasPrefix(v.ID, prefix) })
 	for i := range vnets {
-		vnets[i].Properties.Subnets = nil
-		for _, s := range azureSubnets.Filter(func(s Subnet) bool { return strings.HasPrefix(s.ID, vnets[i].ID+"/subnets/") }) {
-			vnets[i].Properties.Subnets = append(vnets[i].Properties.Subnets, SubnetRef{ID: s.ID, Name: s.Name})
-		}
+		vnets[i].Properties.Subnets = azureSubnets.Filter(func(s Subnet) bool { return strings.HasPrefix(s.ID, vnets[i].ID+"/subnets/") })
 	}
 	return vnets
 }
@@ -1626,4 +1588,70 @@ func azureSubnetsForNatGateway(natGatewayID string) []SubResource {
 		refs = append(refs, SubResource{ID: sn.ID})
 	}
 	return refs
+}
+
+// azureBuildSubnet renders a stored subnet from a request body, applying the
+// defaults real Azure applies.
+func azureBuildSubnet(resourceID, subnetName string, req Subnet) Subnet {
+	privateEndpointPolicies := req.Properties.PrivateEndpointNetworkPolicies
+	if privateEndpointPolicies == "" {
+		privateEndpointPolicies = "Disabled"
+	}
+	privateLinkPolicies := req.Properties.PrivateLinkServiceNetworkPolicies
+	if privateLinkPolicies == "" {
+		privateLinkPolicies = "Enabled"
+	}
+	return Subnet{
+		ID:   resourceID,
+		Name: subnetName,
+		Type: "Microsoft.Network/virtualNetworks/subnets",
+		Properties: SubnetProperties{
+			AddressPrefix:                     req.Properties.AddressPrefix,
+			AddressPrefixes:                   req.Properties.AddressPrefixes,
+			NetworkSecurityGroup:              req.Properties.NetworkSecurityGroup,
+			NatGateway:                        req.Properties.NatGateway,
+			RouteTable:                        req.Properties.RouteTable,
+			Delegations:                       req.Properties.Delegations,
+			ProvisioningState:                 "Succeeded",
+			PrivateEndpointNetworkPolicies:    privateEndpointPolicies,
+			PrivateLinkServiceNetworkPolicies: privateLinkPolicies,
+			ServiceEndpointPolicies:           req.Properties.ServiceEndpointPolicies,
+		},
+	}
+}
+
+// azureMaterializeSubnet persists one subnet and realizes its fabric, the same
+// way whether the subnet arrived on its own PUT or inline on its virtual
+// network's — `az network vnet create --subnet-name` sends the latter, and a
+// simulator that only collected existing rows silently dropped it.
+//
+// A subnet delegated to Microsoft.Web/serverFarms is App Service's
+// regional-VNet-integration subnet. App Service workloads are containers, not
+// netns VMs, so Azure realizes such a subnet as the App Service container
+// network — the sim realizes it as a Docker user-defined network (the same
+// mechanism the ACA managed environment uses), and an App Service site joins
+// it via swift VNet integration. No netns fabric. Every other subnet requires
+// the Linux network host, exactly as its standalone create does.
+//
+// It returns an empty code on success, and the ARM error triple to write
+// otherwise.
+func azureMaterializeSubnet(ctx context.Context, vnetName string, sn Subnet) (string, string, int) {
+	if subnetIsWebDelegated(sn) {
+		if _, err := sim.EnsureDockerNetwork(dockerNetForVNet(vnetName)); err != nil {
+			return "InternalServerError", fmt.Sprintf("failed to realize App Service subnet network: %v", err), http.StatusInternalServerError
+		}
+		azureSubnets.Put(sn.ID, sn)
+		return "", "", 0
+	}
+	if err := azureNetworkHostError(); err != nil {
+		return "OperationNotAllowed", err.Error(), http.StatusServiceUnavailable
+	}
+	if err := azureCreateRealSubnet(ctx, sn); err != nil {
+		return "OperationNotAllowed", fmt.Sprintf("failed to create real subnet network fabric: %v", err), http.StatusServiceUnavailable
+	}
+	azureSubnets.Put(sn.ID, sn)
+	if err := azureReapplyRealNSGs(ctx); err != nil {
+		return "OperationNotAllowed", fmt.Sprintf("failed to apply real NSG filters: %v", err), http.StatusServiceUnavailable
+	}
+	return "", "", 0
 }

@@ -382,10 +382,11 @@ type webBackupStorageTarget struct {
 // missing any of them draws the documented "Missing mandatory parameters for
 // valid Shared Access Signature." refusal.
 //
-// The signature itself is not verified: the simulator's Blob data plane
-// implements no SAS authorization at all, so a signature check here would
-// refuse URLs the storage plane it writes through accepts.
-var webSASRequiredParams = []string{"sv", "sr", "sp", "se", "sig"}
+// The signature itself is verified against the account's keys, which the Blob
+// data plane now does for every request it serves (blob_authorization.go). A
+// `storageAccountUrl` this refuses is one the plane it writes through would
+// refuse too.
+var webSASRequiredParams = blobAuthRequiredSASParams
 
 // webParseBackupStorageURL resolves a `storageAccountUrl` into the account and
 // container it names and checks the SAS parameters Azure requires. It returns
@@ -420,6 +421,13 @@ func webParseBackupStorageURL(raw string) (webBackupStorageTarget, string, strin
 			fmt.Sprintf("The storageAccountUrl %q must address a single blob container.", raw)
 	}
 	if _, exists := blobContainersData.Get(blobContainerKey(account, container)); !exists {
+		return webBackupStorageTarget{}, "StorageAccessFailed", "Storage access failed."
+	}
+	// The signature has to be the account's. App Service writes the backup
+	// through this URL, so one the Blob plane would refuse is one the backup
+	// cannot be written with — and until the plane verified anything, this
+	// could only check that the parameters were present.
+	if ok, _ := blobSASAuthorizes("blob", account, container, "", q, http.MethodPut); !ok {
 		return webBackupStorageTarget{}, "StorageAccessFailed", "Storage access failed."
 	}
 	return webBackupStorageTarget{account: account, container: container}, "", ""

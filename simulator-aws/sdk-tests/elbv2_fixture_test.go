@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,4 +86,27 @@ func availableELBv2ListenerPort(t *testing.T) int32 {
 	port := int32(listener.Addr().(*net.TCPAddr).Port)
 	require.NoError(t, listener.Close())
 	return port
+}
+
+// elbv2CreateListenerOnFreePort creates a listener on an OS-reserved port,
+// re-reserving and retrying when another process on the host takes the port
+// between the reservation's release and the simulator's bind. Handing over a
+// port that was free a moment ago is inherently racy on a shared CI runner —
+// one collision was measured killing an unrelated pull request's run — and
+// the simulator's refusal is the faithful one: the service cannot bind an
+// occupied data-plane port either. Only that refusal is retried; every other
+// error is the test's to fail on.
+func elbv2CreateListenerOnFreePort(t *testing.T, create func(port int32) error) int32 {
+	t.Helper()
+	const attempts = 5
+	for attempt := 1; ; attempt++ {
+		port := availableELBv2ListenerPort(t)
+		err := create(port)
+		if err == nil {
+			return port
+		}
+		if attempt >= attempts || !strings.Contains(err.Error(), "address already in use") {
+			require.NoError(t, err, "create the listener on port %d", port)
+		}
+	}
 }

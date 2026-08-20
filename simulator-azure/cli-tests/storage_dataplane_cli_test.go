@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +27,7 @@ func azStorageQueue(group string, args ...string) *exec.Cmd {
 	baseArgs = append(baseArgs,
 		"--auth-mode", "key",
 		"--account-name", queueCLIAccountName,
-		"--account-key", storageAccountKey,
+		"--account-key", cliStorageAccountKey(queueCLIAccountName),
 		"--queue-endpoint", baseURL+"/queue/"+queueCLIAccountName+"/",
 		"--only-show-errors",
 		"--output", "json",
@@ -45,7 +47,7 @@ func azStorageTable(group string, args ...string) *exec.Cmd {
 	baseArgs = append(baseArgs,
 		"--auth-mode", "key",
 		"--account-name", tableCLIAccountName,
-		"--account-key", storageAccountKey,
+		"--account-key", cliStorageAccountKey(tableCLIAccountName),
 		"--table-endpoint", baseURL+"/table/"+tableCLIAccountName+"/",
 		"--only-show-errors",
 		"--output", "json",
@@ -106,29 +108,40 @@ func TestBlobBlockStagingCLI(t *testing.T) {
 		_ = azStorageContainer("delete", "--name", container).Run()
 	})
 
+	// The block requests authenticate with a container SAS az itself signs
+	// from the account key — the credential a raw storage client carries. The
+	// az rest transport holds an ARM identity, and the storage plane refuses
+	// an ARM-audience token exactly as Azure does.
+	sasToken := strings.Trim(strings.TrimSpace(runCLI(t, azStorageContainer("generate-sas",
+		"--name", container,
+		"--permissions", "rw",
+		"--expiry", time.Now().UTC().Add(time.Hour).Format("2006-01-02T15:04Z")))), `"`)
+	require.Contains(t, sasToken, "sig=", "az must sign the container SAS with the account key")
+
 	blobURL := baseURL + "/listpropsacct/" + container + "/" + blobName
 	blockA := base64.StdEncoding.EncodeToString([]byte("block-000001"))
 	blockB := base64.StdEncoding.EncodeToString([]byte("block-000002"))
+	withSAS := func(target string) string { return target + "&" + sasToken }
 
 	// Stage two blocks.
-	runCLI(t, azRest("PUT", blobURL+"?comp=block&blockid="+blockA, "hello ",
+	runCLI(t, azRest("PUT", withSAS(blobURL+"?comp=block&blockid="+blockA), "hello ",
 		"--headers", "x-ms-version=2023-11-03"))
-	runCLI(t, azRest("PUT", blobURL+"?comp=block&blockid="+blockB, "from blocks",
+	runCLI(t, azRest("PUT", withSAS(blobURL+"?comp=block&blockid="+blockB), "from blocks",
 		"--headers", "x-ms-version=2023-11-03"))
 
 	// The uncommitted block list names both blocks.
-	out := runCLI(t, azRest("GET", blobURL+"?comp=blocklist&blocklisttype=uncommitted", "",
+	out := runCLI(t, azRest("GET", withSAS(blobURL+"?comp=blocklist&blocklisttype=uncommitted"), "",
 		"--headers", "x-ms-version=2023-11-03"))
 	assert.Contains(t, out, blockA, "Get Block List must name the first uncommitted block")
 	assert.Contains(t, out, blockB, "Get Block List must name the second uncommitted block")
 
 	// Commit both blocks in order.
 	blockList := `<?xml version="1.0" encoding="utf-8"?><BlockList><Latest>` + blockA + `</Latest><Latest>` + blockB + `</Latest></BlockList>`
-	runCLI(t, azRest("PUT", blobURL+"?comp=blocklist", blockList,
+	runCLI(t, azRest("PUT", withSAS(blobURL+"?comp=blocklist"), blockList,
 		"--headers", "x-ms-version=2023-11-03", "Content-Type=application/xml"))
 
 	// The committed block list now names them; the uncommitted list is empty.
-	out = runCLI(t, azRest("GET", blobURL+"?comp=blocklist&blocklisttype=committed", "",
+	out = runCLI(t, azRest("GET", withSAS(blobURL+"?comp=blocklist&blocklisttype=committed"), "",
 		"--headers", "x-ms-version=2023-11-03"))
 	assert.Contains(t, out, blockA, "the committed block list must name the first block")
 	assert.Contains(t, out, blockB, "the committed block list must name the second block")

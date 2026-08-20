@@ -36,12 +36,73 @@ import (
 
 // newBlobTestClient builds an azblob client for one account, pointed at the
 // simulator by the same coordinate a real client is pointed at the cloud by.
+// newBlobTestClient builds a Blob client holding the account's real Shared Key
+// credential, which is what a client holds against the service: the data plane
+// authorizes every request against the account's keys, so a client with no
+// credential reaches nothing but a container whose public access level serves
+// it anonymously.
+//
+// It is also what makes these tests an independent check of the simulator's
+// Shared Key canonicalization — the signature is built by Microsoft's own
+// implementation, so a string-to-sign the simulator gets wrong fails here.
 func newBlobTestClient(t *testing.T, account string) *azblob.Client {
 	t.Helper()
-	client, err := azblob.NewClientWithNoCredential(storageSDKURL(t, account, "blob"),
-		&azblob.ClientOptions{ClientOptions: storageSDKOptions()})
+	client, err := azblob.NewClientWithSharedKeyCredential(storageSDKURL(t, account, "blob"),
+		blobTestSharedKey(t, account), &azblob.ClientOptions{ClientOptions: storageSDKOptions()})
 	require.NoError(t, err)
 	return client
+}
+
+// blobTestSharedKey returns the credential built from the key listKeys serves
+// for an account, provisioning the account only if the subscription does not
+// already hold it.
+//
+// The account is looked up across the subscription rather than assumed into a
+// resource group of this helper's choosing. A storage account name is global —
+// it is a hostname — so creating one that already exists elsewhere would be a
+// second account under one name, and its keys would be a different pair than
+// the one the caller's account serves.
+func blobTestSharedKey(t *testing.T, account string) *azblob.SharedKeyCredential {
+	t.Helper()
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+
+	group := blobTestAccountResourceGroup(t, accounts, account)
+	if group == "" {
+		group = "blob-dataplane-rg"
+		createStorageAccountForARM(t, group, account)
+	}
+	keys, err := accounts.ListKeys(ctx, group, account, nil)
+	require.NoError(t, err)
+	key1, _ := storageAccountKeyValues(t, keys.Keys)
+	require.NotEmpty(t, key1, "the account serves no key to sign with")
+	credential, err := azblob.NewSharedKeyCredential(account, key1)
+	require.NoError(t, err)
+	return credential
+}
+
+// blobTestAccountResourceGroup returns the resource group holding an account,
+// or "" when the subscription holds no account by that name.
+func blobTestAccountResourceGroup(t *testing.T, accounts *armstorage.AccountsClient, account string) string {
+	t.Helper()
+	pager := accounts.NewListPager(nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		require.NoError(t, err)
+		for _, held := range page.Value {
+			if held == nil || held.Name == nil || held.ID == nil || !strings.EqualFold(*held.Name, account) {
+				continue
+			}
+			// `/subscriptions/<sub>/resourceGroups/<rg>/providers/...`
+			segments := strings.Split(*held.ID, "/")
+			for i, segment := range segments {
+				if strings.EqualFold(segment, "resourceGroups") && i+1 < len(segments) {
+					return segments[i+1]
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // newBlobTestContainer creates a container and registers its teardown.
@@ -1151,11 +1212,18 @@ func TestStorageSDK_BlobUserDelegationKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, again)
 
+	// The raw probe authenticates the way the operation demands on Azure: a
+	// Microsoft Entra token whose audience is the storage resource. A token
+	// minted for Azure Resource Manager does not authorize this, and the data
+	// plane refuses it since it refuses everything the storage audience did
+	// not sign.
+	storageBearer, _, err := fetchSimAccessToken("https://storage.azure.com/.default")
+	require.NoError(t, err)
 	raw := storageRawRequestWithHeaders(t, http.MethodPost, account, "blob",
 		"/?restype=service&comp=userdelegationkey",
 		[]byte(fmt.Sprintf("<KeyInfo><Start>%s</Start><Expiry>%s</Expiry></KeyInfo>",
 			*info.Start, *info.Expiry)),
-		map[string]string{"Authorization": simARMBearer})
+		map[string]string{"Authorization": "Bearer " + storageBearer})
 	require.Equal(t, http.StatusOK, raw.StatusCode)
 	body := storageReadBody(t, raw)
 	assert.Contains(t, body, "<SignedService>b</SignedService>")
@@ -1262,6 +1330,8 @@ func storageRawRequestWithHeaders(t *testing.T, method, account, service, target
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// The data plane authorizes every request against the account's keys.
+	storageSignSharedKey(req, req.Host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp

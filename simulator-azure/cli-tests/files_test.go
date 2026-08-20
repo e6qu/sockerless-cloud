@@ -24,7 +24,7 @@ func azStorageFile(group string, args ...string) *exec.Cmd {
 	// --auth-mode.
 	baseArgs = append(baseArgs,
 		"--account-name", filesAccountName,
-		"--account-key", storageAccountKey,
+		"--account-key", cliStorageAccountKey(filesAccountName),
 		"--file-endpoint", baseURL+"/file/"+filesAccountName+"/",
 		"--only-show-errors",
 		"--output", "json",

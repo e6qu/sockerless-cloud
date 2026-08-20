@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -10,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
@@ -62,9 +66,75 @@ func storagePlaneReq(t *testing.T, srv *sim.Server, method, account, service, ta
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	storageTestSignSharedKey(t, srv, req, account)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	return rec
+}
+
+// storageTestSignSharedKey gives the request the credential the data plane now
+// requires, the way an Azure Storage SDK gives it: the account is created
+// through ARM so it has keys at all, and the request carries
+// `Authorization: SharedKey <account>:<signature>`.
+//
+// The string signed here is the server's own, which makes this a test of the
+// plumbing rather than of the canonicalization. The independent check is the
+// SDK suite: `azblob` builds the same signature from Microsoft's own
+// implementation, and a canonicalization this simulator got wrong fails there.
+func storageTestSignSharedKey(t *testing.T, srv *sim.Server, req *http.Request, account string) {
+	t.Helper()
+	storageTestEnsureAccount(t, srv, account)
+	keys, ok := storageAccountKeys(account)
+	if !ok || len(keys) == 0 {
+		t.Fatalf("storage account %s has no keys to sign with", account)
+	}
+	material, err := base64.StdEncoding.DecodeString(keys[0])
+	if err != nil {
+		t.Fatalf("decode the account key: %v", err)
+	}
+	req.Header.Set("x-ms-date", time.Now().UTC().Format(http.TimeFormat))
+	mac := hmac.New(sha256.New, material)
+	_, _ = mac.Write([]byte(blobSharedKeyStringToSign(account, req, false)))
+	req.Header.Set("Authorization",
+		"SharedKey "+account+":"+base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+}
+
+// storageTestEnsureAccount creates the storage account through ARM once, which
+// is what gives it the keys the data plane verifies against. A data-plane
+// request naming an account ARM has never seen has nothing to authorize it.
+func storageTestEnsureAccount(t *testing.T, srv *sim.Server, account string) {
+	t.Helper()
+	if _, ok := storageAccountKeys(account); ok {
+		return
+	}
+	const subscription = "00000000-0000-0000-0000-000000000000"
+	base := "/subscriptions/" + subscription + "/resourceGroups/storage-plane-rg"
+	// Azure Resource Manager takes only a bearer this simulator minted, which is
+	// what an SDK holds by the time it creates anything.
+	now := time.Now().UTC()
+	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("mint an ARM token: %v", err)
+	}
+	arm := func(method, target, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, target, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		return rec
+	}
+	arm(http.MethodPut, base+"?api-version=2023-07-01", `{"location":"eastus"}`)
+
+	rec := arm(http.MethodPut,
+		base+"/providers/Microsoft.Storage/storageAccounts/"+account+"?api-version=2023-05-01",
+		`{"location":"eastus","kind":"StorageV2","sku":{"name":"Standard_LRS"}}`)
+	if rec.Code >= 400 {
+		t.Fatalf("create storage account %s: status %d: %s", account, rec.Code, rec.Body.String())
+	}
+	if _, ok := storageAccountKeys(account); !ok {
+		t.Fatalf("storage account %s still has no keys after creation", account)
+	}
 }
 
 // assertStorageGap asserts the response is a declared gap: 501 in the storage

@@ -30,13 +30,27 @@ Current state of the sockerless-cloud repository.
   three shards; `run-fuzz.sh` requalifies Go's fuzztime-boundary shutdown
   race and nothing else).
 - **Branch protection**: `main` requires the contexts mirrored in
-  `.github/required-status-checks.txt` (strict, linear history). The manifest
-  names `sim (azure cli A-M)` and `sim (azure cli N-Z)` since the Azure CLI
-  suite was split; the live setting still names the unsharded context it
-  replaced, and moving it is a merge-time step (BUG-41, DO_NEXT item 1).
+  `.github/required-status-checks.txt` (strict, linear history), and the live
+  setting matches the manifest — synced after the Azure CLI split merged, which
+  also enforced eight Terraform contexts the manifest required and the setting
+  had never carried. `--verify-branch-protection` reports a match.
   `scripts/check-required-status-checks.sh` gates the manifest against the
   workflows in pre-commit and build-gates, and
   `--verify-branch-protection` matches the live settings.
+- **The Azure Storage data plane authorizes every request**: Shared Key over
+  the documented canonicalization (the Table service's own shorter string
+  included), a service Shared Access Signature over the layout its `sv`
+  defines, anonymous access only where the container's public access level
+  allows it, and a Microsoft Entra bearer only with the storage audience — Get
+  User Delegation Key is OAuth-only, as on Azure. Every layout is pinned by
+  Microsoft's own signers: azblob, azqueue and azfile `SignWithSharedKey` /
+  `GetSASURL`, and the az CLI across the CLI suite. The suites' clients hold
+  the account's real `listKeys` key; the hardcoded CLI key constant is gone.
+- **A virtual network creates its inline subnets**: the vnet document embeds
+  full subnet objects, request and response alike, and an inline subnet
+  materializes exactly as its standalone PUT does — including the 503 on a
+  host without netns capabilities, where it used to answer 200 and drop the
+  subnet.
 - **Registries answer their own service**: the `/v2/` base endpoint sends what
   each registry sends — nothing at all from Amazon ECR, an empty `text/html`
   body from Google Artifact Registry, the two bytes `{}` from Azure Container

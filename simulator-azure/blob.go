@@ -349,6 +349,15 @@ func registerBlobDataPlane(srv *sim.Server) {
 				return
 			}
 			if account, rest, ok := splitPathStyleAccount(r.URL.Path); ok {
+				// Authorized against the path the client signed — the one
+				// still carrying the account segment — before the handler's
+				// rewrite, which is also how Azurite verifies a path-style
+				// signature.
+				container, blobName := storagePathResource(rest)
+				if !AuthorizeStorageDataPlane(w, r, "blob", account, container, blobName) {
+					return
+				}
+				r = StorageMarkAuthorized(r)
 				r.URL.Path = "/" + rest
 				handleBlobDataPlane(w, r, account)
 				return
@@ -551,6 +560,24 @@ func handleBlobDataPlane(w http.ResponseWriter, r *http.Request, account string)
 	q := r.URL.Query()
 	comp, restype := q.Get("comp"), q.Get("restype")
 
+	// Every request into the data plane carries a credential the account's keys
+	// signed, or reaches a container whose public access level serves it. The
+	// plane used to read `Authorization: SharedKey …` and `sig=` as routing
+	// signals and verify neither, which made every credential the simulator
+	// issues decorative — see blob_authorization.go.
+	authContainer, authBlob := "", ""
+	if path != "" {
+		if segments := strings.SplitN(path, "/", 2); len(segments) > 0 {
+			authContainer = segments[0]
+			if len(segments) == 2 {
+				authBlob = segments[1]
+			}
+		}
+	}
+	if !AuthorizeStorageDataPlane(w, r, "blob", account, authContainer, authBlob) {
+		return
+	}
+
 	// Service level: /?restype=…&comp=…
 	if path == "" {
 		handleBlobServiceLevel(w, r, account, restype, comp)
@@ -714,6 +741,9 @@ func handleBlobServiceLevel(w http.ResponseWriter, r *http.Request, account, res
 	case r.Method == http.MethodGet && restype == "service" && comp == "stats":
 		handleGetBlobServiceStatistics(w, r, account)
 	case r.Method == http.MethodPost && restype == "service" && comp == "userdelegationkey":
+		if !RequireStorageOAuthBearer(w, r) {
+			return
+		}
 		handleGetUserDelegationKey(w, r, account)
 	case r.Method == http.MethodGet && restype == "account" && comp == "properties":
 		handleBlobGetAccountInfo(w, r, account)

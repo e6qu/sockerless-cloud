@@ -48,6 +48,8 @@ func blobReq(t *testing.T, method, account, path string, body []byte, headers ma
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// The data plane authorizes every request against the account's keys.
+	storageSignSharedKey(req, req.Host)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
