@@ -45,7 +45,25 @@ func cosmosSignDataPlane(t *testing.T, req *http.Request, key string) {
 func TestAzureCosmosDB_ARMAndDataPlaneRESTCLIFlows(t *testing.T) {
 	account := "clicosmos"
 	armBase := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account, "2024-05-15")
-	runCLI(t, azRest("PUT", armBase, `{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard"}}`))
+	createOut := runCLI(t, azRest("PUT", armBase, `{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard"}}`))
+	// The account's advertised documentEndpoint is the coordinate a Cosmos
+	// client resolves to reach it — the account name is a hostname, and it is
+	// the only thing that tells the data plane which account a request is for.
+	// The raw-HTTP requests below dial the simulator's address and carry this
+	// host, which is what a client reaching the service through a proxy sends.
+	var created struct {
+		Properties struct {
+			DocumentEndpoint string `json:"documentEndpoint"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(createOut), &created); err != nil {
+		t.Fatalf("decode account create output: %v: %s", err, createOut)
+	}
+	endpoint, err := url.Parse(created.Properties.DocumentEndpoint)
+	if err != nil || endpoint.Host == "" {
+		t.Fatalf("account advertised no usable documentEndpoint: %q (%v)", created.Properties.DocumentEndpoint, err)
+	}
+	dataPlaneHost := endpoint.Host
 	keysOut := runCLI(t, azRest("POST", strings.Replace(armBase, "?api-version=", "/listKeys?api-version=", 1), ""))
 	var keys struct {
 		PrimaryMasterKey string `json:"primaryMasterKey"`
@@ -83,7 +101,7 @@ func TestAzureCosmosDB_ARMAndDataPlaneRESTCLIFlows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = dataPlaneHost
 	req.Header.Set("Content-Type", "application/json")
 	cosmosSignDataPlane(t, req, keys.PrimaryMasterKey)
 	resp, err := http.DefaultClient.Do(req)
@@ -99,7 +117,7 @@ func TestAzureCosmosDB_ARMAndDataPlaneRESTCLIFlows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = dataPlaneHost
 	req.Header.Set("Content-Type", "application/query+json")
 	req.Header.Set("x-ms-documentdb-isquery", "True")
 	cosmosSignDataPlane(t, req, keys.PrimaryMasterKey)

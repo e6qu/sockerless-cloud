@@ -1,5 +1,110 @@
 # WHAT WE DID
 
+## 2026-08-20 — Registries that answer their own service, and workloads nobody could collect
+
+Nine recorded bugs closed, and one of them was not the bug it was filed as.
+
+**The `/v2/` base endpoint** answered `{}` in all three clouds, which is Docker
+Distribution's answer and none of these three registries'. Captured with a
+token from each service's own token service: Amazon ECR sends 200 with
+`content-length: 0` and no `content-type` at all; Google Artifact Registry
+sends an empty body declared `text/html; charset=UTF-8`; Azure Container
+Registry sends the two-byte body `{}` as `application/json; charset=utf-8`.
+The premise that this was one shared fix was wrong — they disagree — so each
+cloud's copy answers its own service and each cloud's SDK test pins what was
+captured.
+
+**Amazon ECR hydrates a pull through a cache rule.** The registry accepted
+pull-through cache rules and served them back, then refused every pull through
+one with `NAME_UNKNOWN`, which is the whole of what the feature does: the
+repository a rule covers exists only once something has been pulled through it.
+A pull now creates that repository — from a `PULL_THROUGH_CACHE` creation
+template when one matches — and fetches the image from the rule's upstream
+registry through the container engine the simulator already runs workloads on,
+so the bytes served are the upstream image's own and the control plane sees the
+cached image exactly as it sees a pushed one.
+
+**Google Artifact Registry refuses what Google says it refuses.** Chunked
+uploads: "You must use monolithic uploads when you push container images to
+Artifact Registry". The line is between one write into an upload session and
+several, not between `PATCH` and `PUT` — an engine's `docker push` sends the
+whole blob in a single `PATCH`, and that push succeeds against the live service.
+Refusing the first write broke a real `docker push` on CI while passing locally,
+because this host's Podman sends the blob on the `PUT` instead; the second write
+is the chunking Google names, and that is what is refused. The consumer was checked in the same change and does not chunk, and a
+real `docker push` through the CLI harness still succeeds — which is the same
+thing that makes it work against the live service. The token service also
+refuses at the mint a repository scope an uncredentialled caller cannot reach,
+with the `DENIED` the live service sends, naming the IAM permission and the
+resource; a scope naming no repository is still minted, which is what lets a
+client reach the base endpoint and find the challenge at all.
+
+**An Azure Cosmos DB account name is a hostname.** The data plane read its
+account from a sockerless-invented `x-ms-cosmos-account` header, and from the
+lexicographically-first account when that was absent. Both are gone. The
+control plane advertises `<name>.documents.…` as the account's
+documentEndpoint, the data plane reads the account out of the host the client
+dialled, and a request naming no account reaches none. Two accounts can no
+longer share a name either — the service publishes an operation whose only
+purpose is to say a name is taken, and creating a second account under one
+contradicted it.
+
+**A run's workloads are collectable from their labels alone.** The reaper is a
+detached child that dies with the harness container it lives in, so a run
+killed that way left its workloads running: twenty-two on one development host,
+five still running up to twenty-five hours later. The next simulator over the
+same state directory now sweeps what the last one left, and the state directory
+is the identity that cannot be shared, so a concurrent suite's workloads are
+never touched. `TestStartupSweepCollectsAKilledRunsWorkloads` SIGKILLs a run
+with no reaper behind it and requires the next run to collect its container and
+network while a workload under a different state directory survives.
+
+**Amazon DynamoDB's last two per-item reads.** BatchGetItem and
+TransactGetItems still took one stripe acquisition per key — the two operations
+whose entire purpose is naming a hundred items at once. Both take one
+acquisition per table now, and the transactional read is thereby the atomic
+instant DynamoDB documents: a writer committing between two of its items used
+to be visible in the result, which is the anomaly the operation exists to
+exclude, and the test proves it by construction rather than by repetition.
+
+**The scheduled specification-freshness run has somewhere to put a refresh.**
+It fails on `main`, which belongs to no branch, and the drifted documents it
+captures expire in a week. `scripts/refresh-drifted-specs.sh` turns that report
+into vendored files through the fetcher that owns each corpus, and the workflow
+opens the bump as its own pull request — but only when no pull request is open,
+because this project allows exactly one at a time. Twelve specifications were
+refreshed with it in this pass, which raised the IAM resource-derivation floor
+to 1,691 of 1,979.
+
+**The Azure CLI suite runs as two shards.** It measured 680 seconds against a
+fourteen-minute step allowance with its inner deadline already at thirteen
+minutes — under two minutes of headroom for a suite that had roughly doubled in
+one pass. Splitting it made two gates learn something: the required-status
+renderer now reads an include-only matrix as the jobs it runs rather than as a
+cross product it cannot form, and the AWS shard-coverage gates now read only
+their own job's regexes, since the Azure shards are written in the same shape.
+Moving `main`'s protection onto the two new contexts is a merge-time step, and
+BUG-41 stays open until it is done.
+
+**A prune that deletes a publish still in flight.** The six imageless commits
+were dispatched, and three of them failed at the manifest step with `not found`
+for a per-arch tag their own job had pushed minutes earlier. Registry retention
+is triggered by the completion of a publish, and the publish that triggers it is
+rarely the only one running; a release is "complete" only once both per-arch
+tags exist, so a publish between its two pushes is indistinguishable from an
+abandoned remnant and was deleted as one. The workflow header claimed the
+separation kept concurrent publishes from pruning against each other, and it
+never did. Age is the only thing in the listing that tells the two apart, so the
+pruner spares anything younger than a two-hour window. Filed as BUG-67 with the
+three commits still to re-publish.
+
+**Two things noticed on the way.** The Cosmos differential test made unbounded
+container-engine calls, so an engine that stopped answering took the whole
+suite's twenty-minute timeout and the panic named the test rather than the
+engine; every engine call it makes is bounded now. And two of the six imageless
+commits were recorded in `DO_NEXT.md` under identifiers that do not exist — the
+eighth hex digit had been invented when padding a seven-character list.
+
 ## 2026-08-19 — A fatal lock mismatch, two request-path scans, and the last races
 
 `main` was red on `aws sdk services-a-m`, and the failure named the wrong

@@ -196,31 +196,26 @@ func cosmosDocKey(account, database, container, doc string) string {
 	return account + "/" + database + "/" + container + "/" + doc
 }
 
+// cosmosDataAccount is the account a data-plane request addressed, read from
+// the host the client dialled.
+//
+// That host is the whole coordinate. Azure Cosmos DB gives each account a
+// hostname of its own — the `documentEndpoint` the control plane advertises —
+// and a client reaches an account by resolving it; there is no other way to
+// name one, which is why the account name must be globally unique and why
+// creating a second account under an existing name is refused.
+//
+// A client that dials the simulator by address rather than by name says so in
+// its `Host` header, exactly as it would against the service through a proxy.
+// A request whose host names no account resolves to none, and the data plane's
+// own authorization refuses it, because there is no account whose keys could
+// have signed it.
 func cosmosDataAccount(r *http.Request) string {
 	host := strings.Split(r.Host, ":")[0]
 	if i := strings.Index(host, ".documents."); i > 0 {
 		return host[:i]
 	}
-	if account := r.Header.Get("x-ms-cosmos-account"); account != "" {
-		return account
-	}
-	// The azcosmos SDK addresses the sim by an IP endpoint, so a data-plane
-	// request carries no account in its host or path. Resolve it deterministically
-	// (the lexicographically-first account) so a request resolves to the SAME
-	// account every time — a resource's `_rid` (`<account>-<db>-<coll>`) is
-	// recomputed per request, and a non-deterministic choice would make the rid
-	// (and anything keyed on it, e.g. throughput offers) differ between writes
-	// and reads once a second account exists.
-	first := ""
-	for _, a := range cosmosAccounts.List() {
-		if first == "" || a.Name < first {
-			first = a.Name
-		}
-	}
-	if first != "" {
-		return first
-	}
-	return "local-cosmos"
+	return ""
 }
 
 func handleCosmosCreateAccount(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +226,31 @@ func handleCosmosCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := cosmosAccountID(sub, rg, name)
+	// An account name is a hostname: the control plane advertises
+	// `<name>.documents.azure.com` as the account's documentEndpoint, and a
+	// client has no other way to address one. The name is therefore global, and
+	// the service publishes an operation whose only purpose is to say so —
+	// `DatabaseAccounts_CheckNameExists`, which this simulator serves, answering
+	// 200 for a name in use and 404 for one that is free.
+	//
+	// Creating a second account under a name that operation reports as taken
+	// would contradict it, and it did: two accounts could exist under one name
+	// in different resource groups, which is a state Azure cannot hold. A PUT
+	// to the same resource identifier is still the update it is defined to be;
+	// only a different identifier claiming a name already in use is refused.
+	//
+	// The refusal is a 409 naming what is unavailable. The vendored swagger
+	// declares no error response for this operation at all — only the 200 — so
+	// the code string here follows the nearest captured Azure refusal of a
+	// globally-unique name, Azure Cache for Redis's `NameNotAvailable`. Serving
+	// the name to a second account is the one thing that is certainly wrong.
+	for _, existing := range cosmosAccounts.List() {
+		if existing.Name == name && existing.ID != id {
+			sim.AzureErrorf(w, "NameNotAvailable", http.StatusConflict,
+				"The account name %s is not available.", name)
+			return
+		}
+	}
 	props := map[string]any{
 		"provisioningState":        "Succeeded",
 		"documentEndpoint":         azureCosmosEndpointURL(r, name),
@@ -1289,12 +1309,12 @@ func cosmosDataColl(account, db, id string) map[string]any {
 
 // cosmosIsDataPlaneRequest reports whether a request is a Cosmos data-plane call.
 // It uses Cosmos-SPECIFIC signals — the master-key Authorization (`type=master`,
-// which the azcosmos SDK URL-encodes), a documentdb header, or the test
-// account-routing header — and deliberately NOT the bare `x-ms-version` header,
-// which storage requests also send. Both the account-discovery root GET and the
+// which the azcosmos SDK URL-encodes), a documentdb header, or a host naming a
+// Cosmos account — and deliberately NOT the bare `x-ms-version` header, which
+// storage requests also send. Both the account-discovery root GET and the
 // path-style storage fallback use this to avoid misrouting Cosmos traffic.
 func cosmosIsDataPlaneRequest(r *http.Request) bool {
-	if r.Header.Get("x-ms-cosmos-account") != "" {
+	if cosmosDataAccount(r) != "" {
 		return true
 	}
 	auth := strings.ToLower(r.Header.Get("Authorization"))

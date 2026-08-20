@@ -130,7 +130,19 @@ func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 		if !reg.authorized(w, r, "") {
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{})
+		// Amazon ECR answers the authorized ping with nothing at all: status
+		// 200, `content-length: 0`, and no `content-type` header. Captured from
+		// `public.ecr.aws/v2/` with a Bearer token from its own token service.
+		//
+		// The three registries this file's copies serve do not agree here, so
+		// this is not shared behaviour: Google Artifact Registry also answers
+		// an empty body but declares `text/html; charset=UTF-8`, and Azure
+		// Container Registry answers the two-byte body `{}` as
+		// `application/json; charset=utf-8`. A `{}` here was Docker
+		// Distribution's answer, which is what the reference implementation
+		// sends and none of these three do.
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if reg.SkipPath != nil && reg.SkipPath(path) {
@@ -201,6 +213,15 @@ func (reg *OCIRegistry) authorized(w http.ResponseWriter, r *http.Request, repo 
 // PutBlob stores a content-addressed blob (used by hydration hooks).
 func (reg *OCIRegistry) PutBlob(repo, digest, contentType string, data []byte) {
 	reg.Blobs.Put(repo+"@"+digest, OCIBlob{Digest: digest, ContentType: contentType, Data: data})
+}
+
+// PutManifest stores a manifest as a push of it would, under its reference and
+// under its digest, and runs the control-plane hook so the registry's own
+// records see it. A hydration hook uses this to serve content it fetched from
+// somewhere else — an image cached through a pull-through cache rule is in the
+// repository exactly as a pushed one is.
+func (reg *OCIRegistry) PutManifest(repo, ref, contentType string, data []byte) {
+	reg.putManifestRaw(repo, ref, contentType, data)
 }
 
 func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request, repo, uploadID string) {

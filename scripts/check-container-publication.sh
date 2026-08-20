@@ -154,7 +154,7 @@ jq -n '[
 	{id: 999, created_at: "2026-08-03T00:00:00Z", metadata: {container: {tags: []}}}
 ]' >"$fixture"
 
-selected="$(jq -r --argjson keep 20 -f "$root/scripts/select-obsolete-container-versions.jq" "$fixture" | sort -n | paste -sd, -)"
+selected="$(jq -r --argjson keep 20 --argjson grace 0 -f "$root/scripts/select-obsolete-container-versions.jq" "$fixture" | sort -n | paste -sd, -)"
 if [[ "$selected" != '0,1,2,10,11,12,997,998,999' ]]; then
 	echo "retention selector chose unexpected package versions: $selected" >&2
 	exit 1
@@ -171,15 +171,44 @@ jq -n '[
 	{id: 3, created_at: "2026-08-02T00:00:00Z", metadata: {container: {tags: ["feedfacefeed-arm64", "deadbeefdead-arm64"]}}}
 ]' >"$shared_fixture"
 
-selected="$(jq -r --argjson keep 2 -f "$root/scripts/select-obsolete-container-versions.jq" "$shared_fixture" | sort -n | paste -sd, -)"
+selected="$(jq -r --argjson keep 2 --argjson grace 0 -f "$root/scripts/select-obsolete-container-versions.jq" "$shared_fixture" | sort -n | paste -sd, -)"
 if [[ "$selected" != '1,2,3' ]]; then
 	echo "retention selector split a shared release component at its limit: $selected" >&2
 	exit 1
 fi
 
-selected="$(jq -r --argjson keep 3 -f "$root/scripts/select-obsolete-container-versions.jq" "$shared_fixture" | sort -n | paste -sd, -)"
+selected="$(jq -r --argjson keep 3 --argjson grace 0 -f "$root/scripts/select-obsolete-container-versions.jq" "$shared_fixture" | sort -n | paste -sd, -)"
 if [[ -n "$selected" ]]; then
 	echo "retention selector did not preserve a complete shared release component: $selected" >&2
+	exit 1
+fi
+
+# A publish in flight must survive a prune another publish triggered.
+#
+# A release is only "complete" once both per-arch tags exist, so a publish that
+# has pushed one of them looks exactly like an obsolete remnant — and this prune
+# runs on the completion of *another* publish, while siblings are mid-flight. It
+# deleted them: six publishes dispatched together left three failing at the
+# manifest step with `not found` for a tag they had pushed minutes earlier. Age
+# is the only thing in the listing that tells a half-pushed release from an
+# abandoned one.
+inflight_fixture="$(mktemp)"
+trap 'rm -f "$fixture" "$shared_fixture" "$inflight_fixture"' EXIT
+jq -n '[
+	{id: 1, created_at: (now - 60 | todateiso8601), metadata: {container: {tags: ["abcabcabcabc-amd64"]}}},
+	{id: 2, created_at: (now - 60 | todateiso8601), metadata: {container: {tags: []}}},
+	{id: 3, created_at: (now - 864000 | todateiso8601), metadata: {container: {tags: ["dddddddddddd-amd64"]}}}
+]' >"$inflight_fixture"
+
+selected="$(jq -r --argjson keep 20 --argjson grace 7200 -f "$root/scripts/select-obsolete-container-versions.jq" "$inflight_fixture" | sort -n | paste -sd, -)"
+if [[ "$selected" != '3' ]]; then
+	echo "retention selector must spare a publish in flight and still collect an old remnant, chose: $selected" >&2
+	exit 1
+fi
+
+selected="$(jq -r --argjson keep 20 --argjson grace 0 -f "$root/scripts/select-obsolete-container-versions.jq" "$inflight_fixture" | sort -n | paste -sd, -)"
+if [[ "$selected" != '1,2,3' ]]; then
+	echo "retention selector with no grace window must collect all three remnants, chose: $selected" >&2
 	exit 1
 fi
 

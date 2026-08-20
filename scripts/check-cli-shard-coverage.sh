@@ -21,7 +21,11 @@ test_file=$(mktemp)
 trap 'rm -f "$regex_file" "$test_file"' EXIT
 
 # Every `run: '^Test(...)'` shard regex declared in the workflow.
-grep -oE "run: '\^Test\([^']*\)'" "$ci" | sed -E "s/^run: '//; s/'\$//" > "$regex_file"
+# Only this job's shards. Another job's matrix may declare regexes in the
+# same shape — the Azure CLI suite does — and reading those as this suite's
+# would make every test here match several shards at once.
+job_block=$(awk '/^  sim-aws-cli:$/{inside=1; next} /^  [a-z][a-z0-9-]*:$/{inside=0} inside' "$ci")
+grep -oE "run: '\^Test\([^']*\)'" <<<"$job_block" | sed -E "s/^run: '//; s/'\$//" > "$regex_file"
 if [ ! -s "$regex_file" ]; then
   echo "FAIL: no AWS CLI shard regexes (run: '^Test(...)') found in $ci" >&2
   exit 1

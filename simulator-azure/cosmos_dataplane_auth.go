@@ -274,17 +274,22 @@ func cosmosIsReadOperation(r *http.Request) bool {
 // it.
 func cosmosDataAccountID(r *http.Request) (string, bool) {
 	name := cosmosDataAccount(r)
-	// An account name is a hostname in Azure and therefore unique, so at most
-	// one record answers for it. The lowest identifier is taken when several
-	// do, so a request resolves to the same account — and therefore the same
-	// keys — every time.
-	resolved := ""
+	if name == "" {
+		// The host named no account, so no account's keys could have signed
+		// this request and the caller is refused. Against the service a request
+		// like this does not exist: the account name is the hostname, so there
+		// is nothing to resolve and nothing to dial.
+		return "", false
+	}
+	// An account name is a hostname in Azure and therefore unique, and creation
+	// refuses a name another account already holds, so exactly one record can
+	// answer for it.
 	for _, account := range cosmosAccounts.List() {
-		if account.Name == name && (resolved == "" || account.ID < resolved) {
-			resolved = account.ID
+		if account.Name == name {
+			return account.ID, true
 		}
 	}
-	return resolved, resolved != ""
+	return "", false
 }
 
 // cosmosSignatureMismatchMessage is the message the service returns when a

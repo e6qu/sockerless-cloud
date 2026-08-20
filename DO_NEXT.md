@@ -1,60 +1,59 @@
 # DO NEXT
 
-1. Fifty-eight full store reads remain on request paths, held by the floor in
-   `scripts/check-store-scans.sh`. Every unguarded one is converted: the
-   handler wrappers that decide whether to claim a request no longer scan. What
-   is left is reached only after a wrapper has claimed a request or matched a
-   resource — AWS WAF evaluation once a web ACL is associated, Amplify's job
-   and artifact reads once a host has resolved to an app — so none is paid by a
-   request the feature has nothing to do with. They are still worth converting,
-   and `GenerationIndex` in each cloud's `shared/index.go` is the tool; lower
-   the floor with each batch.
-2. Six commits on `main` carry no container image — `36a81145`, `b52cc80e`,
-   `c06550c5`, `b9d651f1`, `b01a8e29`, `418e0c84` — because a merge cancelled
-   each publish before the per-commit concurrency key fixed that. The publish
-   workflow now takes a `commit` input, so each can be built by dispatching it
-   by SHA; running those six dispatches pushes images to GHCR and is a
-   deliberate act, not something CI should do on its own.
-3. App Service is at 616 of 692. The recorded deferrals are done: backup and
+1. Move `main`'s branch protection onto the Azure CLI shards, in the same
+   breath as this merge. The suite now runs as `sim (azure cli A-M)` and
+   `sim (azure cli N-Z)`; the protection still requires `sim (azure cli)`, which
+   nothing emits any more. Until both sides agree, one of them stalls:
+
+       gh api -X PATCH repos/e6qu/sockerless-cloud/branches/main/protection/required_status_checks \
+         -f 'contexts[]=sim (azure cli A-M)' -f 'contexts[]=sim (azure cli N-Z)' ...
+
+   The manifest `.github/required-status-checks.txt` already names them, and
+   `scripts/check-required-status-checks.sh --verify-branch-protection` confirms
+   the two agree afterwards. BUG-41 stays open until it is done.
+
+2. Re-dispatch the three publishes a concurrent prune killed (BUG-67), once the
+   grace window is on `main`: `b9d651fb5a1c`, `b01a8e29385e` and `418e0c8482f2`
+   still carry no image. `gh workflow run publish-container-images.yml --ref
+   main -f commit=<full sha>`, one at a time rather than six at once.
+
+3. Fifty-eight full store reads remain on request paths, held by the floor in
+   `scripts/check-store-scans.sh`. Every unguarded one is converted: the handler
+   wrappers that decide whether to claim a request no longer scan. What is left
+   is reached only after a wrapper has claimed a request or matched a resource,
+   and it is two different things wearing one number — a lookup that walks a
+   store to find one row (`findResourceGroupByID`, `sbAdminNamespaceID`,
+   `fileShareResourceIDForAccount`, the Amplify and AWS WAF evaluation paths),
+   which `GenerationIndex` answers, and a List operation whose response *is* the
+   collection (`handleSBAdminListQueues`, `handleKVListKeys`), which no index
+   makes cheaper. Separate the two in the analyzer before converting, so the
+   floor measures the class that can reach zero.
+
+4. BUG-44: the Blob data plane implements no shared-access-signature
+   authorization, so `webParseBackupStorageURL` can only check that the
+   mandatory parameters are present. Implement the documented signature
+   verification in the Blob plane, then let the backup path rely on it.
+
+5. BUG-27: real Azure creates the subnets supplied in the `subnets` member of a
+   virtual network PUT — what `az network vnet create --subnet-name` sends —
+   and the simulator drops them, so a later read 404s. Persisting them must also
+   realise the network-namespace fabric, so it lands with a Linux CI test.
+
+6. BUG-43: `terraform-provider-azurerm v5.1.0` crashed with no captured stack
+   applying an `azurerm_linux_function_app` carrying a `backup` block against
+   the simulator. Capture the crash log, establish whether the simulator returns
+   something the provider cannot parse, and add the reverted Terraform leg back.
+
+7. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read
    from the live workload container, App Service Environments and Kube
    Environments are served, and detectors compute from real container and site
    state. Five operations stay unserved and answer a 501 naming the reason —
    four metric-definition operations with no series behind them, and the
-   outbound network-dependency catalog, which is Microsoft-published data.
-   What remains in that swagger is the long tail below 692, not a deferral.
-4. Issue #34's third item is a decision, not an omission: it proposes that the
-   scheduled specification-freshness run open its own bump pull request, and
-   this project allows exactly one open pull request at a time, so that would
-   contradict `scripts/check-single-open-pr.sh` on any day a branch is in
-   flight. Inherited drift is now reported as a warning annotation on the open
-   pull request instead, which is where the refresh has to land anyway. If a
-   bump PR is still wanted, the one-PR rule has to give first.
-5. BUG-43: the azurerm provider crashed applying an App Service backup block
-   against the simulator, after three real defects on that path were fixed. The
-   Terraform leg was reverted rather than left failing; capture the provider's
-   crash log and restore the stack once it applies.
-6. BUG-38: the shared registry-trust helper no longer silently no-ops, which
-   exposes two latent defects elsewhere — the Google Cloud build push test
-   still takes the insecure path and now fails loudly, and the AWS and Google
-   harness makefiles lack the shared engine-host temporary directory whose
-   absence made Azure workloads mount empty directories.
-7. BUG-20 and BUG-36: the container reaper leaves workload containers running
-   for hours after a run ends, and each cloud's suites still build their
-   simulator to one shared path where a build can overwrite a binary another
-   suite is executing. Both are the same family as the harness collisions
-   already fixed.
-8. BUG-39 and BUG-40: retire the sockerless-invented Cosmos routing header now
-   that the account's advertised endpoint works, and refuse two accounts
-   sharing a name the way the service does.
-9. BUG-22, BUG-27, BUG-35 and BUG-37: Artifact Registry accepts chunked
-   uploads the real service refuses and issues a token for any scope it is
-   asked for, a virtual network drops subnets declared inline on it, and an
-   Amazon ECR pull through a cache rule is never hydrated.
-10. BUG-32's consumer note: the sockerless AWS backend warns and continues when
-   repository creation fails, which now surfaces as a loud push failure rather
-   than a silent success — correct, and matching the real service.
-11. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+   outbound network-dependency catalog, which is Microsoft-published data. What
+   remains in that swagger is the long tail below 692, not a deferral.
+
+8. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 
@@ -72,6 +71,14 @@
   in the sockerless repository alongside the next pin bump, not here.
 
 ## Tooling quirks that are not simulator defects
+
+- The two container engines take different blob-upload paths, so a registry
+  upload change cannot be judged on a local run. Docker's `docker push` opens
+  the session with POST, sends the whole blob in a single `PATCH` and finalizes
+  with `PUT`; this host's Podman sends the blob on the `PUT` and never issues
+  the `PATCH` at all. A refusal added to the `PATCH` therefore passed every
+  local suite and broke `TestArtifactRegistryCLI_DockerLoginPushPull` on CI.
+  Judge `/v2/` upload behaviour on the CI engine.
 
 - This host's Podman container store can acquire a dangling entry that makes
   every `ContainerList(All: true)` fail with `container not known`, which is

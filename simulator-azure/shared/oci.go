@@ -140,7 +140,21 @@ func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 		if !reg.authorized(w, r, "") {
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{})
+		// Azure Container Registry answers the authorized ping with the
+		// two-byte body `{}` — no trailing newline — as
+		// `application/json; charset=utf-8`, `content-length: 2`. Captured from
+		// `k8sprow.azurecr.io/v2/` and `upstream.azurecr.io/v2/` with anonymous
+		// tokens from their own `/oauth2/token`, and `mcr.microsoft.com/v2/`
+		// answers identically.
+		//
+		// The three registries this file's copies serve do not agree here, so
+		// this is not shared behaviour: Amazon ECR and Google Artifact Registry
+		// both answer an empty body. Encoding it as JSON would send three bytes
+		// and declare no charset, so it is written literally.
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Length", "2")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
 		return
 	}
 	if reg.SkipPath != nil && reg.SkipPath(path) {

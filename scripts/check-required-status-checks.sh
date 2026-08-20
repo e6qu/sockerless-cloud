@@ -118,24 +118,96 @@ def matrix_values(block, var):
     return vals
 
 
+def include_combos(block):
+    """Yield one dict per `include:` entry, which GitHub runs as its own job.
+
+    A matrix written entirely as includes cannot be read as a cross product:
+    the combinations are exactly the entries, and a variable set on one entry
+    says nothing about another. That is how a suite is split — two entries
+    sharing a cloud and a suite, differing only in their shard — and reading it
+    as a product would both invent jobs and, when a name refers to a variable
+    only some entries carry, render nothing at all."""
+    combos = []
+    in_matrix = False
+    matrix_indent = -1
+    in_include = False
+    include_indent = -1
+    current = None
+    for line in block:
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if stripped.startswith('#'):
+            continue
+        if re.match(r'^matrix:\s*$', stripped):
+            in_matrix, matrix_indent = True, indent
+            continue
+        if not in_matrix:
+            continue
+        if indent <= matrix_indent:
+            break
+        if re.match(r'^include:\s*$', stripped):
+            in_include, include_indent = True, indent
+            continue
+        if not in_include:
+            continue
+        if indent <= include_indent:
+            in_include = False
+            continue
+        m = re.match(r'^-\s*(\w+):\s*(.*)$', stripped)
+        if m:
+            if current is not None:
+                combos.append(current)
+            current = {m.group(1): strip_val(m.group(2))}
+            continue
+        m = re.match(r'^(\w+):\s*(.*)$', stripped)
+        if m and current is not None:
+            current[m.group(1)] = strip_val(m.group(2))
+    if current is not None:
+        combos.append(current)
+    return combos
+
+
+# A name that appends a variable only some combinations carry, written the one
+# way GitHub Actions expresses it:
+#   ${{ matrix.shard && format(' {0}', matrix.shard) || '' }}
+conditional_var = re.compile(
+    r"\$\{\{\s*matrix\.(\w+)\s*&&\s*format\(\s*'([^']*)'\s*,\s*matrix\.\1\s*\)\s*\|\|\s*''\s*\}\}")
+
+
+def substitute(template, combo):
+    def conditional(m):
+        var, shape = m.group(1), m.group(2)
+        value = combo.get(var, '')
+        return shape.replace('{0}', value) if value else ''
+
+    rendered = conditional_var.sub(conditional, template)
+    for var, val in combo.items():
+        rendered = re.sub(r'\$\{\{\s*matrix\.' + re.escape(var) + r'\s*\}\}', val, rendered)
+    return rendered
+
+
 def render(template, block):
-    vars_used = name_var.findall(template)
+    vars_used = set(name_var.findall(template)) | set(m[0] for m in conditional_var.findall(template))
     if not vars_used:
         return [template]
+    combos = include_combos(block)
+    if combos:
+        # Entries that name every variable the template refers to are the jobs
+        # this matrix runs.
+        rendered = [substitute(template, c) for c in combos
+                    if all(v in c or conditional_var.search(template) for v in vars_used)]
+        if rendered:
+            return rendered
     # Build the cartesian product over the referenced matrix variables.
-    combos = [{}]
+    product = [{}]
     for var in vars_used:
         values = matrix_values(block, var)
         if not values:
             return []  # a referenced matrix variable with no values emits nothing
-        combos = [dict(c, **{var: v}) for c in combos for v in values]
-    names = []
-    for c in combos:
-        n = template
-        for var, val in c.items():
-            n = re.sub(r'\$\{\{\s*matrix\.' + re.escape(var) + r'\s*\}\}', val, n)
-        names.append(n)
-    return names
+        product = [dict(c, **{var: v}) for c in product for v in values]
+    return [substitute(template, c) for c in product]
 
 
 emittable = set()

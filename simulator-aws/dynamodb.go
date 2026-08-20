@@ -2138,7 +2138,14 @@ func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	responses := map[string][]map[string]any{}
+	// Every key the request names is resolved before anything is read, so the
+	// whole batch is served by one acquisition per table rather than one per
+	// key. A batch is a hundred keys at its published maximum, and taking the
+	// stripe for each of them made a batch contend with every other DynamoDB
+	// reader a hundred times over — the shape ddbSnapshotBatch describes for
+	// Scan, on the operation whose entire purpose is amortising a round trip.
+	wanted := map[string][]string{}
+	var allKeys []string
 	for tableName, spec := range req.RequestItems {
 		t, ok := ddbTables.Get(tableName)
 		if !ok {
@@ -2146,9 +2153,19 @@ func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
 				"Requested resource not found: Table: %s not found", tableName)
 			return
 		}
-		items := []map[string]any{}
+		keys := make([]string, 0, len(spec.Keys))
 		for _, key := range spec.Keys {
-			if it, ok := ddbItemSnapshot(ddbItemKey(t, key)); ok {
+			keys = append(keys, ddbItemKey(t, key))
+		}
+		wanted[tableName] = keys
+		allKeys = append(allKeys, keys...)
+	}
+	found := ddbItemSnapshots(allKeys)
+	responses := map[string][]map[string]any{}
+	for tableName, keys := range wanted {
+		items := []map[string]any{}
+		for _, itemKey := range keys {
+			if it, ok := found[itemKey]; ok {
 				items = append(items, it)
 			}
 		}
@@ -2363,10 +2380,17 @@ func handleDDBTransactGetItems(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	responses := make([]map[string]any, 0, len(req.TransactItems))
-	for _, ti := range req.TransactItems {
+	// A transactional read is serializable: DynamoDB documents TransactGetItems
+	// as a single atomic operation, so every item in it must come from one
+	// instant of the store. Reading them one stripe acquisition at a time gave
+	// each item its own instant, and a writer committing between two of them
+	// was visible in the result — the anomaly the operation exists to exclude.
+	// Every key is therefore resolved first and the whole set read under one
+	// acquisition, which is also what makes it cost one lock rather than one
+	// per item.
+	itemKeys := make([]string, len(req.TransactItems))
+	for i, ti := range req.TransactItems {
 		if ti.Get == nil {
-			responses = append(responses, map[string]any{})
 			continue
 		}
 		t, ok := ddbTables.Get(ti.Get.TableName)
@@ -2375,7 +2399,16 @@ func handleDDBTransactGetItems(w http.ResponseWriter, r *http.Request) {
 				"Requested resource not found: Table: %s not found", ti.Get.TableName)
 			return
 		}
-		if it, ok := ddbItemSnapshot(ddbItemKey(t, ti.Get.Key)); ok {
+		itemKeys[i] = ddbItemKey(t, ti.Get.Key)
+	}
+	found := ddbItemSnapshots(itemKeys)
+	responses := make([]map[string]any, 0, len(req.TransactItems))
+	for i, ti := range req.TransactItems {
+		if ti.Get == nil {
+			responses = append(responses, map[string]any{})
+			continue
+		}
+		if it, ok := found[itemKeys[i]]; ok {
 			responses = append(responses, map[string]any{"Item": it})
 		} else {
 			responses = append(responses, map[string]any{})

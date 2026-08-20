@@ -29,15 +29,36 @@ Current state of the sockerless-cloud repository.
   `Branch rebased on origin/main` jobs, and the nightly fuzz workflow (aws in
   three shards; `run-fuzz.sh` requalifies Go's fuzztime-boundary shutdown
   race and nothing else).
-- **Branch protection**: `main` requires the 40 contexts mirrored in
-  `.github/required-status-checks.txt` (strict, linear history);
+- **Branch protection**: `main` requires the contexts mirrored in
+  `.github/required-status-checks.txt` (strict, linear history). The manifest
+  names `sim (azure cli A-M)` and `sim (azure cli N-Z)` since the Azure CLI
+  suite was split; the live setting still names the unsharded context it
+  replaced, and moving it is a merge-time step (BUG-41, DO_NEXT item 1).
   `scripts/check-required-status-checks.sh` gates the manifest against the
   workflows in pre-commit and build-gates, and
   `--verify-branch-protection` matches the live settings.
+- **Registries answer their own service**: the `/v2/` base endpoint sends what
+  each registry sends — nothing at all from Amazon ECR, an empty `text/html`
+  body from Google Artifact Registry, the two bytes `{}` from Azure Container
+  Registry — captured from each with a token from its own token service. Amazon
+  ECR hydrates a pull through a cache rule from the rule's upstream registry,
+  creating the repository as the service does. Artifact Registry refuses the
+  chunked upload Google documents it does not support, and refuses at the mint a
+  repository scope an uncredentialled caller cannot reach.
+- **Workload collection**: a run's containers are collectable from their labels
+  alone. The detached reaper collects its own run, and the next simulator over
+  the same state directory collects what a killed one left — the state directory
+  is the identity that cannot be shared, so a concurrent suite's workloads are
+  never touched.
+- **Azure Cosmos DB coordinates**: an account name is a hostname, so it is
+  global — a second account under a name another holds is refused — and the data
+  plane reads the account out of the host the client dialled and nothing else.
+  The sockerless-invented `x-ms-cosmos-account` header and the
+  lexicographically-first-account fallback behind it are both gone.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
-- **Measured floors**: IAM resource derivation 1,687 of 1,974 served
+- **Measured floors**: IAM resource derivation 1,691 of 1,979 served
   operations — the floor fell from 1,784 when the ratchet stopped crediting
   101 operations that belonged to the coverage table while being absent from
   the probe's own switch, and the condition-key ratchet likewise stopped

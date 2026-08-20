@@ -59,7 +59,14 @@ func TestMain(m *testing.M) {
 	}
 	caddyBin = requireExecutable(caddyBin, "Azure Terraform HTTPS gateway tests")
 
-	binaryPath, _ = filepath.Abs("../simulator-azure")
+	// Each suite builds the simulator it runs into a path of its own. The
+	// three suites share one working tree, so a single `../simulator-azure`
+	// would have one suite's `go build -o` overwrite the binary another is
+	// executing the moment they run at the same time.
+	binaryPath, _ = filepath.Abs("../.build/terraform-tests/simulator-azure")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		log.Fatalf("Failed to create simulator build dir: %v", err)
+	}
 
 	simDir, _ := filepath.Abs("..")
 	build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")

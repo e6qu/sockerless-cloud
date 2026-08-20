@@ -180,6 +180,43 @@ func cosmosDocumentEndpoint(t *testing.T, account string) string {
 	return cosmosDocumentEndpointAt(t, baseURL, account)
 }
 
+// cosmosDataPlaneHost is the host of the account's advertised documentEndpoint:
+// the coordinate a client resolves to reach that account, and the only thing
+// that tells the data plane which account a request is for. A raw-HTTP request
+// dials the simulator's address and carries this as its `Host`, which is what a
+// client reaching the service through a proxy sends.
+func cosmosDataPlaneHost(t *testing.T, account string) string {
+	t.Helper()
+	return cosmosHostOf(t, cosmosDocumentEndpoint(t, account))
+}
+
+// cosmosDataPlaneHostIn is cosmosDataPlaneHost for an account created outside
+// the default resource group. It reads the account rather than provisioning
+// one, because provisioning the same name elsewhere is refused: an account name
+// is a hostname, so it is global.
+func cosmosDataPlaneHostIn(t *testing.T, subscription, resourceGroup, account string) string {
+	t.Helper()
+	status, body := cosmosARM(t, baseURL, http.MethodGet,
+		cosmosAccountPathIn(subscription, resourceGroup, account), "")
+	require.Equal(t, http.StatusOK, status, "read Cosmos DB account: %s", body)
+	var read struct {
+		Properties struct {
+			DocumentEndpoint string `json:"documentEndpoint"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(body, &read))
+	require.NotEmpty(t, read.Properties.DocumentEndpoint, "account advertises no documentEndpoint: %s", body)
+	return cosmosHostOf(t, read.Properties.DocumentEndpoint)
+}
+
+func cosmosHostOf(t *testing.T, endpoint string) string {
+	t.Helper()
+	parsed, err := url.Parse(endpoint)
+	require.NoError(t, err, "parse documentEndpoint %q", endpoint)
+	require.NotEmpty(t, parsed.Host, "documentEndpoint %q carries no host", endpoint)
+	return parsed.Host
+}
+
 func cosmosDocumentEndpointAt(t *testing.T, base, account string) string {
 	t.Helper()
 	cosmosAccountKeysAt(t, base, account)
@@ -305,7 +342,7 @@ func TestCosmos_DataPlaneAuthorization(t *testing.T) {
 	// document.
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/dbs/authdb", nil)
 	require.NoError(t, err)
-	request.Header.Set("x-ms-cosmos-account", account)
+	request.Host = cosmosDataPlaneHost(t, account)
 	request.Header.Set("x-ms-version", "2018-12-31")
 	resp, err := http.DefaultClient.Do(request)
 	require.NoError(t, err)

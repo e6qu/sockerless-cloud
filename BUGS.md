@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 19. Resolved: 57.
+Open: 11. Resolved: 66.
 
 ## Open
 
@@ -14,6 +14,24 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. |
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
+
+- **BUG-67 (a prune deletes a publish that is still in flight):** Registry
+  retention is triggered by the completion of a publish, and the publish that
+  triggers it is rarely the only one running. A release is "complete" to
+  `select-obsolete-container-versions.jq` only once both per-arch tags exist, so
+  a publish between its two pushes is indistinguishable from an abandoned
+  remnant — and was deleted as one. Measured: six publishes dispatched together
+  to fill in the commits that had no image, of which three failed at the
+  manifest step with `ERROR: ghcr.io/e6qu/sockerless-simulator-aws:<sha>-amd64:
+  not found` for a tag their own per-arch job had pushed minutes earlier, while
+  prune runs fired at 21:37, 21:39, 21:41 and 21:43. The workflow header claimed
+  the separation kept concurrent publishes from pruning against each other; it
+  never did. Nothing in the listing distinguishes half-pushed from abandoned, so
+  age does: the pruner spares any version younger than `PRUNE_GRACE_SECONDS`
+  (two hours), and the next prune collects it once it is old enough to judge.
+  `scripts/check-container-publication.sh` holds both directions on a fixture.
+  Three of the six commits still carry no image and need re-dispatching once
+  this is on `main`.
 
 - **BUG-56 (action downloads failed during a GitHub incident, and the fan-out
   is the standing risk):** Filed as "the job fan-out throttles GitHub's own
@@ -34,44 +52,6 @@ the simulators from the sockerless monorepo, keeping their IDs
   `max-parallel`, which trades wall clock on every run against a burst that has
   not been shown to be the problem.
 
-- **BUG-20 (the container reaper leaves workload containers running for
-  days):** Simulator workload containers outlive the simulator that created
-  them. Observed on the development host as 22 `sockerless-sim-azure-func`
-  containers, five of them still *running* between 2 and 25 hours after the
-  runs that created them ended, alongside exited workloads up to 47 hours old
-  — 41 containers in total. The containers are not mislabelled: a leaked
-  sidecar carries `sockerless-sim-provider=azure` and
-  `sockerless-sim-run=<id>`, which is exactly the filter pair
-  `shared/container_reaper.go` lists on, so the reaper would match them if it
-  ran. The reaper is a detached child that watches its parent's process
-  identifier, so the suspected cause is that a harness killing the simulator's
-  process group takes the reaper with it, leaving nothing to collect the run —
-  that needs confirming rather than assuming, and the same reaper ships in all
-  three simulators, so a leak here is a leak everywhere. This is not cosmetic:
-  long-lived leaked containers consume the host continuously and are a
-  plausible contributor to the load-sensitive test failures chased repeatedly
-  across recent passes, and they accumulate into the container-store state that
-  makes `ContainerList(All: true)` fail with `container not known`. Fix shape:
-  make reaping survive the simulator's death by any signal — a run's
-  containers must be collectable from their labels alone by a subsequent run
-  or a startup sweep — and prove it by killing a simulator with SIGKILL and
-  asserting the run's containers are gone.
-
-- **BUG-22 (the Artifact Registry data plane accepts chunked uploads the real
-  service refuses):** Google documents that monolithic uploads are required
-  when pushing container images to Artifact Registry, and the real service
-  rejects a chunked `PATCH` sequence. The simulator accepts chunking, and
-  `TestArtifactRegistry_OCIChunkedPush` asserts that acceptance, so the test
-  pins behaviour the service does not have. Fixing it needs coordination
-  rather than a straight refusal: the sockerless push path may rely on the
-  laxity, so the consumer has to be checked in the same change.
-
-- **BUG-24 (the `/v2/` base endpoint returns a body the registries do not
-  send):** The shared OCI registry answers `GET /v2/` with `{}`, while the real
-  registries answer with an empty body and `content-length: 0`. Cosmetic, but
-  it is shared by all three clouds' copies of `oci.go`, so it should be fixed
-  once across them rather than in one cloud.
-
 - **BUG-27 (a virtual network ignores the subnets declared inline on it):**
   Real Azure creates subnets supplied in the `subnets` member of a virtual
   network PUT — it is what `az network vnet create --subnet-name` sends — while
@@ -80,73 +60,18 @@ the simulators from the sockerless monorepo, keeping their IDs
   the network-namespace fabric, which cannot run on a non-Linux host, so this
   lands with a Linux CI test pass rather than as a store-only change.
 
-- **BUG-35 (an Amazon ECR pull through a cache rule is not hydrated):** The ECR
-  registry has never implemented pull-through cache hydration, and closing
-  BUG-32 made that visible: a pull for a repository covered by a pull-through
-  cache rule now answers `NAME_UNKNOWN` where it previously answered
-  `MANIFEST_UNKNOWN`. Real Amazon ECR creates the repository from the
-  pull-through-cache template and fetches the image from the upstream registry.
-  No behaviour was lost — one 404 replaced another — but the gap is real. Fix
-  shape: hydrate on a miss for a repository matching a pull-through cache rule,
-  fetching from the rule's upstream registry, which is the same hydration hook
-  the registry already exposes and leaves unset for this cloud.
-
-- **BUG-36 (each cloud's test suites build the simulator to one shared path):**
-  The AWS and Azure sdk, cli and terraform suites all build their simulator
-  binary to `../simulator-<cloud>`, so one suite's `go build -o` can overwrite a
-  binary another suite is currently executing. The Google suites had the same
-  collision and now build to per-suite paths. It is the same class as BUG-29's
-  shared image tags and produces the same kind of failure — an `exec format
-  error` or a vanished binary in a suite that built its own.
-
-- **BUG-37 (the Artifact Registry token service never refuses a scope):** The
-  simulator's token service issues a token for any scope requested, and says so
-  in a comment. The live service does not: an unauthenticated request for a
-  scope naming a repository it cannot reach is refused with `DENIED` and a
-  message naming the IAM permission and resource. Captured from the real
-  service while fixing BUG-23. Fix shape: evaluate the requested scope when
-  minting, refusing what the service refuses, without making the simulator
-  stricter than it — note the separate finding that Artifact Registry
-  re-evaluates access per request rather than trusting the token's scope.
-
-- **BUG-38 (the shared registry-trust helper leaves other clouds' harnesses
-  unconfigured):** `testutil/registrytrust` no longer silently no-ops, which
-  makes two latent defects visible elsewhere. The Google Cloud build push test
-  still uses the insecure-HTTP path and will now fail loudly rather than
-  quietly doing nothing — it was already failing at the push. The AWS and
-  Google harness makefiles also lack the shared engine-host temporary
-  directory, so any bind-mounted workload there mounts a directory the engine
-  created on its own host rather than the one the simulator wrote, which is the
-  cause BUG-34 found for two Azure tests.
-
-- **BUG-39 (`x-ms-cosmos-account` is a header the cloud does not have):** The
-  Cosmos data plane honours a sockerless-invented routing header to
-  disambiguate accounts. That is the synthetic disambiguation the project
-  forbids, and it is now removable: the faithful coordinate — the account's
-  advertised `documentEndpoint` host — works, so the header can be retired
-  along with whatever still sends it.
-
-- **BUG-40 (two Cosmos DB accounts may share a name):** The create path allows
-  the same account name in two resource groups, which real Azure cannot have,
-  the name being a hostname. Data-plane resolution was made deterministic
-  rather than order-dependent as a stopgap, but the duplicate should be refused
-  at creation the way the service refuses it.
-
-- **BUG-41 (the Azure CLI suite is one job approaching the fifteen-minute
-  ceiling):** The suite runs unsharded and measured 680 seconds across 171
-  tests on a CI runner, against a job ceiling of fifteen minutes and a step
-  allowance of fourteen. Its inner deadline was raised to thirteen minutes,
-  which is the most it can be before a breach stops producing a named Go stack
-  and becomes an opaque step kill — so the remaining headroom is under two
-  minutes for a suite that roughly doubled in a single pass. The AWS CLI suite
-  solved the same problem by sharding into eleven jobs, and the Azure suite's
-  names partition cleanly (all 171 match `Test[A-Z]`, 99 in A-M and 72 in N-Z),
-  so the split itself is straightforward. What makes it more than a workflow
-  edit is that sharding renames the `sim (azure cli)` status context, and that
-  name is in the repository's required-status list — the rename has to land
-  together with a branch-protection change, which is a repository-settings
-  action rather than a code one.
-
+- **BUG-41 (the Azure CLI suite's required status contexts have not moved
+  yet):** The suite ran unsharded at 680 seconds against a fourteen-minute step
+  allowance, with under two minutes of headroom. It is split: `sim (azure cli
+  A-M)` and `sim (azure cli N-Z)`, held to exactly one shard per test by
+  `scripts/check-azure-cli-shard-coverage.sh`, and `.github/required-status-checks.txt`
+  names the two new contexts. What remains is a repository setting, and it
+  cannot be done before the merge: main's protection still requires `sim (azure
+  cli)`, which this branch never emits, while the two new contexts are emitted
+  only by a workflow that is not on main yet. Move them in the same breath as
+  the merge — the command is in [DO_NEXT.md](DO_NEXT.md) — and
+  `scripts/check-required-status-checks.sh --verify-branch-protection` then
+  confirms the manifest and the setting agree.
 - **BUG-42 (the macOS Terraform harness skips the whole shared azurerm stack):**
   The harness drops to the host user through `setpriv`, stripping
   `CAP_NET_ADMIN` and `CAP_SYS_ADMIN`, so `TestTerraformApplyDestroy` skips on
@@ -179,6 +104,98 @@ the simulators from the sockerless monorepo, keeping their IDs
 
 
 ## Resolved history
+
+- **BUG-20 (a killed run's workload containers were collectable by nobody):**
+  The reaper is a detached child that waits for the simulator and then collects
+  that run, and it dies with the harness container it lives in — so a run killed
+  that way left its workloads running. Twenty-two were found on one development
+  host, five still running between two and twenty-five hours after the runs that
+  made them had ended, which consumes the host continuously and accumulates into
+  the engine state that makes `ContainerList(All: true)` fail outright. The next
+  simulator over the same state directory now sweeps what the last one left. The
+  state directory is the identity that cannot be shared, so the sweep never
+  touches a concurrent suite's workloads — CI runs three suites of one cloud at
+  once — and Google Cloud and Microsoft Azure gained the state identity Amazon
+  Web Services already had. `TestStartupSweepCollectsAKilledRunsWorkloads`
+  SIGKILLs a run that has no reaper behind it and requires the next run to
+  collect its container and network while a workload under a different state
+  directory survives.
+
+- **BUG-22 (the Artifact Registry data plane accepted chunked uploads):**
+  Google is explicit — "Artifact Registry doesn't support Docker chunked
+  uploads. … You must use monolithic uploads when you push container images to
+  Artifact Registry" — and the registry accepted a chunked `PATCH` anyway, with
+  a test pinning that acceptance. The chunk is refused with the Docker Registry
+  HTTP API v2 code for an operation a registry does not implement; Google
+  documents the limitation but not the response, so the code and status are the
+  specification's rather than a capture. The consumer was checked in the same
+  change and does not rely on the laxity: `backends/core/oci_push.go` uploads a
+  blob as POST followed by a PUT carrying the whole body. A real `docker push`
+  through the CLI harness still succeeds, which is the same thing that makes it
+  work against the live service.
+
+- **BUG-24 (the `/v2/` base endpoint answered a body the registries do not
+  send):** All three copies answered `{}`, which is Docker Distribution's
+  answer and none of these three registries'. Captured with tokens from each
+  service's own token service: Amazon ECR answers 200 with `content-length: 0`
+  and no `content-type` at all; Google Artifact Registry answers an empty body
+  declared `text/html; charset=UTF-8`; Azure Container Registry answers the
+  two-byte body `{}` as `application/json; charset=utf-8`. They disagree, so the
+  premise that this was one shared fix was wrong — each cloud's copy answers its
+  own service, and each cloud's SDK test pins the captured shape.
+
+- **BUG-35 (an Amazon ECR pull through a cache rule was not hydrated):** The
+  registry accepted pull-through cache rules and served them back, then refused
+  every pull through one with `NAME_UNKNOWN` — the repository a rule covers does
+  not exist until something has been pulled through it, which is the whole of
+  what the feature does. A pull for a repository a rule covers now creates that
+  repository, from a `PULL_THROUGH_CACHE` creation template when one matches,
+  and fetches the image from the rule's upstream registry through the container
+  engine the simulator already runs its workloads on. The bytes served are the
+  upstream image's own, so a cached image is in the repository exactly as a
+  pushed one is and the control plane sees it.
+
+- **BUG-36 (each cloud's test suites built the simulator to one shared path):**
+  The AWS and Azure sdk, cli and terraform suites all built to
+  `../simulator-<cloud>`, so one suite's `go build -o` could overwrite a binary
+  another was executing. Each suite now builds into `.build/<suite>/` as the
+  Google suites already did.
+
+- **BUG-37 (the Artifact Registry token service refused no scope):** The live
+  service refuses an uncredentialled mint for a repository scope the caller
+  cannot reach, with `DENIED` naming the IAM permission and the resource —
+  captured for `:pull`, `:push` and `:pull,push`, the last two naming
+  `uploadArtifacts`. The mint refuses it too. A scope naming no repository is
+  still minted without a credential, which is what lets a client reach the base
+  endpoint and find the challenge, and the token it yields still carries an
+  identity rather than a permission, so the data plane keeps evaluating access
+  per request against the repository addressed.
+
+- **BUG-38 (the shared registry-trust helper left other harnesses
+  unconfigured):** The AWS and Google harness makefiles gained the shared
+  engine-host temporary directory the Azure one has; without it the engine
+  resolves a workload's bind mount on its own host and the workload reads an
+  empty directory instead of the files the simulator wrote. The other half of
+  this entry did not reproduce: `TestCloudBuild_FaithfulBuildPush` passes, and
+  the helper configures Podman's trust for the loopback coordinate while Docker
+  trusts loopback natively, so neither engine takes a path that fails.
+
+- **BUG-39 (`x-ms-cosmos-account` was a header the cloud does not have):** The
+  Cosmos data plane read its account from a sockerless-invented routing header,
+  and from the lexicographically-first account when that was absent. Both are
+  gone: an account name is a hostname, the control plane advertises
+  `<name>.documents.…` as the account's documentEndpoint, and the data plane
+  reads the account out of the host the client dialled and nothing else. A
+  request naming no account reaches none, and the data plane's own authorization
+  refuses it, because no account's keys could have signed it.
+
+- **BUG-40 (two Cosmos DB accounts could share a name):** The name is a
+  hostname, so it is global, and the service publishes an operation whose only
+  purpose is to say so — `DatabaseAccounts_CheckNameExists`, which this
+  simulator serves. Creating a second account under a name that operation
+  reports as taken contradicted it, and is now refused with a 409 naming what is
+  unavailable. A PUT to the same resource identifier is still the update it is
+  defined to be.
 
 - **BUG-66 (a read lock released with `Unlock` killed the simulator
   mid-suite):** Converting Amazon Lambda's durable executions to read locks

@@ -267,13 +267,37 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cloud: [gcp, azure]
+        # Every combination is listed rather than crossed, because one of them
+        # is split in two and a cross product cannot express that.
+        #
         # The SDK and CLI suites run as separate jobs so each gets its own
         # 15-minute ceiling: the Azure SDK suite's Cosmos DB emulator
         # differential tests alone approach the ceiling, leaving no room to run
         # the CLI suite in the same job.
-        suite: [sdk, cli]
-    name: sim (${{ matrix.cloud }} ${{ matrix.suite }})
+        #
+        # The Azure CLI suite is then split again. Unsharded it measured 680
+        # seconds across 171 tests against a fourteen-minute step allowance,
+        # with its inner deadline already at thirteen minutes — the most it can
+        # be before a breach stops producing a named Go stack and becomes an
+        # opaque step kill. That left under two minutes of headroom for a suite
+        # that had roughly doubled in a single pass. Its names partition
+        # cleanly: all 171 match `Test[A-Z]`, 99 in A-M and 72 in N-Z.
+        include:
+          - cloud: gcp
+            suite: sdk
+          - cloud: gcp
+            suite: cli
+          - cloud: azure
+            suite: sdk
+          - cloud: azure
+            suite: cli
+            shard: A-M
+            run: '^Test[A-M]'
+          - cloud: azure
+            suite: cli
+            shard: N-Z
+            run: '^Test[N-Z]'
+    name: sim (${{ matrix.cloud }} ${{ matrix.suite }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -403,8 +427,13 @@ jobs:
           sudo env "PATH=$PATH" "HOME=$HOME" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
-            make cli-test
+            make cli-test ${{ matrix.run && format('CLI_TEST_ARGS="-run ''{0}'' ./..."', matrix.run) || '' }}
         timeout-minutes: 14
+      # Each shard ratchets what its own run produced. The gate fails on any key
+      # its report holds that the allowlist does not, so a partial report can
+      # never pass a violation the other shard would have caught — the two
+      # together cover every test, and each one still refuses to pass a report
+      # the validator did not write at all.
       - name: Spec-shape ratchet
         run: bash scripts/check-spec-violations.sh ${{ matrix.cloud }} "$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl"
 
@@ -1022,6 +1051,9 @@ jobs:
         timeout-minutes: 5
       - name: Check AWS SDK shard coverage
         run: bash scripts/check-sdk-shard-coverage.sh
+        timeout-minutes: 5
+      - name: Check Azure CLI shard coverage
+        run: bash scripts/check-azure-cli-shard-coverage.sh
         timeout-minutes: 5
       - name: Check AWS Terraform shard coverage
         run: bash scripts/check-tf-shard-coverage.sh

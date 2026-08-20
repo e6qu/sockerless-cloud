@@ -9,10 +9,14 @@
 **/*.test
 **/dist
 
-# Locally built simulator binaries.
+# Locally built simulator binaries, including the per-suite ones each test
+# suite builds so concurrent suites cannot overwrite each other.
 simulator-aws/simulator-aws
 simulator-gcp/simulator-gcp
 simulator-azure/simulator-azure
+simulator-aws/.build
+simulator-gcp/.build
+simulator-azure/.build
 
 # Terraform and local runtime artifacts can appear under test directories.
 **/.terraform

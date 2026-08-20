@@ -27,6 +27,10 @@ func registerECROCI(srv *sim.Server) {
 		// Amazon ECR repositories are explicit resources, so the data plane
 		// only serves the ones the registry holds.
 		AdmitRepository: ecrAdmitRepository,
+		// A pull for a repository a pull-through cache rule covers fetches the
+		// image from that rule's upstream registry and caches it here, which is
+		// what the rule is for.
+		HydrateManifest: ecrHydrateFromPullThroughCache,
 		OnManifestPut: func(repo, ref, contentType string, data []byte) {
 			digest := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 			detail := ECRImageDetail{
@@ -92,6 +96,14 @@ func ecrAdmitRepository(w http.ResponseWriter, _ *http.Request, repo string, pus
 			ecrCreateRepositoryFromTemplate(repo, template)
 			return true
 		}
+	} else if _, _, covered := ecrPullThroughCacheRuleFor(repo); covered {
+		// The other repository Amazon ECR creates on demand: a pull through a
+		// cache rule creates the repository the rule covers and caches the
+		// upstream image in it. Refusing here would refuse the whole feature,
+		// because the repository a rule names exists only once something has
+		// been pulled through it.
+		ecrCreateRepositoryForPullThroughCache(repo)
+		return true
 	}
 	ecrRepositoryNameUnknown(w, repo)
 	return false
@@ -133,6 +145,13 @@ const ecrTemplateRootPrefix = "ROOT"
 // "prod/team/"". ROOT is the least specific of all — it applies to the
 // repositories no other template matches.
 func ecrCreateOnPushTemplate(repo string) (ECRRepositoryCreationTemplate, bool) {
+	return ecrCreationTemplateFor(repo, ecrTemplateAppliedForCreateOnPush)
+}
+
+// ecrCreationTemplateFor is that lookup for any of the scenarios a template can
+// be applied for — a pull through a cache rule creates its repository from one
+// exactly as a push does.
+func ecrCreationTemplateFor(repo, appliedFor string) (ECRRepositoryCreationTemplate, bool) {
 	var (
 		match   ECRRepositoryCreationTemplate
 		matched bool
@@ -140,7 +159,7 @@ func ecrCreateOnPushTemplate(repo string) (ECRRepositoryCreationTemplate, bool) 
 		isRoot  bool
 	)
 	for _, template := range ecrRepoCreationTemplates.List() {
-		if !slices.Contains(template.AppliedFor, ecrTemplateAppliedForCreateOnPush) {
+		if !slices.Contains(template.AppliedFor, appliedFor) {
 			continue
 		}
 		if template.Prefix == ecrTemplateRootPrefix {

@@ -57,7 +57,7 @@ func TestAzureCosmosDB_ARMAndDataPlaneLifecycle(t *testing.T) {
 
 	req, err := http.NewRequest("POST", baseURL+"/dbs/appdb/colls/users/docs", strings.NewReader(`{"id":"alice","team":"platform"}`))
 	require.NoError(t, err)
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = cosmosDataPlaneHostIn(t, sub, rg, account)
 	req.Header.Set("Content-Type", "application/json")
 	cosmosSignDataPlane(t, req, cosmosAccountKeyIn(t, sub, rg, account))
 	resp, err = http.DefaultClient.Do(req)
@@ -67,7 +67,7 @@ func TestAzureCosmosDB_ARMAndDataPlaneLifecycle(t *testing.T) {
 
 	req, err = http.NewRequest("POST", baseURL+"/dbs/appdb/colls/users/docs", strings.NewReader(`{"query":"SELECT * FROM c WHERE c.team = 'platform'"}`))
 	require.NoError(t, err)
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = cosmosDataPlaneHostIn(t, sub, rg, account)
 	req.Header.Set("Content-Type", "application/query+json")
 	req.Header.Set("x-ms-documentdb-isquery", "True")
 	cosmosSignDataPlane(t, req, cosmosAccountKeyIn(t, sub, rg, account))

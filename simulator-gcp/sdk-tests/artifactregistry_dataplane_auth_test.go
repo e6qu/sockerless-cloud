@@ -188,6 +188,15 @@ func TestArtifactRegistry_DockerLoginTokenExchange(t *testing.T) {
 	//    `docker login` report success.
 	resp, body = arRawDo(t, http.MethodGet, baseURL+"/v2/", bearer, nil, "")
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	// Captured from `us-docker.pkg.dev/v2/` with a token from its own token
+	// service, and identical from `gcr.io/v2/`: an empty body declared
+	// `text/html; charset=UTF-8`. The `{}` this used to answer is Docker
+	// Distribution's, and Artifact Registry is not Docker Distribution — nor do
+	// the two other registries the shared implementation serves agree with it
+	// or with each other.
+	assert.Empty(t, body)
+	assert.Equal(t, "0", resp.Header.Get("Content-Length"))
+	assert.Equal(t, "text/html; charset=UTF-8", resp.Header.Get("Content-Type"))
 
 	// 5. Push a blob monolithically and a manifest that references it.
 	layer := []byte("artifact-registry-authenticated-layer")
@@ -366,12 +375,18 @@ func TestArtifactRegistry_RefusesARepositoryNoLocationHolds(t *testing.T) {
 		"the refusal must not name a location the request never supplied")
 }
 
-// TestArtifactRegistry_UnauthenticatedPullIsDeniedAtTheResource is the path a
+// TestArtifactRegistry_UnauthenticatedPullIsDeniedAtTheMint is the path a
 // `docker pull` with no prior `docker login` takes: the client follows the
-// challenge, the token service issues it a token without a credential, and the
-// data plane refuses that identity at the repository. The refusal a user sees
-// is therefore a `denied:` naming the permission, not an authentication error.
-func TestArtifactRegistry_UnauthenticatedPullIsDeniedAtTheResource(t *testing.T) {
+// challenge and the token service refuses the scope. The refusal a user sees is
+// therefore a `denied:` naming the permission, not an authentication error.
+//
+// The token service used to issue a token for any scope it was asked for and
+// leave the refusal to the data plane. The live service does not:
+//
+//	$ curl 'https://europe-west1-docker.pkg.dev/v2/token?service=europe-west1-docker.pkg.dev&scope=repository:no-such-project/no-such-repo/app:pull'
+//	HTTP/2 403
+//	{"errors":[{"code":"DENIED","message":"Unauthenticated request. …"}]}
+func TestArtifactRegistry_UnauthenticatedPullIsDeniedAtTheMint(t *testing.T) {
 	arCreateRepository(t, "test-project", "us-central1", "anon-repo")
 	repo := "test-project/anon-repo/app"
 
@@ -379,12 +394,44 @@ func TestArtifactRegistry_UnauthenticatedPullIsDeniedAtTheResource(t *testing.T)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, body)
 	challenge := arParseChallenge(t, resp.Header.Get("WWW-Authenticate"))
 
-	// No credential goes to the token service, and it issues a token anyway.
-	anonymous := arFollowChallenge(t, challenge, "")
-
-	resp, body = arRawDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/latest", "Bearer "+anonymous, nil, "")
+	// The client follows the challenge with no credential, and the mint refuses
+	// the scope it was told to ask for.
+	realm := challenge["realm"] + "?service=" + challenge["service"] + "&scope=" + challenge["scope"]
+	resp, body = arRawDo(t, http.MethodGet, realm, "", nil, "")
 	require.Equal(t, http.StatusForbidden, resp.StatusCode, body)
 	code, message := arRegistryErrorOf(t, body)
+	assert.Equal(t, "DENIED", code)
+	assert.Equal(t,
+		`Unauthenticated request. Unauthenticated requests do not have permission `+
+			`"artifactregistry.repositories.downloadArtifacts" on resource `+
+			`"projects/test-project/locations/us-central1/repositories/anon-repo" (or it may not exist)`,
+		message)
+
+	// A write asks for the pair, and the mint names the upload permission.
+	resp, body = arRawDo(t, http.MethodGet,
+		challenge["realm"]+"?service="+challenge["service"]+"&scope=repository:"+repo+":pull,push", "", nil, "")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, body)
+	_, message = arRegistryErrorOf(t, body)
+	assert.Contains(t, message, `"artifactregistry.repositories.uploadArtifacts"`)
+
+	// A scope naming no repository is still minted without a credential: this
+	// is what lets a client reach the base endpoint and find the challenge in
+	// the first place.
+	resp, body = arRawDo(t, http.MethodGet,
+		challenge["realm"]+"?service="+challenge["service"]+"&scope=registry:catalog:*", "", nil, "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+
+	// The token that mint issues carries an identity, not a permission, so the
+	// data plane evaluates access per request against the repository addressed
+	// — and refuses the anonymous identity at the resource.
+	var issued struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &issued))
+	require.NotEmpty(t, issued.Token)
+	resp, body = arRawDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/latest", "Bearer "+issued.Token, nil, "")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, body)
+	code, message = arRegistryErrorOf(t, body)
 	assert.Equal(t, "DENIED", code)
 	assert.Equal(t,
 		`Unauthenticated request. Unauthenticated requests do not have permission `+

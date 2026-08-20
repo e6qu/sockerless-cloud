@@ -193,6 +193,7 @@ func InitDocker(provider string, preserveWorkloads bool, stateDir string) (*clie
 		if err := startContainerReaper(provider); err != nil {
 			return nil, fmt.Errorf("start container reaper: %w", err)
 		}
+		sweepOrphanedWorkloads(dockerClient)
 	}
 	return dockerClient, nil
 }

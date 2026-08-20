@@ -30,7 +30,7 @@ func cosmosDoc(t *testing.T, method, account, path, body string, headers map[str
 	}
 	req, err := http.NewRequest(method, baseURL+path, br)
 	require.NoError(t, err)
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = cosmosDataPlaneHost(t, account)
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -50,7 +50,7 @@ func cosmosQuery(t *testing.T, account, coll, query string, params []map[string]
 	raw, _ := json.Marshal(body)
 	req, err := http.NewRequest("POST", baseURL+"/dbs/qdb/colls/"+coll+"/docs", bytes.NewReader(raw))
 	require.NoError(t, err)
-	req.Header.Set("x-ms-cosmos-account", account)
+	req.Host = cosmosDataPlaneHost(t, account)
 	req.Header.Set("Content-Type", "application/query+json")
 	req.Header.Set("x-ms-documentdb-isquery", "true")
 	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))

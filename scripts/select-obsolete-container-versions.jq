@@ -8,6 +8,17 @@
 # release stream (vX.Y.Z from release-please, immortal — a published release
 # must stay pullable forever, so any version carrying a release tag is never
 # selected).
+#
+# A publish in flight is protected by $grace, in seconds. A release is only
+# "complete" once BOTH per-arch tags exist, so a publish that has pushed one of
+# them and not yet the other looks exactly like an obsolete remnant — and this
+# prune is triggered by the *completion of another publish*, so it runs while
+# siblings are mid-flight. It deleted them: six publishes dispatched together
+# left three with `ERROR: …:<sha>-amd64: not found` at the manifest step, having
+# pushed that tag minutes earlier. Nothing about the listing distinguishes a
+# half-pushed release from an abandoned one, so age does: a version younger than
+# the grace window is left alone, and the next prune — scheduled daily, and
+# triggered by every publish — collects it once it is old enough to judge.
 
 def release_name:
   select(type == "string")
@@ -115,4 +126,5 @@ def release_component($release; $groups):
     ($tags | length) == 0
     or all($tags[]; . as $tag | $keep_tags | index($tag) == null)
   )
+| select(($version.created_at | fromdateiso8601) <= (now - $grace))
 | $version.id

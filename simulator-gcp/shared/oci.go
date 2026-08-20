@@ -116,7 +116,20 @@ func (reg *OCIRegistry) serve(w http.ResponseWriter, r *http.Request) {
 		if !reg.authorized(w, r, "") {
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{})
+		// Google Artifact Registry answers the authorized ping with status 200,
+		// `content-length: 0`, an empty body, and — the part no client would
+		// guess — `content-type: text/html; charset=UTF-8`. Captured from
+		// `us-docker.pkg.dev/v2/` with a token from its own token service;
+		// `gcr.io/v2/` answers identically.
+		//
+		// The three registries this file's copies serve do not agree here, so
+		// this is not shared behaviour: Amazon ECR sends no `content-type` at
+		// all, and Azure Container Registry sends the two-byte body `{}`. A
+		// `{}` here was Docker Distribution's answer, which is what the
+		// reference implementation sends and none of these three do.
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if reg.SkipPath != nil && reg.SkipPath(path) {
@@ -209,14 +222,38 @@ func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request,
 		w.WriteHeader(http.StatusAccepted)
 
 	case http.MethodPatch:
-		// PATCH /v2/{repo}/blobs/uploads/{uuid} — append a chunk.
+		// PATCH /v2/{repo}/blobs/uploads/{uuid} — one write into an upload
+		// session. Google Artifact Registry takes the first and refuses a
+		// second: "Artifact Registry doesn't support Docker chunked uploads. …
+		// You must use monolithic uploads when you push container images to
+		// Artifact Registry" ("Support for the Docker Registry API").
+		//
+		// The line is between one write and several, not between PATCH and PUT.
+		// A container engine's `docker push` opens the session with POST, sends
+		// the whole blob in a single PATCH, and finalizes with PUT — that is
+		// what every engine does, and pushes to the live service succeed, so
+		// the first write cannot be what Google refuses. Refusing it here broke
+		// a real `docker push` in CI while passing on a host whose engine
+		// happened to send the blob on the PUT instead, which is exactly the
+		// divergence this registry exists to catch.
+		//
+		// A second write is the chunking Google names, and it is refused with
+		// the Docker Registry HTTP API v2 code for an operation a registry does
+		// not implement — `UNSUPPORTED`, "the operation is unsupported". Google
+		// documents the limitation but not the response, so the code and status
+		// are the specification's rather than a capture.
+		if existing, ok := reg.Uploads.Get(uploadID); ok && len(existing.Data) > 0 {
+			w.Header().Set("Allow", "POST, PUT, GET, DELETE")
+			ociError(w, "UNSUPPORTED",
+				"Artifact Registry does not support chunked uploads; send the blob in a single monolithic upload",
+				http.StatusMethodNotAllowed)
+			return
+		}
 		data, err := ociReadBody(r)
 		if err != nil {
 			ociError(w, "UNSUPPORTED", err.Error(), http.StatusUnsupportedMediaType)
 			return
 		}
-		// Atomic append: concurrent chunk PATCHes for the same upload must not
-		// race a Get→append→Put (a lost chunk → DIGEST_INVALID on finalize).
 		var end int
 		ok := reg.Uploads.Update(uploadID, func(u *OCIUpload) {
 			u.Data = append(u.Data, data...)
