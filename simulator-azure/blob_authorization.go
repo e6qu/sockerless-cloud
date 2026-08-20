@@ -80,6 +80,17 @@ func storageAccountKeys(account string) ([]string, bool) {
 // keyed by the store's generation rather than by reading every row.
 var azStorageAccountsByName sim.GenerationIndex[StorageAccount]
 
+// azureStorageAccountByName resolves one storage account by its globally
+// unique name through the same index — for every caller that used to decode
+// the whole account store to find one row on a data-plane request.
+func azureStorageAccountByName(account string) (StorageAccount, bool) {
+	if azStorageAccounts == nil {
+		return StorageAccount{}, false
+	}
+	return azStorageAccountsByName.Lookup(azStorageAccounts, strings.ToLower(account),
+		func(a StorageAccount) []string { return []string{strings.ToLower(a.Name)} })
+}
+
 // blobSignatureVerifies reports whether signature is the base64 HMAC-SHA256 of
 // stringToSign under either of the account's keys. Both slots are live at once,
 // which is what makes the documented key rotation — move traffic to the
@@ -316,8 +327,17 @@ func blobSASSnapshotField(q url.Values) string {
 // blobSASAuthorizes reports whether a Shared Access Signature on the request
 // authorizes it, and the reason when it does not.
 func blobSASAuthorizes(service, account, container, blob string, q url.Values, method string) (bool, string) {
+	// An account SAS carries the services and resource-types pair instead of a
+	// signedResource — `data.azurerm_storage_account_sas`, whose output the
+	// azurerm provider's own App Service backup example feeds straight into
+	// `storage_account_url`, issues exactly that shape and real Azure accepts
+	// it anywhere a service SAS is accepted.
+	accountSAS := q.Get("ss") != "" && q.Get("srt") != "" && q.Get("sr") == ""
 	required := blobAuthRequiredSASParams
 	if service == "queue" || service == "file" {
+		required = storageSASRequiredParamsNoResource
+	}
+	if accountSAS {
 		required = storageSASRequiredParamsNoResource
 	}
 	for _, name := range required {
@@ -340,6 +360,16 @@ func blobSASAuthorizes(service, account, container, blob string, q url.Values, m
 	if !blobSASPermits(q.Get("sp"), method) {
 		return false, "Signature did not match. String to sign used was " + q.Get("sp")
 	}
+	if accountSAS {
+		if !blobAccountSASCovers(service, container, blob, q) {
+			return false, "The signature does not cover this service and resource type."
+		}
+		if !blobSignatureVerifies(account, blobAccountSASStringToSign(account, q), q.Get("sig")) {
+			return false, "Signature did not match. String to sign used was " +
+				strings.ReplaceAll(blobAccountSASStringToSign(account, q), "\n", `\n`)
+		}
+		return true, ""
+	}
 	// A signature over the blob authorizes the blob; one over the container
 	// authorizes everything under it, which is what `sr=c` means for the Blob
 	// service and `sr=s` for a share on the File service. The Queue service
@@ -353,6 +383,49 @@ func blobSASAuthorizes(service, account, container, blob string, q url.Values, m
 			strings.ReplaceAll(blobSASStringToSign(service, account, container, signed, q), "\n", `\n`)
 	}
 	return true, ""
+}
+
+// blobAccountSASStringToSign renders the account Shared Access Signature
+// string, read out of azblob's own account signer: the account name, the
+// permissions, the services, the resource types, the window, the address
+// range, the protocol, the version, the encryption scope from 2020-12-06 on —
+// and a terminating newline the account form alone carries.
+func blobAccountSASStringToSign(account string, q url.Values) string {
+	fields := []string{
+		account,
+		q.Get("sp"),
+		q.Get("ss"),
+		q.Get("srt"),
+		q.Get("st"),
+		q.Get("se"),
+		q.Get("sip"),
+		q.Get("spr"),
+		q.Get("sv"),
+	}
+	if q.Get("sv") >= "2020-12-06" {
+		fields = append(fields, q.Get("ses"))
+	}
+	fields = append(fields, "")
+	return strings.Join(fields, "\n")
+}
+
+// blobAccountSASCovers reports whether an account signature's signed services
+// and resource types reach the resource this request addresses: the service by
+// its letter, and the service root, a container or an object by theirs.
+func blobAccountSASCovers(service, container, blob string, q url.Values) bool {
+	letter := map[string]string{"blob": "b", "file": "f", "queue": "q", "table": "t"}[service]
+	if letter == "" || !strings.Contains(strings.ToLower(q.Get("ss")), letter) {
+		return false
+	}
+	types := strings.ToLower(q.Get("srt"))
+	switch {
+	case container == "":
+		return strings.Contains(types, "s")
+	case blob == "":
+		return strings.Contains(types, "c")
+	default:
+		return strings.Contains(types, "o")
+	}
 }
 
 // blobSASPermits reports whether the signed permission set covers the request's

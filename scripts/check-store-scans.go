@@ -190,13 +190,23 @@ func scanPackage(fset *token.FileSet, files map[string]*ast.File) []finding {
 		if !ok {
 			continue
 		}
+		amortized := generationGatedStores(fn)
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
-			store, ok := fullStoreRead(call)
+			store, receiver, ok := fullStoreRead(call)
 			if !ok {
+				return true
+			}
+			// A scan in a function that also reads the same store's
+			// Generation() is the amortized rebuild of a generation-keyed
+			// index — the fix this gate exists to demand, not the defect. It
+			// runs once per store change, not once per request, and counting
+			// it means the floor can never reach zero however completely the
+			// class is converted.
+			if amortized[receiver] {
 				return true
 			}
 			pos := fset.Position(call.Pos())
@@ -210,6 +220,27 @@ func scanPackage(fset *token.FileSet, files map[string]*ast.File) []finding {
 		})
 	}
 	return out
+}
+
+// generationGatedStores reports the stores whose Generation() the function
+// reads — the marker of a generation-keyed index rebuild.
+func generationGatedStores(fn *ast.FuncDecl) map[string]bool {
+	gated := map[string]bool{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Generation" {
+			return true
+		}
+		if receiver, ok := sel.X.(*ast.Ident); ok {
+			gated[receiver.Name] = true
+		}
+		return true
+	})
+	return gated
 }
 
 // calledNames returns the function names an expression passed to WrapHandler
@@ -232,22 +263,22 @@ func calledNames(expr ast.Expr) []string {
 
 // fullStoreRead reports whether a call reads a whole store — List or Filter on
 // a package-level collection, each of which decodes every row it holds.
-func fullStoreRead(call *ast.CallExpr) (string, bool) {
+func fullStoreRead(call *ast.CallExpr) (string, string, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
-		return "", false
+		return "", "", false
 	}
 	if sel.Sel.Name != "List" && sel.Sel.Name != "Filter" {
-		return "", false
+		return "", "", false
 	}
 	receiver, ok := sel.X.(*ast.Ident)
 	if !ok {
-		return "", false
+		return "", "", false
 	}
 	// Package-level stores are plural nouns. A local slice or a method on a
 	// receiver field is a collection somebody already has in hand.
 	if !strings.HasSuffix(receiver.Name, "s") {
-		return "", false
+		return "", "", false
 	}
-	return receiver.Name + "." + sel.Sel.Name + "()", true
+	return receiver.Name + "." + sel.Sel.Name + "()", receiver.Name, true
 }

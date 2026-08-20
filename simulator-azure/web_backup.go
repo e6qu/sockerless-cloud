@@ -385,8 +385,12 @@ type webBackupStorageTarget struct {
 // The signature itself is verified against the account's keys, which the Blob
 // data plane now does for every request it serves (blob_authorization.go). A
 // `storageAccountUrl` this refuses is one the plane it writes through would
-// refuse too.
-var webSASRequiredParams = blobAuthRequiredSASParams
+// refuse too. Both signature shapes are accepted, because real Azure accepts
+// both: a service SAS carries a signedResource, and an account SAS — the shape
+// `data.azurerm_storage_account_sas` emits, which the azurerm provider's own
+// backup example feeds into `storage_account_url` — carries the services and
+// resource-types pair instead.
+var webSASRequiredParams = []string{"sv", "sp", "se", "sig"}
 
 // webParseBackupStorageURL resolves a `storageAccountUrl` into the account and
 // container it names and checks the SAS parameters Azure requires. It returns
@@ -408,6 +412,10 @@ func webParseBackupStorageURL(raw string) (webBackupStorageTarget, string, strin
 			return webBackupStorageTarget{}, "InvalidRequestContent",
 				"Missing mandatory parameters for valid Shared Access Signature."
 		}
+	}
+	if q.Get("sr") == "" && (q.Get("ss") == "" || q.Get("srt") == "") {
+		return webBackupStorageTarget{}, "InvalidRequestContent",
+			"Missing mandatory parameters for valid Shared Access Signature."
 	}
 	hostname := u.Hostname()
 	account, rest, ok := strings.Cut(hostname, ".")

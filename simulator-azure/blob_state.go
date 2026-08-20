@@ -223,13 +223,10 @@ func blobSoftDeleteDays(account string) (int32, bool) {
 // rather than on the data-plane service-properties document, so that is where
 // this reads it from — the same resource an operator sets it on.
 func blobContainerSoftDeleteDays(account string) (int32, bool) {
-	if azStorageAccounts == nil || blobARMServiceProps == nil {
+	if blobARMServiceProps == nil {
 		return 0, false
 	}
-	for _, acct := range azStorageAccounts.List() {
-		if acct.Name != account {
-			continue
-		}
+	if acct, ok := azureStorageAccountByName(account); ok {
 		props, ok := blobARMServiceProps.Get(acct.ID)
 		if !ok {
 			return 0, false

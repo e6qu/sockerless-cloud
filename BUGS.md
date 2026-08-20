@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 70.
+Open: 7. Resolved: 71.
 
 ## Open
 
@@ -14,6 +14,20 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. |
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
+
+- **BUG-68 (the `race (simulator-aws shared)` job keeps losing its runner):**
+  Three consecutive pull requests — #50, #52 and #54 — had this one job die
+  with `The runner has received a shutdown signal`, each time with no data
+  race, no failing test and no timeout of its own, and each time green on
+  re-run. It is the longest race shard (the shared package alone runs ~10
+  minutes under the detector), which makes it the widest window for a hosted
+  runner to be reclaimed; no other job in the matrix has been hit once. Not an
+  in-repo defect — nothing in this repository sends its runner a shutdown —
+  but it costs a manual re-run per pull request. Fix shape if a fourth strike
+  lands: split the shared package's race run into two `-run`-sharded jobs the
+  way the SDK suite shards, halving the reclaim window; that renames a
+  required status context, so it lands together with the branch-protection
+  update like the Azure CLI split did.
 
 - **BUG-56 (action downloads failed during a GitHub incident, and the fan-out
   is the standing risk):** Filed as "the job fan-out throttles GitHub's own
@@ -44,27 +58,27 @@ the simulators from the sockerless monorepo, keeping their IDs
   local run of that stack means anything, and a green local suite must not be
   read as covering it.
 
-- **BUG-43 (the azurerm provider crashes on the App Service backup path):**
-  `terraform-provider-azurerm v5.1.0` crashed with no captured stack while
-  applying an `azurerm_linux_function_app` carrying a `backup` block against the
-  simulator, after three earlier failures on that stack were fixed (a Dynamic
-  tier reported for every plan, a container visible only on the control plane,
-  and a plan tier that refused backups). The Terraform leg was reverted rather
-  than left failing. Fix shape: capture the provider's crash log, establish
-  whether the simulator returns something the simulator cannot parse, and add
-  the stack back once it applies cleanly. A standalone repro exists and stops
-  only at the host: simulator + the Caddy HTTPS gateway (`make/https-gateway`,
-  `SOCKERLESS_AZURE_SIM_PORT`, data-plane URLs advertised through the gateway
-  host) + a minimal azurerm 5.1.0 configuration of resource group, storage
-  account, container, `data azurerm_storage_account_sas`, S1 Linux plan and a
-  function app whose `backup` block points `storage_account_url` at the signed
-  container — but terraform on macOS cannot resolve `azure.sockerless.localhost`
-  (the documented `*.localhost` macOS limitation), so the capture must run in
-  the Linux Docker harness or on CI, with `TF_LOG=DEBUG`.
-
 
 
 ## Resolved history
+
+- **BUG-43 (the azurerm provider crashed on the App Service backup path):**
+  Captured in full inside the Linux Docker harness — sim, Caddy HTTPS gateway
+  and a minimal azurerm 5.1.0 function-app-with-backup stack — after macOS's
+  `*.localhost` resolution had blocked every local attempt. The stack is a
+  SIGSEGV in the provider's own `FlattenBackupConfig`
+  (common_web_app_schema.go:1158), which dereferences the backup schedule's
+  start time one line before its nil check. The trigger was the simulator's:
+  it served a backup schedule without `startTime`, a document real Azure never
+  returns because the service defaults the start time at configuration save.
+  The simulator now defaults it the same way, and the same capture found the
+  second half: `data.azurerm_storage_account_sas` — the provider's own
+  documented shape for `storage_account_url` — emits an *account* SAS, which
+  real Azure accepts for backups and the storage plane now verifies over
+  azblob's ten-field account layout. The full lifecycle was proven in the
+  harness — apply, `plan -detailed-exitcode` clean, destroy — and the reverted
+  Terraform leg is restored to the shared stack on a dedicated S1 plan, since
+  az_sp is deliberately Y1 and real Azure refuses backups on Consumption.
 
 - **BUG-67 (a prune deleted a publish still in flight):** Fixed by the
   two-hour grace window in `scripts/select-obsolete-container-versions.jq`, and

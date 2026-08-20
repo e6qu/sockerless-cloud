@@ -71,11 +71,14 @@ func managedIdentityPrincipalExists(principalID string) bool {
 	if azureManagedIdentities == nil || principalID == "" {
 		return false
 	}
-	found := azureManagedIdentities.Filter(func(i UserAssignedIdentity) bool {
-		return strings.EqualFold(i.Properties.PrincipalId, principalID)
-	})
-	return len(found) > 0
+	// One row answers, from an index keyed by the store's generation: this
+	// runs per data-plane request that authenticates as a managed identity.
+	_, ok := azureManagedIdentitiesByPrincipal.Lookup(azureManagedIdentities, strings.ToLower(principalID),
+		func(i UserAssignedIdentity) []string { return []string{strings.ToLower(i.Properties.PrincipalId)} })
+	return ok
 }
+
+var azureManagedIdentitiesByPrincipal sim.GenerationIndex[UserAssignedIdentity]
 
 type UserAssignedIdentity struct {
 	ID         string             `json:"id"`

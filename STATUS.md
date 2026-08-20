@@ -37,6 +37,14 @@ Current state of the sockerless-cloud repository.
   `scripts/check-required-status-checks.sh` gates the manifest against the
   workflows in pre-commit and build-gates, and
   `--verify-branch-protection` matches the live settings.
+- **The App Service backup Terraform leg is back**: the azurerm 5.1.0 crash
+  was run down to the provider dereferencing a backup schedule's start time
+  before its nil check, triggered by the simulator serving a schedule without
+  one — real Azure defaults it at save, and now so does the simulator. The
+  storage plane also verifies the ten-field *account* SAS
+  `data.azurerm_storage_account_sas` emits, which is the provider's own
+  documented backup shape. Apply, idempotent plan and destroy proven in the
+  Linux Docker harness.
 - **The Azure Storage data plane authorizes every request**: Shared Key over
   the documented canonicalization (the Table service's own shorter string
   included), a service Shared Access Signature over the layout its `sv`

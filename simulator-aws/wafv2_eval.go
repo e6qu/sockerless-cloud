@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 type wafRateWindow struct {
@@ -124,6 +126,17 @@ func wafEvaluateStatement(raw json.RawMessage, evaluation *wafEvaluation, depth 
 	return wafMatchResult{}
 }
 
+// The four WAF evaluation lookups below each resolve one resource by its ARN,
+// and every one used to decode its whole store per evaluated request. WAF runs
+// on the data-plane path of every request whose web ACL is associated, so the
+// scans were paid per proxied request; each is answered from an index keyed by
+// the store's generation instead.
+var (
+	wafIPSetsByARN     sim.GenerationIndex[wafStoredIPSet]
+	wafRegexSetsByARN  sim.GenerationIndex[wafStoredRegex]
+	wafRuleGroupsByARN sim.GenerationIndex[wafStoredRuleGroup]
+)
+
 func wafMatchIPSet(raw json.RawMessage, evaluation *wafEvaluation) bool {
 	var statement struct {
 		ARN                    string `json:"ARN"`
@@ -143,10 +156,8 @@ func wafMatchIPSet(raw json.RawMessage, evaluation *wafEvaluation) bool {
 			return true
 		}
 	}
-	for _, stored := range wafIPSets.List() {
-		if stored.IPSet.ARN != statement.ARN {
-			continue
-		}
+	if stored, ok := wafIPSetsByARN.Lookup(wafIPSets, statement.ARN,
+		func(set wafStoredIPSet) []string { return []string{set.IPSet.ARN} }); ok {
 		for _, address := range addresses {
 			ip, err := netip.ParseAddr(strings.TrimSpace(address))
 			if err != nil {
@@ -287,10 +298,8 @@ func wafMatchRegexPatternSet(raw json.RawMessage, evaluation *wafEvaluation) boo
 		return false
 	}
 	var expressions []string
-	for _, stored := range wafRegexSets.List() {
-		if stored.RegexSet.ARN != statement.ARN {
-			continue
-		}
+	if stored, ok := wafRegexSetsByARN.Lookup(wafRegexSets, statement.ARN,
+		func(set wafStoredRegex) []string { return []string{set.RegexSet.ARN} }); ok {
 		var list []struct {
 			RegexString string `json:"RegexString"`
 		}
@@ -298,7 +307,6 @@ func wafMatchRegexPatternSet(raw json.RawMessage, evaluation *wafEvaluation) boo
 		for _, item := range list {
 			expressions = append(expressions, item.RegexString)
 		}
-		break
 	}
 	encoded, _ := json.Marshal(statement)
 	return wafMatchRegex(encoded, evaluation, expressions)
@@ -530,10 +538,8 @@ func wafEvaluateRuleGroup(raw json.RawMessage, evaluation *wafEvaluation, depth 
 	for _, override := range reference.RuleActionOverrides {
 		overrides[override.Name] = override.ActionToUse
 	}
-	for _, stored := range wafRuleGroups.List() {
-		if stored.RuleGroup.ARN != reference.ARN {
-			continue
-		}
+	if stored, ok := wafRuleGroupsByARN.Lookup(wafRuleGroups, reference.ARN,
+		func(group wafStoredRuleGroup) []string { return []string{group.RuleGroup.ARN} }); ok {
 		var rules []wafRule
 		_ = json.Unmarshal(stored.RuleGroup.Rules, &rules)
 		sortWAFRules(rules)

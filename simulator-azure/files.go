@@ -247,15 +247,11 @@ func storageTableResourceID(sub, rg, account, table string) string {
 }
 
 func storageTableResourceIDForAccount(account, table string) (string, bool) {
-	if azStorageAccounts == nil {
+	acct, ok := azureStorageAccountByName(account)
+	if !ok {
 		return "", false
 	}
-	for _, acct := range azStorageAccounts.List() {
-		if acct.Name == account {
-			return acct.ID + "/tableServices/default/tables/" + table, true
-		}
-	}
-	return "", false
+	return acct.ID + "/tableServices/default/tables/" + table, true
 }
 
 func upsertStorageTableARMProjection(account, table string) {
@@ -328,15 +324,11 @@ func deleteFileShareDataPlaneProjection(account, share string) error {
 // ARM-known storage account. A share created on the data plane of an account
 // that ARM has never seen has no ARM identity to project onto.
 func fileShareResourceIDForAccount(account, share string) (string, bool) {
-	if azStorageAccounts == nil {
+	acct, ok := azureStorageAccountByName(account)
+	if !ok {
 		return "", false
 	}
-	for _, acct := range azStorageAccounts.List() {
-		if acct.Name == account {
-			return acct.ID + "/fileServices/default/shares/" + share, true
-		}
-	}
-	return "", false
+	return acct.ID + "/fileServices/default/shares/" + share, true
 }
 
 // upsertFileShareARMProjection mirrors a data-plane share onto ARM, so a share

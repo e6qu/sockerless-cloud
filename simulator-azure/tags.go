@@ -243,13 +243,20 @@ func findResourceGroupByID(id string) (ResourceGroup, string, bool) {
 	if group, ok := azureResourceGroups.Get(id); ok {
 		return group, id, true
 	}
-	for _, group := range azureResourceGroups.List() {
-		if strings.EqualFold(group.ID, id) {
-			return group, group.ID, true
-		}
+	// The case-insensitive fallback answers from an index keyed by the store's
+	// generation rather than by decoding every group per request — this runs
+	// inside a WrapHandler middleware, so every request into the simulator
+	// paid it.
+	if group, ok := azureResourceGroupsByLowerID.Lookup(azureResourceGroups, strings.ToLower(id),
+		func(g ResourceGroup) []string { return []string{strings.ToLower(g.ID)} }); ok {
+		return group, group.ID, true
 	}
 	return ResourceGroup{}, "", false
 }
+
+// azureResourceGroupsByLowerID answers the middleware's case-insensitive
+// resource-group lookup without a per-request scan.
+var azureResourceGroupsByLowerID sim.GenerationIndex[ResourceGroup]
 
 func handleTagsDefault(w http.ResponseWriter, r *http.Request, scope string) {
 	holder, scopeErr := resolveTagScope(scope)
