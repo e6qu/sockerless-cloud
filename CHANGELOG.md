@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/e6qu/sockerless-cloud/compare/v0.13.1...v0.13.2) (2026-08-20)
+
+
+### Bug Fixes
+
+* **ci:** attribute dependency drift, so a branch answers for its own pins ([#56](https://github.com/e6qu/sockerless-cloud/issues/56)) ([110d03d](https://github.com/e6qu/sockerless-cloud/commit/110d03d2d9c872d0c7c4f503bbf030c1ff9962c9))
+
 ## [0.13.1](https://github.com/e6qu/sockerless-cloud/compare/v0.13.0...v0.13.1) (2026-08-20)
 
 
