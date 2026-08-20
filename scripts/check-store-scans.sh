@@ -45,19 +45,30 @@ readonly SCAN_DIRS=(
 	ui-auth
 )
 
-# The count on the day the gate landed, after every unguarded hostname match
-# was converted: the five handler wrappers that decide whether to claim a
-# request — Elastic Load Balancing, AWS Amplify hosting, Azure Load Balancer,
-# Azure Container Apps ingress, Azure Application Gateway — plus Azure Event
-# Grid's publish scope and the Amazon ECS target resolution the profile found.
+# What the floor holds, and what it no longer counts.
 #
-# What remains is reached only *after* a wrapper has claimed a request or
-# matched a resource: AWS WAF evaluation runs when a web ACL is associated,
-# Amplify's job and artifact reads run once a host has resolved to an app.
-# Those are worth converting too and are the burn-down, but none of them is
-# paid by a request the feature has nothing to do with, which is what made the
-# converted ones matter.
-readonly STORE_SCAN_FLOOR=58
+# The analyzer stopped counting a scan whose function also reads the same
+# store's Generation() — that is the amortized rebuild of a generation-keyed
+# index, the fix itself, and counting it meant the floor could never reach
+# zero however completely the class was converted.
+#
+# Every single-row-by-stable-key lookup on a request path is converted: the
+# handler wrappers, the AWS WAF ARN resolutions (web ACL, IP set, regex set,
+# rule group), the Azure storage-account-by-name lookups behind the storage
+# data plane's authorization, the resource-group and Service Bus namespace
+# resolutions, and the managed-identity principal check.
+#
+# What remains is not that class. It is, by inspection: List operations whose
+# response is the collection (Key Vault and Service Bus admin listings, role
+# assignments, deleted shares); bulk mutations over a parent's children (share
+# deletion, entry moves, table batch snapshot/restore); fan-outs that visit
+# every row by design (Event Grid delivery, CloudTrail trails); joins over
+# small stores (load-balancer and Application Gateway NIC pools, Route 53
+# zones); and the ACME scans, which reconcile each row as they read it and so
+# cannot answer from an index without changing what a read means. Convert one
+# faithfully and lower the floor; none of them is a one-row lookup paid per
+# request any more.
+readonly STORE_SCAN_FLOOR=46
 
 report=$(mktemp)
 diag=$(mktemp)

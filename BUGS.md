@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 70.
+Open: 6. Resolved: 71.
 
 ## Open
 
@@ -44,27 +44,27 @@ the simulators from the sockerless monorepo, keeping their IDs
   local run of that stack means anything, and a green local suite must not be
   read as covering it.
 
-- **BUG-43 (the azurerm provider crashes on the App Service backup path):**
-  `terraform-provider-azurerm v5.1.0` crashed with no captured stack while
-  applying an `azurerm_linux_function_app` carrying a `backup` block against the
-  simulator, after three earlier failures on that stack were fixed (a Dynamic
-  tier reported for every plan, a container visible only on the control plane,
-  and a plan tier that refused backups). The Terraform leg was reverted rather
-  than left failing. Fix shape: capture the provider's crash log, establish
-  whether the simulator returns something the simulator cannot parse, and add
-  the stack back once it applies cleanly. A standalone repro exists and stops
-  only at the host: simulator + the Caddy HTTPS gateway (`make/https-gateway`,
-  `SOCKERLESS_AZURE_SIM_PORT`, data-plane URLs advertised through the gateway
-  host) + a minimal azurerm 5.1.0 configuration of resource group, storage
-  account, container, `data azurerm_storage_account_sas`, S1 Linux plan and a
-  function app whose `backup` block points `storage_account_url` at the signed
-  container — but terraform on macOS cannot resolve `azure.sockerless.localhost`
-  (the documented `*.localhost` macOS limitation), so the capture must run in
-  the Linux Docker harness or on CI, with `TF_LOG=DEBUG`.
-
 
 
 ## Resolved history
+
+- **BUG-43 (the azurerm provider crashed on the App Service backup path):**
+  Captured in full inside the Linux Docker harness — sim, Caddy HTTPS gateway
+  and a minimal azurerm 5.1.0 function-app-with-backup stack — after macOS's
+  `*.localhost` resolution had blocked every local attempt. The stack is a
+  SIGSEGV in the provider's own `FlattenBackupConfig`
+  (common_web_app_schema.go:1158), which dereferences the backup schedule's
+  start time one line before its nil check. The trigger was the simulator's:
+  it served a backup schedule without `startTime`, a document real Azure never
+  returns because the service defaults the start time at configuration save.
+  The simulator now defaults it the same way, and the same capture found the
+  second half: `data.azurerm_storage_account_sas` — the provider's own
+  documented shape for `storage_account_url` — emits an *account* SAS, which
+  real Azure accepts for backups and the storage plane now verifies over
+  azblob's ten-field account layout. The full lifecycle was proven in the
+  harness — apply, `plan -detailed-exitcode` clean, destroy — and the reverted
+  Terraform leg is restored to the shared stack on a dedicated S1 plan, since
+  az_sp is deliberately Y1 and real Azure refuses backups on Consumption.
 
 - **BUG-67 (a prune deleted a publish still in flight):** Fixed by the
   two-hour grace window in `scripts/select-obsolete-container-versions.jq`, and

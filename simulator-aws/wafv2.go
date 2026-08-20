@@ -699,13 +699,13 @@ func handleWAFGetWebACLForResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func wafWebACLByARN(arn string) (wafStoredWebACL, bool) {
-	for _, stored := range wafWebACLs.List() {
-		if stored.WebACL.ARN == arn {
-			return stored, true
-		}
-	}
-	return wafStoredWebACL{}, false
+	// One row answers, from an index keyed by the store's generation: the
+	// data plane resolves the associated web ACL per proxied request.
+	return wafWebACLsByARN.Lookup(wafWebACLs, arn,
+		func(stored wafStoredWebACL) []string { return []string{stored.WebACL.ARN} })
 }
+
+var wafWebACLsByARN sim.GenerationIndex[wafStoredWebACL]
 
 type wafListResourcesReq struct {
 	WebACLArn    string `json:"WebACLArn"`

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	blobsas "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
 	filesas "github.com/Azure/azure-sdk-for-go/sdk/storage/azfile/sas"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azfile/service"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue"
@@ -131,4 +133,39 @@ func storageRawRequestSASWithBody(t *testing.T, method, account, service_, targe
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
+}
+
+// TestBlobSDK_AccountSASSignedByTheSDKAuthorizes holds the account Shared
+// Access Signature — the shape `data.azurerm_storage_account_sas` emits, and
+// the one the azurerm provider's own App Service backup example feeds into
+// `storage_account_url` — to azblob's own account signer, ten fields and the
+// terminating newline the account form alone carries.
+func TestBlobSDK_AccountSASSignedByTheSDKAuthorizes(t *testing.T) {
+	const account, containerName, blobName = "sdkacctsasacct", "acct-sas-container", "signed.txt"
+	client := newBlobTestClient(t, account)
+	newBlobTestContainer(t, client, containerName)
+	payload := "ten fields and a terminating newline"
+	_, err := client.UploadBuffer(ctx, containerName, blobName, []byte(payload), nil)
+	require.NoError(t, err)
+
+	credential, err := azblob.NewSharedKeyCredential(account, storageAccountPrimaryKey(account))
+	require.NoError(t, err)
+	params, err := blobsas.AccountSignatureValues{
+		Protocol:      blobsas.ProtocolHTTPSandHTTP,
+		ExpiryTime:    time.Now().UTC().Add(time.Hour),
+		Permissions:   (&blobsas.AccountPermissions{Read: true, List: true}).String(),
+		ResourceTypes: (&blobsas.AccountResourceTypes{Container: true, Object: true}).String(),
+	}.SignWithSharedKey(credential)
+	require.NoError(t, err)
+
+	// The signed URL alone reads the blob back.
+	resp := storageRawRequestSASWithBody(t, http.MethodGet, account, "blob",
+		"/"+containerName+"/"+blobName+"?"+params.Encode(), "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "account SAS read")
+	assert.Equal(t, payload, storageReadBody(t, resp))
+
+	// A read-only account signature does not write.
+	write := storageRawRequestSASWithBody(t, http.MethodPut, account, "blob",
+		"/"+containerName+"/other.txt?"+params.Encode(), "")
+	require.Equal(t, http.StatusForbidden, write.StatusCode)
 }

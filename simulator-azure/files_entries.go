@@ -1343,13 +1343,10 @@ func filesDeleteShareContents(account, share string) error {
 // Microsoft.Storage fileServices resource. Zero means share soft delete is off,
 // and Delete Share destroys a share outright.
 func filesSoftDeleteRetentionDays(account string) int {
-	if azStorageAccounts == nil || azStorageServiceProps == nil {
+	if azStorageServiceProps == nil {
 		return 0
 	}
-	for _, acct := range azStorageAccounts.List() {
-		if acct.Name != account {
-			continue
-		}
+	if acct, ok := azureStorageAccountByName(account); ok {
 		props, ok := azStorageServiceProps.Get(acct.ID + "/fileServices")
 		if !ok {
 			return 0

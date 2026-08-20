@@ -1,29 +1,14 @@
 # DO NEXT
 
-1. Fifty-eight full store reads remain on request paths, held by the floor in
-   `scripts/check-store-scans.sh`. Every unguarded one is converted: the handler
-   wrappers that decide whether to claim a request no longer scan. What is left
-   is reached only after a wrapper has claimed a request or matched a resource,
-   and it is two different things wearing one number — a lookup that walks a
-   store to find one row (`findResourceGroupByID`, `sbAdminNamespaceID`,
-   `fileShareResourceIDForAccount`, the Amplify and AWS WAF evaluation paths),
-   which `GenerationIndex` answers, and a List operation whose response *is* the
-   collection (`handleSBAdminListQueues`, `handleKVListKeys`), which no index
-   makes cheaper. Separate the two in the analyzer before converting, so the
-   floor measures the class that can reach zero.
+1. Forty-six full store reads remain on request paths, held by the floor in
+   `scripts/check-store-scans.sh`. Every single-row-by-stable-key lookup is
+   converted and the analyzer no longer counts a generation-keyed index's own
+   amortized rebuild. What remains is collection-shaped by inspection — List
+   responses, bulk mutations over a parent's children, fan-outs, small-store
+   joins, and the ACME scans that reconcile rows as they read. Convert one
+   faithfully and lower the floor.
 
-2. BUG-43: `terraform-provider-azurerm v5.1.0` crashed with no captured stack
-   applying an `azurerm_linux_function_app` carrying a `backup` block against
-   the simulator. A standalone macOS repro stops at the host: terraform's
-   resolver does not resolve `azure.sockerless.localhost`, which is the
-   documented `*.localhost` macOS limitation, so the capture has to run inside
-   the Linux Docker harness (or on CI). A ready repro stack — sim + Caddy
-   gateway + a minimal azurerm 5.1.0 function-app-with-backup configuration —
-   is described in BUGS.md under BUG-43; run it on a Linux host, capture
-   TF_LOG=DEBUG, fix what the provider chokes on, and restore the Terraform
-   leg.
-
-3. App Service is at 616 of 692. The recorded deferrals are done: backup and
+2. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read
    from the live workload container, App Service Environments and Kube
    Environments are served, and detectors compute from real container and site
@@ -32,7 +17,7 @@
    outbound network-dependency catalog, which is Microsoft-published data. What
    remains in that swagger is the long tail below 692, not a deferral.
 
-4. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
+3. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
    Google Cloud Billing (6 of 36), the latter still carrying the declined
    SKU-catalog decision below.
 

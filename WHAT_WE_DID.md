@@ -1,5 +1,37 @@
 # WHAT WE DID
 
+## 2026-08-21, second pass — the azurerm crash run to ground, and the scan floor made honest
+
+**BUG-43 closed with a full capture.** The crash that forced the backup
+Terraform leg's revert was reproduced inside the Linux Docker harness — sim,
+Caddy HTTPS gateway, a minimal azurerm 5.1.0 function-app-with-backup stack —
+after macOS's `*.localhost` resolution had stopped every local attempt. It is
+a SIGSEGV in the provider's own FlattenBackupConfig, which dereferences the
+backup schedule's start time one line before checking it for nil. The trigger
+was ours: the simulator served a backup schedule without `startTime`, a
+document real Azure never returns because the service defaults the start time
+at configuration save. Two fixes fell out — the simulator defaults it the same
+way, and the storage plane verifies the ten-field *account* SAS that
+`data.azurerm_storage_account_sas` emits, which is the azurerm provider's own
+documented shape for `storage_account_url` and which real Azure accepts
+anywhere a service SAS is. azblob's account signer pins the layout. Apply,
+`plan -detailed-exitcode` clean, destroy — all proven in the harness — and the
+reverted leg is restored to the shared stack on a dedicated S1 plan, because
+az_sp is deliberately Y1 and real Azure refuses backups on Consumption.
+
+**The store-scan floor now measures a class that can reach zero.** The
+analyzer stopped counting a scan whose function reads the same store's
+Generation() — that is the amortized rebuild of a generation-keyed index, the
+fix itself, and counting it meant the floor was unreachable by construction.
+Twelve single-row lookups converted: the four AWS WAF ARN resolutions (web
+ACL, IP set, regex set, rule group — paid per evaluated request when a web ACL
+is associated), the four Azure storage-account-by-name scans behind the
+authorizing data plane, the resource-group middleware lookup, the Service Bus
+namespace resolution, and the managed-identity principal check. Floor 58 → 46,
+and the floor comment now names what the remainder is: List responses, bulk
+mutations, fan-outs, small-store joins, and the ACME scans that reconcile rows
+as they read — none of them a one-row lookup paid per request.
+
 ## 2026-08-21 — The storage data plane stops taking everyone's word for it
 
 BUG-44 was filed as "the Blob data plane authorizes no shared access

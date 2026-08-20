@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
 const (
@@ -322,13 +324,17 @@ func sbAdminIsMessagePath(segs []string) bool {
 }
 
 func sbAdminNamespaceID(namespace string) string {
-	for _, ns := range sbNamespaces.List() {
-		if ns.Name == namespace {
-			return ns.ID
-		}
+	// A namespace name is a hostname, so one row answers — from an index keyed
+	// by the store's generation, because every Service Bus admin request
+	// resolves its namespace.
+	if ns, ok := sbNamespacesByName.Lookup(sbNamespaces, namespace,
+		func(n SBNamespace) []string { return []string{n.Name} }); ok {
+		return ns.ID
 	}
 	return "servicebus://" + namespace
 }
+
+var sbNamespacesByName sim.GenerationIndex[SBNamespace]
 
 func sbAdminQueueID(namespace, queue string) string {
 	return sbAdminNamespaceID(namespace) + "/queues/" + queue

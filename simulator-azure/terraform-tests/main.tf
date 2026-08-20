@@ -631,6 +631,50 @@ resource "azurerm_storage_share_directory" "az_st_share_subdir" {
 }
 
 # Linux Function App — AZF runner backend's host primitive.
+# The backup block is the leg that crashed terraform-provider-azurerm 5.1.0:
+# FlattenBackupConfig dereferences the schedule's start time before its own
+# nil check, and the simulator used to serve a backup schedule without one —
+# a document real Azure never returns, because the service defaults the start
+# time at configuration save. The signed URL is the provider's own documented
+# shape for `storage_account_url`: an account SAS from
+# `data.azurerm_storage_account_sas`, which the storage data plane verifies
+# against the account's keys like every other signature.
+resource "azurerm_storage_container" "az_fa_backups" {
+  name               = "tf-azrm-fa-backups"
+  storage_account_id = azurerm_storage_account.az_st.id
+}
+
+data "azurerm_storage_account_sas" "az_fa_backup" {
+  connection_string = azurerm_storage_account.az_st.primary_connection_string
+  https_only        = false
+  signed_version    = "2022-11-02"
+  resource_types {
+    service   = false
+    container = true
+    object    = true
+  }
+  services {
+    blob  = true
+    queue = false
+    table = false
+    file  = false
+  }
+  start  = "2026-01-01T00:00:00Z"
+  expiry = "2030-01-01T00:00:00Z"
+  permissions {
+    read    = true
+    write   = true
+    delete  = true
+    list    = true
+    add     = false
+    create  = true
+    update  = false
+    process = false
+    tag     = false
+    filter  = false
+  }
+}
+
 resource "azurerm_linux_function_app" "az_fa" {
   name                       = "tf-azrm-fa"
   resource_group_name        = azurerm_resource_group.az_rg.name
@@ -640,6 +684,38 @@ resource "azurerm_linux_function_app" "az_fa" {
   storage_account_access_key = azurerm_storage_account.az_st.primary_access_key
 
   site_config {}
+}
+
+# Backups need a dedicated Basic-or-higher plan: az_sp is deliberately Y1, and
+# real Azure refuses a backup configuration on a Consumption plan — which is
+# one of the three failures fixed before the provider crash was run down.
+resource "azurerm_service_plan" "az_backup_sp" {
+  name                = "tf-azrm-backup-sp"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  location            = azurerm_resource_group.az_rg.location
+  os_type             = "Linux"
+  sku_name            = "S1"
+}
+
+resource "azurerm_linux_function_app" "az_backup_fa" {
+  name                       = "tf-azrm-backup-fa"
+  resource_group_name        = azurerm_resource_group.az_rg.name
+  location                   = azurerm_resource_group.az_rg.location
+  service_plan_id            = azurerm_service_plan.az_backup_sp.id
+  storage_account_name       = azurerm_storage_account.az_st.name
+  storage_account_access_key = azurerm_storage_account.az_st.primary_access_key
+
+  site_config {}
+
+  backup {
+    name                = "tf-azrm-fa-nightly"
+    storage_account_url = "${azurerm_storage_account.az_st.primary_blob_endpoint}${azurerm_storage_container.az_fa_backups.name}${data.azurerm_storage_account_sas.az_fa_backup.sas}"
+    schedule {
+      frequency_interval    = 1
+      frequency_unit        = "Day"
+      retention_period_days = 7
+    }
+  }
 }
 
 # App Service public certificate — the Microsoft.Web/sites/publicCertificates

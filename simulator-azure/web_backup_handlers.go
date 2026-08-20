@@ -132,6 +132,15 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 			BackupSchedule:    req.Properties.BackupSchedule,
 			Databases:         req.Properties.Databases,
 		}
+		// Real Azure defaults a schedule's start time to the moment the
+		// configuration is saved, and always serves one back. A schedule
+		// without it is a document real Azure never returns — and
+		// terraform-provider-azurerm 5.1.0 dereferences the member before its
+		// own nil check (FlattenBackupConfig, common_web_app_schema.go:1158),
+		// so serving the omission crashed the provider mid-apply.
+		if row.BackupSchedule != nil && row.BackupSchedule.StartTime == "" {
+			row.BackupSchedule.StartTime = time.Now().UTC().Format("2006-01-02T15:04:05.9999999")
+		}
 		webBackupConfigs.Put(row.ID, row)
 		sim.WriteJSON(w, http.StatusOK, backupConfigWire(r, row))
 	})
