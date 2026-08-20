@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.6](https://github.com/e6qu/sockerless-cloud/compare/v0.12.5...v0.12.6) (2026-08-20)
+
+
+### Bug Fixes
+
+* close nine registry, Cosmos DB and workload-collection bugs, and give the freshness run somewhere to land ([#50](https://github.com/e6qu/sockerless-cloud/issues/50)) ([d651b44](https://github.com/e6qu/sockerless-cloud/commit/d651b448bb2b5936eb20fd699ed3c6ff8ea127c3))
+
 ## [0.12.5](https://github.com/e6qu/sockerless-cloud/compare/v0.12.4...v0.12.5) (2026-08-19)
 
 
