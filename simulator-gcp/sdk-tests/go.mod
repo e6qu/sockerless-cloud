@@ -21,7 +21,7 @@ require (
 	google.golang.org/api v0.293.0
 	google.golang.org/genproto v0.0.0-20260810153831-ec0a7760b754
 	google.golang.org/genproto/googleapis/api v0.0.0-20260810153831-ec0a7760b754
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.12
 )
 
