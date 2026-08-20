@@ -1,0 +1,152 @@
+# The blocking half of dependency freshness.
+#
+# CI's check-deps job runs the same check with --baseline origin/main, which
+# holds a branch to the dependencies that branch pinned. Pins it left exactly as
+# main recorded them are reported as INHERITED there, because upstream
+# publishing during a branch's life says nothing about the change under review.
+#
+# The adoption quarantine makes that inevitable rather than occasional: a
+# version becomes drift exactly 86400s after it is published, whether or not
+# anybody pushed. Over one day on main that turned five of six consecutive runs
+# red — docker/setup-buildx-action v4.3.0, google.golang.org/grpc v1.83.1,
+# aws-sdk-go-v2/service/organizations v1.54.0 — none of them touched by the
+# commits they failed. A main that is red by default is not a gate; it is noise
+# that hides the run which matters, and it destroys the one signal an operator
+# uses to choose a deployable commit.
+#
+# Inherited drift is relocated here, not forgiven. This workflow runs against
+# main with no baseline, so every pin behind its newest adoptable version fails,
+# and it fails somewhere that belongs to nobody's branch.
+#
+# The bump job then puts the refresh somewhere, exactly as spec-freshness.yml
+# does for the vendored specifications — but only when no pull request is open,
+# because this project allows exactly one at a time and
+# scripts/check-single-open-pr.sh enforces it. While one is open, the bump
+# belongs in it: check-deps annotates that pull request with each inherited pin,
+# which is where the person who can act on it is looking.
+name: Dependency freshness
+
+on:
+  schedule:
+    # 05:30 UTC daily, half an hour before the specification freshness run, so
+    # the two never contend for the single open-pull-request slot on the same
+    # tick and a dependency bump does not lose that race to a spec bump.
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps-freshness
+  cancel-in-progress: true
+
+env:
+  # Same key CI caches the module downloads under, so this run reuses that
+  # cache rather than paying a cold download of every module twice a day.
+  GO_CACHE_DEPENDENCY_PATHS: |
+    go.work
+    **/go.sum
+
+jobs:
+  freshness:
+    name: dependencies behind their newest adoptable version
+    runs-on: ubuntu-latest
+    # Every step queries a live upstream — the module proxy, the Terraform
+    # registry, and the GitHub API — so the duration tracks those services
+    # rather than anything here. Same budget CI's check-deps job carries.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - name: Install check tools
+        run: bash scripts/ci-apt-install.sh jq
+      # No --baseline. On main the baseline would be main itself, which would
+      # attribute every pin to the base and pass unconditionally — the whole
+      # point of running here is that this is the one place with nothing to
+      # inherit from.
+      - name: Dependencies are on their newest adoptable version
+        run: bash scripts/check-latest-deps.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  bump:
+    name: open the bump pull request
+    needs: freshness
+    if: ${{ !cancelled() && needs.freshness.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # A bump opened on top of somebody's branch would break their next commit
+      # rather than help them, because check-single-open-pr.sh fails every
+      # commit while a second pull request exists.
+      - name: Nothing else may be open
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          open=$(gh pr list --state open --json number --jq 'length')
+          echo "open=$open" >> "$GITHUB_OUTPUT"
+          if [ "$open" != "0" ]; then
+            echo "::notice title=Dependency bump deferred to the open pull request::${open} pull request(s) open; this project allows one at a time. The drifted pins are annotated on it by check-deps and the bump belongs in that branch."
+          fi
+      - name: Install check tools
+        if: ${{ steps.gate.outputs.open == '0' }}
+        run: bash scripts/ci-apt-install.sh jq
+      # Only the Go half is mechanical. Terraform constraints and Actions tags
+      # are edited by hand because bumping them can require a `terraform init
+      # -upgrade` or a workflow change, so those are left to the report the
+      # freshness job printed and to the reviewer of this pull request.
+      - name: Bring every Go module to its newest adoptable version
+        if: ${{ steps.gate.outputs.open == '0' }}
+        run: make upgrade-deps
+      - name: Open the pull request
+        if: ${{ steps.gate.outputs.open == '0' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "::notice title=No dependency bump to open::the freshness job failed but nothing upgraded mechanically; the report names Terraform constraints or Actions tags that have to be bumped by hand."
+            exit 0
+          fi
+          # One branch, reused. A new branch per run would leave a trail of
+          # stale ones for the same job.
+          branch=deps-freshness-bump
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$branch"
+          git add -A
+          git commit -m 'chore(deps): adopt the newest versions that cleared the quarantine' \
+            -m "$(git diff --cached --name-only | sed 's/^/- /')"
+          git push --force origin "$branch"
+          cat > "$RUNNER_TEMP/bump-body.md" <<'BODY'
+          Opened by the scheduled dependency-freshness run, which fails on `main` when a pin is behind the newest version that has cleared the adoption quarantine and until now had nowhere to put the bump.
+
+          Only the Go modules are upgraded mechanically, by `make upgrade-deps`. If the run also reported a Terraform constraint or a GitHub Actions tag, those are bumped by hand — a provider bump needs `terraform init -upgrade`, and an action's new major can need a workflow change.
+
+          Check the module diffs for behaviour, not just version numbers: an AWS SDK bump can move an API shape the simulators are measured against.
+          BODY
+          # A YAML block scalar indents every line of the heredoc with it.
+          sed -i 's/^          //' "$RUNNER_TEMP/bump-body.md"
+          gh pr create --base main --head "$branch" \
+            --title 'chore(deps): adopt the newest versions that cleared the quarantine' \
+            --body-file "$RUNNER_TEMP/bump-body.md"

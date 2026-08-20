@@ -63,6 +63,38 @@ if ((quarantine_seconds < ADOPTION_QUARANTINE_FLOOR_SECONDS)); then
 fi
 readonly quarantine_seconds
 
+# --- Baseline attribution --------------------------------------------------
+#
+# Usage: scripts/check-latest-deps.sh [--baseline <ref>]
+#
+# Without --baseline every drift fails. That is the form the scheduled run on
+# main uses, and it is what keeps the dependencies from rotting.
+#
+# --baseline <ref> attributes each drift before failing on it, the same way
+# scripts/check-spec-freshness.sh already does for the vendored specifications.
+# Upstream publishes continuously and independently of any branch, and the
+# quarantine guarantees a steady drip: a version becomes drift exactly 86400s
+# after it appears, whether or not anybody pushed. On main over one day that
+# turned five of six consecutive runs red on dependencies nothing had touched
+# --- docker/setup-buildx-action v4.3.0, google.golang.org/grpc v1.83.1,
+# aws-sdk-go-v2/service/organizations v1.54.0 --- and a permanently red main is
+# not a gate, it is noise that hides the run which matters.
+#
+# With a baseline, a pin byte-identical to the baseline's carries drift the
+# baseline already carried: upstream moved under the branch rather than the
+# branch letting the pin rot. That is reported as INHERITED without failing. A
+# pin the branch changed, rolled back, or added is the branch's own and is
+# still held to the newest adoptable version, so a branch can never leave
+# dependency freshness worse than the base it started from.
+#
+# Inherited drift is relocated, not forgiven: the scheduled run carries no
+# baseline and fails on it there.
+BASELINE=""
+if [ "${1:-}" = "--baseline" ]; then
+  BASELINE="${2:?--baseline needs a git ref}"
+  shift 2
+fi
+
 if ! REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
   script_path=$0
   case "$script_path" in
@@ -72,6 +104,11 @@ if ! REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
   REPO_ROOT="$(cd "$(dirname "$script_path")/.." && pwd)"
 fi
 cd "$REPO_ROOT"
+
+if [ -n "$BASELINE" ] && ! git rev-parse --verify --quiet "$BASELINE^{commit}" >/dev/null; then
+  echo "ERROR: baseline ref '$BASELINE' is not available in $REPO_ROOT; fetch it before running this check" >&2
+  exit 2
+fi
 
 for tool in go curl jq; do
   command -v "$tool" >/dev/null 2>&1 || {
@@ -88,6 +125,7 @@ readonly now_epoch
 
 fail=0
 held=0
+inherited=0
 
 # rfc3339_epoch converts an RFC 3339 UTC timestamp (2026-06-10T14:10:43Z, with
 # optional fractional seconds) to seconds since the Unix epoch, and fails on
@@ -202,13 +240,58 @@ adoptable_version() {
   return 0
 }
 
+# baseline_holds_pin answers whether the baseline ref records the same pin for
+# this dependency, which is what makes the drift the baseline's rather than the
+# branch's.
+#
+#   $1 file the pin lives in (repo-relative)  $2 dependency token  $3 pin
+#
+# The dependency token and the pin share a line in both formats that actually
+# churn -- `module/path v1.2.3` in a go.mod require, and
+# `uses: owner/repo@v1.2.3` in a workflow -- so a line in the baseline's copy
+# of the file carrying both is the baseline recording that pin. A Terraform
+# constraint spans two lines of a required_providers block, so those pass the
+# file itself as the token and fall back to "the branch did not touch this
+# file at all", which cannot wrongly forgive a branch that edited a pin.
+#
+# Absence is not inheritance: a file the baseline does not have is a file the
+# branch added, and its pins are the branch's own.
+baseline_holds_pin() {
+  local file=$1 token=$2 pinned=$3 baseline_copy
+  [ -n "$BASELINE" ] || return 1
+  baseline_copy=$(git show "$BASELINE:$file" 2>/dev/null) || return 1
+  if [ "$token" = "$file" ]; then
+    [ "$baseline_copy" = "$(cat "$file" 2>/dev/null)" ]
+    return
+  fi
+  printf '%s\n' "$baseline_copy" |
+    grep -F -- "$token" |
+    grep -qE "(^|[^0-9A-Za-z._-])${pinned//./\\.}([^0-9A-Za-z._-]|\$)"
+}
+
 # report_version_state turns one resolved dependency into a line of output: a
-# FAIL for real drift, a HELD for a newer version still inside the quarantine,
-# and silence when the pin is exactly what should be adopted.
+# FAIL for real drift, an INHERITED for drift the baseline already carried, a
+# HELD for a newer version still inside the quarantine, and silence when the
+# pin is exactly what should be adopted.
 #   $1 label for the dependency  $2 pinned version
+#   $3 file the pin lives in (optional)  $4 dependency token (optional)
 report_version_state() {
-  local label=$1 pinned=$2
+  local label=$1 pinned=$2 file=${3:-} token=${4:-}
   if [[ -n $ADOPTABLE && $ADOPTABLE != "$pinned" ]]; then
+    if [[ -n $file ]] && baseline_holds_pin "$file" "${token:-$file}" "$pinned"; then
+      echo "  INHERITED  $label pinned $pinned (latest adoptable $ADOPTABLE)"
+      echo "      pin unchanged from $BASELINE; the scheduled dependency freshness run holds this one"
+      # Not failing the branch is not the same as saying nothing. Inherited
+      # drift printed only into a passing job's log is drift nobody reads, and
+      # the scheduled run fails somewhere that belongs to no branch. A warning
+      # annotation puts it in front of whoever holds the open pull request,
+      # which is where the bump has to land anyway.
+      if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        echo "::warning title=Dependency is behind the newest adoptable version::${label} pinned ${pinned}, latest adoptable ${ADOPTABLE} — inherited from ${BASELINE} rather than caused by this branch, so it does not fail here. Bundle the bump into this pull request; the scheduled run has nowhere else to put it."
+      fi
+      inherited=$((inherited + 1))
+      return
+    fi
     echo "  FAIL  $label pinned $pinned (latest adoptable $ADOPTABLE)"
     fail=$((fail + 1))
     return
@@ -269,7 +352,7 @@ while IFS= read -r mod_file; do
       fail=$((fail + 1))
       continue
     fi
-    report_version_state "$mod_dir: $name" "$pinned"
+    report_version_state "$mod_dir: $name" "$pinned" "$mod_file" "$name"
   done <<<"$deps"
   popd >/dev/null
 done < <(git ls-files 'go.mod' '*/go.mod' | sort)
@@ -371,6 +454,12 @@ while IFS= read -r tf; do
         held=$((held + 1))
         continue
       fi
+      if baseline_holds_pin "$tf" "$tf" "$exact_pin"; then
+        echo "  INHERITED  $tf: $name ($source) pinned at $exact_pin vs latest adoptable $ADOPTABLE"
+        echo "      file unchanged from $BASELINE; the scheduled dependency freshness run holds this one"
+        inherited=$((inherited + 1))
+        continue
+      fi
       echo "  FAIL  $tf: $name ($source) pinned at $exact_pin vs latest adoptable $ADOPTABLE (bump the pin, then \`terraform init -upgrade\`)"
       fail=$((fail + 1))
       continue
@@ -378,8 +467,14 @@ while IFS= read -r tf; do
     constraint_major=$(echo "$ver_constraint" | sed -E 's/[^0-9]*([0-9]+).*/\1/')
     latest_major=$(echo "$ADOPTABLE" | sed -E 's/^([0-9]+).*/\1/')
     if [[ "$constraint_major" != "$latest_major" ]]; then
-      echo "  FAIL  $tf: $name ($source) constraint $ver_constraint vs latest adoptable $ADOPTABLE (run \`terraform init -upgrade\` then bump constraint)"
-      fail=$((fail + 1))
+      if baseline_holds_pin "$tf" "$tf" "$ver_constraint"; then
+        echo "  INHERITED  $tf: $name ($source) constraint $ver_constraint vs latest adoptable $ADOPTABLE"
+        echo "      file unchanged from $BASELINE; the scheduled dependency freshness run holds this one"
+        inherited=$((inherited + 1))
+      else
+        echo "  FAIL  $tf: $name ($source) constraint $ver_constraint vs latest adoptable $ADOPTABLE (run \`terraform init -upgrade\` then bump constraint)"
+        fail=$((fail + 1))
+      fi
     elif [[ -n "$HELD_NOTE" ]]; then
       echo "  HELD  $tf: $name ($source) constraint $ver_constraint: $HELD_NOTE — inside the ${quarantine_seconds}s adoption quarantine, so it is not drift yet"
       held=$((held + 1))
@@ -532,7 +627,7 @@ if [[ -d .github/workflows ]]; then
       fail=$((fail + 1))
       continue
     fi
-    report_version_state "$file: $repo" "$pinned"
+    report_version_state "$file: $repo" "$pinned" "$file" "$repo"
   done <<<"$actions"
 fi
 
@@ -540,9 +635,12 @@ echo
 if [[ $held -gt 0 ]]; then
   echo "$held newer version(s) held: published less than ${quarantine_seconds}s ago and deliberately not adopted yet. They are re-checked on every run and become drift once they age out."
 fi
+if [[ $inherited -gt 0 ]]; then
+  echo "$inherited dependency drift(s) inherited from $BASELINE: upstream moved under this branch rather than this branch letting the pin rot, so they do not fail here. The scheduled dependency freshness run carries no baseline and fails on them there; bundling the bump into the open pull request is what clears it."
+fi
 if [[ $fail -gt 0 ]]; then
   echo "$fail dependency drift(s) detected. Run \`make upgrade-deps\` from the affected module dirs (Go), update the provider constraint + \`terraform init -upgrade\` (TF), or pin GitHub Actions to the newest adoptable semantic tag, then re-run this check." >&2
   exit 1
 fi
-echo "OK: every dependency is on the newest version that has cleared the ${quarantine_seconds}s adoption quarantine."
+echo "OK: every dependency this branch owns is on the newest version that has cleared the ${quarantine_seconds}s adoption quarantine."
 exit 0
