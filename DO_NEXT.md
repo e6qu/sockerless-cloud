@@ -1,21 +1,20 @@
 # DO NEXT
 
-1. Twenty-seven full store reads remain on request paths, held by the floor in
+1. Fourteen full store reads remain on request paths, held by the floor in
    `scripts/check-store-scans.sh`. Every single-row-by-stable-key lookup and
    every parent-scoped child collection is converted, the latter by indexing a
-   row under each "/"-terminated prefix of its resource identifier, so one
-   index serves a listing and a cascading delete at any depth. What remains is
-   a different shape: List operations whose response is the whole collection
-   (role assignments, deleted shares); bulk mutations that key off a path
-   rather than an identifier prefix (Azure Files share deletion and entry
-   moves, table batch snapshot and restore); fan-outs that visit every row by
-   design (Event Grid delivery, CloudTrail trail delivery, ELBv2 target-group
-   use); joins over small stores (load-balancer and Application Gateway network
-   interface pools); and the AWS Certificate Manager ACME scans, which
-   reconcile each row as they read it and so cannot answer from an index
-   without changing what a read means. The Azure Files and table-entity
-   families are the next tractable group: both key off a share or table name
-   that is already the first path segment.
+   row under each "/"-terminated prefix of its identifier (`sim.PathPrefixes`),
+   so one index serves a listing and a cascading delete at any depth. The
+   fourteen that remain are not that class: fan-outs whose operation is "every
+   subscriber" (Event Grid delivery, CloudTrail trail delivery, the ELBv2
+   listener and rule search behind target-group use, the role-assignment
+   listing); joins that match on a value rather than a key (the load-balancer
+   and Application Gateway network-interface pools, the ELBv2 listener a
+   proxied request lands on); and the AWS Certificate Manager ACME scans,
+   which reconcile each row as they read it. Each needs an argument about the
+   operation rather than another index — the Application Gateway and
+   load-balancer pools are the likeliest, since a network interface's private
+   addresses are a stable key and the pools match on exactly those.
 
 2. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read

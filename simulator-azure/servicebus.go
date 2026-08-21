@@ -131,43 +131,29 @@ var (
 	sbAuthRulesByParent     sim.GenerationIndex[SBAuthorizationRule]
 )
 
-// sbIDPrefixes returns every prefix of a resource identifier that ends at a
-// path separator. A row indexed under all of them answers any
-// `HasPrefix(id, parent+"/")` question exactly, at every depth, so one index
-// per store serves a direct child collection and a cascading delete alike.
-func sbIDPrefixes(id string) []string {
-	var prefixes []string
-	for i := 0; i < len(id); i++ {
-		if id[i] == '/' {
-			prefixes = append(prefixes, id[:i+1])
-		}
-	}
-	return prefixes
-}
-
 func sbQueuesUnder(prefix string) []SBQueue {
 	return sbQueuesByParent.LookupAll(sbQueues, prefix,
-		func(q SBQueue) []string { return sbIDPrefixes(q.ID) })
+		func(q SBQueue) []string { return sim.PathPrefixes(q.ID) })
 }
 
 func sbTopicsUnder(prefix string) []SBTopic {
 	return sbTopicsByParent.LookupAll(sbTopics, prefix,
-		func(t SBTopic) []string { return sbIDPrefixes(t.ID) })
+		func(t SBTopic) []string { return sim.PathPrefixes(t.ID) })
 }
 
 func sbSubscriptionsUnder(prefix string) []SBSubscription {
 	return sbSubscriptionsByParent.LookupAll(sbSubscriptions, prefix,
-		func(s SBSubscription) []string { return sbIDPrefixes(s.ID) })
+		func(s SBSubscription) []string { return sim.PathPrefixes(s.ID) })
 }
 
 func sbRulesUnder(prefix string) []SBRule {
 	return sbRulesByParent.LookupAll(sbRules, prefix,
-		func(r SBRule) []string { return sbIDPrefixes(r.ID) })
+		func(r SBRule) []string { return sim.PathPrefixes(r.ID) })
 }
 
 func sbAuthRulesUnder(prefix string) []SBAuthorizationRule {
 	return sbAuthRulesByParent.LookupAll(sbAuthRules, prefix,
-		func(r SBAuthorizationRule) []string { return sbIDPrefixes(r.ID) })
+		func(r SBAuthorizationRule) []string { return sim.PathPrefixes(r.ID) })
 }
 
 func registerServiceBus(srv *sim.Server) {

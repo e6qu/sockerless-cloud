@@ -2,8 +2,8 @@
 
 ## 2026-08-21, third pass — the parent-scoped store scans converted
 
-**Nineteen full store reads left the request paths, and the floor fell 46 →
-27.** The previous pass converted every single-row-by-stable-key lookup and
+**Thirty-two full store reads left the request paths, and the floor fell
+46 → 14.** The previous pass converted every single-row-by-stable-key lookup and
 left the parent-scoped collections behind as "collection-shaped by
 inspection". They were not: a resource identifier's every "/"-terminated
 prefix is a key, so one generation-keyed index per store answers a direct
@@ -28,6 +28,14 @@ identifier — exactly the `HasSuffix` question the scan asked, so a namespace
 under a resource group called "namespaces", or a queue called "namespaces",
 resolves correctly where resolving the segment by its first or last occurrence
 would not.
+
+The Azure Files and Table service families went the same way, on the same
+primitive promoted to `sim.PathPrefixes`: every Files row is keyed
+`account/share/...` and every table entity `account/table/partition/row`, so a
+share delete, a directory rename, a share listing, an entity query, a table
+deletion and a batch snapshot or restore each read only their own subtree.
+Deleting one share had been decoding every other share's objects,
+directories, leases, permissions and snapshots.
 
 **The conversions are held by equivalence tests, not by expectations.** Each
 case computes the answer with the scan it replaced and with the index, over

@@ -82,3 +82,21 @@ func (i *GenerationIndex[T]) LookupAll(store Store[T], key string, keysOf func(T
 	}
 	return i.byKey[key]
 }
+
+// PathPrefixes returns every prefix of a "/"-separated identifier that ends at
+// a separator.
+//
+// It is the keysOf for a store whose rows are addressed by a parent's
+// identifier plus a child segment. A row indexed under all of its prefixes
+// answers any `HasPrefix(id, parent+"/")` question exactly, at every depth, so
+// one index serves a direct child collection and a cascading delete alike,
+// without the index having to know which depth a caller will ask about.
+func PathPrefixes(id string) []string {
+	var prefixes []string
+	for i := range len(id) {
+		if id[i] == '/' {
+			prefixes = append(prefixes, id[:i+1])
+		}
+	}
+	return prefixes
+}

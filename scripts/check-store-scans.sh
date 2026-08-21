@@ -59,25 +59,33 @@ readonly SCAN_DIRS=(
 # resolutions, and the managed-identity principal check.
 #
 # The parent-scoped collections are converted too. A resource identifier's
-# every "/"-terminated prefix is a key, so one index per store answers a direct
-# child collection and a cascading delete alike: the Service Bus admin listings
-# and their deletes, the Key Vault per-vault listings, the AWS Amplify hosted
-# job and artifact lookups, and the Route 53 CNAME searches that AWS
-# Certificate Manager and Amplify domain verification both make. The Shared
-# Access Signature rules the messaging host authenticates against are keyed by
-# every `/namespaces/` suffix of their identifier, which is exactly the
-# HasSuffix question the scan asked.
+# every "/"-terminated prefix is a key -- sim.PathPrefixes builds them -- so one
+# index per store answers a direct child collection and a cascading delete
+# alike: the Service Bus admin listings and their deletes, the Key Vault
+# per-vault listings, the Azure Files share families (objects, directories,
+# leases, permissions, snapshots, deleted shares), the Table service's entity
+# query, table deletion and batch snapshot/restore, the AWS Amplify hosted job
+# and artifact lookups, and the Route 53 CNAME searches that AWS Certificate
+# Manager and Amplify domain verification both make. The Shared Access
+# Signature rules the messaging host authenticates against are keyed by every
+# `/namespaces/` suffix of their identifier, which is exactly the HasSuffix
+# question the scan asked.
 #
-# What remains is, by inspection: List operations whose response is the whole
-# collection (role assignments, deleted shares); bulk mutations over a parent's
-# children that key off a path rather than an identifier prefix (share
-# deletion, entry moves, table batch snapshot/restore); fan-outs that visit
-# every row by design (Event Grid delivery, CloudTrail trail delivery, ELBv2
-# target-group use); joins over small stores (load-balancer and Application
-# Gateway NIC pools); and the ACME scans, which reconcile each row as they read
-# it and so cannot answer from an index without changing what a read means.
-# Convert one faithfully and lower the floor.
-readonly STORE_SCAN_FLOOR=27
+# The fourteen that remain are three shapes, none of them a keyed lookup:
+#
+#   - Fan-outs that visit every row by design, because the operation is
+#     "every subscriber": Event Grid delivery, CloudTrail trail delivery,
+#     the ELBv2 listener and rule search that decides whether a target group
+#     is in use, and the role-assignment listing.
+#   - Joins over small stores that match on a value rather than a key: the
+#     load-balancer and Application Gateway network-interface pools, and the
+#     ELBv2 listener a proxied request lands on.
+#   - The AWS Certificate Manager ACME scans, which reconcile each row as they
+#     read it, so answering from an index would change what a read means.
+#
+# Converting one of these needs an argument about the operation, not another
+# index. Lower the floor when one is made.
+readonly STORE_SCAN_FLOOR=14
 
 report=$(mktemp)
 diag=$(mktemp)
