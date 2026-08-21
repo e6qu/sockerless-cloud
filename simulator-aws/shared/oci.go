@@ -508,33 +508,46 @@ const ociMaxBodyBytes = 2 << 30 // 2 GiB
 // bounded by ociMaxBodyBytes (post-decompression) so a maliciously large or
 // highly-compressible body cannot exhaust memory.
 func ociReadBody(r *http.Request) ([]byte, error) {
+	return ociReadBodyLimited(r, ociMaxBodyBytes)
+}
+
+// ociReadBodyLimited is ociReadBody with the cap supplied rather than assumed.
+//
+// The cap is two gibibytes, and a test that proves the limit by reaching it
+// must materialize that much: two such tests together peaked at 7.7 GiB of
+// resident memory under the race detector, on a hosted runner that has 7 GiB
+// in total. What they assert — that the read stops one byte past the cap
+// instead of truncating, on the plain path and after inflation alike — is a
+// property of the boundary, not of its size, so the tests supply a small cap
+// and assert both sides of it exactly.
+func ociReadBodyLimited(r *http.Request, limit int64) ([]byte, error) {
 	switch ce := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))); ce {
 	case "", "identity":
-		return readCapped(r.Body)
+		return readCapped(r.Body, limit)
 	case "gzip":
 		gz, err := gzip.NewReader(r.Body)
 		if err != nil {
 			return nil, fmt.Errorf("gzip body: %w", err)
 		}
 		defer func() { _ = gz.Close() }()
-		return readCapped(gz)
+		return readCapped(gz, limit)
 	default:
 		return nil, fmt.Errorf("unsupported Content-Encoding %q", ce)
 	}
 }
 
-// readCapped reads up to ociMaxBodyBytes from r, returning an error if the
-// stream exceeds the cap rather than silently truncating (a truncated blob
-// would later fail the digest check with a confusing DIGEST_INVALID).
-func readCapped(r io.Reader) ([]byte, error) {
+// readCapped reads up to limit bytes from r, returning an error if the stream
+// exceeds it rather than silently truncating (a truncated blob would later
+// fail the digest check with a confusing DIGEST_INVALID).
+func readCapped(r io.Reader, limit int64) ([]byte, error) {
 	// Read one byte past the cap so a body of exactly the limit succeeds while
 	// anything larger is rejected.
-	data, err := io.ReadAll(io.LimitReader(r, ociMaxBodyBytes+1))
+	data, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) > ociMaxBodyBytes {
-		return nil, fmt.Errorf("request body exceeds %d-byte limit", int64(ociMaxBodyBytes))
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("request body exceeds %d-byte limit", limit)
 	}
 	return data, nil
 }

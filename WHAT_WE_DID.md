@@ -1,5 +1,30 @@
 # WHAT WE DID
 
+## 2026-08-21, fourth pass — the race job was killing its own runner
+
+**A test that proved a two-gibibyte cap by reaching it was the cause of four
+"infrastructure" failures.** The `race (simulator-aws shared)` job had lost
+four pull requests in a row — three to `The runner has received a shutdown
+signal`, the fourth to its own ten-and-a-half-minute deadline — and had been
+filed as a hosted-runner problem to be worked around by sharding the job.
+Measuring it settled the question: `TestOCIReadBodyRejectsGzipBomb` and
+`TestOCIReadBodyRejectsOversizedIdentity` together peaked at **7.7 GiB of
+resident memory** under the race detector, on a runner with 7 GiB. The job was
+being killed for exhausting its runner, and the successful runs — 10m1s to
+10m16s against a 10m30s budget — were the ones that finished while thrashing.
+
+The OCI body cap is a parameter now rather than a constant read at the point of
+use. What the two tests assert is a property of the boundary, not of its size,
+so they supply a 64 KiB cap and assert *both* of its sides: a body of exactly
+the cap is returned whole, one byte more is refused rather than truncated, on
+the plain path and after inflation alike. The full-size version could only ever
+afford the refusal half. A third test pins the cap the served path applies, so
+the parameter cannot drift from the registry's real limit.
+
+The suite went from 229 seconds and 7.7 GiB to 104 seconds and 1.4 GiB. The
+sharding the bug entry had proposed is not needed, and no required status
+context changes.
+
 ## 2026-08-21, third pass — the parent-scoped store scans converted
 
 **Thirty-nine full store reads left the request paths, and the floor fell
