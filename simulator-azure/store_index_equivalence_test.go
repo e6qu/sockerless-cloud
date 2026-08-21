@@ -304,3 +304,104 @@ func TestKeyVaultListingsAreScopedToTheirVault(t *testing.T) {
 		t.Errorf("a second listing changed order: %s then %s", again[0].Name, again[1].Name)
 	}
 }
+
+// A workload joins a load balancer's or an application gateway's backend
+// through its own network interface, so both pools are answered by one index
+// over the interfaces. The lookup runs in a handler wrapper for the gateway,
+// so every request into the simulator paid the scan it replaces.
+func TestBackendPoolMembersMatchTheInterfaceScan(t *testing.T) {
+	azureNICs = sim.MakeStore[NetworkInterface](nil, "test_index_nics")
+	t.Cleanup(func() { azureNICs = nil })
+
+	const lbPool = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/loadBalancers/lb/backendAddressPools/web"
+	const gwPool = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/applicationGateways/gw/backendAddressPools/api"
+	const otherPool = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/loadBalancers/lb/backendAddressPools/idle"
+
+	nic := func(name, address string, lbPools, gwPools []string) {
+		var lbRefs []LoadBalancerChild
+		for _, id := range lbPools {
+			lbRefs = append(lbRefs, LoadBalancerChild{ID: id})
+		}
+		var gwRefs []SubResource
+		for _, id := range gwPools {
+			gwRefs = append(gwRefs, SubResource{ID: id})
+		}
+		azureNICs.Put(name, NetworkInterface{
+			ID:   "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/" + name,
+			Name: name,
+			Properties: NetworkInterfaceProperties{
+				IPConfigurations: []NetworkInterfaceIPConfiguration{{
+					Name: "ipconfig1",
+					Properties: NetworkInterfaceIPConfigurationProperties{
+						PrivateIPAddress:                      address,
+						LoadBalancerBackendAddressPools:       lbRefs,
+						ApplicationGatewayBackendAddressPools: gwRefs,
+					},
+				}},
+			},
+		})
+	}
+	nic("nic-1", "10.0.0.4", []string{lbPool}, nil)
+	nic("nic-2", "10.0.0.5", []string{lbPool}, []string{gwPool})
+	nic("nic-3", "10.0.0.6", []string{otherPool}, nil)
+	nic("nic-4", "10.0.0.7", nil, nil)
+
+	// The oracle: the scan each caller performed over every interface.
+	scan := func(poolID string) []string {
+		var names []string
+		for _, n := range azureNICs.List() {
+			for _, ipcfg := range n.Properties.IPConfigurations {
+				inPool := false
+				for _, ref := range ipcfg.Properties.LoadBalancerBackendAddressPools {
+					if strings.EqualFold(ref.ID, poolID) {
+						inPool = true
+					}
+				}
+				for _, ref := range ipcfg.Properties.ApplicationGatewayBackendAddressPools {
+					if strings.EqualFold(ref.ID, poolID) {
+						inPool = true
+					}
+				}
+				if inPool {
+					names = append(names, n.Name)
+				}
+			}
+		}
+		return names
+	}
+
+	// ARM compares resource identifiers case-insensitively, and a caller may
+	// hold the pool identifier in either case.
+	for _, poolID := range []string{lbPool, gwPool, otherPool, strings.ToUpper(lbPool), "absent"} {
+		var got []string
+		for _, n := range azureNICsInBackendPool(poolID) {
+			got = append(got, n.Name)
+		}
+		requireSameOrEmpty(t, "members of "+poolID, scan(poolID), got)
+	}
+
+	// The gateway's own accessor returns the IP configurations, not the
+	// interfaces, and only those that named this pool.
+	members := applicationGatewayPoolMemberIPConfigurations(gwPool)
+	if len(members) != 1 || members[0].Properties.PrivateIPAddress != "10.0.0.5" {
+		t.Errorf("the gateway pool holds exactly nic-2's configuration, got %+v", members)
+	}
+	if got := applicationGatewayPoolMemberIPConfigurations(""); got != nil {
+		t.Errorf("an empty pool identifier matches nothing, got %+v", got)
+	}
+}
+
+// requireSameOrEmpty compares a scan and an index answer, allowing the empty
+// case the previous helper rejects — here a pool with no members is a case
+// worth proving rather than a sign the fixture missed.
+func requireSameOrEmpty(t *testing.T, what string, want, got []string) {
+	t.Helper()
+	sorted := func(in []string) string {
+		out := append([]string(nil), in...)
+		sort.Strings(out)
+		return strings.Join(out, "\n")
+	}
+	if sorted(want) != sorted(got) {
+		t.Errorf("%s:\nscan  %v\nindex %v", what, want, got)
+	}
+}

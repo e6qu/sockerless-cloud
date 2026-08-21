@@ -71,21 +71,24 @@ readonly SCAN_DIRS=(
 # `/namespaces/` suffix of their identifier, which is exactly the HasSuffix
 # question the scan asked.
 #
-# The fourteen that remain are three shapes, none of them a keyed lookup:
+# The backend-address-pool joins converted as well, on the observation that a
+# pool identifier is a stable key: a workload joins a load balancer's backend
+# and an application gateway's the same way, through its own network
+# interface, so one index over the interfaces answers both.
 #
-#   - Fan-outs that visit every row by design, because the operation is
-#     "every subscriber": Event Grid delivery, CloudTrail trail delivery,
-#     the ELBv2 listener and rule search that decides whether a target group
-#     is in use, and the role-assignment listing.
-#   - Joins over small stores that match on a value rather than a key: the
-#     load-balancer and Application Gateway network-interface pools, and the
-#     ELBv2 listener a proxied request lands on.
-#   - The AWS Certificate Manager ACME scans, which reconcile each row as they
-#     read it, so answering from an index would change what a read means.
+# The eleven that remain are two shapes, neither a keyed lookup:
 #
-# Converting one of these needs an argument about the operation, not another
-# index. Lower the floor when one is made.
-readonly STORE_SCAN_FLOOR=14
+#   - Fan-outs that visit every row because the operation is "every one of
+#     them": Event Grid delivery, CloudTrail trail delivery, the ELBv2
+#     listener and rule search deciding whether a target group is in use, the
+#     ELBv2 listener a proxied request lands on, and the role-assignment
+#     listing.
+#   - The five AWS Certificate Manager ACME scans, which reconcile each row as
+#     they read it, so answering from an index would change what a read means.
+#
+# Converting either needs an argument about the operation, not another index.
+# Lower the floor when one is made.
+readonly STORE_SCAN_FLOOR=11
 
 report=$(mktemp)
 diag=$(mktemp)

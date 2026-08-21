@@ -118,7 +118,7 @@ Current state of the sockerless-cloud repository.
   exists to refuse. Generations are unique across every store in the process, so
   a replaced store cannot be served a stale index, and
   `scripts/check-store-scans.sh` holds the remaining count — all of it behind a
-  guard — to a floor that may only fall, now 14. Parent-scoped child
+  guard — to a floor that may only fall, now 11. Parent-scoped child
   collections are converted along with the single-row lookups: a row indexed
   under every "/"-terminated prefix of its resource identifier answers a
   listing and a cascading delete at any depth from one index, which is what

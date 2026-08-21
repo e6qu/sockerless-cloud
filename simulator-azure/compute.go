@@ -637,6 +637,36 @@ func registerAzureLoadBalancerDataPlane(srv *sim.Server) {
 // that put 84.8% of the AWS simulator's CPU in one Amazon ECS task scan.
 var azureLBsByFrontendAddress sim.GenerationIndex[LoadBalancer]
 
+// azureNICsByBackendPool indexes network interfaces by the backend address
+// pools their IP configurations declare membership in — a load balancer's and
+// an application gateway's alike, since a virtual machine joins either the
+// same way, through its interface rather than through the pool's own
+// configuration. Both lookups ran over every interface in the subscription,
+// and the application gateway's ran from a handler wrapper.
+var azureNICsByBackendPool sim.GenerationIndex[NetworkInterface]
+
+// azureNICsInBackendPool returns the interfaces with an IP configuration in
+// the pool. Pool identifiers are compared case-insensitively, as ARM resource
+// identifiers are, so the index is keyed on their lowercase form.
+func azureNICsInBackendPool(poolID string) []NetworkInterface {
+	if azureNICs == nil || poolID == "" {
+		return nil
+	}
+	return azureNICsByBackendPool.LookupAll(azureNICs, strings.ToLower(poolID),
+		func(nic NetworkInterface) []string {
+			var pools []string
+			for _, ipcfg := range nic.Properties.IPConfigurations {
+				for _, ref := range ipcfg.Properties.LoadBalancerBackendAddressPools {
+					pools = append(pools, strings.ToLower(ref.ID))
+				}
+				for _, ref := range ipcfg.Properties.ApplicationGatewayBackendAddressPools {
+					pools = append(pools, strings.ToLower(ref.ID))
+				}
+			}
+			return pools
+		})
+}
+
 // azureLoadBalancerFrontendAddresses returns every address a load balancer
 // answers on. It reads the public-IP store, which the index rebuild pays once
 // rather than once per request.
@@ -742,7 +772,7 @@ func azureLoadBalancerTargets(lb LoadBalancer, rule LoadBalancerChild) []azureLB
 	}
 	var targets []azureLBTarget
 	for _, poolID := range poolIDs {
-		for _, nic := range azureNICs.List() {
+		for _, nic := range azureNICsInBackendPool(poolID) {
 			for _, ipcfg := range nic.Properties.IPConfigurations {
 				if !azureIPConfigInBackendPool(ipcfg, poolID) || ipcfg.Properties.PrivateIPAddress == "" {
 					continue

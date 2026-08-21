@@ -1,20 +1,17 @@
 # DO NEXT
 
-1. Fourteen full store reads remain on request paths, held by the floor in
-   `scripts/check-store-scans.sh`. Every single-row-by-stable-key lookup and
-   every parent-scoped child collection is converted, the latter by indexing a
-   row under each "/"-terminated prefix of its identifier (`sim.PathPrefixes`),
-   so one index serves a listing and a cascading delete at any depth. The
-   fourteen that remain are not that class: fan-outs whose operation is "every
-   subscriber" (Event Grid delivery, CloudTrail trail delivery, the ELBv2
-   listener and rule search behind target-group use, the role-assignment
-   listing); joins that match on a value rather than a key (the load-balancer
-   and Application Gateway network-interface pools, the ELBv2 listener a
-   proxied request lands on); and the AWS Certificate Manager ACME scans,
-   which reconcile each row as they read it. Each needs an argument about the
-   operation rather than another index — the Application Gateway and
-   load-balancer pools are the likeliest, since a network interface's private
-   addresses are a stable key and the pools match on exactly those.
+1. Eleven full store reads remain on request paths, held by the floor in
+   `scripts/check-store-scans.sh`. Every single-row-by-stable-key lookup, every
+   parent-scoped child collection (indexed under each "/"-terminated prefix of
+   a row's identifier, `sim.PathPrefixes`), and the backend-address-pool joins
+   are converted. What remains is two shapes, neither a keyed lookup: fan-outs
+   whose operation is "every one of them" — Event Grid delivery, CloudTrail
+   trail delivery, the ELBv2 listener and rule search behind target-group use,
+   the ELBv2 listener a proxied request lands on, and the role-assignment
+   listing — and the five AWS Certificate Manager ACME scans, which reconcile
+   each row as they read it, so answering from an index would change what a
+   read means. Converting either needs an argument about the operation rather
+   than another index.
 
 2. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read

@@ -2,8 +2,8 @@
 
 ## 2026-08-21, third pass — the parent-scoped store scans converted
 
-**Thirty-two full store reads left the request paths, and the floor fell
-46 → 14.** The previous pass converted every single-row-by-stable-key lookup and
+**Thirty-five full store reads left the request paths, and the floor fell
+46 → 11.** The previous pass converted every single-row-by-stable-key lookup and
 left the parent-scoped collections behind as "collection-shaped by
 inspection". They were not: a resource identifier's every "/"-terminated
 prefix is a key, so one generation-keyed index per store answers a direct
@@ -36,6 +36,12 @@ share delete, a directory rename, a share listing, an entity query, a table
 deletion and a batch snapshot or restore each read only their own subtree.
 Deleting one share had been decoding every other share's objects,
 directories, leases, permissions and snapshots.
+
+The backend-address-pool joins went too, on the observation that a pool
+identifier is a stable key: a workload joins a load balancer's backend and an
+application gateway's the same way, through its own network interface, so one
+index over the interfaces answers both — and the gateway's ran from a handler
+wrapper, so every request into the simulator was paying it.
 
 **The conversions are held by equivalence tests, not by expectations.** Each
 case computes the answer with the scan it replaced and with the index, over
