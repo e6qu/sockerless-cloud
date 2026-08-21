@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 6. Resolved: 72.
+Open: 6. Resolved: 73.
 
 ## Open
 
@@ -47,6 +47,27 @@ the simulators from the sockerless monorepo, keeping their IDs
 
 
 ## Resolved history
+
+- ~~**BUG-69 (the drain barrier counted only one of the simulator's two
+  background lifecycles):**~~ `AwaitSimulatorBackground` is what lets a test
+  replace the package-level stores safely, and every caller is a test doing
+  exactly that. It counted work started through `simGo` and through
+  `simAfterFunc`, but not work handed to the server's own lifecycle
+  (`Server.StartBackground`), which exists so orderly shutdown drains it before
+  SQLite closes. Amazon ECS task starts go that way, so a drain could return
+  while a task was still moving through its PROVISIONING→RUNNING lifecycle and
+  the next test then replaced the control-plane stores it was reading. It
+  surfaced as four data races in
+  `TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService` on a CI
+  runner and never on a developer machine, because the window is scheduling
+  latency. The two lifecycles are both wanted and are not alternatives — one
+  drains before the database closes, the other before a test swaps the stores —
+  so a finite unit of work now registers with both, through `simTracked`. The
+  seven other `StartBackground` callers are lifetime daemons and are
+  deliberately not wrapped: counting a loop that only returns on context
+  cancellation would make the barrier wait forever.
+  `TestAwaitSimulatorBackgroundDrainsServerLifecycleWork` holds the guarantee
+  directly, so it no longer depends on a timing window reopening to be noticed.
 
 - ~~**BUG-68 (the `race (simulator-aws shared)` job kept losing its
   runner):**~~ Filed as an infrastructure problem — four pull requests in a row

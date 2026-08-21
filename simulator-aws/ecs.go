@@ -1727,7 +1727,12 @@ func ecsScheduleTaskStart(
 		return
 	}
 	ecsBackgroundServer.StartBackground(func(context.Context) {
-		start(id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
+		// Counted in the test drain barrier as well as the server's: the
+		// lifecycle this runs reads the control-plane stores, and a test that
+		// has awaited quiescence must not replace them underneath it.
+		simTracked(func() {
+			start(id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
+		})
 	})
 }
 

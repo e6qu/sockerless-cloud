@@ -25,6 +25,18 @@ The suite went from 229 seconds and 7.7 GiB to 104 seconds and 1.4 GiB. The
 sharding the bug entry had proposed is not needed, and no required status
 context changes.
 
+**And the barrier that makes those tests safe had a hole of its own.** The
+same CI run turned up four data races in an Amazon ECS scheduler test.
+`AwaitSimulatorBackground` — what a test calls before replacing the
+package-level stores — counted `simGo` goroutines and pending timers, but not
+work handed to the server's own lifecycle, which is how an ECS task start runs.
+A drain could return while a task was still moving through
+PROVISIONING→RUNNING, and the next test replaced the stores underneath it. A
+finite unit of work registers with both lifecycles now; the lifetime daemons
+deliberately do not, because counting a loop that returns only on cancellation
+would make the barrier wait forever. A test holds the guarantee directly rather
+than leaving it to a timing window.
+
 ## 2026-08-21, third pass — the parent-scoped store scans converted
 
 **Thirty-nine full store reads left the request paths, and the floor fell

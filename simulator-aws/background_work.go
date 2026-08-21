@@ -61,6 +61,30 @@ func simGo(f func()) {
 	}()
 }
 
+// simTracked counts work the caller has already been given a goroutine for.
+//
+// A simulator has two ways to run work off the request path, and only one of
+// them was counted here. Work handed to the server's own lifecycle —
+// Server.StartBackground, which exists so orderly shutdown drains it before
+// SQLite closes — runs on a goroutine this package never saw, so a drain
+// returned while an Amazon ECS task start was still moving through its
+// PROVISIONING→RUNNING lifecycle, and the next test replaced the stores it was
+// reading. That is the same defect the 144 original races were, arriving
+// through the other door: the barrier is only as good as the work it counts.
+//
+// The two lifecycles are both wanted and are not alternatives — the server's
+// drains before the database closes, this one before a test swaps the stores —
+// so work registers with both rather than choosing.
+func simTracked(f func()) {
+	if simDraining.Load() {
+		return
+	}
+	simBackgroundWG.Add(1)
+	defer simBackgroundWG.Done()
+	simBackgroundStarted.Add(1)
+	f()
+}
+
 // Work a timer has not started yet is still work.
 //
 // simGo counts a goroutine from the moment it is launched, which leaves one
