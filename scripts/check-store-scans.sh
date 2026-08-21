@@ -74,21 +74,25 @@ readonly SCAN_DIRS=(
 # The backend-address-pool joins converted as well, on the observation that a
 # pool identifier is a stable key: a workload joins a load balancer's backend
 # and an application gateway's the same way, through its own network
-# interface, so one index over the interfaces answers both.
+# interface, so one index over the interfaces answers both. The same
+# observation took the ELBv2 listener a proxied request lands on (keyed by
+# load balancer and port), the target-group-in-use check (listeners and rules
+# keyed by the target groups their actions forward to), and Event Grid
+# delivery (subscriptions keyed by the scopes they belong to).
 #
-# The eleven that remain are two shapes, neither a keyed lookup:
+# The seven that remain are two shapes, neither a keyed lookup:
 #
-#   - Fan-outs that visit every row because the operation is "every one of
-#     them": Event Grid delivery, CloudTrail trail delivery, the ELBv2
-#     listener and rule search deciding whether a target group is in use, the
-#     ELBv2 listener a proxied request lands on, and the role-assignment
-#     listing.
+#   - Two whose operation genuinely is "every row": CloudTrail delivering an
+#     event to every logging trail, and the role-assignment listing, whose
+#     unfiltered response is the whole collection.
 #   - The five AWS Certificate Manager ACME scans, which reconcile each row as
 #     they read it, so answering from an index would change what a read means.
 #
-# Converting either needs an argument about the operation, not another index.
-# Lower the floor when one is made.
-readonly STORE_SCAN_FLOOR=11
+# Both need an argument about the operation, not another index. Lower the
+# floor when one is made -- and check the claim before repeating it: the four
+# conversions above were all recorded here as "not that class" by an earlier
+# pass, and all four turned out to be keyed lookups after all.
+readonly STORE_SCAN_FLOOR=7
 
 report=$(mktemp)
 diag=$(mktemp)

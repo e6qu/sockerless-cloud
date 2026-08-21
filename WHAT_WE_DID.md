@@ -2,8 +2,8 @@
 
 ## 2026-08-21, third pass — the parent-scoped store scans converted
 
-**Thirty-five full store reads left the request paths, and the floor fell
-46 → 11.** The previous pass converted every single-row-by-stable-key lookup and
+**Thirty-nine full store reads left the request paths, and the floor fell
+46 → 7.** The previous pass converted every single-row-by-stable-key lookup and
 left the parent-scoped collections behind as "collection-shaped by
 inspection". They were not: a resource identifier's every "/"-terminated
 prefix is a key, so one generation-keyed index per store answers a direct
@@ -43,6 +43,14 @@ application gateway's the same way, through its own network interface, so one
 index over the interfaces answers both — and the gateway's ran from a handler
 wrapper, so every request into the simulator was paying it.
 
+Four more went the same way once the earlier pass's own classification was
+checked rather than trusted: the ELBv2 listener a proxied request lands on is
+keyed by load balancer and port, the target-group-in-use check by the target
+groups a listener's or rule's actions forward to, and Event Grid delivery by
+the scopes a subscription belongs to. All four had been recorded as fan-outs
+that visit every row by design. They were not, and the floor comment now says
+so, so the next pass checks instead of repeating it.
+
 **The conversions are held by equivalence tests, not by expectations.** Each
 case computes the answer with the scan it replaced and with the index, over
 the same rows, and requires them to agree; the awkward shapes (two vaults
@@ -50,6 +58,12 @@ holding a same-named key, two namespaces holding same-named children, a newer
 failed job beside an older successful one, two zones carrying the same record
 name) are in the seed. Each test was checked against a deliberately broken
 index and fails on it, so a green run means the index was exercised.
+
+That check found a gap that predated the work: Event Grid's delivery matches a
+subscription either by its resource identifier or by the topic its properties
+name, and no test exercised the identifier half — every fixture set both. A
+subscription carrying no `topic` property now proves it, through the real
+delivery function and a real webhook.
 
 ## 2026-08-21, second pass — the azurerm crash run to ground, and the scan floor made honest
 

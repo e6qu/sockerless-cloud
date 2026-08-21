@@ -13,11 +13,11 @@ Surface registered in `simulator-azure/eventgrid.go` (and related files grouped 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/topics` | ✓ `simulator-azure/eventgrid.go:66::handleEventGridListTopicsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/domains` | ✓ `simulator-azure/eventgrid.go:79::handleEventGridListDomainsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/systemTopics` | ✓ `simulator-azure/eventgrid.go:93::handleEventGridListSystemTopicsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/partnerTopics` | ✓ `simulator-azure/eventgrid.go:106::handleEventGridListPartnerTopicsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /api/events` | ✓ `simulator-azure/eventgrid.go:128::handleEventGridPublishEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/topics` | ✓ `simulator-azure/eventgrid.go:67::handleEventGridListTopicsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/domains` | ✓ `simulator-azure/eventgrid.go:80::handleEventGridListDomainsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/systemTopics` | ✓ `simulator-azure/eventgrid.go:94::handleEventGridListSystemTopicsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/partnerTopics` | ✓ `simulator-azure/eventgrid.go:107::handleEventGridListPartnerTopicsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /api/events` | ✓ `simulator-azure/eventgrid.go:129::handleEventGridPublishEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /providers/Microsoft.EventGrid/operations` | ✓ `simulator-azure/eventgrid_more.go:58::handleEventGridListOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /providers/Microsoft.EventGrid/topicTypes` | ✓ `simulator-azure/eventgrid_more.go:59::handleEventGridListTopicTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /providers/Microsoft.EventGrid/topicTypes/{topicTypeName}` | ✓ `simulator-azure/eventgrid_more.go:60::handleEventGridGetTopicType` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

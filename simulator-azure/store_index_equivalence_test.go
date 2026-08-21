@@ -1,9 +1,13 @@
 package main
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
@@ -404,4 +408,74 @@ func requireSameOrEmpty(t *testing.T, what string, want, got []string) {
 	if sorted(want) != sorted(got) {
 		t.Errorf("%s:\nscan  %v\nindex %v", what, want, got)
 	}
+}
+
+// A publish delivers to the subscriptions of one scope, and a subscription
+// belongs to its scope in either of two ways: its resource identifier hangs
+// off that scope, or its properties name the topic. The delivery index is
+// keyed on both, from the same function the predicate answers with — and the
+// identifier-derived half had no test of its own, so a subscription that
+// carries no `topic` property is the case proved here.
+func TestEventGridDeliversToASubscriptionKnownOnlyByItsIdentifier(t *testing.T) {
+	eventGridSubscriptions = sim.MakeStore[EventGridEventSubscription](nil, "test_index_eg_subs")
+	t.Cleanup(func() { eventGridSubscriptions = nil })
+
+	delivered := make(chan string, 4)
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		delivered <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(hook.Close)
+
+	const topicID = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.EventGrid/topics/eg-index"
+	const otherID = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.EventGrid/topics/eg-other"
+	destination := map[string]any{
+		"endpointType": "WebHook",
+		"properties":   map[string]any{"endpointUrl": hook.URL},
+	}
+	// Known only by its identifier: no "topic" property at all.
+	byIdentifier := topicID + "/providers/Microsoft.EventGrid/eventSubscriptions/by-id"
+	eventGridSubscriptions.Put(byIdentifier, EventGridEventSubscription{
+		ID: byIdentifier, Name: "by-id",
+		Properties: map[string]any{"destination": destination},
+	})
+	// A sibling topic's subscription, which this publish must not reach.
+	otherSub := otherID + "/providers/Microsoft.EventGrid/eventSubscriptions/other"
+	eventGridSubscriptions.Put(otherSub, EventGridEventSubscription{
+		ID: otherSub, Name: "other",
+		Properties: map[string]any{"destination": destination},
+	})
+
+	if !eventGridSubscriptionBelongsToTopic(eventGridSubscriptionAt(t, byIdentifier), topicID) {
+		t.Fatal("a subscription whose identifier hangs off the topic belongs to it")
+	}
+	if eventGridSubscriptionBelongsToTopic(eventGridSubscriptionAt(t, otherSub), topicID) {
+		t.Fatal("a sibling topic's subscription does not belong to this topic")
+	}
+
+	deliverEventGridBatch(topicID, []byte(`[{"id":"evt-1"}]`))
+	select {
+	case body := <-delivered:
+		if !strings.Contains(body, "evt-1") {
+			t.Errorf("the webhook received %q", body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the subscription known only by its identifier received no delivery")
+	}
+	// Exactly one subscription matched, so nothing else arrives.
+	select {
+	case extra := <-delivered:
+		t.Errorf("a sibling topic's subscription was also delivered to: %q", extra)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func eventGridSubscriptionAt(t *testing.T, id string) EventGridEventSubscription {
+	t.Helper()
+	es, ok := eventGridSubscriptions.Get(id)
+	if !ok {
+		t.Fatalf("the fixture must hold %s", id)
+	}
+	return es
 }

@@ -89,14 +89,21 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 	}
 }
 
+// elbv2ListenersByLoadBalancerPort indexes listeners by the load balancer and
+// port that select one, which is what every proxied request resolves before it
+// is forwarded.
+var elbv2ListenersByLoadBalancerPort sim.GenerationIndex[ELBv2Listener]
+
+func elbv2ListenerKey(loadBalancerArn string, port int) string {
+	return loadBalancerArn + "\x00" + strconv.Itoa(port)
+}
+
 func elbv2ListenerForDataPlaneRequest(r *http.Request, lb ELBv2LoadBalancer) (ELBv2Listener, bool) {
-	port := elbv2DataPlaneListenerPort(r)
-	for _, listener := range elbv2Listeners.Filter(func(l ELBv2Listener) bool {
-		return l.LoadBalancerArn == lb.Arn && l.Port == port
-	}) {
-		return listener, true
-	}
-	return ELBv2Listener{}, false
+	return elbv2ListenersByLoadBalancerPort.Lookup(elbv2Listeners,
+		elbv2ListenerKey(lb.Arn, elbv2DataPlaneListenerPort(r)),
+		func(l ELBv2Listener) []string {
+			return []string{elbv2ListenerKey(l.LoadBalancerArn, l.Port)}
+		})
 }
 
 func elbv2DataPlaneListenerPort(r *http.Request) int {
