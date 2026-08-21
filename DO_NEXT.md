@@ -1,12 +1,21 @@
 # DO NEXT
 
-1. Forty-six full store reads remain on request paths, held by the floor in
-   `scripts/check-store-scans.sh`. Every single-row-by-stable-key lookup is
-   converted and the analyzer no longer counts a generation-keyed index's own
-   amortized rebuild. What remains is collection-shaped by inspection — List
-   responses, bulk mutations over a parent's children, fan-outs, small-store
-   joins, and the ACME scans that reconcile rows as they read. Convert one
-   faithfully and lower the floor.
+1. Twenty-seven full store reads remain on request paths, held by the floor in
+   `scripts/check-store-scans.sh`. Every single-row-by-stable-key lookup and
+   every parent-scoped child collection is converted, the latter by indexing a
+   row under each "/"-terminated prefix of its resource identifier, so one
+   index serves a listing and a cascading delete at any depth. What remains is
+   a different shape: List operations whose response is the whole collection
+   (role assignments, deleted shares); bulk mutations that key off a path
+   rather than an identifier prefix (Azure Files share deletion and entry
+   moves, table batch snapshot and restore); fan-outs that visit every row by
+   design (Event Grid delivery, CloudTrail trail delivery, ELBv2 target-group
+   use); joins over small stores (load-balancer and Application Gateway network
+   interface pools); and the AWS Certificate Manager ACME scans, which
+   reconcile each row as they read it and so cannot answer from an index
+   without changing what a read means. The Azure Files and table-entity
+   families are the next tractable group: both key off a share or table name
+   that is already the first path segment.
 
 2. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read

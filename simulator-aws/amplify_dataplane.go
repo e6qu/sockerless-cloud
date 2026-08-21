@@ -137,7 +137,21 @@ func amplifyHostingTarget(host string) (appID, branch string, ok bool) {
 var (
 	amplifyAppsByDistribution sim.GenerationIndex[amplifyStoredApp]
 	amplifyDomainsBySubdomain sim.GenerationIndex[amplifyStoredDomain]
+
+	// A served request resolves the branch's newest successful job and then
+	// that job's hosted files, so both of these ran once per hosted request
+	// over every job and artifact the simulator held, for every application.
+	amplifySucceededJobsByBranch sim.GenerationIndex[amplifyStoredJob]
+	amplifyHostedArtifactsByJob  sim.GenerationIndex[amplifyStoredArtifact]
 )
+
+// amplifyBranchKey names the branch a job or artifact belongs to.
+func amplifyBranchKey(appID, branch string) string { return appID + "\x00" + branch }
+
+// amplifyJobKey names the job an artifact belongs to.
+func amplifyJobKey(appID, branch, jobID string) string {
+	return appID + "\x00" + branch + "\x00" + jobID
+}
 
 // amplifyDomainSubdomainHosts returns every hostname an association declares,
 // before verification is evaluated: the index selects candidates and the caller
@@ -208,15 +222,20 @@ func amplifyInvalidateHostingCache(appID, branch string) {
 }
 
 func amplifyLatestSucceededJob(appID, branch string) (amplifyStoredJob, bool) {
-	var jobs []amplifyStoredJob
-	for _, j := range amplifyJobs.List() {
-		if j.AppId == appID && j.BranchName == branch && j.Job.Summary.Status == AmplifyJobStatusSucceed {
-			jobs = append(jobs, j)
-		}
-	}
+	// Only a succeeded job can serve, so only those are indexed; a job that
+	// reaches or leaves that status writes its row, and the write moves the
+	// store's generation, which is what discards the index.
+	jobs := amplifySucceededJobsByBranch.LookupAll(amplifyJobs, amplifyBranchKey(appID, branch),
+		func(j amplifyStoredJob) []string {
+			if j.Job.Summary.Status != AmplifyJobStatusSucceed {
+				return nil
+			}
+			return []string{amplifyBranchKey(j.AppId, j.BranchName)}
+		})
 	if len(jobs) == 0 {
 		return amplifyStoredJob{}, false
 	}
+	jobs = append([]amplifyStoredJob(nil), jobs...)
 	sort.Slice(jobs, func(i, k int) bool {
 		si, sk := jobs[i].Job.Summary, jobs[k].Job.Summary
 		if si.StartTime != sk.StartTime {
@@ -233,12 +252,14 @@ func amplifyLatestSucceededJob(appID, branch string) (amplifyStoredJob, bool) {
 // test outputs and their metadata are separate Amplify artifact roles and
 // are never published as site content.
 func amplifyJobArtifactFiles(appID, branch, jobID string) map[string][]byte {
-	var stored []amplifyStoredArtifact
-	for _, a := range amplifyArtifacts.List() {
-		if a.AppId == appID && a.BranchName == branch && a.JobId == jobID && a.HostedContent {
-			stored = append(stored, a)
-		}
-	}
+	// Only hosted content is published, so only those rows are indexed.
+	stored := amplifyHostedArtifactsByJob.LookupAll(amplifyArtifacts, amplifyJobKey(appID, branch, jobID),
+		func(a amplifyStoredArtifact) []string {
+			if !a.HostedContent {
+				return nil
+			}
+			return []string{amplifyJobKey(a.AppId, a.BranchName, a.JobId)}
+		})
 	if len(stored) == 0 {
 		return nil
 	}

@@ -219,12 +219,12 @@ func amplifyEvaluateDomainVerification(stored amplifyStoredDomain) amplifyStored
 // amplifyRoute53HasCNAME reports whether any sim hosted zone covering
 // domainName carries the CNAME recordName → recordValue.
 func amplifyRoute53HasCNAME(domainName, recordName, recordValue string) bool {
-	normalize := func(s string) string {
-		return strings.TrimSuffix(strings.ToLower(s), ".")
-	}
+	normalize := r53DNSName
 	wantName, wantValue := normalize(recordName), normalize(recordValue)
 	domain := normalize(domainName)
-	for _, zone := range r53Zones.List() {
+	// Only a zone carrying the record can answer, and the zone must also cover
+	// the domain, which the loop still decides.
+	for _, zone := range r53ZonesWithCNAME(wantName) {
 		zoneName := normalize(zone.Zone.Name)
 		if zoneName == "" || (domain != zoneName && !strings.HasSuffix(domain, "."+zoneName)) {
 			continue

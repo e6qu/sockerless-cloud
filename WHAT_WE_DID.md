@@ -1,5 +1,42 @@
 # WHAT WE DID
 
+## 2026-08-21, third pass — the parent-scoped store scans converted
+
+**Nineteen full store reads left the request paths, and the floor fell 46 →
+27.** The previous pass converted every single-row-by-stable-key lookup and
+left the parent-scoped collections behind as "collection-shaped by
+inspection". They were not: a resource identifier's every "/"-terminated
+prefix is a key, so one generation-keyed index per store answers a direct
+child collection and a cascading delete alike, and the whole class converts
+without deciding in advance which depth a caller will ask about.
+
+That primitive took the Service Bus admin surface — the queue, topic,
+subscription and rule listings, the topic and subscription deletes that
+cascade over their children, and the authorization-rule drop each entity
+delete performs. Listing a namespace's topics had been decoding every
+subscription in the process once per topic, because each topic's description
+counted its subscriptions by scanning. Key Vault's four listings became
+per-vault lookups; AWS Amplify's hosted-content path stopped reading every job
+and artifact in the process to serve one request; and the Route 53 CNAME
+search that AWS Certificate Manager's validation poll and Amplify's domain
+verification both make is now one index keyed on the record names each zone
+carries.
+
+The Shared Access Signature rules the Service Bus and Event Hubs hosts
+authenticate against are keyed by every `/namespaces/` suffix of their
+identifier — exactly the `HasSuffix` question the scan asked, so a namespace
+under a resource group called "namespaces", or a queue called "namespaces",
+resolves correctly where resolving the segment by its first or last occurrence
+would not.
+
+**The conversions are held by equivalence tests, not by expectations.** Each
+case computes the answer with the scan it replaced and with the index, over
+the same rows, and requires them to agree; the awkward shapes (two vaults
+holding a same-named key, two namespaces holding same-named children, a newer
+failed job beside an older successful one, two zones carrying the same record
+name) are in the seed. Each test was checked against a deliberately broken
+index and fails on it, so a green run means the index was exercised.
+
 ## 2026-08-21, second pass — the azurerm crash run to ground, and the scan floor made honest
 
 **BUG-43 closed with a full capture.** The crash that forced the backup
