@@ -1024,7 +1024,7 @@ func handleACMEmailValidation(w http.ResponseWriter, r *http.Request) {
 func acmDNSRecordMatches(name, value string) bool {
 	want := strings.TrimSuffix(name, ".")
 	wantValue := strings.TrimSuffix(value, ".")
-	for _, z := range r53Zones.List() {
+	for _, z := range r53ZonesWithCNAME(want) {
 		for _, rec := range z.Records {
 			if strings.EqualFold(rec.Type, "CNAME") &&
 				strings.EqualFold(strings.TrimSuffix(rec.Name, "."), want) {

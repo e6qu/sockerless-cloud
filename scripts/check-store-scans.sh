@@ -58,17 +58,41 @@ readonly SCAN_DIRS=(
 # data plane's authorization, the resource-group and Service Bus namespace
 # resolutions, and the managed-identity principal check.
 #
-# What remains is not that class. It is, by inspection: List operations whose
-# response is the collection (Key Vault and Service Bus admin listings, role
-# assignments, deleted shares); bulk mutations over a parent's children (share
-# deletion, entry moves, table batch snapshot/restore); fan-outs that visit
-# every row by design (Event Grid delivery, CloudTrail trails); joins over
-# small stores (load-balancer and Application Gateway NIC pools, Route 53
-# zones); and the ACME scans, which reconcile each row as they read it and so
-# cannot answer from an index without changing what a read means. Convert one
-# faithfully and lower the floor; none of them is a one-row lookup paid per
-# request any more.
-readonly STORE_SCAN_FLOOR=46
+# The parent-scoped collections are converted too. A resource identifier's
+# every "/"-terminated prefix is a key -- sim.PathPrefixes builds them -- so one
+# index per store answers a direct child collection and a cascading delete
+# alike: the Service Bus admin listings and their deletes, the Key Vault
+# per-vault listings, the Azure Files share families (objects, directories,
+# leases, permissions, snapshots, deleted shares), the Table service's entity
+# query, table deletion and batch snapshot/restore, the AWS Amplify hosted job
+# and artifact lookups, and the Route 53 CNAME searches that AWS Certificate
+# Manager and Amplify domain verification both make. The Shared Access
+# Signature rules the messaging host authenticates against are keyed by every
+# `/namespaces/` suffix of their identifier, which is exactly the HasSuffix
+# question the scan asked.
+#
+# The backend-address-pool joins converted as well, on the observation that a
+# pool identifier is a stable key: a workload joins a load balancer's backend
+# and an application gateway's the same way, through its own network
+# interface, so one index over the interfaces answers both. The same
+# observation took the ELBv2 listener a proxied request lands on (keyed by
+# load balancer and port), the target-group-in-use check (listeners and rules
+# keyed by the target groups their actions forward to), and Event Grid
+# delivery (subscriptions keyed by the scopes they belong to).
+#
+# The seven that remain are two shapes, neither a keyed lookup:
+#
+#   - Two whose operation genuinely is "every row": CloudTrail delivering an
+#     event to every logging trail, and the role-assignment listing, whose
+#     unfiltered response is the whole collection.
+#   - The five AWS Certificate Manager ACME scans, which reconcile each row as
+#     they read it, so answering from an index would change what a read means.
+#
+# Both need an argument about the operation, not another index. Lower the
+# floor when one is made -- and check the claim before repeating it: the four
+# conversions above were all recorded here as "not that class" by an earlier
+# pass, and all four turned out to be keyed lookups after all.
+readonly STORE_SCAN_FLOOR=7
 
 report=$(mktemp)
 diag=$(mktemp)

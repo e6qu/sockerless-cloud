@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -757,10 +758,11 @@ func eventGridDomainTopicScopeID(domainID, topic string) string {
 // deliverEventGridBatch posts a publish batch to every webhook subscription of
 // one scope.
 func deliverEventGridBatch(scopeID string, body []byte) {
-	for _, es := range eventGridSubscriptions.List() {
-		if !eventGridSubscriptionBelongsToTopic(es, scopeID) {
-			continue
-		}
+	// A publish delivers to one scope's subscriptions, so the store is indexed
+	// by the scopes a subscription belongs to rather than read in full for
+	// every published event.
+	for _, es := range eventGridSubscriptionsByTopic.LookupAll(eventGridSubscriptions, scopeID,
+		eventGridSubscriptionTopics) {
 		if endpoint := eventGridWebhookEndpoint(es); endpoint != "" {
 			if resp, err := http.Post(endpoint, "application/json", bytes.NewReader(body)); err == nil {
 				_, _ = io.Copy(io.Discard, resp.Body)
@@ -830,14 +832,37 @@ func validateEventGridPublishBody(body []byte, isDomain bool) ([]eventGridPublis
 	return events, nil
 }
 
+var eventGridSubscriptionsByTopic sim.GenerationIndex[EventGridEventSubscription]
+
+// eventGridSubscriptionTopics returns the scopes a subscription belongs to —
+// the two eventGridSubscriptionBelongsToTopic accepts: the resource its
+// identifier hangs off, and the topic its properties name.
+func eventGridSubscriptionTopics(es EventGridEventSubscription) []string {
+	const segment = "/providers/Microsoft.EventGrid/eventSubscriptions/"
+	var scopes []string
+	// Every occurrence is offered, so a resource whose own name contains the
+	// segment cannot hide the scope that precedes it.
+	for at := 0; ; {
+		i := strings.Index(es.ID[at:], segment)
+		if i < 0 {
+			break
+		}
+		scopes = append(scopes, es.ID[:at+i])
+		at += i + len(segment)
+	}
+	if es.Properties != nil {
+		if topic, ok := es.Properties["topic"].(string); ok && topic != "" {
+			scopes = append(scopes, topic)
+		}
+	}
+	return scopes
+}
+
+// eventGridSubscriptionBelongsToTopic answers from the same function the
+// delivery index is keyed on, so the predicate and the index cannot disagree
+// about which subscriptions a scope owns.
 func eventGridSubscriptionBelongsToTopic(es EventGridEventSubscription, topicID string) bool {
-	if strings.HasPrefix(es.ID, topicID+"/providers/Microsoft.EventGrid/eventSubscriptions/") {
-		return true
-	}
-	if es.Properties != nil && es.Properties["topic"] == topicID {
-		return true
-	}
-	return false
+	return slices.Contains(eventGridSubscriptionTopics(es), topicID)
 }
 
 // eventGridPublishScopeFromHost resolves the publishing resource an

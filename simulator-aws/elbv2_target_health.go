@@ -162,37 +162,43 @@ func elbv2DeregistrationDelay(tg ELBv2TargetGroup) time.Duration {
 // default actions are its default rule, so they count alongside the rules
 // created against it.
 func elbv2TargetGroupInUse(targetGroupArn string) bool {
-	for _, listener := range elbv2Listeners.List() {
-		if elbv2ActionsForwardTo(listener.DefaultActions, targetGroupArn) {
-			return true
-		}
+	// A target group is reached through the actions that forward to it, so
+	// both stores are indexed by the groups their actions name — the same
+	// question, asked of a key instead of of every row, for a health check
+	// that runs on a timer per target group.
+	if _, ok := elbv2ListenersByForwardTarget.Lookup(elbv2Listeners, targetGroupArn,
+		func(l ELBv2Listener) []string { return elbv2ActionForwardTargets(l.DefaultActions) }); ok {
+		return true
 	}
-	for _, rule := range elbv2Rules.List() {
-		if elbv2ActionsForwardTo(rule.Actions, targetGroupArn) {
-			return true
-		}
-	}
-	return false
+	_, ok := elbv2RulesByForwardTarget.Lookup(elbv2Rules, targetGroupArn,
+		func(rule ELBv2Rule) []string { return elbv2ActionForwardTargets(rule.Actions) })
+	return ok
 }
 
-// elbv2ActionsForwardTo reports whether any action forwards to the target
-// group, through either the single-target-group shorthand or the weighted
-// forward config.
-func elbv2ActionsForwardTo(actions []ELBv2Action, targetGroupArn string) bool {
+var (
+	elbv2ListenersByForwardTarget sim.GenerationIndex[ELBv2Listener]
+	elbv2RulesByForwardTarget     sim.GenerationIndex[ELBv2Rule]
+)
+
+// elbv2ActionForwardTargets returns every target group an action set forwards
+// to, through either the single-target-group shorthand or the weighted forward
+// configuration — the two places an action can name a target group.
+func elbv2ActionForwardTargets(actions []ELBv2Action) []string {
+	var targets []string
 	for _, action := range actions {
-		if action.TargetGroupArn == targetGroupArn {
-			return true
+		if action.TargetGroupArn != "" {
+			targets = append(targets, action.TargetGroupArn)
 		}
 		if action.Forward == nil {
 			continue
 		}
 		for _, tuple := range action.Forward.TargetGroups {
-			if tuple.TargetGroupArn == targetGroupArn {
-				return true
+			if tuple.TargetGroupArn != "" {
+				targets = append(targets, tuple.TargetGroupArn)
 			}
 		}
 	}
-	return false
+	return targets
 }
 
 // elbv2TargetHealthFor reports the health the checker last recorded for a

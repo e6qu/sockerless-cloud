@@ -670,6 +670,18 @@ func ecsRefreshServiceState(key string) {
 	if currentHealthy > 0 {
 		ecsResetServiceFailureCountAfterHealthyTask(key, service)
 	}
+	// A rollback's completion event is written by the same store write that
+	// publishes the rollout as COMPLETED, below. The two are fields of one
+	// service row, and DescribeServices returns them together: a client that
+	// sees a rollout reported COMPLETED after a rollback must see the event
+	// recording the rollback, and appending it afterwards left a window in
+	// which every other condition already held and the event did not yet
+	// exist. The scheduler state is read here rather than inside the closure
+	// so this write does not take a second store's lock while holding one.
+	rollingBack := false
+	if state, ok := ecsServiceSchedulerStates.Get(key); ok {
+		rollingBack = state.RollbackInProgress
+	}
 	ecsServices.Update(key, func(current *ECSService) {
 		current.RunningCount = running
 		current.PendingCount = pending
@@ -693,6 +705,11 @@ func ecsRefreshServiceState(key string) {
 			deployment.RolloutState = "COMPLETED"
 			deployment.RolloutStateReason = ""
 			ecsCompleteServiceDeployments(current.ServiceArn, now)
+			if rollingBack {
+				ecsAppendServiceEvent(current, fmt.Sprintf(
+					"(service %s) deployment rollback completed.", current.ServiceName,
+				))
+			}
 		case deployment.RolloutState != "FAILED":
 			deployment.RolloutState = "IN_PROGRESS"
 			deployment.RolloutStateReason = ""

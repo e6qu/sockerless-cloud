@@ -1237,6 +1237,33 @@ var (
 	keyVaultCertificates sim.Store[kvCertStored]
 )
 
+// Each vault's data plane is its own host, and a list operation names exactly
+// one vault, so these serve a vault's rows without decoding every other
+// vault's. The rows are copied out because the caller sorts them.
+var (
+	keyVaultKeysByVault  sim.GenerationIndex[kvKeyStored]
+	keyVaultCertsByVault sim.GenerationIndex[kvCertStored]
+)
+
+// keyVaultKeysIn returns the vault's key records, sorted by name.
+func keyVaultKeysIn(vault string) []kvKeyStored {
+	rows := keyVaultKeysByVault.LookupAll(keyVaultKeys, vault,
+		func(k kvKeyStored) []string { return []string{k.Vault} })
+	out := append([]kvKeyStored(nil), rows...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// keyVaultCertificatesIn returns the vault's certificate records, sorted by
+// name.
+func keyVaultCertificatesIn(vault string) []kvCertStored {
+	rows := keyVaultCertsByVault.LookupAll(keyVaultCertificates, vault,
+		func(c kvCertStored) []string { return []string{c.Vault} })
+	out := append([]kvCertStored(nil), rows...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 func handleKVKey(w http.ResponseWriter, r *http.Request, vault, path string) {
 	segs := strings.Split(path, "/")
 	if len(segs) < 2 {
@@ -1477,11 +1504,10 @@ func handleKVListKeys(w http.ResponseWriter, r *http.Request, vault string) {
 		Attributes KeyVaultAttrs     `json:"attributes,omitempty"`
 		Tags       map[string]string `json:"tags,omitempty"`
 	}
-	all := keyVaultKeys.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	all := keyVaultKeysIn(vault)
 	items := make([]keyItem, 0, len(all))
 	for _, k := range all {
-		if k.Vault == vault && !k.isDeleted() {
+		if !k.isDeleted() {
 			v, ok := k.latest()
 			if !ok {
 				continue
@@ -1603,11 +1629,9 @@ func handleKVGetDeletedKey(w http.ResponseWriter, r *http.Request, vault, name s
 }
 
 func handleKVListDeletedKeys(w http.ResponseWriter, r *http.Request, vault string) {
-	all := keyVaultKeys.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	items := []map[string]any{}
-	for _, rec := range all {
-		if rec.Vault != vault || !rec.isDeleted() {
+	for _, rec := range keyVaultKeysIn(vault) {
+		if !rec.isDeleted() {
 			continue
 		}
 		items = append(items, deletedKeyBundle(rec))
@@ -2044,11 +2068,10 @@ func handleKVListCertificates(w http.ResponseWriter, r *http.Request, vault stri
 		Tags           map[string]string `json:"tags,omitempty"`
 		X509Thumbprint string            `json:"x5t,omitempty"`
 	}
-	all := keyVaultCertificates.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	all := keyVaultCertificatesIn(vault)
 	items := make([]certItem, 0, len(all))
 	for _, c := range all {
-		if c.Vault == vault && !c.isDeleted() {
+		if !c.isDeleted() {
 			v, ok := c.latest()
 			if !ok {
 				continue
@@ -2210,11 +2233,9 @@ func handleKVGetDeletedCertificate(w http.ResponseWriter, r *http.Request, vault
 }
 
 func handleKVListDeletedCertificates(w http.ResponseWriter, r *http.Request, vault string) {
-	all := keyVaultCertificates.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	items := []map[string]any{}
-	for _, rec := range all {
-		if rec.Vault != vault || !rec.isDeleted() {
+	for _, rec := range keyVaultCertificatesIn(vault) {
+		if !rec.isDeleted() {
 			continue
 		}
 		items = append(items, deletedCertificateBundle(rec))

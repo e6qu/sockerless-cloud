@@ -238,6 +238,34 @@ var (
 	r53Mu      sync.Mutex // serialises ChangeResourceRecordSets
 )
 
+// r53ZonesByCNAMEName indexes each hosted zone under the CNAME record names it
+// carries. Two services ask the same question of every zone — AWS Certificate
+// Manager polls for the operator's `_acm-challenge` record, and AWS Amplify
+// polls for a subdomain's verification record — and both did it by decoding
+// every zone and every record in the account.
+var r53ZonesByCNAMEName sim.GenerationIndex[r53StoredZone]
+
+// r53DNSName canonicalizes a DNS name for comparison: trailing dots are not
+// part of the name, and DNS matching is ASCII case-insensitive (RFC 4343).
+func r53DNSName(name string) string {
+	return strings.ToLower(strings.TrimSuffix(name, "."))
+}
+
+// r53ZonesWithCNAME returns the hosted zones carrying a CNAME record of this
+// name. Callers still check the record's value, and its zone, themselves.
+func r53ZonesWithCNAME(name string) []r53StoredZone {
+	return r53ZonesByCNAMEName.LookupAll(r53Zones, r53DNSName(name),
+		func(zone r53StoredZone) []string {
+			var names []string
+			for _, rec := range zone.Records {
+				if strings.EqualFold(rec.Type, "CNAME") {
+					names = append(names, r53DNSName(rec.Name))
+				}
+			}
+			return names
+		})
+}
+
 // ---------- Helpers ----------
 
 func r53RandomID() string {

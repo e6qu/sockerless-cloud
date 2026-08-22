@@ -911,10 +911,8 @@ func filesMoveEntryRecords(account, share, srcPath, destPath string, directory b
 			return ""
 		}
 	}
-	for _, obj := range fileObjects.List() {
-		if obj.Account != account || obj.Share != share {
-			continue
-		}
+	prefix := filesSharePrefix(account, share)
+	for _, obj := range fileObjectsUnder(prefix) {
 		moved := rename(obj.Path)
 		if moved == "" {
 			continue
@@ -923,10 +921,7 @@ func filesMoveEntryRecords(account, share, srcPath, destPath string, directory b
 		obj.Path = moved
 		fileObjects.Put(fileObjectKey(account, share, moved), obj)
 	}
-	for _, dir := range fileDirectories.List() {
-		if dir.Account != account || dir.Share != share {
-			continue
-		}
+	for _, dir := range fileDirectoriesUnder(prefix) {
 		moved := rename(dir.Path)
 		if moved == "" {
 			continue
@@ -935,10 +930,7 @@ func filesMoveEntryRecords(account, share, srcPath, destPath string, directory b
 		dir.Path = moved
 		fileDirectories.Put(fileDirectoryKey(account, share, moved), dir)
 	}
-	for _, lease := range fileLeases.List() {
-		if lease.Account != account || lease.Share != share {
-			continue
-		}
+	for _, lease := range fileLeasesUnder(prefix) {
 		moved := rename(lease.Path)
 		if moved == "" {
 			continue
@@ -1294,12 +1286,8 @@ func handleFilesGetSymbolicLink(w http.ResponseWriter, r *http.Request, account,
 // filesShareSnapshotsFor returns the snapshots taken of one share, oldest
 // first — the order List Shares enumerates them in.
 func filesShareSnapshotsFor(account, share string) []FileShareSnapshotData {
-	var out []FileShareSnapshotData
-	for _, snap := range fileShareSnapshots.List() {
-		if snap.Account == account && snap.Share == share {
-			out = append(out, snap)
-		}
-	}
+	// Copied out of the index because the result is sorted in place.
+	out := append([]FileShareSnapshotData(nil), fileShareSnapshotsUnder(filesSharePrefix(account, share))...)
 	sortFileShareSnapshots(out)
 	return out
 }
@@ -1323,16 +1311,12 @@ func filesDeleteShareContents(account, share string) error {
 	if err := os.RemoveAll(filepath.Join(fileShareSnapshotRoot(account), share)); err != nil {
 		return err
 	}
-	prefix := account + "/" + share + "/"
-	for _, dir := range fileDirectories.List() {
-		if key := fileDirectoryKey(dir.Account, dir.Share, dir.Path); strings.HasPrefix(key, prefix) {
-			fileDirectories.Delete(key)
-		}
+	prefix := filesSharePrefix(account, share)
+	for _, dir := range fileDirectoriesUnder(prefix) {
+		fileDirectories.Delete(fileDirectoryKey(dir.Account, dir.Share, dir.Path))
 	}
-	for _, perm := range filePermissions.List() {
-		if key := filePermissionKey(perm.Account, perm.Share, perm.Key); strings.HasPrefix(key, prefix) {
-			filePermissions.Delete(key)
-		}
+	for _, perm := range filePermissionsUnder(prefix) {
+		filePermissions.Delete(filePermissionKey(perm.Account, perm.Share, perm.Key))
 	}
 	filesDropLeases(account, share)
 	return nil

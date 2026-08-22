@@ -118,7 +118,16 @@ Current state of the sockerless-cloud repository.
   exists to refuse. Generations are unique across every store in the process, so
   a replaced store cannot be served a stale index, and
   `scripts/check-store-scans.sh` holds the remaining count — all of it behind a
-  guard — to a floor that may only fall.
+  guard — to a floor that may only fall, now 7. Parent-scoped child
+  collections are converted along with the single-row lookups: a row indexed
+  under every "/"-terminated prefix of its resource identifier answers a
+  listing and a cascading delete at any depth from one index, which is what
+  took the Service Bus admin surface, the per-vault Key Vault listings, the
+  Azure Files share families and the Table service's entity query, deletion
+  and batch snapshot, the AWS Amplify hosted-content path, and the Route 53
+  CNAME search that both certificate validation and domain verification make. Each conversion is held
+  by a test that computes the same answer with the scan it replaced and
+  requires the two to agree.
 - **Error-path assertions**: every one of them names the code its service
   returns. The class began at 62 assertions that accepted any error at all —
   a transport fault, a 500 and a deserialisation failure all satisfied them —

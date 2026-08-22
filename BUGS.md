@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 71.
+Open: 6. Resolved: 74.
 
 ## Open
 
@@ -14,20 +14,6 @@ the simulators from the sockerless monorepo, keeping their IDs
 | 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. |
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260807, fetched and checked) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | external carrier and mobile-push providers remain unavailable | Amazon SNS email and email-json subscriptions use real SMTP, while Amazon Data Firehose now implements its complete vendored 12-operation API and performs IAM-authorized, optionally KMS-encrypted, buffered Amazon S3 delivery for direct writes, Amazon SNS subscriptions, and Amazon CloudWatch metric streams. SMS still cannot reach a carrier and mobile-push subscriptions cannot reach Apple/Google providers. For mobile push the blocker is only the delivery endpoint: `CreatePlatformApplication` with `PlatformCredential`/`PlatformPrincipal` is a real public contract for the credential half, but the delivery target is Apple's and Google's own hosts rather than an AWS-configurable coordinate, so there is nothing faithful to point at. SMS has neither half. SMS sandbox creation fails loudly instead of manufacturing a verification code. Close this only when those external provider primitives can be configured through faithful AWS APIs. |
-
-- **BUG-68 (the `race (simulator-aws shared)` job keeps losing its runner):**
-  Three consecutive pull requests — #50, #52 and #54 — had this one job die
-  with `The runner has received a shutdown signal`, each time with no data
-  race, no failing test and no timeout of its own, and each time green on
-  re-run. It is the longest race shard (the shared package alone runs ~10
-  minutes under the detector), which makes it the widest window for a hosted
-  runner to be reclaimed; no other job in the matrix has been hit once. Not an
-  in-repo defect — nothing in this repository sends its runner a shutdown —
-  but it costs a manual re-run per pull request. Fix shape if a fourth strike
-  lands: split the shared package's race run into two `-run`-sharded jobs the
-  way the SDK suite shards, halving the reclaim window; that renames a
-  required status context, so it lands together with the branch-protection
-  update like the Azure CLI split did.
 
 - **BUG-56 (action downloads failed during a GitHub incident, and the fan-out
   is the standing risk):** Filed as "the job fan-out throttles GitHub's own
@@ -61,6 +47,65 @@ the simulators from the sockerless monorepo, keeping their IDs
 
 
 ## Resolved history
+
+- ~~**BUG-70 (a rolled-back Amazon ECS deployment reported COMPLETED before the
+  event recording the rollback existed):**~~ The scheduler published the
+  rollout as `COMPLETED` in one write to the service row and appended the
+  `deployment rollback completed` event in another, immediately after. Between
+  them a `DescribeServices` call satisfied every condition of a finished
+  rollback — the stable task definition restored, running count equal to
+  desired, no pending tasks, rollout state `COMPLETED` — while the event that
+  records the rollback did not yet exist. Real Amazon ECS answers both from one
+  service, so no client can observe that state, and any client polling the API
+  could observe it here, not only a test. It surfaced as
+  `TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK`
+  failing on a loaded CI runner while passing everywhere else; the two
+  non-restart rollback tests assert the same invariant and had simply been
+  winning the race. The event is now appended by the same store write that
+  publishes the rollout as `COMPLETED`, so the two cannot be observed apart,
+  and the scheduler state that decides it is read before that write rather than
+  inside it, so no second store's lock is taken while holding one. Both
+  rollback tests now require exactly one such event, which fails if the
+  completion path starts appending it separately again.
+
+- ~~**BUG-69 (the drain barrier counted only one of the simulator's two
+  background lifecycles):**~~ `AwaitSimulatorBackground` is what lets a test
+  replace the package-level stores safely, and every caller is a test doing
+  exactly that. It counted work started through `simGo` and through
+  `simAfterFunc`, but not work handed to the server's own lifecycle
+  (`Server.StartBackground`), which exists so orderly shutdown drains it before
+  SQLite closes. Amazon ECS task starts go that way, so a drain could return
+  while a task was still moving through its PROVISIONING→RUNNING lifecycle and
+  the next test then replaced the control-plane stores it was reading. It
+  surfaced as four data races in
+  `TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService` on a CI
+  runner and never on a developer machine, because the window is scheduling
+  latency. The two lifecycles are both wanted and are not alternatives — one
+  drains before the database closes, the other before a test swaps the stores —
+  so a finite unit of work now registers with both, through `simTracked`. The
+  seven other `StartBackground` callers are lifetime daemons and are
+  deliberately not wrapped: counting a loop that only returns on context
+  cancellation would make the barrier wait forever.
+  `TestAwaitSimulatorBackgroundDrainsServerLifecycleWork` holds the guarantee
+  directly, so it no longer depends on a timing window reopening to be noticed.
+
+- ~~**BUG-68 (the `race (simulator-aws shared)` job kept losing its
+  runner):**~~ Filed as an infrastructure problem — four pull requests in a row
+  lost this one job, three to `The runner has received a shutdown signal` and
+  the fourth to its own `-timeout`, always green on re-run — with a fix shape
+  of sharding the job to halve the window. That diagnosis was wrong, and that
+  fix would have hidden the cause instead of removing it. The job was killing
+  its runner: `TestOCIReadBodyRejectsGzipBomb` and
+  `TestOCIReadBodyRejectsOversizedIdentity` proved the OCI request-body cap by
+  reaching it, and the cap is two gibibytes, so the pair peaked at **7.7 GiB of
+  resident memory** under the race detector on a hosted runner that has 7 GiB
+  in total. Successful runs sat at 10m1s–10m16s against a 10m30s budget because
+  the job was thrashing; the failures were the runs that lost the race with the
+  out-of-memory killer. The cap is a parameter now, the two tests assert both
+  sides of the boundary at 64 KiB — which the full-size version could never
+  afford, so the coverage is better as well as cheaper — and a third pins the
+  cap the served path actually applies. The shared suite went from 229s and
+  7.7 GiB to 104s and 1.4 GiB. No sharding, and no branch-protection change.
 
 - **BUG-43 (the azurerm provider crashed on the App Service backup path):**
   Captured in full inside the Linux Docker harness — sim, Caddy HTTPS gateway

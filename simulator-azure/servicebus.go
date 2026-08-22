@@ -117,6 +117,45 @@ var (
 	sbMigrations    sim.Store[SBMigrationConfig]
 )
 
+// Every Service Bus child collection — a namespace's queues and topics, a
+// topic's subscriptions, a subscription's rules, and the authorization rules
+// under any of them — is addressed by the parent's resource identifier plus a
+// collection segment. Listing or cascading over one used to decode the whole
+// store, so listing a namespace's topics decoded every subscription in the
+// process once per topic.
+var (
+	sbQueuesByParent        sim.GenerationIndex[SBQueue]
+	sbTopicsByParent        sim.GenerationIndex[SBTopic]
+	sbSubscriptionsByParent sim.GenerationIndex[SBSubscription]
+	sbRulesByParent         sim.GenerationIndex[SBRule]
+	sbAuthRulesByParent     sim.GenerationIndex[SBAuthorizationRule]
+)
+
+func sbQueuesUnder(prefix string) []SBQueue {
+	return sbQueuesByParent.LookupAll(sbQueues, prefix,
+		func(q SBQueue) []string { return sim.PathPrefixes(q.ID) })
+}
+
+func sbTopicsUnder(prefix string) []SBTopic {
+	return sbTopicsByParent.LookupAll(sbTopics, prefix,
+		func(t SBTopic) []string { return sim.PathPrefixes(t.ID) })
+}
+
+func sbSubscriptionsUnder(prefix string) []SBSubscription {
+	return sbSubscriptionsByParent.LookupAll(sbSubscriptions, prefix,
+		func(s SBSubscription) []string { return sim.PathPrefixes(s.ID) })
+}
+
+func sbRulesUnder(prefix string) []SBRule {
+	return sbRulesByParent.LookupAll(sbRules, prefix,
+		func(r SBRule) []string { return sim.PathPrefixes(r.ID) })
+}
+
+func sbAuthRulesUnder(prefix string) []SBAuthorizationRule {
+	return sbAuthRulesByParent.LookupAll(sbAuthRules, prefix,
+		func(r SBAuthorizationRule) []string { return sim.PathPrefixes(r.ID) })
+}
+
 func registerServiceBus(srv *sim.Server) {
 	makeAzureKeyGens(srv)
 	sbNamespaces = sim.MakeStore[SBNamespace](srv.DB(), "sb_namespaces")
@@ -1128,12 +1167,9 @@ func sbDropAuthRuleKeyGens(ruleID string) {
 // sbDropAuthRulesUnder deletes every authorization rule scoped under the
 // given parent resource ID, together with its key-rotation state.
 func sbDropAuthRulesUnder(parentID string) {
-	prefix := parentID + "/authorizationRules/"
-	for _, rule := range sbAuthRules.List() {
-		if strings.HasPrefix(rule.ID, prefix) {
-			sbAuthRules.Delete(rule.ID)
-			sbDropAuthRuleKeyGens(rule.ID)
-		}
+	for _, rule := range sbAuthRulesUnder(parentID + "/authorizationRules/") {
+		sbAuthRules.Delete(rule.ID)
+		sbDropAuthRuleKeyGens(rule.ID)
 	}
 }
 

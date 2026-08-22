@@ -152,6 +152,58 @@ func fileDeletedShareKey(account, share, version string) string {
 	return account + "/" + share + "/" + version
 }
 
+// Every Azure Files row is keyed `account/share/...`, so one index per store
+// under each path prefix answers "everything this share owns" — which a share
+// delete, a directory rename and a share listing all ask — without decoding
+// every other share's rows.
+var (
+	fileObjectsByPrefix        sim.GenerationIndex[FileObject]
+	fileDirectoriesByPrefix    sim.GenerationIndex[FileDirectoryData]
+	fileLeasesByPrefix         sim.GenerationIndex[FileLeaseData]
+	filePermissionsByPrefix    sim.GenerationIndex[FilePermissionData]
+	fileShareSnapshotsByPrefix sim.GenerationIndex[FileShareSnapshotData]
+	fileDeletedSharesByPrefix  sim.GenerationIndex[FileDeletedShareData]
+)
+
+// filesSharePrefix names everything one share owns.
+func filesSharePrefix(account, share string) string { return account + "/" + share + "/" }
+
+func fileObjectsUnder(prefix string) []FileObject {
+	return fileObjectsByPrefix.LookupAll(fileObjects, prefix, func(f FileObject) []string {
+		return sim.PathPrefixes(fileObjectKey(f.Account, f.Share, f.Path))
+	})
+}
+
+func fileDirectoriesUnder(prefix string) []FileDirectoryData {
+	return fileDirectoriesByPrefix.LookupAll(fileDirectories, prefix, func(d FileDirectoryData) []string {
+		return sim.PathPrefixes(fileDirectoryKey(d.Account, d.Share, d.Path))
+	})
+}
+
+func fileLeasesUnder(prefix string) []FileLeaseData {
+	return fileLeasesByPrefix.LookupAll(fileLeases, prefix, func(l FileLeaseData) []string {
+		return sim.PathPrefixes(fileLeaseKey(l.Account, l.Share, l.Path))
+	})
+}
+
+func filePermissionsUnder(prefix string) []FilePermissionData {
+	return filePermissionsByPrefix.LookupAll(filePermissions, prefix, func(p FilePermissionData) []string {
+		return sim.PathPrefixes(filePermissionKey(p.Account, p.Share, p.Key))
+	})
+}
+
+func fileShareSnapshotsUnder(prefix string) []FileShareSnapshotData {
+	return fileShareSnapshotsByPrefix.LookupAll(fileShareSnapshots, prefix, func(snap FileShareSnapshotData) []string {
+		return sim.PathPrefixes(fileShareSnapshotKey(snap.Account, snap.Share, snap.Snapshot))
+	})
+}
+
+func fileDeletedSharesUnder(prefix string) []FileDeletedShareData {
+	return fileDeletedSharesByPrefix.LookupAll(fileDeletedShares, prefix, func(d FileDeletedShareData) []string {
+		return sim.PathPrefixes(fileDeletedShareKey(d.Account, d.Share, d.Version))
+	})
+}
+
 // ── Backing directories ─────────────────────────────────────────────
 
 // fileShareSnapshotRoot is the directory holding every snapshot of every share
@@ -476,12 +528,8 @@ func filesHandleLease(w http.ResponseWriter, r *http.Request, account, share, en
 // filesDropLeases removes every lease recorded under a share, which is what
 // destroying the share does to the locks held on it and on its files.
 func filesDropLeases(account, share string) {
-	prefix := account + "/" + share + "/"
-	for _, lease := range fileLeases.List() {
-		key := fileLeaseKey(lease.Account, lease.Share, lease.Path)
-		if strings.HasPrefix(key, prefix) {
-			fileLeases.Delete(key)
-		}
+	for _, lease := range fileLeasesUnder(filesSharePrefix(account, share)) {
+		fileLeases.Delete(fileLeaseKey(lease.Account, lease.Share, lease.Path))
 	}
 }
 

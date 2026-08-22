@@ -1,5 +1,118 @@
 # WHAT WE DID
 
+## 2026-08-21, fourth pass — the race job was killing its own runner
+
+**A test that proved a two-gibibyte cap by reaching it was the cause of four
+"infrastructure" failures.** The `race (simulator-aws shared)` job had lost
+four pull requests in a row — three to `The runner has received a shutdown
+signal`, the fourth to its own ten-and-a-half-minute deadline — and had been
+filed as a hosted-runner problem to be worked around by sharding the job.
+Measuring it settled the question: `TestOCIReadBodyRejectsGzipBomb` and
+`TestOCIReadBodyRejectsOversizedIdentity` together peaked at **7.7 GiB of
+resident memory** under the race detector, on a runner with 7 GiB. The job was
+being killed for exhausting its runner, and the successful runs — 10m1s to
+10m16s against a 10m30s budget — were the ones that finished while thrashing.
+
+The OCI body cap is a parameter now rather than a constant read at the point of
+use. What the two tests assert is a property of the boundary, not of its size,
+so they supply a 64 KiB cap and assert *both* of its sides: a body of exactly
+the cap is returned whole, one byte more is refused rather than truncated, on
+the plain path and after inflation alike. The full-size version could only ever
+afford the refusal half. A third test pins the cap the served path applies, so
+the parameter cannot drift from the registry's real limit.
+
+The suite went from 229 seconds and 7.7 GiB to 104 seconds and 1.4 GiB. The
+sharding the bug entry had proposed is not needed, and no required status
+context changes.
+
+**And the barrier that makes those tests safe had a hole of its own.** The
+same CI run turned up four data races in an Amazon ECS scheduler test.
+`AwaitSimulatorBackground` — what a test calls before replacing the
+package-level stores — counted `simGo` goroutines and pending timers, but not
+work handed to the server's own lifecycle, which is how an ECS task start runs.
+A drain could return while a task was still moving through
+PROVISIONING→RUNNING, and the next test replaced the stores underneath it. A
+finite unit of work registers with both lifecycles now; the lifetime daemons
+deliberately do not, because counting a loop that returns only on cancellation
+would make the barrier wait forever. A test holds the guarantee directly rather
+than leaving it to a timing window.
+
+**A third CI failure, and a third real defect.** A rolled-back Amazon ECS
+deployment reported its rollout `COMPLETED` in one write to the service row and
+recorded the `deployment rollback completed` event in the next. Between the two
+a `DescribeServices` call saw a finished rollback with no event recording it —
+the stable task definition restored, counts settled, rollout `COMPLETED` — which
+real Amazon ECS cannot return, because it answers both from one service. The
+event is written by the same store write that publishes the state now, and the
+scheduler state deciding it is read beforehand so that write never takes a
+second store's lock. Both rollback tests require exactly one such event, so the
+separate append cannot come back unnoticed.
+
+## 2026-08-21, third pass — the parent-scoped store scans converted
+
+**Thirty-nine full store reads left the request paths, and the floor fell
+46 → 7.** The previous pass converted every single-row-by-stable-key lookup and
+left the parent-scoped collections behind as "collection-shaped by
+inspection". They were not: a resource identifier's every "/"-terminated
+prefix is a key, so one generation-keyed index per store answers a direct
+child collection and a cascading delete alike, and the whole class converts
+without deciding in advance which depth a caller will ask about.
+
+That primitive took the Service Bus admin surface — the queue, topic,
+subscription and rule listings, the topic and subscription deletes that
+cascade over their children, and the authorization-rule drop each entity
+delete performs. Listing a namespace's topics had been decoding every
+subscription in the process once per topic, because each topic's description
+counted its subscriptions by scanning. Key Vault's four listings became
+per-vault lookups; AWS Amplify's hosted-content path stopped reading every job
+and artifact in the process to serve one request; and the Route 53 CNAME
+search that AWS Certificate Manager's validation poll and Amplify's domain
+verification both make is now one index keyed on the record names each zone
+carries.
+
+The Shared Access Signature rules the Service Bus and Event Hubs hosts
+authenticate against are keyed by every `/namespaces/` suffix of their
+identifier — exactly the `HasSuffix` question the scan asked, so a namespace
+under a resource group called "namespaces", or a queue called "namespaces",
+resolves correctly where resolving the segment by its first or last occurrence
+would not.
+
+The Azure Files and Table service families went the same way, on the same
+primitive promoted to `sim.PathPrefixes`: every Files row is keyed
+`account/share/...` and every table entity `account/table/partition/row`, so a
+share delete, a directory rename, a share listing, an entity query, a table
+deletion and a batch snapshot or restore each read only their own subtree.
+Deleting one share had been decoding every other share's objects,
+directories, leases, permissions and snapshots.
+
+The backend-address-pool joins went too, on the observation that a pool
+identifier is a stable key: a workload joins a load balancer's backend and an
+application gateway's the same way, through its own network interface, so one
+index over the interfaces answers both — and the gateway's ran from a handler
+wrapper, so every request into the simulator was paying it.
+
+Four more went the same way once the earlier pass's own classification was
+checked rather than trusted: the ELBv2 listener a proxied request lands on is
+keyed by load balancer and port, the target-group-in-use check by the target
+groups a listener's or rule's actions forward to, and Event Grid delivery by
+the scopes a subscription belongs to. All four had been recorded as fan-outs
+that visit every row by design. They were not, and the floor comment now says
+so, so the next pass checks instead of repeating it.
+
+**The conversions are held by equivalence tests, not by expectations.** Each
+case computes the answer with the scan it replaced and with the index, over
+the same rows, and requires them to agree; the awkward shapes (two vaults
+holding a same-named key, two namespaces holding same-named children, a newer
+failed job beside an older successful one, two zones carrying the same record
+name) are in the seed. Each test was checked against a deliberately broken
+index and fails on it, so a green run means the index was exercised.
+
+That check found a gap that predated the work: Event Grid's delivery matches a
+subscription either by its resource identifier or by the topic its properties
+name, and no test exercised the identifier half — every fixture set both. A
+subscription carrying no `topic` property now proves it, through the real
+delivery function and a real webhook.
+
 ## 2026-08-21, second pass — the azurerm crash run to ground, and the scan floor made honest
 
 **BUG-43 closed with a full capture.** The crash that forced the backup

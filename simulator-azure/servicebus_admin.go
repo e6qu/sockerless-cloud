@@ -406,15 +406,11 @@ func handleSBAdminDeleteEntity(w http.ResponseWriter, r *http.Request, namespace
 	}
 	topicID := sbAdminTopicID(namespace, name)
 	if sbTopics.Delete(topicID) {
-		for _, sub := range sbSubscriptions.List() {
-			if strings.HasPrefix(sub.ID, topicID+"/subscriptions/") {
-				sbSubscriptions.Delete(sub.ID)
-			}
+		for _, sub := range sbSubscriptionsUnder(topicID + "/subscriptions/") {
+			sbSubscriptions.Delete(sub.ID)
 		}
-		for _, rule := range sbRules.List() {
-			if strings.HasPrefix(rule.ID, topicID+"/subscriptions/") {
-				sbRules.Delete(rule.ID)
-			}
+		for _, rule := range sbRulesUnder(topicID + "/subscriptions/") {
+			sbRules.Delete(rule.ID)
 		}
 		sbDropAuthRulesUnder(topicID)
 		w.WriteHeader(http.StatusOK)
@@ -424,10 +420,7 @@ func handleSBAdminDeleteEntity(w http.ResponseWriter, r *http.Request, namespace
 }
 
 func handleSBAdminListQueues(w http.ResponseWriter, r *http.Request, namespace string) {
-	prefix := sbAdminNamespaceID(namespace) + "/queues/"
-	queues := sbQueues.Filter(func(q SBQueue) bool {
-		return strings.HasPrefix(q.ID, prefix)
-	})
+	queues := sbQueuesUnder(sbAdminNamespaceID(namespace) + "/queues/")
 	entries := []sbAdminQueueEntry{}
 	for _, q := range sbAdminPaged(queues, r) {
 		entries = append(entries, sbAdminQueueEntryFor(r, namespace, q.Name, q))
@@ -442,9 +435,14 @@ func handleSBAdminListQueues(w http.ResponseWriter, r *http.Request, namespace s
 
 func handleSBAdminListTopics(w http.ResponseWriter, r *http.Request, namespace string) {
 	prefix := sbAdminNamespaceID(namespace) + "/topics/"
-	topics := sbTopics.Filter(func(topic SBTopic) bool {
-		return strings.HasPrefix(topic.ID, prefix) && !strings.Contains(strings.TrimPrefix(topic.ID, prefix), "/")
-	})
+	var topics []SBTopic
+	for _, topic := range sbTopicsUnder(prefix) {
+		// A topic's own identifier ends at its name; anything deeper is a
+		// child resource, not a topic of this namespace.
+		if !strings.Contains(strings.TrimPrefix(topic.ID, prefix), "/") {
+			topics = append(topics, topic)
+		}
+	}
 	entries := []sbAdminTopicEntry{}
 	for _, topic := range sbAdminPaged(topics, r) {
 		entries = append(entries, sbAdminTopicEntryFor(r, namespace, topic.Name, topic))
@@ -500,19 +498,14 @@ func handleSBAdminDeleteSubscription(w http.ResponseWriter, r *http.Request, nam
 		sbAdminError(w, http.StatusNotFound, "404", "Subscription not found.")
 		return
 	}
-	for _, rule := range sbRules.List() {
-		if strings.HasPrefix(rule.ID, id+"/rules/") {
-			sbRules.Delete(rule.ID)
-		}
+	for _, rule := range sbRulesUnder(id + "/rules/") {
+		sbRules.Delete(rule.ID)
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
 func handleSBAdminListSubscriptions(w http.ResponseWriter, r *http.Request, namespace, topic string) {
-	prefix := sbAdminTopicID(namespace, topic) + "/subscriptions/"
-	subscriptions := sbSubscriptions.Filter(func(sub SBSubscription) bool {
-		return strings.HasPrefix(sub.ID, prefix)
-	})
+	subscriptions := sbSubscriptionsUnder(sbAdminTopicID(namespace, topic) + "/subscriptions/")
 	entries := []sbAdminSubscriptionEntry{}
 	for _, sub := range sbAdminPaged(subscriptions, r) {
 		entries = append(entries, sbAdminSubscriptionEntryFor(r, namespace, topic, sub.Name, sub))
@@ -567,10 +560,7 @@ func handleSBAdminDeleteRule(w http.ResponseWriter, r *http.Request, namespace, 
 }
 
 func handleSBAdminListRules(w http.ResponseWriter, r *http.Request, namespace, topic, sub string) {
-	prefix := sbAdminSubscriptionID(namespace, topic, sub) + "/rules/"
-	rules := sbRules.Filter(func(rule SBRule) bool {
-		return strings.HasPrefix(rule.ID, prefix)
-	})
+	rules := sbRulesUnder(sbAdminSubscriptionID(namespace, topic, sub) + "/rules/")
 	entries := []sbAdminRuleEntry{}
 	for _, rule := range sbAdminPaged(rules, r) {
 		entries = append(entries, sbAdminRuleEntryFor(r, namespace, topic, sub, rule.Name, rule))
@@ -828,12 +818,7 @@ func sbAdminQueueDescriptionFor(namespace, name string, q SBQueue) sbAdminQueueD
 
 func sbAdminTopicDescriptionFor(topic SBTopic) sbAdminTopicDescription {
 	scheduled := int32(0)
-	subCount := int32(0)
-	for _, sub := range sbSubscriptions.List() {
-		if strings.HasPrefix(sub.ID, topic.ID+"/subscriptions/") {
-			subCount++
-		}
-	}
+	subCount := int32(len(sbSubscriptionsUnder(topic.ID + "/subscriptions/")))
 	size := int64(0)
 	return sbAdminTopicDescription{
 		ServiceBusSchema:                    sbDataSchema,

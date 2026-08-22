@@ -1112,7 +1112,7 @@ func applicationGatewayPoolMemberIPConfigurations(poolID string) []NetworkInterf
 		return nil
 	}
 	var members []NetworkInterfaceIPConfiguration
-	for _, nic := range azureNICs.List() {
+	for _, nic := range azureNICsInBackendPool(poolID) {
 		for _, ipcfg := range nic.Properties.IPConfigurations {
 			for _, ref := range ipcfg.Properties.ApplicationGatewayBackendAddressPools {
 				if strings.EqualFold(ref.ID, poolID) {
@@ -1135,11 +1135,18 @@ func deleteApplicationGatewayResources(ctx context.Context, id string, deleted A
 	}
 }
 
+var azureAppGatewayConnectionsByPrefix sim.GenerationIndex[ApplicationGatewayPrivateEndpointConnection]
+
 func applicationGatewayConnections(gatewayID string) []ApplicationGatewayPrivateEndpointConnection {
-	prefix := gatewayID + "/privateEndpointConnections/"
-	conns := azureAppGatewayPEConnections.Filter(func(c ApplicationGatewayPrivateEndpointConnection) bool {
-		return strings.HasPrefix(c.ID, prefix)
-	})
+	// Copied out of the index: each connection's private-endpoint reference is
+	// rendered from the live endpoint record below, and the index's rows must
+	// not be written through.
+	conns := append([]ApplicationGatewayPrivateEndpointConnection(nil),
+		azureAppGatewayConnectionsByPrefix.LookupAll(azureAppGatewayPEConnections,
+			gatewayID+"/privateEndpointConnections/",
+			func(c ApplicationGatewayPrivateEndpointConnection) []string {
+				return sim.PathPrefixes(c.ID)
+			})...)
 	for i := range conns {
 		projectApplicationGatewayConnection(&conns[i])
 	}

@@ -258,19 +258,15 @@ func dispatchTableBatchOp(w http.ResponseWriter, req *http.Request, account stri
 // ── entity snapshot for rollback ─────────────────────────────────────────────
 
 func snapshotTableEntities(account string) []TableEntity {
-	prefix := account + "/"
-	return tableEntities.Filter(func(e TableEntity) bool {
-		return strings.HasPrefix(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey), prefix)
-	})
+	// Copied out of the index: the caller holds this snapshot across the
+	// mutations it may have to roll back.
+	return append([]TableEntity(nil), tableEntitiesUnder(account+"/")...)
 }
 
 func restoreTableEntities(account string, snapshot []TableEntity) {
 	// Delete everything for the account, then re-insert the snapshot — restores
 	// inserts (removed), deletes (re-added), and mutations (reverted).
-	prefix := account + "/"
-	for _, e := range tableEntities.Filter(func(e TableEntity) bool {
-		return strings.HasPrefix(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey), prefix)
-	}) {
+	for _, e := range tableEntitiesUnder(account + "/") {
 		tableEntities.Delete(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey))
 	}
 	for _, e := range snapshot {

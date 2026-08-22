@@ -622,10 +622,7 @@ func handleFilesListShares(w http.ResponseWriter, r *http.Request, account strin
 		}
 	}
 	if includeDeleted {
-		for _, deleted := range fileDeletedShares.List() {
-			if deleted.Account != account {
-				continue
-			}
+		for _, deleted := range fileDeletedSharesUnder(account + "/") {
 			candidates = append(candidates, shareEntry{
 				Name:    deleted.Share,
 				Deleted: true,
@@ -993,11 +990,8 @@ func handleFilesDeleteFile(w http.ResponseWriter, r *http.Request, account, shar
 // deleteFileObjectProperties drops the properties rows of every file in a share
 // that no longer exists.
 func deleteFileObjectProperties(account, share string) {
-	prefix := account + "/" + share + "/"
-	for _, f := range fileObjects.List() {
-		if key := fileObjectKey(f.Account, f.Share, f.Path); strings.HasPrefix(key, prefix) {
-			fileObjects.Delete(key)
-		}
+	for _, f := range fileObjectsUnder(filesSharePrefix(account, share)) {
+		fileObjects.Delete(fileObjectKey(f.Account, f.Share, f.Path))
 	}
 }
 
@@ -1443,6 +1437,21 @@ func handleQueueClearMessages(w http.ResponseWriter, r *http.Request, account, q
 // ── Tables dispatch ─────────────────────────────────────────────────
 
 func tableKey(account, table string) string { return account + "/" + table }
+
+// Table entities are keyed account/table/partition/row, so one index under
+// every path prefix serves a table's query, a table's deletion and an
+// account-wide batch snapshot alike, instead of each decoding every entity in
+// the process.
+var tableEntitiesByPrefix sim.GenerationIndex[TableEntity]
+
+// tableEntitiesUnder returns the entities whose key begins with prefix, which
+// must end at a path separator.
+func tableEntitiesUnder(prefix string) []TableEntity {
+	return tableEntitiesByPrefix.LookupAll(tableEntities, prefix, func(e TableEntity) []string {
+		return sim.PathPrefixes(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey))
+	})
+}
+
 func tableEntityKey(account, table, pk, rk string) string {
 	return account + "/" + table + "/" + pk + "/" + rk
 }
@@ -1463,11 +1472,8 @@ func upsertTableDataPlaneProjection(account, table string) {
 
 func deleteTableDataPlaneProjection(account, table string) {
 	tableData.Delete(tableKey(account, table))
-	prefix := account + "/" + table + "/"
-	for _, e := range tableEntities.List() {
-		if strings.HasPrefix(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey), prefix) {
-			tableEntities.Delete(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey))
-		}
+	for _, e := range tableEntitiesUnder(account + "/" + table + "/") {
+		tableEntities.Delete(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey))
 	}
 }
 
@@ -1777,9 +1783,8 @@ func handleEntityQuery(w http.ResponseWriter, r *http.Request, account, table st
 
 	// Gather this table's entities, sorted by (PartitionKey, RowKey) — the
 	// canonical Tables ordering real Azure pages over.
-	matching := tableEntities.Filter(func(e TableEntity) bool {
-		return strings.HasPrefix(tableEntityKey(e.Account, e.Table, e.PartitionKey, e.RowKey), prefix)
-	})
+	// The rows are copied out of the index because they are sorted below.
+	matching := append([]TableEntity(nil), tableEntitiesUnder(prefix)...)
 	sort.Slice(matching, func(i, j int) bool {
 		if matching[i].PartitionKey != matching[j].PartitionKey {
 			return matching[i].PartitionKey < matching[j].PartitionKey

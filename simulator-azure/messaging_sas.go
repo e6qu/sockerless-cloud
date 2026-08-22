@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
 // Shared Access Signature verification for the Service Bus and Event Hubs
@@ -153,29 +155,58 @@ func sasRuleCandidates(namespace, entityPath, keyName string) []string {
 				"/namespaces/"+namespace+"/"+kind+"/"+entity+"/authorizationRules/"+keyName)
 		}
 	}
-	matches := func(id string) bool {
-		if strings.HasSuffix(id, nsSuffix) {
-			return true
-		}
-		for _, suffix := range entitySuffixes {
-			if strings.HasSuffix(id, suffix) {
-				return true
+	// Every Shared Access Signature the messaging host authenticates arrives
+	// through the wrapper, so both stores were decoded in full for each one.
+	// The suffixes asked for all begin at `/namespaces/`, so indexing a rule
+	// under each of its own suffixes that begins there answers exactly the
+	// `HasSuffix` question the scan asked, without deciding where in the
+	// resource identifier that segment ought to be.
+	seen := map[string]bool{}
+	var out []string
+	for _, suffix := range append([]string{nsSuffix}, entitySuffixes...) {
+		for _, id := range sbAuthRuleIDsBySuffix.LookupAll(sbAuthRules, suffix, messagingRuleSuffixes(
+			func(rule SBAuthorizationRule) string { return rule.ID })) {
+			if !seen[id.ID] {
+				seen[id.ID] = true
+				out = append(out, id.ID)
 			}
 		}
-		return false
-	}
-	var out []string
-	for _, rule := range sbAuthRules.List() {
-		if matches(rule.ID) {
-			out = append(out, rule.ID)
-		}
-	}
-	for _, rule := range ehAuthRules.List() {
-		if matches(rule.ID) {
-			out = append(out, rule.ID)
+		for _, id := range ehAuthRuleIDsBySuffix.LookupAll(ehAuthRules, suffix, messagingRuleSuffixes(
+			func(rule EHAuthorizationRule) string { return rule.ID })) {
+			if !seen[id.ID] {
+				seen[id.ID] = true
+				out = append(out, id.ID)
+			}
 		}
 	}
 	return out
+}
+
+var (
+	sbAuthRuleIDsBySuffix sim.GenerationIndex[SBAuthorizationRule]
+	ehAuthRuleIDsBySuffix sim.GenerationIndex[EHAuthorizationRule]
+)
+
+// messagingRuleSuffixes indexes an authorization rule under every suffix of its
+// resource identifier that begins with `/namespaces/` — one per occurrence of
+// that segment, so a resource group or namespace that is itself called
+// "namespaces" indexes correctly rather than being resolved by guessing which
+// occurrence was meant.
+func messagingRuleSuffixes[T any](id func(T) string) func(T) []string {
+	const segment = "/namespaces/"
+	return func(rule T) []string {
+		full := id(rule)
+		var suffixes []string
+		for at := 0; ; {
+			i := strings.Index(full[at:], segment)
+			if i < 0 {
+				return suffixes
+			}
+			at += i
+			suffixes = append(suffixes, full[at:])
+			at += len(segment)
+		}
+	}
 }
 
 // verifyMessagingSAS authenticates a Shared Access Signature against the

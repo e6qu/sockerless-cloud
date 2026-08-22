@@ -1,12 +1,18 @@
 # DO NEXT
 
-1. Forty-six full store reads remain on request paths, held by the floor in
-   `scripts/check-store-scans.sh`. Every single-row-by-stable-key lookup is
-   converted and the analyzer no longer counts a generation-keyed index's own
-   amortized rebuild. What remains is collection-shaped by inspection — List
-   responses, bulk mutations over a parent's children, fan-outs, small-store
-   joins, and the ACME scans that reconcile rows as they read. Convert one
-   faithfully and lower the floor.
+1. Seven full store reads remain on request paths, held by the floor in
+   `scripts/check-store-scans.sh`. Every keyed lookup is converted: single rows
+   by stable key, parent-scoped child collections (indexed under each
+   "/"-terminated prefix of a row's identifier, `sim.PathPrefixes`), the
+   backend-address-pool joins, the ELBv2 listener a proxied request lands on,
+   the target-group-in-use check, and Event Grid delivery. The seven that
+   remain are two shapes: two whose operation genuinely is "every row"
+   (CloudTrail delivering to every logging trail, and the role-assignment
+   listing, whose unfiltered response is the whole collection), and the five
+   AWS Certificate Manager ACME scans, which reconcile each row as they read
+   it. Before writing any of them off again, check the claim — four of this
+   pass's conversions had been recorded as "not that class" by the pass before
+   it, and all four were keyed lookups.
 
 2. App Service is at 616 of 692. The recorded deferrals are done: backup and
    restore round-trip through real Blob storage, instances and processes read

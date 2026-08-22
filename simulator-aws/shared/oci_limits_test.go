@@ -9,48 +9,106 @@ import (
 	"testing"
 )
 
+// The cap these tests exercise is two gibibytes, and reaching it costs that
+// much memory: proving it at full size peaked at 7.7 GiB of resident memory
+// under the race detector, more than the 7 GiB a hosted runner has, which is
+// what had been killing the race job. The property is the boundary — a body of
+// exactly the cap is returned whole, one byte more is refused rather than
+// truncated, on the plain path and after inflation alike — and a boundary is
+// proved at any size, so these supply a small cap and assert both of its sides
+// exactly, which the full-size version could never afford to do.
+const ociTestBodyLimit = 1 << 16 // 64 KiB
+
 // TestOCIReadBodyRejectsGzipBomb verifies the gunzip path is bounded: a tiny
 // gzip blob that inflates past the cap is rejected rather than buffered into
 // memory (a zip-bomb DoS).
 func TestOCIReadBodyRejectsGzipBomb(t *testing.T) {
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	// Highly compressible payload larger than the cap: zeros compress to a few
-	// KiB but would inflate to > ociMaxBodyBytes if read unbounded. Use a
-	// repeated write so we don't actually allocate the full inflated size here.
-	chunk := make([]byte, 1<<20) // 1 MiB of zeros
-	for written := int64(0); written <= ociMaxBodyBytes; written += int64(len(chunk)) {
-		if _, err := gz.Write(chunk); err != nil {
-			t.Fatalf("gzip write: %v", err)
-		}
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatalf("gzip close: %v", err)
-	}
-	if buf.Len() > 10<<20 {
-		t.Fatalf("compressed bomb unexpectedly large (%d bytes) — test would be slow", buf.Len())
+	// Zeros compress about a thousand to one, so this is the bomb's shape:
+	// small on the wire, past the cap once inflated.
+	bomb := gzipOf(t, make([]byte, ociTestBodyLimit+1))
+	if len(bomb) >= ociTestBodyLimit {
+		t.Fatalf("the compressed bomb (%d bytes) must be smaller than the cap it defeats", len(bomb))
 	}
 
-	req := httptest.NewRequest(http.MethodPut, "http://sim/v2/r/manifests/x", bytes.NewReader(buf.Bytes()))
+	req := httptest.NewRequest(http.MethodPut, "http://sim/v2/r/manifests/x", bytes.NewReader(bomb))
 	req.Header.Set("Content-Encoding", "gzip")
-	if _, err := ociReadBody(req); err == nil {
-		t.Fatal("expected ociReadBody to reject a gzip body that inflates past the cap, got nil error")
+	if _, err := ociReadBodyLimited(req, ociTestBodyLimit); err == nil {
+		t.Fatal("expected a gzip body that inflates past the cap to be rejected, got nil error")
 	} else if !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("expected a limit error, got: %v", err)
+	}
+
+	// One byte less inflates to exactly the cap, and is returned whole rather
+	// than refused — the other side of the same boundary.
+	atLimit := gzipOf(t, make([]byte, ociTestBodyLimit))
+	req = httptest.NewRequest(http.MethodPut, "http://sim/v2/r/manifests/x", bytes.NewReader(atLimit))
+	req.Header.Set("Content-Encoding", "gzip")
+	got, err := ociReadBodyLimited(req, ociTestBodyLimit)
+	if err != nil {
+		t.Fatalf("a gzip body inflating to exactly the cap must be accepted: %v", err)
+	}
+	if len(got) != ociTestBodyLimit {
+		t.Fatalf("inflated body is %d bytes, want the full %d", len(got), ociTestBodyLimit)
 	}
 }
 
 // TestOCIReadBodyRejectsOversizedIdentity verifies the plain (identity) path is
-// bounded too.
+// bounded too, and that it refuses rather than truncates.
 func TestOCIReadBodyRejectsOversizedIdentity(t *testing.T) {
-	// A reader that yields more than the cap without allocating it all.
-	body := &infiniteReader{}
-	req := httptest.NewRequest(http.MethodPut, "http://sim/v2/r/manifests/x", body)
-	if _, err := ociReadBody(req); err == nil {
-		t.Fatal("expected ociReadBody to reject an oversized identity body")
+	// A reader that never ends: the cap is the only thing that can stop it.
+	req := httptest.NewRequest(http.MethodPut, "http://sim/v2/r/manifests/x", &infiniteReader{})
+	if _, err := ociReadBodyLimited(req, ociTestBodyLimit); err == nil {
+		t.Fatal("expected an endless identity body to be rejected")
 	} else if !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("expected a limit error, got: %v", err)
 	}
+
+	// Exactly the cap is accepted whole, so the refusal above is the boundary
+	// and not an off-by-one that would truncate a legitimate upload.
+	body := bytes.Repeat([]byte("A"), ociTestBodyLimit)
+	req = httptest.NewRequest(http.MethodPut, "http://sim/v2/r/manifests/x", bytes.NewReader(body))
+	got, err := ociReadBodyLimited(req, ociTestBodyLimit)
+	if err != nil {
+		t.Fatalf("a body of exactly the cap must be accepted: %v", err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatalf("a body of exactly the cap must be returned whole, got %d bytes", len(got))
+	}
+}
+
+// TestOCIReadBodyUsesTheRegistryCap pins the cap the served path applies, which
+// the boundary tests above deliberately do not reach.
+func TestOCIReadBodyUsesTheRegistryCap(t *testing.T) {
+	if ociMaxBodyBytes != 2<<30 {
+		t.Fatalf("the OCI body cap is %d bytes; update this test deliberately if it moves", int64(ociMaxBodyBytes))
+	}
+	// The served entry point applies that cap rather than one of its own: a
+	// body over the test cap but under the real one is accepted here, and was
+	// refused above.
+	body := bytes.Repeat([]byte("A"), ociTestBodyLimit+1)
+	req := httptest.NewRequest(http.MethodPut, "http://sim/v2/r/manifests/x", bytes.NewReader(body))
+	got, err := ociReadBody(req)
+	if err != nil {
+		t.Fatalf("the registry cap is far larger than this body: %v", err)
+	}
+	if len(got) != len(body) {
+		t.Fatalf("body round-trip is %d bytes, want %d", len(got), len(body))
+	}
+}
+
+// gzipOf compresses payload, which the bomb tests use to build a body that is
+// small on the wire and large once inflated.
+func gzipOf(t *testing.T, payload []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(payload); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
 }
 
 // TestOCIReadBodyAcceptsNormalBody confirms the cap doesn't reject legitimate
