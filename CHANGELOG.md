@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.3](https://github.com/e6qu/sockerless-cloud/compare/v0.13.2...v0.13.3) (2026-08-22)
+
+
+### Performance Improvements
+
+* answer a parent's children from an index, not a scan of every row ([#59](https://github.com/e6qu/sockerless-cloud/issues/59)) ([8cb2fd3](https://github.com/e6qu/sockerless-cloud/commit/8cb2fd39a535b3138a4568cb50f1b963ee3b55da))
+
 ## [0.13.2](https://github.com/e6qu/sockerless-cloud/compare/v0.13.1...v0.13.2) (2026-08-20)
 
 
