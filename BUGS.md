@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 6. Resolved: 73.
+Open: 6. Resolved: 74.
 
 ## Open
 
@@ -47,6 +47,26 @@ the simulators from the sockerless monorepo, keeping their IDs
 
 
 ## Resolved history
+
+- ~~**BUG-70 (a rolled-back Amazon ECS deployment reported COMPLETED before the
+  event recording the rollback existed):**~~ The scheduler published the
+  rollout as `COMPLETED` in one write to the service row and appended the
+  `deployment rollback completed` event in another, immediately after. Between
+  them a `DescribeServices` call satisfied every condition of a finished
+  rollback — the stable task definition restored, running count equal to
+  desired, no pending tasks, rollout state `COMPLETED` — while the event that
+  records the rollback did not yet exist. Real Amazon ECS answers both from one
+  service, so no client can observe that state, and any client polling the API
+  could observe it here, not only a test. It surfaced as
+  `TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK`
+  failing on a loaded CI runner while passing everywhere else; the two
+  non-restart rollback tests assert the same invariant and had simply been
+  winning the race. The event is now appended by the same store write that
+  publishes the rollout as `COMPLETED`, so the two cannot be observed apart,
+  and the scheduler state that decides it is read before that write rather than
+  inside it, so no second store's lock is taken while holding one. Both
+  rollback tests now require exactly one such event, which fails if the
+  completion path starts appending it separately again.
 
 - ~~**BUG-69 (the drain barrier counted only one of the simulator's two
   background lifecycles):**~~ `AwaitSimulatorBackground` is what lets a test

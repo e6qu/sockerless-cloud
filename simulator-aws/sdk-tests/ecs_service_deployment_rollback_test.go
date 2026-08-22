@@ -92,6 +92,22 @@ func serviceEventsContain(service ecstypes.Service, fragment string) bool {
 	return false
 }
 
+// serviceEventCount counts the service events carrying a fragment. The
+// rollback completion event is written by the same store write that publishes
+// the rollout as COMPLETED, so exactly one exists: a second would mean the
+// completion path had begun appending it separately again, which is what left
+// a window in which a client could see the rollout completed and the event
+// missing.
+func serviceEventCount(service ecstypes.Service, fragment string) int {
+	count := 0
+	for _, event := range service.Events {
+		if strings.Contains(aws.ToString(event.Message), fragment) {
+			count++
+		}
+	}
+	return count
+}
+
 func serviceEventMessages(service ecstypes.Service) []string {
 	messages := make([]string, 0, len(service.Events))
 	for _, event := range service.Events {
@@ -133,7 +149,11 @@ func TestECS_ServiceDeploymentCircuitBreakerRollsBack(t *testing.T) {
 	rolledBack := waitForECSServiceTaskDefinition(t, client, cluster, serviceName, stable)
 	require.True(t, serviceEventsContain(rolledBack, "was unable to place a task"))
 	require.True(t, serviceEventsContain(rolledBack, "began rolling back"))
-	require.True(t, serviceEventsContain(rolledBack, "deployment rollback completed"))
+	// The response that first reports the rollout COMPLETED must already carry
+	// the event recording the rollback, and carry it once.
+	require.Equal(t, 1, serviceEventCount(rolledBack, "deployment rollback completed"),
+		"the rollback completion event must be written exactly once, by the write "+
+			"that publishes the rollout as COMPLETED: %v", serviceEventMessages(rolledBack))
 	require.GreaterOrEqual(t, len(rolledBack.Deployments), 2)
 	require.Equal(t, ecstypes.DeploymentRolloutStateFailed, rolledBack.Deployments[1].RolloutState)
 }

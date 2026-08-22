@@ -37,6 +37,17 @@ deliberately do not, because counting a loop that returns only on cancellation
 would make the barrier wait forever. A test holds the guarantee directly rather
 than leaving it to a timing window.
 
+**A third CI failure, and a third real defect.** A rolled-back Amazon ECS
+deployment reported its rollout `COMPLETED` in one write to the service row and
+recorded the `deployment rollback completed` event in the next. Between the two
+a `DescribeServices` call saw a finished rollback with no event recording it —
+the stable task definition restored, counts settled, rollout `COMPLETED` — which
+real Amazon ECS cannot return, because it answers both from one service. The
+event is written by the same store write that publishes the state now, and the
+scheduler state deciding it is read beforehand so that write never takes a
+second store's lock. Both rollback tests require exactly one such event, so the
+separate append cannot come back unnoticed.
+
 ## 2026-08-21, third pass — the parent-scoped store scans converted
 
 **Thirty-nine full store reads left the request paths, and the floor fell

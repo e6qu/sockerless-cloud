@@ -256,7 +256,9 @@ func TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK(t *t
 	}
 	require.Equal(t, 2, failureEvents,
 		"the persisted first failure must count toward the two-failure circuit-breaker threshold")
-	require.True(t, serviceEventsContain(rolledBack, "deployment rollback completed"))
+	require.Equal(t, 1, serviceEventCount(rolledBack, "deployment rollback completed"),
+		"the response that first reports the rollout COMPLETED must already carry the "+
+			"rollback event, exactly once: %v", serviceEventMessages(rolledBack))
 
 	_, err = client.UpdateService(testCtx, &ecs.UpdateServiceInput{
 		Cluster: aws.String(cluster), Service: aws.String(service), DesiredCount: aws.Int32(0),

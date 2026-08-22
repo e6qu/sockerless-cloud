@@ -122,25 +122,32 @@ func ecsMarkServiceDeploymentCompleted(key string, service ECSService) {
 	ecsServiceSchedulerStates.Put(key, state)
 	ecsCancelServiceRetry(key)
 	if wasRollback {
+		// The service event was appended by the same write that published the
+		// rollout as COMPLETED, so a reader cannot observe one without the
+		// other; only the deployment record's own transition is left to do.
 		ecsFinishServiceDeploymentRollback(service.ServiceArn)
-		ecsAddServiceEvent(key, fmt.Sprintf(
-			"(service %s) deployment rollback completed.", service.ServiceName,
-		))
 	}
 }
 
 func ecsAddServiceEvent(key, message string) {
 	ecsServices.Update(key, func(service *ECSService) {
-		event := ECSServiceEvent{
-			Id:        generateUUID(),
-			CreatedAt: float64(time.Now().Unix()),
-			Message:   message,
-		}
-		service.Events = append([]ECSServiceEvent{event}, service.Events...)
-		if len(service.Events) > 100 {
-			service.Events = service.Events[:100]
-		}
+		ecsAppendServiceEvent(service, message)
 	})
+}
+
+// ecsAppendServiceEvent records a service event on a service the caller is
+// already writing, so an event can be published by the same store write as the
+// state it describes.
+func ecsAppendServiceEvent(service *ECSService, message string) {
+	event := ECSServiceEvent{
+		Id:        generateUUID(),
+		CreatedAt: float64(time.Now().Unix()),
+		Message:   message,
+	}
+	service.Events = append([]ECSServiceEvent{event}, service.Events...)
+	if len(service.Events) > 100 {
+		service.Events = service.Events[:100]
+	}
 }
 
 type ecsServiceDeploymentConfigurationRuntime struct {
