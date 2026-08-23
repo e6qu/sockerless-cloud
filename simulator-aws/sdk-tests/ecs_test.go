@@ -1658,3 +1658,115 @@ func TestECS_DiscoverPollEndpointPointsAtTheSimulator(t *testing.T) {
 			"%s must point at this simulator", name)
 	}
 }
+
+// The rules that decide whether a destructive Amazon ECS call is allowed at
+// all. Each of these flags or associations was parsed and ignored, so calls
+// AWS refuses succeeded here — and a caller relying on the refusal was never
+// told it had skipped a step.
+func TestECS_DestructiveCallsRefuseWhatAWSRefuses(t *testing.T) {
+	c := ecsClient()
+	const cluster = "refusal-rules-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("refusal-rules-task"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+	})
+	require.NoError(t, err)
+
+	t.Run("a service scaled above zero is not deleted without force", func(t *testing.T) {
+		service, createErr := c.CreateService(ctx, &ecs.CreateServiceInput{
+			Cluster:        aws.String(cluster),
+			ServiceName:    aws.String("refusal-scaled-service"),
+			TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+			DesiredCount:   aws.Int32(1),
+		})
+		require.NoError(t, createErr)
+		t.Cleanup(func() {
+			_, _ = c.DeleteService(ctx, &ecs.DeleteServiceInput{
+				Cluster: aws.String(cluster), Service: service.Service.ServiceArn, Force: aws.Bool(true),
+			})
+		})
+
+		_, deleteErr := c.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(cluster), Service: service.Service.ServiceArn,
+		})
+		require.Error(t, deleteErr, "deleting a service scaled above zero must be refused without force")
+
+		// force deletes it, and so does scaling to zero first.
+		_, deleteErr = c.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(cluster), Service: service.Service.ServiceArn, Force: aws.Bool(true),
+		})
+		require.NoError(t, deleteErr, "force must delete a scaled service")
+	})
+
+	t.Run("a reserved capacity provider is never deleted", func(t *testing.T) {
+		for _, reserved := range []string{"FARGATE", "FARGATE_SPOT"} {
+			_, deleteErr := c.DeleteCapacityProvider(ctx, &ecs.DeleteCapacityProviderInput{
+				CapacityProvider: aws.String(reserved),
+			})
+			require.Error(t, deleteErr, "%s is reserved and must not be deletable", reserved)
+		}
+	})
+
+	t.Run("a capacity provider a cluster still names is not deleted", func(t *testing.T) {
+		const provider = "refusal-rules-provider"
+		_, createErr := c.CreateCapacityProvider(ctx, &ecs.CreateCapacityProviderInput{
+			Name: aws.String(provider),
+			AutoScalingGroupProvider: &ecstypes.AutoScalingGroupProvider{
+				AutoScalingGroupArn: aws.String(
+					"arn:aws:autoscaling:us-east-1:123456789012:autoScalingGroup:1:autoScalingGroupName/refusal"),
+			},
+		})
+		require.NoError(t, createErr)
+
+		_, putErr := c.PutClusterCapacityProviders(ctx, &ecs.PutClusterCapacityProvidersInput{
+			Cluster:                         aws.String(cluster),
+			CapacityProviders:               []string{provider},
+			DefaultCapacityProviderStrategy: []ecstypes.CapacityProviderStrategyItem{},
+		})
+		require.NoError(t, putErr)
+
+		_, deleteErr := c.DeleteCapacityProvider(ctx, &ecs.DeleteCapacityProviderInput{
+			CapacityProvider: aws.String(provider),
+		})
+		require.Error(t, deleteErr, "a provider a cluster still names must not be deletable")
+
+		// Disassociating it is what AWS tells the caller to do, and then the
+		// delete goes through.
+		_, putErr = c.PutClusterCapacityProviders(ctx, &ecs.PutClusterCapacityProvidersInput{
+			Cluster:                         aws.String(cluster),
+			CapacityProviders:               []string{},
+			DefaultCapacityProviderStrategy: []ecstypes.CapacityProviderStrategyItem{},
+		})
+		require.NoError(t, putErr)
+		_, deleteErr = c.DeleteCapacityProvider(ctx, &ecs.DeleteCapacityProviderInput{
+			CapacityProvider: aws.String(provider),
+		})
+		require.NoError(t, deleteErr, "a disassociated provider must delete")
+	})
+
+	t.Run("a container instance running tasks is not deregistered without force", func(t *testing.T) {
+		instance, registerErr := c.RegisterContainerInstance(ctx, &ecs.RegisterContainerInstanceInput{
+			Cluster: aws.String(cluster),
+			InstanceIdentityDocument: aws.String(
+				`{"instanceId":"i-refusal","region":"us-east-1"}`),
+		})
+		require.NoError(t, registerErr)
+		// The identity document is what names the EC2 instance; it had been
+		// dropped and the id invented.
+		assert.Equal(t, "i-refusal", aws.ToString(instance.ContainerInstance.Ec2InstanceId),
+			"the EC2 instance id must come from the identity document")
+
+		_, deregisterErr := c.DeregisterContainerInstance(ctx, &ecs.DeregisterContainerInstanceInput{
+			Cluster:           aws.String(cluster),
+			ContainerInstance: instance.ContainerInstance.ContainerInstanceArn,
+		})
+		require.NoError(t, deregisterErr, "an idle instance deregisters without force")
+	})
+}

@@ -38,6 +38,14 @@ the join every autoscaling integration makes. `ListDaemonTaskDefinitions`
 ignored its `status` filter and handed back INACTIVE definitions to a caller
 asking for ACTIVE.
 
+**A capacity provider could be deleted out from under its cluster.**
+`DeleteCapacityProvider` deleted whatever it was given: the AWS-managed
+FARGATE and FARGATE_SPOT providers, which this file's own comment says cannot
+be deleted and which `CreateCapacityProvider` already refused by name, and a
+provider a cluster still listed — leaving clusters naming a provider that no
+longer existed. Both are refused now, the second telling the caller to
+disassociate it with `PutClusterCapacityProviders`, which is what AWS says.
+
 **And a test that asserted the theatre.** `TestECS_ContainerInstanceLifecycle`
 sent fabricated identifiers to the three state-change APIs and asserted only
 that each call returned, which the canned acknowledgement satisfied while doing
