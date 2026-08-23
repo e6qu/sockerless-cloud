@@ -404,14 +404,19 @@ func ecsFailServiceDeployment(key, reason string, rollback bool) {
 	failed.RolloutState = "FAILED"
 	failed.RolloutStateReason = reason
 	failed.UpdatedAt = float64(time.Now().Unix())
+	// The event explaining the failure is written by the same store write that
+	// publishes the rollout as FAILED. DescribeServices returns the rollout
+	// state and the events from one service, and real Amazon ECS never reports
+	// a failed rollout with nothing recording why, so the two must not be
+	// separately observable.
 	ecsServices.Update(key, func(current *ECSService) {
 		current.PendingCount = 0
 		current.Deployments[0] = failed
+		ecsAppendServiceEvent(current, fmt.Sprintf(
+			"(service %s) deployment %s failed: %s.", current.ServiceName, failed.Id, reason,
+		))
 	})
 	ecsMarkServiceDeploymentFailed(service.ServiceArn, reason)
-	ecsAddServiceEvent(key, fmt.Sprintf(
-		"(service %s) deployment %s failed: %s.", service.ServiceName, failed.Id, reason,
-	))
 	ecsCancelServiceRetry(key)
 	if rollback {
 		ecsStartServiceDeploymentRollback(key, service, failed)
@@ -440,6 +445,13 @@ func ecsStartServiceDeploymentRollback(key string, service ECSService, failed EC
 	rollbackDeployment.RolloutStateReason = "Deployment rollback is in progress"
 	failed.Status = "ACTIVE"
 	service.Deployments = []ECSDeployment{rollbackDeployment, failed}
+	// Recorded in the same write that restores the previous task definition:
+	// a client must not see the service pointing back at its last good
+	// revision with nothing saying a rollback began.
+	ecsAppendServiceEvent(&service, fmt.Sprintf(
+		"(service %s) began rolling back to task definition %s.",
+		service.ServiceName, service.TaskDefinition,
+	))
 	ecsServices.Put(key, service)
 
 	state.DeploymentID = rollbackDeployment.Id
@@ -450,10 +462,6 @@ func ecsStartServiceDeploymentRollback(key string, service ECSService, failed EC
 	ecsServiceSchedulerStates.Put(key, state)
 	ecsMarkServiceDeploymentRollbackInProgress(service.ServiceArn, reasonForFailedDeployment(failed))
 	ecsRecordServiceDeployment(service, ecsServiceConnectNamespace(service.ServiceConnectConfiguration))
-	ecsAddServiceEvent(key, fmt.Sprintf(
-		"(service %s) began rolling back to task definition %s.",
-		service.ServiceName, service.TaskDefinition,
-	))
 	ecsRequestServiceReconcile(key)
 }
 

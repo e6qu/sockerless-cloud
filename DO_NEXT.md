@@ -14,18 +14,52 @@
    pass's conversions had been recorded as "not that class" by the pass before
    it, and all four were keyed lookups.
 
-2. App Service is at 616 of 692. The recorded deferrals are done: backup and
-   restore round-trip through real Blob storage, instances and processes read
-   from the live workload container, App Service Environments and Kube
-   Environments are served, and detectors compute from real container and site
-   state. Five operations stay unserved and answer a 501 naming the reason —
-   four metric-definition operations with no series behind them, and the
-   outbound network-dependency catalog, which is Microsoft-published data. What
-   remains in that swagger is the long tail below 692, not a deferral.
+2. App Service is at 616 of 692 operations, and the 76 that remain were
+   enumerated rather than left as "the long tail". They are, by family:
 
-3. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
-   Google Cloud Billing (6 of 36), the latter still carrying the declined
-   SKU-catalog decision below.
+   - **Network trace / packet capture** (~20 spellings: `networkTrace`,
+     `networkTraces`, `startNetworkTrace`, `stopNetworkTrace`, and their
+     operation-result and slot spellings). Capturing a site's packets is real
+     work the simulator does not do; serving a trace means fabricating one.
+   - **Process control and introspection beyond list and get**: `DELETE
+     .../processes/{id}` (kill), `.../processes/{id}/modules`,
+     `.../processes/{id}/dump`, across the site, instance and slot spellings.
+     Not implementable, for the reason `web_processes.go` already records: the
+     container engine's HTTP API exposes exactly one process primitive,
+     `GET /containers/{id}/top`, and it reports no loaded modules. A module
+     list would have to come from `/proc/<pid>/maps` inside the container,
+     which needs a shell in the workload image (a scratch image has none) or
+     the engine host's own `/proc` (unreachable when the engine runs in a
+     virtual machine, so serving it would work on a Linux engine and not on
+     macOS — a host-dependent API surface). The same limit stops the kill: the
+     engine can signal a container's main process, not an arbitrary process
+     inside it. Reopen only if the engine gains a real primitive for it.
+
+   - **`resourceHealthMetadata`** (4), **`metricdefinitions`** (4),
+     **`perfcounters`**, **`phplogging`**, **`recommendations`**, `iscloneable`,
+     `migratemysql/status`, and the declined `Provider_*Stacks` — each answers
+     with a series, catalog or telemetry the simulator has no input for, in the
+     same class as the declined catalogs below.
+
+   So the honest split is: nothing in the 76 is implementable from what the
+   simulator can observe today. Each family needs either a primitive the
+   container engine does not expose or data only the real platform holds.
+
+3. Cloud Spanner admin is **closed**, not pending. Its measured number counts
+   Discovery *method spellings*, not methods — the document declares most
+   methods twice, an expanded `flatPath` and a `{+name}` template — so 188 of
+   198 reads like ten missing methods and is five: 99 distinct methods, 94
+   served, and the five unserved ones account for exactly the ten missing
+   spellings. Those five are `databases.getScans`, `databases.addSplitPoints`,
+   `databases.changequorum`, `sessions.adapter` and `sessions.adaptMessage`,
+   each unserved because the simulator holds nothing to report — a Key
+   Visualizer heatmap derived from production traffic, key-range splits on what
+   is one SQLite database, a dual-region quorum with one replica, and raw
+   PostgreSQL and Cassandra wire protocols it does not speak. Serving any of
+   them means inventing the answer, so they belong with the declined catalogs
+   below rather than on a work list. Google Cloud Billing (6 of 36) is likewise
+   already declined. Read a measured Google number as spellings before treating
+   the gap as a method count.
 
 ## Consumer follow-ups in the sockerless repository
 
@@ -70,7 +104,16 @@
   differential tests' 280-second budget when several test suites run at once
   (`pgcosmos extension is still starting`). The budget and its probe are
   sound; the machine was starved. Re-run on a quiet host before suspecting the
-  simulator.
+  simulator. Seen again on 2026-08-23 (`sim (azure sdk)`, 281.08s, green on the
+  next commit with no change to that path), so it recurs rather than being a
+  one-off. The budget is deliberately not raised: go test gets 13 minutes and
+  the step 14, so buying readiness time would trade a named Go failure for an
+  opaque step kill. The failure classifies itself now — it reports whether the
+  emulator was answering "still starting" (host starvation) or not answering at
+  all (a real fault) — so the next sighting does not need this paragraph to be
+  understood. If it becomes frequent, the fix shape is to start the emulator
+  earlier and overlap its initialisation with suite setup that does not need
+  it, not to extend the wait.
 
 - Azure CLI 2.88's `az keyvault update --set tags.<k>=<v>` issues a vault
   GET followed by a PUT that does not carry the changed tags, and
@@ -196,7 +239,9 @@ exposed the carrier/provider primitives needed for faithful delivery.
 - BUG-2646 retained Google's publication of Cloud Run worker-pool scaling
   members in the Discovery document.
 - BUG-1345 retained the upstream AzureAD Terraform provider's missing
-  Microsoft Graph endpoint override.
+  Microsoft Graph endpoint override. Checked again on 2026-08-23: the
+  provider's latest release is v3.9.0 (2026-06-18) and its changelog records
+  no endpoint or base-URI override, so the gate is unchanged.
 - BUG-2523 and BUG-2441 remained owned by the external Bleephub repository,
   which was not present in this workspace.
 

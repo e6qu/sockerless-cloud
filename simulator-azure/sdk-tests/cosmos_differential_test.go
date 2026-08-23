@@ -501,6 +501,9 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	// the leak by hand. The label makes the leak identifiable and this run
 	// removes it, so the suite recovers on its own.
 	const emulatorLabel = "sockerless-sim-azure-cosmos-emulator=differential"
+	// Bounded by the suite's own deadline rather than by how long the emulator
+	// would like: go test gets 13 minutes and this is one test in the suite.
+	const readinessBudget = 280 * time.Second
 	stale, _ := cosmosEmulatorEngine(60*time.Second, "ps", "-aq", "--filter", "label="+emulatorLabel)
 	for _, id := range strings.Fields(string(stale)) {
 		_, _ = cosmosEmulatorEngine(60*time.Second, "rm", "-f", id)
@@ -517,7 +520,7 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 
 	endpoint = fmt.Sprintf("http://127.0.0.1:%d/", hostPort)
 	probe := newCosmosSDKClient(t, endpoint, cosmosEmulatorKey, "")
-	deadline := time.Now().Add(280 * time.Second)
+	deadline := time.Now().Add(readinessBudget)
 	var lastProbeErr error
 	for i := 0; time.Now().Before(deadline); i++ {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -535,7 +538,24 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	stop()
 	// The emulator's own log said healthy once while the probe still could
 	// not reach it, and the probe's error was the half this message lacked.
-	t.Fatalf("Cosmos emulator did not become ready at %s\nlast probe error: %v\n%s", endpoint, lastProbeErr, logs)
+	//
+	// The two ways this deadline expires need telling apart, because they lead
+	// opposite places. "pgcosmos extension is still starting" is the emulator
+	// answering: it is alive and initialising, and the budget expired because
+	// the host could not give it enough CPU to finish — a starved machine, not
+	// a simulator or emulator defect, and it recurs when this suite runs
+	// alongside others. Anything else is the emulator not answering at all,
+	// which is a real fault worth chasing. The budget is deliberately not
+	// extended for the first case: the suite's own go-test deadline is 13
+	// minutes and this step's is 14, so buying more readiness time trades a
+	// named failure for an opaque step kill.
+	classification := "the emulator never answered — chase this"
+	if lastProbeErr != nil && strings.Contains(lastProbeErr.Error(), "still starting") {
+		classification = "the emulator was alive and still initialising when the budget " +
+			"expired: host starvation, not a defect — re-run on a quieter machine"
+	}
+	t.Fatalf("Cosmos emulator did not become ready at %s within %s (%s)\nlast probe error: %v\n%s",
+		endpoint, readinessBudget, classification, lastProbeErr, logs)
 	return "", func() {}
 }
 
