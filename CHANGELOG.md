@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/e6qu/sockerless-cloud/compare/v0.13.4...v0.14.0) (2026-08-23)
+
+
+### Features
+
+* **aws/iam:** derive the CloudWatch Logs resources that name themselves ([#63](https://github.com/e6qu/sockerless-cloud/issues/63)) ([abcb75a](https://github.com/e6qu/sockerless-cloud/commit/abcb75ac4d71dd6a8270d3d71891b103866324eb))
+
 ## [0.13.4](https://github.com/e6qu/sockerless-cloud/compare/v0.13.3...v0.13.4) (2026-08-23)
 
 
