@@ -1,5 +1,16 @@
 # WHAT WE DID
 
+**The last two Docker Hub pulls left the test suite.** A CI run lost
+`TestContainerReaperAbnormalExit` and `TestStartupSweepCollectsAKilledRunsWorkloads`
+together, both at exactly 15.00s, and the child processes' transcripts named
+the cause outright: `Get "https://registry-1.docker.io/v2/": context deadline
+exceeded`. The runner could not reach Docker Hub. Every other pull in the
+repository already reads from the Amazon ECR Public Gallery — an
+unauthenticated Hub pull is rate-limited per source address — and these two
+were the only ones left hardcoding `docker.io/library/alpine`. They now read
+from the mirror like the rest, so a Hub outage or a rate-limited runner no
+longer fails the container reaper.
+
 ## 2026-08-24, seventh pass — the CloudWatch Logs families that were never assembled
 
 **Amazon CloudWatch Logs went from 31 underived operations to 3, and the IAM
