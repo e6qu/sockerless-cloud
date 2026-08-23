@@ -1,5 +1,30 @@
 # WHAT WE DID
 
+## 2026-08-24, eighth pass — the Amazon ECS daemon and Express Mode families
+
+**Amazon ECS went from 20 underived operations to 8, and the derivation ratchet
+from 1,722 to 1,734 of 1,979.** The daemon family and the Amazon ECS Express
+Mode operations authorize against resource types the derivation did not build,
+and most of them name the resource by its own ARN outright — a daemon, a daemon
+deployment or revision, an Express Mode service, a service deployment or
+revision. The rest assemble: a daemon's ARN is `daemon/<cluster>/<name>`, which
+a create supplies in full before the daemon exists.
+
+**The member is chosen by the type the operation authorizes against, never by
+whichever ARN the body happens to carry.** `CreateDaemon` authorizes against
+the daemon and also carries the task definition's ARN, so a reader taking the
+first ARN it found would let a policy scoped to a task definition permit
+creating a daemon. The first version of this change did exactly that; the test
+written to catch it did, and the reader is keyed by declared type now.
+
+Two things fell out of writing those tests. The cluster reader did not know
+`clusterArn`, which is how the daemon family spells it, so a daemon ARN was
+built against the default cluster. And an expectation of mine was simply wrong:
+`DescribeTaskDefinition` declares no resource type at all, which is how AWS says
+an action takes no resource-level permission, so `"*"` is the right answer and
+inventing a task-definition ARN there would make a policy scoped to one revision
+appear to restrict a call AWS does not scope. That is pinned now too.
+
 **The last two Docker Hub pulls left the test suite.** A CI run lost
 `TestContainerReaperAbnormalExit` and `TestStartupSweepCollectsAKilledRunsWorkloads`
 together, both at exactly 15.00s, and the child processes' transcripts named

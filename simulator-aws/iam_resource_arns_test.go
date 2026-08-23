@@ -203,6 +203,70 @@ func TestIAMResourceARNs_CloudWatchLogs(t *testing.T) {
 	})
 }
 
+// The Amazon ECS families that name themselves by ARN — a daemon and its
+// deployments and revisions, an Amazon ECS Express Mode service, a service
+// deployment or revision — plus the daemon ARNs that are assembled from a
+// cluster and a name.
+func TestIAMResourceARNs_ECSDaemonAndExpressMode(t *testing.T) {
+	const ecs = "arn:aws:ecs:us-east-1:123456789012:"
+	t.Run("a daemon is named by the ARN it carries", func(t *testing.T) {
+		daemon := ecs + "daemon/prod/collector"
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.DescribeDaemon",
+				`{"daemonArn":"`+daemon+`"}`),
+			"ecs:DescribeDaemon", daemon)
+	})
+	// The case that decides whether the reader is type-aware: this request
+	// carries two ARNs, and only one of them is the resource it authorizes
+	// against. Taking the other would let a policy scoped to a task definition
+	// permit creating a daemon.
+	t.Run("creating a daemon names the daemon, not the task definition it runs", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.CreateDaemon",
+				`{"clusterArn":"`+ecs+`cluster/prod","daemonName":"collector",`+
+					`"daemonTaskDefinitionArn":"`+ecs+`daemon-task-definition/collector:3"}`),
+			"ecs:CreateDaemon", ecs+"daemon/prod/collector")
+	})
+	t.Run("a daemon task definition is named family:revision", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.DescribeDaemonTaskDefinition",
+				`{"daemonTaskDefinition":"collector:3"}`),
+			"ecs:DescribeDaemonTaskDefinition", ecs+"daemon-task-definition/collector:3")
+	})
+	t.Run("an Express Mode service is named by its service ARN", func(t *testing.T) {
+		service := ecs + "service/prod/checkout"
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.DescribeExpressGatewayService",
+				`{"serviceArn":"`+service+`"}`),
+			"ecs:DescribeExpressGatewayService", service)
+	})
+	t.Run("service deployments are named by every ARN the request lists", func(t *testing.T) {
+		first := ecs + "service-deployment/prod/checkout/1111"
+		second := ecs + "service-deployment/prod/checkout/2222"
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.DescribeServiceDeployments",
+				`{"serviceDeploymentArns":["`+first+`","`+second+`"]}`),
+			"ecs:DescribeServiceDeployments", first, second)
+	})
+	t.Run("a task-definition request is unaffected by the daemon families", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.RunTask",
+				`{"cluster":"prod","taskDefinition":"web:7"}`),
+			"ecs:RunTask", ecs+"task-definition/web:7")
+	})
+	// AWS declares no resource type for DescribeTaskDefinition, which is how it
+	// says the action takes no resource-level permission. "*" is the right
+	// answer, and a derivation that invented a task-definition ARN here would
+	// make a policy scoped to one revision appear to restrict a call AWS does
+	// not scope at all.
+	t.Run("an action AWS scopes to no resource stays unscoped", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.DescribeTaskDefinition",
+				`{"taskDefinition":"web:7"}`),
+			"ecs:DescribeTaskDefinition", "*")
+	})
+}
+
 func TestIAMResourceARNs_CodeBuild(t *testing.T) {
 	const p = "arn:aws:codebuild:us-east-1:123456789012:"
 	t.Run("StartBuild names its project", func(t *testing.T) {
