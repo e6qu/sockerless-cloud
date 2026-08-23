@@ -24,22 +24,26 @@
    - **Process control and introspection beyond list and get**: `DELETE
      .../processes/{id}` (kill), `.../processes/{id}/modules`,
      `.../processes/{id}/dump`, across the site, instance and slot spellings.
-     **The first two are implementable faithfully and should be next**: the
-     workload runs in a real container, so a kill is a real signal to a real
-     process and a module list is that process's own `/proc/<pid>/maps`, which
-     is exactly how the served process list and get already read it. A memory
-     dump is not — a core file needs tooling the workload image does not carry.
-     Note that this contradicts an earlier reading of this entry: process *list
-     and get* are served, process *kill and modules* are not.
+     Not implementable, for the reason `web_processes.go` already records: the
+     container engine's HTTP API exposes exactly one process primitive,
+     `GET /containers/{id}/top`, and it reports no loaded modules. A module
+     list would have to come from `/proc/<pid>/maps` inside the container,
+     which needs a shell in the workload image (a scratch image has none) or
+     the engine host's own `/proc` (unreachable when the engine runs in a
+     virtual machine, so serving it would work on a Linux engine and not on
+     macOS — a host-dependent API surface). The same limit stops the kill: the
+     engine can signal a container's main process, not an arbitrary process
+     inside it. Reopen only if the engine gains a real primitive for it.
+
    - **`resourceHealthMetadata`** (4), **`metricdefinitions`** (4),
      **`perfcounters`**, **`phplogging`**, **`recommendations`**, `iscloneable`,
      `migratemysql/status`, and the declined `Provider_*Stacks` — each answers
      with a series, catalog or telemetry the simulator has no input for, in the
      same class as the declined catalogs below.
 
-   So the honest split is: two implementable operations (process kill, process
-   modules), and a remainder whose only faithful implementation is data the
-   simulator does not and cannot hold.
+   So the honest split is: nothing in the 76 is implementable from what the
+   simulator can observe today. Each family needs either a primitive the
+   container engine does not expose or data only the real platform holds.
 
 3. Cloud Spanner admin is **closed**, not pending. Its measured number counts
    Discovery *method spellings*, not methods — the document declares most
@@ -226,7 +230,9 @@ exposed the carrier/provider primitives needed for faithful delivery.
 - BUG-2646 retained Google's publication of Cloud Run worker-pool scaling
   members in the Discovery document.
 - BUG-1345 retained the upstream AzureAD Terraform provider's missing
-  Microsoft Graph endpoint override.
+  Microsoft Graph endpoint override. Checked again on 2026-08-23: the
+  provider's latest release is v3.9.0 (2026-06-18) and its changelog records
+  no endpoint or base-URI override, so the gate is unchanged.
 - BUG-2523 and BUG-2441 remained owned by the external Bleephub repository,
   which was not present in this workspace.
 

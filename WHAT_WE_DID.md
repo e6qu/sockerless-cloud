@@ -1,5 +1,38 @@
 # WHAT WE DID
 
+## 2026-08-23, sixth pass — the IAM ratchet's own probe was lying, and the gates were re-checked
+
+**The resource-derivation probe sent a request no client sends.** It lower-cased
+every member name it put in the body, while the production derivation reads the
+member's real wire name, so an operation whose resource is named by a
+`ResourceARN` derived correctly for every real caller and was measured as
+deriving nothing. The measurement is what decides where the remaining work is,
+and it had already produced wrong explanations — notes blaming "a placeholder
+the probe fills" where the cause was the case of the key. The probe now sends
+each member under its own wire name, and the guards that assumed a lower-cased
+name (the `action`/`version` skips, the ARN-suffix tests) compare
+case-insensitively.
+
+**AWS Budgets joined the derivation table.** Its Smithy model is vendored, the
+generated resource-type table covers it, and its three tagging operations
+resolve the budget or budget action from the ARN they name — the gap the floor
+comment had recorded as needing "a generated table and an extractor", which
+turned out to need the table plus a probe that sends a real ARN under a real
+member name. Coverage 1,691 → 1,694 of 1,979, and the floor holds it.
+
+**The five externally gated bugs were re-checked against upstream rather than
+trusted.** Google's live Cloud Run Discovery is now revision 20260814 and still
+declares only `manualInstanceCount`, so BUG-2646 stands. The three Smithy
+patterns behind BUG-2932 were re-read from `aws-sdk-go-v2` main and are
+unchanged, so its allowlist stands. The AzureAD provider's latest release
+(v3.9.0, 2026-06-18) still records no Graph endpoint override, so BUG-1345
+stands. Each entry now carries the date and the evidence, so the next pass
+re-checks rather than re-assumes.
+
+**Corrected:** BUGS.md had drifted to "1,788 of 1,975 … remaining 187" for
+BUG-2909 against a measured 1,691 of 1,979. The figures now come from the
+ratchet.
+
 ## 2026-08-23, fifth pass — the rest of the deployment lifecycle, and a wait that says what it saw
 
 **BUG-70 was one instance of a class, so the class was swept.** Two more

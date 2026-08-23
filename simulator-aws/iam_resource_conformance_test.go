@@ -260,7 +260,7 @@ func assertAliasesAreRealFields(t *testing.T, service string, aliases map[string
 				if svc != service || !slicesIntersect(declared, resourceTypes) {
 					continue
 				}
-				if byOperation[operation][strings.ToLower(alias)] {
+				if byOperation[operation][alias] {
 					used = true
 					break
 				}
@@ -356,8 +356,12 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 					traits[trait] = v
 				}
 			}
+			// The member's own wire name, in its own case: a probe that
+			// lower-cased it sent a body no client sends, and the production
+			// derivation reads the real member name, so an operation that
+			// derives for every real caller was measured as deriving nothing.
 			wire := wireName(name, traits)
-			named[strings.ToLower(wire)] = true
+			named[wire] = true
 			if target, ok := doc.Shapes[m.Target]; ok && target.Type == "structure" {
 				for innerName := range target.Members {
 					inner[wire] = append(inner[wire], innerName)
@@ -465,7 +469,7 @@ func iamEC2DerivesItsResource(operation string, params map[string]bool) bool {
 	}
 	values := make(map[string]string, len(params))
 	for name := range params {
-		if name == "action" || name == "version" {
+		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue // the request already carries these
 		}
 		values[name] = "probe"
@@ -501,7 +505,7 @@ func iamRDSDerivesItsResource(operation string, params map[string]bool) bool {
 	}
 	form := "Action=" + operation + "&Version=2014-10-31"
 	for name := range params {
-		if name == "action" || name == "version" {
+		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
 		form += "&" + name + "=probe"
@@ -712,11 +716,11 @@ func iamELBv2DerivesItsResource(operation string, params map[string]bool) bool {
 	}
 	form := "Action=" + operation + "&Version=2015-12-01"
 	for name := range params {
-		if name == "action" || name == "version" {
+		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
 		value := "probe"
-		if strings.HasSuffix(name, "arn") || strings.HasSuffix(name, "arns") {
+		if lower := strings.ToLower(name); strings.HasSuffix(lower, "arn") || strings.HasSuffix(lower, "arns") {
 			value = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/probe/0123456789abcdef"
 		}
 		form += "&" + name + "=" + url.QueryEscape(value)
@@ -816,14 +820,14 @@ func iamQueryProbeDerives(service, operation, version string, params map[string]
 	}
 	form := "Action=" + operation + "&Version=" + version
 	for name := range params {
-		if name == "action" || name == "version" {
+		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
 		value := "probe"
-		switch {
-		case strings.HasSuffix(name, "arn"):
+		switch lower := strings.ToLower(name); {
+		case strings.HasSuffix(lower, "arn"):
 			value = "arn:aws:" + service + ":us-east-1:123456789012:probe"
-		case name == "queueurl":
+		case lower == "queueurl":
 			value = "http://localhost:4566/123456789012/probe"
 		}
 		form += "&" + name + "=" + url.QueryEscape(value)
@@ -875,7 +879,7 @@ func iamAutoScalingDerivesItsResource(operation string, params map[string]bool) 
 
 	form := "Action=" + operation + "&Version=2011-01-01"
 	for name := range params {
-		if name == "action" || name == "version" {
+		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
 		form += "&" + name + "=probe"
@@ -961,7 +965,7 @@ func iamElastiCacheDerivesItsResource(operation string, params map[string]bool) 
 	}
 	form := "Action=" + operation + "&Version=2015-02-02"
 	for name := range params {
-		if name == "action" || name == "version" {
+		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
 		form += "&" + name + "=probe"
@@ -1247,10 +1251,17 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // caller supplies where the probe fills a placeholder, and PutEvents carries
 // its event bus per entry, a nested list shape nothing flat can read.
 //
-// AWS Budgets' 3: its reference is vendored for the PassRole table, it has no
-// entry in the generated resource-type table and no derivation case at all;
-// the three are its tagging operations, and closing them means giving the
-// service a generated table and an extractor.
+// AWS Budgets derives completely: it is in the generated resource-type table
+// and its three tagging operations name the budget or budget action by an ARN,
+// which the generic ARN-member reader resolves. Its ARNs carry no region —
+// AWS Budgets is global — so the probe supplies one of that shape.
+//
+// The probe sends each member under its own wire name, in its own case. It
+// lower-cased them once, which is a body no client sends: the production
+// derivation reads the real member name, so an operation whose resource is
+// named by a `ResourceARN` derived for every real caller and measured as
+// deriving nothing. Any note below that blames "a placeholder the probe fills"
+// should be re-checked against that before it is believed.
 // AWS Step Functions' 1: creating an alias names the alias, while the type the
 // call authorizes against is the state machine the alias points at, which the
 // request carries only inside a routing entry's version ARN. Creating a state
@@ -1312,7 +1323,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // through the operation record to the namespace and service the operation
 // acted on — the simulator's own state, the same resolution Amazon RDS uses
 // for a custom engine version.
-const iamDerivationCoverageFloor = 1691
+const iamDerivationCoverageFloor = 1694
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1367,6 +1378,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	acmPCAMembers := loadRequestFields(t, "acm-pca", memberWireName)
 	cloudMapMembers := loadRequestFields(t, "servicediscovery", memberWireName)
 	firehoseMembers := loadRequestFields(t, "firehose", memberWireName)
+	budgetsMembers := loadRequestFields(t, "budgets", memberWireName)
 	stsParameters := loadRequestFields(t, "sts", memberWireName)
 	appAutoScalingMembers := loadRequestFields(t, "application-auto-scaling", memberWireName)
 	_, ecsNested := loadRequestShapes(t, "ecs", memberWireName)
@@ -1448,6 +1460,11 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "firehose":
 			derived = iamJSONProbeDerives("firehose", o.name, firehoseMembers[o.name],
 				"arn:aws:firehose:us-east-1:123456789012:deliverystream/probe")
+		case "budgets":
+			// A budget ARN carries no region: AWS Budgets is a global service,
+			// and its own reference spells the resource "budget/${BudgetName}".
+			derived = iamJSONProbeDerives("budgets", o.name, budgetsMembers[o.name],
+				"arn:aws:budgets::123456789012:budget/probe")
 		case "sts":
 			derived = iamQueryProbeDerives("sts", o.name, "2011-06-15", stsParameters[o.name])
 		case "application-autoscaling":
