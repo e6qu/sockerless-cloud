@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.4](https://github.com/e6qu/sockerless-cloud/compare/v0.13.3...v0.13.4) (2026-08-23)
+
+
+### Bug Fixes
+
+* **aws/ecs:** publish every deployment event with the state it records ([#61](https://github.com/e6qu/sockerless-cloud/issues/61)) ([49c9c8d](https://github.com/e6qu/sockerless-cloud/commit/49c9c8d4518d854c996e8ec46cc7f68442725945))
+
 ## [0.13.3](https://github.com/e6qu/sockerless-cloud/compare/v0.13.2...v0.13.3) (2026-08-22)
 
 
