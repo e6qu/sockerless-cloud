@@ -14,18 +14,48 @@
    pass's conversions had been recorded as "not that class" by the pass before
    it, and all four were keyed lookups.
 
-2. App Service is at 616 of 692. The recorded deferrals are done: backup and
-   restore round-trip through real Blob storage, instances and processes read
-   from the live workload container, App Service Environments and Kube
-   Environments are served, and detectors compute from real container and site
-   state. Five operations stay unserved and answer a 501 naming the reason —
-   four metric-definition operations with no series behind them, and the
-   outbound network-dependency catalog, which is Microsoft-published data. What
-   remains in that swagger is the long tail below 692, not a deferral.
+2. App Service is at 616 of 692 operations, and the 76 that remain were
+   enumerated rather than left as "the long tail". They are, by family:
 
-3. The next measured Google ratchets are Cloud Spanner admin (188 of 198) and
-   Google Cloud Billing (6 of 36), the latter still carrying the declined
-   SKU-catalog decision below.
+   - **Network trace / packet capture** (~20 spellings: `networkTrace`,
+     `networkTraces`, `startNetworkTrace`, `stopNetworkTrace`, and their
+     operation-result and slot spellings). Capturing a site's packets is real
+     work the simulator does not do; serving a trace means fabricating one.
+   - **Process control and introspection beyond list and get**: `DELETE
+     .../processes/{id}` (kill), `.../processes/{id}/modules`,
+     `.../processes/{id}/dump`, across the site, instance and slot spellings.
+     **The first two are implementable faithfully and should be next**: the
+     workload runs in a real container, so a kill is a real signal to a real
+     process and a module list is that process's own `/proc/<pid>/maps`, which
+     is exactly how the served process list and get already read it. A memory
+     dump is not — a core file needs tooling the workload image does not carry.
+     Note that this contradicts an earlier reading of this entry: process *list
+     and get* are served, process *kill and modules* are not.
+   - **`resourceHealthMetadata`** (4), **`metricdefinitions`** (4),
+     **`perfcounters`**, **`phplogging`**, **`recommendations`**, `iscloneable`,
+     `migratemysql/status`, and the declined `Provider_*Stacks` — each answers
+     with a series, catalog or telemetry the simulator has no input for, in the
+     same class as the declined catalogs below.
+
+   So the honest split is: two implementable operations (process kill, process
+   modules), and a remainder whose only faithful implementation is data the
+   simulator does not and cannot hold.
+
+3. Cloud Spanner admin is **closed**, not pending. Its measured number counts
+   Discovery *method spellings*, not methods — the document declares most
+   methods twice, an expanded `flatPath` and a `{+name}` template — so 188 of
+   198 reads like ten missing methods and is five: 99 distinct methods, 94
+   served, and the five unserved ones account for exactly the ten missing
+   spellings. Those five are `databases.getScans`, `databases.addSplitPoints`,
+   `databases.changequorum`, `sessions.adapter` and `sessions.adaptMessage`,
+   each unserved because the simulator holds nothing to report — a Key
+   Visualizer heatmap derived from production traffic, key-range splits on what
+   is one SQLite database, a dual-region quorum with one replica, and raw
+   PostgreSQL and Cassandra wire protocols it does not speak. Serving any of
+   them means inventing the answer, so they belong with the declined catalogs
+   below rather than on a work list. Google Cloud Billing (6 of 36) is likewise
+   already declined. Read a measured Google number as spellings before treating
+   the gap as a method count.
 
 ## Consumer follow-ups in the sockerless repository
 
