@@ -1499,3 +1499,162 @@ func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 	})
 	require.Error(t, err, "a resource type ECS does not tag must be refused")
 }
+
+// The agent-facing state-change APIs apply what they are told, rather than
+// acknowledging it.
+//
+// SubmitTaskStateChange, SubmitContainerStateChange and
+// SubmitAttachmentStateChanges each parsed their request, ignored every field
+// and answered {"acknowledgment":"ACK"}. An agent reporting that a task had
+// stopped therefore changed nothing, and DescribeTasks went on reporting
+// whatever the scheduler last assumed. This drives each of them and reads the
+// result back through DescribeTasks.
+func TestECS_AgentStateChangesAreAppliedNotAcknowledged(t *testing.T) {
+	c := ecsClient()
+	const cluster = "agent-state-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+
+	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("agent-state-task"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+	})
+	require.NoError(t, err)
+
+	run, err := c.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(cluster),
+		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+	})
+	require.NoError(t, err)
+	require.Len(t, run.Tasks, 1)
+	taskArn := aws.ToString(run.Tasks[0].TaskArn)
+	t.Cleanup(func() {
+		_, _ = c.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String(cluster), Task: aws.String(taskArn)})
+	})
+
+	describe := func() ecstypes.Task {
+		t.Helper()
+		out, describeErr := c.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+			Cluster: aws.String(cluster), Tasks: []string{taskArn},
+		})
+		require.NoError(t, describeErr)
+		require.Len(t, out.Tasks, 1)
+		return out.Tasks[0]
+	}
+
+	// A container's reported exit code and status must reach DescribeTasks.
+	_, err = c.SubmitContainerStateChange(ctx, &ecs.SubmitContainerStateChangeInput{
+		Cluster:       aws.String(cluster),
+		Task:          aws.String(taskArn),
+		ContainerName: aws.String("app"),
+		Status:        aws.String("STOPPED"),
+		ExitCode:      aws.Int32(137),
+	})
+	require.NoError(t, err)
+	container := describe().Containers[0]
+	assert.Equal(t, "STOPPED", aws.ToString(container.LastStatus),
+		"the container status the agent reported must be recorded")
+	require.NotNil(t, container.ExitCode, "the reported exit code must be recorded")
+	assert.Equal(t, int32(137), aws.ToInt32(container.ExitCode))
+
+	// An unknown container is refused rather than silently acknowledged.
+	_, err = c.SubmitContainerStateChange(ctx, &ecs.SubmitContainerStateChangeInput{
+		Cluster:       aws.String(cluster),
+		Task:          aws.String(taskArn),
+		ContainerName: aws.String("not-a-container"),
+		Status:        aws.String("STOPPED"),
+	})
+	require.Error(t, err, "a container the task does not have must be refused")
+
+	// The task's own transition, with the reason it carries.
+	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
+		Cluster: aws.String(cluster),
+		Task:    aws.String(taskArn),
+		Status:  aws.String("STOPPED"),
+		Reason:  aws.String("EssentialContainerExited"),
+	})
+	require.NoError(t, err)
+	stopped := describe()
+	assert.Equal(t, "STOPPED", aws.ToString(stopped.LastStatus),
+		"the task status the agent reported must be recorded")
+	assert.Equal(t, "EssentialContainerExited", aws.ToString(stopped.StoppedReason))
+	assert.NotNil(t, stopped.StoppedAt, "a stopped task must carry when it stopped")
+
+	// The timings the agent reports alongside the transition.
+	pullStarted := time.Now().Add(-2 * time.Minute)
+	pullStopped := time.Now().Add(-90 * time.Second)
+	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
+		Cluster:            aws.String(cluster),
+		Task:               aws.String(taskArn),
+		Status:             aws.String("STOPPED"),
+		PullStartedAt:      aws.Time(pullStarted),
+		PullStoppedAt:      aws.Time(pullStopped),
+		ExecutionStoppedAt: aws.Time(time.Now()),
+	})
+	require.NoError(t, err)
+	timed := describe()
+	assert.NotNil(t, timed.PullStartedAt, "the reported pull start must be recorded")
+	assert.NotNil(t, timed.PullStoppedAt, "the reported pull stop must be recorded")
+	assert.NotNil(t, timed.ExecutionStoppedAt, "the reported execution stop must be recorded")
+
+	// The reported detail beyond status: the reason a container gave, the
+	// runtime it ran as, and the ports it bound.
+	_, err = c.SubmitContainerStateChange(ctx, &ecs.SubmitContainerStateChangeInput{
+		Cluster:       aws.String(cluster),
+		Task:          aws.String(taskArn),
+		ContainerName: aws.String("app"),
+		Status:        aws.String("STOPPED"),
+		Reason:        aws.String("OutOfMemoryError"),
+		RuntimeId:     aws.String("runtime-abc"),
+		NetworkBindings: []ecstypes.NetworkBinding{{
+			BindIP: aws.String("0.0.0.0"), ContainerPort: aws.Int32(8080),
+			HostPort: aws.Int32(32768), Protocol: ecstypes.TransportProtocolTcp,
+		}},
+	})
+	require.NoError(t, err)
+	detailed := describe().Containers[0]
+	assert.Equal(t, "OutOfMemoryError", aws.ToString(detailed.Reason),
+		"the reason the agent reported must be recorded")
+	assert.Equal(t, "runtime-abc", aws.ToString(detailed.RuntimeId))
+	require.NotEmpty(t, detailed.NetworkBindings, "the reported port binding must be recorded")
+	assert.Equal(t, int32(32768), aws.ToInt32(detailed.NetworkBindings[0].HostPort))
+
+	// A task the control plane does not have is refused, not acknowledged.
+	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
+		Cluster: aws.String(cluster),
+		Task:    aws.String("arn:aws:ecs:us-east-1:123456789012:task/" + cluster + "/nonexistent"),
+		Status:  aws.String("STOPPED"),
+	})
+	require.Error(t, err, "a task that does not exist must be refused")
+}
+
+// DiscoverPollEndpoint must point the agent at this simulator. It had returned
+// real Amazon hostnames, which send an agent to AWS instead.
+func TestECS_DiscoverPollEndpointPointsAtTheSimulator(t *testing.T) {
+	c := ecsClient()
+	const cluster = "poll-endpoint-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+
+	out, err := c.DiscoverPollEndpoint(ctx, &ecs.DiscoverPollEndpointInput{
+		Cluster: aws.String(cluster),
+	})
+	require.NoError(t, err)
+	for name, endpoint := range map[string]string{
+		"endpoint":          aws.ToString(out.Endpoint),
+		"telemetryEndpoint": aws.ToString(out.TelemetryEndpoint),
+	} {
+		assert.NotContains(t, endpoint, "amazonaws.com",
+			"%s must not send the agent to real AWS", name)
+		assert.Contains(t, endpoint, "127.0.0.1",
+			"%s must point at this simulator", name)
+	}
+}

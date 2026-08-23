@@ -262,6 +262,14 @@ func handleECSDeleteTaskSet(w http.ResponseWriter, r *http.Request) {
 			"The specified task set does not exist.")
 		return
 	}
+	// Without force, Amazon ECS refuses to delete a task set that still carries
+	// scale: the caller scales it to zero first. The flag had been parsed and
+	// ignored.
+	if !req.Force && ecsTaskSetScaleValue(ts) > 0 {
+		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			"The task set cannot be deleted while it is scaled above 0.")
+		return
+	}
 	ts.Status = "DRAINING"
 	ecsTaskSets.Delete(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"taskSet": ts})
@@ -298,4 +306,20 @@ func ecsTaskSetID(ref string) string {
 // matching the real "ecs-svc/<19-digit>" shape closely enough for round-trips.
 func generateNumericID() string {
 	return fmt.Sprintf("%019d", time.Now().UnixNano())
+}
+
+// ecsTaskSetScaleValue reads a task set's scale value. The scale is stored as
+// the wire document the caller sent — {"value":N,"unit":"PERCENT"} — so an
+// absent or unparsable scale is zero, which is what an unscaled task set is.
+func ecsTaskSetScaleValue(ts ECSTaskSet) float64 {
+	if len(ts.Scale) == 0 {
+		return 0
+	}
+	var scale struct {
+		Value float64 `json:"value"`
+	}
+	if json.Unmarshal(ts.Scale, &scale) != nil {
+		return 0
+	}
+	return scale.Value
 }

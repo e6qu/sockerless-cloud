@@ -1,5 +1,50 @@
 # WHAT WE DID
 
+## 2026-08-24, tenth pass — the Amazon ECS APIs that acknowledged instead of acting
+
+All 77 operations in the ECS model were registered, which is what made the
+surface look finished. Registered is not implemented, and auditing the handlers
+by depth rather than by presence found the rot.
+
+**Four agent-facing APIs were theatre.** `SubmitTaskStateChange`,
+`SubmitContainerStateChange` and `SubmitAttachmentStateChanges` each parsed
+their request, ignored every field, and answered
+`{"acknowledgment":"ACK"}` — a function that works by ignoring its inputs and
+returning a canned response. An agent reporting that a task had stopped changed
+nothing, and DescribeTasks went on reporting whatever the scheduler last
+assumed. They apply what they are told now: the task's status with the reason
+and timestamps it carries, each container's status, exit code, reason, runtime
+id and network bindings, and the elastic network interface attachment states. A
+task-level report also carries its containers, and it asks the service
+scheduler to reconcile, because a task the agent has just stopped is what the
+scheduler most needs to see. A report about a task, container or attachment the
+control plane does not hold is refused rather than acknowledged.
+
+`DiscoverPollEndpoint` returned hardcoded Amazon hostnames —
+`ecs-a-1.<region>.amazonaws.com` — which point an agent at AWS rather than at
+this simulator, while the comment above it claimed the opposite. It returns
+this simulator's own address now.
+
+**Three force flags were parsed and ignored.** `DeleteService`,
+`DeregisterContainerInstance` and `DeleteTaskSet` all declared `force` and
+never read it, so operations real Amazon ECS refuses — deleting a service still
+scaled above zero, deregistering an instance still running tasks, deleting a
+scaled task set — all succeeded here. A caller relying on the refusal was never
+told it had skipped a step.
+
+**Two more dropped inputs.** `RegisterContainerInstance` discarded the EC2
+instance identity document and invented an id, leaving `ec2InstanceId` empty —
+the join every autoscaling integration makes. `ListDaemonTaskDefinitions`
+ignored its `status` filter and handed back INACTIVE definitions to a caller
+asking for ACTIVE.
+
+**And a test that asserted the theatre.** `TestECS_ContainerInstanceLifecycle`
+sent fabricated identifiers to the three state-change APIs and asserted only
+that each call returned, which the canned acknowledgement satisfied while doing
+nothing; its own comment read "each acknowledges the change". It asserts the
+real contract now, and the applied path has its own test against a real task,
+checked against the canned handler to be sure it fails on it.
+
 ## 2026-08-24, ninth pass — Amazon ECS tagging, for every type AWS declares
 
 **Five of the nine taggable Amazon ECS resource types answered "tag-target type

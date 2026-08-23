@@ -545,6 +545,11 @@ func handleECSListDaemonTaskDefinitions(w http.ResponseWriter, r *http.Request) 
 		if req.FamilyPrefix != "" && !strings.HasPrefix(td.Family, req.FamilyPrefix) {
 			continue
 		}
+		// The status filter had been parsed and ignored, so a caller asking
+		// for ACTIVE definitions was also handed the INACTIVE ones.
+		if req.Status != "" && !strings.EqualFold(td.Status, req.Status) {
+			continue
+		}
 		tds = append(tds, td)
 	}
 	sort.Slice(tds, func(i, j int) bool { return tds[i].DaemonTaskDefinitionArn < tds[j].DaemonTaskDefinitionArn })

@@ -242,7 +242,19 @@ type ECSTaskContainer struct {
 	Name              string                `json:"name"`
 	LastStatus        string                `json:"lastStatus"`
 	ExitCode          *int                  `json:"exitCode,omitempty"`
+	Reason            string                `json:"reason,omitempty"`
+	RuntimeId         string                `json:"runtimeId,omitempty"`
+	NetworkBindings   []ECSNetworkBinding   `json:"networkBindings,omitempty"`
 	NetworkInterfaces []ECSNetworkInterface `json:"networkInterfaces,omitempty"`
+}
+
+// ECSNetworkBinding is a port the agent reports a container bound, which is
+// how a bridge-network task advertises the host port it was given.
+type ECSNetworkBinding struct {
+	BindIP        string `json:"bindIP,omitempty"`
+	ContainerPort int    `json:"containerPort,omitempty"`
+	HostPort      int    `json:"hostPort,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
 }
 
 type ECSNetworkInterface struct {
@@ -270,16 +282,22 @@ const (
 )
 
 type ECSTask struct {
-	TaskArn              string                `json:"taskArn"`
-	TaskDefinitionArn    string                `json:"taskDefinitionArn"`
-	ClusterArn           string                `json:"clusterArn"`
-	LastStatus           ECSTaskStatus         `json:"lastStatus"`
-	DesiredStatus        ECSTaskStatus         `json:"desiredStatus"`
-	Connectivity         string                `json:"connectivity,omitempty"`
-	Containers           []ECSTaskContainer    `json:"containers"`
-	CreatedAt            *float64              `json:"createdAt,omitempty"`
-	StartedAt            *int64                `json:"startedAt,omitempty"`
-	StoppedAt            *int64                `json:"stoppedAt,omitempty"`
+	TaskArn           string             `json:"taskArn"`
+	TaskDefinitionArn string             `json:"taskDefinitionArn"`
+	ClusterArn        string             `json:"clusterArn"`
+	LastStatus        ECSTaskStatus      `json:"lastStatus"`
+	DesiredStatus     ECSTaskStatus      `json:"desiredStatus"`
+	Connectivity      string             `json:"connectivity,omitempty"`
+	Containers        []ECSTaskContainer `json:"containers"`
+	CreatedAt         *float64           `json:"createdAt,omitempty"`
+	StartedAt         *int64             `json:"startedAt,omitempty"`
+	StoppedAt         *int64             `json:"stoppedAt,omitempty"`
+	// The agent reports these while a task runs: when it finished pulling its
+	// images and when execution stopped. DescribeTasks returns them, and they
+	// were being discarded.
+	PullStartedAt        *float64              `json:"pullStartedAt,omitempty"`
+	PullStoppedAt        *float64              `json:"pullStoppedAt,omitempty"`
+	ExecutionStoppedAt   *float64              `json:"executionStoppedAt,omitempty"`
 	StopCode             string                `json:"stopCode,omitempty"`
 	StoppedReason        string                `json:"stoppedReason,omitempty"`
 	Attachments          []ECSAttachment       `json:"attachments,omitempty"`
