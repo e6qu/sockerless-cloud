@@ -164,7 +164,11 @@ func createSweepTestContainer(t *testing.T, ctx context.Context, engine *client.
 	return created.ID
 }
 
-const containerSweepTestImage = "docker.io/library/alpine:3.22"
+// Read from the Amazon ECR Public Gallery rather than Docker Hub, for the
+// reason recorded beside containerReaperTestImage: an unauthenticated Hub pull
+// is rate-limited per source address, and this test lost a CI run to a Hub
+// connection that never completed.
+const containerSweepTestImage = "public.ecr.aws/docker/library/alpine:3.22"
 
 // runContainerSweepTestChild is a run with no reaper behind it — the state a
 // harness leaves when it removes the container the simulator and its reaper

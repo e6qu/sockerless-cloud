@@ -142,6 +142,65 @@ func TestIAMResourceARNs_CloudWatchLogs(t *testing.T) {
 			iamJSONRequest("Logs_20140328.DescribeLogGroups", `{}`),
 			"logs:DescribeLogGroups", "*")
 	})
+
+	// The families beyond log groups each authorize against a resource type of
+	// their own, and each ARN is "<type>:<name>" over what the request already
+	// carries. The exact string matters more than the fact one was produced: a
+	// derivation that builds the wrong ARN authorizes the wrong resource, which
+	// is worse than deriving nothing and falling back to "*".
+	const logs = "arn:aws:logs:us-east-1:123456789012:"
+	t.Run("a subscription destination is named by destinationName", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.PutDestination",
+				`{"destinationName":"central","targetArn":"arn:aws:kinesis:us-east-1:123456789012:stream/s","roleArn":"arn:aws:iam::123456789012:role/r"}`),
+			"logs:PutDestination", logs+"destination:central")
+	})
+	t.Run("a delivery is named by its id", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.GetDelivery", `{"id":"AbCdEf123"}`),
+			"logs:GetDelivery", logs+"delivery:AbCdEf123")
+	})
+	t.Run("a delivery destination policy names its destination", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.PutDeliveryDestinationPolicy",
+				`{"deliveryDestinationName":"to-s3","deliveryDestinationPolicy":"{}"}`),
+			"logs:PutDeliveryDestinationPolicy", logs+"delivery-destination:to-s3")
+	})
+	t.Run("a delivery source is named by name under its own type", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.GetDeliverySource", `{"name":"from-waf"}`),
+			"logs:GetDeliverySource", logs+"delivery-source:from-waf")
+	})
+	t.Run("an anomaly detector is named by the ARN it carries", func(t *testing.T) {
+		detector := logs + "anomaly-detector:1234abcd"
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.GetLogAnomalyDetector",
+				`{"anomalyDetectorArn":"`+detector+`"}`),
+			"logs:GetLogAnomalyDetector", detector)
+	})
+	t.Run("creating a delivery names its destination and its source", func(t *testing.T) {
+		destination := logs + "delivery-destination:to-s3"
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.CreateDelivery",
+				`{"deliveryDestinationArn":"`+destination+`","deliverySourceName":"from-waf"}`),
+			"logs:CreateDelivery", destination, logs+"delivery-source:from-waf")
+	})
+	t.Run("creating an anomaly detector names the log groups it watches", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.CreateLogAnomalyDetector",
+				`{"detectorName":"d","logGroupArnList":["`+group+`"]}`),
+			"logs:CreateLogAnomalyDetector", group)
+	})
+	t.Run("an opaque record pointer names nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.GetLogRecord", `{"logRecordPointer":"AYm...opaque"}`),
+			"logs:GetLogRecord", "*")
+	})
+	t.Run("a log group request is unaffected by the named families", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.DeleteLogGroup", `{"logGroupName":"/aws/ecs/edd"}`),
+			"logs:DeleteLogGroup", group)
+	})
 }
 
 func TestIAMResourceARNs_CodeBuild(t *testing.T) {

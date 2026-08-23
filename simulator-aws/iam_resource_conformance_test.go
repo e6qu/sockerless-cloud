@@ -1290,12 +1290,19 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // derives — TestIAMResourceARNs_IAMIsGlobalAndCarriesNoRegion pins the shape,
 // and the ARNs carry no region because IAM is global.
 //
-// Amazon CloudWatch Logs' 31: the derivation reads a log group and a log
-// stream, which is what TestIAMResourceARNs_CloudWatchLogs pins. The delivery,
-// delivery-destination, delivery-source, destination, anomaly-detector,
-// lookup-table and scheduled-query families each authorize against a resource
-// type of their own that nothing assembles yet, and GetQueryResults and
-// GetLogRecord name a query or a record rather than the group behind it.
+// Amazon CloudWatch Logs' 3: the derivation reads a log group and a log
+// stream, and now also the families that authorize against a resource type of
+// their own — delivery, delivery-destination, delivery-source, destination,
+// anomaly-detector, lookup-table and scheduled-query. Every one of their ARNs
+// is "<type>:<name>" over a name, id or ARN the request already carries, in
+// the format the service reference publishes, and the declared type selects
+// which member is read because several of them spell their identifier "name"
+// or "id". TestIAMResourceARNs_CloudWatchLogs pins each one's exact ARN, and
+// pins that a log-group request is unchanged by them.
+//
+// The three left name nothing that resolves: GetLogRecord carries an opaque
+// record pointer, GetQueryResults a query id, and ListLogAnomalyDetectors
+// filters detectors by a log group rather than naming a detector.
 //
 // Amazon ECS's 20: the daemon family and the Amazon ECS Express Mode operations
 // authorize against resource types — daemon, daemon task definition, Express
@@ -1323,7 +1330,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // through the operation record to the namespace and service the operation
 // acted on — the simulator's own state, the same resolution Amazon RDS uses
 // for a custom engine version.
-const iamDerivationCoverageFloor = 1694
+const iamDerivationCoverageFloor = 1722
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

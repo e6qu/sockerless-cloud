@@ -113,6 +113,16 @@ func TestContainerReaperAbnormalExit(t *testing.T) {
 	t.Fatalf("detached reaper did not remove container %s and network %s after SIGKILL", resources.ContainerID, resources.NetworkID)
 }
 
+// The reaper test pulls a real image, so it depends on a registry being
+// reachable from the runner. It reads from the Amazon ECR Public Gallery
+// rather than Docker Hub, which is what the rest of the repository does: an
+// unauthenticated Hub pull is rate-limited per source address, and a runner
+// that has exhausted that budget — or cannot reach Hub at all — fails this
+// test for a reason that has nothing to do with the reaper. Both this test and
+// the startup sweep lost a CI run to
+// `Get "https://registry-1.docker.io/v2/": context deadline exceeded`.
+const containerReaperTestImage = "public.ecr.aws/docker/library/alpine:3.22"
+
 func runContainerReaperTestChild(t *testing.T) {
 	if err := startContainerReaper("aws"); err != nil {
 		t.Fatal(err)
@@ -125,7 +135,7 @@ func runContainerReaperTestChild(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	pull, err := dockerClient.ImagePull(ctx, "docker.io/library/alpine:3.22", client.ImagePullOptions{})
+	pull, err := dockerClient.ImagePull(ctx, containerReaperTestImage, client.ImagePullOptions{})
 	if err != nil {
 		t.Fatalf("pull reaper test image: %v", err)
 	}
@@ -145,7 +155,7 @@ func runContainerReaperTestChild(t *testing.T) {
 	}
 	createdContainer, err := dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image:  "docker.io/library/alpine:3.22",
+			Image:  containerReaperTestImage,
 			Cmd:    []string{"sleep", "300"},
 			Labels: labels,
 		},

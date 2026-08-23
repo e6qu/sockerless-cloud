@@ -1813,6 +1813,16 @@ var iamKMSFieldAliases = map[string][]string{
 // stream-scoped actions and a policy written "<group-arn>:*" covers those but
 // not the group-scoped reads. The gate requests whichever type AWS declares.
 func iamLogsResourceARNs(r *http.Request, types []string, arn func(svc, resource string) string) []string {
+	// The families beyond log groups and streams each authorize against a
+	// resource type of their own, and every one of their ARNs is
+	// "<type>:<name>" over a name, id or ARN the request already carries —
+	// the formats the service reference publishes. A request that names one
+	// derives it; the type it is authorized against decides which member is
+	// read, so an operation whose declared type does not match what it carries
+	// derives nothing rather than guessing.
+	if named := iamLogsNamedResourceARNs(r, types, arn); len(named) > 0 {
+		return named
+	}
 	groups := iamNamesFrom(r,
 		[]string{"logGroupName", "logGroupIdentifier"},
 		[]string{"logGroupNames", "logGroupIdentifiers"})
@@ -1836,6 +1846,68 @@ func iamLogsResourceARNs(r *http.Request, types []string, arn func(svc, resource
 		out = append(out, base)
 	}
 	return out
+}
+
+// iamLogsNamedResourceARNs builds the ARNs of the Amazon CloudWatch Logs
+// resources that are named directly by the request: a delivery, a delivery
+// source or destination, a subscription destination, an anomaly detector, a
+// lookup table or a scheduled query.
+//
+// A member that already holds an ARN is used as it stands; a member holding a
+// bare name is assembled into the type's published format. The log-group
+// families are left to the caller, which reads them from the log-group
+// members.
+func iamLogsNamedResourceARNs(r *http.Request, types []string, arn func(svc, resource string) string) []string {
+	// A resource named by an ARN member: the ARN is the answer, whatever the
+	// declared type spells.
+	for _, member := range []string{"anomalyDetectorArn", "lookupTableArn", "deliveryDestinationArn"} {
+		if v := iamJSONBodyField(r, member); strings.HasPrefix(v, "arn:") {
+			out := []string{v}
+			// CreateDelivery names a destination by ARN and a source by name,
+			// and authorizes against both.
+			if source := iamJSONBodyField(r, "deliverySourceName"); source != "" {
+				out = append(out, arn("logs", "delivery-source:"+source))
+			}
+			return out
+		}
+	}
+	// A resource named by a bare name or id, assembled into its own type's
+	// format. The declared type selects the member, because several of these
+	// spell their identifier "name" or "id".
+	named := func(resourceType string, members ...string) []string {
+		if !iamHasType(types, resourceType) {
+			return nil
+		}
+		for _, member := range members {
+			if v := iamJSONBodyField(r, member); v != "" {
+				if strings.HasPrefix(v, "arn:") {
+					return []string{v}
+				}
+				return []string{arn("logs", resourceType+":"+v)}
+			}
+		}
+		return nil
+	}
+	// Ordered by how specific the member name is, so an operation carrying
+	// both a delivery id and a destination name resolves the one its type
+	// declares.
+	for _, candidate := range [][]string{
+		{"delivery", "id"},
+		{"delivery-destination", "deliveryDestinationName", "name"},
+		{"delivery-source", "deliverySourceName", "name"},
+		{"destination", "destinationName"},
+		{"lookup-table", "lookupTableName"},
+		{"scheduled-query", "identifier"},
+	} {
+		if out := named(candidate[0], candidate[1:]...); len(out) > 0 {
+			return out
+		}
+	}
+	// An anomaly detector created over log groups authorizes against them.
+	if arns := iamJSONBodyStrings(r, "logGroupArnList"); len(arns) > 0 {
+		return arns
+	}
+	return nil
 }
 
 // ===== AWS CodeBuild =====
