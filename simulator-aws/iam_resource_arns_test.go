@@ -267,6 +267,40 @@ func TestIAMResourceARNs_ECSDaemonAndExpressMode(t *testing.T) {
 	})
 }
 
+// PutAttributes and DeleteAttributes authorize against the container instance
+// each attribute targets, which the request carries as the attribute's
+// targetId rather than as a container-instance member of its own.
+//
+// The derivation-coverage probe cannot express this: it sends a list member as
+// a list of strings, so the attributes it sends carry no targetId and these
+// two are still counted as underived. A real caller sends objects, and this is
+// what a real caller gets — the same situation the floor comment records for
+// the Amazon RDS tagging operations.
+func TestIAMResourceARNs_ECSAttributesNameTheirContainerInstance(t *testing.T) {
+	const ecs = "arn:aws:ecs:us-east-1:123456789012:"
+	t.Run("an attribute names the instance it targets", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.PutAttributes",
+				`{"cluster":"prod","attributes":[{"name":"rack","value":"r1","targetId":"abc123"}]}`),
+			"ecs:PutAttributes", ecs+"container-instance/prod/abc123")
+	})
+	t.Run("several attributes name every instance once", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.DeleteAttributes",
+				`{"cluster":"prod","attributes":[{"name":"rack","targetId":"abc123"},`+
+					`{"name":"zone","targetId":"abc123"},{"name":"rack","targetId":"def456"}]}`),
+			"ecs:DeleteAttributes",
+			ecs+"container-instance/prod/abc123", ecs+"container-instance/prod/def456")
+	})
+	t.Run("a target given as an ARN is taken as it stands", func(t *testing.T) {
+		instance := ecs + "container-instance/prod/abc123"
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.PutAttributes",
+				`{"cluster":"prod","attributes":[{"name":"rack","targetId":"`+instance+`"}]}`),
+			"ecs:PutAttributes", instance)
+	})
+}
+
 func TestIAMResourceARNs_CodeBuild(t *testing.T) {
 	const p = "arn:aws:codebuild:us-east-1:123456789012:"
 	t.Run("StartBuild names its project", func(t *testing.T) {

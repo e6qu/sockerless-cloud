@@ -1759,6 +1759,10 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 	if iamHasType(types, "container-instance") {
 		addNamed("container-instance/"+cluster+"/",
 			iamNamesFrom(r, []string{"containerInstance"}, []string{"containerInstances"}))
+		// PutAttributes and DeleteAttributes name no container instance of
+		// their own: each attribute carries the instance it is about as its
+		// targetId, which is what the call authorizes against.
+		addNamed("container-instance/"+cluster+"/", iamECSAttributeTargets(r))
 	}
 	if iamHasType(types, "capacity-provider") {
 		addNamed("capacity-provider/",
@@ -1956,6 +1960,34 @@ func iamLogsNamedResourceARNs(r *http.Request, types []string, arn func(svc, res
 		return arns
 	}
 	return nil
+}
+
+// iamECSAttributeTargets returns the container instances an attribute request
+// is about, read from each attribute's targetId. A target given as an ARN is
+// returned as it stands; the caller assembles a bare id.
+func iamECSAttributeTargets(r *http.Request) []string {
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var req struct {
+		Attributes []struct {
+			TargetId string `json:"targetId"`
+		} `json:"attributes"`
+	}
+	if json.Unmarshal(body, &req) != nil {
+		return nil
+	}
+	var targets []string
+	seen := map[string]bool{}
+	for _, attribute := range req.Attributes {
+		if attribute.TargetId == "" || seen[attribute.TargetId] {
+			continue
+		}
+		seen[attribute.TargetId] = true
+		targets = append(targets, attribute.TargetId)
+	}
+	return targets
 }
 
 // ===== AWS CodeBuild =====

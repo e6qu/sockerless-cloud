@@ -1,5 +1,39 @@
 # WHAT WE DID
 
+## 2026-08-24, ninth pass — Amazon ECS tagging, for every type AWS declares
+
+**Five of the nine taggable Amazon ECS resource types answered "tag-target type
+not implemented in sim".** The service reference lists nine for
+`ecs:TagResource` — capacity provider, cluster, container instance, daemon,
+daemon task definition, service, task, task definition and task set — and the
+three tagging operations covered four. Every one of the five refused is a
+resource this simulator already holds, so the refusal was a gap, not a limit.
+
+All nine resolve now, through one function the three operations share, so a
+type cannot be taggable through `TagResource` and invisible to
+`ListTagsForResource`. The one rule that belongs to the operation rather than
+the resource — real Amazon ECS refuses to tag a stopped task — is kept, and
+kept out of the read path, because reading a stopped task's tags is allowed.
+
+**Two dropped fields.** `CreateDaemon` and `RegisterDaemonTaskDefinition` both
+accept a `tags` member and neither stored shape had a tags field at all, so the
+tags a caller supplied were discarded silently. Both keep them now, and the
+test asserts a create's own tags survive the create rather than only checking a
+later `TagResource`.
+
+**A task set was named by a service-shaped ARN.** `TaskSetArn` was built as the
+service's own ARN with the id appended, where the published format is
+`task-set/<cluster>/<service>/<id>`. Anything dispatching on the resource type
+in an ARN would read it as the service — the tagging path would have tagged the
+service instead of the task set. Corrected, and asserted.
+
+**The attribute operations derive their container instance.** `PutAttributes`
+and `DeleteAttributes` name no container instance of their own; each attribute
+carries the instance it is about as its `targetId`. They still count as
+underived because the coverage probe sends a list member as a list of strings
+and these take a list of objects — a measurement gap, recorded as such, with
+the real behaviour pinned by its own test.
+
 ## 2026-08-24, eighth pass — the Amazon ECS daemon and Express Mode families
 
 **Amazon ECS went from 20 underived operations to 8, and the derivation ratchet

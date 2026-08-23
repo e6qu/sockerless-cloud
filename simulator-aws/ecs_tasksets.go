@@ -113,8 +113,12 @@ func handleECSCreateTaskSet(w http.ResponseWriter, r *http.Request) {
 	id := "ecs-svc/" + generateNumericID()
 	now := float64(time.Now().Unix())
 	ts := ECSTaskSet{
-		Id:                       id,
-		TaskSetArn:               svc.ServiceArn + "/" + id,
+		Id: id,
+		// The published format is task-set/<cluster>/<service>/<id>. It had
+		// been built as the service's own ARN with the id appended, which is a
+		// service-shaped ARN: anything dispatching on the ARN's resource type
+		// — tagging, for one — would have read it as the service.
+		TaskSetArn:               ecsArn("task-set", ecsClusterNameFromRef(svc.ClusterArn)+"/"+svc.ServiceName+"/"+id),
 		ServiceArn:               svc.ServiceArn,
 		ClusterArn:               svc.ClusterArn,
 		ExternalId:               req.ExternalId,

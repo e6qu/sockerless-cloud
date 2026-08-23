@@ -29,6 +29,9 @@ type ECSDaemon struct {
 	DeploymentArn           string   `json:"deploymentArn,omitempty"`
 	CreatedAt               float64  `json:"createdAt"`
 	UpdatedAt               float64  `json:"updatedAt"`
+	// AWS declares the daemon a taggable resource and CreateDaemon accepts
+	// tags, so they are stored rather than dropped.
+	Tags []ECSTag `json:"tags,omitempty"`
 }
 
 // ECSDaemonDeployment is the stored shape of a daemon deployment.
@@ -66,8 +69,11 @@ type ECSDaemonTaskDefinition struct {
 	Status                  string          `json:"status"`
 	RegisteredAt            float64         `json:"registeredAt"`
 	DeleteRequestedAt       *float64        `json:"deleteRequestedAt,omitempty"`
-	PidMode                 string          `json:"pidMode,omitempty"`
-	IpcMode                 string          `json:"ipcMode,omitempty"`
+	// RegisterDaemonTaskDefinition accepts tags and AWS declares the resource
+	// taggable, so they are stored rather than dropped.
+	Tags    []ECSTag `json:"tags,omitempty"`
+	PidMode string   `json:"pidMode,omitempty"`
+	IpcMode string   `json:"ipcMode,omitempty"`
 }
 
 var (
@@ -117,6 +123,7 @@ func handleECSCreateDaemon(w http.ResponseWriter, r *http.Request) {
 		ClusterArn              string   `json:"clusterArn"`
 		DaemonTaskDefinitionArn string   `json:"daemonTaskDefinitionArn"`
 		CapacityProviderArns    []string `json:"capacityProviderArns"`
+		Tags                    []ECSTag `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -147,6 +154,7 @@ func handleECSCreateDaemon(w http.ResponseWriter, r *http.Request) {
 		DeploymentArn:           deploymentArn,
 		CreatedAt:               now,
 		UpdatedAt:               now,
+		Tags:                    req.Tags,
 	}
 	ecsDaemons.Put(daemonArn, d)
 	ecsDaemonRevisions.Put(revisionArn, ECSDaemonRevision{
@@ -434,6 +442,7 @@ func handleECSRegisterDaemonTaskDefinition(w http.ResponseWriter, r *http.Reques
 		Memory               string          `json:"memory"`
 		PidMode              string          `json:"pidMode"`
 		IpcMode              string          `json:"ipcMode"`
+		Tags                 []ECSTag        `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -463,6 +472,7 @@ func handleECSRegisterDaemonTaskDefinition(w http.ResponseWriter, r *http.Reques
 		RegisteredAt:            float64(time.Now().Unix()),
 		PidMode:                 req.PidMode,
 		IpcMode:                 req.IpcMode,
+		Tags:                    req.Tags,
 	}
 	ecsDaemonTaskDefinitions.Put(ecsDaemonTDKey(req.Family, rev), td)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"daemonTaskDefinitionArn": arn})

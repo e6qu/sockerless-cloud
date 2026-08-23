@@ -1316,8 +1316,13 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // is how this family spells it.
 //
 // The eight left: CreateTaskSet and RegisterDaemonTaskDefinition name something
-// with no identifier yet, the attribute operations name an attribute rather
-// than a resource, and Poll and StartTelemetrySession carry no members at all.
+// with no identifier yet, and Poll and StartTelemetrySession carry no members
+// at all. PutAttributes and DeleteAttributes are counted among them but do
+// derive for a real caller — each attribute carries the container instance it
+// is about as its targetId, and TestIAMResourceARNs_ECSAttributesNameTheirContainerInstance
+// pins that. The probe cannot express it, because it sends a list member as a
+// list of strings and these take a list of objects; the same shape of
+// measurement gap the Amazon RDS tagging operations are recorded under.
 //
 // AWS CodeBuild's 23: the build-scoped operations authorize against the project
 // that owns the build, which the derivation reads out of the build id's

@@ -1341,3 +1341,161 @@ func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 	_, _ = client.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String(cluster), Task: runA.Tasks[0].TaskArn})
 	_, _ = client.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String(cluster), Task: runB.Tasks[0].TaskArn})
 }
+
+// Every Amazon ECS resource type AWS declares taggable accepts tags, returns
+// them, and gives them up again.
+//
+// The service reference lists nine types for ecs:TagResource. Four were
+// served; the other five answered "tag-target type not implemented in sim"
+// even though the simulator holds every one of them. This drives the full set
+// through the SDK, because a type that TagResource accepts and
+// ListTagsForResource cannot see is the failure this is really guarding
+// against.
+func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
+	c := ecsClient()
+	const cluster = "taggable-types-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+
+	// One ARN per taggable type, each from the operation that creates it.
+	arns := map[string]string{}
+
+	describeCluster, err := c.DescribeClusters(ctx, &ecs.DescribeClustersInput{Clusters: []string{cluster}})
+	require.NoError(t, err)
+	arns["cluster"] = aws.ToString(describeCluster.Clusters[0].ClusterArn)
+
+	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("taggable-types-task"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+	})
+	require.NoError(t, err)
+	arns["task-definition"] = aws.ToString(registered.TaskDefinition.TaskDefinitionArn)
+
+	service, err := c.CreateService(ctx, &ecs.CreateServiceInput{
+		Cluster:        aws.String(cluster),
+		ServiceName:    aws.String("taggable-types-service"),
+		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:   aws.Int32(0),
+	})
+	require.NoError(t, err)
+	arns["service"] = aws.ToString(service.Service.ServiceArn)
+	t.Cleanup(func() {
+		_, _ = c.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(cluster), Service: service.Service.ServiceArn, Force: aws.Bool(true),
+		})
+	})
+
+	capacityProvider, err := c.CreateCapacityProvider(ctx, &ecs.CreateCapacityProviderInput{
+		Name: aws.String("taggable-types-provider"),
+		AutoScalingGroupProvider: &ecstypes.AutoScalingGroupProvider{
+			AutoScalingGroupArn: aws.String(
+				"arn:aws:autoscaling:us-east-1:123456789012:autoScalingGroup:1:autoScalingGroupName/taggable"),
+		},
+	})
+	require.NoError(t, err)
+	arns["capacity-provider"] = aws.ToString(capacityProvider.CapacityProvider.CapacityProviderArn)
+
+	daemonTaskDefinition, err := c.RegisterDaemonTaskDefinition(ctx, &ecs.RegisterDaemonTaskDefinitionInput{
+		Family: aws.String("taggable-types-daemon-task"),
+		ContainerDefinitions: []ecstypes.DaemonContainerDefinition{{
+			Name: aws.String("agent"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+		Tags: []ecstypes.Tag{{Key: aws.String("created-with"), Value: aws.String("register")}},
+	})
+	require.NoError(t, err)
+	arns["daemon-task-definition"] = aws.ToString(daemonTaskDefinition.DaemonTaskDefinitionArn)
+
+	daemon, err := c.CreateDaemon(ctx, &ecs.CreateDaemonInput{
+		DaemonName:              aws.String("taggable-types-daemon"),
+		ClusterArn:              aws.String(arns["cluster"]),
+		DaemonTaskDefinitionArn: daemonTaskDefinition.DaemonTaskDefinitionArn,
+		CapacityProviderArns:    []string{arns["capacity-provider"]},
+		Tags:                    []ecstypes.Tag{{Key: aws.String("created-with"), Value: aws.String("create")}},
+	})
+	require.NoError(t, err)
+	arns["daemon"] = aws.ToString(daemon.DaemonArn)
+
+	instance, err := c.RegisterContainerInstance(ctx, &ecs.RegisterContainerInstanceInput{
+		Cluster:                  aws.String(cluster),
+		InstanceIdentityDocument: aws.String(`{"instanceId":"i-taggable","region":"us-east-1"}`),
+	})
+	require.NoError(t, err)
+	arns["container-instance"] = aws.ToString(instance.ContainerInstance.ContainerInstanceArn)
+
+	taskSet, err := c.CreateTaskSet(ctx, &ecs.CreateTaskSetInput{
+		Cluster:        aws.String(cluster),
+		Service:        service.Service.ServiceArn,
+		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+	})
+	require.NoError(t, err)
+	arns["task-set"] = aws.ToString(taskSet.TaskSet.TaskSetArn)
+
+	// A task set's ARN is task-set/<cluster>/<service>/<id>, not the service's
+	// own ARN with an id appended: anything dispatching on the resource type in
+	// an ARN — this tagging path included — would otherwise read it as the
+	// service and tag the wrong resource.
+	assert.Contains(t, arns["task-set"], ":task-set/",
+		"a task set must be named by a task-set ARN")
+
+	// A create's own tags must survive the create, not just a later
+	// TagResource: both of these accept a tags member and had been dropping it.
+	for _, created := range []string{"daemon", "daemon-task-definition"} {
+		listed, listErr := c.ListTagsForResource(ctx,
+			&ecs.ListTagsForResourceInput{ResourceArn: aws.String(arns[created])})
+		require.NoError(t, listErr, created)
+		require.Len(t, listed.Tags, 1, "%s must keep the tags its create supplied", created)
+		assert.Equal(t, "created-with", aws.ToString(listed.Tags[0].Key), created)
+	}
+
+	// Every type: tag, read back, untag, read back empty.
+	for _, resourceType := range []string{
+		"cluster", "task-definition", "service", "capacity-provider",
+		"daemon", "daemon-task-definition", "container-instance", "task-set",
+	} {
+		arn := arns[resourceType]
+		require.NotEmpty(t, arn, resourceType)
+		t.Run(resourceType, func(t *testing.T) {
+			_, tagErr := c.TagResource(ctx, &ecs.TagResourceInput{
+				ResourceArn: aws.String(arn),
+				Tags:        []ecstypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}},
+			})
+			require.NoError(t, tagErr, "TagResource must accept %s", resourceType)
+
+			listed, listErr := c.ListTagsForResource(ctx,
+				&ecs.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
+			require.NoError(t, listErr, "ListTagsForResource must accept %s", resourceType)
+			found := ""
+			for _, tag := range listed.Tags {
+				if aws.ToString(tag.Key) == "owner" {
+					found = aws.ToString(tag.Value)
+				}
+			}
+			assert.Equal(t, "platform", found, "%s must return the tag it was given", resourceType)
+
+			_, untagErr := c.UntagResource(ctx, &ecs.UntagResourceInput{
+				ResourceArn: aws.String(arn), TagKeys: []string{"owner"},
+			})
+			require.NoError(t, untagErr, "UntagResource must accept %s", resourceType)
+
+			after, listErr := c.ListTagsForResource(ctx,
+				&ecs.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
+			require.NoError(t, listErr)
+			for _, tag := range after.Tags {
+				assert.NotEqual(t, "owner", aws.ToString(tag.Key),
+					"%s must give up the tag it was asked to drop", resourceType)
+			}
+		})
+	}
+
+	// A type Amazon ECS does not tag is refused, rather than silently accepted.
+	_, err = c.TagResource(ctx, &ecs.TagResourceInput{
+		ResourceArn: aws.String("arn:aws:ecs:us-east-1:123456789012:container-definition/nope"),
+		Tags:        []ecstypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}},
+	})
+	require.Error(t, err, "a resource type ECS does not tag must be refused")
+}

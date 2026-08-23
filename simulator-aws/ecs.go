@@ -2879,75 +2879,17 @@ func handleECSTagResource(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "InvalidParameterException", "resourceArn is required", http.StatusBadRequest)
 		return
 	}
-
-	// Task ARN: tag the task in-place. Real ECS rejects TagResource
-	// on STOPPED tasks with InvalidParameterException; mirror that.
-	if strings.Contains(req.ResourceArn, ":task/") {
-		parts := strings.Split(req.ResourceArn, "/")
-		if len(parts) == 0 {
-			sim.AWSError(w, "InvalidParameterException", "malformed task ARN", http.StatusBadRequest)
-			return
-		}
-		taskID := parts[len(parts)-1]
-		task, ok := ecsTasks.Get(taskID)
-		if !ok {
-			sim.AWSError(w, "ClusterNotFoundException", "task not found: "+req.ResourceArn, http.StatusBadRequest)
-			return
-		}
-		if task.LastStatus == ECSTaskStatusStopped || task.LastStatus == ECSTaskStatusDeprovisioning {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
-				"The specified task is not in a state to be tagged: %s", task.LastStatus)
-			return
-		}
-		task.Tags = mergeECSTagsByKey(task.Tags, req.Tags)
-		ecsTasks.Put(taskID, task)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+	if fault := ecsRejectTaggingAStoppedTask(req.ResourceArn); fault != nil {
+		ecsWriteTagFault(w, fault)
 		return
 	}
-
-	// Task-definition ARN: tag the task-def.
-	if strings.Contains(req.ResourceArn, ":task-definition/") {
-		key := extractTDKey(req.ResourceArn)
-		td, ok := ecsTaskDefinitions.Get(key)
-		if !ok {
-			sim.AWSError(w, "ClientException", "task definition not found", http.StatusBadRequest)
-			return
-		}
-		td.Tags = mergeECSTagsByKey(td.Tags, req.Tags)
-		ecsTaskDefinitions.Put(key, td)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+	target, fault := ecsResolveTaggable(req.ResourceArn)
+	if fault != nil {
+		ecsWriteTagFault(w, fault)
 		return
 	}
-
-	// Cluster ARN.
-	if strings.Contains(req.ResourceArn, ":cluster/") {
-		name := ecsClusterNameFromRef(req.ResourceArn)
-		cluster, ok := ecsClusters.Get(name)
-		if !ok {
-			sim.AWSError(w, "ClusterNotFoundException", "cluster not found: "+req.ResourceArn, http.StatusBadRequest)
-			return
-		}
-		cluster.Tags = mergeECSTagsByKey(cluster.Tags, req.Tags)
-		ecsClusters.Put(name, cluster)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
-		return
-	}
-
-	// Service ARN (arn:...:service/<cluster>/<service>).
-	if strings.Contains(req.ResourceArn, ":service/") {
-		clusterName, key, svc, ok := ecsServiceFromARN(req.ResourceArn)
-		_ = clusterName
-		if !ok {
-			sim.AWSError(w, "ServiceNotFoundException", "service not found: "+req.ResourceArn, http.StatusBadRequest)
-			return
-		}
-		svc.Tags = mergeECSTagsByKey(svc.Tags, req.Tags)
-		ecsServices.Put(key, svc)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
-		return
-	}
-
-	sim.AWSError(w, "InvalidParameterException", "tag-target type not implemented in sim: "+req.ResourceArn, http.StatusBadRequest)
+	target.replace(mergeECSTagsByKey(target.tags, req.Tags))
+	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 // handleECSUntagResource implements `AmazonEC2ContainerServiceV20141113.UntagResource`.
@@ -2966,68 +2908,31 @@ func handleECSUntagResource(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "InvalidParameterException", "resourceArn and tagKeys are required", http.StatusBadRequest)
 		return
 	}
-	keep := func(tags []ECSTag) []ECSTag {
-		drop := make(map[string]struct{}, len(req.TagKeys))
-		for _, k := range req.TagKeys {
-			drop[k] = struct{}{}
-		}
-		out := tags[:0]
-		for _, t := range tags {
-			if _, gone := drop[t.Key]; gone {
-				continue
-			}
-			out = append(out, t)
-		}
-		return out
-	}
-	if strings.Contains(req.ResourceArn, ":task/") {
-		parts := strings.Split(req.ResourceArn, "/")
-		taskID := parts[len(parts)-1]
-		task, ok := ecsTasks.Get(taskID)
-		if !ok {
-			sim.AWSError(w, "ClusterNotFoundException", "task not found", http.StatusBadRequest)
-			return
-		}
-		if task.LastStatus == ECSTaskStatusStopped || task.LastStatus == ECSTaskStatusDeprovisioning {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
-				"The specified task is not in a state to be tagged: %s", task.LastStatus)
-			return
-		}
-		task.Tags = keep(task.Tags)
-		ecsTasks.Put(taskID, task)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+	if fault := ecsRejectTaggingAStoppedTask(req.ResourceArn); fault != nil {
+		ecsWriteTagFault(w, fault)
 		return
 	}
-	if strings.Contains(req.ResourceArn, ":task-definition/") {
-		key := extractTDKey(req.ResourceArn)
-		td, ok := ecsTaskDefinitions.Get(key)
-		if !ok {
-			sim.AWSError(w, "ClientException", "task definition not found", http.StatusBadRequest)
-			return
-		}
-		td.Tags = keep(td.Tags)
-		ecsTaskDefinitions.Put(key, td)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+	target, fault := ecsResolveTaggable(req.ResourceArn)
+	if fault != nil {
+		ecsWriteTagFault(w, fault)
 		return
 	}
-	if strings.Contains(req.ResourceArn, ":cluster/") {
-		name := ecsClusterNameFromRef(req.ResourceArn)
-		if cluster, ok := ecsClusters.Get(name); ok {
-			cluster.Tags = keep(cluster.Tags)
-			ecsClusters.Put(name, cluster)
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
-		return
+	drop := make(map[string]struct{}, len(req.TagKeys))
+	for _, key := range req.TagKeys {
+		drop[key] = struct{}{}
 	}
-	if strings.Contains(req.ResourceArn, ":service/") {
-		if _, key, svc, ok := ecsServiceFromARN(req.ResourceArn); ok {
-			svc.Tags = keep(svc.Tags)
-			ecsServices.Put(key, svc)
+	// Built fresh rather than filtered in place: the slice belongs to the
+	// stored record, and writing through it would edit the store's own copy
+	// before the replace decides to.
+	kept := make([]ECSTag, 0, len(target.tags))
+	for _, tag := range target.tags {
+		if _, gone := drop[tag.Key]; gone {
+			continue
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
-		return
+		kept = append(kept, tag)
 	}
-	sim.AWSError(w, "InvalidParameterException", "untag-target type not implemented in sim: "+req.ResourceArn, http.StatusBadRequest)
+	target.replace(kept)
+	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 // mergeECSTagsByKey combines `existing` with `incoming`: any key
@@ -3057,44 +2962,18 @@ func handleECSListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		sim.AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
-
-	var tags []ECSTag
-
-	// Check if it's a task definition ARN
-	if strings.Contains(req.ResourceArn, ":task-definition/") {
-		key := extractTDKey(req.ResourceArn)
-		if td, ok := ecsTaskDefinitions.Get(key); ok {
-			tags = td.Tags
-		}
+	// Resolved through the same function TagResource uses, so a type cannot be
+	// taggable and then invisible here.
+	target, fault := ecsResolveTaggable(req.ResourceArn)
+	if fault != nil {
+		ecsWriteTagFault(w, fault)
+		return
 	}
-
-	switch {
-	case strings.Contains(req.ResourceArn, ":task/"):
-		parts := strings.Split(req.ResourceArn, "/")
-		if task, ok := ecsTasks.Get(parts[len(parts)-1]); ok {
-			tags = task.Tags
-		}
-	case strings.Contains(req.ResourceArn, ":task-definition/"):
-		if td, ok := ecsTaskDefinitions.Get(extractTDKey(req.ResourceArn)); ok {
-			tags = td.Tags
-		}
-	case strings.Contains(req.ResourceArn, ":cluster/"):
-		if cluster, ok := ecsClusters.Get(ecsClusterNameFromRef(req.ResourceArn)); ok {
-			tags = cluster.Tags
-		}
-	case strings.Contains(req.ResourceArn, ":service/"):
-		if _, _, svc, ok := ecsServiceFromARN(req.ResourceArn); ok {
-			tags = svc.Tags
-		}
-	}
-
+	tags := target.tags
 	if tags == nil {
 		tags = []ECSTag{}
 	}
-
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"tags": tags,
-	})
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
 }
 
 // ecsExecSessions tracks active ECS exec sessions for WebSocket handlers.
