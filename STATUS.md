@@ -80,7 +80,7 @@ Current state of the sockerless-cloud repository.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
-- **Measured floors**: IAM resource derivation 1,694 of 1,979 served
+- **Measured floors**: IAM resource derivation 1,722 of 1,979 served
   operations — the floor fell from 1,784 when the ratchet stopped crediting
   101 operations that belonged to the coverage table while being absent from
   the probe's own switch, and the condition-key ratchet likewise stopped

@@ -1,5 +1,38 @@
 # WHAT WE DID
 
+## 2026-08-24, seventh pass — the CloudWatch Logs families that were never assembled
+
+**Amazon CloudWatch Logs went from 31 underived operations to 3, and the IAM
+derivation ratchet from 1,694 to 1,722 of 1,979.** The families beyond log
+groups and streams — delivery, delivery source and destination, subscription
+destination, anomaly detector, lookup table, scheduled query — each authorize
+against a resource type of their own, and the floor comment recorded them as
+"a resource type of their own that nothing assembles yet". Every one of their
+ARNs turned out to be `<type>:<name>` over a name, an id or an ARN the request
+already carries, in the format the service reference publishes beside the type.
+
+The declared type selects which member is read, because several of these spell
+their identifier `name` or `id` and would otherwise collide: a request whose
+declared type does not match what it carries derives nothing rather than
+guessing. A member that already holds an ARN is used as it stands, which is how
+an anomaly detector, a lookup table and a delivery's destination resolve.
+`CreateDelivery` authorizes against both the destination it names by ARN and
+the source it names by name, so it derives both.
+
+**The exact ARNs are pinned, not the fact that one appeared.** A derivation
+that builds the wrong ARN authorizes the wrong resource, which is worse than
+deriving nothing and falling back to `"*"`, so each family has a case
+asserting its exact string, alongside two negatives: an opaque record pointer
+still derives nothing, and a log-group request is unchanged by any of it.
+
+The three that remain name nothing that resolves — an opaque record pointer, a
+query id, and a detector list filtered by log group rather than naming a
+detector.
+
+**Corrected:** the BUG-2909 entry had been left carrying both a stale figure
+(1,788 of 1,975) and a corrective sentence added beside it, which is worse than
+either alone. It now states the measured figures once.
+
 ## 2026-08-23, sixth pass — the IAM ratchet's own probe was lying, and the gates were re-checked
 
 **The resource-derivation probe sent a request no client sends.** It lower-cased
