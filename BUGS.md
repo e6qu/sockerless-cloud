@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 6. Resolved: 74.
+Open: 6. Resolved: 75.
 
 ## Open
 
@@ -47,6 +47,20 @@ the simulators from the sockerless monorepo, keeping their IDs
 
 
 ## Resolved history
+
+- ~~**BUG-71 (two more Amazon ECS deployment transitions published their state
+  before the event recording it):**~~ The same defect as BUG-70, found by
+  sweeping the rest of the deployment lifecycle for it rather than waiting for
+  another test to lose the race. `ecsFailServiceDeployment` published a
+  rollout as `FAILED` in one write to the service row and appended the event
+  explaining the failure in the next, and `ecsStartServiceDeploymentRollback`
+  restored the previous task definition in one write and recorded "began
+  rolling back" in the next. Between either pair a client polling
+  DescribeServices sees a failed rollout with nothing saying why, or a service
+  pointing back at its last good revision with nothing saying a rollback began
+  — neither of which real Amazon ECS can return, because it answers the
+  rollout state and the events from one service. Both events are now appended
+  by the write that publishes the state they describe.
 
 - ~~**BUG-70 (a rolled-back Amazon ECS deployment reported COMPLETED before the
   event recording the rollback existed):**~~ The scheduler published the
