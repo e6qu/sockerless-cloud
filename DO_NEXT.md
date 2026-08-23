@@ -104,7 +104,16 @@
   differential tests' 280-second budget when several test suites run at once
   (`pgcosmos extension is still starting`). The budget and its probe are
   sound; the machine was starved. Re-run on a quiet host before suspecting the
-  simulator.
+  simulator. Seen again on 2026-08-23 (`sim (azure sdk)`, 281.08s, green on the
+  next commit with no change to that path), so it recurs rather than being a
+  one-off. The budget is deliberately not raised: go test gets 13 minutes and
+  the step 14, so buying readiness time would trade a named Go failure for an
+  opaque step kill. The failure classifies itself now — it reports whether the
+  emulator was answering "still starting" (host starvation) or not answering at
+  all (a real fault) — so the next sighting does not need this paragraph to be
+  understood. If it becomes frequent, the fix shape is to start the emulator
+  earlier and overlap its initialisation with suite setup that does not need
+  it, not to extend the wait.
 
 - Azure CLI 2.88's `az keyvault update --set tags.<k>=<v>` issues a vault
   GET followed by a PUT that does not carry the changed tags, and
