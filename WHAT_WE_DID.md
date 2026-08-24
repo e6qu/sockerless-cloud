@@ -39,6 +39,14 @@ Nothing was manufactured to make them pass: a derivable or log-delivered
 one-time password standing in for a real SMS is exactly what the loud failure
 exists to prevent.
 
+The error code stayed `InternalError`, which is what this simulator has always
+answered for a delivery it cannot perform. Two alternatives were tried on the
+way and both were worse, which CI caught: `EndpointDisabled` claims a device
+endpoint was disabled — a different fact, and untrue here — and returning 503
+made the AWS SDK retry three times against a condition that is permanent,
+turning one clear failure into a slow one. The existing tests pinned the code
+and were right to.
+
 ## 2026-08-24, thirteenth pass — the open bugs, examined one by one
 
 Five bugs were open. One was mine to fix and is advanced; the other four are

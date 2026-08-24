@@ -659,8 +659,14 @@ const (
 )
 
 // snsExternalDeliveryUnavailable answers a request that would have to reach an
-// external provider. The code is the one AWS uses when delivery fails for a
-// reason outside the request, and the message names the dependency.
+// external provider.
+//
+// The code stays InternalError, which is what this simulator has always
+// answered for a delivery it cannot perform, and the reason goes in the
+// message. Two alternatives were tried and are worse: EndpointDisabled claims
+// a device endpoint was disabled, which is a different fact and untrue here,
+// and a 503 makes the AWS SDK retry — three attempts against a condition that
+// is permanent, turning one clear failure into a slow one.
 func snsExternalDeliveryUnavailable(w http.ResponseWriter, r *http.Request, reason string) {
-	snsErrorXML(w, "EndpointDisabled", reason, http.StatusServiceUnavailable, sim.RequestID(r.Context()))
+	snsErrorXML(w, "InternalError", reason, http.StatusInternalServerError, sim.RequestID(r.Context()))
 }
