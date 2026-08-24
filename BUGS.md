@@ -1,8 +1,25 @@
 # BUGS
 
-Open: 6. Resolved: 76.
+Open: 7. Resolved: 76.
 
 ## Open
+
+- **BUG-74 (Cloud SQL and the Azure database slices still take metadata-only
+  backups):** Amazon RDS snapshots now capture the instance's data — the
+  volume is cloned copy-on-write where the engine's volume store sits on
+  btrfs, XFS with reflinks, or OpenZFS block cloning, and by full copy
+  elsewhere, one code path (`sim.SnapshotVolume`, a single
+  `cp -a --reflink=auto`), with restore booting the engine on the captured
+  volume and the master credential travelling with the data. The GCP Cloud SQL
+  backupRuns and the Azure flexible-server backup/point-in-time-restore
+  surfaces still record metadata without capturing their data volumes. Fix
+  shape: port the same three touch points per cloud — capture on backup
+  create, clone before the restored engine's first start, remove the volume on
+  delete — against each cloud's own API shapes, with the RDS SDK test
+  (`TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt`) as the template: rows
+  from before the backup present after restore, rows from after it absent.
+  Nothing external blocks it.
+
 
 - **BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
   not chosen):** The one operation in the vendored S3 model without a handler.

@@ -73,12 +73,15 @@ type RDSSnapshot struct {
 	Engine               string
 	EngineVersion        string
 	Status               string // creating | available | deleting | failed
-	AllocatedStorage     int
-	MasterUsername       string
-	SnapshotCreateTime   string
-	SnapshotType         string // manual | automated
-	Port                 int
-	VpcId                string
+	// StatusReason says why a snapshot failed, in the words of the capture
+	// that failed; empty otherwise.
+	StatusReason       string
+	AllocatedStorage   int
+	MasterUsername     string
+	SnapshotCreateTime string
+	SnapshotType       string // manual | automated
+	Port               int
+	VpcId              string
 	// SourceDBSnapshotIdentifier is the ARN of the snapshot this one was
 	// copied from (CopyDBSnapshot); empty for snapshots created directly.
 	SourceDBSnapshotIdentifier string
@@ -89,6 +92,11 @@ type RDSSnapshot struct {
 	RestoreAttributeValues []string
 	ARN                    string
 	Tags                   map[string]string
+	// MasterUserSecret carries the source instance's encrypted master
+	// credential, so an instance restored from this snapshot can start its
+	// engine with the credentials the data expects — real RDS restores the
+	// master credentials with the data.
+	MasterUserSecret []byte
 }
 
 // RDSCluster models a (control-plane only) Aurora/Multi-AZ DB cluster.
@@ -917,11 +925,12 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		DbiResourceId:        inst.DbiResourceId,
 		Engine:               inst.Engine,
 		EngineVersion:        inst.EngineVersion,
-		// Inline-settle: real RDS goes through "creating" briefly; sim
-		// emits the steady-state "available" because there's no
-		// async work to gate on. State machine is documented in the
-		// type's docstring + the aws-rds.md surface table.
-		Status:             "available",
+		// The snapshot answers "creating" and settles asynchronously once
+		// the instance's volume is captured — real work now backs the state
+		// machine: the capture is copy-on-write where the engine's volume
+		// store supports block cloning, and a full copy elsewhere, either way
+		// a complete capture of the data.
+		Status:             "creating",
 		AllocatedStorage:   inst.AllocatedStorage,
 		MasterUsername:     inst.MasterUsername,
 		SnapshotCreateTime: time.Now().UTC().Format(time.RFC3339),
@@ -929,8 +938,13 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		Port:               inst.Port,
 		ARN:                rdsSnapshotARN(snapID),
 		Tags:               parseAWSQueryTagMap(r, "Tags.Tag"),
+		// The master credential travels with the data, as it does in RDS:
+		// the restored engine expects the credentials the data was written
+		// under.
+		MasterUserSecret: append([]byte(nil), inst.MasterUserSecret...),
 	}
 	rdsSnapshots.Put(snapID, snap)
+	simGo(func() { rdsCaptureSnapshotData(snapID, instID) })
 	rdsXMLResponse(w, "CreateDBSnapshot", renderRDSSnapshot(snap), sim.RequestID(r.Context()))
 }
 
@@ -994,6 +1008,13 @@ func handleRDSDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rdsSnapshots.Delete(snap.DBSnapshotIdentifier)
+	// The captured data goes with the record: keeping the volume would leak
+	// storage the API says no longer exists. On the modeled tier no volume
+	// was ever created, and removing a volume without an engine is refused
+	// inside RemoveVolume, so the error is expected and dropped there.
+	if sim.RequireContainerRuntime("deleting an RDS snapshot volume") == nil {
+		_ = sim.RemoveVolume(rdsSnapshotVolume(snap.DBSnapshotIdentifier))
+	}
 	// Real RDS returns the snapshot with Status="deleted" in the
 	// response (it's the final state machine transition before
 	// removal). Match that.
@@ -1026,6 +1047,12 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	if snap.Status != "available" {
+		rdsErrorXML(w, "InvalidDBSnapshotState",
+			fmt.Sprintf("DBSnapshot %q is %s; it must be available to restore from", snapID, snap.Status),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	inst := RDSInstance{
 		DBInstanceIdentifier: newInstID,
 		DbiResourceId:        rdsResourceID(),
@@ -1035,12 +1062,39 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		DBInstanceStatus:     "available",
 		MasterUsername:       snap.MasterUsername,
 		AllocatedStorage:     snap.AllocatedStorage,
-		Endpoint:             fmt.Sprintf("%s.%s.rds.amazonaws.com", newInstID, awsRegion()),
-		Port:                 rdsDefaultPort(snap.Engine),
 		AvailabilityZone:     awsRegion() + "a",
 		InstanceCreateTime:   time.Now().UTC().Format(time.RFC3339),
 		ARN:                  rdsInstanceARN(newInstID),
 		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
+		// The engine starts with the credentials the captured data was
+		// written under, exactly as a restored RDS instance does.
+		MasterUserSecret: append([]byte(nil), snap.MasterUserSecret...),
+	}
+	// The captured data is cloned into the new instance's volume before the
+	// engine can first start, so the restored engine boots on the snapshot's
+	// data. A snapshot taken on the modeled tier has no volume and seeds
+	// nothing, leaving the restored instance as modeled as its source.
+	if err := rdsCloneSnapshotIntoInstance(snap.DBSnapshotIdentifier, newInstID); err != nil {
+		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+		return
+	}
+	if len(inst.MasterUserSecret) > 0 {
+		_, password, decrypted := kmsDecryptBytes(inst.MasterUserSecret)
+		if !decrypted {
+			rdsErrorXML(w, "ProvisioningFailure",
+				"the snapshot's master-user credential could not be decrypted",
+				http.StatusInternalServerError, sim.RequestID(r.Context()))
+			return
+		}
+		if err := rdsInstallDataPlane(&inst, string(password)); err != nil {
+			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+			return
+		}
+	} else {
+		// A snapshot from the modeled tier carries no credential and gets no
+		// data plane, the same as its source had.
+		inst.Endpoint = fmt.Sprintf("%s.%s.rds.amazonaws.com", newInstID, awsRegion())
+		inst.Port = rdsDefaultPort(snap.Engine)
 	}
 	rdsInstances.Put(newInstID, inst)
 	rdsXMLResponse(w, "RestoreDBInstanceFromDBSnapshot", renderRDSInstance(inst), sim.RequestID(r.Context()))

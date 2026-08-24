@@ -1,5 +1,42 @@
 # WHAT WE DID
 
+## 2026-08-24, seventeenth pass — RDS snapshots carry the data, copy-on-write where the filesystem allows
+
+Amazon RDS snapshots were metadata: CreateDBSnapshot recorded a row and
+settled "available" while the instance's data — a real PostgreSQL, MySQL or
+MariaDB engine's volume — was never captured, and RestoreDBInstanceFromDBSnapshot
+built an instance with a fabricated `.rds.amazonaws.com` endpoint string and
+no data plane at all. Two defects wearing one API.
+
+A snapshot now captures the instance's volume into a snapshot volume, restore
+clones that volume into the new instance's before its engine first starts, and
+deleting the snapshot deletes the volume. The capture is one command —
+`cp -a --reflink=auto`, in a one-shot helper container with the source mounted
+read-only — so on a container engine whose volume store sits on btrfs, XFS
+with reflinks, or OpenZFS with block cloning, the capture clones blocks
+copy-on-write and is effectively instant however large the database, and on
+any other filesystem the same command is a real full copy. One code path; the
+filesystem decides the speed; the RDS API is byte-identical either way, which
+is the no-divergence requirement. A log line tells the operator which they
+got. The snapshot's status is a real state machine now — creating until the
+capture settles, failed with the capture's own words when it fails — and the
+master credential travels with the data, because the restored engine expects
+the credentials the data was written under. On the API-only tier (no engine)
+snapshots remain exactly as modeled as their instances, which is that tier's
+contract for everything.
+
+Proven end to end through a stock PostgreSQL driver:
+TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt writes rows, snapshots,
+writes more, restores, and asserts the restored engine serves the rows from
+before the snapshot and not the ones from after — the property that separates
+a snapshot from a metadata row. On this development host the log read
+"captured copy-on-write on xfs": the Podman machine's volume store has
+reflinks, so the test exercised the instant path for real.
+
+Cloud SQL and the Azure database slices still take metadata-only backups;
+BUG-74 records the port, with the three touch points and the test as the
+template.
+
 ## 2026-08-24, sixteenth pass — the model-drift sweep, and 42 operations AWS added since
 
 The 41 vendored AWS models were diffed against the simulator's handwritten
