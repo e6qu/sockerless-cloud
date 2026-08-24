@@ -1604,28 +1604,45 @@ func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	// Real RDS refuses to copy a snapshot that is not available; copying one
+	// mid-capture would race the source's own data write.
+	if src.Status != "available" {
+		rdsErrorXML(w, "InvalidDBSnapshotState",
+			fmt.Sprintf("DBSnapshot %q is %s; it must be available to copy", srcID, src.Status),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	tags := parseAWSQueryTagMap(r, "Tags.Tag")
 	if r.FormValue("CopyTags") == "true" {
 		tags = mergeTags(tags, src.Tags)
 	}
 	copySnap := RDSSnapshot{
-		DBSnapshotIdentifier:       targetID,
-		DBInstanceIdentifier:       src.DBInstanceIdentifier,
-		DbiResourceId:              src.DbiResourceId,
-		Engine:                     src.Engine,
-		EngineVersion:              src.EngineVersion,
-		Status:                     "available",
-		AllocatedStorage:           src.AllocatedStorage,
-		MasterUsername:             src.MasterUsername,
-		SnapshotCreateTime:         time.Now().UTC().Format(time.RFC3339),
-		SnapshotType:               "manual",
-		Port:                       src.Port,
-		VpcId:                      src.VpcId,
+		DBSnapshotIdentifier: targetID,
+		DBInstanceIdentifier: src.DBInstanceIdentifier,
+		DbiResourceId:        src.DbiResourceId,
+		Engine:               src.Engine,
+		EngineVersion:        src.EngineVersion,
+		// The copy carries the DATA, not just the record: it answers
+		// "creating" and settles once the source snapshot's volume is cloned
+		// into its own, the same asynchronous machine CreateDBSnapshot runs.
+		Status:             "creating",
+		AllocatedStorage:   src.AllocatedStorage,
+		MasterUsername:     src.MasterUsername,
+		SnapshotCreateTime: time.Now().UTC().Format(time.RFC3339),
+		SnapshotType:       "manual",
+		Port:               src.Port,
+		VpcId:              src.VpcId,
+		// The master credential travels with the data, exactly as on create:
+		// an instance restored from the COPY needs the credentials the data
+		// was written under just as much as one restored from the original.
+		MasterUserSecret:           append([]byte(nil), src.MasterUserSecret...),
 		SourceDBSnapshotIdentifier: src.ARN,
 		ARN:                        rdsSnapshotARN(targetID),
 		Tags:                       tags,
 	}
 	rdsSnapshots.Put(targetID, copySnap)
+	srcSnapID := src.DBSnapshotIdentifier
+	simGo(func() { rdsCopySnapshotData(targetID, srcSnapID) })
 	rdsXMLResponse(w, "CopyDBSnapshot", renderRDSSnapshot(copySnap), sim.RequestID(r.Context()))
 }
 

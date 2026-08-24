@@ -69,6 +69,23 @@ func rdsSettleSnapshot(snapshotID, status, reason string) {
 	}
 }
 
+// rdsCopySnapshotData clones the source snapshot's volume into the copy's and
+// settles the copy — the CopyDBSnapshot half of the capture machinery. A source
+// captured on the modeled tier has no volume; the copy is then exactly as
+// modeled as its source, and settles available with nothing to clone.
+func rdsCopySnapshotData(targetID, sourceID string) {
+	if sim.RequireContainerRuntime("copying an RDS snapshot") != nil || !sim.VolumeExists(rdsSnapshotVolume(sourceID)) {
+		rdsSettleSnapshot(targetID, "available", "")
+		return
+	}
+	if _, err := sim.SnapshotVolume(context.Background(),
+		rdsSnapshotVolume(sourceID), rdsSnapshotVolume(targetID)); err != nil {
+		rdsSettleSnapshot(targetID, "failed", err.Error())
+		return
+	}
+	rdsSettleSnapshot(targetID, "available", "")
+}
+
 // rdsCloneSnapshotIntoInstance seeds a new instance's volume from a
 // snapshot's, so the engine's first start finds the captured data. A snapshot
 // without a volume — taken on the modeled tier — seeds nothing, and the

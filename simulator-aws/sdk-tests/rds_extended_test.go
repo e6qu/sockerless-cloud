@@ -229,6 +229,9 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 			DBSnapshotIdentifier: aws.String(srcSnap),
 		})
 	})
+	// Copying refuses a still-capturing source (InvalidDBSnapshotState), so
+	// wait for the asynchronous capture to settle first, as a client must.
+	waitForRDSSnapshotAvailable(t, c, ctx, srcSnap)
 
 	copyDst := "ext-copy-dst-snap"
 	copyOut, err := c.CopyDBSnapshot(ctx, &rds.CopyDBSnapshotInput{
@@ -239,8 +242,11 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, copyOut.DBSnapshot)
 	assert.Equal(t, copyDst, aws.ToString(copyOut.DBSnapshot.DBSnapshotIdentifier))
-	assert.Equal(t, "available", aws.ToString(copyOut.DBSnapshot.Status))
+	// The copy carries the source's data, so it runs the same asynchronous
+	// creating → available machine the create does.
+	assert.Equal(t, "creating", aws.ToString(copyOut.DBSnapshot.Status))
 	assert.NotEmpty(t, aws.ToString(copyOut.DBSnapshot.SourceDBSnapshotIdentifier))
+	waitForRDSSnapshotAvailable(t, c, ctx, copyDst)
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBSnapshot(ctx, &rds.DeleteDBSnapshotInput{
 			DBSnapshotIdentifier: aws.String(copyDst),

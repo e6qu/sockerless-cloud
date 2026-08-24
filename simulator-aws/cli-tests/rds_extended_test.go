@@ -202,6 +202,8 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 		_ = awsCLI("rds", "delete-db-snapshot",
 			"--db-snapshot-identifier", srcSnap).Run()
 	})
+	// Copying refuses a still-capturing source; wait for the settle first.
+	waitForRDSSnapshotAvailableCLI(t, srcSnap)
 
 	dstSnap := "cli-ext-copy-dst"
 	out = runCLI(t, awsCLI("rds", "copy-db-snapshot",
@@ -216,8 +218,11 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 	}
 	parseJSON(t, out, &copied)
 	require.Equal(t, dstSnap, copied.DBSnapshot.DBSnapshotIdentifier)
-	assert.Equal(t, "available", copied.DBSnapshot.Status)
+	// The copy carries the source's data, so it answers "creating" and
+	// settles asynchronously, exactly like the create.
+	assert.Equal(t, "creating", copied.DBSnapshot.Status)
 	assert.NotEmpty(t, copied.DBSnapshot.SourceDBSnapshotIdentifier)
+	waitForRDSSnapshotAvailableCLI(t, dstSnap)
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-snapshot",
 			"--db-snapshot-identifier", dstSnap).Run()
