@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/e6qu/sockerless-cloud/compare/v0.15.0...v0.16.0) (2026-08-24)
+
+
+### Features
+
+* **aws:** implement ECS deployment lifecycle hooks, and close the open-bug sweep ([#67](https://github.com/e6qu/sockerless-cloud/issues/67)) ([5ec2787](https://github.com/e6qu/sockerless-cloud/commit/5ec2787fd0bd01e2a6da88b023c25abd7f27c470))
+
 ## [0.15.0](https://github.com/e6qu/sockerless-cloud/compare/v0.14.0...v0.15.0) (2026-08-24)
 
 
