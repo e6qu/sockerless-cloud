@@ -73,6 +73,8 @@ var budgetsStore sim.Store[budgetsStoreEntry]
 func registerBudgets(r *sim.AWSRouter, srv *sim.Server) {
 	budgetsStore = sim.MakeStore[budgetsStoreEntry](srv.DB(), "budgets")
 	budgetsTags = sim.MakeStore[map[string]string](srv.DB(), "budget_tags")
+	registerBudgetsActions(r, srv)
+	registerBudgetsNotificationExtras(r)
 
 	r.Register("AWSBudgetServiceGateway.CreateBudget", handleBudgetsCreateBudget)
 	r.Register("AWSBudgetServiceGateway.DescribeBudget", handleBudgetsDescribeBudget)

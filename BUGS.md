@@ -4,6 +4,18 @@ Open: 6. Resolved: 76.
 
 ## Open
 
+- **BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
+  not chosen):** The one operation in the vendored S3 model without a handler.
+  It is the callback an AWS Lambda function makes to return a transformed
+  object through S3 Object Lambda — meaningful only behind an Object Lambda
+  access point, and access points are managed by the `s3control` service,
+  which is not a vendored slice. Serving the callback without the access-point
+  control plane would acknowledge writes nothing can ever read back. Fix
+  shape: vendor `s3control`, implement Object Lambda access points, and then
+  this callback, in one slice. Until then the S3 model is 111 of 112 served,
+  and every other gap the model-drift sweep found on 2026-08-24 was closed.
+
+
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
 | 2909 | P2 | AWS simulator IAM enforcement leaves 190 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,735 of the 1,979 served operations that authorize against a resource type derive it; the remaining 244 still request a literal `"*"`. AWS Budgets joined the table, its Smithy model vendored for the probe, and its three tagging operations derive from the ARN they name. The coverage probe was also sending every member under a lower-cased name — a body no client sends, while the derivation reads the real member name — so it now sends the wire name in its own case, which is what let those three register. AWS Step Functions state-machine and activity creation joined the table — their ARNs are name-determined, so the create request already carries everything the ARN needs, and the older comment calling every create underivable was wrong for them. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (55), AWS Glue (35), Amazon RDS (27), AWS CodeBuild (23), Amazon ECS (20), AWS Identity and Access Management (20), Amazon DynamoDB (18), AWS Systems Manager (17). Amazon ECS fell from 20 to 8 when its daemon and Express Mode families were read from the ARNs they name, type by type. Amazon CloudWatch Logs fell from 31 to 3 when its named families — delivery, delivery destination and source, subscription destination, anomaly detector, lookup table, scheduled query — were assembled from the identifiers their requests carry. What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. |

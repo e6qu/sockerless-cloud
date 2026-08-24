@@ -1,5 +1,58 @@
 # WHAT WE DID
 
+## 2026-08-24, sixteenth pass — the model-drift sweep, and 42 operations AWS added since
+
+The 41 vendored AWS models were diffed against the simulator's handwritten
+source. 3,607 operations; 86 names appeared nowhere. 43 of those were false
+positives — S3 routes its bucket subresources by query parameter, so operation
+names never appear as strings — and the other 43 were real drift: operations
+AWS added to the models (vendored 2026-08-12 through 2026-08-23) after the
+simulator's implementation. 42 are implemented now; the one left is filed.
+
+**AWS Glue (2):** the Data Catalog export configuration round-trips, one per
+account, with the status settling to the setting because the change is applied
+synchronously and no ENABLING window exists to observe.
+
+**IAM (4):** account properties are a real account-scoped map. Role templates
+are AWS's own catalog — every template lives under the literal account `aws`
+and carries trust policies AWS authors — so `GetRoleTemplateVersion` and
+`AcquireRole` fail naming that catalog, and point at `CreateRole` as the
+equivalent without the catalog dependency.
+
+**AWS Budgets (12):** the whole budget-action family. An action's execution is
+performed through the simulator's own services — an IAM definition attaches
+the policy through the same stores the IAM handlers write, an SCP definition
+through the organizations attachments, and an SSM definition stops instances
+through the same halt the StopInstances handler uses, extracted into
+`ec2HaltInstance` so there is one copy of those semantics. The SDK test reads
+the execution's effect back through IAM itself, not through the action's own
+status, and reversal detaches what execution attached. `UpdateNotification`
+moves a notification's subscribers with it, because the notification's
+identity is its field tuple.
+
+**Amazon EC2 (25):** two families. The internet-registry associations and
+routing-policy registrations are real control-plane state; enabling an
+association begins verification with the Regional Internet Registry — ARIN,
+RIPE, APNIC — which is outside AWS, so that path fails naming the registry,
+and route origin authorizations fail naming the RPKI repositories the same
+way. Discovered routes are derived from the account's own route tables.
+Application status checks are measured, not declared: the check is probed over
+its own protocol, port and path against the instance's address, in the exact
+response shape the SDK deserialises — which is how the SDK caught two wire
+defects during the build: the status vocabulary is
+passed/failed/impaired/suppressed rather than anything invented, and
+NetworkProtocolEnum admits exactly http and https, so the TCP default the
+first version had was a protocol the model does not allow.
+
+Coverage ratchets rose and hold the gains: EC2 800/800, IAM 180/180, Glue
+299/299 in the service-conformance floor, and IAM resource derivation
+1,735 → 1,741 because the new operations derive.
+
+**Filed, not hidden:** S3's `WriteGetObjectResponse` is the data plane of
+S3 Object Lambda, whose control plane is the `s3control` service — not a
+vendored slice. Serving the callback without access points would acknowledge
+writes nothing can read back. BUG-73 records the one-slice fix shape.
+
 ## 2026-08-24, fifteenth pass — PutEvents authorized against the wrong thing
 
 Amazon EventBridge's `PutEvents` names its event bus per entry rather than once

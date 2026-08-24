@@ -69,6 +69,7 @@ var (
 )
 
 func registerIAM(r *sim.AWSQueryRouter, srv *sim.Server) {
+	registerIAMAccountProperties(r, srv)
 	iamRoles = sim.MakeStore[IAMRole](srv.DB(), "iam_roles")
 	iamRolePolicies = sim.MakeStore[IAMRolePolicy](srv.DB(), "iam_role_policies")
 	iamAttachedPolicies = sim.MakeStore[IAMAttachedPolicy](srv.DB(), "iam_attached_policies")

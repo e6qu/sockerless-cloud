@@ -392,14 +392,14 @@ func serviceImplementedCount(m *smithyService, r conformanceRouters) int {
 // the query router's unversioned bucket is never counted for it (see
 // legacyQueryRegistrars).
 var serviceCoverageFloor = map[string]int{
-	"AmazonEC2":                            775, // ec2Query
+	"AmazonEC2":                            800, // ec2Query
 	"AWSSecurityTokenServiceV20110615":     11,  // STS (awsQuery, unversioned)
-	"AWSIdentityManagementV20100508":       176, // IAM (awsQuery, unversioned)
+	"AWSIdentityManagementV20100508":       180, // IAM (awsQuery, unversioned)
 	"AmazonEC2ContainerRegistry_V20150921": 58,  // ECR
 	"AmazonElastiCacheV9":                  75,
 	"AmazonRDSv19":                         164,
 	"AutoScaling_2011_01_01":               66,
-	"AWSGlue":                              297,
+	"AWSGlue":                              299,
 	"AWSWAF_20190729":                      59,
 	"CloudTrail_20131101":                  60,
 	"CodeBuild_20161006":                   59,
