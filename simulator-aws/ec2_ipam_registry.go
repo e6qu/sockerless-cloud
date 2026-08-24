@@ -276,12 +276,37 @@ func handleCreateIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 		Description:                     r.FormValue("Description"),
 		State:                           "registered",
 	}
+	delta := ec2RecordRoutingRegistrationDelta(associationID, map[string]any{
+		"Cidr": cidr,
+		"Asns": registration.Asns,
+	})
+	registration.LatestDeltaId = delta.DeltaId
 	ec2IpamRoutingRegistrations.Put(ec2IpamRoutingRegistrationKey(associationID, cidr), registration)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateIpamRoutingPolicyRegistrationResponse %s>
   <requestId>%s</requestId>
-  <ipamRoutingPolicyRegistration>%s</ipamRoutingPolicyRegistration>
-</CreateIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingRegistrationXML(registration))
+  <ipamRoutingPolicyRegistrationDelta>%s</ipamRoutingPolicyRegistrationDelta>
+</CreateIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingDeltaXML(delta))
+}
+
+// ec2RecordRoutingRegistrationDelta records the single-operation counterpart
+// of the batch document: the model returns an IpamRoutingPolicyRegistrationDelta
+// from Create/Modify/Delete as well, so each mutation authors a one-entry delta
+// document and stores it — the deltas listing must know every delta a response
+// ever named, or the returned record is a phantom nothing can read back.
+func ec2RecordRoutingRegistrationDelta(associationID string, entry map[string]any) EC2IpamRoutingPolicyRegistrationDelta {
+	deltaJSON, err := json.Marshal([]map[string]any{entry})
+	if err != nil {
+		deltaJSON = []byte("[]")
+	}
+	delta := EC2IpamRoutingPolicyRegistrationDelta{
+		AssociationId: associationID,
+		DeltaId:       ec2ID("ipam-rpr-delta"),
+		DeltaJson:     string(deltaJSON),
+		State:         "complete",
+	}
+	ec2IpamRoutingDeltas.Put(delta.DeltaId, delta)
+	return delta
 }
 
 func ec2ApplyRoutingRegistrationChanges(registration *EC2IpamRoutingPolicyRegistration, r *http.Request, prefix string) {
@@ -310,12 +335,17 @@ func handleModifyIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 	ec2ApplyRoutingRegistrationChanges(&registration, r, "")
+	delta := ec2RecordRoutingRegistrationDelta(associationID, map[string]any{
+		"Cidr": cidr,
+		"Asns": registration.Asns,
+	})
+	registration.LatestDeltaId = delta.DeltaId
 	ec2IpamRoutingRegistrations.Put(key, registration)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyIpamRoutingPolicyRegistrationResponse %s>
   <requestId>%s</requestId>
-  <ipamRoutingPolicyRegistration>%s</ipamRoutingPolicyRegistration>
-</ModifyIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingRegistrationXML(registration))
+  <ipamRoutingPolicyRegistrationDelta>%s</ipamRoutingPolicyRegistrationDelta>
+</ModifyIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingDeltaXML(delta))
 }
 
 func ipamRoutingDeltaXML(delta EC2IpamRoutingPolicyRegistrationDelta) string {
@@ -406,11 +436,17 @@ func handleDeleteIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 	}
 	registration.State = "unregistered"
 	ec2IpamRoutingRegistrations.Delete(key)
+	// The registration is gone, so nothing carries this delta as latest — the
+	// deltas listing is the record of the removal.
+	delta := ec2RecordRoutingRegistrationDelta(associationID, map[string]any{
+		"Cidr":  cidr,
+		"State": registration.State,
+	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteIpamRoutingPolicyRegistrationResponse %s>
   <requestId>%s</requestId>
-  <ipamRoutingPolicyRegistration>%s</ipamRoutingPolicyRegistration>
-</DeleteIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingRegistrationXML(registration))
+  <ipamRoutingPolicyRegistrationDelta>%s</ipamRoutingPolicyRegistrationDelta>
+</DeleteIpamRoutingPolicyRegistrationResponse>`, ec2Xmlns(), generateUUID(), ipamRoutingDeltaXML(delta))
 }
 
 func handleGetIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *http.Request) {

@@ -249,13 +249,18 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	assert.Contains(t, err.Error(), "Regional Internet Registry",
 		"the failure must name the registry: %v", err)
 
-	// Registrations are the caller's own declarations and round-trip.
-	_, err = c.CreateIpamRoutingPolicyRegistration(ctx, &ec2.CreateIpamRoutingPolicyRegistrationInput{
+	// Registrations are the caller's own declarations and round-trip. Every
+	// mutation answers with a delta record (the model's shape for all four
+	// registration operations), which the deltas listing must also return.
+	createdReg, err := c.CreateIpamRoutingPolicyRegistration(ctx, &ec2.CreateIpamRoutingPolicyRegistrationInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 		Cidr:                              aws.String("203.0.113.0/24"),
 		Asns:                              []string{"64500"},
 	})
 	require.NoError(t, err)
+	require.NotNil(t, createdReg.IpamRoutingPolicyRegistrationDelta)
+	createDeltaID := aws.ToString(createdReg.IpamRoutingPolicyRegistrationDelta.DeltaId)
+	require.NotEmpty(t, createDeltaID)
 	registrations, err := c.GetIpamRoutingPolicyRegistrations(ctx, &ec2.GetIpamRoutingPolicyRegistrationsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
@@ -264,12 +269,13 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	assert.Equal(t, "203.0.113.0/24", aws.ToString(registrations.IpamRoutingPolicyRegistrations[0].Cidr))
 
 	// Modifying a registration changes what the listing returns.
-	_, err = c.ModifyIpamRoutingPolicyRegistration(ctx, &ec2.ModifyIpamRoutingPolicyRegistrationInput{
+	modified, err := c.ModifyIpamRoutingPolicyRegistration(ctx, &ec2.ModifyIpamRoutingPolicyRegistrationInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 		Cidr:                              aws.String("203.0.113.0/24"),
 		Asns:                              []string{"64501"},
 	})
 	require.NoError(t, err)
+	require.NotNil(t, modified.IpamRoutingPolicyRegistrationDelta)
 	registrations, err = c.GetIpamRoutingPolicyRegistrations(ctx, &ec2.GetIpamRoutingPolicyRegistrationsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
@@ -301,12 +307,22 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 		"the delta document must actually modify the registration")
 	assert.Equal(t, deltaID, aws.ToString(registrations.IpamRoutingPolicyRegistrations[0].LatestDeltaId))
 
+	// The deltas listing knows every delta a response ever named — the
+	// create, the modify, and the batch. A returned-but-unlisted delta would
+	// be a phantom record.
 	deltas, err := c.GetIpamRoutingPolicyRegistrationDeltas(ctx, &ec2.GetIpamRoutingPolicyRegistrationDeltasInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
 	require.NoError(t, err)
-	require.Len(t, deltas.IpamRoutingPolicyRegistrationDeltas, 1)
-	assert.Equal(t, deltaID, aws.ToString(deltas.IpamRoutingPolicyRegistrationDeltas[0].DeltaId))
+	require.Len(t, deltas.IpamRoutingPolicyRegistrationDeltas, 3)
+	listed := map[string]bool{}
+	for _, d := range deltas.IpamRoutingPolicyRegistrationDeltas {
+		listed[aws.ToString(d.DeltaId)] = true
+	}
+	assert.True(t, listed[createDeltaID], "the create's delta must be listed")
+	assert.True(t, listed[aws.ToString(modified.IpamRoutingPolicyRegistrationDelta.DeltaId)],
+		"the modify's delta must be listed")
+	assert.True(t, listed[deltaID], "the batch's delta must be listed")
 
 	// So are the imports the registry would have sent back.
 	asns, err := c.GetIpamInternetRegistryAssociationAsns(ctx, &ec2.GetIpamInternetRegistryAssociationAsnsInput{
