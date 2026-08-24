@@ -1,8 +1,30 @@
 # BUGS
 
-Open: 6. Resolved: 75.
+Open: 7. Resolved: 75.
 
 ## Open
+
+- **BUG-72 (Amazon ECS deployment lifecycle hooks are stored but never
+  invoked):** `DeploymentConfiguration.lifecycleHooks` round-trips — the
+  service stores the configuration document whole, so DescribeServices returns
+  exactly what the caller configured — but nothing invokes a hook. A deployment
+  never pauses at a lifecycle stage, so `ContinueServiceDeployment`'s `hookId`
+  names nothing and is the one declared ECS request field the simulator reads
+  and does not act on. Everything else in the service is real: the scheduler
+  drives deployments from actual task transitions, the circuit breaker and
+  CloudWatch-alarm rollbacks fire from real state, and the rollback events are
+  written with the state they describe.
+  Fix shape: model the deployment's lifecycle stages
+  (`RECONCILE_SERVICE`, `PRE_SCALE_UP`, `POST_SCALE_UP`, `TEST_TRAFFIC_SHIFT`,
+  `POST_TEST_TRAFFIC_SHIFT`, `PRODUCTION_TRAFFIC_SHIFT`,
+  `POST_PRODUCTION_TRAFFIC_SHIFT`), pause the deployment at each stage a hook
+  subscribes to, invoke the hook's `hookTargetArn` through the simulator's own
+  AWS Lambda implementation under the configured `roleArn`, honour
+  `timeoutConfiguration`, and resume on `ContinueServiceDeployment` with the
+  matching `hookId` or roll back on `StopServiceDeployment`. That is a feature
+  of its own size — cross-service invocation plus a stage machine — not a field
+  fix, which is why it is filed rather than approximated. Nothing external
+  blocks it.
 
 Bugs 2909, 2932, 2646, 2712, 2764, and 1345 moved here with
 the simulators from the sockerless monorepo, keeping their IDs
