@@ -48,6 +48,15 @@ Coverage ratchets rose and hold the gains: EC2 800/800, IAM 180/180, Glue
 299/299 in the service-conformance floor, and IAM resource derivation
 1,735 → 1,741 because the new operations derive.
 
+**And the sweep is a gate now.** The drift went unnoticed because the
+service-conformance floors hold the count of operations *served*: a model
+re-vendored with new operations changes nothing they measure.
+`TestVendoredModelOperationsAreImplementedOrExempt` is the sweep made
+permanent — every operation in every vendored model must appear in the
+handwritten source or carry an exemption naming its reason, and an exemption
+whose operation has since been implemented fails as stale. Verified against
+both failure modes before trusting it.
+
 **Filed, not hidden:** S3's `WriteGetObjectResponse` is the data plane of
 S3 Object Lambda, whose control plane is the `s3control` service — not a
 vendored slice. Serving the callback without access points would acknowledge
