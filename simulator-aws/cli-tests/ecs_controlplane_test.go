@@ -123,9 +123,13 @@ func TestECSCLI_ContainerInstances(t *testing.T) {
 	// The state-change reports are applied, not acknowledged. This block used
 	// to report against a made-up task id and assert only that the CLI exited
 	// zero, which the canned "ACK" satisfied while changing nothing.
+	// The container has to stay up: a task whose container exits on its own is
+	// stopped by the simulator's own lifecycle, which writes its own stopped
+	// reason, and the point here is what the agent's report writes. Held open,
+	// the report is the only writer.
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-ci-task",
-		"--container-definitions", `[{"name":"app","image":"alpine:latest"}]`))
+		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","command":["hold"]}]`))
 	runOut := runCLI(t, awsCLI("ecs", "run-task",
 		"--cluster", cluster, "--task-definition", "cli-ci-task", "--output", "json"))
 	var run struct {
