@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 // waitForRDSSnapshotAvailableCLI polls until a snapshot's asynchronous capture
 // settles — creates and copies answer "creating", exactly as real RDS does.
 func waitForRDSSnapshotAvailableCLI(t *testing.T, snapshotID string) {
