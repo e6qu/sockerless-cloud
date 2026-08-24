@@ -2,10 +2,28 @@ package aws_cli_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// waitForRDSSnapshotAvailableCLI polls until a snapshot's asynchronous capture
+// settles — creates and copies answer "creating", exactly as real RDS does.
+func waitForRDSSnapshotAvailableCLI(t *testing.T, snapshotID string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		out := runCLI(t, awsCLI("rds", "describe-db-snapshots",
+			"--db-snapshot-identifier", snapshotID))
+		var settling struct {
+			DBSnapshots []struct {
+				Status string `json:"Status"`
+			} `json:"DBSnapshots"`
+		}
+		parseJSON(t, out, &settling)
+		return len(settling.DBSnapshots) == 1 && settling.DBSnapshots[0].Status == "available"
+	}, 90*time.Second, 2*time.Second, "snapshot %s must settle to available once its data is captured", snapshotID)
+}
 
 func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 	id := "cli-rds-db"
@@ -90,8 +108,12 @@ func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 	parseJSON(t, out, &createdSnapshot)
 	require.Equal(t, snapshotID, createdSnapshot.DBSnapshot.DBSnapshotIdentifier)
 	assert.Equal(t, id, createdSnapshot.DBSnapshot.DBInstanceIdentifier)
-	assert.Equal(t, "available", createdSnapshot.DBSnapshot.Status)
+	// Real RDS answers "creating" and settles asynchronously once the data is
+	// captured; the simulator now does the same (the capture is copy-on-write
+	// where the volume store supports it, a full copy elsewhere).
+	assert.Equal(t, "creating", createdSnapshot.DBSnapshot.Status)
 	require.NotEmpty(t, createdSnapshot.DBSnapshot.DBSnapshotArn)
+	waitForRDSSnapshotAvailableCLI(t, snapshotID)
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-snapshot",
 			"--db-snapshot-identifier", snapshotID).Run()

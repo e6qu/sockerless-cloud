@@ -3958,6 +3958,33 @@ func handleStartInstances(w http.ResponseWriter, r *http.Request) {
 	writeInstanceStateChange(w, r, "running", false)
 }
 
+// ec2HaltInstance moves one instance to "stopped" or "terminated": the real
+// virtual machine is stopped when this host runs one, and the modeled state,
+// transition reason and volume attachments change exactly as the StopInstances
+// handler records them. It exists as its own function because more than the
+// HTTP handler halts instances — an AWS Budgets SSM action stops instances
+// too, and a second copy of these semantics would drift.
+func ec2HaltInstance(ctx context.Context, id, next string) error {
+	inst, ok := ec2Instances.Get(id)
+	if !ok {
+		return fmt.Errorf("the instance ID %q does not exist", id)
+	}
+	if ec2RealVMHostAvailable() {
+		if err := ec2StopRealVM(ctx, id); err != nil {
+			return err
+		}
+	}
+	inst.State = next
+	inst.StateTransitionReason = "User initiated (" + time.Now().UTC().Format("2006-01-02 15:04:05") + " GMT)"
+	inst.StateReasonCode = "Client.UserInitiatedShutdown"
+	inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
+	ec2Instances.Put(id, inst)
+	if next == "stopped" {
+		ec2UpdateVolumeAttachmentsForInstance(id, "attached", "in-use")
+	}
+	return nil
+}
+
 func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next string, deleteENI bool) {
 	instanceIDs := ec2ParamList(r, "InstanceId")
 	var items strings.Builder
@@ -3970,38 +3997,30 @@ func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next strin
 		prev := inst.State
 		// Real VM start/stop only on a real-execution host; on an API-only host
 		// the state change is purely modeled.
-		if ec2RealVMHostAvailable() {
-			if next == "running" {
+		if next == "stopped" || next == "terminated" {
+			if err := ec2HaltInstance(r.Context(), id, next); err != nil {
+				ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("failed to stop real EC2 instance: %v", err), http.StatusServiceUnavailable)
+				return
+			}
+			inst, _ = ec2Instances.Get(id)
+		} else {
+			if ec2RealVMHostAvailable() && next == "running" {
 				if err := ec2StartRealVM(r.Context(), inst); err != nil {
 					fmt.Fprintf(os.Stderr, "failed to start real EC2 instance %s: %v\n", id, err)
 					ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("failed to start real EC2 instance: %v", err), http.StatusServiceUnavailable)
 					return
 				}
 			}
-			if next == "stopped" || next == "terminated" {
-				if err := ec2StopRealVM(r.Context(), id); err != nil {
-					ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("failed to stop real EC2 instance: %v", err), http.StatusServiceUnavailable)
-					return
-				}
+			inst.State = next
+			if next == "running" {
+				inst.StateTransitionReason = ""
+				inst.StateReasonCode = ""
+				inst.StateReasonMessage = ""
 			}
-		}
-		inst.State = next
-		switch next {
-		case "running":
-			inst.StateTransitionReason = ""
-			inst.StateReasonCode = ""
-			inst.StateReasonMessage = ""
-		case "stopped", "terminated":
-			inst.StateTransitionReason = "User initiated (" + time.Now().UTC().Format("2006-01-02 15:04:05") + " GMT)"
-			inst.StateReasonCode = "Client.UserInitiatedShutdown"
-			inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
-		}
-		ec2Instances.Put(id, inst)
-		if next == "stopped" {
-			ec2UpdateVolumeAttachmentsForInstance(id, "attached", "in-use")
-		}
-		if next == "running" {
-			ec2UpdateVolumeAttachmentsForInstance(id, "attached", "in-use")
+			ec2Instances.Put(id, inst)
+			if next == "running" {
+				ec2UpdateVolumeAttachmentsForInstance(id, "attached", "in-use")
+			}
 		}
 		if deleteENI && inst.NetworkInterfaceId != "" {
 			ec2NetworkInterfaces.Delete(inst.NetworkInterfaceId)

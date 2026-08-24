@@ -1,8 +1,46 @@
 # BUGS
 
-Open: 6. Resolved: 76.
+Open: 7. Resolved: 76.
 
 ## Open
+
+- **BUG-74 (Cloud SQL and the Azure database slices still take metadata-only
+  backups):** Amazon RDS snapshots now capture the instance's data — the
+  volume is cloned copy-on-write where the engine's volume store sits on
+  btrfs, XFS with reflinks, or OpenZFS block cloning, and by full copy
+  elsewhere, one code path (`sim.SnapshotVolume`, a single
+  `cp -a --reflink=auto`), with restore booting the engine on the captured
+  volume and the master credential travelling with the data. The GCP Cloud SQL
+  backupRuns and the Azure flexible-server backup/point-in-time-restore
+  surfaces still record metadata without capturing their data volumes. Fix
+  shape: port the same three touch points per cloud — capture on backup
+  create, clone before the restored engine's first start, remove the volume on
+  delete — against each cloud's own API shapes, with the RDS SDK test
+  (`TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt`) as the template: rows
+  from before the backup present after restore, rows from after it absent.
+  **Precondition discovered while scoping the port:** unlike Amazon RDS,
+  neither slice has a data plane at all — Cloud SQL instances answer a
+  fabricated `10.0.0.1` primary address and the flexible servers a nominal
+  FQDN, with no listener, no engine and no volume behind them — so the port
+  is really two stages: first build each slice's database data plane the way
+  `rds_dataplane*.go` did (real endpoint listener, engine container on a
+  named volume, credential encrypted under the platform's own key service),
+  then apply the three snapshot touch points to it. Sim modules share no
+  code, so each cloud implements its own. Nothing external blocks it, but it
+  is a phase-scale build, not a three-line port.
+
+
+- **BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
+  not chosen):** The one operation in the vendored S3 model without a handler.
+  It is the callback an AWS Lambda function makes to return a transformed
+  object through S3 Object Lambda — meaningful only behind an Object Lambda
+  access point, and access points are managed by the `s3control` service,
+  which is not a vendored slice. Serving the callback without the access-point
+  control plane would acknowledge writes nothing can ever read back. Fix
+  shape: vendor `s3control`, implement Object Lambda access points, and then
+  this callback, in one slice. Until then the S3 model is 111 of 112 served,
+  and every other gap the model-drift sweep found on 2026-08-24 was closed.
+
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|

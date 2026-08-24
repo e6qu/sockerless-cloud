@@ -73,12 +73,15 @@ type RDSSnapshot struct {
 	Engine               string
 	EngineVersion        string
 	Status               string // creating | available | deleting | failed
-	AllocatedStorage     int
-	MasterUsername       string
-	SnapshotCreateTime   string
-	SnapshotType         string // manual | automated
-	Port                 int
-	VpcId                string
+	// StatusReason says why a snapshot failed, in the words of the capture
+	// that failed; empty otherwise.
+	StatusReason       string
+	AllocatedStorage   int
+	MasterUsername     string
+	SnapshotCreateTime string
+	SnapshotType       string // manual | automated
+	Port               int
+	VpcId              string
 	// SourceDBSnapshotIdentifier is the ARN of the snapshot this one was
 	// copied from (CopyDBSnapshot); empty for snapshots created directly.
 	SourceDBSnapshotIdentifier string
@@ -89,6 +92,11 @@ type RDSSnapshot struct {
 	RestoreAttributeValues []string
 	ARN                    string
 	Tags                   map[string]string
+	// MasterUserSecret carries the source instance's encrypted master
+	// credential, so an instance restored from this snapshot can start its
+	// engine with the credentials the data expects — real RDS restores the
+	// master credentials with the data.
+	MasterUserSecret []byte
 }
 
 // RDSCluster models a (control-plane only) Aurora/Multi-AZ DB cluster.
@@ -530,9 +538,57 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	skipFinal := strings.EqualFold(r.FormValue("SkipFinalSnapshot"), "true")
+	finalSnapID := r.FormValue("FinalDBSnapshotIdentifier")
+	if skipFinal && finalSnapID != "" {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"FinalDBSnapshotIdentifier cannot be specified when SkipFinalSnapshot is true",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if !skipFinal && finalSnapID == "" {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if finalSnapID != "" {
+		if _, exists := rdsSnapshots.Get(finalSnapID); exists {
+			rdsErrorXML(w, "DBSnapshotAlreadyExists",
+				fmt.Sprintf("DBSnapshot %q already exists", finalSnapID),
+				http.StatusConflict, sim.RequestID(r.Context()))
+			return
+		}
+		rdsSnapshots.Put(finalSnapID, RDSSnapshot{
+			DBSnapshotIdentifier: finalSnapID,
+			DBInstanceIdentifier: id,
+			DbiResourceId:        inst.DbiResourceId,
+			Engine:               inst.Engine,
+			EngineVersion:        inst.EngineVersion,
+			Status:               "creating",
+			AllocatedStorage:     inst.AllocatedStorage,
+			MasterUsername:       inst.MasterUsername,
+			SnapshotCreateTime:   time.Now().UTC().Format(time.RFC3339),
+			SnapshotType:         "manual",
+			Port:                 inst.Port,
+			ARN:                  rdsSnapshotARN(finalSnapID),
+			MasterUserSecret:     append([]byte(nil), inst.MasterUserSecret...),
+		})
+	}
 	inst.DBInstanceStatus = "deleting"
-	rdsStopDataPlane(id, true)
 	rdsInstances.Delete(id)
+	if finalSnapID != "" {
+		// The final snapshot captures the instance's volume before the data
+		// plane and the volume go away — the capture must finish first, so
+		// the shutdown runs after it in the same background task.
+		snapID := finalSnapID
+		simGo(func() {
+			rdsCaptureSnapshotData(snapID, id)
+			rdsStopDataPlane(id, true)
+		})
+	} else {
+		rdsStopDataPlane(id, true)
+	}
 	rdsXMLResponse(w, "DeleteDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
@@ -917,11 +973,12 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		DbiResourceId:        inst.DbiResourceId,
 		Engine:               inst.Engine,
 		EngineVersion:        inst.EngineVersion,
-		// Inline-settle: real RDS goes through "creating" briefly; sim
-		// emits the steady-state "available" because there's no
-		// async work to gate on. State machine is documented in the
-		// type's docstring + the aws-rds.md surface table.
-		Status:             "available",
+		// The snapshot answers "creating" and settles asynchronously once
+		// the instance's volume is captured — real work now backs the state
+		// machine: the capture is copy-on-write where the engine's volume
+		// store supports block cloning, and a full copy elsewhere, either way
+		// a complete capture of the data.
+		Status:             "creating",
 		AllocatedStorage:   inst.AllocatedStorage,
 		MasterUsername:     inst.MasterUsername,
 		SnapshotCreateTime: time.Now().UTC().Format(time.RFC3339),
@@ -929,8 +986,13 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		Port:               inst.Port,
 		ARN:                rdsSnapshotARN(snapID),
 		Tags:               parseAWSQueryTagMap(r, "Tags.Tag"),
+		// The master credential travels with the data, as it does in RDS:
+		// the restored engine expects the credentials the data was written
+		// under.
+		MasterUserSecret: append([]byte(nil), inst.MasterUserSecret...),
 	}
 	rdsSnapshots.Put(snapID, snap)
+	simGo(func() { rdsCaptureSnapshotData(snapID, instID) })
 	rdsXMLResponse(w, "CreateDBSnapshot", renderRDSSnapshot(snap), sim.RequestID(r.Context()))
 }
 
@@ -994,6 +1056,13 @@ func handleRDSDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rdsSnapshots.Delete(snap.DBSnapshotIdentifier)
+	// The captured data goes with the record: keeping the volume would leak
+	// storage the API says no longer exists. On the modeled tier no volume
+	// was ever created, and removing a volume without an engine is refused
+	// inside RemoveVolume, so the error is expected and dropped there.
+	if sim.RequireContainerRuntime("deleting an RDS snapshot volume") == nil {
+		_ = sim.RemoveVolume(rdsSnapshotVolume(snap.DBSnapshotIdentifier))
+	}
 	// Real RDS returns the snapshot with Status="deleted" in the
 	// response (it's the final state machine transition before
 	// removal). Match that.
@@ -1026,6 +1095,12 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	if snap.Status != "available" {
+		rdsErrorXML(w, "InvalidDBSnapshotState",
+			fmt.Sprintf("DBSnapshot %q is %s; it must be available to restore from", snapID, snap.Status),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	inst := RDSInstance{
 		DBInstanceIdentifier: newInstID,
 		DbiResourceId:        rdsResourceID(),
@@ -1035,12 +1110,39 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		DBInstanceStatus:     "available",
 		MasterUsername:       snap.MasterUsername,
 		AllocatedStorage:     snap.AllocatedStorage,
-		Endpoint:             fmt.Sprintf("%s.%s.rds.amazonaws.com", newInstID, awsRegion()),
-		Port:                 rdsDefaultPort(snap.Engine),
 		AvailabilityZone:     awsRegion() + "a",
 		InstanceCreateTime:   time.Now().UTC().Format(time.RFC3339),
 		ARN:                  rdsInstanceARN(newInstID),
 		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
+		// The engine starts with the credentials the captured data was
+		// written under, exactly as a restored RDS instance does.
+		MasterUserSecret: append([]byte(nil), snap.MasterUserSecret...),
+	}
+	// The captured data is cloned into the new instance's volume before the
+	// engine can first start, so the restored engine boots on the snapshot's
+	// data. A snapshot taken on the modeled tier has no volume and seeds
+	// nothing, leaving the restored instance as modeled as its source.
+	if err := rdsCloneSnapshotIntoInstance(snap.DBSnapshotIdentifier, newInstID); err != nil {
+		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+		return
+	}
+	if len(inst.MasterUserSecret) > 0 {
+		_, password, decrypted := kmsDecryptBytes(inst.MasterUserSecret)
+		if !decrypted {
+			rdsErrorXML(w, "ProvisioningFailure",
+				"the snapshot's master-user credential could not be decrypted",
+				http.StatusInternalServerError, sim.RequestID(r.Context()))
+			return
+		}
+		if err := rdsInstallDataPlane(&inst, string(password)); err != nil {
+			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+			return
+		}
+	} else {
+		// A snapshot from the modeled tier carries no credential and gets no
+		// data plane, the same as its source had.
+		inst.Endpoint = fmt.Sprintf("%s.%s.rds.amazonaws.com", newInstID, awsRegion())
+		inst.Port = rdsDefaultPort(snap.Engine)
 	}
 	rdsInstances.Put(newInstID, inst)
 	rdsXMLResponse(w, "RestoreDBInstanceFromDBSnapshot", renderRDSInstance(inst), sim.RequestID(r.Context()))
@@ -1244,6 +1346,50 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
+	}
+	skipFinal := strings.EqualFold(r.FormValue("SkipFinalSnapshot"), "true")
+	finalSnapID := r.FormValue("FinalDBSnapshotIdentifier")
+	if skipFinal && finalSnapID != "" {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"FinalDBSnapshotIdentifier cannot be specified when SkipFinalSnapshot is true",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if !skipFinal && finalSnapID == "" {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if finalSnapID != "" {
+		if _, exists := rdsClusterSnapshots.Get(finalSnapID); exists {
+			rdsErrorXML(w, "DBClusterSnapshotAlreadyExistsFault",
+				fmt.Sprintf("DBClusterSnapshot %q already exists", finalSnapID),
+				http.StatusConflict, sim.RequestID(r.Context()))
+			return
+		}
+		// As modeled as every cluster snapshot: clusters hold no engine
+		// volume, so the final snapshot is the same metadata tier
+		// CreateDBClusterSnapshot records.
+		rdsClusterSnapshots.Put(finalSnapID, RDSClusterSnapshot{
+			DBClusterSnapshotIdentifier: finalSnapID,
+			DBClusterIdentifier:         id,
+			DbClusterResourceId:         cl.DbClusterResourceId,
+			Engine:                      cl.Engine,
+			EngineVersion:               cl.EngineVersion,
+			EngineMode:                  cl.EngineMode,
+			Status:                      "available",
+			AllocatedStorage:            cl.AllocatedStorage,
+			MasterUsername:              cl.MasterUsername,
+			Port:                        cl.Port,
+			StorageEncrypted:            cl.StorageEncrypted,
+			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
+			ClusterCreateTime:           cl.ClusterCreateTime,
+			SnapshotType:                "manual",
+			PercentProgress:             100,
+			AvailabilityZones:           cl.AvailabilityZones,
+			ARN:                         rdsClusterSnapshotARN(finalSnapID),
+		})
 	}
 	rdsClusters.Delete(id)
 	cl.Status = "deleting"
@@ -1550,28 +1696,45 @@ func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	// Real RDS refuses to copy a snapshot that is not available; copying one
+	// mid-capture would race the source's own data write.
+	if src.Status != "available" {
+		rdsErrorXML(w, "InvalidDBSnapshotState",
+			fmt.Sprintf("DBSnapshot %q is %s; it must be available to copy", srcID, src.Status),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	tags := parseAWSQueryTagMap(r, "Tags.Tag")
 	if r.FormValue("CopyTags") == "true" {
 		tags = mergeTags(tags, src.Tags)
 	}
 	copySnap := RDSSnapshot{
-		DBSnapshotIdentifier:       targetID,
-		DBInstanceIdentifier:       src.DBInstanceIdentifier,
-		DbiResourceId:              src.DbiResourceId,
-		Engine:                     src.Engine,
-		EngineVersion:              src.EngineVersion,
-		Status:                     "available",
-		AllocatedStorage:           src.AllocatedStorage,
-		MasterUsername:             src.MasterUsername,
-		SnapshotCreateTime:         time.Now().UTC().Format(time.RFC3339),
-		SnapshotType:               "manual",
-		Port:                       src.Port,
-		VpcId:                      src.VpcId,
+		DBSnapshotIdentifier: targetID,
+		DBInstanceIdentifier: src.DBInstanceIdentifier,
+		DbiResourceId:        src.DbiResourceId,
+		Engine:               src.Engine,
+		EngineVersion:        src.EngineVersion,
+		// The copy carries the DATA, not just the record: it answers
+		// "creating" and settles once the source snapshot's volume is cloned
+		// into its own, the same asynchronous machine CreateDBSnapshot runs.
+		Status:             "creating",
+		AllocatedStorage:   src.AllocatedStorage,
+		MasterUsername:     src.MasterUsername,
+		SnapshotCreateTime: time.Now().UTC().Format(time.RFC3339),
+		SnapshotType:       "manual",
+		Port:               src.Port,
+		VpcId:              src.VpcId,
+		// The master credential travels with the data, exactly as on create:
+		// an instance restored from the COPY needs the credentials the data
+		// was written under just as much as one restored from the original.
+		MasterUserSecret:           append([]byte(nil), src.MasterUserSecret...),
 		SourceDBSnapshotIdentifier: src.ARN,
 		ARN:                        rdsSnapshotARN(targetID),
 		Tags:                       tags,
 	}
 	rdsSnapshots.Put(targetID, copySnap)
+	srcSnapID := src.DBSnapshotIdentifier
+	simGo(func() { rdsCopySnapshotData(targetID, srcSnapID) })
 	rdsXMLResponse(w, "CopyDBSnapshot", renderRDSSnapshot(copySnap), sim.RequestID(r.Context()))
 }
 

@@ -529,6 +529,18 @@ func RemoveVolume(name string) error {
 	return err
 }
 
+// VolumeExists reports whether a named volume exists on the engine. Callers
+// on the modeled tier (no engine) get false, which is the truth there.
+func VolumeExists(name string) bool {
+	if dockerClient == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := dockerClient.VolumeInspect(ctx, name, client.VolumeInspectOptions{})
+	return err == nil
+}
+
 // drainImagePull consumes a docker image-pull response stream and
 // surfaces the failure it may carry: the daemon reports pull errors as
 // JSON events INSIDE a 200 response body, so discarding the stream

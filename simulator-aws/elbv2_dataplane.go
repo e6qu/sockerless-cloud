@@ -337,6 +337,14 @@ func elbv2HealthCheckCodeMatches(tg ELBv2TargetGroup, statusCode int) bool {
 	if codes == "" {
 		codes = elbv2DefaultMatcher()
 	}
+	return healthCheckCodeMatchesMatcher(codes, statusCode)
+}
+
+// healthCheckCodeMatchesMatcher grades a status code against a matcher string
+// of the "200,202" / "200-299" shape. It is the shared half of the target
+// group matcher above, because the EC2 application status checks grade their
+// probes against the same matcher grammar.
+func healthCheckCodeMatchesMatcher(codes string, statusCode int) bool {
 	for _, value := range strings.Split(codes, ",") {
 		low, high, isRange := strings.Cut(strings.TrimSpace(value), "-")
 		first, err := strconv.Atoi(strings.TrimSpace(low))

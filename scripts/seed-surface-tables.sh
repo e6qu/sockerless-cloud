@@ -76,6 +76,7 @@ table_for_file() {
     aws:cloudfront|aws:cloudfront_functions|aws:cloudfront_keys|aws:cloudfront_policies) echo "aws-cloudfront" ;;
     aws:amplify|aws:amplify_domains) echo "aws-amplify" ;;
     aws:iam|aws:iam_slr_oidc) echo "aws-iam" ;;
+    aws:budgets*) echo "aws-budgets" ;;
     aws:apigatewayv2*) echo "aws-apigatewayv2" ;;
     aws:apigateway*) echo "aws-apigateway" ;;
     aws:cloudwatch*) echo "aws-cloudwatch" ;;

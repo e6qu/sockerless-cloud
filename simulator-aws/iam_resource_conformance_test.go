@@ -1362,7 +1362,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // and pins that a type the service does not declare derives nothing. This is
 // the same measurement gap as the Amazon ECS attribute operations and the
 // Amazon RDS tagging family: real callers derive, the probe cannot say so.
-const iamDerivationCoverageFloor = 1735
+const iamDerivationCoverageFloor = 1741
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

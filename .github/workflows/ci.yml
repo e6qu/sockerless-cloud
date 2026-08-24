@@ -581,6 +581,26 @@ jobs:
           echo "could not pull $image after 5 attempts" >&2
           exit 1
         timeout-minutes: 6
+      - name: Pull the Batch job image (workload container)
+        # TestBatch_JobSubmitDescribe_SDK runs a real container from
+        # public.ecr.aws; a pull inside the timed test run has failed on a
+        # registry token timeout ("context deadline exceeded" fetching the
+        # auth token), which surfaced as the job FAILED rather than as what it
+        # was — the network. Same retry/backoff contract as the DynamoDB
+        # oracle pull above.
+        if: matrix.suite == 'services-a-m'
+        run: |
+          set -o pipefail
+          image=public.ecr.aws/docker/library/alpine:3
+          for attempt in 1 2 3 4 5; do
+            if docker pull "$image"; then exit 0; fi
+            delay=$((attempt * 15))
+            echo "pull attempt $attempt failed; retrying in ${delay}s" >&2
+            sleep "$delay"
+          done
+          echo "could not pull $image after 5 attempts" >&2
+          exit 1
+        timeout-minutes: 6
       - name: Run AWS SDK tests
         # The suite has exhausted the runner volume from a 89 GB starting
         # margin, killing the runner process as it wrote its own diagnostic log

@@ -363,6 +363,7 @@ func registerGlue(r *sim.AWSRouter, srv *sim.Server) {
 	glueSchemaVers = sim.MakeStore[GlueSchemaVersion](srv.DB(), "glue_schema_versions")
 	glueResourcePols = sim.MakeStore[GlueResourcePolicy](srv.DB(), "glue_resource_policies")
 	glueCatalogSettgs = sim.MakeStore[GlueCatalogSettings](srv.DB(), "glue_catalog_settings")
+	registerGlueCatalogExport(r, srv)
 
 	r.Register("AWSGlue.CreateDatabase", handleGlueCreateDatabase)
 	r.Register("AWSGlue.GetDatabase", handleGlueGetDatabase)

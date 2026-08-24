@@ -146,6 +146,8 @@ var (
 )
 
 func registerEC2IPAMExtras(r *sim.AWSQueryRouter, srv *sim.Server) {
+	registerEC2IpamRegistry(r, srv)
+	registerEC2ApplicationStatus(r, srv)
 	ec2IpamPolicies = sim.MakeStore[EC2IpamPolicy](srv.DB(), "ec2_ipam_policies")
 	ec2IpamByoasns = sim.MakeStore[EC2IpamByoasn](srv.DB(), "ec2_ipam_byoasns")
 	ec2IpamByoipCidrs = sim.MakeStore[EC2IpamByoipCidr](srv.DB(), "ec2_ipam_byoip_cidrs")

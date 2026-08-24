@@ -1,5 +1,147 @@
 # WHAT WE DID
 
+## 2026-08-24, seventeenth pass — RDS snapshots carry the data, copy-on-write where the filesystem allows
+
+Amazon RDS snapshots were metadata: CreateDBSnapshot recorded a row and
+settled "available" while the instance's data — a real PostgreSQL, MySQL or
+MariaDB engine's volume — was never captured, and RestoreDBInstanceFromDBSnapshot
+built an instance with a fabricated `.rds.amazonaws.com` endpoint string and
+no data plane at all. Two defects wearing one API.
+
+A snapshot now captures the instance's volume into a snapshot volume, restore
+clones that volume into the new instance's before its engine first starts, and
+deleting the snapshot deletes the volume. The capture is one command —
+`cp -a --reflink=auto`, in a one-shot helper container with the source mounted
+read-only — so on a container engine whose volume store sits on btrfs, XFS
+with reflinks, or OpenZFS with block cloning, the capture clones blocks
+copy-on-write and is effectively instant however large the database, and on
+any other filesystem the same command is a real full copy. One code path; the
+filesystem decides the speed; the RDS API is byte-identical either way, which
+is the no-divergence requirement. A log line tells the operator which they
+got. The snapshot's status is a real state machine now — creating until the
+capture settles, failed with the capture's own words when it fails — and the
+master credential travels with the data, because the restored engine expects
+the credentials the data was written under. On the API-only tier (no engine)
+snapshots remain exactly as modeled as their instances, which is that tier's
+contract for everything.
+
+Proven end to end through a stock PostgreSQL driver:
+TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt writes rows, snapshots,
+writes more, restores, and asserts the restored engine serves the rows from
+before the snapshot and not the ones from after — the property that separates
+a snapshot from a metadata row. On this development host the log read
+"captured copy-on-write on xfs": the Podman machine's volume store has
+reflinks, so the test exercised the instant path for real.
+
+Cloud SQL and the Azure database slices still take metadata-only backups;
+BUG-74 records the port, with the three touch points and the test as the
+template.
+
+The branch's first CI run failed three shards, each a real defect:
+
+- **The spec gate caught the IPAM routing-policy wire shape.** The EC2 model
+  returns an `ipamRoutingPolicyRegistrationDelta` from *every* registration
+  mutation — create, modify, batch-modify and delete — not the registration.
+  Each mutation now records a delta (the single-registration operations
+  author a one-entry document in the same schema the batch form accepts) and
+  the listing returns them all. The state vocabularies are the model's, not
+  invented: deltas are `published`/`failed` per
+  `IpamRoutingPolicyRegistrationDeltaState`, registrations are
+  `create-complete`/`update-complete`/`delete-complete` per
+  `IpamRoutingPolicyRegistrationState`, and a created-but-never-enabled
+  association is `pending-enable` per
+  `IpamInternetRegistryAssociationState` — the SDK's own enum constants pin
+  all of them in the test.
+- **The RDS CLI lifecycle test pinned the pre-data-plane behavior** —
+  `available` synchronously from CreateDBSnapshot. It now pins `creating`,
+  as RDS answers, and drives the CLI's own `wait db-snapshot-available`
+  waiter before restoring; the SDK snapshot tests follow the same async
+  machine through the SDK's waiter.
+- **The Batch job test pulled `public.ecr.aws/...alpine:3` at job-run time**,
+  and one CI run's registry-token fetch timed out inside the test. The CI
+  shard pre-pulls the image with the same retry/backoff contract as the
+  DynamoDB oracle pull, so image acquisition sits outside the test deadline.
+  (The fourth red shard was fail-fast cancellation, no defect of its own.)
+
+Sweeping the rest of the snapshot family to the same standard closed the
+divergences the cancelled shard would have hidden. **CopyDBSnapshot** was a
+metadata copy — it now refuses a source that is not `available`
+(`InvalidDBSnapshotState`, as RDS does), clones the source snapshot's data
+volume and master credential, and settles asynchronously, so a restore from
+a copy returns to the same data as a restore from the source.
+**DeleteDBInstance** ignored the final-snapshot contract — it now enforces
+`SkipFinalSnapshot`/`FinalDBSnapshotIdentifier` exactly
+(`InvalidParameterCombination` in both directions, `DBSnapshotAlreadyExists`
+on a name collision) and captures a real final snapshot before the
+instance's volume is removed, ordering the capture ahead of the data-plane
+shutdown in the same background task. **DeleteDBCluster** enforces the same
+parameter contract, its final snapshot as modeled as every cluster snapshot.
+The restored-endpoint test asserts what is true now that restores install a
+real data plane: on the engine tier the endpoint accepts connections; on the
+modeled tier the nominal port derives from the engine.
+
+## 2026-08-24, sixteenth pass — the model-drift sweep, and 42 operations AWS added since
+
+The 41 vendored AWS models were diffed against the simulator's handwritten
+source. 3,607 operations; 86 names appeared nowhere. 43 of those were false
+positives — S3 routes its bucket subresources by query parameter, so operation
+names never appear as strings — and the other 43 were real drift: operations
+AWS added to the models (vendored 2026-08-12 through 2026-08-23) after the
+simulator's implementation. 42 are implemented now; the one left is filed.
+
+**AWS Glue (2):** the Data Catalog export configuration round-trips, one per
+account, with the status settling to the setting because the change is applied
+synchronously and no ENABLING window exists to observe.
+
+**IAM (4):** account properties are a real account-scoped map. Role templates
+are AWS's own catalog — every template lives under the literal account `aws`
+and carries trust policies AWS authors — so `GetRoleTemplateVersion` and
+`AcquireRole` fail naming that catalog, and point at `CreateRole` as the
+equivalent without the catalog dependency.
+
+**AWS Budgets (12):** the whole budget-action family. An action's execution is
+performed through the simulator's own services — an IAM definition attaches
+the policy through the same stores the IAM handlers write, an SCP definition
+through the organizations attachments, and an SSM definition stops instances
+through the same halt the StopInstances handler uses, extracted into
+`ec2HaltInstance` so there is one copy of those semantics. The SDK test reads
+the execution's effect back through IAM itself, not through the action's own
+status, and reversal detaches what execution attached. `UpdateNotification`
+moves a notification's subscribers with it, because the notification's
+identity is its field tuple.
+
+**Amazon EC2 (25):** two families. The internet-registry associations and
+routing-policy registrations are real control-plane state; enabling an
+association begins verification with the Regional Internet Registry — ARIN,
+RIPE, APNIC — which is outside AWS, so that path fails naming the registry,
+and route origin authorizations fail naming the RPKI repositories the same
+way. Discovered routes are derived from the account's own route tables.
+Application status checks are measured, not declared: the check is probed over
+its own protocol, port and path against the instance's address, in the exact
+response shape the SDK deserialises — which is how the SDK caught two wire
+defects during the build: the status vocabulary is
+passed/failed/impaired/suppressed rather than anything invented, and
+NetworkProtocolEnum admits exactly http and https, so the TCP default the
+first version had was a protocol the model does not allow.
+
+Coverage ratchets rose and hold the gains: EC2 800/800, IAM 180/180, Glue
+299/299 in the service-conformance floor, and IAM resource derivation
+1,735 → 1,741 because the new operations derive.
+
+**And the sweep is a gate now.** The drift went unnoticed because the
+service-conformance floors hold the count of operations *served*: a model
+re-vendored with new operations changes nothing they measure.
+`TestVendoredModelOperationsAreImplementedOrExempt` is the sweep made
+permanent — every operation in every vendored model must appear in the
+handwritten source or carry an exemption naming its reason, and an exemption
+whose operation has since been implemented fails as stale. Verified against
+both failure modes before trusting it.
+
+**Filed, not hidden:** S3's `WriteGetObjectResponse` is the data plane of
+S3 Object Lambda, whose control plane is the `s3control` service — not a
+vendored slice. Serving the callback without access points would acknowledge
+writes nothing can read back. BUG-73 records the one-slice fix shape.
+
 ## 2026-08-24, fifteenth pass — PutEvents authorized against the wrong thing
 
 Amazon EventBridge's `PutEvents` names its event bus per entry rather than once
