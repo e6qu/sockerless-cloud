@@ -46,12 +46,21 @@ provider a cluster still listed — leaving clusters naming a provider that no
 longer existed. Both are refused now, the second telling the caller to
 disassociate it with `PutClusterCapacityProviders`, which is what AWS says.
 
-**And a test that asserted the theatre.** `TestECS_ContainerInstanceLifecycle`
-sent fabricated identifiers to the three state-change APIs and asserted only
-that each call returned, which the canned acknowledgement satisfied while doing
-nothing; its own comment read "each acknowledges the change". It asserts the
-real contract now, and the applied path has its own test against a real task,
-checked against the canned handler to be sure it fails on it.
+**And two tests that asserted the theatre, one per surface.**
+`TestECS_ContainerInstanceLifecycle` sent fabricated identifiers to the three
+state-change APIs and asserted only that each call returned, which the canned
+acknowledgement satisfied while doing nothing; its own comment read "each
+acknowledges the change". `TestECSCLI_ContainerInstances` was the same test
+through the AWS CLI, reporting against the same made-up task id — and it was
+the one that failed on CI once the handlers began applying their reports, which
+is the gap it should have been reporting all along.
+
+Both assert the real contract now. The SDK test drives a real task and reads
+the applied state back, and was checked against the canned handler to be sure
+it fails on it; the CLI test runs a real task, reports a container stop with an
+exit code and a task stop with a reason, reads all of it back through
+`describe-tasks`, and asserts the poll endpoint does not hand the agent an
+amazonaws.com address.
 
 ## 2026-08-24, ninth pass — Amazon ECS tagging, for every type AWS declares
 
