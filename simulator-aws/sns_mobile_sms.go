@@ -401,11 +401,11 @@ func handleSNSCreateSMSSandboxPhoneNumber(w http.ResponseWriter, r *http.Request
 		snsErrorXML(w, "InvalidParameter", "PhoneNumber is required", http.StatusBadRequest, reqID)
 		return
 	}
-	// Amazon SNS has no public API for provisioning the carrier transport
-	// behind SMS. Fail before creating state when this cloud installation has
-	// no telecommunications carrier; never expose a derivable or log-delivered
-	// one-time password as a substitute for a real SMS.
-	snsErrorXML(w, "InternalError", "The SMS carrier transport is unavailable", http.StatusInternalServerError, reqID)
+	// The sandbox verifies a number by sending it a one-time password over
+	// SMS, so it needs the same carrier Publish does. Failing here is what
+	// stops a derivable or log-delivered code standing in for a real message.
+	_ = reqID
+	snsExternalDeliveryUnavailable(w, r, snsSMSDeliveryReason)
 }
 
 func handleSNSDeleteSMSSandboxPhoneNumber(w http.ResponseWriter, r *http.Request) {
@@ -430,7 +430,7 @@ func handleSNSVerifySMSSandboxPhoneNumber(w http.ResponseWriter, r *http.Request
 			http.StatusNotFound, reqID)
 		return
 	}
-	snsErrorXML(w, "InternalError", "The SMS carrier transport is unavailable", http.StatusInternalServerError, reqID)
+	snsExternalDeliveryUnavailable(w, r, snsSMSDeliveryReason)
 }
 
 func handleSNSListSMSSandboxPhoneNumbers(w http.ResponseWriter, r *http.Request) {
@@ -634,4 +634,33 @@ func handleSNSGetDataProtectionPolicy(w http.ResponseWriter, r *http.Request) {
 		"<GetDataProtectionPolicyResult><DataProtectionPolicy>%s</DataProtectionPolicy></GetDataProtectionPolicyResult>",
 		xmlEscape(policy))
 	snsXMLResponse(w, "GetDataProtectionPolicy", body, reqID)
+}
+
+// Amazon SNS delivers to two destinations that are not AWS coordinates: a
+// telecommunications carrier for SMS, and Apple's and Google's own push hosts
+// for mobile push. Neither is configurable through any AWS API, so there is
+// nothing for this simulator to point at and nothing it can faithfully
+// pretend. Every path that would reach one fails, and says exactly which
+// external dependency is missing and why — a caller that reads the error
+// knows the simulator's boundary rather than hunting a defect, and a test
+// cannot mistake a manufactured success for delivery.
+const (
+	snsSMSDeliveryReason = "Amazon SNS delivers SMS through a telecommunications carrier. " +
+		"A carrier is not an AWS-configurable coordinate — no AWS API provisions one — so this " +
+		"simulator has no carrier to hand the message to and will not manufacture a delivery. " +
+		"Everything up to the carrier is implemented: subscriptions, attributes, opt-outs and " +
+		"origination numbers all behave, and only the hand-off is impossible."
+
+	snsMobilePushDeliveryReason = "Amazon SNS delivers mobile push through Apple's and Google's " +
+		"own push hosts. Those hosts are not AWS-configurable coordinates, so this simulator has " +
+		"nowhere to send the notification and will not manufacture a delivery. The credential " +
+		"half is real: platform applications and endpoints are created, stored and returned as " +
+		"the API defines them, and only the hand-off to Apple or Google is impossible."
+)
+
+// snsExternalDeliveryUnavailable answers a request that would have to reach an
+// external provider. The code is the one AWS uses when delivery fails for a
+// reason outside the request, and the message names the dependency.
+func snsExternalDeliveryUnavailable(w http.ResponseWriter, r *http.Request, reason string) {
+	snsErrorXML(w, "EndpointDisabled", reason, http.StatusServiceUnavailable, sim.RequestID(r.Context()))
 }

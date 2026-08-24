@@ -1,5 +1,26 @@
 # WHAT WE DID
 
+## 2026-08-24, fourteenth pass — the external destinations say which one is missing
+
+A stubbed implementation is acceptable where the dependency is somebody else's
+service, on one condition: it must fail loudly and say precisely which external
+thing is missing. Amazon SNS was failing, but not saying.
+
+`Publish` takes one of three targets, and the handler read only `TopicArn`. A
+caller publishing an SMS to a `PhoneNumber`, or a notification to a device
+`TargetArn`, was told *"TopicArn and Message are required"* — a reader would go
+looking for a defect in their own request rather than learning where the
+simulator stops. Both destinations now fail with the reason itself: SMS names
+the telecommunications carrier no AWS API provisions, mobile push names Apple's
+and Google's own hosts, and each says what *is* implemented up to the hand-off
+so the boundary is legible. The SMS sandbox, which verifies a number by texting
+it a one-time password, gives the same carrier reason instead of a bare "carrier
+transport is unavailable".
+
+Nothing was manufactured to make them pass: a derivable or log-delivered
+one-time password standing in for a real SMS is exactly what the loud failure
+exists to prevent.
+
 ## 2026-08-24, thirteenth pass — the open bugs, examined one by one
 
 Five bugs were open. One was mine to fix and is advanced; the other four are
