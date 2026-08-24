@@ -1699,6 +1699,52 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 		}
 	}
 
+	// A resource the request names by its own ARN needs no assembly, and the
+	// newer families name themselves that way: a daemon and its deployments and
+	// revisions, an Amazon ECS Express Mode service, and a service deployment
+	// or revision.
+	//
+	// The member is chosen by the type the operation authorizes against, never
+	// by "whichever ARN the body happens to carry". CreateDaemon authorizes
+	// against the daemon and carries the task definition's ARN as well, so a
+	// reader that took the first ARN it found would authorize the wrong
+	// resource — worse than deriving nothing, because a policy scoped to the
+	// task definition would then permit creating a daemon.
+	for _, family := range []struct {
+		resourceType string
+		single       []string
+		list         []string
+	}{
+		{"daemon", []string{"daemonArn"}, nil},
+		{"daemon-deployment", nil, []string{"daemonDeploymentArns"}},
+		{"daemon-revision", nil, []string{"daemonRevisionArns"}},
+		{"daemon-task-definition", []string{"daemonTaskDefinitionArn"}, nil},
+		{"service-deployment", []string{"serviceDeploymentArn"}, []string{"serviceDeploymentArns"}},
+		{"service-revision", nil, []string{"serviceRevisionArns"}},
+		{"service", []string{"serviceArn"}, nil},
+	} {
+		if !iamHasType(types, family.resourceType) {
+			continue
+		}
+		var named []string
+		for _, candidate := range iamNamesFrom(r, family.single, family.list) {
+			if strings.HasPrefix(candidate, "arn:") {
+				named = append(named, candidate)
+			}
+		}
+		if len(named) > 0 {
+			return named
+		}
+	}
+	if iamHasType(types, "daemon") {
+		// A daemon's ARN is daemon/<cluster>/<name>, so a create — which has no
+		// daemon ARN yet — still derives from the cluster and name it supplies.
+		addNamed("daemon/"+cluster+"/", iamNamesFrom(r, []string{"daemonName"}, nil))
+	}
+	if iamHasType(types, "daemon-task-definition") {
+		// family:revision, exactly as a task definition is spelled.
+		addNamed("daemon-task-definition/", iamNamesFrom(r, []string{"daemonTaskDefinition"}, nil))
+	}
 	if iamHasType(types, "task-set") {
 		addNamed("task-set/"+cluster+"/"+iamFirstJSONField(r, "service")+"/",
 			iamNamesFrom(r, []string{"taskSet"}, []string{"taskSets"}))
@@ -1713,6 +1759,10 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 	if iamHasType(types, "container-instance") {
 		addNamed("container-instance/"+cluster+"/",
 			iamNamesFrom(r, []string{"containerInstance"}, []string{"containerInstances"}))
+		// PutAttributes and DeleteAttributes name no container instance of
+		// their own: each attribute carries the instance it is about as its
+		// targetId, which is what the call authorizes against.
+		addNamed("container-instance/"+cluster+"/", iamECSAttributeTargets(r))
 	}
 	if iamHasType(types, "capacity-provider") {
 		addNamed("capacity-provider/",
@@ -1736,7 +1786,9 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 // iamECSClusterName resolves the cluster a request targets, accepting the name
 // or the ARN the API accepts interchangeably and defaulting to "default".
 func iamECSClusterName(r *http.Request) string {
-	name := iamFirstJSONField(r, "cluster", "clusterName")
+	// clusterArn is how the daemon family names its cluster; the ARN is
+	// reduced to the bare name below, which is what every ECS ARN embeds.
+	name := iamFirstJSONField(r, "cluster", "clusterName", "clusterArn")
 	if name == "" {
 		if clusters := iamJSONBodyStrings(r, "clusters"); len(clusters) > 0 {
 			name = clusters[0]
@@ -1908,6 +1960,34 @@ func iamLogsNamedResourceARNs(r *http.Request, types []string, arn func(svc, res
 		return arns
 	}
 	return nil
+}
+
+// iamECSAttributeTargets returns the container instances an attribute request
+// is about, read from each attribute's targetId. A target given as an ARN is
+// returned as it stands; the caller assembles a bare id.
+func iamECSAttributeTargets(r *http.Request) []string {
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var req struct {
+		Attributes []struct {
+			TargetId string `json:"targetId"`
+		} `json:"attributes"`
+	}
+	if json.Unmarshal(body, &req) != nil {
+		return nil
+	}
+	var targets []string
+	seen := map[string]bool{}
+	for _, attribute := range req.Attributes {
+		if attribute.TargetId == "" || seen[attribute.TargetId] {
+			continue
+		}
+		seen[attribute.TargetId] = true
+		targets = append(targets, attribute.TargetId)
+	}
+	return targets
 }
 
 // ===== AWS CodeBuild =====

@@ -106,13 +106,75 @@ func TestECSCLI_ContainerInstances(t *testing.T) {
 	runCLI(t, awsCLI("ecs", "update-container-agent",
 		"--cluster", cluster, "--container-instance", ciArn, "--output", "json"))
 
-	runCLI(t, awsCLI("ecs", "discover-poll-endpoint",
+	// The agent's discovery call must point back at this simulator, not at the
+	// real Amazon endpoints it used to return.
+	pollOut := runCLI(t, awsCLI("ecs", "discover-poll-endpoint",
 		"--cluster", cluster, "--container-instance", ciArn, "--output", "json"))
+	var poll struct {
+		Endpoint          string `json:"endpoint"`
+		TelemetryEndpoint string `json:"telemetryEndpoint"`
+	}
+	parseJSON(t, pollOut, &poll)
+	assert.NotContains(t, poll.Endpoint, "amazonaws.com",
+		"the poll endpoint must not send an agent to real AWS")
+	assert.NotContains(t, poll.TelemetryEndpoint, "amazonaws.com",
+		"the telemetry endpoint must not send an agent to real AWS")
+
+	// The state-change reports are applied, not acknowledged. This block used
+	// to report against a made-up task id and assert only that the CLI exited
+	// zero, which the canned "ACK" satisfied while changing nothing.
+	// The container has to stay up: a task whose container exits on its own is
+	// stopped by the simulator's own lifecycle, which writes its own stopped
+	// reason, and the point here is what the agent's report writes. Held open,
+	// the report is the only writer.
+	runCLI(t, awsCLI("ecs", "register-task-definition",
+		"--family", "cli-ci-task",
+		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","command":["hold"]}]`))
+	runOut := runCLI(t, awsCLI("ecs", "run-task",
+		"--cluster", cluster, "--task-definition", "cli-ci-task", "--output", "json"))
+	var run struct {
+		Tasks []struct {
+			TaskArn string `json:"taskArn"`
+		} `json:"tasks"`
+	}
+	parseJSON(t, runOut, &run)
+	require.NotEmpty(t, run.Tasks)
+	taskArn := run.Tasks[0].TaskArn
+	cleanupCLIECSTask(t, cluster, taskArn)
+
 	runCLI(t, awsCLI("ecs", "submit-container-state-change",
-		"--cluster", cluster, "--task", "task-1", "--container-name", "app", "--status", "RUNNING", "--output", "json"))
+		"--cluster", cluster, "--task", taskArn, "--container-name", "app",
+		"--status", "STOPPED", "--exit-code", "137", "--output", "json"))
 	runCLI(t, awsCLI("ecs", "submit-task-state-change",
+		"--cluster", cluster, "--task", taskArn, "--status", "STOPPED",
+		"--reason", "EssentialContainerExited", "--output", "json"))
+
+	describeOut := runCLI(t, awsCLI("ecs", "describe-tasks",
+		"--cluster", cluster, "--tasks", taskArn, "--output", "json"))
+	var described struct {
+		Tasks []struct {
+			LastStatus    string `json:"lastStatus"`
+			StoppedReason string `json:"stoppedReason"`
+			Containers    []struct {
+				LastStatus string `json:"lastStatus"`
+				ExitCode   *int   `json:"exitCode"`
+			} `json:"containers"`
+		} `json:"tasks"`
+	}
+	parseJSON(t, describeOut, &described)
+	require.NotEmpty(t, described.Tasks)
+	assert.Equal(t, "STOPPED", described.Tasks[0].LastStatus,
+		"the reported task status must be recorded")
+	assert.Equal(t, "EssentialContainerExited", described.Tasks[0].StoppedReason)
+	require.NotEmpty(t, described.Tasks[0].Containers)
+	require.NotNil(t, described.Tasks[0].Containers[0].ExitCode,
+		"the reported exit code must be recorded")
+	assert.Equal(t, 137, *described.Tasks[0].Containers[0].ExitCode)
+
+	// A report about something the control plane does not hold is refused.
+	runCLIExpectError(t, awsCLI("ecs", "submit-task-state-change",
 		"--cluster", cluster, "--task", "task-1", "--status", "RUNNING", "--output", "json"))
-	runCLI(t, awsCLI("ecs", "submit-attachment-state-changes",
+	runCLIExpectError(t, awsCLI("ecs", "submit-attachment-state-changes",
 		"--cluster", cluster, "--attachments", "attachmentArn=att-1,status=ATTACHED", "--output", "json"))
 
 	runCLI(t, awsCLI("ecs", "deregister-container-instance",

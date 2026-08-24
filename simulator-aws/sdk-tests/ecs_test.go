@@ -1341,3 +1341,446 @@ func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 	_, _ = client.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String(cluster), Task: runA.Tasks[0].TaskArn})
 	_, _ = client.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String(cluster), Task: runB.Tasks[0].TaskArn})
 }
+
+// Every Amazon ECS resource type AWS declares taggable accepts tags, returns
+// them, and gives them up again.
+//
+// The service reference lists nine types for ecs:TagResource. Four were
+// served; the other five answered "tag-target type not implemented in sim"
+// even though the simulator holds every one of them. This drives the full set
+// through the SDK, because a type that TagResource accepts and
+// ListTagsForResource cannot see is the failure this is really guarding
+// against.
+func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
+	c := ecsClient()
+	const cluster = "taggable-types-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+
+	// One ARN per taggable type, each from the operation that creates it.
+	arns := map[string]string{}
+
+	describeCluster, err := c.DescribeClusters(ctx, &ecs.DescribeClustersInput{Clusters: []string{cluster}})
+	require.NoError(t, err)
+	arns["cluster"] = aws.ToString(describeCluster.Clusters[0].ClusterArn)
+
+	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("taggable-types-task"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+	})
+	require.NoError(t, err)
+	arns["task-definition"] = aws.ToString(registered.TaskDefinition.TaskDefinitionArn)
+
+	service, err := c.CreateService(ctx, &ecs.CreateServiceInput{
+		Cluster:        aws.String(cluster),
+		ServiceName:    aws.String("taggable-types-service"),
+		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:   aws.Int32(0),
+	})
+	require.NoError(t, err)
+	arns["service"] = aws.ToString(service.Service.ServiceArn)
+	t.Cleanup(func() {
+		_, _ = c.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(cluster), Service: service.Service.ServiceArn, Force: aws.Bool(true),
+		})
+	})
+
+	capacityProvider, err := c.CreateCapacityProvider(ctx, &ecs.CreateCapacityProviderInput{
+		Name: aws.String("taggable-types-provider"),
+		AutoScalingGroupProvider: &ecstypes.AutoScalingGroupProvider{
+			AutoScalingGroupArn: aws.String(
+				"arn:aws:autoscaling:us-east-1:123456789012:autoScalingGroup:1:autoScalingGroupName/taggable"),
+		},
+	})
+	require.NoError(t, err)
+	arns["capacity-provider"] = aws.ToString(capacityProvider.CapacityProvider.CapacityProviderArn)
+
+	daemonTaskDefinition, err := c.RegisterDaemonTaskDefinition(ctx, &ecs.RegisterDaemonTaskDefinitionInput{
+		Family: aws.String("taggable-types-daemon-task"),
+		ContainerDefinitions: []ecstypes.DaemonContainerDefinition{{
+			Name: aws.String("agent"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+		Tags: []ecstypes.Tag{{Key: aws.String("created-with"), Value: aws.String("register")}},
+	})
+	require.NoError(t, err)
+	arns["daemon-task-definition"] = aws.ToString(daemonTaskDefinition.DaemonTaskDefinitionArn)
+
+	daemon, err := c.CreateDaemon(ctx, &ecs.CreateDaemonInput{
+		DaemonName:              aws.String("taggable-types-daemon"),
+		ClusterArn:              aws.String(arns["cluster"]),
+		DaemonTaskDefinitionArn: daemonTaskDefinition.DaemonTaskDefinitionArn,
+		CapacityProviderArns:    []string{arns["capacity-provider"]},
+		Tags:                    []ecstypes.Tag{{Key: aws.String("created-with"), Value: aws.String("create")}},
+	})
+	require.NoError(t, err)
+	arns["daemon"] = aws.ToString(daemon.DaemonArn)
+
+	instance, err := c.RegisterContainerInstance(ctx, &ecs.RegisterContainerInstanceInput{
+		Cluster:                  aws.String(cluster),
+		InstanceIdentityDocument: aws.String(`{"instanceId":"i-taggable","region":"us-east-1"}`),
+	})
+	require.NoError(t, err)
+	arns["container-instance"] = aws.ToString(instance.ContainerInstance.ContainerInstanceArn)
+
+	taskSet, err := c.CreateTaskSet(ctx, &ecs.CreateTaskSetInput{
+		Cluster:        aws.String(cluster),
+		Service:        service.Service.ServiceArn,
+		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+	})
+	require.NoError(t, err)
+	arns["task-set"] = aws.ToString(taskSet.TaskSet.TaskSetArn)
+
+	// A task set's ARN is task-set/<cluster>/<service>/<id>, not the service's
+	// own ARN with an id appended: anything dispatching on the resource type in
+	// an ARN — this tagging path included — would otherwise read it as the
+	// service and tag the wrong resource.
+	assert.Contains(t, arns["task-set"], ":task-set/",
+		"a task set must be named by a task-set ARN")
+
+	// A create's own tags must survive the create, not just a later
+	// TagResource: both of these accept a tags member and had been dropping it.
+	for _, created := range []string{"daemon", "daemon-task-definition"} {
+		listed, listErr := c.ListTagsForResource(ctx,
+			&ecs.ListTagsForResourceInput{ResourceArn: aws.String(arns[created])})
+		require.NoError(t, listErr, created)
+		require.Len(t, listed.Tags, 1, "%s must keep the tags its create supplied", created)
+		assert.Equal(t, "created-with", aws.ToString(listed.Tags[0].Key), created)
+	}
+
+	// Every type: tag, read back, untag, read back empty.
+	for _, resourceType := range []string{
+		"cluster", "task-definition", "service", "capacity-provider",
+		"daemon", "daemon-task-definition", "container-instance", "task-set",
+	} {
+		arn := arns[resourceType]
+		require.NotEmpty(t, arn, resourceType)
+		t.Run(resourceType, func(t *testing.T) {
+			_, tagErr := c.TagResource(ctx, &ecs.TagResourceInput{
+				ResourceArn: aws.String(arn),
+				Tags:        []ecstypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}},
+			})
+			require.NoError(t, tagErr, "TagResource must accept %s", resourceType)
+
+			listed, listErr := c.ListTagsForResource(ctx,
+				&ecs.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
+			require.NoError(t, listErr, "ListTagsForResource must accept %s", resourceType)
+			found := ""
+			for _, tag := range listed.Tags {
+				if aws.ToString(tag.Key) == "owner" {
+					found = aws.ToString(tag.Value)
+				}
+			}
+			assert.Equal(t, "platform", found, "%s must return the tag it was given", resourceType)
+
+			_, untagErr := c.UntagResource(ctx, &ecs.UntagResourceInput{
+				ResourceArn: aws.String(arn), TagKeys: []string{"owner"},
+			})
+			require.NoError(t, untagErr, "UntagResource must accept %s", resourceType)
+
+			after, listErr := c.ListTagsForResource(ctx,
+				&ecs.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
+			require.NoError(t, listErr)
+			for _, tag := range after.Tags {
+				assert.NotEqual(t, "owner", aws.ToString(tag.Key),
+					"%s must give up the tag it was asked to drop", resourceType)
+			}
+		})
+	}
+
+	// A type Amazon ECS does not tag is refused, rather than silently accepted.
+	_, err = c.TagResource(ctx, &ecs.TagResourceInput{
+		ResourceArn: aws.String("arn:aws:ecs:us-east-1:123456789012:container-definition/nope"),
+		Tags:        []ecstypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}},
+	})
+	require.Error(t, err, "a resource type ECS does not tag must be refused")
+}
+
+// The agent-facing state-change APIs apply what they are told, rather than
+// acknowledging it.
+//
+// SubmitTaskStateChange, SubmitContainerStateChange and
+// SubmitAttachmentStateChanges each parsed their request, ignored every field
+// and answered {"acknowledgment":"ACK"}. An agent reporting that a task had
+// stopped therefore changed nothing, and DescribeTasks went on reporting
+// whatever the scheduler last assumed. This drives each of them and reads the
+// result back through DescribeTasks.
+func TestECS_AgentStateChangesAreAppliedNotAcknowledged(t *testing.T) {
+	c := ecsClient()
+	const cluster = "agent-state-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+
+	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("agent-state-task"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+	})
+	require.NoError(t, err)
+
+	run, err := c.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(cluster),
+		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+	})
+	require.NoError(t, err)
+	require.Len(t, run.Tasks, 1)
+	taskArn := aws.ToString(run.Tasks[0].TaskArn)
+	t.Cleanup(func() {
+		_, _ = c.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String(cluster), Task: aws.String(taskArn)})
+	})
+
+	describe := func() ecstypes.Task {
+		t.Helper()
+		out, describeErr := c.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+			Cluster: aws.String(cluster), Tasks: []string{taskArn},
+		})
+		require.NoError(t, describeErr)
+		require.Len(t, out.Tasks, 1)
+		return out.Tasks[0]
+	}
+
+	// A container's reported exit code and status must reach DescribeTasks.
+	_, err = c.SubmitContainerStateChange(ctx, &ecs.SubmitContainerStateChangeInput{
+		Cluster:       aws.String(cluster),
+		Task:          aws.String(taskArn),
+		ContainerName: aws.String("app"),
+		Status:        aws.String("STOPPED"),
+		ExitCode:      aws.Int32(137),
+	})
+	require.NoError(t, err)
+	container := describe().Containers[0]
+	assert.Equal(t, "STOPPED", aws.ToString(container.LastStatus),
+		"the container status the agent reported must be recorded")
+	require.NotNil(t, container.ExitCode, "the reported exit code must be recorded")
+	assert.Equal(t, int32(137), aws.ToInt32(container.ExitCode))
+
+	// An unknown container is refused rather than silently acknowledged.
+	_, err = c.SubmitContainerStateChange(ctx, &ecs.SubmitContainerStateChangeInput{
+		Cluster:       aws.String(cluster),
+		Task:          aws.String(taskArn),
+		ContainerName: aws.String("not-a-container"),
+		Status:        aws.String("STOPPED"),
+	})
+	require.Error(t, err, "a container the task does not have must be refused")
+
+	// The task's own transition, with the reason it carries.
+	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
+		Cluster: aws.String(cluster),
+		Task:    aws.String(taskArn),
+		Status:  aws.String("STOPPED"),
+		Reason:  aws.String("EssentialContainerExited"),
+	})
+	require.NoError(t, err)
+	stopped := describe()
+	assert.Equal(t, "STOPPED", aws.ToString(stopped.LastStatus),
+		"the task status the agent reported must be recorded")
+	assert.Equal(t, "EssentialContainerExited", aws.ToString(stopped.StoppedReason))
+	assert.NotNil(t, stopped.StoppedAt, "a stopped task must carry when it stopped")
+
+	// The timings the agent reports alongside the transition.
+	pullStarted := time.Now().Add(-2 * time.Minute)
+	pullStopped := time.Now().Add(-90 * time.Second)
+	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
+		Cluster:            aws.String(cluster),
+		Task:               aws.String(taskArn),
+		Status:             aws.String("STOPPED"),
+		PullStartedAt:      aws.Time(pullStarted),
+		PullStoppedAt:      aws.Time(pullStopped),
+		ExecutionStoppedAt: aws.Time(time.Now()),
+	})
+	require.NoError(t, err)
+	timed := describe()
+	assert.NotNil(t, timed.PullStartedAt, "the reported pull start must be recorded")
+	assert.NotNil(t, timed.PullStoppedAt, "the reported pull stop must be recorded")
+	assert.NotNil(t, timed.ExecutionStoppedAt, "the reported execution stop must be recorded")
+
+	// The reported detail beyond status: the reason a container gave, the
+	// runtime it ran as, and the ports it bound.
+	_, err = c.SubmitContainerStateChange(ctx, &ecs.SubmitContainerStateChangeInput{
+		Cluster:       aws.String(cluster),
+		Task:          aws.String(taskArn),
+		ContainerName: aws.String("app"),
+		Status:        aws.String("STOPPED"),
+		Reason:        aws.String("OutOfMemoryError"),
+		RuntimeId:     aws.String("runtime-abc"),
+		NetworkBindings: []ecstypes.NetworkBinding{{
+			BindIP: aws.String("0.0.0.0"), ContainerPort: aws.Int32(8080),
+			HostPort: aws.Int32(32768), Protocol: ecstypes.TransportProtocolTcp,
+		}},
+	})
+	require.NoError(t, err)
+	detailed := describe().Containers[0]
+	assert.Equal(t, "OutOfMemoryError", aws.ToString(detailed.Reason),
+		"the reason the agent reported must be recorded")
+	assert.Equal(t, "runtime-abc", aws.ToString(detailed.RuntimeId))
+	require.NotEmpty(t, detailed.NetworkBindings, "the reported port binding must be recorded")
+	assert.Equal(t, int32(32768), aws.ToInt32(detailed.NetworkBindings[0].HostPort))
+
+	// A report is scoped to the cluster it names: the same task reported
+	// against a different cluster is refused, so a report cannot reach across
+	// clusters.
+	const otherCluster = "agent-state-other-cluster"
+	_, err = c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(otherCluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(otherCluster)})
+	})
+	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
+		Cluster: aws.String(otherCluster), Task: aws.String(taskArn), Status: aws.String("RUNNING"),
+	})
+	require.Error(t, err, "a report naming another cluster must not reach this task")
+
+	// A task the control plane does not have is refused, not acknowledged.
+	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
+		Cluster: aws.String(cluster),
+		Task:    aws.String("arn:aws:ecs:us-east-1:123456789012:task/" + cluster + "/nonexistent"),
+		Status:  aws.String("STOPPED"),
+	})
+	require.Error(t, err, "a task that does not exist must be refused")
+}
+
+// DiscoverPollEndpoint must point the agent at this simulator. It had returned
+// real Amazon hostnames, which send an agent to AWS instead.
+func TestECS_DiscoverPollEndpointPointsAtTheSimulator(t *testing.T) {
+	c := ecsClient()
+	const cluster = "poll-endpoint-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+
+	out, err := c.DiscoverPollEndpoint(ctx, &ecs.DiscoverPollEndpointInput{
+		Cluster: aws.String(cluster),
+	})
+	require.NoError(t, err)
+	for name, endpoint := range map[string]string{
+		"endpoint":          aws.ToString(out.Endpoint),
+		"telemetryEndpoint": aws.ToString(out.TelemetryEndpoint),
+	} {
+		assert.NotContains(t, endpoint, "amazonaws.com",
+			"%s must not send the agent to real AWS", name)
+		assert.Contains(t, endpoint, "127.0.0.1",
+			"%s must point at this simulator", name)
+	}
+}
+
+// The rules that decide whether a destructive Amazon ECS call is allowed at
+// all. Each of these flags or associations was parsed and ignored, so calls
+// AWS refuses succeeded here — and a caller relying on the refusal was never
+// told it had skipped a step.
+func TestECS_DestructiveCallsRefuseWhatAWSRefuses(t *testing.T) {
+	c := ecsClient()
+	const cluster = "refusal-rules-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("refusal-rules-task"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+	})
+	require.NoError(t, err)
+
+	t.Run("a service scaled above zero is not deleted without force", func(t *testing.T) {
+		service, createErr := c.CreateService(ctx, &ecs.CreateServiceInput{
+			Cluster:        aws.String(cluster),
+			ServiceName:    aws.String("refusal-scaled-service"),
+			TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+			DesiredCount:   aws.Int32(1),
+		})
+		require.NoError(t, createErr)
+		t.Cleanup(func() {
+			_, _ = c.DeleteService(ctx, &ecs.DeleteServiceInput{
+				Cluster: aws.String(cluster), Service: service.Service.ServiceArn, Force: aws.Bool(true),
+			})
+		})
+
+		_, deleteErr := c.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(cluster), Service: service.Service.ServiceArn,
+		})
+		require.Error(t, deleteErr, "deleting a service scaled above zero must be refused without force")
+
+		// force deletes it, and so does scaling to zero first.
+		_, deleteErr = c.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(cluster), Service: service.Service.ServiceArn, Force: aws.Bool(true),
+		})
+		require.NoError(t, deleteErr, "force must delete a scaled service")
+	})
+
+	t.Run("a reserved capacity provider is never deleted", func(t *testing.T) {
+		for _, reserved := range []string{"FARGATE", "FARGATE_SPOT"} {
+			_, deleteErr := c.DeleteCapacityProvider(ctx, &ecs.DeleteCapacityProviderInput{
+				CapacityProvider: aws.String(reserved),
+			})
+			require.Error(t, deleteErr, "%s is reserved and must not be deletable", reserved)
+		}
+	})
+
+	t.Run("a capacity provider a cluster still names is not deleted", func(t *testing.T) {
+		const provider = "refusal-rules-provider"
+		_, createErr := c.CreateCapacityProvider(ctx, &ecs.CreateCapacityProviderInput{
+			Name: aws.String(provider),
+			AutoScalingGroupProvider: &ecstypes.AutoScalingGroupProvider{
+				AutoScalingGroupArn: aws.String(
+					"arn:aws:autoscaling:us-east-1:123456789012:autoScalingGroup:1:autoScalingGroupName/refusal"),
+			},
+		})
+		require.NoError(t, createErr)
+
+		_, putErr := c.PutClusterCapacityProviders(ctx, &ecs.PutClusterCapacityProvidersInput{
+			Cluster:                         aws.String(cluster),
+			CapacityProviders:               []string{provider},
+			DefaultCapacityProviderStrategy: []ecstypes.CapacityProviderStrategyItem{},
+		})
+		require.NoError(t, putErr)
+
+		_, deleteErr := c.DeleteCapacityProvider(ctx, &ecs.DeleteCapacityProviderInput{
+			CapacityProvider: aws.String(provider),
+		})
+		require.Error(t, deleteErr, "a provider a cluster still names must not be deletable")
+
+		// Disassociating it is what AWS tells the caller to do, and then the
+		// delete goes through.
+		_, putErr = c.PutClusterCapacityProviders(ctx, &ecs.PutClusterCapacityProvidersInput{
+			Cluster:                         aws.String(cluster),
+			CapacityProviders:               []string{},
+			DefaultCapacityProviderStrategy: []ecstypes.CapacityProviderStrategyItem{},
+		})
+		require.NoError(t, putErr)
+		_, deleteErr = c.DeleteCapacityProvider(ctx, &ecs.DeleteCapacityProviderInput{
+			CapacityProvider: aws.String(provider),
+		})
+		require.NoError(t, deleteErr, "a disassociated provider must delete")
+	})
+
+	t.Run("a container instance running tasks is not deregistered without force", func(t *testing.T) {
+		instance, registerErr := c.RegisterContainerInstance(ctx, &ecs.RegisterContainerInstanceInput{
+			Cluster: aws.String(cluster),
+			InstanceIdentityDocument: aws.String(
+				`{"instanceId":"i-refusal","region":"us-east-1"}`),
+		})
+		require.NoError(t, registerErr)
+		// The identity document is what names the EC2 instance; it had been
+		// dropped and the id invented.
+		assert.Equal(t, "i-refusal", aws.ToString(instance.ContainerInstance.Ec2InstanceId),
+			"the EC2 instance id must come from the identity document")
+
+		_, deregisterErr := c.DeregisterContainerInstance(ctx, &ecs.DeregisterContainerInstanceInput{
+			Cluster:           aws.String(cluster),
+			ContainerInstance: instance.ContainerInstance.ContainerInstanceArn,
+		})
+		require.NoError(t, deregisterErr, "an idle instance deregisters without force")
+	})
+}

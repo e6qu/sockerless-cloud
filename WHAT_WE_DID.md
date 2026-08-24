@@ -1,5 +1,157 @@
 # WHAT WE DID
 
+## 2026-08-24, eleventh pass — the Cosmos suite was starving its own emulator
+
+The Azure SDK suite lost three CI runs to `pgcosmos extension is still
+starting`, and the readiness failure — made self-classifying in an earlier pass
+— said in its own message that the emulator was alive and initialising and the
+host was starved. What it could not say is why the host was starved: the suite
+was doing it. Two differential tests each started an emulator of their own, so
+a two-core runner ran two at once, which is exactly the contention the reaper
+comment in that file already described for a *leaked* emulator.
+
+One emulator serves the suite now, started from `TestMain` in a goroutine so it
+initialises alongside the suite's own setup rather than inside the first test
+that asks for it. The second differential test went from booting an emulator to
+0.08 seconds.
+
+The readiness budget was deliberately left alone: `go test` gets thirteen
+minutes for this suite and the step fourteen, so buying readiness time trades a
+named Go failure for an opaque step kill. And a run that cannot reach either
+differential test skips the warm-up entirely, so a developer running one
+unrelated test does not pay for an emulator — the tests still boot it
+themselves when it was not warmed, so the filter decides when the cost is paid,
+never whether the oracle is available.
+
+## 2026-08-24, tenth pass — the Amazon ECS APIs that acknowledged instead of acting
+
+All 77 operations in the ECS model were registered, which is what made the
+surface look finished. Registered is not implemented, and auditing the handlers
+by depth rather than by presence found the rot.
+
+**Four agent-facing APIs were theatre.** `SubmitTaskStateChange`,
+`SubmitContainerStateChange` and `SubmitAttachmentStateChanges` each parsed
+their request, ignored every field, and answered
+`{"acknowledgment":"ACK"}` — a function that works by ignoring its inputs and
+returning a canned response. An agent reporting that a task had stopped changed
+nothing, and DescribeTasks went on reporting whatever the scheduler last
+assumed. They apply what they are told now: the task's status with the reason
+and timestamps it carries, each container's status, exit code, reason, runtime
+id and network bindings, and the elastic network interface attachment states. A
+task-level report also carries its containers, and it asks the service
+scheduler to reconcile, because a task the agent has just stopped is what the
+scheduler most needs to see. A report about a task, container or attachment the
+control plane does not hold is refused rather than acknowledged.
+
+`DiscoverPollEndpoint` returned hardcoded Amazon hostnames —
+`ecs-a-1.<region>.amazonaws.com` — which point an agent at AWS rather than at
+this simulator, while the comment above it claimed the opposite. It returns
+this simulator's own address now.
+
+**Three force flags were parsed and ignored.** `DeleteService`,
+`DeregisterContainerInstance` and `DeleteTaskSet` all declared `force` and
+never read it, so operations real Amazon ECS refuses — deleting a service still
+scaled above zero, deregistering an instance still running tasks, deleting a
+scaled task set — all succeeded here. A caller relying on the refusal was never
+told it had skipped a step.
+
+**Two more dropped inputs.** `RegisterContainerInstance` discarded the EC2
+instance identity document and invented an id, leaving `ec2InstanceId` empty —
+the join every autoscaling integration makes. `ListDaemonTaskDefinitions`
+ignored its `status` filter and handed back INACTIVE definitions to a caller
+asking for ACTIVE.
+
+**A state-change report could reach across clusters, and StartTask dropped a
+flag the scheduler honoured.** The agent reports name the cluster they are
+scoped to and the resolver ignored it, so a report naming one cluster reached a
+task in another. And `enableECSManagedTags` was applied to the tasks a service
+launches but parsed and dropped by `StartTask`, so the same request produced
+tagged tasks through a service and untagged ones directly. Both are fixed, and
+the cross-cluster refusal is covered.
+
+**A capacity provider could be deleted out from under its cluster.**
+`DeleteCapacityProvider` deleted whatever it was given: the AWS-managed
+FARGATE and FARGATE_SPOT providers, which this file's own comment says cannot
+be deleted and which `CreateCapacityProvider` already refused by name, and a
+provider a cluster still listed — leaving clusters naming a provider that no
+longer existed. Both are refused now, the second telling the caller to
+disassociate it with `PutClusterCapacityProviders`, which is what AWS says.
+
+**And two tests that asserted the theatre, one per surface.**
+`TestECS_ContainerInstanceLifecycle` sent fabricated identifiers to the three
+state-change APIs and asserted only that each call returned, which the canned
+acknowledgement satisfied while doing nothing; its own comment read "each
+acknowledges the change". `TestECSCLI_ContainerInstances` was the same test
+through the AWS CLI, reporting against the same made-up task id — and it was
+the one that failed on CI once the handlers began applying their reports, which
+is the gap it should have been reporting all along.
+
+Both assert the real contract now. The SDK test drives a real task and reads
+the applied state back, and was checked against the canned handler to be sure
+it fails on it; the CLI test runs a real task, reports a container stop with an
+exit code and a task stop with a reason, reads all of it back through
+`describe-tasks`, and asserts the poll endpoint does not hand the agent an
+amazonaws.com address.
+
+## 2026-08-24, ninth pass — Amazon ECS tagging, for every type AWS declares
+
+**Five of the nine taggable Amazon ECS resource types answered "tag-target type
+not implemented in sim".** The service reference lists nine for
+`ecs:TagResource` — capacity provider, cluster, container instance, daemon,
+daemon task definition, service, task, task definition and task set — and the
+three tagging operations covered four. Every one of the five refused is a
+resource this simulator already holds, so the refusal was a gap, not a limit.
+
+All nine resolve now, through one function the three operations share, so a
+type cannot be taggable through `TagResource` and invisible to
+`ListTagsForResource`. The one rule that belongs to the operation rather than
+the resource — real Amazon ECS refuses to tag a stopped task — is kept, and
+kept out of the read path, because reading a stopped task's tags is allowed.
+
+**Two dropped fields.** `CreateDaemon` and `RegisterDaemonTaskDefinition` both
+accept a `tags` member and neither stored shape had a tags field at all, so the
+tags a caller supplied were discarded silently. Both keep them now, and the
+test asserts a create's own tags survive the create rather than only checking a
+later `TagResource`.
+
+**A task set was named by a service-shaped ARN.** `TaskSetArn` was built as the
+service's own ARN with the id appended, where the published format is
+`task-set/<cluster>/<service>/<id>`. Anything dispatching on the resource type
+in an ARN would read it as the service — the tagging path would have tagged the
+service instead of the task set. Corrected, and asserted.
+
+**The attribute operations derive their container instance.** `PutAttributes`
+and `DeleteAttributes` name no container instance of their own; each attribute
+carries the instance it is about as its `targetId`. They still count as
+underived because the coverage probe sends a list member as a list of strings
+and these take a list of objects — a measurement gap, recorded as such, with
+the real behaviour pinned by its own test.
+
+## 2026-08-24, eighth pass — the Amazon ECS daemon and Express Mode families
+
+**Amazon ECS went from 20 underived operations to 8, and the derivation ratchet
+from 1,722 to 1,734 of 1,979.** The daemon family and the Amazon ECS Express
+Mode operations authorize against resource types the derivation did not build,
+and most of them name the resource by its own ARN outright — a daemon, a daemon
+deployment or revision, an Express Mode service, a service deployment or
+revision. The rest assemble: a daemon's ARN is `daemon/<cluster>/<name>`, which
+a create supplies in full before the daemon exists.
+
+**The member is chosen by the type the operation authorizes against, never by
+whichever ARN the body happens to carry.** `CreateDaemon` authorizes against
+the daemon and also carries the task definition's ARN, so a reader taking the
+first ARN it found would let a policy scoped to a task definition permit
+creating a daemon. The first version of this change did exactly that; the test
+written to catch it did, and the reader is keyed by declared type now.
+
+Two things fell out of writing those tests. The cluster reader did not know
+`clusterArn`, which is how the daemon family spells it, so a daemon ARN was
+built against the default cluster. And an expectation of mine was simply wrong:
+`DescribeTaskDefinition` declares no resource type at all, which is how AWS says
+an action takes no resource-level permission, so `"*"` is the right answer and
+inventing a task-definition ARN there would make a policy scoped to one revision
+appear to restrict a call AWS does not scope. That is pinned now too.
+
 **The last two Docker Hub pulls left the test suite.** A CI run lost
 `TestContainerReaperAbnormalExit` and `TestStartupSweepCollectsAKilledRunsWorkloads`
 together, both at exactly 15.00s, and the child processes' transcripts named

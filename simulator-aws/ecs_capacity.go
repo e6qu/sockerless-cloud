@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
@@ -123,14 +125,53 @@ func handleECSDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := ecsCapacityProviderName(req.CapacityProvider)
+	// The AWS-managed providers are reserved. CreateCapacityProvider already
+	// refused these names and the delete did not, so the two disagreed about
+	// whether FARGATE exists — and this file's own comment says it cannot be
+	// deleted.
+	for _, builtin := range ecsBuiltInCapacityProviders {
+		if name == builtin {
+			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+				"The capacity provider '%s' is reserved and cannot be deleted.", name)
+			return
+		}
+	}
 	cp, ok := ecsCapacityProviders.Get(name)
 	if !ok {
 		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The specified capacity provider does not exist. Specify a valid name or ARN and try again.")
 		return
 	}
+	// A provider a cluster still names cannot be deleted; AWS asks the caller
+	// to disassociate it with PutClusterCapacityProviders first. The cluster's
+	// own list was never consulted, so deleting one left clusters naming a
+	// provider that no longer existed.
+	if clusters := ecsClustersUsingCapacityProvider(name); len(clusters) > 0 {
+		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			"The capacity provider '%s' is in use by cluster(s) %s and cannot be deleted. "+
+				"Disassociate it with PutClusterCapacityProviders and try again.",
+			name, strings.Join(clusters, ", "))
+		return
+	}
 	cp.Status = "INACTIVE"
 	cp.UpdateStatus = "DELETE_COMPLETE"
 	ecsCapacityProviders.Delete(name)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"capacityProvider": cp})
+}
+
+// ecsClustersUsingCapacityProvider names the clusters whose capacity-provider
+// list still holds this provider, which is what stops it being deleted.
+func ecsClustersUsingCapacityProvider(name string) []string {
+	var clusters []string
+	for _, cluster := range ecsClusters.List() {
+		for _, associated := range cluster.CapacityProviders {
+			if ecsCapacityProviderName(associated) != name {
+				continue
+			}
+			clusters = append(clusters, cluster.ClusterName)
+			break
+		}
+	}
+	sort.Strings(clusters)
+	return clusters
 }

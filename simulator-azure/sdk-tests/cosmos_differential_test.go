@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -467,15 +468,61 @@ func cosmosEmulatorEngine(bound time.Duration, args ...string) ([]byte, error) {
 	return out, err
 }
 
+// One Cosmos emulator serves the whole suite, and it is started before the
+// suite runs rather than when the first test asks for it.
+//
+// Two tests need the oracle, and each used to start an emulator of its own.
+// The engine then ran two of them at once on a two-core runner, which is
+// exactly the contention the reaper comment below describes: the second one's
+// pgcosmos extension is starved and answers "still starting" until the
+// readiness budget runs out. Sharing one removes the contention, and warming
+// it from TestMain overlaps its initialisation with the suite's own setup and
+// with every test that does not need it, which is the time the emulator was
+// short of.
+var cosmosEmulator struct {
+	once     sync.Once
+	endpoint string
+	stop     func()
+	err      error
+}
+
+// warmCosmosEmulator boots the shared emulator. TestMain calls it in a
+// goroutine so initialisation runs alongside the rest of the suite; a test that
+// needs the oracle calls startCosmosEmulator, which waits for this to finish.
+func warmCosmosEmulator() {
+	cosmosEmulator.once.Do(func() {
+		cosmosEmulator.endpoint, cosmosEmulator.stop, cosmosEmulator.err = bootCosmosEmulator()
+	})
+}
+
+// stopCosmosEmulator removes the shared emulator. TestMain calls it after the
+// suite, because no single test owns it any more.
+func stopCosmosEmulator() {
+	if cosmosEmulator.stop != nil {
+		cosmosEmulator.stop()
+	}
+}
+
+// startCosmosEmulator returns the shared emulator, waiting for the warm-up
+// that TestMain began. The returned stop is a no-op: the emulator outlives any
+// one test now, and TestMain removes it.
 func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	t.Helper()
+	warmCosmosEmulator()
+	if cosmosEmulator.err != nil {
+		t.Fatalf("%v", cosmosEmulator.err)
+	}
+	return cosmosEmulator.endpoint, func() {}
+}
+
+func bootCosmosEmulator() (endpoint string, stop func(), err error) {
 	const image = "mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview"
 	if _, err := cosmosEmulatorEngine(60*time.Second, "image", "inspect", image); err != nil {
 		// CI pre-pulls the image so the job budget stays predictable; a host
 		// that lacks it pulls it here, once. The oracle is required, so a
 		// failed pull is a failure, never a skip.
 		if pullOut, perr := cosmosEmulatorEngine(10*time.Minute, "pull", image); perr != nil {
-			t.Fatalf("pulling Cosmos emulator image %s: %v\n%s", image, perr, pullOut)
+			return "", nil, fmt.Errorf("pulling Cosmos emulator image %s: %w\n%s", image, perr, pullOut)
 		}
 	}
 
@@ -488,7 +535,7 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 	// the emulator's --port, instead of contending for the default 8081.
 	ln, lerr := net.Listen("tcp", "127.0.0.1:0")
 	if lerr != nil {
-		t.Fatalf("reserving a host port for the Cosmos emulator: %v", lerr)
+		return "", nil, fmt.Errorf("reserving a host port for the Cosmos emulator: %w", lerr)
 	}
 	hostPort := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
@@ -513,13 +560,17 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 		"-p", fmt.Sprintf("127.0.0.1:%d:%d", hostPort, hostPort),
 		image, "--protocol", "http", "--port", fmt.Sprintf("%d", hostPort))
 	if err != nil {
-		t.Fatalf("starting Cosmos emulator: %v\n%s", err, runOut)
+		return "", nil, fmt.Errorf("starting Cosmos emulator: %w\n%s", err, runOut)
 	}
 	id := trimSpace(string(runOut))
 	stop = func() { _, _ = cosmosEmulatorEngine(60*time.Second, "rm", "-f", id) }
 
 	endpoint = fmt.Sprintf("http://127.0.0.1:%d/", hostPort)
-	probe := newCosmosSDKClient(t, endpoint, cosmosEmulatorKey, "")
+	probe, probeErr := cosmosRawSDKClient(endpoint, cosmosEmulatorKey)
+	if probeErr != nil {
+		stop()
+		return "", nil, fmt.Errorf("building the Cosmos readiness probe: %w", probeErr)
+	}
 	deadline := time.Now().Add(readinessBudget)
 	var lastProbeErr error
 	for i := 0; time.Now().Before(deadline); i++ {
@@ -529,7 +580,7 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 		_, perr := probe.CreateDatabase(cctx, azcosmos.DatabaseProperties{ID: fmt.Sprintf("readyprobe%d", i)}, nil)
 		cancel()
 		if perr == nil {
-			return endpoint, stop
+			return endpoint, stop, nil
 		}
 		lastProbeErr = perr
 		time.Sleep(2 * time.Second)
@@ -554,9 +605,9 @@ func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
 		classification = "the emulator was alive and still initialising when the budget " +
 			"expired: host starvation, not a defect — re-run on a quieter machine"
 	}
-	t.Fatalf("Cosmos emulator did not become ready at %s within %s (%s)\nlast probe error: %v\n%s",
+	return "", nil, fmt.Errorf(
+		"Cosmos emulator did not become ready at %s within %s (%s)\nlast probe error: %w\n%s",
 		endpoint, readinessBudget, classification, lastProbeErr, logs)
-	return "", func() {}
 }
 
 func trimSpace(s string) string {

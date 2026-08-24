@@ -821,6 +821,17 @@ func handleECSDeleteService(w http.ResponseWriter, r *http.Request) {
 			"Service not found: %s", req.Service)
 		return
 	}
+	// Without force, Amazon ECS refuses to delete a service that is still
+	// scaled up: the caller must scale it to zero first. The flag had been
+	// parsed and ignored, so a delete that AWS rejects succeeded here and a
+	// caller relying on the rejection — the usual scale-down-then-delete
+	// sequence — was never told it had skipped a step.
+	if !req.Force && svc.DesiredCount > 0 {
+		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			"The service cannot be stopped while it is scaled above 0.")
+		return
+	}
+
 	// Real ECS drains then marks the service INACTIVE; DescribeServices keeps
 	// returning it as INACTIVE, which is how terraform-provider-aws confirms the
 	// delete converged. Persist INACTIVE before stopping tasks so their

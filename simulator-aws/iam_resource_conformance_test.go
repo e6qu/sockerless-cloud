@@ -1304,11 +1304,25 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // record pointer, GetQueryResults a query id, and ListLogAnomalyDetectors
 // filters detectors by a log group rather than naming a detector.
 //
-// Amazon ECS's 20: the daemon family and the Amazon ECS Express Mode operations
-// authorize against resource types — daemon, daemon task definition, Express
-// Gateway service — the derivation does not build, CreateTaskSet and
-// RegisterDaemonTaskDefinition name something that has no identifier yet, and
-// the attribute operations name an attribute rather than a resource.
+// Amazon ECS's 8: the daemon family and the Amazon ECS Express Mode operations
+// derive now. Most of them name the resource by its own ARN — a daemon, a
+// daemon deployment or revision, an Express Mode service, a service deployment
+// or revision — and the member is chosen by the type the operation authorizes
+// against rather than by whichever ARN the body carries, because CreateDaemon
+// carries the task definition's ARN alongside the cluster and name its own ARN
+// is built from. Taking the wrong one would let a policy scoped to a task
+// definition permit creating a daemon; TestIAMResourceARNs_ECSDaemonAndExpressMode
+// pins that case specifically, and the cluster reader learned clusterArn, which
+// is how this family spells it.
+//
+// The eight left: CreateTaskSet and RegisterDaemonTaskDefinition name something
+// with no identifier yet, and Poll and StartTelemetrySession carry no members
+// at all. PutAttributes and DeleteAttributes are counted among them but do
+// derive for a real caller — each attribute carries the container instance it
+// is about as its targetId, and TestIAMResourceARNs_ECSAttributesNameTheirContainerInstance
+// pins that. The probe cannot express it, because it sends a list member as a
+// list of strings and these take a list of objects; the same shape of
+// measurement gap the Amazon RDS tagging operations are recorded under.
 //
 // AWS CodeBuild's 23: the build-scoped operations authorize against the project
 // that owns the build, which the derivation reads out of the build id's
@@ -1330,7 +1344,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // through the operation record to the namespace and service the operation
 // acted on — the simulator's own state, the same resolution Amazon RDS uses
 // for a custom engine version.
-const iamDerivationCoverageFloor = 1722
+const iamDerivationCoverageFloor = 1734
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

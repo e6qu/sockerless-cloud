@@ -25,6 +25,19 @@ const cosmosEmulatorKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqo
 // address the request is actually sent to when the endpoint is an account
 // hostname the test host does not resolve; the endpoint's own host is used
 // when it is empty.
+// cosmosRawSDKClient builds the same client without a *testing.T, for the
+// emulator warm-up that runs before any test does.
+func cosmosRawSDKClient(endpoint, key string) (*azcosmos.Client, error) {
+	cred, err := azcosmos.NewKeyCredential(key)
+	if err != nil {
+		return nil, err
+	}
+	return azcosmos.NewClientWithKey(endpoint, cred, &azcosmos.ClientOptions{
+		ClientOptions:                cosmosClientOptions(""),
+		EnableContentResponseOnWrite: true,
+	})
+}
+
 func newCosmosSDKClient(t *testing.T, endpoint, key, dial string) *azcosmos.Client {
 	t.Helper()
 	cred, err := azcosmos.NewKeyCredential(key)

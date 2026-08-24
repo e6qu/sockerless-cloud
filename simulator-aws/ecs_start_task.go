@@ -93,7 +93,7 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 			Count:                1,
 			Group:                req.Group,
 			LaunchType:           "EC2",
-			Tags:                 req.Tags,
+			Tags:                 ecsStartTaskTags(req.Tags, req.EnableECSManagedTags, req.Cluster),
 			PropagateTags:        req.PropagateTags,
 			EnableExecuteCommand: req.EnableExecuteCommand,
 			Overrides:            req.Overrides,
@@ -112,5 +112,21 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"tasks":    ecsTasksWire(tasks),
 		"failures": failures,
+	})
+}
+
+// ecsStartTaskTags applies the managed tags Amazon ECS adds when a caller asks
+// for them. The service scheduler already did this for the tasks it launches;
+// StartTask parsed the same flag and dropped it, so the identical request
+// produced tagged tasks through a service and untagged ones directly. A task
+// started outside a service has no service name, so only the cluster tag
+// applies.
+func ecsStartTaskTags(tags []ECSTag, managed bool, cluster string) []ECSTag {
+	if !managed {
+		return tags
+	}
+	return append(tags, ECSTag{
+		Key:   "aws:ecs:clusterName",
+		Value: ecsClusterNameFromRef(cluster),
 	})
 }

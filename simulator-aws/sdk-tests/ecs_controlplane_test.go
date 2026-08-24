@@ -229,24 +229,32 @@ func TestECS_ContainerInstanceLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Agent-poll ops: each acknowledges the change.
+	// The agent's discovery call answers for a registered instance.
 	_, err = c.DiscoverPollEndpoint(ctx, &ecs.DiscoverPollEndpointInput{
 		Cluster: aws.String(cluster), ContainerInstance: aws.String(ciArn),
 	})
 	require.NoError(t, err)
+
+	// The state-change reports are applied, not acknowledged, so a report
+	// about something the control plane does not have is refused. This block
+	// used to send fabricated identifiers and assert only that each call
+	// returned — which the canned "ACK" satisfied without doing anything.
+	// TestECS_AgentStateChangesAreAppliedNotAcknowledged covers the applied
+	// path against a real task.
 	_, err = c.SubmitContainerStateChange(ctx, &ecs.SubmitContainerStateChangeInput{
-		Cluster: aws.String(cluster), Task: aws.String("task-1"), ContainerName: aws.String("app"), Status: aws.String("RUNNING"),
+		Cluster: aws.String(cluster), Task: aws.String("task-1"),
+		ContainerName: aws.String("app"), Status: aws.String("RUNNING"),
 	})
-	require.NoError(t, err)
+	require.Error(t, err, "a container state change for an unknown task must be refused")
 	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
 		Cluster: aws.String(cluster), Task: aws.String("task-1"), Status: aws.String("RUNNING"),
 	})
-	require.NoError(t, err)
+	require.Error(t, err, "a task state change for an unknown task must be refused")
 	_, err = c.SubmitAttachmentStateChanges(ctx, &ecs.SubmitAttachmentStateChangesInput{
 		Cluster:     aws.String(cluster),
 		Attachments: []ecstypes.AttachmentStateChange{{AttachmentArn: aws.String("att-1"), Status: aws.String("ATTACHED")}},
 	})
-	require.NoError(t, err)
+	require.Error(t, err, "an attachment no task holds must be refused")
 
 	_, err = c.DeregisterContainerInstance(ctx, &ecs.DeregisterContainerInstanceInput{
 		Cluster: aws.String(cluster), ContainerInstance: aws.String(ciArn), Force: aws.Bool(true),
