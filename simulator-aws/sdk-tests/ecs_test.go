@@ -1784,3 +1784,137 @@ func TestECS_DestructiveCallsRefuseWhatAWSRefuses(t *testing.T) {
 		require.NoError(t, deregisterErr, "an idle instance deregisters without force")
 	})
 }
+
+// A deployment lifecycle hook holds the deployment, and holds its tasks back.
+//
+// The hook is the point: a service that configures one at PRE_SCALE_UP must
+// not launch the new revision until the hook is released. A simulator that
+// recorded the hook on the deployment and rolled the tasks out anyway would be
+// reporting a gate it did not have, so this asserts the task count as well as
+// the deployment's own state.
+func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
+	c := ecsClient()
+	const cluster = "lifecycle-hook-cluster"
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("lifecycle-hook-task"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+	})
+	require.NoError(t, err)
+
+	// A PAUSE hook needs no target to invoke: it waits for the operator.
+	service, err := c.CreateService(ctx, &ecs.CreateServiceInput{
+		Cluster:        aws.String(cluster),
+		ServiceName:    aws.String("lifecycle-hook-service"),
+		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:   aws.Int32(1),
+		DeploymentConfiguration: &ecstypes.DeploymentConfiguration{
+			LifecycleHooks: []ecstypes.DeploymentLifecycleHook{{
+				TargetType: ecstypes.DeploymentLifecycleHookTargetTypePause,
+				LifecycleStages: []ecstypes.DeploymentLifecycleHookStage{
+					ecstypes.DeploymentLifecycleHookStagePreScaleUp,
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+	serviceArn := service.Service.ServiceArn
+	t.Cleanup(func() {
+		_, _ = c.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(cluster), Service: serviceArn, Force: aws.Bool(true),
+		})
+	})
+
+	// The deployment stops at the guarded stage and records the hook.
+	var deploymentArn, hookID string
+	require.Eventually(t, func() bool {
+		listed, listErr := c.ListServiceDeployments(ctx, &ecs.ListServiceDeploymentsInput{
+			Service: serviceArn, Cluster: aws.String(cluster),
+		})
+		if listErr != nil || len(listed.ServiceDeployments) == 0 {
+			return false
+		}
+		deploymentArn = aws.ToString(listed.ServiceDeployments[0].ServiceDeploymentArn)
+		described, describeErr := c.DescribeServiceDeployments(ctx,
+			&ecs.DescribeServiceDeploymentsInput{ServiceDeploymentArns: []string{deploymentArn}})
+		if describeErr != nil || len(described.ServiceDeployments) == 0 {
+			return false
+		}
+		for _, hook := range described.ServiceDeployments[0].LifecycleHookDetails {
+			if hook.Status == ecstypes.DeploymentLifecycleHookStatusAwaitingAction {
+				hookID = aws.ToString(hook.HookId)
+			}
+		}
+		return hookID != ""
+	}, 30*time.Second, 200*time.Millisecond,
+		"the deployment must stop at the stage its hook guards and record the hook")
+
+	described, err := c.DescribeServiceDeployments(ctx,
+		&ecs.DescribeServiceDeploymentsInput{ServiceDeploymentArns: []string{deploymentArn}})
+	require.NoError(t, err)
+	assert.Equal(t, ecstypes.ServiceDeploymentLifecycleStagePreScaleUp,
+		described.ServiceDeployments[0].LifecycleStage,
+		"the deployment must report the stage it is waiting at")
+
+	// The gate is real: nothing launched while the hook waits.
+	held, err := c.ListTasks(ctx, &ecs.ListTasksInput{
+		Cluster: aws.String(cluster), ServiceName: aws.String("lifecycle-hook-service"),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, held.TaskArns,
+		"a deployment waiting on a PRE_SCALE_UP hook must not have launched its tasks")
+
+	// Continuing without naming the hook is refused, because there is a hook
+	// to name.
+	_, err = c.ContinueServiceDeployment(ctx, &ecs.ContinueServiceDeploymentInput{
+		ServiceDeploymentArn: aws.String(deploymentArn),
+		Action:               ecstypes.DeploymentLifecycleHookActionContinue,
+	})
+	require.Error(t, err, "continuing a hooked deployment must name the hook")
+
+	// An identifier no hook carries is refused too.
+	_, err = c.ContinueServiceDeployment(ctx, &ecs.ContinueServiceDeploymentInput{
+		ServiceDeploymentArn: aws.String(deploymentArn),
+		HookId:               aws.String("not-a-hook"),
+		Action:               ecstypes.DeploymentLifecycleHookActionContinue,
+	})
+	require.Error(t, err, "an unknown hook identifier must be refused")
+
+	// Released, the hook succeeds and the service converges.
+	_, err = c.ContinueServiceDeployment(ctx, &ecs.ContinueServiceDeploymentInput{
+		ServiceDeploymentArn: aws.String(deploymentArn),
+		HookId:               aws.String(hookID),
+		Action:               ecstypes.DeploymentLifecycleHookActionContinue,
+	})
+	require.NoError(t, err)
+
+	released, err := c.DescribeServiceDeployments(ctx,
+		&ecs.DescribeServiceDeploymentsInput{ServiceDeploymentArns: []string{deploymentArn}})
+	require.NoError(t, err)
+	require.NotEmpty(t, released.ServiceDeployments[0].LifecycleHookDetails)
+	assert.Equal(t, ecstypes.DeploymentLifecycleHookStatusSucceeded,
+		released.ServiceDeployments[0].LifecycleHookDetails[0].Status,
+		"a continued hook must be recorded as succeeded")
+
+	require.Eventually(t, func() bool {
+		running, listErr := c.ListTasks(ctx, &ecs.ListTasksInput{
+			Cluster: aws.String(cluster), ServiceName: aws.String("lifecycle-hook-service"),
+		})
+		return listErr == nil && len(running.TaskArns) > 0
+	}, 60*time.Second, 500*time.Millisecond,
+		"once the hook is released the service must launch the tasks it was holding")
+
+	// The same hook cannot be released twice.
+	_, err = c.ContinueServiceDeployment(ctx, &ecs.ContinueServiceDeploymentInput{
+		ServiceDeploymentArn: aws.String(deploymentArn),
+		HookId:               aws.String(hookID),
+		Action:               ecstypes.DeploymentLifecycleHookActionContinue,
+	})
+	require.Error(t, err, "a hook that already succeeded must not be continued again")
+}

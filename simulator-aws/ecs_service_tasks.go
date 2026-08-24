@@ -335,6 +335,14 @@ func ecsReconcileService(key string) {
 		ecsRefreshServiceState(key)
 		return
 	}
+	// A deployment waiting on a lifecycle hook has not reached SCALE_UP, and
+	// the tasks it would launch are what the hook exists to hold back. The
+	// service's current state is still refreshed, so counts and health stay
+	// truthful while it waits.
+	if _, waiting := ecsServiceDeploymentGate(service.ServiceArn); waiting {
+		ecsRefreshServiceState(key)
+		return
+	}
 	definition, ok := ecsServiceTaskDefinition(service.TaskDefinition)
 	if !ok {
 		ecsRecordServiceLaunchFailure(key, "Task definition not found: "+service.TaskDefinition)

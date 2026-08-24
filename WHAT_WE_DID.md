@@ -1,5 +1,34 @@
 # WHAT WE DID
 
+## 2026-08-24, twelfth pass — Amazon ECS deployment lifecycle hooks, implemented
+
+BUG-72 was the one ECS input the simulator read and did not act on, filed in
+the previous pass rather than faked. It is implemented now.
+
+A deployment walks the stages `ServiceDeploymentLifecycleStage` declares and
+stops at the first one a hook guards, recording that hook with an identifier
+and a status. A `PAUSE` hook waits for an operator; an `AWS_LAMBDA` hook is
+invoked through this simulator's own Lambda implementation with the payload the
+service sends, and a hook naming a function that does not exist fails the
+deployment rather than passing it — a gate that cannot run is not a gate that
+opened. `ContinueServiceDeployment` releases the hook its `hookId` names,
+advancing to the next guarded stage or abandoning the deployment, and refuses
+an identifier the deployment does not carry or one already resolved.
+
+**The gate holds tasks, not just the record.** While a deployment waits at a
+stage before `SCALE_UP`, the service scheduler does not launch the new
+revision's tasks — that is what a `PRE_SCALE_UP` hook is for, and a hook that
+decorated the deployment while the rollout proceeded anyway would be the
+decoration this whole sweep has been removing. The test asserts the service has
+no tasks while the hook waits and has them once it is released.
+
+Two defects fell out of building it. The `DescribeServiceDeployments`
+projection emitted neither `lifecycleStage` nor `lifecycleHookDetails`, so the
+deployment's own state would have been invisible to every client and the
+`hookId` unobtainable. And `TestECS_ServiceDeployments` had been continuing a
+fabricated `hook-1`, which passed only while the identifier was ignored — the
+fourth test in this sweep found asserting behaviour that did not exist.
+
 ## 2026-08-24, eleventh pass — the Cosmos suite was starving its own emulator
 
 The Azure SDK suite lost three CI runs to `pgcosmos extension is still
