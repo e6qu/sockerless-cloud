@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/e6qu/sockerless-cloud/compare/v0.14.0...v0.15.0) (2026-08-24)
+
+
+### Features
+
+* **aws/iam:** derive the ECS daemon and Express Mode resources ([#65](https://github.com/e6qu/sockerless-cloud/issues/65)) ([b6cae9c](https://github.com/e6qu/sockerless-cloud/commit/b6cae9cbd04497f9691bfec5e9be60392a222e57))
+
 ## [0.14.0](https://github.com/e6qu/sockerless-cloud/compare/v0.13.4...v0.14.0) (2026-08-23)
 
 
