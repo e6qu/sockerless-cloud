@@ -1380,6 +1380,15 @@ func iamEventBridgeResourceARNs(r *http.Request, types []string, region, account
 	fields := iamJSONRequestFields(r)
 	lookup := func(field string) []string { return fields[strings.ToLower(field)] }
 
+	// PutEvents names its event bus per entry rather than once at the top
+	// level, so nothing flat reads it and the call authorized against "*" —
+	// which denies every grant written for a particular bus. AWS authorizes
+	// each entry against the bus it targets, exactly as it does each item of a
+	// DynamoDB transaction against its own table.
+	if buses := iamEventBridgeEntryBuses(r, region, account); len(buses) > 0 {
+		return buses
+	}
+
 	bus := iamFirstValue(lookup, "EventBusName")
 	onDefaultBus := bus == "" || bus == "default"
 	applicable := make([]string, 0, len(types))
@@ -1720,6 +1729,42 @@ var iamSSMFieldAliases = map[string][]string{
 	// is the resource AWS authorizes them against.
 	"managed-instance.InstanceId": {"InstanceId", "InstanceIds", "Target"},
 	"instance.InstanceId":         {"InstanceId", "InstanceIds", "Target"},
+}
+
+// iamEventBridgeEntryBuses returns the event buses a PutEvents call writes to,
+// read from each entry. An entry that names no bus writes to the default one,
+// which is what AWS does with it.
+func iamEventBridgeEntryBuses(r *http.Request, region, account string) []string {
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var req struct {
+		Entries []struct {
+			EventBusName string `json:"EventBusName"`
+		} `json:"Entries"`
+	}
+	if json.Unmarshal(body, &req) != nil || len(req.Entries) == 0 {
+		return nil
+	}
+	var buses []string
+	seen := map[string]bool{}
+	for _, entry := range req.Entries {
+		name := entry.EventBusName
+		if name == "" {
+			name = "default"
+		}
+		arn := name
+		if !strings.HasPrefix(name, "arn:") {
+			arn = "arn:aws:events:" + region + ":" + account + ":event-bus/" + name
+		}
+		if seen[arn] {
+			continue
+		}
+		seen[arn] = true
+		buses = append(buses, arn)
+	}
+	return buses
 }
 
 // ===== Amazon ElastiCache =====

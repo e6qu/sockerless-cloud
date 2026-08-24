@@ -1,5 +1,23 @@
 # WHAT WE DID
 
+## 2026-08-24, fifteenth pass — PutEvents authorized against the wrong thing
+
+Amazon EventBridge's `PutEvents` names its event bus per entry rather than once
+at the top level, so nothing flat read it and the call authorized against `"*"`
+— which denies every policy written for a particular bus. AWS authorizes each
+entry against the bus it targets, exactly as it authorizes each item of an
+Amazon DynamoDB transaction against its own table, and that precedent was
+already in this file.
+
+Each distinct bus a batch writes to is authorized once, an entry naming none
+writes to the default bus, and a bus given as an ARN is taken as it stands. The
+measured floor does not move, because the coverage probe sends a list member as
+a list of strings while `Entries` takes objects — the same gap already recorded
+for the Amazon ECS attribute operations and the AWS Systems Manager tagging
+family — so the behaviour is pinned by its own test and the note beside the
+floor says which three EventBridge operations genuinely cannot derive: they
+declare no request members at all.
+
 ## 2026-08-24, fourteenth pass — the external destinations say which one is missing
 
 A stubbed implementation is acceptable where the dependency is somebody else's

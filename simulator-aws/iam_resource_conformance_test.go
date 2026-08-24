@@ -1248,8 +1248,16 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // priority entry — a nested shape pinned by
 // TestIAMResourceARNs_ELBReadsARuleARNNestedInAPriority.
 // Amazon EventBridge's 4: the tagging operations name a ResourceARN a real
-// caller supplies where the probe fills a placeholder, and PutEvents carries
-// its event bus per entry, a nested list shape nothing flat can read.
+// caller supplies where the probe fills a placeholder, and PutEvents derives
+// now — each entry names the bus it writes to, and every distinct bus a batch
+// targets is authorized, the same way each item of an Amazon DynamoDB
+// transaction is authorized against its own table. It still measures as
+// underived because the probe sends a list member as a list of strings while
+// Entries takes objects;
+// TestIAMResourceARNs_EventBridgePutEventsNamesItsBuses pins the real
+// behaviour. The three left — AllowVendedLogDeliveryForResource,
+// InvokeApiDestination and RetrieveConnectionCredentials — declare no request
+// members at all.
 //
 // AWS Budgets derives completely: it is in the generated resource-type table
 // and its three tagging operations name the budget or budget action by an ARN,

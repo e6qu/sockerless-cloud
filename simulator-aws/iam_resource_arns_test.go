@@ -344,6 +344,48 @@ func TestIAMResourceARNs_SSMTaggingNamesTheTypeItTags(t *testing.T) {
 	})
 }
 
+// PutEvents names its event bus per entry, so a flat read finds none and the
+// call authorized against "*" — which denies every policy written for a
+// particular bus. AWS authorizes each entry against the bus it targets, the
+// same way it authorizes each item of an Amazon DynamoDB transaction against
+// its own table.
+//
+// The coverage probe sends a list member as a list of strings while Entries
+// takes a list of objects, so these still measure as underived; the behaviour
+// is what a real caller gets.
+func TestIAMResourceARNs_EventBridgePutEventsNamesItsBuses(t *testing.T) {
+	const events = "arn:aws:events:us-east-1:123456789012:event-bus/"
+	t.Run("an entry names the bus it writes to", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSEvents.PutEvents",
+				`{"Entries":[{"EventBusName":"orders","Detail":"{}"}]}`),
+			"events:PutEvents", events+"orders")
+	})
+	t.Run("every bus a batch writes to is authorized, once each", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSEvents.PutEvents",
+				`{"Entries":[{"EventBusName":"orders"},{"EventBusName":"audit"},{"EventBusName":"orders"}]}`),
+			"events:PutEvents", events+"orders", events+"audit")
+	})
+	t.Run("an entry naming no bus writes to the default one", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSEvents.PutEvents", `{"Entries":[{"Detail":"{}"}]}`),
+			"events:PutEvents", events+"default")
+	})
+	t.Run("a bus named by ARN is taken as it stands", func(t *testing.T) {
+		bus := events + "orders"
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSEvents.PutEvents",
+				`{"Entries":[{"EventBusName":"`+bus+`"}]}`),
+			"events:PutEvents", bus)
+	})
+	t.Run("a rule request is unaffected", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSEvents.DescribeRule", `{"Name":"nightly"}`),
+			"events:DescribeRule", "arn:aws:events:us-east-1:123456789012:rule/nightly")
+	})
+}
+
 func TestIAMResourceARNs_CodeBuild(t *testing.T) {
 	const p = "arn:aws:codebuild:us-east-1:123456789012:"
 	t.Run("StartBuild names its project", func(t *testing.T) {
