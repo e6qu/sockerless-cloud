@@ -194,3 +194,116 @@ func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 		}, 60*time.Second, time.Second, "restored MySQL endpoint %s:%d must accept a connection", address, port)
 	}
 }
+
+// TestRDS_DeleteDBInstance_FinalSnapshotContract proves DeleteDBInstance
+// enforces RDS's final-snapshot parameters — SkipFinalSnapshot and
+// FinalDBSnapshotIdentifier are mutually exclusive, one of them is required —
+// and that a requested final snapshot is a real snapshot: it settles to
+// available and remains after the instance is gone.
+func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
+	c := rdsClient()
+	ctx := context.Background()
+
+	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("final-snap-src"),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+		Engine:               aws.String("postgres"),
+		MasterUsername:       aws.String("admin"),
+		MasterUserPassword:   aws.String("SnapshotPassword-123!"),
+		AllocatedStorage:     aws.Int32(20),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier: aws.String("final-snap-src"),
+			SkipFinalSnapshot:    aws.Bool(true),
+		})
+	})
+
+	// Neither skipping nor naming a final snapshot is the contract violation
+	// RDS rejects.
+	_, err = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier: aws.String("final-snap-src"),
+	})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
+
+	// So is doing both.
+	_, err = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier:      aws.String("final-snap-src"),
+		SkipFinalSnapshot:         aws.Bool(true),
+		FinalDBSnapshotIdentifier: aws.String("final-snap-1"),
+	})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
+
+	// Naming the final snapshot deletes the instance and leaves the snapshot,
+	// which settles through the same capture as CreateDBSnapshot.
+	_, err = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier:      aws.String("final-snap-src"),
+		FinalDBSnapshotIdentifier: aws.String("final-snap-1"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDBSnapshot(ctx, &rds.DeleteDBSnapshotInput{
+			DBSnapshotIdentifier: aws.String("final-snap-1"),
+		})
+	})
+	waitForRDSSnapshotAvailable(t, c, ctx, "final-snap-1")
+
+	_, err = c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String("final-snap-src"),
+	})
+	assertAWSAPIErrorCode(t, err, "DBInstanceNotFound")
+}
+
+// TestRDS_DeleteDBCluster_FinalSnapshotContract proves DeleteDBCluster
+// enforces the same parameter contract and records the final cluster
+// snapshot.
+func TestRDS_DeleteDBCluster_FinalSnapshotContract(t *testing.T) {
+	c := rdsClient()
+	ctx := context.Background()
+
+	_, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("final-snap-cluster"),
+		Engine:              aws.String("aurora-mysql"),
+		MasterUsername:      aws.String("admin"),
+		MasterUserPassword:  aws.String("SnapshotPassword-123!"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+			DBClusterIdentifier: aws.String("final-snap-cluster"),
+			SkipFinalSnapshot:   aws.Bool(true),
+		})
+	})
+
+	_, err = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+		DBClusterIdentifier: aws.String("final-snap-cluster"),
+	})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
+
+	_, err = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+		DBClusterIdentifier:       aws.String("final-snap-cluster"),
+		SkipFinalSnapshot:         aws.Bool(true),
+		FinalDBSnapshotIdentifier: aws.String("final-snap-cluster-1"),
+	})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
+
+	_, err = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+		DBClusterIdentifier:       aws.String("final-snap-cluster"),
+		FinalDBSnapshotIdentifier: aws.String("final-snap-cluster-1"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDBClusterSnapshot(ctx, &rds.DeleteDBClusterSnapshotInput{
+			DBClusterSnapshotIdentifier: aws.String("final-snap-cluster-1"),
+		})
+	})
+
+	snaps, err := c.DescribeDBClusterSnapshots(ctx, &rds.DescribeDBClusterSnapshotsInput{
+		DBClusterSnapshotIdentifier: aws.String("final-snap-cluster-1"),
+	})
+	require.NoError(t, err)
+	require.Len(t, snaps.DBClusterSnapshots, 1)
+	assert.Equal(t, "available", aws.ToString(snaps.DBClusterSnapshots[0].Status))
+	assert.Equal(t, "final-snap-cluster", aws.ToString(snaps.DBClusterSnapshots[0].DBClusterIdentifier))
+}

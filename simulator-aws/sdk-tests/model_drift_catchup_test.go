@@ -223,6 +223,9 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	})
 	require.NoError(t, err)
 	associationID := aws.ToString(created.IpamInternetRegistryAssociation.IpamInternetRegistryAssociationId)
+	assert.Equal(t, ec2types.IpamInternetRegistryAssociationStatePendingEnable,
+		created.IpamInternetRegistryAssociation.State,
+		"created and awaiting enable: pending-enable, per the association-state enum")
 
 	// The association is real state and round-trips.
 	described, err := c.DescribeIpamInternetRegistryAssociations(ctx, &ec2.DescribeIpamInternetRegistryAssociationsInput{
@@ -261,12 +264,20 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	require.NotNil(t, createdReg.IpamRoutingPolicyRegistrationDelta)
 	createDeltaID := aws.ToString(createdReg.IpamRoutingPolicyRegistrationDelta.DeltaId)
 	require.NotEmpty(t, createDeltaID)
+	assert.Equal(t, ec2types.IpamRoutingPolicyRegistrationDeltaStatePublished,
+		createdReg.IpamRoutingPolicyRegistrationDelta.State,
+		"an applied delta is published, per the model's delta-state enum")
 	registrations, err := c.GetIpamRoutingPolicyRegistrations(ctx, &ec2.GetIpamRoutingPolicyRegistrationsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
 	require.NoError(t, err)
 	require.Len(t, registrations.IpamRoutingPolicyRegistrations, 1)
 	assert.Equal(t, "203.0.113.0/24", aws.ToString(registrations.IpamRoutingPolicyRegistrations[0].Cidr))
+	assert.Equal(t, ec2types.IpamRoutingPolicyRegistrationStateCreateComplete,
+		registrations.IpamRoutingPolicyRegistrations[0].State,
+		"a synchronously applied create is create-complete, per the registration-state enum")
+	assert.Equal(t, createDeltaID, aws.ToString(registrations.IpamRoutingPolicyRegistrations[0].LatestDeltaId),
+		"the create's delta is the registration's latest")
 
 	// Modifying a registration changes what the listing returns.
 	modified, err := c.ModifyIpamRoutingPolicyRegistration(ctx, &ec2.ModifyIpamRoutingPolicyRegistrationInput{
@@ -276,6 +287,8 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, modified.IpamRoutingPolicyRegistrationDelta)
+	assert.Equal(t, ec2types.IpamRoutingPolicyRegistrationDeltaStatePublished,
+		modified.IpamRoutingPolicyRegistrationDelta.State)
 	registrations, err = c.GetIpamRoutingPolicyRegistrations(ctx, &ec2.GetIpamRoutingPolicyRegistrationsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})
@@ -284,6 +297,9 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	require.Len(t, registrations.IpamRoutingPolicyRegistrations[0].Asns, 1)
 	assert.Equal(t, "64501", registrations.IpamRoutingPolicyRegistrations[0].Asns[0],
 		"the modification must be the one returned")
+	assert.Equal(t, ec2types.IpamRoutingPolicyRegistrationStateUpdateComplete,
+		registrations.IpamRoutingPolicyRegistrations[0].State,
+		"a synchronously applied modify is update-complete, per the registration-state enum")
 
 	// The batch form takes a caller-authored delta document, applies it, and
 	// creates a delta record the deltas listing returns.
@@ -344,12 +360,16 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, findings.RouteProtectionFindings)
 
-	// Deleting the registration empties the listing.
-	_, err = c.DeleteIpamRoutingPolicyRegistration(ctx, &ec2.DeleteIpamRoutingPolicyRegistrationInput{
+	// Deleting the registration empties the listing and answers a published
+	// delta of its own.
+	deleted, err := c.DeleteIpamRoutingPolicyRegistration(ctx, &ec2.DeleteIpamRoutingPolicyRegistrationInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 		Cidr:                              aws.String("203.0.113.0/24"),
 	})
 	require.NoError(t, err)
+	require.NotNil(t, deleted.IpamRoutingPolicyRegistrationDelta)
+	assert.Equal(t, ec2types.IpamRoutingPolicyRegistrationDeltaStatePublished,
+		deleted.IpamRoutingPolicyRegistrationDelta.State)
 	registrations, err = c.GetIpamRoutingPolicyRegistrations(ctx, &ec2.GetIpamRoutingPolicyRegistrationsInput{
 		IpamInternetRegistryAssociationId: aws.String(associationID),
 	})

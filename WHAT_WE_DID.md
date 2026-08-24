@@ -37,6 +37,49 @@ Cloud SQL and the Azure database slices still take metadata-only backups;
 BUG-74 records the port, with the three touch points and the test as the
 template.
 
+The branch's first CI run failed three shards, each a real defect:
+
+- **The spec gate caught the IPAM routing-policy wire shape.** The EC2 model
+  returns an `ipamRoutingPolicyRegistrationDelta` from *every* registration
+  mutation — create, modify, batch-modify and delete — not the registration.
+  Each mutation now records a delta (the single-registration operations
+  author a one-entry document in the same schema the batch form accepts) and
+  the listing returns them all. The state vocabularies are the model's, not
+  invented: deltas are `published`/`failed` per
+  `IpamRoutingPolicyRegistrationDeltaState`, registrations are
+  `create-complete`/`update-complete`/`delete-complete` per
+  `IpamRoutingPolicyRegistrationState`, and a created-but-never-enabled
+  association is `pending-enable` per
+  `IpamInternetRegistryAssociationState` — the SDK's own enum constants pin
+  all of them in the test.
+- **The RDS CLI lifecycle test pinned the pre-data-plane behavior** —
+  `available` synchronously from CreateDBSnapshot. It now pins `creating`,
+  as RDS answers, and drives the CLI's own `wait db-snapshot-available`
+  waiter before restoring; the SDK snapshot tests follow the same async
+  machine through the SDK's waiter.
+- **The Batch job test pulled `public.ecr.aws/...alpine:3` at job-run time**,
+  and one CI run's registry-token fetch timed out inside the test. The CI
+  shard pre-pulls the image with the same retry/backoff contract as the
+  DynamoDB oracle pull, so image acquisition sits outside the test deadline.
+  (The fourth red shard was fail-fast cancellation, no defect of its own.)
+
+Sweeping the rest of the snapshot family to the same standard closed the
+divergences the cancelled shard would have hidden. **CopyDBSnapshot** was a
+metadata copy — it now refuses a source that is not `available`
+(`InvalidDBSnapshotState`, as RDS does), clones the source snapshot's data
+volume and master credential, and settles asynchronously, so a restore from
+a copy returns to the same data as a restore from the source.
+**DeleteDBInstance** ignored the final-snapshot contract — it now enforces
+`SkipFinalSnapshot`/`FinalDBSnapshotIdentifier` exactly
+(`InvalidParameterCombination` in both directions, `DBSnapshotAlreadyExists`
+on a name collision) and captures a real final snapshot before the
+instance's volume is removed, ordering the capture ahead of the data-plane
+shutdown in the same background task. **DeleteDBCluster** enforces the same
+parameter contract, its final snapshot as modeled as every cluster snapshot.
+The restored-endpoint test asserts what is true now that restores install a
+real data plane: on the engine tier the endpoint accepts connections; on the
+modeled tier the nominal port derives from the engine.
+
 ## 2026-08-24, sixteenth pass — the model-drift sweep, and 42 operations AWS added since
 
 The 41 vendored AWS models were diffed against the simulator's handwritten

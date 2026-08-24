@@ -141,9 +141,11 @@ func handleCreateIpamInternetRegistryAssociation(w http.ResponseWriter, r *http.
 		Rir:                                rir,
 		OrganizationHandle:                 r.FormValue("OrganizationHandle"),
 		Description:                        r.FormValue("Description"),
-		// Created, and never verified: verification is the registry's act, and
-		// there is no registry here. Enable says so loudly.
-		State: "pending-verification",
+		// Created, and awaiting the enable that would begin verification with
+		// the registry — "pending-enable" per IpamInternetRegistryAssociationState.
+		// Verification is the registry's act, and there is no registry here;
+		// Enable says so loudly.
+		State: "pending-enable",
 		Tags:  parseTags(r),
 	}
 	ec2IpamRegistryAssociations.Put(id, association)
@@ -274,7 +276,9 @@ func handleCreateIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 		PermitMoreSpecificAnnouncements: r.FormValue("PermitMoreSpecificAnnouncements") == "true",
 		MaxLength:                       atoiDefault(r.FormValue("MaxLength"), 0),
 		Description:                     r.FormValue("Description"),
-		State:                           "registered",
+		// Applied synchronously: "create-complete" per
+		// IpamRoutingPolicyRegistrationState.
+		State: "create-complete",
 	}
 	delta := ec2RecordRoutingRegistrationDelta(associationID, map[string]any{
 		"Cidr": cidr,
@@ -303,7 +307,9 @@ func ec2RecordRoutingRegistrationDelta(associationID string, entry map[string]an
 		AssociationId: associationID,
 		DeltaId:       ec2ID("ipam-rpr-delta"),
 		DeltaJson:     string(deltaJSON),
-		State:         "complete",
+		// Applied: "published" per IpamRoutingPolicyRegistrationDeltaState
+		// (pending | published | failed).
+		State: "published",
 	}
 	ec2IpamRoutingDeltas.Put(delta.DeltaId, delta)
 	return delta
@@ -335,6 +341,7 @@ func handleModifyIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 	ec2ApplyRoutingRegistrationChanges(&registration, r, "")
+	registration.State = "update-complete"
 	delta := ec2RecordRoutingRegistrationDelta(associationID, map[string]any{
 		"Cidr": cidr,
 		"Asns": registration.Asns,
@@ -391,7 +398,8 @@ func handleBatchModifyIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *h
 		AssociationId: associationID,
 		DeltaId:       ec2ID("ipam-rpr-delta"),
 		DeltaJson:     deltaJSON,
-		State:         "complete",
+		// Applied: "published" per IpamRoutingPolicyRegistrationDeltaState.
+		State: "published",
 	}
 	for _, entry := range entries {
 		key := ec2IpamRoutingRegistrationKey(associationID, entry.Cidr)
@@ -413,6 +421,7 @@ func handleBatchModifyIpamRoutingPolicyRegistrations(w http.ResponseWriter, r *h
 		if entry.Description != nil {
 			registration.Description = *entry.Description
 		}
+		registration.State = "update-complete"
 		registration.LatestDeltaId = delta.DeltaId
 		ec2IpamRoutingRegistrations.Put(key, registration)
 	}
@@ -434,7 +443,7 @@ func handleDeleteIpamRoutingPolicyRegistration(w http.ResponseWriter, r *http.Re
 			fmt.Sprintf("No routing policy registration for %s under %s", cidr, associationID), http.StatusBadRequest)
 		return
 	}
-	registration.State = "unregistered"
+	registration.State = "delete-complete"
 	ec2IpamRoutingRegistrations.Delete(key)
 	// The registration is gone, so nothing carries this delta as latest — the
 	// deltas listing is the record of the removal.

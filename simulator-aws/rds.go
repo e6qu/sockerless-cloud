@@ -538,9 +538,57 @@ func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	skipFinal := strings.EqualFold(r.FormValue("SkipFinalSnapshot"), "true")
+	finalSnapID := r.FormValue("FinalDBSnapshotIdentifier")
+	if skipFinal && finalSnapID != "" {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"FinalDBSnapshotIdentifier cannot be specified when SkipFinalSnapshot is true",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if !skipFinal && finalSnapID == "" {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if finalSnapID != "" {
+		if _, exists := rdsSnapshots.Get(finalSnapID); exists {
+			rdsErrorXML(w, "DBSnapshotAlreadyExists",
+				fmt.Sprintf("DBSnapshot %q already exists", finalSnapID),
+				http.StatusConflict, sim.RequestID(r.Context()))
+			return
+		}
+		rdsSnapshots.Put(finalSnapID, RDSSnapshot{
+			DBSnapshotIdentifier: finalSnapID,
+			DBInstanceIdentifier: id,
+			DbiResourceId:        inst.DbiResourceId,
+			Engine:               inst.Engine,
+			EngineVersion:        inst.EngineVersion,
+			Status:               "creating",
+			AllocatedStorage:     inst.AllocatedStorage,
+			MasterUsername:       inst.MasterUsername,
+			SnapshotCreateTime:   time.Now().UTC().Format(time.RFC3339),
+			SnapshotType:         "manual",
+			Port:                 inst.Port,
+			ARN:                  rdsSnapshotARN(finalSnapID),
+			MasterUserSecret:     append([]byte(nil), inst.MasterUserSecret...),
+		})
+	}
 	inst.DBInstanceStatus = "deleting"
-	rdsStopDataPlane(id, true)
 	rdsInstances.Delete(id)
+	if finalSnapID != "" {
+		// The final snapshot captures the instance's volume before the data
+		// plane and the volume go away — the capture must finish first, so
+		// the shutdown runs after it in the same background task.
+		snapID := finalSnapID
+		simGo(func() {
+			rdsCaptureSnapshotData(snapID, id)
+			rdsStopDataPlane(id, true)
+		})
+	} else {
+		rdsStopDataPlane(id, true)
+	}
 	rdsXMLResponse(w, "DeleteDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
@@ -1298,6 +1346,50 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
+	}
+	skipFinal := strings.EqualFold(r.FormValue("SkipFinalSnapshot"), "true")
+	finalSnapID := r.FormValue("FinalDBSnapshotIdentifier")
+	if skipFinal && finalSnapID != "" {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"FinalDBSnapshotIdentifier cannot be specified when SkipFinalSnapshot is true",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if !skipFinal && finalSnapID == "" {
+		rdsErrorXML(w, "InvalidParameterCombination",
+			"FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if finalSnapID != "" {
+		if _, exists := rdsClusterSnapshots.Get(finalSnapID); exists {
+			rdsErrorXML(w, "DBClusterSnapshotAlreadyExistsFault",
+				fmt.Sprintf("DBClusterSnapshot %q already exists", finalSnapID),
+				http.StatusConflict, sim.RequestID(r.Context()))
+			return
+		}
+		// As modeled as every cluster snapshot: clusters hold no engine
+		// volume, so the final snapshot is the same metadata tier
+		// CreateDBClusterSnapshot records.
+		rdsClusterSnapshots.Put(finalSnapID, RDSClusterSnapshot{
+			DBClusterSnapshotIdentifier: finalSnapID,
+			DBClusterIdentifier:         id,
+			DbClusterResourceId:         cl.DbClusterResourceId,
+			Engine:                      cl.Engine,
+			EngineVersion:               cl.EngineVersion,
+			EngineMode:                  cl.EngineMode,
+			Status:                      "available",
+			AllocatedStorage:            cl.AllocatedStorage,
+			MasterUsername:              cl.MasterUsername,
+			Port:                        cl.Port,
+			StorageEncrypted:            cl.StorageEncrypted,
+			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
+			ClusterCreateTime:           cl.ClusterCreateTime,
+			SnapshotType:                "manual",
+			PercentProgress:             100,
+			AvailabilityZones:           cl.AvailabilityZones,
+			ARN:                         rdsClusterSnapshotARN(finalSnapID),
+		})
 	}
 	rdsClusters.Delete(id)
 	cl.Status = "deleting"
