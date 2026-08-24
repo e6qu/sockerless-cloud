@@ -336,7 +336,7 @@ func handleECSSubmitContainerStateChange(w http.ResponseWriter, r *http.Request)
 		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	taskID, task, ok := ecsTaskFromAgentReference(req.Task)
+	taskID, task, ok := ecsTaskFromAgentReference(req.Task, req.Cluster)
 	if !ok {
 		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Could not find task: %s", req.Task)
@@ -408,7 +408,7 @@ func handleECSSubmitTaskStateChange(w http.ResponseWriter, r *http.Request) {
 		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	taskID, task, ok := ecsTaskFromAgentReference(req.Task)
+	taskID, task, ok := ecsTaskFromAgentReference(req.Task, req.Cluster)
 	if !ok {
 		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Could not find task: %s", req.Task)
@@ -470,15 +470,26 @@ func handleECSSubmitTaskStateChange(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"acknowledgment": "ACK"})
 }
 
-// ecsTaskFromAgentReference resolves the task an agent names. The agent sends
-// either the task ARN or its bare id, and the store is keyed by the id.
-func ecsTaskFromAgentReference(ref string) (string, ECSTask, bool) {
+// ecsTaskFromAgentReference resolves the task an agent names, within the
+// cluster the report is scoped to. The agent sends either the task ARN or its
+// bare id, and the store is keyed by the id.
+//
+// The cluster is checked rather than ignored: task ids are unique, but a
+// report naming one cluster must not reach a task in another, which is what
+// scoping the report means.
+func ecsTaskFromAgentReference(ref, cluster string) (string, ECSTask, bool) {
 	id := ref
 	if i := strings.LastIndex(ref, "/"); i >= 0 {
 		id = ref[i+1:]
 	}
 	task, ok := ecsTasks.Get(id)
-	return id, task, ok
+	if !ok {
+		return id, task, false
+	}
+	if cluster != "" && !ecsTaskInCluster(task, cluster) {
+		return id, ECSTask{}, false
+	}
+	return id, task, true
 }
 
 // ecsApplyAttachmentStatus moves one of a task's attachments to the status the

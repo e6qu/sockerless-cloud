@@ -38,6 +38,14 @@ the join every autoscaling integration makes. `ListDaemonTaskDefinitions`
 ignored its `status` filter and handed back INACTIVE definitions to a caller
 asking for ACTIVE.
 
+**A state-change report could reach across clusters, and StartTask dropped a
+flag the scheduler honoured.** The agent reports name the cluster they are
+scoped to and the resolver ignored it, so a report naming one cluster reached a
+task in another. And `enableECSManagedTags` was applied to the tasks a service
+launches but parsed and dropped by `StartTask`, so the same request produced
+tagged tasks through a service and untagged ones directly. Both are fixed, and
+the cross-cluster refusal is covered.
+
 **A capacity provider could be deleted out from under its cluster.**
 `DeleteCapacityProvider` deleted whatever it was given: the AWS-managed
 FARGATE and FARGATE_SPOT providers, which this file's own comment says cannot

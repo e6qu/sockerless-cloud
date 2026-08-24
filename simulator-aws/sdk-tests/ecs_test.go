@@ -1624,6 +1624,20 @@ func TestECS_AgentStateChangesAreAppliedNotAcknowledged(t *testing.T) {
 	require.NotEmpty(t, detailed.NetworkBindings, "the reported port binding must be recorded")
 	assert.Equal(t, int32(32768), aws.ToInt32(detailed.NetworkBindings[0].HostPort))
 
+	// A report is scoped to the cluster it names: the same task reported
+	// against a different cluster is refused, so a report cannot reach across
+	// clusters.
+	const otherCluster = "agent-state-other-cluster"
+	_, err = c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(otherCluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(otherCluster)})
+	})
+	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
+		Cluster: aws.String(otherCluster), Task: aws.String(taskArn), Status: aws.String("RUNNING"),
+	})
+	require.Error(t, err, "a report naming another cluster must not reach this task")
+
 	// A task the control plane does not have is refused, not acknowledged.
 	_, err = c.SubmitTaskStateChange(ctx, &ecs.SubmitTaskStateChangeInput{
 		Cluster: aws.String(cluster),
