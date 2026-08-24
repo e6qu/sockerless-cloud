@@ -778,10 +778,25 @@ func snsLambdaEventPayload(functionARN, topicARN, msgID, subject, message string
 }
 
 func handleSNSPublish(w http.ResponseWriter, r *http.Request) {
+	// Publish takes one of three targets. Two of them deliver outside AWS, and
+	// this simulator cannot reach either — but it says so in those words
+	// rather than reporting a missing TopicArn, which is what a caller
+	// publishing an SMS used to be told.
+	if phone := r.FormValue("PhoneNumber"); phone != "" {
+		snsExternalDeliveryUnavailable(w, r, snsSMSDeliveryReason)
+		return
+	}
+	if target := r.FormValue("TargetArn"); target != "" && strings.Contains(target, ":endpoint/") {
+		snsExternalDeliveryUnavailable(w, r, snsMobilePushDeliveryReason)
+		return
+	}
 	topicARN := r.FormValue("TopicArn")
 	if topicARN == "" {
+		topicARN = r.FormValue("TargetArn")
+	}
+	if topicARN == "" {
 		snsErrorXML(w, "InvalidParameter",
-			"TopicArn and Message are required",
+			"TopicArn, TargetArn or PhoneNumber is required",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}

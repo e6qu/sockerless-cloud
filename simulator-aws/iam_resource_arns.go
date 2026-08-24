@@ -1380,6 +1380,15 @@ func iamEventBridgeResourceARNs(r *http.Request, types []string, region, account
 	fields := iamJSONRequestFields(r)
 	lookup := func(field string) []string { return fields[strings.ToLower(field)] }
 
+	// PutEvents names its event bus per entry rather than once at the top
+	// level, so nothing flat reads it and the call authorized against "*" —
+	// which denies every grant written for a particular bus. AWS authorizes
+	// each entry against the bus it targets, exactly as it does each item of a
+	// DynamoDB transaction against its own table.
+	if buses := iamEventBridgeEntryBuses(r, region, account); len(buses) > 0 {
+		return buses
+	}
+
 	bus := iamFirstValue(lookup, "EventBusName")
 	onDefaultBus := bus == "" || bus == "default"
 	applicable := make([]string, 0, len(types))
@@ -1642,8 +1651,65 @@ var iamRDSFieldAliases = map[string][]string{
 // published format is what keeps each of those right.
 func iamSSMResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
+	// The tagging operations name their own resource type, so the type — not
+	// the table — decides which ARN the identifier fills. Without that
+	// discriminator a bare ResourceId would fill all eleven types the tagging
+	// actions declare, authorizing against ten resources the request is not
+	// about.
+	if arns := iamSSMTaggedResourceARNs(fields, region, account); len(arns) > 0 {
+		return arns
+	}
 	return iamTableDrivenARNs("ssm", types, region, account, iamSSMFieldAliases,
 		func(field string) []string { return fields[strings.ToLower(field)] })
+}
+
+// iamSSMTaggedResourceARNType maps a ResourceTypeForTagging value to the
+// resource its ARN names, as the service reference publishes each format.
+var iamSSMTaggedResourceARNType = map[string]string{
+	"DOCUMENT":          "document",
+	"MANAGEDINSTANCE":   "managed-instance",
+	"MAINTENANCEWINDOW": "maintenancewindow",
+	"PARAMETER":         "parameter",
+	"PATCHBASELINE":     "patchbaseline",
+	"OPSITEM":           "opsitem",
+	"OPSMETADATA":       "opsmetadata",
+	"AUTOMATION":        "automation-execution",
+	"ASSOCIATION":       "association",
+	"CLOUDCONNECTOR":    "cloud-connector",
+}
+
+// iamSSMTagTypeKey canonicalises a ResourceTypeForTagging value. The model
+// spells the members MANAGED_INSTANCE while a caller sends ManagedInstance, so
+// the underscores and the case are both dropped before the lookup.
+func iamSSMTagTypeKey(resourceType string) string {
+	return strings.ToUpper(strings.ReplaceAll(resourceType, "_", ""))
+}
+
+// iamSSMTaggedResourceARNs builds the ARN an AddTagsToResource,
+// RemoveTagsFromResource or ListTagsForResource call is about, from the
+// ResourceType it names and the ResourceId it carries.
+func iamSSMTaggedResourceARNs(fields map[string][]string, region, account string) []string {
+	resourceTypes := fields["resourcetype"]
+	resourceIDs := fields["resourceid"]
+	if len(resourceTypes) == 0 || len(resourceIDs) == 0 {
+		return nil
+	}
+	resource, known := iamSSMTaggedResourceARNType[iamSSMTagTypeKey(resourceTypes[0])]
+	if !known {
+		// A type the service does not declare names nothing this can build,
+		// and guessing one would authorize against the wrong resource.
+		return nil
+	}
+	id := resourceIDs[0]
+	if strings.HasPrefix(id, "arn:") {
+		return []string{id}
+	}
+	if resource == "parameter" {
+		// The published format is the parameter name without its leading
+		// slash; a caller may send it either way.
+		id = strings.TrimPrefix(id, "/")
+	}
+	return []string{"arn:aws:ssm:" + region + ":" + account + ":" + resource + "/" + id}
 }
 
 // iamSSMFieldAliases maps an ARN format's identifier variable to the request
@@ -1658,7 +1724,47 @@ var iamSSMFieldAliases = map[string][]string{
 	"opsmetadata.ResourceId":                     {"OpsMetadataArn"},
 	"servicesetting.ResourceId":                  {"SettingId"},
 	"patchbaseline.PatchBaselineIdResourceId":    {"BaselineId"},
-	"parameter.ParameterNameWithoutLeadingSlash": {"Name"},
+	"parameter.ParameterNameWithoutLeadingSlash": {"Name", "Path"},
+	// The patch and association reads name the instance they are about, which
+	// is the resource AWS authorizes them against.
+	"managed-instance.InstanceId": {"InstanceId", "InstanceIds", "Target"},
+	"instance.InstanceId":         {"InstanceId", "InstanceIds", "Target"},
+}
+
+// iamEventBridgeEntryBuses returns the event buses a PutEvents call writes to,
+// read from each entry. An entry that names no bus writes to the default one,
+// which is what AWS does with it.
+func iamEventBridgeEntryBuses(r *http.Request, region, account string) []string {
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var req struct {
+		Entries []struct {
+			EventBusName string `json:"EventBusName"`
+		} `json:"Entries"`
+	}
+	if json.Unmarshal(body, &req) != nil || len(req.Entries) == 0 {
+		return nil
+	}
+	var buses []string
+	seen := map[string]bool{}
+	for _, entry := range req.Entries {
+		name := entry.EventBusName
+		if name == "" {
+			name = "default"
+		}
+		arn := name
+		if !strings.HasPrefix(name, "arn:") {
+			arn = "arn:aws:events:" + region + ":" + account + ":event-bus/" + name
+		}
+		if seen[arn] {
+			continue
+		}
+		seen[arn] = true
+		buses = append(buses, arn)
+	}
+	return buses
 }
 
 // ===== Amazon ElastiCache =====

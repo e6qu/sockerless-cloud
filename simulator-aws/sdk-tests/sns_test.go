@@ -240,3 +240,75 @@ func TestSNS_ListTopics_Pagination(t *testing.T) {
 		assert.True(t, seen[arn], "topic %s should appear via pagination", arn)
 	}
 }
+
+// The two Amazon SNS destinations that live outside AWS fail loudly, and the
+// failure names the dependency that is missing.
+//
+// SMS needs a telecommunications carrier and mobile push needs Apple's and
+// Google's own hosts; neither is an AWS-configurable coordinate, so this
+// simulator cannot deliver to either and does not pretend to. What it must not
+// do is fail for some other reason: publishing to a phone number used to be
+// rejected as a missing TopicArn, which sends a reader hunting a defect in
+// their own request instead of telling them where the simulator stops.
+func TestSNS_ExternalDeliveryFailsWithItsOwnReason(t *testing.T) {
+	c := snsClient()
+
+	t.Run("publishing an SMS names the carrier", func(t *testing.T) {
+		_, err := c.Publish(ctx, &sns.PublishInput{
+			PhoneNumber: aws.String("+15550100"),
+			Message:     aws.String("hello"),
+		})
+		require.Error(t, err, "SMS cannot be delivered and must not appear to succeed")
+		assert.Contains(t, err.Error(), "carrier",
+			"the failure must name the carrier as the missing dependency: %v", err)
+		assert.NotContains(t, err.Error(), "TopicArn",
+			"an SMS publish must not be reported as a missing TopicArn: %v", err)
+	})
+
+	t.Run("publishing to a device endpoint names Apple and Google", func(t *testing.T) {
+		platform, err := c.CreatePlatformApplication(ctx, &sns.CreatePlatformApplicationInput{
+			Name:     aws.String("external-delivery-app"),
+			Platform: aws.String("GCM"),
+			Attributes: map[string]string{
+				"PlatformCredential": "a-server-key",
+			},
+		})
+		require.NoError(t, err, "the credential half is real and must still work")
+		endpoint, err := c.CreatePlatformEndpoint(ctx, &sns.CreatePlatformEndpointInput{
+			PlatformApplicationArn: platform.PlatformApplicationArn,
+			Token:                  aws.String("device-token"),
+		})
+		require.NoError(t, err, "registering a device endpoint must still work")
+
+		_, err = c.Publish(ctx, &sns.PublishInput{
+			TargetArn: endpoint.EndpointArn,
+			Message:   aws.String("hello"),
+		})
+		require.Error(t, err, "mobile push cannot be delivered and must not appear to succeed")
+		lowered := strings.ToLower(err.Error())
+		assert.True(t, strings.Contains(lowered, "apple") || strings.Contains(lowered, "google"),
+			"the failure must name the push provider as the missing dependency: %v", err)
+	})
+
+	t.Run("the SMS sandbox names the carrier too", func(t *testing.T) {
+		_, err := c.CreateSMSSandboxPhoneNumber(ctx, &sns.CreateSMSSandboxPhoneNumberInput{
+			PhoneNumber: aws.String("+15550101"),
+		})
+		require.Error(t, err, "the sandbox verifies by SMS, so it needs the same carrier")
+		assert.Contains(t, err.Error(), "carrier",
+			"the sandbox failure must name the carrier: %v", err)
+	})
+
+	t.Run("a topic publish is unaffected", func(t *testing.T) {
+		topic, err := c.CreateTopic(ctx, &sns.CreateTopicInput{
+			Name: aws.String("external-delivery-topic"),
+		})
+		require.NoError(t, err)
+		out, err := c.Publish(ctx, &sns.PublishInput{
+			TopicArn: topic.TopicArn,
+			Message:  aws.String("hello"),
+		})
+		require.NoError(t, err, "the destination inside AWS must still deliver")
+		assert.NotEmpty(t, aws.ToString(out.MessageId))
+	})
+}

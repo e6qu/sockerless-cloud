@@ -594,12 +594,15 @@ func TestECS_ServiceDeployments(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// hookId names the lifecycle hook to release, and it used to be ignored —
+	// so "hook-1", which this service never configured, was accepted here.
+	// This service declares no hooks, so no identifier can be valid for it.
 	_, err = c.ContinueServiceDeployment(ctx, &ecs.ContinueServiceDeploymentInput{
 		ServiceDeploymentArn: aws.String(depArn),
 		HookId:               aws.String("hook-1"),
 		Action:               ecstypes.DeploymentLifecycleHookActionContinue,
 	})
-	require.NoError(t, err)
+	require.Error(t, err, "a hook identifier the deployment does not carry must be refused")
 
 	nsOut, err := c.ListServicesByNamespace(ctx, &ecs.ListServicesByNamespaceInput{
 		Namespace: aws.String(namespace),

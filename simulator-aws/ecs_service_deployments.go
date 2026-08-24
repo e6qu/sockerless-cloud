@@ -29,6 +29,11 @@ type ECSServiceDeploymentRec struct {
 	TargetServiceRevisionArn string  `json:"targetServiceRevisionArn"`
 	Status                   string  `json:"status"`
 	StatusReason             string  `json:"statusReason,omitempty"`
+	// Where the deployment is in its lifecycle, and the hooks recorded against
+	// the stages that guard it. A service with no lifecycle hooks configured
+	// carries a stage and an empty list, exactly as AWS returns.
+	LifecycleStage       string                    `json:"lifecycleStage,omitempty"`
+	LifecycleHookDetails []ECSDeploymentHookDetail `json:"lifecycleHookDetails,omitempty"`
 }
 
 // ECSServiceRevisionRec is the stored shape of a service revision.
@@ -90,7 +95,7 @@ func ecsRecordServiceDeployment(svc ECSService, namespace string) {
 		Namespace:          namespace,
 	})
 	depArn := ecsArn("service-deployment", ecsServiceArnSuffix(svc.ServiceArn)+"/"+generateNumericID())
-	ecsServiceDeployments.Put(depArn, ECSServiceDeploymentRec{
+	deployment := ECSServiceDeploymentRec{
 		ServiceDeploymentArn:     depArn,
 		ServiceArn:               svc.ServiceArn,
 		ClusterArn:               svc.ClusterArn,
@@ -99,7 +104,11 @@ func ecsRecordServiceDeployment(svc ECSService, namespace string) {
 		UpdatedAt:                now,
 		TargetServiceRevisionArn: revArn,
 		Status:                   "IN_PROGRESS",
-	})
+	}
+	// A service that configured lifecycle hooks stops this deployment at the
+	// first stage one guards, before anything scales up.
+	ecsBeginDeploymentLifecycle(&deployment, svc)
+	ecsServiceDeployments.Put(depArn, deployment)
 }
 
 func ecsCompleteServiceDeployments(serviceArn string, now float64) {
@@ -165,6 +174,33 @@ func ecsServiceDeploymentDetail(dep ECSServiceDeploymentRec) map[string]any {
 	}
 	if dep.StatusReason != "" {
 		out["statusReason"] = dep.StatusReason
+	}
+	// Where the deployment is, and the hooks holding it there. Without these
+	// the deployment's own state is invisible: a caller cannot see which stage
+	// it stopped at, and cannot learn the hookId ContinueServiceDeployment
+	// needs.
+	if dep.LifecycleStage != "" {
+		out["lifecycleStage"] = dep.LifecycleStage
+	}
+	if len(dep.LifecycleHookDetails) > 0 {
+		details := make([]map[string]any, 0, len(dep.LifecycleHookDetails))
+		for _, hook := range dep.LifecycleHookDetails {
+			detail := map[string]any{"hookId": hook.HookId, "status": hook.Status}
+			if hook.TargetType != "" {
+				detail["targetType"] = hook.TargetType
+			}
+			if hook.TargetArn != "" {
+				detail["targetArn"] = hook.TargetArn
+			}
+			if hook.ExpiresAt != 0 {
+				detail["expiresAt"] = hook.ExpiresAt
+			}
+			if hook.TimeoutAction != "" {
+				detail["timeoutAction"] = hook.TimeoutAction
+			}
+			details = append(details, detail)
+		}
+		out["lifecycleHookDetails"] = details
 	}
 	return out
 }
@@ -287,6 +323,15 @@ func handleECSContinueServiceDeployment(w http.ResponseWriter, r *http.Request) 
 			"The service deployment %s does not exist.", req.ServiceDeploymentArn)
 		return
 	}
+	// hookId names the lifecycle hook this call releases. It had been parsed
+	// and ignored, which was honest only while no hook existed to release;
+	// now a deployment can be waiting on one, and continuing without saying
+	// which would be guessing.
+	code, message, ok := ecsContinueDeploymentHook(&dep, req.HookId, req.Action)
+	if !ok {
+		sim.AWSError(w, code, message, http.StatusBadRequest)
+		return
+	}
 	if req.Action == "ROLLBACK" {
 		dep.Status = "ROLLBACK_IN_PROGRESS"
 	} else {
@@ -294,6 +339,11 @@ func handleECSContinueServiceDeployment(w http.ResponseWriter, r *http.Request) 
 	}
 	dep.UpdatedAt = float64(time.Now().Unix())
 	ecsServiceDeployments.Put(req.ServiceDeploymentArn, dep)
+	// Released, the service can converge: the scheduler was holding its tasks
+	// back while the hook waited.
+	if service, found := ecsServiceFromARNKey(dep.ServiceArn); found {
+		ecsRequestServiceReconcile(service)
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"serviceDeploymentArn": dep.ServiceDeploymentArn})
 }
 
@@ -339,4 +389,11 @@ func handleECSListServicesByNamespace(w http.ResponseWriter, r *http.Request) {
 func ecsServiceByArn(arn string) (ECSService, bool) {
 	_, _, svc, ok := ecsServiceFromARN(arn)
 	return svc, ok
+}
+
+// ecsServiceFromARNKey returns the store key of the service an ARN names, for
+// the paths that hold a deployment and need to nudge its service.
+func ecsServiceFromARNKey(serviceArn string) (string, bool) {
+	_, key, _, ok := ecsServiceFromARN(serviceArn)
+	return key, ok
 }

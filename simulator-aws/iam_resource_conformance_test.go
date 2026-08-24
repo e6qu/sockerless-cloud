@@ -1248,8 +1248,16 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // priority entry — a nested shape pinned by
 // TestIAMResourceARNs_ELBReadsARuleARNNestedInAPriority.
 // Amazon EventBridge's 4: the tagging operations name a ResourceARN a real
-// caller supplies where the probe fills a placeholder, and PutEvents carries
-// its event bus per entry, a nested list shape nothing flat can read.
+// caller supplies where the probe fills a placeholder, and PutEvents derives
+// now — each entry names the bus it writes to, and every distinct bus a batch
+// targets is authorized, the same way each item of an Amazon DynamoDB
+// transaction is authorized against its own table. It still measures as
+// underived because the probe sends a list member as a list of strings while
+// Entries takes objects;
+// TestIAMResourceARNs_EventBridgePutEventsNamesItsBuses pins the real
+// behaviour. The three left — AllowVendedLogDeliveryForResource,
+// InvokeApiDestination and RetrieveConnectionCredentials — declare no request
+// members at all.
 //
 // AWS Budgets derives completely: it is in the generated resource-type table
 // and its three tagging operations name the budget or budget action by an ARN,
@@ -1344,7 +1352,17 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // through the operation record to the namespace and service the operation
 // acted on — the simulator's own state, the same resolution Amazon RDS uses
 // for a custom engine version.
-const iamDerivationCoverageFloor = 1734
+// AWS Systems Manager's tagging operations name their own resource type, and
+// that type selects the ARN format its ResourceId fills — without it a bare
+// identifier would fill all eleven types those actions declare, authorizing
+// against ten resources the request is not about. They still measure as
+// underived because the probe fills ResourceType with a placeholder and
+// "probe" is not a ResourceTypeForTagging value;
+// TestIAMResourceARNs_SSMTaggingNamesTheTypeItTags pins all ten real values,
+// and pins that a type the service does not declare derives nothing. This is
+// the same measurement gap as the Amazon ECS attribute operations and the
+// Amazon RDS tagging family: real callers derive, the probe cannot say so.
+const iamDerivationCoverageFloor = 1735
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

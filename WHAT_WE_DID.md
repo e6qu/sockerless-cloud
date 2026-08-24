@@ -1,5 +1,118 @@
 # WHAT WE DID
 
+## 2026-08-24, fifteenth pass — PutEvents authorized against the wrong thing
+
+Amazon EventBridge's `PutEvents` names its event bus per entry rather than once
+at the top level, so nothing flat read it and the call authorized against `"*"`
+— which denies every policy written for a particular bus. AWS authorizes each
+entry against the bus it targets, exactly as it authorizes each item of an
+Amazon DynamoDB transaction against its own table, and that precedent was
+already in this file.
+
+Each distinct bus a batch writes to is authorized once, an entry naming none
+writes to the default bus, and a bus given as an ARN is taken as it stands. The
+measured floor does not move, because the coverage probe sends a list member as
+a list of strings while `Entries` takes objects — the same gap already recorded
+for the Amazon ECS attribute operations and the AWS Systems Manager tagging
+family — so the behaviour is pinned by its own test and the note beside the
+floor says which three EventBridge operations genuinely cannot derive: they
+declare no request members at all.
+
+## 2026-08-24, fourteenth pass — the external destinations say which one is missing
+
+A stubbed implementation is acceptable where the dependency is somebody else's
+service, on one condition: it must fail loudly and say precisely which external
+thing is missing. Amazon SNS was failing, but not saying.
+
+`Publish` takes one of three targets, and the handler read only `TopicArn`. A
+caller publishing an SMS to a `PhoneNumber`, or a notification to a device
+`TargetArn`, was told *"TopicArn and Message are required"* — a reader would go
+looking for a defect in their own request rather than learning where the
+simulator stops. Both destinations now fail with the reason itself: SMS names
+the telecommunications carrier no AWS API provisions, mobile push names Apple's
+and Google's own hosts, and each says what *is* implemented up to the hand-off
+so the boundary is legible. The SMS sandbox, which verifies a number by texting
+it a one-time password, gives the same carrier reason instead of a bare "carrier
+transport is unavailable".
+
+Nothing was manufactured to make them pass: a derivable or log-delivered
+one-time password standing in for a real SMS is exactly what the loud failure
+exists to prevent.
+
+The error code stayed `InternalError`, which is what this simulator has always
+answered for a delivery it cannot perform. Two alternatives were tried on the
+way and both were worse, which CI caught: `EndpointDisabled` claims a device
+endpoint was disabled — a different fact, and untrue here — and returning 503
+made the AWS SDK retry three times against a condition that is permanent,
+turning one clear failure into a slow one. The existing tests pinned the code
+and were right to.
+
+## 2026-08-24, thirteenth pass — the open bugs, examined one by one
+
+Five bugs were open. One was mine to fix and is advanced; the other four are
+not defects this repository can repair, and each was re-checked rather than
+re-labelled.
+
+**BUG-2909** advanced to 1,735 of 1,979. AWS Systems Manager's tagging
+operations name their own resource type, and that type selects which ARN format
+the `ResourceId` fills — the discriminator matters, because a bare identifier
+filling all eleven types those actions declare would authorize against ten
+resources the request is not about. All ten declared types derive, an
+undeclared one derives nothing, and an identifier already an ARN is taken as it
+stands. The measured number barely moves because the probe fills `ResourceType`
+with a placeholder, so the behaviour is pinned by its own test and the gap
+recorded beside the floor — the same shape as the Amazon ECS attribute
+operations.
+
+**BUG-2646** is Google's to publish: the live Cloud Run Discovery document was
+re-fetched on 2026-08-23 at revision 20260814 and still declares only
+`manualInstanceCount`, while gcloud's own client and the GA provider send all
+four members.
+
+**BUG-2712** is not a missing API. All 42 Amazon SNS operations in the vendored
+model are served; what is missing is a carrier for SMS and Apple's and Google's
+hosts for mobile push, which are not AWS-configurable coordinates. There is
+nothing faithful to point at.
+
+**BUG-42** is the macOS host boundary: the Podman virtual machine exposes no
+nested virtualisation, so the shared azurerm stack cannot boot its guest
+locally. That is the one sanctioned skip shape — a capability the host kernel
+cannot provide — and the Linux CI cell executes it.
+
+**BUG-56** records its own condition: act "if the throttling recurs outside an
+incident". It has not recurred, and the entry's evidence is that a GitHub
+incident caused it. Cutting actions or capping matrix parallelism now would
+trade wall clock on every run against a problem that has not reappeared.
+
+## 2026-08-24, twelfth pass — Amazon ECS deployment lifecycle hooks, implemented
+
+BUG-72 was the one ECS input the simulator read and did not act on, filed in
+the previous pass rather than faked. It is implemented now.
+
+A deployment walks the stages `ServiceDeploymentLifecycleStage` declares and
+stops at the first one a hook guards, recording that hook with an identifier
+and a status. A `PAUSE` hook waits for an operator; an `AWS_LAMBDA` hook is
+invoked through this simulator's own Lambda implementation with the payload the
+service sends, and a hook naming a function that does not exist fails the
+deployment rather than passing it — a gate that cannot run is not a gate that
+opened. `ContinueServiceDeployment` releases the hook its `hookId` names,
+advancing to the next guarded stage or abandoning the deployment, and refuses
+an identifier the deployment does not carry or one already resolved.
+
+**The gate holds tasks, not just the record.** While a deployment waits at a
+stage before `SCALE_UP`, the service scheduler does not launch the new
+revision's tasks — that is what a `PRE_SCALE_UP` hook is for, and a hook that
+decorated the deployment while the rollout proceeded anyway would be the
+decoration this whole sweep has been removing. The test asserts the service has
+no tasks while the hook waits and has them once it is released.
+
+Two defects fell out of building it. The `DescribeServiceDeployments`
+projection emitted neither `lifecycleStage` nor `lifecycleHookDetails`, so the
+deployment's own state would have been invisible to every client and the
+`hookId` unobtainable. And `TestECS_ServiceDeployments` had been continuing a
+fabricated `hook-1`, which passed only while the identifier was ignored — the
+fourth test in this sweep found asserting behaviour that did not exist.
+
 ## 2026-08-24, eleventh pass — the Cosmos suite was starving its own emulator
 
 The Azure SDK suite lost three CI runs to `pgcosmos extension is still
