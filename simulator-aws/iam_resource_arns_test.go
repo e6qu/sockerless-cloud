@@ -301,6 +301,49 @@ func TestIAMResourceARNs_ECSAttributesNameTheirContainerInstance(t *testing.T) {
 	})
 }
 
+// AWS Systems Manager's tagging operations name the resource type they are
+// about, and that type decides which ARN the identifier fills.
+//
+// The coverage probe cannot express this: it fills every member with a
+// placeholder, and "probe" is not a ResourceTypeForTagging value, so these
+// still measure as underived. A real caller sends one of the ten the service
+// declares — and a type the service does not declare derives nothing rather
+// than guessing, because filling all eleven declared types from a bare
+// ResourceId would authorize against ten resources the request is not about.
+func TestIAMResourceARNs_SSMTaggingNamesTheTypeItTags(t *testing.T) {
+	const ssm = "arn:aws:ssm:us-east-1:123456789012:"
+	for _, tc := range []struct{ resourceType, id, want string }{
+		{"Parameter", "/db/password", ssm + "parameter/db/password"},
+		{"Document", "My-Doc", ssm + "document/My-Doc"},
+		{"ManagedInstance", "mi-0123456789abcdef0", ssm + "managed-instance/mi-0123456789abcdef0"},
+		{"MaintenanceWindow", "mw-0123456789abcdef0", ssm + "maintenancewindow/mw-0123456789abcdef0"},
+		{"PatchBaseline", "pb-0123456789abcdef0", ssm + "patchbaseline/pb-0123456789abcdef0"},
+		{"OpsItem", "oi-0123456789ab", ssm + "opsitem/oi-0123456789ab"},
+		{"Automation", "exec-1234", ssm + "automation-execution/exec-1234"},
+		{"Association", "assoc-1234", ssm + "association/assoc-1234"},
+	} {
+		t.Run(tc.resourceType, func(t *testing.T) {
+			assertDerivedARNs(t,
+				iamJSONRequest("AmazonSSM.AddTagsToResource",
+					`{"ResourceType":"`+tc.resourceType+`","ResourceId":"`+tc.id+`","Tags":[]}`),
+				"ssm:AddTagsToResource", tc.want)
+		})
+	}
+	t.Run("a resource type the service does not declare derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.AddTagsToResource",
+				`{"ResourceType":"NotAThing","ResourceId":"x","Tags":[]}`),
+			"ssm:AddTagsToResource", "*")
+	})
+	t.Run("an identifier already an ARN is taken as it stands", func(t *testing.T) {
+		arn := ssm + "parameter/db/password"
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.RemoveTagsFromResource",
+				`{"ResourceType":"Parameter","ResourceId":"`+arn+`","TagKeys":[]}`),
+			"ssm:RemoveTagsFromResource", arn)
+	})
+}
+
 func TestIAMResourceARNs_CodeBuild(t *testing.T) {
 	const p = "arn:aws:codebuild:us-east-1:123456789012:"
 	t.Run("StartBuild names its project", func(t *testing.T) {

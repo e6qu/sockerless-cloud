@@ -1,5 +1,42 @@
 # WHAT WE DID
 
+## 2026-08-24, thirteenth pass — the open bugs, examined one by one
+
+Five bugs were open. One was mine to fix and is advanced; the other four are
+not defects this repository can repair, and each was re-checked rather than
+re-labelled.
+
+**BUG-2909** advanced to 1,735 of 1,979. AWS Systems Manager's tagging
+operations name their own resource type, and that type selects which ARN format
+the `ResourceId` fills — the discriminator matters, because a bare identifier
+filling all eleven types those actions declare would authorize against ten
+resources the request is not about. All ten declared types derive, an
+undeclared one derives nothing, and an identifier already an ARN is taken as it
+stands. The measured number barely moves because the probe fills `ResourceType`
+with a placeholder, so the behaviour is pinned by its own test and the gap
+recorded beside the floor — the same shape as the Amazon ECS attribute
+operations.
+
+**BUG-2646** is Google's to publish: the live Cloud Run Discovery document was
+re-fetched on 2026-08-23 at revision 20260814 and still declares only
+`manualInstanceCount`, while gcloud's own client and the GA provider send all
+four members.
+
+**BUG-2712** is not a missing API. All 42 Amazon SNS operations in the vendored
+model are served; what is missing is a carrier for SMS and Apple's and Google's
+hosts for mobile push, which are not AWS-configurable coordinates. There is
+nothing faithful to point at.
+
+**BUG-42** is the macOS host boundary: the Podman virtual machine exposes no
+nested virtualisation, so the shared azurerm stack cannot boot its guest
+locally. That is the one sanctioned skip shape — a capability the host kernel
+cannot provide — and the Linux CI cell executes it.
+
+**BUG-56** records its own condition: act "if the throttling recurs outside an
+incident". It has not recurred, and the entry's evidence is that a GitHub
+incident caused it. Cutting actions or capping matrix parallelism now would
+trade wall clock on every run against a problem that has not reappeared.
+
 ## 2026-08-24, twelfth pass — Amazon ECS deployment lifecycle hooks, implemented
 
 BUG-72 was the one ECS input the simulator read and did not act on, filed in
