@@ -100,20 +100,23 @@
   presents as unrelated Lambda, Step Functions and container-reaper failures
   that all pass in isolation. Clear it with `docker rm -f <dangling id>`; it
   is not a simulator defect.
-- Microsoft's Cosmos DB emulator container can fail to become ready inside the
-  differential tests' 280-second budget when several test suites run at once
-  (`pgcosmos extension is still starting`). The budget and its probe are
-  sound; the machine was starved. Re-run on a quiet host before suspecting the
-  simulator. Seen again on 2026-08-23 (`sim (azure sdk)`, 281.08s, green on the
-  next commit with no change to that path), so it recurs rather than being a
-  one-off. The budget is deliberately not raised: go test gets 13 minutes and
-  the step 14, so buying readiness time would trade a named Go failure for an
-  opaque step kill. The failure classifies itself now — it reports whether the
-  emulator was answering "still starting" (host starvation) or not answering at
-  all (a real fault) — so the next sighting does not need this paragraph to be
-  understood. If it becomes frequent, the fix shape is to start the emulator
-  earlier and overlap its initialisation with suite setup that does not need
-  it, not to extend the wait.
+- Microsoft's Cosmos DB emulator is started once for the whole Azure SDK suite,
+  from `TestMain`, and warms in the background while the rest of the suite runs.
+  It used to be started by whichever test asked first, and the two differential
+  tests each started one — so the engine ran two emulators at once on a
+  two-core runner, which is precisely the contention the reaper comment in
+  `cosmos_differential_test.go` describes: the second one's pgcosmos extension
+  is starved and answers "still starting" until the readiness budget expires.
+  That failed three runs (2026-08-21, 2026-08-23, 2026-08-24) before the shape
+  was recognised. Sharing one emulator and warming it early fixed it; the
+  readiness budget was deliberately *not* raised, because go test gets 13
+  minutes for this suite and the step 14, so buying readiness time would trade
+  a named Go failure for an opaque step kill. A run whose `-run` filter cannot
+  reach either differential test skips the warm-up and pays nothing; the tests
+  still boot the emulator themselves if it was not warmed, so the filter
+  decides when the cost is paid and never whether the oracle is available. The
+  readiness failure also classifies itself — "still starting" means host
+  starvation, anything else means the emulator never answered.
 
 - Azure CLI 2.88's `az keyvault update --set tags.<k>=<v>` issues a vault
   GET followed by a PUT that does not carry the changed tags, and

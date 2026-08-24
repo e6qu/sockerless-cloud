@@ -1,5 +1,28 @@
 # WHAT WE DID
 
+## 2026-08-24, eleventh pass — the Cosmos suite was starving its own emulator
+
+The Azure SDK suite lost three CI runs to `pgcosmos extension is still
+starting`, and the readiness failure — made self-classifying in an earlier pass
+— said in its own message that the emulator was alive and initialising and the
+host was starved. What it could not say is why the host was starved: the suite
+was doing it. Two differential tests each started an emulator of their own, so
+a two-core runner ran two at once, which is exactly the contention the reaper
+comment in that file already described for a *leaked* emulator.
+
+One emulator serves the suite now, started from `TestMain` in a goroutine so it
+initialises alongside the suite's own setup rather than inside the first test
+that asks for it. The second differential test went from booting an emulator to
+0.08 seconds.
+
+The readiness budget was deliberately left alone: `go test` gets thirteen
+minutes for this suite and the step fourteen, so buying readiness time trades a
+named Go failure for an opaque step kill. And a run that cannot reach either
+differential test skips the warm-up entirely, so a developer running one
+unrelated test does not pay for an emulator — the tests still boot it
+themselves when it was not warmed, so the filter decides when the cost is paid,
+never whether the oracle is available.
+
 ## 2026-08-24, tenth pass — the Amazon ECS APIs that acknowledged instead of acting
 
 All 77 operations in the ECS model were registered, which is what made the

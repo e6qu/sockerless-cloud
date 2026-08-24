@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -18,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -227,6 +229,21 @@ func TestMain(m *testing.M) {
 	}
 	simARMBearer = "Bearer " + token
 
+	// The Cosmos emulator takes minutes to initialise and only two tests need
+	// it, so it is started here and initialises alongside everything else
+	// rather than inside the first test that asks — which is where its
+	// readiness budget kept expiring on a loaded runner.
+	//
+	// A run that cannot reach those tests does not pay for it: warming is
+	// skipped when -run names a filter no Cosmos test matches. The tests call
+	// startCosmosEmulator either way, and it boots the emulator itself if this
+	// did not, so the filter decides when the cost is paid and never whether
+	// the oracle is available.
+	if cosmosSuiteMayRun() {
+		go warmCosmosEmulator()
+		defer stopCosmosEmulator()
+	}
+
 	code := m.Run()
 	simCmd.Process.Kill()
 	simCmd.Wait()
@@ -418,4 +435,24 @@ func waitForHealth(url string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("timeout waiting for %s: %v", url, lastErr)
+}
+
+// cosmosSuiteMayRun reports whether this run can reach a test that needs the
+// Cosmos emulator, so TestMain knows whether warming one is worth it. An
+// unfiltered run can; a filtered one can only if its pattern matches a name
+// the Cosmos tests carry.
+func cosmosSuiteMayRun() bool {
+	filter := flag.Lookup("test.run")
+	if filter == nil || filter.Value.String() == "" {
+		return true
+	}
+	matched, err := regexp.MatchString(filter.Value.String(), "TestCosmos_DifferentialVsEmulator")
+	if err != nil {
+		return true // an unparsable filter is go test's to reject, not ours
+	}
+	if matched {
+		return true
+	}
+	matched, err = regexp.MatchString(filter.Value.String(), "TestCosmosScripts_DifferentialVsEmulator")
+	return err != nil || matched
 }
