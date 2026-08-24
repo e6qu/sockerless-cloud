@@ -18,7 +18,16 @@ Open: 7. Resolved: 76.
   delete — against each cloud's own API shapes, with the RDS SDK test
   (`TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt`) as the template: rows
   from before the backup present after restore, rows from after it absent.
-  Nothing external blocks it.
+  **Precondition discovered while scoping the port:** unlike Amazon RDS,
+  neither slice has a data plane at all — Cloud SQL instances answer a
+  fabricated `10.0.0.1` primary address and the flexible servers a nominal
+  FQDN, with no listener, no engine and no volume behind them — so the port
+  is really two stages: first build each slice's database data plane the way
+  `rds_dataplane*.go` did (real endpoint listener, engine container on a
+  named volume, credential encrypted under the platform's own key service),
+  then apply the three snapshot touch points to it. Sim modules share no
+  code, so each cloud implements its own. Nothing external blocks it, but it
+  is a phase-scale build, not a three-line port.
 
 
 - **BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
