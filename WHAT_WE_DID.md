@@ -1,5 +1,34 @@
 # WHAT WE DID
 
+## 2026-08-25, twentieth pass — the derivation ratchet moved, and the recorded impossibilities fell again
+
+BUG-2909's remainder notes met the same second reading the store-scan
+exemptions did, and the same thing happened. 1,741 → 1,758 of 1,994 served
+operations derive their resource from the type AWS declares.
+
+The Amazon RDS and Amazon ElastiCache copy operations authorize both of
+their ends: the target's ARN is fully determined by the name the request
+supplies before the resource exists — the argument the floor comment itself
+already made for AWS Step Functions creates — and an ARN-named cross-region
+source is authorized as sent. AWS Glue's usage profiles and connection types
+are name-addressed and derive; its integrations are named by an ARN-valued
+IntegrationIdentifier; its tagging operations authorize the ResourceArn the
+caller sends. Amazon EC2's tag operations read each identifier's type from
+its prefix, longest match first — a grant scoped to one instance allows
+tagging that instance and denies tagging another — and the hottest of its
+Disassociate/Detach family resolve their association to its parent through
+generation-keyed indexes over the simulator's own state, honouring the
+store-scan floor this sits behind. Where the coverage probe cannot express
+a shape (prefix-typed ids, store-resolved associations, ARN-valued
+members), the real behaviour is pinned by TestIAMResourceARNs_* tests
+instead of by teaching the probe.
+
+The coverage report gained an opt-in listing
+(IAM_DERIVATION_LIST_MISSING=1) of the exact underived operations per
+service, which is what the re-reading worked from. The floor holds 1,758,
+and the per-service notes now say which families derive for real callers
+without moving the metric, and why.
+
 ## 2026-08-25, nineteenth pass — the store-scan floor reached zero
 
 The last seven full store reads on request paths fell to the same

@@ -56,26 +56,9 @@
 
 ## Consumer follow-ups in the sockerless repository
 
-- `backends/azure-common/build.go` builds its blob data-plane client with
-  `azblob.NewClientWithNoCredential`, with a comment saying the simulator
-  endpoint "does not enforce storage bearer auth". The simulator now enforces
-  storage authorization on every data-plane request, so that client is refused
-  at the next pin bump — and it was never right against a sovereign cloud
-  either. Fix shape: read the account key the backend can already reach
-  (`armstorage` `ListKeys`, it holds the accounts client) and build with
-  `azblob.NewSharedKeyCredential`, which signs over plain HTTP; same code
-  against simulator and cloud, differing only in coordinates.
-
-- `backends/azure-common/acr_auth.go` asks Microsoft Entra for the
-  `https://<registry>.azurecr.io/.default` scope and puts that raw token on
-  `/v2/` as a Bearer. Real Azure Container Registry refuses it: the Entra
-  token must be exchanged at `/oauth2/exchange` for a refresh token and then
-  at `/oauth2/token` for an access token, and the audience is
-  `https://containerregistry.azure.net`. The simulator now enforces this, so
-  the two agree about what is wrong. Nothing fails in CI today because no
-  harness sets `SOCKERLESS_AZURE_ACR_ENDPOINT`, but Azure Container Apps and
-  Azure Functions image operations would fail against a real registry. Fix it
-  in the sockerless repository alongside the next pin bump, not here.
+Both recorded follow-ups shipped there: the Azure Container Registry token
+exchange (sockerless #926) and the build-context blob client's shared-key
+credential (sockerless #927). Nothing is pending on the consumer side.
 
 ## Tooling quirks that are not simulator defects
 
