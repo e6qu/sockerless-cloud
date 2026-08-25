@@ -1512,15 +1512,20 @@ type GCSFolder struct {
 }
 
 // GCSManagedFolder mirrors the storage#managedFolder resource.
+// RapidCacheConfig is the folder's one mutable member (a policies map of
+// rapid cache IDs to RapidCachePolicy objects, per the schema); it is
+// persisted verbatim
+// so patch→get round-trips byte-exact.
 type GCSManagedFolder struct {
-	Kind           string `json:"kind"`
-	ID             string `json:"id"`
-	SelfLink       string `json:"selfLink,omitempty"`
-	Bucket         string `json:"bucket"`
-	Name           string `json:"name"`
-	Metageneration string `json:"metageneration,omitempty"`
-	CreateTime     string `json:"createTime,omitempty"`
-	UpdateTime     string `json:"updateTime,omitempty"`
+	Kind             string          `json:"kind"`
+	ID               string          `json:"id"`
+	SelfLink         string          `json:"selfLink,omitempty"`
+	Bucket           string          `json:"bucket"`
+	Name             string          `json:"name"`
+	Metageneration   string          `json:"metageneration,omitempty"`
+	CreateTime       string          `json:"createTime,omitempty"`
+	UpdateTime       string          `json:"updateTime,omitempty"`
+	RapidCacheConfig json.RawMessage `json:"rapidCacheConfig,omitempty"`
 }
 
 // GCSNotification mirrors the storage#notification resource.
@@ -1613,6 +1618,7 @@ func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.S
 	registerGCSNotifications(srv, buckets, bucketExists)
 	registerGCSHmacKeys(srv)
 	registerGCSAnywhereCaches(srv, buckets, bucketExists)
+	registerGCSRapidCaches(srv, buckets, bucketExists)
 	registerGCSBucketLifecycle(srv, buckets, objects, bucketExists)
 }
 
@@ -1998,6 +2004,44 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		sim.WriteJSON(w, http.StatusOK, f)
 	})
 
+	// managedFolders.update (PATCH). Every other member of the resource is
+	// output-only or fixed at creation (name, bucket, the timestamps), so
+	// rapidCacheConfig is the metadata a patch can change: a present member
+	// replaces the stored one, an explicit null clears it, an absent member
+	// leaves it alone — JSON-API PATCH semantics. A metadata write bumps the
+	// folder's metageneration, as any GCS metadata write does.
+	srv.HandleFunc("PATCH /storage/v1/b/{bucket}/managedFolders/{managedFolder}", func(w http.ResponseWriter, r *http.Request) {
+		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
+		f, ok := gcsManagedFolders.Get(key(bucket, name))
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed folder %q not found in bucket %q", name, bucket)
+			return
+		}
+		var in struct {
+			// json.RawMessage distinguishes the three PATCH states: nil for
+			// absent, the literal "null" for an explicit clear, JSON otherwise.
+			RapidCacheConfig json.RawMessage `json:"rapidCacheConfig"`
+		}
+		if err := sim.ReadJSON(r, &in); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		switch {
+		case in.RapidCacheConfig == nil:
+			// absent: unchanged
+		case string(in.RapidCacheConfig) == "null":
+			f.RapidCacheConfig = nil
+		default:
+			f.RapidCacheConfig = in.RapidCacheConfig
+		}
+		if metageneration, err := strconv.ParseInt(f.Metageneration, 10, 64); err == nil {
+			f.Metageneration = strconv.FormatInt(metageneration+1, 10)
+		}
+		f.UpdateTime = gcsTimestamp()
+		gcsManagedFolders.Put(key(bucket, name), f)
+		sim.WriteJSON(w, http.StatusOK, f)
+	})
+
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}/managedFolders/{managedFolder}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
 		if !gcsManagedFolders.Delete(key(bucket, name)) {
@@ -2354,6 +2398,155 @@ type GCSAnywhereCache struct {
 	AdmissionPolicy string `json:"admissionPolicy,omitempty"`
 	PendingUpdate   bool   `json:"pendingUpdate,omitempty"`
 	IngestOnWrite   bool   `json:"ingestOnWrite,omitempty"`
+}
+
+// --- Rapid caches (storage#rapidCache) ---
+
+// registerGCSRapidCaches mounts the rapidCaches collection: a rapid cache is
+// bucket-scoped control-plane state (zone, TTL, admission policy, cache
+// type), managed here exactly as the schema describes it and carrying no
+// data-plane behavior claim beyond its states. Nothing in this deployment
+// provisions real cache hardware, so a cache settles synchronously — created
+// running, and the long-running operations insert/update/disable return are
+// already done, the same convention the anywhere-caches collection follows.
+func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
+	caches := sim.MakeStore[GCSRapidCache](srv.DB(), "gcs_rapid_caches")
+	key := func(bucket, id string) string { return bucket + "\x00" + id }
+
+	srv.HandleFunc("GET /storage/v1/b/{bucket}/rapidCaches", func(w http.ResponseWriter, r *http.Request) {
+		bucket := sim.PathParam(r, "bucket")
+		if !bucketExists(w, bucket) {
+			return
+		}
+		items := caches.Filter(func(c GCSRapidCache) bool { return c.Bucket == bucket })
+		sort.Slice(items, func(i, j int) bool { return items[i].RapidCacheID < items[j].RapidCacheID })
+		mapped := make([]map[string]any, 0, len(items))
+		for _, c := range items {
+			mapped = append(mapped, gcsStructToMap(c))
+		}
+		page, next, ok := paginateListGCS(w, r, mapped)
+		if !ok {
+			return
+		}
+		resp := map[string]any{"kind": "storage#rapidCaches", "items": page}
+		if next != "" {
+			resp["nextPageToken"] = next
+		}
+		sim.WriteJSON(w, http.StatusOK, resp)
+	})
+
+	srv.HandleFunc("GET /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}", func(w http.ResponseWriter, r *http.Request) {
+		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "rapidCacheId")
+		c, ok := caches.Get(key(bucket, id))
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, c)
+	})
+
+	srv.HandleFunc("POST /storage/v1/b/{bucket}/rapidCaches", func(w http.ResponseWriter, r *http.Request) {
+		bucket := sim.PathParam(r, "bucket")
+		if !bucketExists(w, bucket) {
+			return
+		}
+		var in GCSRapidCache
+		if err := sim.ReadJSON(r, &in); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		id := in.RapidCacheID
+		if id == "" {
+			id = "rapid-cache-" + gcsRandHex(6)
+		}
+		if _, exists := caches.Get(key(bucket, id)); exists {
+			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "rapid cache %q already exists in bucket %q", id, bucket)
+			return
+		}
+		now := gcsTimestamp()
+		c := GCSRapidCache{
+			Kind:            "storage#rapidCache",
+			ID:              bucket + "/" + id,
+			SelfLink:        gcpSelfLink(r, "/storage/v1/b/"+bucket+"/rapidCaches/"+id),
+			Bucket:          bucket,
+			RapidCacheID:    id,
+			Zone:            in.Zone,
+			State:           "running",
+			CreateTime:      now,
+			UpdateTime:      now,
+			Ttl:             in.Ttl,
+			AdmissionPolicy: in.AdmissionPolicy,
+			IngestOnWrite:   in.IngestOnWrite,
+			CacheType:       in.CacheType,
+		}
+		caches.Put(key(bucket, id), c)
+		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(c)))
+	})
+
+	// rapidCaches.update (PATCH) — the mutable members are the TTL, the
+	// admission policy and the ingest-on-write flag; zone and cacheType are
+	// fixed at creation. The ingest flag rides a pointer so an absent member
+	// is left alone while an explicit false lands.
+	srv.HandleFunc("PATCH /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}", func(w http.ResponseWriter, r *http.Request) {
+		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "rapidCacheId")
+		c, ok := caches.Get(key(bucket, id))
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
+			return
+		}
+		var in struct {
+			Ttl             string `json:"ttl"`
+			AdmissionPolicy string `json:"admissionPolicy"`
+			IngestOnWrite   *bool  `json:"ingestOnWrite"`
+		}
+		if err := sim.ReadJSON(r, &in); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		if in.Ttl != "" {
+			c.Ttl = in.Ttl
+		}
+		if in.AdmissionPolicy != "" {
+			c.AdmissionPolicy = in.AdmissionPolicy
+		}
+		if in.IngestOnWrite != nil {
+			c.IngestOnWrite = *in.IngestOnWrite
+		}
+		c.UpdateTime = gcsTimestamp()
+		caches.Put(key(bucket, id), c)
+		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(c)))
+	})
+
+	srv.HandleFunc("POST /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}/disable", func(w http.ResponseWriter, r *http.Request) {
+		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "rapidCacheId")
+		c, ok := caches.Get(key(bucket, id))
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
+			return
+		}
+		c.State = "disabled"
+		c.UpdateTime = gcsTimestamp()
+		caches.Put(key(bucket, id), c)
+		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(c)))
+	})
+}
+
+// GCSRapidCache mirrors the storage#rapidCache resource.
+type GCSRapidCache struct {
+	Kind            string `json:"kind"`
+	ID              string `json:"id"`
+	SelfLink        string `json:"selfLink,omitempty"`
+	Bucket          string `json:"bucket"`
+	RapidCacheID    string `json:"rapidCacheId"`
+	Zone            string `json:"zone,omitempty"`
+	State           string `json:"state,omitempty"`
+	CreateTime      string `json:"createTime,omitempty"`
+	UpdateTime      string `json:"updateTime,omitempty"`
+	Ttl             string `json:"ttl,omitempty"`
+	AdmissionPolicy string `json:"admissionPolicy,omitempty"`
+	PendingUpdate   bool   `json:"pendingUpdate,omitempty"`
+	IngestOnWrite   bool   `json:"ingestOnWrite,omitempty"`
+	CacheType       string `json:"cacheType,omitempty"`
 }
 
 // --- Bucket lifecycle verbs, operations, IAM testPermissions, channels,

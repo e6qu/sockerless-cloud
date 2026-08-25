@@ -139,9 +139,11 @@ var gcpMethodFloor = map[string]int{
 	// bytes — the JSON jobs.insert the clients here issue is served.
 	"bigquery-v2": 94,
 
-	// Cloud DNS: the managed-zone IAM triple (getIamPolicy, setIamPolicy,
-	// testIamPermissions) is not served — no IAM handler exists in dns.go.
-	"dns-v1": 74,
+	// Cloud DNS: every documented method is served. The managed-zone IAM
+	// triple (getIamPolicy, setIamPolicy, testIamPermissions) rides the same
+	// per-resource policy store every other AIP-141 resource uses, behind
+	// the managedZones colon-verb fan-in in dns.go.
+	"dns-v1": 80,
 
 	// Cloud KMS: the two Key Access Justifications reads
 	// (showEffectiveKeyAccessJustificationsPolicyConfig and
@@ -178,11 +180,12 @@ var gcpMethodFloor = map[string]int{
 	"cloudresourcemanager-v1": 76,
 
 	// Cloud Storage: objects.restore, objects.move, objects.bulkRestore and
-	// objectAccessControls.insert are unmounted, and so are the rapidCaches
-	// collection (insert, get, list, patch, disable) and
-	// managedFolders.patch — the probe gets Go's own mux miss on each.
-	// Every other method the document describes is served.
-	"storage-v1": 79,
+	// objectAccessControls.insert are unmounted — the probe gets Go's own
+	// mux miss on each. Every other method the document describes is served,
+	// including the rapidCaches collection (store-backed control-plane state
+	// settled synchronously, like anywhere caches) and managedFolders.patch
+	// (rapidCacheConfig, the resource's one mutable member).
+	"storage-v1": 85,
 
 	// Artifact Registry: the Docker/Maven/npm/Python read surface, repository
 	// and rule CRUD are served, as is operations.cancel. The package-format
@@ -221,13 +224,13 @@ var gcpMethodFloor = map[string]int{
 	// the listen plumbing the two streaming verbs above already lack.
 	"firestore-v1": 96,
 
-	// Identity and Access Management: service accounts, keys, roles,
-	// workload/workforce identity pools and the IAM policy verbs are served.
-	// serviceAccounts.keys.upload/.enable/.disable,
-	// workforcePools.subjects.undelete, iamPolicies.lintPolicy,
-	// iamPolicies.queryAuditableServices and roles.queryGrantableRoles are
-	// mux misses.
-	"iam-v1": 252,
+	// Identity and Access Management: every documented method is served —
+	// service accounts, keys (including upload's caller-supplied public key
+	// and the enable/disable bit the token endpoint honors), roles and the
+	// grantable-roles query over the sim's own catalog, the iamPolicies lint
+	// and auditable-services queries, workload/workforce identity pools with
+	// their subjects' delete/undelete pair, and the IAM policy verbs.
+	"iam-v1": 266,
 
 	// Secret Manager: secrets and versions CRUD, addVersion, access, enable,
 	// disable, destroy and the IAM verbs are served on both the global and the
@@ -236,19 +239,21 @@ var gcpMethodFloor = map[string]int{
 	// preserving the real managed-version lifecycle.
 	"secretmanager-v1": 72,
 
-	// Service Usage: services.list/.get/.enable/.disable/.batchEnable and the
-	// operations collection's get/delete/cancel are served; services.batchGet
-	// is a mux miss.
-	"serviceusage-v1": 18,
+	// Service Usage: every documented method is served —
+	// services.list/.get/.batchGet/.enable/.disable/.batchEnable and the
+	// operations collection's get/delete/cancel.
+	"serviceusage-v1": 20,
 
-	// Cloud SQL Admin v1: instances, databases, users, backups, SSL certs,
-	// flags and tiers are served. connect.resolveConnectSettings is a mux
-	// miss, and projects.instances.pointInTimeRestore has the URI shape of
-	// Cloud Resource Manager's project custom-method pattern — that handler
-	// serves no Cloud SQL method and answers it as unrouted. The v1beta4
-	// surface is missing the same two.
-	"sqladmin-v1":      146,
-	"sqladmin-v1beta4": 146,
+	// Cloud SQL Admin: every documented method is served on both the v1 and
+	// the v1beta4 spelling — instances, databases, users, backups, SSL
+	// certs, flags, tiers, the connect resource including the DNS-name
+	// resolve, and instances.pointInTimeRestore. The point-in-time restore's
+	// /v1 URI has the shape of Cloud Resource Manager's project
+	// custom-method pattern; that dispatcher recognizes the verb as Cloud
+	// SQL Admin's and forwards it, while the /sql/v1beta4 spelling is
+	// mounted by the Cloud SQL module itself.
+	"sqladmin-v1":      150,
+	"sqladmin-v1beta4": 150,
 
 	// Cloud Spanner: instances, instance configs, instance partitions,
 	// databases, backups, backup schedules, database roles, the IAM triple on

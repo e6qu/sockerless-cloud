@@ -1,5 +1,19 @@
 # DO NEXT
 
+0. The implementable tails are served (2026-08-26). What remains unserved on
+   each cloud is now, without exception, a family that cannot be answered
+   without inventing the provider's own data or a primitive the container
+   engine does not expose — the per-document floor comments name each one
+   and why. The exceptions worth revisiting only if a consumer appears:
+   Azure's Managed HSM tail, the container registry's blob-upload session,
+   the Application Insights query data plane, storage-account migrations,
+   Event Grid extension topics, Log Analytics' resource-scoped query and key
+   regeneration, the Compute resource provider's operations and usages
+   listings, and the instance metadata service's identity and attested
+   documents; on Google Cloud, Firestore's change streams and streaming
+   writes, Cloud Run v2's export family, and Compute Engine's deliberate
+   long tail (559 of 1,007).
+
 1. The full-store-read class is closed: scripts/check-store-scans.sh holds
    the floor at zero, and its comment now records that every exemption the
    file ever carried — including the final seven — turned out to be a keyed

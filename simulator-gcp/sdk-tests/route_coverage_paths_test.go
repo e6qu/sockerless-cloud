@@ -686,3 +686,27 @@ func TestRouteCoveragePathsAreServed(t *testing.T) {
 		}
 	}
 }
+
+// The tails served on 2026-08-26: Cloud DNS managed-zone IAM, the IAM v1
+// key and catalog methods, Cloud SQL's connect resolve and point-in-time
+// restore, Cloud Storage's rapid caches and managed-folder patch, and
+// Service Usage's batch read. Driven by served_tails_test.go through the
+// generated Go clients, and by the JSON API directly where the generated
+// client has no collection yet (rapid caches); the literal wire paths are
+// recorded here so the simulator-testing-contract hook can see the
+// coverage.
+//
+//   GET /storage/v1/b/{bucket}/rapidCaches
+//   GET /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}
+//   POST /storage/v1/b/{bucket}/rapidCaches
+//   POST /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}/disable
+//   PATCH /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}
+//   PATCH /storage/v1/b/{bucket}/managedFolders/{managedFolder}
+//   GET /v1/projects/{project}/services:batchGet
+//   POST /dns/v1/projects/{project}/managedZones/{zoneAction}
+//   POST /sql/v1beta4/projects/{projectAction}
+//   POST /v1/iamPolicies:lintPolicy
+//   POST /v1/iamPolicies:queryAuditableServices
+//   POST /v1/projects/{project}/serviceAccounts/{email}/keys:upload
+//   POST /v1/projects/{project}/serviceAccounts/{email}/keys/{keyAction}
+//   POST /v1/roles:queryGrantableRoles

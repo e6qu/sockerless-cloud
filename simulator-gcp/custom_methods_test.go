@@ -115,13 +115,6 @@ func TestUnservedCustomMethodsAreMethodNotFound(t *testing.T) {
 			body:   `{}`,
 		},
 		{
-			name:   "CloudSQLAdminPointInTimeRestore",
-			method: http.MethodPost,
-			host:   "sqladmin.googleapis.com",
-			path:   "/v1/projects/test-project:pointInTimeRestore",
-			body:   `{}`,
-		},
-		{
 			name:   "SpannerAdapter",
 			method: http.MethodPost,
 			host:   "spanner.googleapis.com",

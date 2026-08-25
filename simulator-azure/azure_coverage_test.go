@@ -170,10 +170,10 @@ var azureMethodFloor = map[string]int{
 	// spelling — probe to a plain mux miss: no registered pattern serves a bare
 	// resource ID. The old count matched them by shape against the scoped
 	// "/{scope}/.../roleAssignments/{name}" routes.
-	"authorization-arm-authorization-roleassignmentscalls-2022-04-01": 7,
+	"authorization-arm-authorization-roleassignmentscalls-2022-04-01": 10,
 	// Lowered from 5. GET "/{roleId}" and the two ".../Microsoft.Authorization/
 	// permissions" list operations mux-miss; nothing is registered for either.
-	"authorization-arm-authorization-roledefinitionscalls-2022-04-01": 4,
+	"authorization-arm-authorization-roledefinitionscalls-2022-04-01": 7,
 	"compute-arm-computerpcommon-2022-03-01":                          1,
 	"compute-arm-skus-2021-07-01":                                     1,
 	"compute-arm-virtualmachine-2022-03-01":                           29,
@@ -188,7 +188,7 @@ var azureMethodFloor = map[string]int{
 	// (Authentication_GetAcrAccessTokenFromLogin) — the Docker Registry v2
 	// token endpoint that trades a Basic admin credential for the scoped
 	// access token the data plane now requires.
-	"containerregistry-dataplane-containerregistry-2021-07-01": 20,
+	"containerregistry-dataplane-containerregistry-2021-07-01": 24,
 	"cosmos-db-arm-cosmos-db-2021-10-15":                       121,
 	"cosmos-db-arm-cosmos-db-2024-08-15":                       124,
 	"cosmos-db-arm-privateendpointconnection-2021-10-15":       4,
@@ -217,8 +217,8 @@ var azureMethodFloor = map[string]int{
 	"imds-dataplane-imds-2021-02-01":                   2,
 	"keyvault-arm-keyvault-2023-07-01":                 17,
 	"keyvault-arm-managedhsm-2023-07-01":               6,
-	"keyvault-dataplane-certificates-2025-07-01":       24,
-	"keyvault-dataplane-keys-2025-07-01":               22,
+	"keyvault-dataplane-certificates-2025-07-01":       27,
+	"keyvault-dataplane-keys-2025-07-01":               25,
 	"keyvault-dataplane-secrets-2025-07-01":            12,
 	"logic-arm-logic-2019-05-01":                       106,
 	"monitor-dataplane-datacollectionrules-2023-01-01": 1,
@@ -259,7 +259,7 @@ var azureMethodFloor = map[string]int{
 	// "/{resourceId}" and the five on ".../providers/{ns}/{parentResourcePath}/
 	// {type}/{name}" — all mux-miss. Their templates are almost pure parameters,
 	// so under shape matching they unified with unrelated typed routes.
-	"resources-arm-resources-2021-04-01":                30,
+	"resources-arm-resources-2021-04-01":                40,
 	"resources-arm-subscriptions-2022-12-01":            7,
 	"servicebus-arm-authorizationrules-2021-11-01":      21,
 	"servicebus-arm-disasterrecoveryconfigs-2021-11-01": 6,
