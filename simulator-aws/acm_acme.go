@@ -1073,6 +1073,34 @@ func acmJWKThumbprint(raw json.RawMessage) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(sum[:]), nil
 }
 
+// The ACME data plane answers per-request lookups from generation-keyed
+// indexes rather than decoding whole stores: accounts by their key
+// thumbprint, external bindings by their key identifier, prevalidated
+// domains by their base name, certificates by their ACME identifier. Each
+// key carries the endpoint so one directory cannot answer for another.
+var (
+	acmAcmeAccountsByThumbprint    sim.GenerationIndex[acmAcmeAccount]
+	acmAcmeBindingsByKeyID         sim.GenerationIndex[acmAcmeExternalAccountBinding]
+	acmAcmeValidationsByBaseDomain sim.GenerationIndex[acmAcmeDomainValidation]
+	acmCertificatesByAcmeID        sim.GenerationIndex[acmStoredCert]
+)
+
+func acmAcmeAccountThumbprintKey(endpointArn, thumbprint string) string {
+	return endpointArn + "\x00" + thumbprint
+}
+
+func acmAcmeAccountKeys(account acmAcmeAccount) []string {
+	return []string{acmAcmeAccountThumbprintKey(account.AcmeEndpointArn, account.PublicKeyThumbprint)}
+}
+
+func acmAcmeBindingKeyIDKey(endpointArn, keyID string) string {
+	return endpointArn + "\x00" + keyID
+}
+
+func acmAcmeValidationBaseDomainKey(endpointArn, baseDomain string) string {
+	return endpointArn + "\x00" + strings.ToLower(baseDomain)
+}
+
 func acmACMENewAccount(w http.ResponseWriter, r *http.Request, endpoint acmAcmeEndpoint, payload []byte, publicJWK json.RawMessage) {
 	var req struct {
 		Contact                []string `json:"contact"`
@@ -1088,12 +1116,11 @@ func acmACMENewAccount(w http.ResponseWriter, r *http.Request, endpoint acmAcmeE
 		acmProblem(w, http.StatusBadRequest, "badPublicKey", err.Error())
 		return
 	}
-	for _, existing := range acmAcmeAccounts.List() {
-		if existing.AcmeEndpointArn == endpoint.AcmeEndpointArn && existing.PublicKeyThumbprint == thumbprint {
-			w.Header().Set("Location", existing.AccountURL)
-			acmWriteJSON(w, http.StatusOK, acmACMEAccountResponse(existing))
-			return
-		}
+	if existing, ok := acmAcmeAccountsByThumbprint.Lookup(acmAcmeAccounts,
+		acmAcmeAccountThumbprintKey(endpoint.AcmeEndpointArn, thumbprint), acmAcmeAccountKeys); ok {
+		w.Header().Set("Location", existing.AccountURL)
+		acmWriteJSON(w, http.StatusOK, acmACMEAccountResponse(existing))
+		return
 	}
 	if req.OnlyReturnExisting {
 		acmProblem(w, http.StatusBadRequest, "accountDoesNotExist", "no account exists for this key")
@@ -1142,14 +1169,11 @@ func acmValidateExternalAccountBinding(envelope acmJWS, publicJWK json.RawMessag
 	if protected.Algorithm != "HS256" || protected.KeyID == "" || protected.URL != expectedURL {
 		return acmAcmeExternalAccountBinding{}, fmt.Errorf("external account binding protected header is invalid")
 	}
-	var binding acmAcmeExternalAccountBinding
-	found := false
-	for _, candidate := range acmAcmeBindings.List() {
-		if candidate.KeyID == protected.KeyID && candidate.AcmeEndpointArn == endpointArn {
-			binding, found = candidate, true
-			break
-		}
-	}
+	binding, found := acmAcmeBindingsByKeyID.Lookup(acmAcmeBindings,
+		acmAcmeBindingKeyIDKey(endpointArn, protected.KeyID),
+		func(candidate acmAcmeExternalAccountBinding) []string {
+			return []string{acmAcmeBindingKeyIDKey(candidate.AcmeEndpointArn, candidate.KeyID)}
+		})
 	if !found || binding.RevokedAt != nil || binding.AccountURL != "" ||
 		(binding.ExpiresAt != nil && *binding.ExpiresAt <= float64(time.Now().Unix())) {
 		return acmAcmeExternalAccountBinding{}, fmt.Errorf("external account binding is not active")
@@ -1259,23 +1283,36 @@ func acmACMENewOrder(w http.ResponseWriter, r *http.Request, endpoint acmAcmeEnd
 func acmFindAcmeValidation(endpointArn, domain string) (acmAcmeDomainValidation, bool) {
 	wildcard := strings.HasPrefix(domain, "*.")
 	plain := strings.TrimPrefix(strings.ToLower(domain), "*.")
-	for _, candidate := range acmAcmeDomainValidations.List() {
-		if candidate.AcmeEndpointArn != endpointArn {
-			continue
+	// A validation answers on its base domain, so the queried name and each
+	// of its parent suffixes are the only keys that can hold a match — the
+	// same question the scan asked, in as many lookups as the name has
+	// labels. Reconciliation still happens on read, on the rows the key
+	// narrowed to rather than on every row the store holds.
+	keysOf := func(candidate acmAcmeDomainValidation) []string {
+		return []string{acmAcmeValidationBaseDomainKey(candidate.AcmeEndpointArn,
+			strings.TrimPrefix(strings.ToLower(candidate.DomainName), "*."))}
+	}
+	for base := plain; base != ""; {
+		for _, candidate := range acmAcmeValidationsByBaseDomain.LookupAll(acmAcmeDomainValidations,
+			acmAcmeValidationBaseDomainKey(endpointArn, base), keysOf) {
+			candidate = acmReconcileAcmeDomainValidation(candidate)
+			if candidate.Status != "VALID" || candidate.PrevalidationDetails.DNSPrevalidation == nil {
+				continue
+			}
+			scope := candidate.PrevalidationDetails.DNSPrevalidation.DomainScope
+			switch {
+			case wildcard && plain == base && scope.Wildcards == "ENABLED":
+				return candidate, true
+			case !wildcard && plain == base && scope.ExactDomain == "ENABLED":
+				return candidate, true
+			case !wildcard && plain != base && scope.Subdomains == "ENABLED":
+				return candidate, true
+			}
 		}
-		candidate = acmReconcileAcmeDomainValidation(candidate)
-		if candidate.Status != "VALID" || candidate.PrevalidationDetails.DNSPrevalidation == nil {
-			continue
-		}
-		base := strings.TrimPrefix(strings.ToLower(candidate.DomainName), "*.")
-		scope := candidate.PrevalidationDetails.DNSPrevalidation.DomainScope
-		switch {
-		case wildcard && plain == base && scope.Wildcards == "ENABLED":
-			return candidate, true
-		case !wildcard && plain == base && scope.ExactDomain == "ENABLED":
-			return candidate, true
-		case !wildcard && strings.HasSuffix(plain, "."+base) && scope.Subdomains == "ENABLED":
-			return candidate, true
+		if i := strings.IndexByte(base, '.'); i >= 0 {
+			base = base[i+1:]
+		} else {
+			base = ""
 		}
 	}
 	return acmAcmeDomainValidation{}, false
@@ -1521,7 +1558,9 @@ func acmACMERevokeCertificate(w http.ResponseWriter, endpoint acmAcmeEndpoint, a
 		acmProblem(w, http.StatusBadRequest, "malformed", "invalid certificate")
 		return
 	}
-	for id, stored := range acmCertificatesByID() {
+	for _, stored := range acmCertificatesByAcmeID.LookupAll(acmCertificates,
+		acmCertificateDERKey(certificate.Raw), acmCertificateDERKeys) {
+		id := acmARNToID(stored.Cert.CertificateArn)
 		block, _ := pem.Decode([]byte(stored.CertificateBody))
 		if block == nil || !bytes.Equal(block.Bytes, certificate.Raw) ||
 			stored.Cert.AcmeEndpointArn != endpoint.AcmeEndpointArn {
@@ -1596,10 +1635,9 @@ func acmACMEKeyChange(w http.ResponseWriter, r *http.Request, account acmAcmeAcc
 		acmProblem(w, http.StatusBadRequest, "badPublicKey", err.Error())
 		return
 	}
-	for _, candidate := range acmAcmeAccounts.List() {
-		if candidate.AcmeEndpointArn == account.AcmeEndpointArn &&
-			candidate.AccountURL != account.AccountURL &&
-			candidate.PublicKeyThumbprint == thumbprint {
+	for _, candidate := range acmAcmeAccountsByThumbprint.LookupAll(acmAcmeAccounts,
+		acmAcmeAccountThumbprintKey(account.AcmeEndpointArn, thumbprint), acmAcmeAccountKeys) {
+		if candidate.AccountURL != account.AccountURL {
 			acmProblem(w, http.StatusConflict, "malformed", "the new key already belongs to another account")
 			return
 		}
@@ -1610,10 +1648,17 @@ func acmACMEKeyChange(w http.ResponseWriter, r *http.Request, account acmAcmeAcc
 	acmWriteJSON(w, http.StatusOK, struct{}{})
 }
 
-func acmCertificatesByID() map[string]acmStoredCert {
-	result := make(map[string]acmStoredCert)
-	for _, stored := range acmCertificates.List() {
-		result[acmARNToID(stored.Cert.CertificateArn)] = stored
+// acmCertificateDERKey names a certificate by the digest of its leaf DER —
+// the identity a revocation request presents.
+func acmCertificateDERKey(der []byte) string {
+	digest := sha256.Sum256(der)
+	return base64.RawURLEncoding.EncodeToString(digest[:])
+}
+
+func acmCertificateDERKeys(stored acmStoredCert) []string {
+	block, _ := pem.Decode([]byte(stored.CertificateBody))
+	if block == nil {
+		return nil
 	}
-	return result
+	return []string{acmCertificateDERKey(block.Bytes)}
 }

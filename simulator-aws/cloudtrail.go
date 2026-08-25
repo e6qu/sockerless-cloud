@@ -27,10 +27,17 @@ type CloudTrailTrail struct {
 	HomeRegion       string
 	Logging          bool
 	CreatedAt        string
-	LatestDelivery   string
 	Tags             []EC2Tag
 	EventSelectors   []map[string]any
 	InsightSelectors []map[string]any
+}
+
+// CloudTrailDelivery records a trail's latest delivery separately from the
+// trail row: delivery happens on every request, and writing it into the
+// trail would re-key the index over trails each time, costing the index its
+// whole point.
+type CloudTrailDelivery struct {
+	LatestDelivery string
 }
 
 // CloudTrailChannel is a CloudTrail Lake channel — a named resource with an ARN
@@ -73,9 +80,10 @@ type CloudTrailResource struct {
 }
 
 var (
-	cloudTrailTrails   sim.Store[CloudTrailTrail]
-	cloudTrailEvents   sim.Store[CloudTrailEvent]
-	cloudTrailChannels sim.Store[CloudTrailChannel]
+	cloudTrailTrails     sim.Store[CloudTrailTrail]
+	cloudTrailDeliveries sim.Store[CloudTrailDelivery]
+	cloudTrailEvents     sim.Store[CloudTrailEvent]
+	cloudTrailChannels   sim.Store[CloudTrailChannel]
 )
 
 type cloudTrailStatusRecorder struct {
@@ -106,6 +114,7 @@ func (w *cloudTrailStatusRecorder) statusCode() int {
 
 func registerCloudTrail(r *sim.AWSRouter, srv *sim.Server) {
 	cloudTrailTrails = sim.MakeStore[CloudTrailTrail](srv.DB(), "cloudtrail_trails")
+	cloudTrailDeliveries = sim.MakeStore[CloudTrailDelivery](srv.DB(), "cloudtrail_deliveries")
 	cloudTrailEvents = sim.MakeStore[CloudTrailEvent](srv.DB(), "cloudtrail_events")
 	cloudTrailChannels = sim.MakeStore[CloudTrailChannel](srv.DB(), "cloudtrail_channels")
 	var latestSequence int64
@@ -285,10 +294,10 @@ func handleCloudTrailGetTrailStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{"IsLogging": trail.Logging}
-	if trail.LatestDelivery != "" {
-		resp["LatestDeliveryTime"] = cloudTrailEpochSeconds(trail.LatestDelivery)
-		resp["LatestDeliveryAttemptTime"] = trail.LatestDelivery
-		resp["LatestDeliveryAttemptSucceeded"] = trail.LatestDelivery
+	if delivery, ok := cloudTrailDeliveries.Get(trail.Name); ok && delivery.LatestDelivery != "" {
+		resp["LatestDeliveryTime"] = cloudTrailEpochSeconds(delivery.LatestDelivery)
+		resp["LatestDeliveryAttemptTime"] = delivery.LatestDelivery
+		resp["LatestDeliveryAttemptSucceeded"] = delivery.LatestDelivery
 	}
 	writeAWSJSON(w, http.StatusOK, resp)
 }
@@ -1181,11 +1190,21 @@ func awsEventSource(r *http.Request) (string, bool) {
 	return "", false
 }
 
+// cloudTrailLoggingTrails indexes the trails that are logging under one
+// constant key, so per-request delivery reads the decoded set instead of
+// decoding every stored trail; the index rebuilds only when a trail is
+// created, started, stopped or deleted.
+var cloudTrailLoggingTrails sim.GenerationIndex[CloudTrailTrail]
+
+func cloudTrailLoggingTrailKeys(trail CloudTrailTrail) []string {
+	if !trail.Logging {
+		return nil
+	}
+	return []string{"logging"}
+}
+
 func cloudTrailDeliverEvent(event CloudTrailEvent) {
-	for _, trail := range cloudTrailTrails.List() {
-		if !trail.Logging {
-			continue
-		}
+	for _, trail := range cloudTrailLoggingTrails.LookupAll(cloudTrailTrails, "logging", cloudTrailLoggingTrailKeys) {
 		if _, ok := s3Buckets_.Get(trail.S3BucketName); !ok {
 			continue
 		}
@@ -1204,8 +1223,7 @@ func cloudTrailDeliverEvent(event CloudTrailEvent) {
 			Size:         int64(len(body)),
 			Metadata:     map[string]string{"cloudtrail-event-id": event.EventId},
 		})
-		trail.LatestDelivery = event.EventTime
-		cloudTrailTrails.Put(trail.Name, trail)
+		cloudTrailDeliveries.Put(trail.Name, CloudTrailDelivery{LatestDelivery: event.EventTime})
 	}
 }
 
