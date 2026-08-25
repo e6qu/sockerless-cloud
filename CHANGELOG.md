@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/e6qu/sockerless-cloud/compare/v0.16.0...v0.17.0) (2026-08-24)
+
+
+### Features
+
+* **aws:** close the model drift — 42 operations AWS added since implementation ([#69](https://github.com/e6qu/sockerless-cloud/issues/69)) ([4f3895c](https://github.com/e6qu/sockerless-cloud/commit/4f3895c95b496a16dcb0d2b68823a65dcb42d3d1))
+
 ## [0.16.0](https://github.com/e6qu/sockerless-cloud/compare/v0.15.0...v0.16.0) (2026-08-24)
 
 
