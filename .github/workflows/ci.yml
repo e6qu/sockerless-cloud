@@ -1024,11 +1024,15 @@ jobs:
       # The detector needs cgo, so the test binary is built differently from
       # every other job here and gets its own compile budget.
       - name: Pre-build the race test binary
+        # The Google Cloud and Azure simulators grew real database data
+        # planes, and a cold-cache race build of either now overruns the
+        # four-minute budget this step held; the step exists to separate a
+        # slow build from a hung test, which eight minutes still does.
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
           CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null ${{ matrix.pkgs }}
-        timeout-minutes: 4
+        timeout-minutes: 8
       - name: Run unit tests under the race detector
         run: |
           cd simulator-${{ matrix.cloud }}
