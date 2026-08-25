@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/e6qu/sockerless-cloud/compare/v0.18.1...v0.19.0) (2026-08-25)
+
+
+### Features
+
+* **aws:** the IAM derivation ratchet reaches 1,758 — copies authorize both ends, tags read the id's prefix, associations resolve through state ([#75](https://github.com/e6qu/sockerless-cloud/issues/75)) ([f867091](https://github.com/e6qu/sockerless-cloud/commit/f867091a0ee069280304828d8256af80ff3105d7))
+
 ## [0.18.1](https://github.com/e6qu/sockerless-cloud/compare/v0.18.0...v0.18.1) (2026-08-25)
 
 
