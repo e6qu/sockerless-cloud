@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/e6qu/sockerless-cloud/compare/v0.20.0...v0.21.0) (2026-08-25)
+
+
+### Features
+
+* **gcp:** Google Cloud Billing fully served — 36 of 36 ([#79](https://github.com/e6qu/sockerless-cloud/issues/79)) ([fb07e2f](https://github.com/e6qu/sockerless-cloud/commit/fb07e2f2f94d08dba0ea7d066c32c05b97425ebe))
+
 ## [0.20.0](https://github.com/e6qu/sockerless-cloud/compare/v0.19.0...v0.20.0) (2026-08-25)
 
 
