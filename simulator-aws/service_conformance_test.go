@@ -114,6 +114,9 @@ var serviceConformanceCatalog = map[string][]string{
 	"GraniteServiceVersion20100801": {},
 	// Organizations: all operations implemented.
 	"AWSOrganizationsV20161128": {},
+	// AWS Budgets: all operations implemented (budgets, notifications,
+	// subscribers, and the budget-action family).
+	"AWSBudgetServiceGateway": {},
 	// SSM: all operations implemented (Parameter Store + documents + maintenance
 	// windows + patch baselines/groups + service settings + resource data sync +
 	// associations + automation + run command + ops-items + sessions + activations +
@@ -393,6 +396,7 @@ func serviceImplementedCount(m *smithyService, r conformanceRouters) int {
 // legacyQueryRegistrars).
 var serviceCoverageFloor = map[string]int{
 	"AmazonEC2":                            800, // ec2Query
+	"AWSBudgetServiceGateway":              26,  // AWS Budgets (awsJson1.1)
 	"AWSSecurityTokenServiceV20110615":     11,  // STS (awsQuery, unversioned)
 	"AWSIdentityManagementV20100508":       180, // IAM (awsQuery, unversioned)
 	"AmazonEC2ContainerRegistry_V20150921": 58,  // ECR

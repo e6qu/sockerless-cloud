@@ -1,5 +1,71 @@
 # WHAT WE DID
 
+## 2026-08-25, twenty-first pass — the gates tell the truth, and the survey's findings closed
+
+A three-cloud gap survey of the chosen slices found the ratchets green and
+lying in places, and this pass made them honest.
+
+**Drift locks for all three clouds.** The Google Cloud and Azure coverage
+floors locked only the served count, so a re-vendored spec that added
+methods tripped nothing — the exact hole through which forty-three AWS
+operations drifted unnoticed before that simulator's model-drift gate
+existed. Both gates now also lock every vendored document's declared total
+(30 Discovery documents, 92 Swagger documents): a re-vendor that changes a
+surface fails the gate and forces serve-or-document. Both locks were
+negative-controlled before being trusted.
+
+**The AWS gates got their own repairs.** AWS Budgets was complete but
+untracked — it joined the conformance catalogue and the coverage floor at
+26/26, and the fourteen allowlist entries claiming its model was not
+vendored (no longer true) are gone. The model-drift gate matched operation
+names anywhere in the source, comments included; it now strips comments by
+re-printing each file's syntax tree, which immediately exposed four bucket
+subresource operations that had passed on prose alone (all genuinely served
+by the subresource table, now exempted with that reason) — and the S3
+Express pair gained model-scoped exemptions, since AWS Glue legitimately
+serves its own CreateSession and an unscoped exemption would trip the
+staleness sweep. Behind the stale floor-comment claim that "AWS Budgets
+derives completely" sat a real gap: budgets had no derivation case at all,
+so the whole budget-action family authorized against a literal "*". It
+derives now — budget plus ActionId fill the published global ARN format —
+raising resource derivation from 1,758 to 1,764 of 1,994, with only
+CreateBudgetAction remaining (its ActionId is a UUID AWS assigns), pinned
+by TestIAMResourceARNs_BudgetsAssemblesTheGlobalActionARN. The floor prose
+was refreshed everywhere it had drifted.
+
+**The behavioral-pattern gate was inert and is alive again.** Its detector
+only scanned the staged diff — nothing, on CI's clean tree — and predated
+the StartBackground refactor, so it matched zero workers. It now scans the
+whole tree, recognises both launch shapes, and the two unregistered
+persistent loops — the Elastic Load Balancing target health checker and the
+Amazon ECS stopped-task sweeper — are registered with their test evidence.
+Proven by negative controls in both directions, including a synthetic
+legacy-shape file.
+
+**Azure PostgreSQL Flexible Server stopped faking.** Long-term-retention
+backups had fabricated Succeeded/100% for any name, with Get and List
+contradicting each other and Start a no-op; they are store-backed now, the
+capture writing a real volume through the operation's own poll, Get
+answering 404 for a name never started, and the server delete cascading the
+volumes. createMode fell through silently to a plain create for every value
+but PointInTimeRestore; the switch is complete now — Replica clones the
+source's live volume and sets the replication properties the swagger
+declares (Replicas_ListByServer returns real rows), GeoRestore clones the
+newest backup, ReviveDropped is refused naming what the simulator does not
+retain, and unknown values are rejected — proven by four raw-ARM tests with
+their data-plane halves behind the documented loopback gate.
+
+**The record-keeping now matches the measurements.** Every Google Cloud
+floor comment is a usable work list — Cloud Run v2's export family, Cloud
+DNS's managed-zone IAM triple, Cloud KMS's Key Access Justifications reads,
+Firestore's changeStreams collection, Cloud Storage's actual ten unserved
+spellings (rapidCaches and managedFolders.patch alongside the four already
+named), BigQuery's media path, Cloud Logging's recorded routing trade, and
+an honest Compute Engine paragraph for its deliberate 559-of-1,007. Cloud
+Billing is recharacterized in DO_NEXT as needing a decision — its floor
+records plain mux misses, not a decline. The stale Discovery revision in
+the Cloud Run surface table is fixed.
+
 ## 2026-08-25, twentieth pass — the derivation ratchet moved, and the recorded impossibilities fell again
 
 BUG-2909's remainder notes met the same second reading the store-scan

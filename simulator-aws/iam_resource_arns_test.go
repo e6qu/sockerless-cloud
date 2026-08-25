@@ -968,6 +968,15 @@ func TestIAMResourceARNs_GlueTaggingTakesTheARNTheRequestNames(t *testing.T) {
 		"glue:TagResource", job)
 }
 
+// AWS Budgets is global — its ARNs carry no region — and a budget action is
+// named by the budget it belongs to plus the ActionId the request carries.
+func TestIAMResourceARNs_BudgetsAssemblesTheGlobalActionARN(t *testing.T) {
+	r := iamJSONRequest("AWSBudgetServiceGateway.DescribeBudgetAction",
+		`{"AccountId":"123456789012","BudgetName":"team-spend","ActionId":"3f1e9d2c-7b64-4a10-9e5f-8c2d1a0b4e77"}`)
+	assertDerivedARNs(t, r, "budgets:DescribeBudgetAction",
+		"arn:aws:budgets::123456789012:budget/team-spend/action/3f1e9d2c-7b64-4a10-9e5f-8c2d1a0b4e77")
+}
+
 // A copy authorizes both of its ends: the target's ARN is fully determined by
 // the name the request supplies before the snapshot exists, and a source
 // named by ARN — the cross-region form — is authorized as sent rather than

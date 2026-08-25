@@ -100,6 +100,8 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 		return iamELBv2ResourceARNs(r, types, region, account)
 	case "organizations":
 		return iamOrganizationsResourceARNs(r, types)
+	case "budgets":
+		return iamBudgetsResourceARNs(r, types, account)
 	case "rds":
 		return iamRDSResourceARNs(r, op, types, region, account)
 	case "ssm":
@@ -112,6 +114,22 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 		return iamIAMResourceARNs(r, types)
 	}
 	return nil
+}
+
+// ===== AWS Budgets =====
+
+// iamBudgetsResourceARNs derives the ARNs an AWS Budgets request names. The
+// service is global — its ARN formats carry no region — and it speaks
+// awsJson, so a budget and a budget action are named by the BudgetName and
+// ActionId members the published formats declare, spelled exactly as the API
+// sends them. Creating an action is the exception: its ActionId is a UUID
+// AWS assigns, so the create carries nothing to assemble the action ARN
+// from. The tagging operations name their target by ResourceARN, which the
+// generic ARN-member reader already resolves.
+func iamBudgetsResourceARNs(r *http.Request, types []string, account string) []string {
+	fields := iamJSONRequestFields(r)
+	return iamTableDrivenARNs("budgets", types, "", account, nil,
+		func(field string) []string { return fields[strings.ToLower(field)] })
 }
 
 // ===== AWS Identity and Access Management =====

@@ -208,23 +208,31 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		s.Properties["state"] = "Starting"
 	}
 
-	// createMode=PointInTimeRestore builds the new server from a source
-	// server's backup history rather than from a password: the restored
-	// server keeps the source's administrator login and credential.
+	// createMode selects how the new server comes to be. The source-based
+	// modes (PointInTimeRestore, GeoRestore, Replica) build the new server
+	// from another server's data rather than from a password: the new server
+	// keeps the source's administrator login and credential, and the clone
+	// runs through the create's own long-running operation.
 	createMode, _ := s.Properties["createMode"].(string)
 	var restore *azurePGRestoreSource
-	if strings.EqualFold(createMode, "PointInTimeRestore") {
-		sourceID, _ := s.Properties["sourceServerResourceId"].(string)
-		sourceSub, sourceRG, sourceName, parsed := pgParseServerResourceID(sourceID)
-		if !parsed {
+	var cloneFailCode string
+	var settleClone func()
+	switch {
+	case createMode == "" || strings.EqualFold(createMode, "Default") || strings.EqualFold(createMode, "Create"):
+		// Plain create. Default on an existing name means update, which the
+		// PUT's overwrite of the stored record already is.
+	case strings.EqualFold(createMode, "Update"):
+		// Update addresses an existing server; on a name that does not exist
+		// there is nothing to update, and Azure Resource Manager refuses the
+		// request rather than creating a server the caller said it had.
+		if _, exists := pgServers.Get(id); !exists {
 			sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
-				"sourceServerResourceId %q is not a flexible-server resource ID", sourceID)
+				"createMode \"Update\" requires an existing server, and server %q does not exist", name)
 			return
 		}
-		source, ok := pgServers.Get(pgServerID(sourceSub, sourceRG, sourceName))
+	case strings.EqualFold(createMode, "PointInTimeRestore"):
+		sourceSub, sourceRG, sourceName, ok := pgCreateSourceServer(w, s.Properties, rg, name)
 		if !ok {
-			sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
-				"source server %q not found", sourceID)
 			return
 		}
 		pointInTimeRaw, _ := s.Properties["pointInTimeUTC"].(string)
@@ -234,15 +242,69 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 				"pointInTimeUTC %q is not an ISO8601 timestamp", pointInTimeRaw)
 			return
 		}
-		if sourceLogin, isString := source.Properties["administratorLogin"].(string); isString && sourceLogin != "" {
-			s.Properties["administratorLogin"] = sourceLogin
-		}
-		if credential, ok := pgServerCredentials.Get(azurePGServerKey(sourceRG, sourceName)); ok {
-			pgServerCredentials.Put(azurePGServerKey(rg, name), credential)
-		}
 		picked := azurePGPickRestoreSource(sourceSub, sourceRG, sourceName, pointInTime)
 		restore = &picked
-	} else if adminPassword != "" {
+		cloneFailCode = "RestoreFailed"
+	case strings.EqualFold(createMode, "GeoRestore"):
+		// Geo-restore restores the latest geo-replicated backup, not a chosen
+		// point in time: the pick is the source's newest settled backup —
+		// bounding it at now excludes nothing, since no completedTime lies in
+		// the future — or its live volume when none has settled yet.
+		sourceSub, sourceRG, sourceName, ok := pgCreateSourceServer(w, s.Properties, rg, name)
+		if !ok {
+			return
+		}
+		picked := azurePGPickRestoreSource(sourceSub, sourceRG, sourceName, time.Now().UTC())
+		restore = &picked
+		cloneFailCode = "GeoRestoreFailed"
+	case strings.EqualFold(createMode, "Replica"):
+		// A replica is seeded from the primary's live volume and serves that
+		// data under the source's credential. It reports Provisioning while
+		// the clone runs and settles to Active when the data plane holds the
+		// cloned data; the source becomes the replication set's primary.
+		sourceSub, sourceRG, sourceName, ok := pgCreateSourceServer(w, s.Properties, rg, name)
+		if !ok {
+			return
+		}
+		s.Properties["replicationRole"] = "AsyncReplica"
+		s.Properties["replica"] = map[string]any{"role": "AsyncReplica", "replicationState": "Provisioning"}
+		restore = &azurePGRestoreSource{sourceRG: sourceRG, sourceName: sourceName}
+		cloneFailCode = "ReplicaProvisioningFailed"
+		sourceServerID := pgServerID(sourceSub, sourceRG, sourceName)
+		settleClone = func() {
+			pgServers.Update(id, func(stored *PGFlexibleServer) {
+				if stored.Properties == nil {
+					stored.Properties = map[string]any{}
+				}
+				stored.Properties["replica"] = map[string]any{"role": "AsyncReplica", "replicationState": "Active"}
+			})
+			pgServers.Update(sourceServerID, func(stored *PGFlexibleServer) {
+				if stored.Properties == nil {
+					stored.Properties = map[string]any{}
+				}
+				stored.Properties["replicationRole"] = "Primary"
+				replica, _ := stored.Properties["replica"].(map[string]any)
+				if replica == nil {
+					replica = map[string]any{}
+				}
+				replica["role"] = "Primary"
+				stored.Properties["replica"] = replica
+			})
+		}
+	case strings.EqualFold(createMode, "ReviveDropped"):
+		// Deleting a server removes its volume and its backups' volumes with
+		// it, so there is no dropped server's data left to revive; refusing
+		// is the truth, where a plain create would serve an empty impostor.
+		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			"createMode \"ReviveDropped\" cannot be served: the simulator retains no dropped server to revive; deleted servers' volumes are removed on delete")
+		return
+	default:
+		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			"createMode %q is not a creation mode the service defines", createMode)
+		return
+	}
+
+	if restore == nil && adminPassword != "" {
 		sealed, err := azurePGSealSecret(adminPassword)
 		if err != nil {
 			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
@@ -257,12 +319,14 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 	var opID string
 	if restore != nil {
 		// The clone runs through the create's own long-running operation, so
-		// the poll completes when the restored data is in place and the data
+		// the poll completes when the cloned data is in place and the data
 		// plane installs on the cloned volume.
 		source := *restore
+		failCode := cloneFailCode
+		settle := settleClone
 		opID = issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
 			if err := azurePGCloneForRestore(rg, name, source); err != nil {
-				return &AsyncOperationError{Code: "RestoreFailed", Message: err.Error()}
+				return &AsyncOperationError{Code: failCode, Message: err.Error()}
 			}
 			azurePGInstallOrExplain(sub, rg, name)
 			pgServers.Update(id, func(stored *PGFlexibleServer) {
@@ -271,6 +335,9 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 				}
 				stored.Properties["state"] = "Ready"
 			})
+			if settle != nil {
+				settle()
+			}
 			return nil
 		})
 	} else {
@@ -288,6 +355,35 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 	// polls Azure-AsyncOperation until Succeeded, then GETs the
 	// resource URL (Location) for the created server.
 	pgWriteAsyncAccepted(w, r, sub, s.Location, opID)
+}
+
+// pgCreateSourceServer resolves the sourceServerResourceId a source-based
+// create names and carries the source's administrator login and sealed
+// credential onto the new server — a restored server or replica accepts the
+// source's administrator password, not one of its own. It writes the ARM
+// error and reports ok=false when the ID does not parse or the source does
+// not exist.
+func pgCreateSourceServer(w http.ResponseWriter, props map[string]any, rg, name string) (sourceSub, sourceRG, sourceName string, ok bool) {
+	sourceID, _ := props["sourceServerResourceId"].(string)
+	sourceSub, sourceRG, sourceName, parsed := pgParseServerResourceID(sourceID)
+	if !parsed {
+		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			"sourceServerResourceId %q is not a flexible-server resource ID", sourceID)
+		return "", "", "", false
+	}
+	source, found := pgServers.Get(pgServerID(sourceSub, sourceRG, sourceName))
+	if !found {
+		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			"source server %q not found", sourceID)
+		return "", "", "", false
+	}
+	if sourceLogin, isString := source.Properties["administratorLogin"].(string); isString && sourceLogin != "" {
+		props["administratorLogin"] = sourceLogin
+	}
+	if credential, found := pgServerCredentials.Get(azurePGServerKey(sourceRG, sourceName)); found {
+		pgServerCredentials.Put(azurePGServerKey(rg, name), credential)
+	}
+	return sourceSub, sourceRG, sourceName, true
 }
 
 // pgWriteAsyncAccepted answers a PostgreSQL flexible-server mutation
@@ -339,8 +435,9 @@ func handlePGDeleteServer(w http.ResponseWriter, r *http.Request) {
 	if fqdn, isString := s.Properties["fullyQualifiedDomainName"].(string); isString && fqdn != "" {
 		UnregisterAzureDNSName(fqdn)
 	}
-	// Cascade-delete owned databases, firewall rules, and backups — a
-	// deleted server's backups go with it, volumes included.
+	// Cascade-delete owned databases, firewall rules, and backups — both
+	// on-demand and long-term-retention — a deleted server's backups go with
+	// it, volumes included.
 	prefix := id + "/"
 	for _, d := range pgDatabases.List() {
 		if strings.HasPrefix(d.ID, prefix) {
@@ -356,6 +453,12 @@ func handlePGDeleteServer(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(b.ID, id+"/backups/") {
 			pgBackups.Delete(b.ID)
 			azurePGRemoveBackupVolume(azurePGBackupVolume(rg, name, b.Name))
+		}
+	}
+	for _, b := range pgLtrBackups.List() {
+		if strings.HasPrefix(b.ID, id+"/ltrBackupOperations/") {
+			pgLtrBackups.Delete(b.ID)
+			azurePGRemoveBackupVolume(azurePGLtrBackupVolume(rg, name, b.Name))
 		}
 	}
 	pgWriteAsyncAccepted(w, r, sub, location, issueAzureAsyncOperation(nil))

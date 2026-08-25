@@ -10,7 +10,7 @@
 2. App Service is at 616 of 692 operations, and the 76 that remain were
    enumerated rather than left as "the long tail". They are, by family:
 
-   - **Network trace / packet capture** (~20 spellings: `networkTrace`,
+   - **Network trace / packet capture** (18 spellings: `networkTrace`,
      `networkTraces`, `startNetworkTrace`, `stopNetworkTrace`, and their
      operation-result and slot spellings). Capturing a site's packets is real
      work the simulator does not do; serving a trace means fabricating one.
@@ -28,7 +28,7 @@
      engine can signal a container's main process, not an arbitrary process
      inside it. Reopen only if the engine gains a real primitive for it.
 
-   - **`resourceHealthMetadata`** (4), **`metricdefinitions`** (4),
+   - **`resourceHealthMetadata`** (6), **`metricdefinitions`** (4),
      **`perfcounters`**, **`phplogging`**, **`recommendations`**, `iscloneable`,
      `migratemysql/status`, and the declined `Provider_*Stacks` — each answers
      with a series, catalog or telemetry the simulator has no input for, in the
@@ -50,8 +50,13 @@
    is one SQLite database, a dual-region quorum with one replica, and raw
    PostgreSQL and Cassandra wire protocols it does not speak. Serving any of
    them means inventing the answer, so they belong with the declined catalogs
-   below rather than on a work list. Google Cloud Billing (6 of 36) is likewise
-   already declined. Read a measured Google number as spellings before treating
+   below rather than on a work list. Google Cloud Billing (6 of 36) is NOT in
+   the same class: its floor comment records plain mux misses, and the
+   unserved fifteen are ordinary CRUD over data the simulator already holds
+   (billingAccounts get/list/create/patch/move, its sub-accounts and
+   projects, services and SKUs, projects.updateBillingInfo). It needs a
+   decision — implement the collection, or record a real decline reason —
+   not the declined label it carried here. Read a measured Google number as spellings before treating
    the gap as a method count.
 
 ## Consumer follow-ups in the sockerless repository

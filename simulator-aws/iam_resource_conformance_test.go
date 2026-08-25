@@ -1175,8 +1175,8 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // the probe about one operation, or filling a field with an ARN because the
 // metric wanted one, would be measuring the measurement.
 //
-// Every service in the measurement is probed. The floor stands at 1687 rather
-// than the 1788 it once claimed because five of them — AWS Identity and Access
+// Every service in the measurement is probed. The floor once fell from a
+// claimed 1788 to a measured 1687 because five services — AWS Identity and Access
 // Management, Amazon CloudWatch Logs, Amazon ECS, AWS CodeBuild and AWS WAFv2 —
 // were counted by membership in the generated resource-type table with no probe
 // behind them, and membership states only that AWS declares a resource type for
@@ -1235,7 +1235,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // that has no ARN yet, and RestoreTableToPointInTime names a source and a
 // target table that does not exist yet.
 //
-// AWS Systems Manager's 17: the tagging operations name a resource by a bare
+// AWS Systems Manager's 16: the tagging operations name a resource by a bare
 // identifier plus a separate ResourceType member rather than by ARN, the
 // creates have no identifier yet, and the remainder are scoped by a path or an
 // operating system rather than by a resource.
@@ -1253,7 +1253,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // whose id AWS completes with an assigned prefix no request carries. The
 // copy operations derive both of their ends now, like Amazon RDS's.
 //
-// Amazon EC2 Auto Scaling's 4: the tagging operations carry each target inside
+// Amazon EC2 Auto Scaling's 3: the tagging operations carry each target inside
 // a nested tag entry rather than under a member of its own, and the two
 // instance operations name an instance whose group the request does not carry.
 // Amazon CloudWatch's 4: three are metric operations the reference associates
@@ -1275,10 +1275,14 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // InvokeApiDestination and RetrieveConnectionCredentials — declare no request
 // members at all.
 //
-// AWS Budgets derives completely: it is in the generated resource-type table
-// and its three tagging operations name the budget or budget action by an ARN,
-// which the generic ARN-member reader resolves. Its ARNs carry no region —
-// AWS Budgets is global — so the probe supplies one of that shape.
+// AWS Budgets' 1: creating a budget action names a budget while the action's
+// own ActionId is a UUID AWS assigns, so the create carries nothing to
+// assemble the action ARN from. The rest of the action family derives —
+// budget plus ActionId fill the published global format, pinned by
+// TestIAMResourceARNs_BudgetsAssemblesTheGlobalActionARN — and the tagging
+// operations name their target by an ARN the generic reader resolves. Its
+// ARNs carry no region — AWS Budgets is global — so the probe supplies one
+// of that shape.
 //
 // The probe sends each member under its own wire name, in its own case. It
 // lower-cased them once, which is a body no client sends: the production
@@ -1305,7 +1309,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // probe fills with a placeholder no account can be read from —
 // TestIAMResourceARNs_STSNamesTheIdentityEachCallIsAbout pins the real shape.
 //
-// AWS Identity and Access Management's 20: creating an OpenID Connect or SAML
+// AWS Identity and Access Management's 21: creating an OpenID Connect or SAML
 // provider, a service-linked role or a delegation request names something that
 // does not exist yet, and the remainder are scoped to the caller
 // (ChangePassword), to an access key, or to a report the call is about to
@@ -1378,7 +1382,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // and pins that a type the service does not declare derives nothing. This is
 // the same measurement gap as the Amazon ECS attribute operations and the
 // Amazon RDS tagging family: real callers derive, the probe cannot say so.
-const iamDerivationCoverageFloor = 1758
+const iamDerivationCoverageFloor = 1764
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

@@ -432,19 +432,23 @@ func handlePGDeleteBackup(w http.ResponseWriter, r *http.Request) {
 // --- Replicas ---
 
 // handlePGListReplicas lists the read replicas of a server: every flexible
-// server in the subscription whose properties.sourceServerResourceId points at
-// this server (Replicas_ListByServer).
+// server whose replicationRole marks it a replica and whose top-level
+// properties.sourceServerResourceId — where ServerProperties carries it —
+// points at this server (Replicas_ListByServer). The role check keeps
+// restored servers out of the list: a PointInTimeRestore or GeoRestore create
+// also records the sourceServerResourceId it was built from, and a restored
+// server is not a replica.
 func handlePGListReplicas(w http.ResponseWriter, r *http.Request) {
 	serverID := pgServerID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	out := pgServers.Filter(func(s PGFlexibleServer) bool {
 		if s.Properties == nil {
 			return false
 		}
-		repl, _ := s.Properties["replica"].(map[string]any)
-		if repl == nil {
+		role, _ := s.Properties["replicationRole"].(string)
+		if role != "AsyncReplica" && role != "GeoAsyncReplica" {
 			return false
 		}
-		src, _ := repl["sourceServerResourceId"].(string)
+		src, _ := s.Properties["sourceServerResourceId"].(string)
 		return src == serverID
 	})
 	if out == nil {
