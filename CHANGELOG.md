@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/e6qu/sockerless-cloud/compare/v0.17.0...v0.18.0) (2026-08-25)
+
+
+### Features
+
+* **gcp/azure:** database data planes for Cloud SQL and Azure PostgreSQL, and backups that carry the data ([#71](https://github.com/e6qu/sockerless-cloud/issues/71)) ([5a70f9e](https://github.com/e6qu/sockerless-cloud/commit/5a70f9e1f18ac0f102f9edcc34d7752e532ae95e))
+
 ## [0.17.0](https://github.com/e6qu/sockerless-cloud/compare/v0.16.0...v0.17.0) (2026-08-24)
 
 
