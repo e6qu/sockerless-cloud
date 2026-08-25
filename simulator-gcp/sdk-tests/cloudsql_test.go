@@ -75,10 +75,17 @@ func TestCloudSQL_InstanceDatabaseUserLifecycle(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
+	// users.list carries the built-in admin Cloud SQL creates with the
+	// instance — postgres here — alongside the inserted user.
 	uList, err := svc.Users.List(project, instanceName).Do()
 	require.NoError(t, err)
-	require.Len(t, uList.Items, 1)
-	assert.Equal(t, "appuser", uList.Items[0].Name)
+	names := map[string]bool{}
+	for _, item := range uList.Items {
+		names[item.Name] = true
+	}
+	require.Len(t, uList.Items, 2)
+	assert.True(t, names["appuser"], "the inserted user must be listed")
+	assert.True(t, names["postgres"], "the built-in admin must be listed")
 
 	// Delete instance (cascade).
 	_, err = svc.Instances.Delete(project, instanceName).Do()
@@ -207,12 +214,15 @@ func TestCloudSQL_BackupRunsReturnOperations(t *testing.T) {
 	insertOp, err := svc.BackupRuns.Insert(project, instanceName, &sqladmin.BackupRun{}).Do()
 	require.NoError(t, err)
 	require.Equal(t, "sql#operation", insertOp.Kind)
-	require.Equal(t, "DONE", insertOp.Status)
+	require.Equal(t, "RUNNING", insertOp.Status,
+		"the BACKUP_VOLUME operation runs until the capture settles, as on Cloud SQL")
 	require.Equal(t, "BACKUP_VOLUME", insertOp.OperationType)
+	waitSQLOperationDone(t, svc, project, insertOp.Name)
 
 	list, err := svc.BackupRuns.List(project, instanceName).Do()
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
+	require.Equal(t, "SUCCESSFUL", list.Items[0].Status)
 
 	deleteOp, err := svc.BackupRuns.Delete(project, instanceName, list.Items[0].Id).Do()
 	require.NoError(t, err)
@@ -312,8 +322,10 @@ func TestCloudSQL_BackupsLifecycle(t *testing.T) {
 		Description: "nightly",
 	}).Do()
 	require.NoError(t, err)
-	require.Equal(t, "DONE", createOp.Status)
+	require.Equal(t, "RUNNING", createOp.Status,
+		"the CREATE_BACKUP operation runs until the capture settles")
 	require.Equal(t, "CREATE_BACKUP", createOp.OperationType)
+	waitSQLOperationDone(t, svc, project, createOp.Name)
 
 	list, err := svc.Backups.ListBackups(parent).Do()
 	require.NoError(t, err)

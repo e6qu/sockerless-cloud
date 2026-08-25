@@ -1,33 +1,8 @@
 # BUGS
 
-Open: 7. Resolved: 76.
+Open: 6. Resolved: 77.
 
 ## Open
-
-- **BUG-74 (Cloud SQL and the Azure database slices still take metadata-only
-  backups):** Amazon RDS snapshots now capture the instance's data — the
-  volume is cloned copy-on-write where the engine's volume store sits on
-  btrfs, XFS with reflinks, or OpenZFS block cloning, and by full copy
-  elsewhere, one code path (`sim.SnapshotVolume`, a single
-  `cp -a --reflink=auto`), with restore booting the engine on the captured
-  volume and the master credential travelling with the data. The GCP Cloud SQL
-  backupRuns and the Azure flexible-server backup/point-in-time-restore
-  surfaces still record metadata without capturing their data volumes. Fix
-  shape: port the same three touch points per cloud — capture on backup
-  create, clone before the restored engine's first start, remove the volume on
-  delete — against each cloud's own API shapes, with the RDS SDK test
-  (`TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt`) as the template: rows
-  from before the backup present after restore, rows from after it absent.
-  **Precondition discovered while scoping the port:** unlike Amazon RDS,
-  neither slice has a data plane at all — Cloud SQL instances answer a
-  fabricated `10.0.0.1` primary address and the flexible servers a nominal
-  FQDN, with no listener, no engine and no volume behind them — so the port
-  is really two stages: first build each slice's database data plane the way
-  `rds_dataplane*.go` did (real endpoint listener, engine container on a
-  named volume, credential encrypted under the platform's own key service),
-  then apply the three snapshot touch points to it. Sim modules share no
-  code, so each cloud implements its own. Nothing external blocks it, but it
-  is a phase-scale build, not a three-line port.
 
 
 - **BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
@@ -81,6 +56,28 @@ Open: 7. Resolved: 76.
 
 
 ## Resolved history
+
+- ~~**BUG-74 (Cloud SQL and the Azure database slices still took metadata-only
+  backups):**~~ Both slices now run real database data planes and their
+  backups carry the data, the port Amazon RDS's snapshots established. Cloud
+  SQL instances serve a real PostgreSQL or MySQL engine at a loopback address
+  the simulator owns at the engine's conventional port (the Admin API carries
+  no port field), with rootPassword honoured as the built-in admin user's
+  KMS-sealed credential (it had been silently dropped, and user passwords had
+  been stored in cleartext), API-declared users and databases reconciled into
+  the engine as real roles and databases, backupRuns and projects/backups
+  capturing the instance volume through `sim.SnapshotVolume` (copy-on-write
+  where the volume store allows), restoreBackup restoring in place, clone
+  carrying users and data, and the affected operations genuinely
+  RUNNING → DONE. Azure PostgreSQL Flexible Servers serve the same
+  architecture with administratorLoginPassword stripped from stored
+  properties (it had been echoed back on GET, which real ARM never does) and
+  sealed under a service-managed key, require_secure_transport enforced ON by
+  default, on-demand backups capturing through the LRO, and
+  createMode=PointInTimeRestore cloning the newest backup at or before
+  pointInTimeUTC — else the live volume — into the new server. Proven end to
+  end by stock drivers on both clouds: rows from before the backup present
+  after restore, rows from after it absent.
 
 - ~~**BUG-72 (Amazon ECS deployment lifecycle hooks were stored but never
   invoked):**~~ A service's `deploymentConfiguration.lifecycleHooks`

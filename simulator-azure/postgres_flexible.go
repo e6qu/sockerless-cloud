@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
@@ -59,6 +61,8 @@ func registerPGFlexibleServer(srv *sim.Server) {
 	pgDatabases = sim.MakeStore[PGDatabase](srv.DB(), "pg_databases")
 	pgFirewallRules = sim.MakeStore[PGFirewallRule](srv.DB(), "pg_firewall_rules")
 	pgConfigurations = sim.MakeStore[PGConfiguration](srv.DB(), "pg_configurations")
+	pgDataPlaneKeys = sim.MakeStore[pgDataPlaneKeyRecord](srv.DB(), "pg_dataplane_key")
+	pgServerCredentials = sim.MakeStore[pgServerCredential](srv.DB(), "pg_server_credentials")
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.DBforPostgreSQL/flexibleServers"
 
@@ -82,6 +86,17 @@ func registerPGFlexibleServer(srv *sim.Server) {
 	srv.HandleFunc("PUT "+armBase+"/{name}/configurations/{cfg}", handlePGUpdateConfiguration)
 
 	registerPGFlexibleServerMore(srv)
+
+	// A persistent control-plane restart rebinds every credentialed server's
+	// listener, re-registers its DNS name, and re-adopts the engine
+	// containers the earlier process left running. The API-only tier holds
+	// no engines and rebinding modeled servers would invent listeners their
+	// records never promised.
+	if sim.RequireContainerRuntime("the Azure Database for PostgreSQL data plane") == nil {
+		if err := azurePGRecoverDataPlanes(); err != nil {
+			log.Fatalf("recover Azure Database for PostgreSQL data planes: %v", err)
+		}
+	}
 }
 
 // pgConfigKey is the per-(server, configuration-name) store key.
@@ -157,6 +172,14 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := pgServerID(sub, rg, name)
+	// administratorLoginPassword is write-only on the ARM wire (x-ms-secret):
+	// it seals into the credential store and never lands in the stored
+	// properties a GET echoes back.
+	var adminPassword string
+	if req.Properties != nil {
+		adminPassword, _ = req.Properties["administratorLoginPassword"].(string)
+		delete(req.Properties, "administratorLoginPassword")
+	}
 	s := PGFlexibleServer{
 		ID:       id,
 		Name:     name,
@@ -184,15 +207,83 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Properties["state"] = "Starting"
 	}
+
+	// createMode=PointInTimeRestore builds the new server from a source
+	// server's backup history rather than from a password: the restored
+	// server keeps the source's administrator login and credential.
+	createMode, _ := s.Properties["createMode"].(string)
+	var restore *azurePGRestoreSource
+	if strings.EqualFold(createMode, "PointInTimeRestore") {
+		sourceID, _ := s.Properties["sourceServerResourceId"].(string)
+		sourceSub, sourceRG, sourceName, parsed := pgParseServerResourceID(sourceID)
+		if !parsed {
+			sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+				"sourceServerResourceId %q is not a flexible-server resource ID", sourceID)
+			return
+		}
+		source, ok := pgServers.Get(pgServerID(sourceSub, sourceRG, sourceName))
+		if !ok {
+			sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+				"source server %q not found", sourceID)
+			return
+		}
+		pointInTimeRaw, _ := s.Properties["pointInTimeUTC"].(string)
+		pointInTime, err := time.Parse(time.RFC3339Nano, pointInTimeRaw)
+		if err != nil {
+			sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+				"pointInTimeUTC %q is not an ISO8601 timestamp", pointInTimeRaw)
+			return
+		}
+		if sourceLogin, isString := source.Properties["administratorLogin"].(string); isString && sourceLogin != "" {
+			s.Properties["administratorLogin"] = sourceLogin
+		}
+		if credential, ok := pgServerCredentials.Get(azurePGServerKey(sourceRG, sourceName)); ok {
+			pgServerCredentials.Put(azurePGServerKey(rg, name), credential)
+		}
+		picked := azurePGPickRestoreSource(sourceSub, sourceRG, sourceName, pointInTime)
+		restore = &picked
+	} else if adminPassword != "" {
+		sealed, err := azurePGSealSecret(adminPassword)
+		if err != nil {
+			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+				"seal administrator credential: %v", err)
+			return
+		}
+		pgServerCredentials.Put(azurePGServerKey(rg, name), pgServerCredential{Sealed: sealed})
+	}
+
 	pgServers.Put(id, s)
-	opID := issueAzureAsyncOperation(func() {
-		pgServers.Update(id, func(stored *PGFlexibleServer) {
-			if stored.Properties == nil {
-				stored.Properties = map[string]any{}
+
+	var opID string
+	if restore != nil {
+		// The clone runs through the create's own long-running operation, so
+		// the poll completes when the restored data is in place and the data
+		// plane installs on the cloned volume.
+		source := *restore
+		opID = issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+			if err := azurePGCloneForRestore(rg, name, source); err != nil {
+				return &AsyncOperationError{Code: "RestoreFailed", Message: err.Error()}
 			}
-			stored.Properties["state"] = "Ready"
+			azurePGInstallOrExplain(sub, rg, name)
+			pgServers.Update(id, func(stored *PGFlexibleServer) {
+				if stored.Properties == nil {
+					stored.Properties = map[string]any{}
+				}
+				stored.Properties["state"] = "Ready"
+			})
+			return nil
 		})
-	})
+	} else {
+		azurePGInstallOrExplain(sub, rg, name)
+		opID = issueAzureAsyncOperation(func() {
+			pgServers.Update(id, func(stored *PGFlexibleServer) {
+				if stored.Properties == nil {
+					stored.Properties = map[string]any{}
+				}
+				stored.Properties["state"] = "Ready"
+			})
+		})
+	}
 	// Servers_Create declares 202-only (no success body): the caller
 	// polls Azure-AsyncOperation until Succeeded, then GETs the
 	// resource URL (Location) for the created server.
@@ -231,13 +322,25 @@ func handlePGGetServer(w http.ResponseWriter, r *http.Request) {
 
 func handlePGDeleteServer(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	id := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+	rg := sim.PathParam(r, "resourceGroupName")
+	name := sim.PathParam(r, "name")
+	id := pgServerID(sub, rg, name)
 	location := pgServerLocation(id)
-	if !pgServers.Delete(id) {
+	s, existed := pgServers.Get(id)
+	if !existed || !pgServers.Delete(id) {
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
 		return
 	}
-	// Cascade-delete owned databases + firewall rules.
+	// Tear down the data plane: stop the engine, close the listener, remove
+	// the data volume, drop the sealed credential, and unregister the DNS
+	// name the endpoint advertised.
+	azurePGStopDataPlane(rg, name, true)
+	pgServerCredentials.Delete(azurePGServerKey(rg, name))
+	if fqdn, isString := s.Properties["fullyQualifiedDomainName"].(string); isString && fqdn != "" {
+		UnregisterAzureDNSName(fqdn)
+	}
+	// Cascade-delete owned databases, firewall rules, and backups — a
+	// deleted server's backups go with it, volumes included.
 	prefix := id + "/"
 	for _, d := range pgDatabases.List() {
 		if strings.HasPrefix(d.ID, prefix) {
@@ -247,6 +350,12 @@ func handlePGDeleteServer(w http.ResponseWriter, r *http.Request) {
 	for _, fr := range pgFirewallRules.List() {
 		if strings.HasPrefix(fr.ID, prefix) {
 			pgFirewallRules.Delete(fr.ID)
+		}
+	}
+	for _, b := range pgBackups.List() {
+		if strings.HasPrefix(b.ID, id+"/backups/") {
+			pgBackups.Delete(b.ID)
+			azurePGRemoveBackupVolume(azurePGBackupVolume(rg, name, b.Name))
 		}
 	}
 	pgWriteAsyncAccepted(w, r, sub, location, issueAzureAsyncOperation(nil))
@@ -296,7 +405,18 @@ func handlePGCreateDatabase(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	pgDatabases.Put(id, d)
-	pgWriteAsyncAccepted(w, r, sim.PathParam(r, "subscriptionId"), pgServerLocation(parent), issueAzureAsyncOperation(nil))
+	sub := sim.PathParam(r, "subscriptionId")
+	rg := sim.PathParam(r, "resourceGroupName")
+	serverName := sim.PathParam(r, "name")
+	// A running engine gets the declared database immediately; a cold one
+	// receives it when readiness reconciles the declared state.
+	opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+		if err := azurePGEnsureDatabaseIfRunning(sub, rg, serverName, dbName); err != nil {
+			return &AsyncOperationError{Code: "DatabaseCreateFailed", Message: err.Error()}
+		}
+		return nil
+	})
+	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(parent), opID)
 }
 
 func handlePGGetDatabase(w http.ResponseWriter, r *http.Request) {
@@ -312,13 +432,25 @@ func handlePGGetDatabase(w http.ResponseWriter, r *http.Request) {
 
 func handlePGDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	parent := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
-	id := parent + "/databases/" + sim.PathParam(r, "db")
+	rg := sim.PathParam(r, "resourceGroupName")
+	serverName := sim.PathParam(r, "name")
+	parent := pgServerID(sub, rg, serverName)
+	dbName := sim.PathParam(r, "db")
+	id := parent + "/databases/" + dbName
 	if !pgDatabases.Delete(id) {
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "database not found")
 		return
 	}
-	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(parent), issueAzureAsyncOperation(nil))
+	// A running engine drops the database now; a cold data directory keeps
+	// the bytes, but readiness reconciles only databases the control plane
+	// still declares.
+	opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+		if err := azurePGDropDatabaseIfRunning(sub, rg, serverName, dbName); err != nil {
+			return &AsyncOperationError{Code: "DatabaseDeleteFailed", Message: err.Error()}
+		}
+		return nil
+	})
+	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(parent), opID)
 }
 
 func handlePGListDatabases(w http.ResponseWriter, r *http.Request) {

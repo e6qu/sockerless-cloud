@@ -55,6 +55,12 @@ var (
 	ctx                = context.Background()
 	subscriptionID     = "00000000-0000-0000-0000-000000000001"
 
+	// simAzureDNSAddr is the simulator's DNS front (SIM_AZURE_DNS_LISTEN_ADDR).
+	// Tests that dial a resource by its advertised hostname — a PostgreSQL
+	// flexible server's fullyQualifiedDomainName — resolve it here, the way a
+	// deployment points its resolver at the simulator.
+	simAzureDNSAddr string
+
 	// azureFilesDataDir is where the simulator materializes every Azure Files
 	// share: <dir>/<account>/<share>. It is the directory a Container Apps
 	// workload's Volume{StorageType: AzureFile} bind-mounts, so it is where a
@@ -170,6 +176,14 @@ func TestMain(m *testing.M) {
 	commandImageName = "sockerless-container-command:azure-sdk"
 	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
 
+	// The flexible-server data plane boots a real engine from this image at
+	// first connection. Pulling it inside the timed test made a live registry
+	// a flaky dependency of the engine lifecycle; fetching it here, with
+	// retries, removes that race.
+	if testRunSelects("TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt") {
+		pullImageBeforeRun("public.ecr.aws/docker/library/postgres:16-alpine")
+	}
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatalf("Failed to find free port: %v", err)
@@ -185,6 +199,14 @@ func TestMain(m *testing.M) {
 	amqpPort := amqpLn.Addr().(*net.TCPAddr).Port
 	amqpLn.Close()
 	sbAMQPEndpoint = fmt.Sprintf("127.0.0.1:%d", amqpPort)
+
+	dnsLn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		log.Fatalf("Failed to find free DNS port: %v", err)
+	}
+	dnsPort := dnsLn.LocalAddr().(*net.UDPAddr).Port
+	dnsLn.Close()
+	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 
 	certDir, err := os.MkdirTemp("", "sockerless-servicebus-amqp-tls-*")
 	if err != nil {
@@ -208,6 +230,7 @@ func TestMain(m *testing.M) {
 		fmt.Sprintf("SIM_SERVICEBUS_AMQP_TLS_CERT=%s", certPath),
 		fmt.Sprintf("SIM_SERVICEBUS_AMQP_TLS_KEY=%s", keyPath),
 		"SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON="+advertisedEndpoints,
+		"SIM_AZURE_DNS_LISTEN_ADDR="+simAzureDNSAddr,
 	)
 	simCmd.Stdout = os.Stdout
 	simCmd.Stderr = os.Stderr
@@ -455,4 +478,49 @@ func cosmosSuiteMayRun() bool {
 	}
 	matched, err = regexp.MatchString(filter.Value.String(), "TestCosmosScripts_DifferentialVsEmulator")
 	return err != nil || matched
+}
+
+// pullImageBeforeRun fetches a public image before m.Run so a transient
+// registry failure surfaces here as a clear pull error, not as a workload
+// that "failed to start" inside a timed test.
+func pullImageBeforeRun(image string) {
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		cmd := exec.Command("docker", "pull", image)
+		if out, err := cmd.CombinedOutput(); err == nil {
+			return
+		} else {
+			lastErr = fmt.Errorf("%w\n%s", err, out)
+		}
+		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	}
+	log.Fatalf("Failed to pull %s after retries: %v", image, lastErr)
+}
+
+// testRunSelects reports whether the -test.run filter (or SHARD_RUN) selects
+// the named test, so expensive image acquisition runs only when the tests
+// that need it will.
+func testRunSelects(name string) bool {
+	pattern := os.Getenv("SHARD_RUN")
+	if pattern == "" {
+		for i, arg := range os.Args {
+			switch {
+			case strings.HasPrefix(arg, "-test.run="):
+				pattern = strings.TrimPrefix(arg, "-test.run=")
+			case arg == "-test.run" && i+1 < len(os.Args):
+				pattern = os.Args[i+1]
+			}
+			if pattern != "" {
+				break
+			}
+		}
+	}
+	if pattern == "" {
+		return true
+	}
+	selected, err := regexp.MatchString(pattern, name)
+	if err != nil {
+		log.Fatalf("Invalid -test.run expression %q: %v", pattern, err)
+	}
+	return selected
 }

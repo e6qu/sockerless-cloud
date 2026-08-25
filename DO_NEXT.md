@@ -61,19 +61,6 @@
    already declined. Read a measured Google number as spellings before treating
    the gap as a method count.
 
-4. Database data planes for Cloud SQL and the Azure flexible servers, then
-   the BUG-74 snapshot port. Amazon RDS runs real engines behind real
-   endpoint listeners, which is what made data-carrying snapshots possible;
-   Cloud SQL instances answer a fabricated `10.0.0.1` and the flexible
-   servers a nominal FQDN with nothing behind them. Stage one per cloud: the
-   data plane `rds_dataplane*.go` established (endpoint listener, engine
-   container on a named volume, credential under the platform's own key
-   service — Cloud KMS, Key Vault). Stage two: the three snapshot touch
-   points (capture on backup create, clone before the restored engine's
-   first start, remove on delete) with
-   `TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt` as the test template.
-   Sim modules share no code; each cloud implements its own.
-
 ## Consumer follow-ups in the sockerless repository
 
 - `backends/azure-common/build.go` builds its blob data-plane client with
