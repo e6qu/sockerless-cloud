@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -32,12 +36,32 @@ import (
 // modelDriftExemptions names the operations deliberately not implemented.
 // Every entry carries its reason; an entry without a live BUGS.md record or a
 // routing equivalence is a bug in this table.
+// modelScopedDriftExemptions names operations exempted for ONE model only,
+// keyed "<model file>:<operation>". The scope exists for names another
+// service legitimately implements: AWS Glue serves its own CreateSession, so
+// an unscoped S3 exemption would trip the staleness check on Glue's
+// registration, and the source scan alone cannot tell the two apart. Scoped
+// entries are therefore also excluded from the staleness sweep — their
+// review lives with the catalogue their reason cites.
+var modelScopedDriftExemptions = map[string]string{
+	// S3 Express One Zone: served from s3express-control / zonal endpoints,
+	// outside the regional s3.<region> surface this simulator hosts, and
+	// meaningless without directory buckets and verifying session-token
+	// auth. Recorded with the same reasoning in s3ConformanceMissing.
+	"s3.smithy.json.gz:CreateSession":        "S3 Express One Zone, off the hosted regional endpoint",
+	"s3.smithy.json.gz:ListDirectoryBuckets": "S3 Express One Zone, off the hosted regional endpoint",
+}
+
 var modelDriftExemptions = map[string]string{
 	// S3 routes bucket subresources by query parameter, so these operation
 	// names never appear as strings; each is served by the subresource table
 	// in s3_bucket_subresources.go. The names are listed rather than the
 	// files skipped, so a *new* S3 operation still trips the gate.
 	"DeleteBucketAnalyticsConfiguration":          "s3 ?analytics subresource",
+	"GetBucketAcl":                                "s3 ?acl subresource",
+	"PutBucketAcl":                                "s3 ?acl subresource",
+	"PutBucketEncryption":                         "s3 ?encryption subresource",
+	"PutBucketNotificationConfiguration":          "s3 ?notification subresource",
 	"DeleteBucketCors":                            "s3 ?cors subresource",
 	"DeleteBucketEncryption":                      "s3 ?encryption subresource",
 	"DeleteBucketIntelligentTieringConfiguration": "s3 ?intelligent-tiering subresource",
@@ -101,6 +125,9 @@ func TestVendoredModelOperationsAreImplementedOrExempt(t *testing.T) {
 			if _, exempt := modelDriftExemptions[operation]; exempt {
 				continue
 			}
+			if _, exempt := modelScopedDriftExemptions[filepath.Base(path)+":"+operation]; exempt {
+				continue
+			}
 			missing = append(missing,
 				filepath.Base(path)+": "+operation)
 		}
@@ -123,12 +150,17 @@ func TestVendoredModelOperationsAreImplementedOrExempt(t *testing.T) {
 	}
 }
 
+// readAllHandwrittenSource returns the handwritten source with comments
+// stripped, so an operation mentioned in prose does not count as
+// implemented — ListDirectoryBuckets passed this gate for a while on the
+// strength of a comment in the spec validator.
 func readAllHandwrittenSource(t *testing.T) string {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
+	fset := token.NewFileSet()
 	var source strings.Builder
 	for _, entry := range entries {
 		name := entry.Name()
@@ -136,11 +168,18 @@ func readAllHandwrittenSource(t *testing.T) string {
 			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, "_gen.go") {
 			continue
 		}
-		data, readErr := os.ReadFile(name)
-		if readErr != nil {
-			t.Fatal(readErr)
+		// Parsing without parser.ParseComments drops every comment from the
+		// syntax tree, so the re-printed file carries code only.
+		parsed, parseErr := parser.ParseFile(fset, name, nil, 0)
+		if parseErr != nil {
+			t.Fatal(parseErr)
 		}
-		source.Write(data)
+		var stripped bytes.Buffer
+		if printErr := printer.Fprint(&stripped, fset, parsed); printErr != nil {
+			t.Fatal(printErr)
+		}
+		source.Write(stripped.Bytes())
+		source.WriteByte('\n')
 	}
 	return source.String()
 }

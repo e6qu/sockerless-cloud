@@ -129,7 +129,7 @@ Surface registered in `simulator-gcp/cloudrun.go` (and related files grouped und
 `GoogleCloudRunV2WorkerPoolScaling` is modelled with four members —
 `scalingMode`, `minInstanceCount`, `maxInstanceCount` and
 `manualInstanceCount` — while the pinned Cloud Run v2 Discovery document
-(revision 20260603) and the published REST reference both declare only
+(revision 20260807) and the published REST reference both declare only
 `manualInstanceCount`. The three automatic-scaling members are real: the
 official `hashicorp/google` provider's `google_cloud_run_v2_worker_pool`
 resource exposes `scaling.scaling_mode` (`AUTOMATIC`/`MANUAL`),

@@ -13,8 +13,8 @@ Surface registered in `simulator-azure/postgres_flexible_completion.go` (and rel
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /providers/Microsoft.DBforPostgreSQL/operations` | ✓ `simulator-azure/postgres_flexible_completion.go:60::handlePGOperationsList` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /providers/Microsoft.DBforPostgreSQL/getPrivateDnsZoneSuffix` | ✓ `simulator-azure/postgres_flexible_completion.go:61::handlePGPrivateDNSZoneSuffix` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.DBforPostgreSQL/operations` | ✓ `simulator-azure/postgres_flexible_completion.go:93::handlePGOperationsList` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /providers/Microsoft.DBforPostgreSQL/getPrivateDnsZoneSuffix` | ✓ `simulator-azure/postgres_flexible_completion.go:94::handlePGPrivateDNSZoneSuffix` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

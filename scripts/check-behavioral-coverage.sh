@@ -7,20 +7,12 @@
 # classification and a canonical SDK behavioral test.
 #
 # Usage:
-#   scripts/check-behavioral-coverage.sh          # check staged changes
-#   scripts/check-behavioral-coverage.sh --ref HEAD^  # check between ref and HEAD
+#   scripts/check-behavioral-coverage.sh   # checks the whole tree
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 registry="$repo_root/specs/AWS_BEHAVIORAL_PATTERNS.md"
 allowed_classes=(background-evaluator listener dispatch audit)
-
-ref="${1:-}"
-if [[ "$ref" == "--ref" && -n "${2:-}" ]]; then
-    staged_range="$2..HEAD"
-else
-    staged_range="--cached"
-fi
 
 if [[ ! -f "$registry" ]]; then
     echo "[behavioral-coverage] missing registry: $registry" >&2
@@ -92,16 +84,30 @@ for bf in "$repo_root"/simulator-aws/sdk-tests/*behavioral*_test.go; do
     fi
 done
 
-# 4. Detect newly-added persistent background loops / listeners in simulator-aws/*.go
-#    and require them to be registered (or listed on tests-exempt.txt / behavioral-exempt.txt).
-#    Detection: a top-level `func start*` whose body (next 20 lines) contains
-#    `go func` plus either a ticker/timer (`time.NewTicker`, `time.NewTimer`,
-#    `time.Tick`) or a long-running listener (`net.Listen`, `net.ListenPacket`,
-#    `.Serve(`).
-changed_go=$(git diff --name-only "$staged_range" 2>/dev/null \
-    | grep -E '^simulator-aws/[^/]+\.go$' \
-    | grep -vE '(_test\.go|/docs/|/README\.md)$' \
-    || true)
+# 4. Detect persistent background loops / listeners in simulator-aws/*.go and
+#    require the file that hosts them to be registered as a pattern source (or
+#    the pattern listed in behavioral-exempt.txt). The scan covers the whole
+#    tree, not a diff range: the registry promises that EVERY persistent loop
+#    in simulator-aws/*.go is classified, so the detector must keep matching a
+#    worker after any refactor of its launch shape, not only in the commit
+#    that introduced it.
+#
+#    A top-level function counts as launching a persistent worker when its
+#    body contains either launch shape:
+#      - a raw `go func()` goroutine, or
+#      - a handoff to the server-owned background-worker lifecycle,
+#        `StartBackground(func(ctx context.Context) {...})`,
+#    combined with a persistence marker in the same body: a ticker/timer
+#    (`time.NewTicker`, `time.NewTimer`, `time.Tick`) or a long-running
+#    listener (`net.Listen`, `net.ListenPacket`, `.Serve(`). Bodies without a
+#    marker (e.g. a one-shot per-resource lifecycle handed to StartBackground)
+#    are transient, not persistent, and stay out of the registry.
+scanned_go=""
+for f in "$repo_root"/simulator-aws/*.go; do
+    [[ -f "$f" ]] || continue
+    [[ "$f" == *_test.go ]] && continue
+    scanned_go+="${f#"$repo_root"/}"$'\n'
+done
 
 exempt_file="$repo_root/simulator-aws/behavioral-exempt.txt"
 
@@ -116,30 +122,32 @@ is_registered_source() {
     awk -F'\t' -v s="$rel" '$3 == s' "$tmp_rows" | grep -q .
 }
 
-if [[ -n "$changed_go" ]]; then
-    for f in $changed_go; do
+if [[ -n "$scanned_go" ]]; then
+    for f in $scanned_go; do
         abs="$repo_root/$f"
-        # Extract each `func start...` block up to the first blank line or closing brace at column 0.
-        awk '
-            /^func start[A-Za-z0-9_]+\s*\(/ { inblock=1; buf=""; }
+        # Walk top-level function blocks (a `func ` at column 0 through the
+        # closing `}` at column 0) and report the file when any block launches
+        # a persistent worker in either shape described above.
+        awk -v f="$f" '
+            /^func / { inblock=1; buf=""; }
             inblock {
                 buf = buf $0 "\n"
-                if (/^\}/) { print buf; inblock=0; buf=""; next }
-                if (/^$/) { inblock=0; buf=""; }
+                if (/^\}/) {
+                    launches = (buf ~ /go func\(\)/ || buf ~ /StartBackground\(/)
+                    persists = (buf ~ /time\.NewTicker|time\.NewTimer|time\.Tick/ \
+                        || buf ~ /net\.Listen|net\.ListenPacket|\.Serve\(/)
+                    if (launches && persists) { print f; exit }
+                    inblock=0; buf="";
+                }
             }
-        ' "$abs" | awk -v f="$f" -v RS='' '
-            /go func\(\)/ && (/time\.NewTicker|time\.NewTimer|time\.Tick/ || /net\.Listen|net\.ListenPacket|\.Serve\(/) {
-                print f
-                exit
-            }
-        '
+        ' "$abs"
     done | sort -u >"$tmp_rows.patterns" || true
 
     while IFS= read -r src; do
         [[ -n "$src" ]] || continue
         pattern_name=$(basename "$src" .go | tr '_' '-')
         if ! is_registered_source "$repo_root/$src" && ! is_exempt "$pattern_name"; then
-            echo "[behavioral-coverage] FAIL: newly-added background pattern '$pattern_name' ($src) is not registered in $registry" >&2
+            echo "[behavioral-coverage] FAIL: background pattern '$pattern_name' ($src) is not registered in $registry" >&2
             echo "  Add a row with classification and behavioral test, or list '$pattern_name' in $exempt_file if it is internal/inert." >&2
             fail=1
         fi

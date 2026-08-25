@@ -11,8 +11,11 @@ The `scripts/check-behavioral-coverage.sh` pre-commit check enforces that:
 1. Every registry row uses an allowed classification and has existing source
    and test files.
 2. Every `simulator-aws/sdk-tests/*behavioral*_test.go` file is registered.
-3. Every newly-added persistent background loop or listener in
-   `simulator-aws/*.go` is either registered or explicitly marked out-of-scope.
+3. Every persistent background loop or listener in `simulator-aws/*.go` —
+   whether it launches a raw `go func()` goroutine or hands its loop to the
+   server-owned `StartBackground` worker lifecycle — is either registered or
+   explicitly marked out-of-scope. The scan covers the whole tree on every
+   run, so a worker stays registered across refactors of its launch shape.
 
 Allowed classifications:
 
@@ -37,4 +40,6 @@ Allowed classifications:
 | `sns-topic-fanout` | dispatch | `simulator-aws/sns.go` | `simulator-aws/sdk-tests/cloudwatch_alarm_sns_sqs_process_test.go` |
 | `lambda-runtime-sidecar` | listener | `simulator-aws/lambda_runtime.go` | `simulator-aws/sdk-tests/lambda_test.go` |
 | `lambda-event-source-runtime` | background-evaluator | `simulator-aws/lambda_event_source_runtime.go` | `simulator-aws/sdk-tests/lambda_sqs_event_source_runtime_test.go` |
+| `elbv2-target-health-checker` | background-evaluator | `simulator-aws/elbv2_target_health.go` | `simulator-aws/sdk-tests/elbv2_test.go` |
+| `ecs-stopped-task-sweeper` | background-evaluator | `simulator-aws/ecs.go` | `simulator-aws/sdk-tests/ecs_task_retention_test.go` |
 | `behavioral-audit-misc` | audit | `simulator-aws` | `simulator-aws/sdk-tests/behavioral_audit_test.go` |

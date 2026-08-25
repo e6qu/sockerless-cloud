@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -41,16 +43,47 @@ type PGPrivateEndpointConnection struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
+// PGLtrBackup mirrors the wire's BackupsLongTermRetentionOperation proxy
+// resource: one long-term-retention backup operation, created by
+// startLtrBackup and read back through ltrBackupOperations.
+type PGLtrBackup struct {
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Properties map[string]any `json:"properties,omitempty"`
+}
+
 var (
 	pgMigrations         sim.Store[PGMigration]
 	pgThreatProtections  sim.Store[PGThreatProtection]
 	pgPrivateEndpointCxn sim.Store[PGPrivateEndpointConnection]
+	pgLtrBackups         sim.Store[PGLtrBackup]
 )
 
 func registerPGFlexibleServerCompletion(srv *sim.Server) {
 	pgMigrations = sim.MakeStore[PGMigration](srv.DB(), "pg_migrations")
 	pgThreatProtections = sim.MakeStore[PGThreatProtection](srv.DB(), "pg_threat_protections")
 	pgPrivateEndpointCxn = sim.MakeStore[PGPrivateEndpointConnection](srv.DB(), "pg_private_endpoint_connections")
+	pgLtrBackups = sim.MakeStore[PGLtrBackup](srv.DB(), "pg_ltr_backups")
+
+	// A long-term-retention capture completes via an in-process goroutine, so
+	// a persisted record still Running after a restart can never finish — its
+	// goroutine died with the previous process. Mark it Failed, mirroring the
+	// operation-status sweep in arm_lro.go for the poll the client holds.
+	for _, b := range pgLtrBackups.List() {
+		if status, _ := b.Properties["status"].(string); status != "Running" {
+			continue
+		}
+		pgLtrBackups.Update(b.ID, func(stale *PGLtrBackup) {
+			if status, _ := stale.Properties["status"].(string); status != "Running" {
+				return
+			}
+			stale.Properties["status"] = "Failed"
+			stale.Properties["endTime"] = time.Now().UTC().Format(time.RFC3339Nano)
+			stale.Properties["errorCode"] = "OperationInterrupted"
+			stale.Properties["errorMessage"] = "The backup was interrupted by a service restart before it completed."
+		})
+	}
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.DBforPostgreSQL/flexibleServers"
 	const subProvider = "/subscriptions/{subscriptionId}/providers/Microsoft.DBforPostgreSQL"
@@ -200,21 +233,40 @@ func handlePGVirtualNetworkSubnetUsage(w http.ResponseWriter, r *http.Request) {
 
 // --- long-term-retention backups ---
 
-func pgLtrBackupProps(name string) map[string]any {
-	return map[string]any{
-		"backupName":      name,
-		"status":          "Succeeded",
-		"percentComplete": float64(100),
-		"startTime":       time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano),
-		"endTime":         time.Now().UTC().Format(time.RFC3339Nano),
-	}
+// pgLtrCaptureContainers is the numberOfContainers ltrPreBackup reports: the
+// capture writes the server's single data volume into a single backup volume,
+// so one storage container is what the backup will use, however large the
+// database.
+const pgLtrCaptureContainers = 1
+
+// pgLtrBackupRequest is the wire shape shared by startLtrBackup
+// (BackupsLongTermRetentionRequest) and ltrPreBackup (LtrPreBackupRequest):
+// backupSettings names the backup; targetDetails — startLtrBackup only —
+// carries the SAS URIs of the storage containers the backup streams into.
+type pgLtrBackupRequest struct {
+	BackupSettings *struct {
+		BackupName string `json:"backupName"`
+	} `json:"backupSettings"`
+	TargetDetails *struct {
+		SasURIList []string `json:"sasUriList"`
+	} `json:"targetDetails"`
+}
+
+func pgLtrBackupID(serverID, backupName string) string {
+	return serverID + "/ltrBackupOperations/" + backupName
 }
 
 func handlePGLtrBackupList(w http.ResponseWriter, r *http.Request) {
-	if _, ok := pgRequireServer(w, r); !ok {
+	id, ok := pgRequireServer(w, r)
+	if !ok {
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+	prefix := id + "/ltrBackupOperations/"
+	out := pgLtrBackups.Filter(func(b PGLtrBackup) bool { return strings.HasPrefix(b.ID, prefix) })
+	if out == nil {
+		out = []PGLtrBackup{}
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }
 
 func handlePGLtrBackupGet(w http.ResponseWriter, r *http.Request) {
@@ -223,29 +275,121 @@ func handlePGLtrBackupGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	backupName := sim.PathParam(r, "backupName")
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"id":         id + "/ltrBackupOperations/" + backupName,
-		"name":       backupName,
-		"type":       "Microsoft.DBforPostgreSQL/flexibleServers/ltrBackupOperations",
-		"properties": pgLtrBackupProps(backupName),
-	})
+	b, found := pgLtrBackups.Get(pgLtrBackupID(id, backupName))
+	if !found {
+		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			"long-term-retention backup %q not found on server", backupName)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, b)
 }
 
 func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
+	rg := sim.PathParam(r, "resourceGroupName")
+	serverName := sim.PathParam(r, "name")
 	id, ok := pgRequireServer(w, r)
 	if !ok {
 		return
 	}
-	pgWriteActionAccepted(w, r, sub, pgServerLocation(id), issueAzureAsyncOperation(nil))
+	var req pgLtrBackupRequest
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.BackupSettings == nil || req.BackupSettings.BackupName == "" {
+		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			"backupSettings.backupName is required")
+		return
+	}
+	if req.TargetDetails == nil || len(req.TargetDetails.SasURIList) == 0 {
+		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			"targetDetails.sasUriList is required")
+		return
+	}
+	backupName := req.BackupSettings.BackupName
+	b := PGLtrBackup{
+		ID:   pgLtrBackupID(id, backupName),
+		Name: backupName,
+		Type: "Microsoft.DBforPostgreSQL/flexibleServers/ltrBackupOperations",
+		Properties: map[string]any{
+			"backupName": backupName,
+			"status":     "Running",
+			"startTime":  time.Now().UTC().Format(time.RFC3339Nano),
+		},
+	}
+	pgLtrBackups.Put(b.ID, b)
+	// The capture runs through the operation's own long-running poll: the
+	// record reaches Succeeded, and the poll completes, only once the server's
+	// volume is actually captured. The operation declares its final state via
+	// Location, so the completion payload is what the Location poll answers
+	// with. Sizes are not reported: the capture helper does not measure the
+	// volume, and a number it never read would be an invented one.
+	backupVolume := azurePGLtrBackupVolume(rg, serverName, backupName)
+	opID := issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
+		if err := azurePGCaptureVolume(rg, serverName, backupVolume); err != nil {
+			azurePGRemoveBackupVolume(backupVolume)
+			pgLtrBackups.Update(b.ID, func(backup *PGLtrBackup) {
+				backup.Properties["status"] = "Failed"
+				backup.Properties["endTime"] = time.Now().UTC().Format(time.RFC3339Nano)
+				backup.Properties["errorCode"] = "LtrBackupFailed"
+				backup.Properties["errorMessage"] = err.Error()
+			})
+			return nil, &AsyncOperationError{Code: "LtrBackupFailed", Message: err.Error()}
+		}
+		if !pgLtrBackups.Update(b.ID, func(backup *PGLtrBackup) {
+			backup.Properties["status"] = "Succeeded"
+			backup.Properties["endTime"] = time.Now().UTC().Format(time.RFC3339Nano)
+			backup.Properties["percentComplete"] = float64(100)
+		}) {
+			// The server was deleted while its capture ran, and the cascade
+			// took the backup records; the volume goes with them.
+			azurePGRemoveBackupVolume(backupVolume)
+			return nil, &AsyncOperationError{Code: "ResourceNotFound",
+				Message: "The server was deleted while the long-term-retention backup was being captured."}
+		}
+		settled, found := pgLtrBackups.Get(b.ID)
+		if !found {
+			azurePGRemoveBackupVolume(backupVolume)
+			return nil, &AsyncOperationError{Code: "ResourceNotFound",
+				Message: "The server was deleted while the long-term-retention backup was being captured."}
+		}
+		payload, err := json.Marshal(map[string]any{"properties": settled.Properties})
+		if err != nil {
+			return nil, &AsyncOperationError{Code: "InternalServerError",
+				Message: fmt.Sprintf("render the long-term-retention backup result: %v", err)}
+		}
+		return payload, nil
+	})
+	// 202 with both LRO headers: Azure-AsyncOperation for the status poll and
+	// Location at operationResults, where the final-state-via-location client
+	// reads the BackupsLongTermRetentionResponse payload.
+	location := pgServerLocation(id)
+	apiVersion := r.URL.Query().Get("api-version")
+	w.Header().Set("Azure-AsyncOperation",
+		azureAsyncOperationHeader(r, sub, "Microsoft.DBforPostgreSQL", location, "operationStatuses", opID, apiVersion))
+	w.Header().Set("Location",
+		azureAsyncOperationHeader(r, sub, "Microsoft.DBforPostgreSQL", location, "operationResults", opID, apiVersion))
+	w.Header().Set("Retry-After", "0")
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func handlePGLtrPreBackup(w http.ResponseWriter, r *http.Request) {
 	if _, ok := pgRequireServer(w, r); !ok {
 		return
 	}
+	var req pgLtrBackupRequest
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.BackupSettings == nil || req.BackupSettings.BackupName == "" {
+		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			"backupSettings.backupName is required")
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"properties": map[string]any{"numberOfContainers": float64(1)},
+		"properties": map[string]any{"numberOfContainers": float64(pgLtrCaptureContainers)},
 	})
 }
 

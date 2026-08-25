@@ -54,7 +54,59 @@ import (
 // descriptions of the same URI. Both render to the same concrete URI and are
 // probed the same way, so a served method contributes both of its spellings and
 // an unserved one contributes neither.
+// gcpDeclaredMethodTotals locks each vendored Discovery document's declared
+// method-spelling count. The served floor above cannot see the failure mode
+// this closes: a re-vendored document that ADDS methods leaves every served
+// count unchanged, so the floors stay green while the new methods sit
+// silently unserved — exactly how forty-three AWS operations drifted
+// unnoticed between 2026-08-12 and 2026-08-23 before that simulator's model
+// drift gate existed. A changed total fails here and forces the decision:
+// serve the new methods, or record why not in the floor comment — then
+// update both tables together.
+var gcpDeclaredMethodTotals = map[string]int{
+	"apigateway-v1":           60,
+	"artifactregistry-v1":     147,
+	"bigquery-v2":             95,
+	"bigtableadmin-v2":        164,
+	"cloudbilling-v1":         36,
+	"cloudbuild-v1":           130,
+	"cloudfunctions-v2":       42,
+	"cloudkms-v1":             172,
+	"cloudresourcemanager-v1": 76,
+	"cloudresourcemanager-v2": 24,
+	"cloudresourcemanager-v3": 126,
+	"cloudrun-v1":             152,
+	"cloudrun-v2":             119,
+	"compute-v1":              2014,
+	"dataflow-v1b3":           84,
+	"dns-v1":                  80,
+	"eventarc-v1":             132,
+	"firestore-v1":            120,
+	"iam-v1":                  266,
+	"iamcredentials-v1":       14,
+	"logging-v2":              508,
+	"pubsub-v1":               92,
+	"redis-v1":                94,
+	"secretmanager-v1":        72,
+	"serviceusage-v1":         20,
+	"spanner-v1":              198,
+	"sqladmin-v1":             150,
+	"sqladmin-v1beta4":        150,
+	"storage-v1":              89,
+	"vpcaccess-v1":            16,
+}
+
 var gcpMethodFloor = map[string]int{
+	// Compute Engine: deliberately the furthest from full — 559 of the
+	// document's 1,007 methods. The served slice is the one the consumers
+	// exercise (instances, disks, networks/subnetworks and the real netns
+	// fabric, firewalls, addresses, routes, NAT, load balancing, instance
+	// groups/templates, project metadata, zones/regions/machine types); the
+	// 448 unserved methods are the long tail of collections nothing here
+	// consumes (commitments, interconnects, node groups, security policies,
+	// TPUs and the rest). There is no per-method enumeration: lower this
+	// floor by one and the gate prints the full unserved list on demand,
+	// which is the work list whenever a slice widens.
 	"compute-v1":              1118,
 	"cloudresourcemanager-v3": 126,
 
@@ -72,18 +124,44 @@ var gcpMethodFloor = map[string]int{
 	// operations poll/delete/wait and the IAM reads complete the surface.
 	"cloudrun-v1": 152,
 
-	"dataflow-v1b3":     84,
-	"cloudrun-v2":       102,
-	"bigquery-v2":       94,
-	"dns-v1":            74,
-	"cloudkms-v1":       168,
+	"dataflow-v1b3": 84,
+
+	// Cloud Run Admin v2: the export family (exportImage,
+	// exportImageMetadata, exportMetadata, exportProjectMetadata, the two
+	// exportStatus spellings) reports Google's own image-export pipeline,
+	// which the simulator does not run; builds.submit and
+	// sourceUploads.upload are the hosted build path Cloud Build owns here.
+	// Eight methods, seventeen spellings (the upload method declares three).
+	"cloudrun-v2": 102,
+
+	// BigQuery v2: every JSON method is served; the one unserved spelling is
+	// jobs.insert's /upload/bigquery media path, which carries a load job's
+	// bytes — the JSON jobs.insert the clients here issue is served.
+	"bigquery-v2": 94,
+
+	// Cloud DNS: the managed-zone IAM triple (getIamPolicy, setIamPolicy,
+	// testIamPermissions) is not served — no IAM handler exists in dns.go.
+	"dns-v1": 74,
+
+	// Cloud KMS: the two Key Access Justifications reads
+	// (showEffectiveKeyAccessJustificationsPolicyConfig and
+	// ...EnrollmentConfig) report an organization-policy product the
+	// simulator does not model; the projects colon-verb fan-in rejects them
+	// as unknown verbs.
+	"cloudkms-v1": 168,
+
 	"eventarc-v1":       132,
 	"cloudfunctions-v2": 42,
 	"pubsub-v1":         92,
 	"apigateway-v1":     60,
 	"iamcredentials-v1": 14,
 	"vpcaccess-v1":      16,
-	"logging-v2":        504,
+	// Cloud Logging: the two locations.get spellings are unmounted for the
+	// reason logging_admin.go records beside its location routes — a literal
+	// GET locations/{location} under projects would also swallow Cloud Run's
+	// exportProjectMetadata colon-verb. A real client's projects.locations.get
+	// gets no answer; the routing constraint is the recorded trade.
+	"logging-v2": 504,
 
 	// Cloud Billing: projects.getBillingInfo — the read
 	// terraform-provider-google issues on every google_project Read — and the
@@ -99,8 +177,10 @@ var gcpMethodFloor = map[string]int{
 	"cloudresourcemanager-v1": 76,
 
 	// Cloud Storage: objects.restore, objects.move, objects.bulkRestore and
-	// objectAccessControls.insert are unmounted — the probe gets Go's own mux
-	// miss on each. Every other method the document describes is served.
+	// objectAccessControls.insert are unmounted, and so are the rapidCaches
+	// collection (insert, get, list, patch, disable) and
+	// managedFolders.patch — the probe gets Go's own mux miss on each.
+	// Every other method the document describes is served.
 	"storage-v1": 79,
 
 	// Artifact Registry: the Docker/Maven/npm/Python read surface, repository
@@ -134,7 +214,10 @@ var gcpMethodFloor = map[string]int{
 	// documents.executePipeline, databases.clone, databases.restore and the
 	// document-collection verbs listCollectionIds, partitionQuery and
 	// runAggregationQuery are not — the last three share the URI shape of
-	// CreateDocument, whose handler reports them as unrouted methods.
+	// CreateDocument, whose handler reports them as unrouted methods — and
+	// neither is the changeStreams collection (create, delete, get, list),
+	// which has no handler at all: a change stream's deliveries would need
+	// the listen plumbing the two streaming verbs above already lack.
 	"firestore-v1": 96,
 
 	// Identity and Access Management: service accounts, keys, roles,
@@ -670,6 +753,12 @@ func TestServiceConformance_GCPCoverageFloor(t *testing.T) {
 		totalServed += served
 		totalSpellings += len(d.Methods)
 		t.Logf("%-32s %d/%d method spellings served", name, served, len(d.Methods))
+		if declared, locked := gcpDeclaredMethodTotals[name]; !locked {
+			t.Errorf("%s: vendored Discovery document has no gcpDeclaredMethodTotals entry — add one at its declared count (%d)", name, len(d.Methods))
+		} else if len(d.Methods) != declared {
+			t.Errorf("%s: the vendored document declares %d method spellings, the lock says %d — a re-vendor changed the surface. Serve the new methods or record why not, then update gcpDeclaredMethodTotals (and gcpMethodFloor if coverage moved).",
+				name, len(d.Methods), declared)
+		}
 		if served == floor {
 			continue
 		}

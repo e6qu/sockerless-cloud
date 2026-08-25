@@ -137,25 +137,7 @@ func buildConformanceSimulator(t *testing.T) (*sim.Server, *sim.AWSRouter, *sim.
 // are real, documented AWS JSON-RPC surfaces but are NOT described by any
 // vendored Smithy model. Each entry MUST be justified — this is never a place
 // to hide an invented AWS operation.
-var allowedNonSpecTargets = map[string]string{
-	// AWS Budgets (awsJson1.1 over POST /). The Budgets control plane is a
-	// real AWS service; the vendored Smithy corpus does not currently include
-	// its model, so the real operation names are allowlisted here.
-	"AWSBudgetServiceGateway.CreateBudget":                       "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.CreateNotification":                 "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.CreateSubscriber":                   "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.DeleteBudget":                       "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.DeleteNotification":                 "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.DeleteSubscriber":                   "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.DescribeBudget":                     "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.DescribeBudgets":                    "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.DescribeNotificationsForBudget":     "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.DescribeSubscribersForNotification": "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.UpdateBudget":                       "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.ListTagsForResource":                "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.TagResource":                        "AWS Budgets control plane",
-	"AWSBudgetServiceGateway.UntagResource":                      "AWS Budgets control plane",
-}
+var allowedNonSpecTargets = map[string]string{}
 
 func TestJSONTargetsExistInSmithyModels(t *testing.T) {
 	models := loadSmithyModels(t)

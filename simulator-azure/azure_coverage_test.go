@@ -47,6 +47,110 @@ import (
 // Every number here is a probe result, not a pattern count: the simulator was
 // asked to serve each documented operation and answered. Growing the vendored
 // specs therefore cannot move these numbers on its own.
+// azureDeclaredOperationTotals locks each vendored Swagger document's
+// declared operation count. The served floor below cannot see the failure
+// mode this closes: a re-vendored document that ADDS operations leaves every
+// served count unchanged, so the floors stay green while the new operations
+// sit silently unserved — exactly how forty-three AWS operations drifted
+// unnoticed between 2026-08-12 and 2026-08-23 before that simulator's model
+// drift gate existed. A changed total fails here and forces the decision:
+// serve the new operations, or record why not — then update both tables
+// together.
+var azureDeclaredOperationTotals = map[string]int{
+	"apimanagement-arm-apimapis-2022-08-01":                           91,
+	"apimanagement-arm-apimbackends-2022-08-01":                       7,
+	"apimanagement-arm-apimdeletedservices-2022-08-01":                3,
+	"apimanagement-arm-apimdeployment-2022-08-01":                     15,
+	"apimanagement-arm-apimnamedvalues-2022-08-01":                    8,
+	"apimanagement-arm-apimproducts-2022-08-01":                       31,
+	"apimanagement-arm-apimsubscriptions-2022-08-01":                  9,
+	"app-arm-containerapps-2025-01-01":                                11,
+	"app-arm-jobs-2025-01-01":                                         12,
+	"app-arm-managedenvironments-2025-01-01":                          19,
+	"app-arm-managedenvironmentsstorages-2025-01-01":                  4,
+	"applicationinsights-arm-components_api-2020-02-02":               8,
+	"applicationinsights-arm-featuresandpricing-2015-05-01":           5,
+	"applicationinsights-dataplane-appinsights-v1-preview":            10,
+	"authorization-arm-authorization-roleassignmentscalls-2022-04-01": 10,
+	"authorization-arm-authorization-roledefinitionscalls-2022-04-01": 7,
+	"compute-arm-computerpcommon-2022-03-01":                          3,
+	"compute-arm-skus-2021-07-01":                                     1,
+	"compute-arm-virtualmachine-2022-03-01":                           29,
+	"containerinstance-arm-containerinstance-2021-10-01":              18,
+	"containerregistry-arm-containerregistry-2023-07-01":              52,
+	"containerregistry-arm-containerregistry-2025-11-01":              58,
+	"containerregistry-arm-registrytasks-2019-06-01-preview":          25,
+	"containerregistry-dataplane-containerregistry-2021-07-01":        29,
+	"cosmos-db-arm-cosmos-db-2021-10-15":                              121,
+	"cosmos-db-arm-cosmos-db-2024-08-15":                              124,
+	"cosmos-db-arm-privateendpointconnection-2021-10-15":              4,
+	"cosmos-db-arm-privateendpointconnection-2024-08-15":              4,
+	"cosmos-db-dataplane-table-2019-02-02":                            14,
+	"dns-arm-dns-2018-05-01":                                          14,
+	"eventgrid-arm-eventgrid-2021-12-01":                              61,
+	"eventgrid-arm-eventgrid-2022-06-15":                              127,
+	"eventgrid-dataplane-eventgrid-2018-01-01":                        3,
+	"eventhub-arm-authorizationrules-2024-01-01":                      15,
+	"eventhub-arm-consumergroups-2024-01-01":                          4,
+	"eventhub-arm-eventhubs-2024-01-01":                               4,
+	"eventhub-arm-namespaces-2024-01-01":                              14,
+	"eventhub-arm-networkrulessets-2024-01-01":                        3,
+	"imds-dataplane-imds-2021-02-01":                                  4,
+	"keyvault-arm-keyvault-2023-07-01":                                17,
+	"keyvault-arm-managedhsm-2023-07-01":                              16,
+	"keyvault-dataplane-certificates-2025-07-01":                      27,
+	"keyvault-dataplane-keys-2025-07-01":                              25,
+	"keyvault-dataplane-secrets-2025-07-01":                           12,
+	"logic-arm-logic-2019-05-01":                                      106,
+	"monitor-dataplane-datacollectionrules-2023-01-01":                1,
+	"monitor-dataplane-operationalinsights-v1":                        7,
+	"msi-arm-managedidentity-2024-11-30":                              12,
+	"network-arm-applicationgateway-2025-03-01":                       22,
+	"network-arm-applicationsecuritygroup-2025-03-01":                 6,
+	"network-arm-loadbalancer-2025-03-01":                             27,
+	"network-arm-natgateway-2025-03-01":                               6,
+	"network-arm-networkinterface-2025-03-01":                         15,
+	"network-arm-networkmanager-2025-03-01":                           8,
+	"network-arm-networkprofile-2025-03-01":                           6,
+	"network-arm-networksecuritygroup-2025-03-01":                     12,
+	"network-arm-networkwatcher-2025-03-01":                           35,
+	"network-arm-privateendpoint-2025-03-01":                          11,
+	"network-arm-privatelinkservice-2025-03-01":                       13,
+	"network-arm-publicipaddress-2025-03-01":                          9,
+	"network-arm-publicipprefix-2025-03-01":                           6,
+	"network-arm-routetable-2025-03-01":                               10,
+	"network-arm-serviceendpointpolicy-2025-03-01":                    10,
+	"network-arm-virtualnetwork-2025-03-01":                           21,
+	"network-arm-virtualnetworktap-2025-03-01":                        6,
+	"operationalinsights-arm-sharedkeys-2020-08-01":                   2,
+	"operationalinsights-arm-workspaces-2020-08-01":                   8,
+	"postgresql-arm-openapi-2025-08-01":                               66,
+	"privatedns-arm-privatedns-2024-06-01":                            17,
+	"redis-arm-redis-2024-11-01":                                      41,
+	"resources-arm-resources-2021-04-01":                              40,
+	"resources-arm-subscriptions-2022-12-01":                          7,
+	"servicebus-arm-authorizationrules-2021-11-01":                    21,
+	"servicebus-arm-disasterrecoveryconfigs-2021-11-01":               6,
+	"servicebus-arm-migrationconfigs-2021-11-01":                      6,
+	"servicebus-arm-namespace-preview-2021-11-01":                     11,
+	"servicebus-arm-namespaces-2024-01-01":                            11,
+	"servicebus-arm-networksets-2021-11-01":                           3,
+	"servicebus-arm-queue-2021-11-01":                                 4,
+	"servicebus-arm-subscriptions-2021-11-01":                         4,
+	"servicebus-arm-topics-2021-11-01":                                4,
+	"servicebus-dataplane-servicebus-2021-05":                         13,
+	"storage-arm-blob-2024-01-01":                                     17,
+	"storage-arm-file-2024-01-01":                                     12,
+	"storage-arm-queue-2024-01-01":                                    8,
+	"storage-arm-storage-2024-01-01":                                  49,
+	"storage-arm-table-2024-01-01":                                    8,
+	"storage-dataplane-blob-2026-04-06":                               69,
+	"storage-dataplane-file-2026-04-06":                               51,
+	"storage-dataplane-queue-2018-03-28":                              16,
+	"subscription-arm-subscriptions-2021-10-01":                       15,
+	"web-arm-openapi-2025-03-01":                                      692,
+}
+
 var azureMethodFloor = map[string]int{
 	"apimanagement-arm-apimapis-2022-08-01":                 91,
 	"apimanagement-arm-apimbackends-2022-08-01":             7,
@@ -1002,6 +1106,14 @@ func TestServiceConformance_AzureCoverage(t *testing.T) {
 // regression; more requires bumping the floor).
 func TestServiceConformance_AzureCoverageFloor(t *testing.T) {
 	cov := azureProbeCoverage(t)
+	for name, total := range cov.total {
+		if declared, locked := azureDeclaredOperationTotals[name]; !locked {
+			t.Errorf("%s: vendored Swagger document has no azureDeclaredOperationTotals entry — add one at its declared count (%d)", name, total)
+		} else if total != declared {
+			t.Errorf("%s: the vendored document declares %d operations, the lock says %d — a re-vendor changed the surface. Serve the new operations or record why not, then update azureDeclaredOperationTotals (and azureMethodFloor if coverage moved).",
+				name, total, declared)
+		}
+	}
 	for name, floor := range azureMethodFloor {
 		if _, ok := cov.total[name]; !ok {
 			t.Errorf("%s: floor set but no vendored Swagger document found", name)

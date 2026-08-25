@@ -36,6 +36,14 @@ func azurePGBackupVolume(rg, name, backupName string) string {
 	return "sockerless-azurepg-backup-" + strings.ToLower(rg) + "-" + strings.ToLower(name) + "-" + strings.ToLower(backupName)
 }
 
+// azurePGLtrBackupVolume names the volume a long-term-retention backup
+// captures into. LTR backups share the on-demand capture machinery but live
+// in their own namespace: the two surfaces have independent lifecycles and a
+// name used on both must not collide.
+func azurePGLtrBackupVolume(rg, name, backupName string) string {
+	return "sockerless-azurepg-ltr-" + strings.ToLower(rg) + "-" + strings.ToLower(name) + "-" + strings.ToLower(backupName)
+}
+
 // azurePGCaptureVolume captures a server's volume into a backup volume and
 // logs whether the filesystem gave the copy-on-write path. A source volume
 // that does not exist — the modeled tier, or an engine that never started —
