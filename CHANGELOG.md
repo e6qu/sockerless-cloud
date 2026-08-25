@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/e6qu/sockerless-cloud/compare/v0.18.0...v0.18.1) (2026-08-25)
+
+
+### Performance Improvements
+
+* the store-scan floor reaches zero — the last seven exemptions were conversions after all ([#73](https://github.com/e6qu/sockerless-cloud/issues/73)) ([b061fe3](https://github.com/e6qu/sockerless-cloud/commit/b061fe365faeaea1058262e549661d3609a5861a))
+
 ## [0.18.0](https://github.com/e6qu/sockerless-cloud/compare/v0.17.0...v0.18.0) (2026-08-25)
 
 
