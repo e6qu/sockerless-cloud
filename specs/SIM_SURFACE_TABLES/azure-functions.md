@@ -13,8 +13,8 @@ Surface registered in `simulator-azure/functions.go` (and related files grouped 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Web/checknameavailability` | ✓ `simulator-azure/functions.go:169::checkNameAvailabilityHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /api/function` | ✓ `simulator-azure/functions.go:427::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /subscriptions/{subscriptionId}/providers/Microsoft.Web/checknameavailability` | ✓ `simulator-azure/functions.go:168::checkNameAvailabilityHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /api/function` | ✓ `simulator-azure/functions.go:426::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/certificates` | ✓ `simulator-azure/web_certificates.go:266::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /providers/Microsoft.Web/publishingUsers/web` | ✓ `simulator-azure/web_deploy_extras.go:674::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /providers/Microsoft.Web/publishingUsers/web` | ✓ `simulator-azure/web_deploy_extras.go:679::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

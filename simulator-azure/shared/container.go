@@ -527,6 +527,17 @@ func drainImagePull(reader io.Reader, imageName string) error {
 // turns a moment of throttle into a failed workload. Bounded
 // exponential backoff per the strict rate-limit rule; everything
 // non-transient fails immediately.
+// PullImage pulls an image through the engine, surfacing failures the
+// daemon reports inside the pull stream — a drained-and-discarded stream
+// turns a failed pull into a later "No such image".
+func PullImage(ctx context.Context, imageName, platform string) error {
+	cli := DockerClient()
+	if cli == nil {
+		return fmt.Errorf("container runtime is not initialized")
+	}
+	return pullImage(ctx, cli, imageName, platform)
+}
+
 func pullImage(ctx context.Context, cli *client.Client, imageName, platform string) error {
 	pullOpts := client.ImagePullOptions{}
 	if platform != "" {

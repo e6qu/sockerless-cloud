@@ -16,7 +16,6 @@ import (
 	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
-	dockerclient "github.com/moby/moby/client"
 )
 
 // Site represents an Azure Function App (Web App).
@@ -1455,16 +1454,11 @@ func localImagePlatform(ctx context.Context, imageRef string) (string, error) {
 	}
 	inspect, err := cli.ImageInspect(ctx, imageRef)
 	if err != nil {
-		rc, pullErr := cli.ImagePull(ctx, imageRef, dockerclient.ImagePullOptions{})
-		if pullErr != nil {
+		// The pull surfaces failures the daemon reports inside the stream;
+		// draining and discarding that stream turned a failed pull into a
+		// misleading "No such image" from the re-inspect.
+		if pullErr := sim.PullImage(ctx, imageRef, ""); pullErr != nil {
 			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", imageRef, err, pullErr)
-		}
-		if _, copyErr := io.Copy(io.Discard, rc); copyErr != nil {
-			_ = rc.Close()
-			return "", fmt.Errorf("pull image %q: %w", imageRef, copyErr)
-		}
-		if closeErr := rc.Close(); closeErr != nil {
-			return "", fmt.Errorf("close image pull stream %q: %w", imageRef, closeErr)
 		}
 		inspect, err = cli.ImageInspect(ctx, imageRef)
 		if err != nil {

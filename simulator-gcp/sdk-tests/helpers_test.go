@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -57,6 +58,18 @@ func TestMain(m *testing.M) {
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
 	commandImageName = "sockerless-container-command:gcp-sdk"
 	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
+
+	// The Cloud SQL data plane boots real engines from these images at first
+	// connection. Pulling them inside the timed test made a live registry a
+	// flaky dependency of the engine lifecycle: a transient failure surfaced
+	// as an engine that "did not become ready" rather than as what it was —
+	// the network. Fetching them here, with retries, removes that race.
+	if testRunSelects("TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt") {
+		pullImageBeforeRun("public.ecr.aws/docker/library/postgres:16-alpine")
+	}
+	if testRunSelects("TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt") {
+		pullImageBeforeRun("public.ecr.aws/docker/library/mysql:8.0")
+	}
 
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-sdk"
@@ -303,4 +316,49 @@ func waitForHealth(url string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("timeout waiting for %s: %v", url, lastErr)
+}
+
+// pullImageBeforeRun fetches a public image before m.Run so a transient
+// registry failure surfaces here as a clear pull error, not as a workload
+// that "failed to start" inside a timed test.
+func pullImageBeforeRun(image string) {
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		cmd := exec.Command("docker", "pull", image)
+		if out, err := cmd.CombinedOutput(); err == nil {
+			return
+		} else {
+			lastErr = fmt.Errorf("%w\n%s", err, out)
+		}
+		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	}
+	log.Fatalf("Failed to pull %s after retries: %v", image, lastErr)
+}
+
+// testRunSelects reports whether the -test.run filter (or SHARD_RUN) selects
+// the named test, so expensive image acquisition runs only when the tests
+// that need it will.
+func testRunSelects(name string) bool {
+	pattern := os.Getenv("SHARD_RUN")
+	if pattern == "" {
+		for i, arg := range os.Args {
+			switch {
+			case strings.HasPrefix(arg, "-test.run="):
+				pattern = strings.TrimPrefix(arg, "-test.run=")
+			case arg == "-test.run" && i+1 < len(os.Args):
+				pattern = os.Args[i+1]
+			}
+			if pattern != "" {
+				break
+			}
+		}
+	}
+	if pattern == "" {
+		return true
+	}
+	selected, err := regexp.MatchString(pattern, name)
+	if err != nil {
+		log.Fatalf("Invalid -test.run expression %q: %v", pattern, err)
+	}
+	return selected
 }
