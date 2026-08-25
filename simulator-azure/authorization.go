@@ -32,6 +32,15 @@ type RoleAssignmentProperties struct {
 
 var azureRoleAssignments sim.Store[RoleAssignment]
 
+// azureRoleAssignmentsAll indexes every assignment under one constant key.
+// The listing's unfiltered answer is the whole collection, but it is reached
+// from a handler wrapper, so every request paid the full JSON decode;
+// assignments mutate rarely, and the index decodes the store once per
+// mutation instead of once per request.
+var azureRoleAssignmentsAll sim.GenerationIndex[RoleAssignment]
+
+func azureRoleAssignmentAllKeys(RoleAssignment) []string { return []string{"all"} }
+
 // CustomRoleDefinition is a user-authored RBAC role definition created through
 // RoleDefinitions_CreateOrUpdate. Built-in roles are served from builtinRoleDefs;
 // custom roles are stored here, keyed by their role-definition GUID.
@@ -629,7 +638,7 @@ func doRoleAssignmentList(w http.ResponseWriter, r *http.Request, scope string) 
 	principalFilter := parsePrincipalIdFilter(filter)
 	atScope := strings.Contains(strings.ToLower(filter), "atscope()")
 	values := []map[string]any{}
-	for _, ra := range azureRoleAssignments.List() {
+	for _, ra := range azureRoleAssignmentsAll.LookupAll(azureRoleAssignments, "all", azureRoleAssignmentAllKeys) {
 		if principalFilter != "" && !strings.EqualFold(ra.Properties.PrincipalId, principalFilter) {
 			continue
 		}

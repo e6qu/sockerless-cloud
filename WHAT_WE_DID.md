@@ -1,5 +1,36 @@
 # WHAT WE DID
 
+## 2026-08-25, nineteenth pass — the store-scan floor reached zero
+
+The last seven full store reads on request paths fell to the same
+re-examination the floor's own warning demanded, and every one of them
+disproved its recorded exemption. The five AWS Certificate Manager ACME
+scans, filed as "reconcile each row as they read", were keyed lookups:
+accounts and key changes answer by endpoint + JWK thumbprint, external
+account bindings by endpoint + key identifier, prevalidated domains by
+endpoint + base domain — the queried name and its parent suffixes are the
+only keys that can match, and reconciliation now applies to the rows the key
+narrows to rather than to every row — and revocation finds the stored
+certificate by the digest of the DER the request presents, instead of
+decoding and PEM-parsing the whole certificate store.
+
+CloudTrail delivery, filed as "genuinely every row", reads a constant-keyed
+index of logging trails. What made that possible was noticing why it could
+not work before: delivery wrote each trail's LatestDelivery back into the
+trail row, so per-request writes re-keyed the trails store on every event
+and an index would have rebuilt as often as it was read. The timestamp lives
+in its own store now (GetTrailStatus reads it there), the trails store stays
+stable, and the index rebuilds only when a trail is created, started,
+stopped or deleted. The Azure role-assignment listing, filed the same way,
+reads the whole collection through a constant-keyed index — the unfiltered
+answer is still every row, but the JSON decode happens once per mutation
+instead of once per request on the middleware path.
+
+scripts/check-store-scans.sh holds the floor at zero, and its comment now
+says what the history taught: a new scan on a request path is a regression,
+not a candidate for an exemption paragraph, because every exemption the file
+ever recorded was a keyed lookup on a second reading.
+
 ## 2026-08-25, eighteenth pass — database data planes for Cloud SQL and Azure PostgreSQL, and backups that carry the data
 
 BUG-74's port turned out to have a precondition Amazon RDS never faced:

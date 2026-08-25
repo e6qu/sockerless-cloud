@@ -80,19 +80,23 @@ readonly SCAN_DIRS=(
 # keyed by the target groups their actions forward to), and Event Grid
 # delivery (subscriptions keyed by the scopes they belong to).
 #
-# The seven that remain are two shapes, neither a keyed lookup:
+# The class is closed: the last seven fell to the same re-examination the
+# floor's own warning demanded. The five AWS Certificate Manager ACME scans
+# were keyed lookups after all — accounts and key changes by endpoint + JWK
+# thumbprint, external bindings by endpoint + key identifier, prevalidated
+# domains by endpoint + base domain (with reconciliation applied to the rows
+# the key narrows to, not to every row), and revocation by the digest of the
+# presented certificate's DER. CloudTrail delivery reads a constant-keyed
+# index of logging trails, made stable by moving the per-delivery
+# LatestDelivery timestamp into its own store, so delivering an event stops
+# re-keying the trails. The role-assignment listing reads the whole
+# collection from a constant-keyed index, decoding the store once per
+# mutation instead of once per request.
 #
-#   - Two whose operation genuinely is "every row": CloudTrail delivering an
-#     event to every logging trail, and the role-assignment listing, whose
-#     unfiltered response is the whole collection.
-#   - The five AWS Certificate Manager ACME scans, which reconcile each row as
-#     they read it, so answering from an index would change what a read means.
-#
-# Both need an argument about the operation, not another index. Lower the
-# floor when one is made -- and check the claim before repeating it: the four
-# conversions above were all recorded here as "not that class" by an earlier
-# pass, and all four turned out to be keyed lookups after all.
-readonly STORE_SCAN_FLOOR=7
+# The floor is zero. A new scan on a request path is a regression, not a
+# candidate for an exemption paragraph here: every exemption this file ever
+# recorded turned out to be a keyed lookup on a second reading.
+readonly STORE_SCAN_FLOOR=0
 
 report=$(mktemp)
 diag=$(mktemp)
