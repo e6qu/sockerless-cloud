@@ -8,10 +8,31 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
 )
+
+// azureDNSRegisteredNames holds per-name A records service slices register —
+// a PostgreSQL flexible server's fullyQualifiedDomainName pointing at the
+// loopback listener its data plane owns. A registered exact name answers
+// before the zone-suffix wildcard below, and answers regardless of the
+// configured zones: the name is the coordinate the control plane advertised,
+// so the DNS front serves it wherever it lives.
+var azureDNSRegisteredNames sync.Map // fqdn (lowercase, no trailing dot) -> ipv4 string
+
+// RegisterAzureDNSName maps a fully-qualified name to the IPv4 address the
+// simulator serves it at. Replaces any earlier registration for the name.
+func RegisterAzureDNSName(fqdn string, ipv4 string) {
+	azureDNSRegisteredNames.Store(strings.Trim(strings.ToLower(fqdn), "."), ipv4)
+}
+
+// UnregisterAzureDNSName removes a name's registration; a query for it falls
+// back to the zone-suffix behaviour.
+func UnregisterAzureDNSName(fqdn string) {
+	azureDNSRegisteredNames.Delete(strings.Trim(strings.ToLower(fqdn), "."))
+}
 
 const (
 	defaultAzureDNSZones = "localhost,sockerless.azure.local"
@@ -193,15 +214,28 @@ func handleAzureDNSQuery(w dns.ResponseWriter, r *dns.Msg, cfg azureDNSConfig) {
 
 	for _, q := range r.Question {
 		name := strings.Trim(strings.ToLower(q.Name), ".")
-		if !azureDNSMatchesZone(name, cfg.Zones) {
-			resp.Rcode = dns.RcodeNameError
-			continue
-		}
 		header := dns.RR_Header{
 			Name:   q.Name,
 			Class:  dns.ClassINET,
 			Ttl:    cfg.TTL,
 			Rrtype: q.Qtype,
+		}
+		if registered, ok := azureDNSRegisteredNames.Load(name); ok {
+			// A registered exact name answers with its own address; an AAAA
+			// query for it answers empty — the name exists, with A records only.
+			if q.Qtype == dns.TypeA {
+				address, isString := registered.(string)
+				if isString {
+					if ip := net.ParseIP(address); ip != nil && ip.To4() != nil {
+						resp.Answer = append(resp.Answer, &dns.A{Hdr: header, A: ip.To4()})
+					}
+				}
+			}
+			continue
+		}
+		if !azureDNSMatchesZone(name, cfg.Zones) {
+			resp.Rcode = dns.RcodeNameError
+			continue
 		}
 		switch q.Qtype {
 		case dns.TypeA:

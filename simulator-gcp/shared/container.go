@@ -63,6 +63,11 @@ type ContainerConfig struct {
 	Binds        []string          // bind mounts (e.g., "vol:/path")
 	ExtraHosts   []string          // --add-host entries (e.g., "host.docker.internal:host-gateway")
 
+	// PublishPorts maps containerPort → hostPort (bound on 127.0.0.1).
+	// A zero hostPort asks the engine for an ephemeral one; read the
+	// assignment back through FindExistingContainers.
+	PublishPorts map[int]int
+
 	// Sandbox enforces per-platform capability + permission parity
 	// with the real cloud. Zero value = no enforcement;
 	// every production sim caller must set this.
@@ -485,6 +490,9 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		OpenStdin:   cfg.OpenStdin,
 		AttachStdin: cfg.OpenStdin,
 	}
+	if len(cfg.PublishPorts) > 0 {
+		containerCfg.ExposedPorts = network.PortSet{}
+	}
 
 	// Set entrypoint and command separately
 	if len(cfg.Command) > 0 {
@@ -500,6 +508,21 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	}
 	if cfg.NetworkMode != "" {
 		hostCfg.NetworkMode = container.NetworkMode(cfg.NetworkMode)
+	}
+	for containerPort, hostPort := range cfg.PublishPorts {
+		port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
+		if err != nil {
+			return "", fmt.Errorf("publish port %d: %w", containerPort, err)
+		}
+		containerCfg.ExposedPorts[port] = struct{}{}
+		if hostCfg.PortBindings == nil {
+			hostCfg.PortBindings = network.PortMap{}
+		}
+		publicPort := ""
+		if hostPort > 0 {
+			publicPort = strconv.Itoa(hostPort)
+		}
+		hostCfg.PortBindings[port] = []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: publicPort}}
 	}
 	// Sandbox parity.
 	if err := cfg.Sandbox.Apply(hostCfg, containerCfg); err != nil {

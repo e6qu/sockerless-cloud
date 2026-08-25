@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -60,8 +62,11 @@ type SQLServerUserDetails struct {
 	ServerRoles []string `json:"serverRoles,omitempty"`
 }
 
+// sqlUserCredential holds a user's password sealed under the Cloud-SQL-owned
+// Cloud KMS key — never in the clear, as on Google Cloud, where the password
+// is write-only on the wire and encrypted at rest.
 type sqlUserCredential struct {
-	Password string `json:"password"`
+	Sealed []byte `json:"sealed"`
 }
 
 // SQLOperation mirrors the v1 sqladmin Operation envelope, which
@@ -69,15 +74,16 @@ type sqlUserCredential struct {
 // other GCP services (Memorystore / APIGW use the latter). The sim
 // emits a simplified done-immediately version.
 type SQLOperation struct {
-	Kind          string `json:"kind"`
-	Name          string `json:"name"`
-	OperationType string `json:"operationType,omitempty"`
-	Status        string `json:"status"`
-	TargetProject string `json:"targetProject,omitempty"`
-	TargetID      string `json:"targetId,omitempty"`
-	InsertTime    string `json:"insertTime,omitempty"`
-	EndTime       string `json:"endTime,omitempty"`
-	SelfLink      string `json:"selfLink,omitempty"`
+	Kind          string                 `json:"kind"`
+	Name          string                 `json:"name"`
+	OperationType string                 `json:"operationType,omitempty"`
+	Status        string                 `json:"status"`
+	TargetProject string                 `json:"targetProject,omitempty"`
+	TargetID      string                 `json:"targetId,omitempty"`
+	InsertTime    string                 `json:"insertTime,omitempty"`
+	EndTime       string                 `json:"endTime,omitempty"`
+	Error         *SQLOperationErrorList `json:"error,omitempty"`
+	SelfLink      string                 `json:"selfLink,omitempty"`
 }
 
 // SQLBackupRun models the per-instance backup state machine:
@@ -153,7 +159,7 @@ var (
 // is not simulated.
 var sqlInstanceOperationActions = []string{
 	"restart", "failover", "demote", "demoteMaster", "export", "import",
-	"reencrypt", "restoreBackup", "startReplica", "stopReplica",
+	"reencrypt", "startReplica", "stopReplica",
 	"promoteReplica", "switchover", "truncateLog", "resetSslConfig",
 	"resetReplicaSize", "rotateServerCa", "rotateServerCertificate",
 	"rotateEntraIdCertificate", "addServerCa", "addServerCertificate",
@@ -173,6 +179,16 @@ func registerCloudSQL(srv *sim.Server) {
 
 	registerCloudSQLPrefix(srv, "/v1")
 	registerCloudSQLPrefix(srv, "/sql/v1beta4")
+
+	// A persistent control-plane restart rebinds every instance's address
+	// and re-adopts the engine containers the earlier process left running.
+	// The API-only tier holds no engines and rebinding modeled instances
+	// would invent listeners their addresses never promised.
+	if sim.RequireContainerRuntime("the Cloud SQL data plane") == nil {
+		if err := sqlRecoverDataPlanes(); err != nil {
+			log.Fatalf("recover Cloud SQL data planes: %v", err)
+		}
+	}
 }
 
 func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
@@ -224,6 +240,7 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 		srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/"+action, handleSQLInstanceAction(action))
 	}
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/clone", handleSQLCloneInstance)
+	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/restoreBackup", handleSQLRestoreBackup)
 
 	// instances action POSTs with bespoke response shapes.
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/executeSql", handleSQLExecuteSql)
@@ -264,18 +281,41 @@ func handleSQLInsertBackupRun(w http.ResponseWriter, r *http.Request) {
 	id := time.Now().UTC().UnixNano()
 	now := nowTimestamp()
 	br := SQLBackupRun{
-		Kind:         "sql#backupRun",
-		ID:           id,
-		Instance:     instance,
-		Status:       "SUCCESSFUL", // inline-settle (state machine documented on the type)
+		Kind:     "sql#backupRun",
+		ID:       id,
+		Instance: instance,
+		// The run answers ENQUEUED and settles once the instance's volume is
+		// captured — real work backs the state machine now: the capture is
+		// copy-on-write where the engine's volume store supports block
+		// cloning, and a full copy elsewhere.
+		Status:       "ENQUEUED",
 		EnqueuedTime: now,
-		StartTime:    now,
-		EndTime:      now,
 		Type:         "ON_DEMAND",
 		SelfLink:     gcpSelfLink(r, sqlAPIPrefix(r)+"/projects/"+project+"/instances/"+instance+"/backupRuns/"+strconv.FormatInt(id, 10)),
 	}
 	sqlBackupRuns.Put(sqlBackupRunKey(project, instance, id), br)
-	op := newSQLOperation(project, "BACKUP_VOLUME", instance)
+	op := newSQLOperationRunning(project, "BACKUP_VOLUME", instance)
+	opName := op.Name
+	simGo(func() {
+		sqlBackupRuns.Update(sqlBackupRunKey(project, instance, id), func(b *SQLBackupRun) {
+			b.Status = "RUNNING"
+			b.StartTime = nowTimestamp()
+		})
+		captureErr := sqlCaptureVolume(project, instance, sqlBackupRunVolume(project, instance, id))
+		status := "SUCCESSFUL"
+		if captureErr != nil {
+			status = "FAILED"
+		}
+		if !sqlBackupRuns.Update(sqlBackupRunKey(project, instance, id), func(b *SQLBackupRun) {
+			b.Status = status
+			b.EndTime = nowTimestamp()
+		}) {
+			// The run was deleted while its capture ran; the volume, if the
+			// capture made one, goes with it.
+			sqlRemoveBackupVolume(sqlBackupRunVolume(project, instance, id))
+		}
+		sqlSettleOperation(project, opName, captureErr)
+	})
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -323,6 +363,7 @@ func handleSQLDeleteBackupRun(w http.ResponseWriter, r *http.Request) {
 			"backupRun %q on instance %q not found", sim.PathParam(r, "id"), instance)
 		return
 	}
+	sqlRemoveBackupVolume(sqlBackupRunVolume(project, instance, id))
 	op := newSQLOperation(project, "DELETE_BACKUP", instance)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -371,8 +412,31 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 	cloned := src
 	cloned.Name = dest
 	cloned.SelfLink = gcpSelfLink(r, sqlAPIPrefix(r)+"/projects/"+project+"/instances/"+dest)
+	// The clone carries the source's users, their credentials, and — through
+	// the volume clone below — its data, as a Cloud SQL clone does.
+	for _, u := range sqlUsers.List() {
+		if u.Project != project || u.Instance != source {
+			continue
+		}
+		clonedUser := u
+		clonedUser.Instance = dest
+		sqlUsers.Put(sqlUserKey(project, dest, u.Host, u.Name), clonedUser)
+		if credential, ok := sqlUserSecrets.Get(sqlUserKey(project, source, u.Host, u.Name)); ok {
+			sqlUserSecrets.Put(sqlUserKey(project, dest, u.Host, u.Name), credential)
+		}
+	}
+	installed, installErr := sqlInstallDataPlane(&cloned)
+	if installErr != nil || !installed {
+		cloned.IpAddresses = []map[string]any{
+			{"type": "PRIMARY", "ipAddress": "10.0.0.1"},
+		}
+	}
 	sqlInstances.Put(sqlInstanceKey(project, dest), cloned)
-	op := newSQLOperation(project, "CLONE", dest)
+	op := newSQLOperationRunning(project, "CLONE", dest)
+	opName := op.Name
+	simGo(func() {
+		sqlSettleOperation(project, opName, sqlCloneVolume(project, source, dest))
+	})
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -430,6 +494,53 @@ func newSQLOperation(project, opType, targetID string) SQLOperation {
 		sqlOperations.Put(sqlOperationKey(project, op.Name), op)
 	}
 	return op
+}
+
+// SQLOperationErrorList is the sql#operationErrors envelope a failed
+// operation carries.
+type SQLOperationErrorList struct {
+	Kind   string              `json:"kind"`
+	Errors []SQLOperationError `json:"errors"`
+}
+
+type SQLOperationError struct {
+	Kind    string `json:"kind"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// newSQLOperationRunning mints a RUNNING operation for work that settles in
+// the background — a backup capturing a volume, a restore cloning one back.
+// Clients poll operations.get until DONE, exactly as against Cloud SQL.
+func newSQLOperationRunning(project, opType, targetID string) SQLOperation {
+	op := SQLOperation{
+		Kind:          "sql#operation",
+		Name:          generateUUID(),
+		OperationType: opType,
+		Status:        "RUNNING",
+		TargetProject: project,
+		TargetID:      targetID,
+		InsertTime:    nowTimestamp(),
+	}
+	sqlOperations.Put(sqlOperationKey(project, op.Name), op)
+	return op
+}
+
+// sqlSettleOperation completes a RUNNING operation, recording the failure —
+// in the sql#operationErrors shape — when the work it tracked failed.
+func sqlSettleOperation(project, name string, workErr error) {
+	sqlOperations.Update(sqlOperationKey(project, name), func(op *SQLOperation) {
+		op.Status = "DONE"
+		op.EndTime = nowTimestamp()
+		if workErr != nil {
+			op.Error = &SQLOperationErrorList{
+				Kind: "sql#operationErrors",
+				Errors: []SQLOperationError{{
+					Kind: "sql#operationError", Code: "INTERNAL_ERROR", Message: workErr.Error(),
+				}},
+			}
+		}
+	})
 }
 
 func handleSQLGetOperation(w http.ResponseWriter, r *http.Request) {
@@ -509,11 +620,17 @@ func copySQLServerUserDetails(details *SQLServerUserDetails, roles []string) *SQ
 
 func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
-	var req SQLInstance
-	if err := sim.ReadJSON(r, &req); err != nil {
+	var wire struct {
+		SQLInstance
+		// rootPassword is write-only on the wire: it becomes the built-in
+		// admin user's credential and never appears in a response.
+		RootPassword string `json:"rootPassword"`
+	}
+	if err := sim.ReadJSON(r, &wire); err != nil {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
+	req := wire.SQLInstance
 	if req.Name == "" {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
 		return
@@ -531,12 +648,50 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 		DatabaseCenterIntegrationEnabled: req.DatabaseCenterIntegrationEnabled,
 		OnPremisesConfiguration:          sqlOnPremisesConfiguration(req.OnPremisesConfiguration),
 		Settings:                         req.Settings,
-		IpAddresses: []map[string]any{
+		SelfLink:                         gcpSelfLink(r, fmt.Sprintf("%s/projects/%s/instances/%s", sqlAPIPrefix(r), project, req.Name)),
+	}
+	// The PRIMARY address is a listener this process owns at the engine's
+	// conventional port. A host that cannot provide one (no container
+	// runtime, or no loopback address offers the port) leaves the instance
+	// modeled with the nominal address the slice always fabricated — said
+	// out loud below, never silently.
+	installed, err := sqlInstallDataPlane(&inst)
+	if err != nil || !installed {
+		inst.IpAddresses = []map[string]any{
 			{"type": "PRIMARY", "ipAddress": "10.0.0.1"},
-		},
-		SelfLink: gcpSelfLink(r, fmt.Sprintf("%s/projects/%s/instances/%s", sqlAPIPrefix(r), project, req.Name)),
+		}
+		if family, hasEngine := sqlEngineFamily(inst.DatabaseVersion); hasEngine {
+			reason := "this simulator was started API-only"
+			if err != nil {
+				reason = err.Error()
+			} else if sim.RequireContainerRuntime("the Cloud SQL data plane") == nil {
+				reason = "the host offers no loopback address at the engine's port"
+			}
+			fmt.Fprintf(os.Stderr, "[sim-cloudsql] instance %s/%s (%s) is modeled without a data plane: %s\n",
+				project, req.Name, family, reason)
+		}
 	}
 	sqlInstances.Put(sqlInstanceKey(project, req.Name), inst)
+	// The built-in admin user Cloud SQL creates with the instance — postgres
+	// for PostgreSQL, root for MySQL — listed by users.list like any other.
+	if family, ok := sqlEngineFamily(inst.DatabaseVersion); ok {
+		admin := sqlBuiltInAdminUser(family)
+		host := ""
+		if family == "mysql" {
+			host = "%"
+		}
+		sqlUsers.Put(sqlUserKey(project, req.Name, host, admin), SQLUser{
+			Name: admin, Instance: req.Name, Project: project, Host: host, Type: "BUILT_IN",
+		})
+		if wire.RootPassword != "" {
+			sealed, sealErr := sqlSealSecret(wire.RootPassword)
+			if sealErr != nil {
+				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal root credential: %s", sealErr.Error())
+				return
+			}
+			sqlUserSecrets.Put(sqlUserKey(project, req.Name, host, admin), sqlUserCredential{Sealed: sealed})
+		}
+	}
 	op := newSQLOperation(project, "CREATE", req.Name)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -637,6 +792,7 @@ func handleSQLDeleteInstance(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
+	sqlStopDataPlane(project, name, true)
 	// Cascade-clear databases + users.
 	for _, d := range sqlDatabases.List() {
 		if d.Instance == name && d.Project == project {
@@ -648,6 +804,16 @@ func handleSQLDeleteInstance(w http.ResponseWriter, r *http.Request) {
 			key := sqlUserKey(project, name, u.Host, u.Name)
 			sqlUsers.Delete(key)
 			sqlUserSecrets.Delete(key)
+		}
+	}
+	// Backup runs belong to the instance and go with it, volumes included —
+	// the retained projects/{project}/backups resources survive, which is
+	// their whole point.
+	for _, b := range sqlBackupRuns.List() {
+		if b.Instance == name {
+			if sqlBackupRuns.Delete(sqlBackupRunKey(project, name, b.ID)) {
+				sqlRemoveBackupVolume(sqlBackupRunVolume(project, name, b.ID))
+			}
 		}
 	}
 	op := newSQLOperation(project, "DELETE", name)
@@ -678,6 +844,10 @@ func handleSQLInsertDatabase(w http.ResponseWriter, r *http.Request) {
 		SelfLink: gcpSelfLink(r, fmt.Sprintf("%s/projects/%s/instances/%s/databases/%s", sqlAPIPrefix(r), project, instance, req.Name)),
 	}
 	sqlDatabases.Put(sqlDatabaseKey(project, instance, req.Name), db)
+	if err := sqlReconcileIfRunning(project, instance); err != nil {
+		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "create database in the engine: %s", err.Error())
+		return
+	}
 	op := newSQLOperation(project, "CREATE_DATABASE", req.Name)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -716,6 +886,10 @@ func handleSQLDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	key := sqlDatabaseKey(project, instance, name)
 	if !sqlDatabases.Delete(key) {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database not found: %s", name)
+		return
+	}
+	if err := sqlEngineDropDatabaseIfRunning(project, instance, name); err != nil {
+		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "drop database from the engine: %s", err.Error())
 		return
 	}
 	op := newSQLOperation(project, "DELETE_DATABASE", name)
@@ -757,7 +931,18 @@ func handleSQLInsertUser(w http.ResponseWriter, r *http.Request) {
 		SQLServerUserDetails: copySQLServerUserDetails(req.SQLServerUserDetails, serverRoles),
 	}
 	sqlUsers.Put(sqlUserKey(project, instance, req.Host, req.Name), u)
-	sqlUserSecrets.Put(sqlUserKey(project, instance, req.Host, req.Name), sqlUserCredential{Password: wire.Password})
+	if wire.Password != "" {
+		sealed, err := sqlSealSecret(wire.Password)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal user credential: %s", err.Error())
+			return
+		}
+		sqlUserSecrets.Put(sqlUserKey(project, instance, req.Host, req.Name), sqlUserCredential{Sealed: sealed})
+	}
+	if err := sqlReconcileIfRunning(project, instance); err != nil {
+		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "apply user to the database engine: %s", err.Error())
+		return
+	}
 	op := newSQLOperation(project, "CREATE_USER", req.Name)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -843,7 +1028,16 @@ func handleSQLUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	sqlUsers.Put(sqlUserKey(project, instance, current.Host, current.Name), current)
 	if wire.Password != "" {
-		sqlUserSecrets.Put(sqlUserKey(project, instance, current.Host, current.Name), sqlUserCredential{Password: wire.Password})
+		sealed, err := sqlSealSecret(wire.Password)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal user credential: %s", err.Error())
+			return
+		}
+		sqlUserSecrets.Put(sqlUserKey(project, instance, current.Host, current.Name), sqlUserCredential{Sealed: sealed})
+	}
+	if err := sqlReconcileIfRunning(project, instance); err != nil {
+		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "apply user to the database engine: %s", err.Error())
+		return
 	}
 	op := newSQLOperation(project, "UPDATE_USER", name)
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -866,6 +1060,10 @@ func handleSQLDeleteUser(w http.ResponseWriter, r *http.Request) {
 	key := sqlUserKey(project, instance, u.Host, u.Name)
 	sqlUsers.Delete(key)
 	sqlUserSecrets.Delete(key)
+	if err := sqlEngineDropUserIfRunning(project, instance, u.Name); err != nil {
+		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "drop user from the database engine: %s", err.Error())
+		return
+	}
 	op := newSQLOperation(project, "DELETE_USER", name)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -976,6 +1174,82 @@ var sqlInstanceActionOpType = map[string]string{
 	"performDiskShrink":           "SHRINK_DISK",
 	"preCheckMajorVersionUpgrade": "PRE_CHECK_MAJOR_VERSION_UPGRADE",
 	"rescheduleMaintenance":       "RESCHEDULE_MAINTENANCE",
+}
+
+// handleSQLRestoreBackup restores a backup onto the instance: the engine is
+// stopped, its data volume replaced with a clone of the backup's, and the
+// next connection boots on the restored data. The RESTORE_VOLUME operation
+// runs until the swap completes, as on Cloud SQL.
+func handleSQLRestoreBackup(w http.ResponseWriter, r *http.Request) {
+	project := sim.PathParam(r, "project")
+	instance := sim.PathParam(r, "instance")
+	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		return
+	}
+	var req struct {
+		RestoreBackupContext struct {
+			BackupRunID json.Number `json:"backupRunId"`
+			InstanceID  string      `json:"instanceId"`
+			Project     string      `json:"project"`
+		} `json:"restoreBackupContext"`
+		// The projects/{project}/backups form names the retained backup.
+		Backup string `json:"backup"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		return
+	}
+	var backupVolume string
+	switch {
+	case req.RestoreBackupContext.BackupRunID != "":
+		id, err := req.RestoreBackupContext.BackupRunID.Int64()
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "backupRunId must be an int64: %s", req.RestoreBackupContext.BackupRunID)
+			return
+		}
+		sourceInstance := defaultStr(req.RestoreBackupContext.InstanceID, instance)
+		sourceProject := defaultStr(req.RestoreBackupContext.Project, project)
+		run, ok := sqlBackupRuns.Get(sqlBackupRunKey(sourceProject, sourceInstance, id))
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backupRun %d on instance %q not found", id, sourceInstance)
+			return
+		}
+		if run.Status != "SUCCESSFUL" {
+			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				"backupRun %d is %s; it must be SUCCESSFUL to restore", id, run.Status)
+			return
+		}
+		backupVolume = sqlBackupRunVolume(sourceProject, sourceInstance, id)
+	case req.Backup != "":
+		parts := strings.Split(req.Backup, "/")
+		backupID := parts[len(parts)-1]
+		backupProject := project
+		if len(parts) >= 2 && parts[0] == "projects" {
+			backupProject = parts[1]
+		}
+		backup, ok := sqlBackups.Get(sqlBackupKey(backupProject, backupID))
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", req.Backup)
+			return
+		}
+		if backup.State != "SUCCESSFUL" {
+			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				"backup %s is %s; it must be SUCCESSFUL to restore", req.Backup, backup.State)
+			return
+		}
+		backupVolume = sqlBackupVolume(backupProject, backupID)
+	default:
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"restoreBackupContext.backupRunId or backup is required")
+		return
+	}
+	op := newSQLOperationRunning(project, "RESTORE_VOLUME", instance)
+	opName := op.Name
+	simGo(func() {
+		sqlSettleOperation(project, opName, sqlRestoreVolume(project, instance, backupVolume))
+	})
+	sim.WriteJSON(w, http.StatusOK, op)
 }
 
 // handleSQLInstanceAction returns a handler for one instances.* action verb
@@ -1365,15 +1639,31 @@ func handleSQLCreateBackup(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
+	if req.Instance == "" {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "instance is required")
+		return
+	}
+	// The backups resource names its instance by full resource name
+	// (projects/{project}/instances/{instance}); the bare name also appears
+	// in the wild.
+	instanceParts := strings.Split(req.Instance, "/")
+	instanceName := instanceParts[len(instanceParts)-1]
+	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instanceName)); !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", req.Instance)
+		return
+	}
 	id := strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 	now := nowTimestamp()
 	b := SQLBackup{
-		Kind:            "sql#backup",
-		Name:            fmt.Sprintf("projects/%s/backups/%s", project, id),
-		Instance:        req.Instance,
-		Description:     req.Description,
-		Location:        defaultStr(req.Location, "us"),
-		State:           "SUCCESSFUL",
+		Kind:        "sql#backup",
+		Name:        fmt.Sprintf("projects/%s/backups/%s", project, id),
+		Instance:    req.Instance,
+		Description: req.Description,
+		Location:    defaultStr(req.Location, "us"),
+		// The backup answers ENQUEUED and settles once the instance's
+		// volume is captured, like a backup run — it is one, retained at
+		// the project scope.
+		State:           "ENQUEUED",
 		Type:            defaultStr(req.Type, "ON_DEMAND"),
 		BackupKind:      "SNAPSHOT",
 		DatabaseVersion: req.DatabaseVersion,
@@ -1381,7 +1671,21 @@ func handleSQLCreateBackup(w http.ResponseWriter, r *http.Request) {
 		SelfLink:        gcpSelfLink(r, sqlAPIPrefix(r)+"/projects/"+project+"/backups/"+id),
 	}
 	sqlBackups.Put(sqlBackupKey(project, id), b)
-	op := newSQLOperation(project, "CREATE_BACKUP", id)
+	op := newSQLOperationRunning(project, "CREATE_BACKUP", id)
+	opName := op.Name
+	simGo(func() {
+		captureErr := sqlCaptureVolume(project, instanceName, sqlBackupVolume(project, id))
+		state := "SUCCESSFUL"
+		if captureErr != nil {
+			state = "FAILED"
+		}
+		if !sqlBackups.Update(sqlBackupKey(project, id), func(backup *SQLBackup) {
+			backup.State = state
+		}) {
+			sqlRemoveBackupVolume(sqlBackupVolume(project, id))
+		}
+		sqlSettleOperation(project, opName, captureErr)
+	})
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1437,6 +1741,7 @@ func handleSQLDeleteBackup(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", id)
 		return
 	}
+	sqlRemoveBackupVolume(sqlBackupVolume(project, id))
 	op := newSQLOperation(project, "DELETE_BACKUP", id)
 	sim.WriteJSON(w, http.StatusOK, op)
 }

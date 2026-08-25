@@ -1,5 +1,87 @@
 # WHAT WE DID
 
+## 2026-08-25, eighteenth pass — database data planes for Cloud SQL and Azure PostgreSQL, and backups that carry the data
+
+BUG-74's port turned out to have a precondition Amazon RDS never faced:
+neither Cloud SQL nor the Azure flexible servers had a data plane at all —
+instances answered a fabricated `10.0.0.1` or a nominal FQDN with no
+listener, no engine and no volume behind them. Both slices now run the
+architecture `rds_dataplane.go` established, each implemented in its own
+module against its own cloud's semantics.
+
+**Cloud SQL (simulator-gcp).** An instance's `ipAddresses` PRIMARY address is
+a listener the simulator owns at the engine's conventional port — the Cloud
+SQL Admin API carries no port field, so the port is part of the contract:
+per-instance loopback addresses where the host provides them (Linux does),
+127.0.0.1 as the last resort, and a loudly-logged modeled tier where neither
+exists (macOS refuses loopback aliases without root). The first client
+connection boots a real PostgreSQL or MySQL container on the named volume
+sockerless-cloudsql-<project>-<instance>; the front proxy owns TLS and
+authentication and relays bytes. Identity is real end to end: `rootPassword`
+— which the simulator had silently dropped while gcloud was already sending
+it — becomes the built-in admin user's credential (postgres / root, listed by
+users.list as on Google Cloud), every credential is sealed under a
+Cloud-SQL-owned key in the simulator's own Cloud KMS slice — user passwords
+had been stored in cleartext — and the users and databases the Admin API
+declares are reconciled into the engine as real roles and databases, so a
+session runs as the user the client named. Secret Manager's managed rotation
+rotates the real engine password through the same path.
+
+Backups carry the data: backupRuns and the retained projects/backups capture
+the instance volume through `sim.SnapshotVolume` (one `cp -a --reflink=auto`
+— copy-on-write on btrfs/XFS-reflink/OpenZFS block cloning, a full copy
+elsewhere, one code path), `instances.restoreBackup` — previously a no-op
+verb that discarded its request body — stops the engine, clones the backup
+volume back over the instance's, and the next connection boots on the
+restored data; clone copies users, credentials and the data volume; deleting
+a backup or the instance removes the volumes. The affected operations are
+genuinely asynchronous now — BACKUP_VOLUME / RESTORE_VOLUME / CREATE_BACKUP /
+CLONE answer RUNNING and settle to DONE, carrying the sql#operationErrors
+envelope on failure — which is the loop gcloud and terraform actually run.
+Proven end to end by stock drivers on both engine families
+(TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt via pgx,
+TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt via
+go-sql-driver): rows from before the backup present after restore, rows from
+after it absent, and current_user is the declared user. The full GCP SDK
+suite ran clean with the spec validator armed, the CLI suite passed, and the
+terraform suite passed in the Linux container harness.
+
+**Azure PostgreSQL Flexible Server (simulator-azure).** The same
+architecture, in Azure's terms: a per-server loopback listener at 5432 whose
+address the server's fullyQualifiedDomainName resolves to through the
+simulator's own DNS server (the PG slice registers per-name A records;
+serving stays opt-in via SIM_AZURE_DNS_LISTEN_ADDR), a real PostgreSQL engine
+on the volume sockerless-azurepg-<rg>-<name>, and
+`administratorLoginPassword` stripped from stored properties — it had been
+persisted and echoed back on GET, which real ARM never does — and sealed
+under a service-managed key, Azure's default data-encryption mode.
+`require_secure_transport` is enforced ON by default: a plaintext startup is
+refused with SQLSTATE 28000 unless the server's configuration turns it OFF.
+On-demand backups capture the server volume through the operation's own LRO
+(completedTime lands when the capture settles; a failed capture fails the
+LRO and withdraws the backup), and `createMode=PointInTimeRestore` clones the
+newest backup at or before pointInTimeUTC — else the source's live volume,
+a restore at the latest restorable time — into the new server before its
+data plane installs, with the source's sealed credential carried over.
+Declared databases are reconciled into the engine; PATCH rotates the admin
+password through ALTER ROLE. Proven by
+TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt through
+raw ARM requests plus pgx resolving the FQDN through the simulator's DNS;
+the full flow runs on Linux, and on macOS the test exercises everything up
+to the restored server's second loopback alias before the documented
+kernel-capability skip.
+
+Both simulators gained the shared plumbing this needed, each its own copy:
+PublishPorts on ContainerConfig, the persistent-container reclaim helpers
+(FindExistingContainers/AdoptContainer/StartExistingContainer), the volume
+lifecycle (RemoveVolume/VolumeExists), volume_snapshot.go, NoopSink, and
+RequireContainerRuntime; simulator-gcp also gained the counted-background-
+work tracker (simGo/AwaitSimulatorBackground) the AWS simulator already had,
+and simulator-azure's DNS server answers registered per-name records. Both
+control planes recover their data planes across a persistent restart by
+re-binding recorded addresses and adopting the engine containers an earlier
+process left running.
+
 ## 2026-08-24, seventeenth pass — RDS snapshots carry the data, copy-on-write where the filesystem allows
 
 Amazon RDS snapshots were metadata: CreateDBSnapshot recorded a row and

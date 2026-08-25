@@ -143,7 +143,9 @@ func handlePGListServersBySub(w http.ResponseWriter, r *http.Request) {
 
 func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	id := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+	rg := sim.PathParam(r, "resourceGroupName")
+	name := sim.PathParam(r, "name")
+	id := pgServerID(sub, rg, name)
 	if _, ok := pgServers.Get(id); !ok {
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
 		return
@@ -156,6 +158,27 @@ func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &req); err != nil {
 		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
+	}
+	// administratorLoginPassword is write-only (x-ms-secret): a PATCH that
+	// carries it rotates the sealed credential and never stores it in the
+	// properties a GET echoes back.
+	var rotatedPassword string
+	var rotate bool
+	if req.Properties != nil {
+		if pw, isString := req.Properties["administratorLoginPassword"].(string); isString {
+			rotatedPassword = pw
+			rotate = pw != ""
+		}
+		delete(req.Properties, "administratorLoginPassword")
+	}
+	if rotate {
+		sealed, err := azurePGSealSecret(rotatedPassword)
+		if err != nil {
+			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+				"seal administrator credential: %v", err)
+			return
+		}
+		pgServerCredentials.Put(azurePGServerKey(rg, name), pgServerCredential{Sealed: sealed})
 	}
 	pgServers.Update(id, func(stored *PGFlexibleServer) {
 		if req.Tags != nil {
@@ -172,6 +195,20 @@ func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	location := pgServerLocation(id)
+	if rotate {
+		// A server that gains its first credential through PATCH gets its
+		// data plane now; a running engine applies the rotation through the
+		// update's own long-running operation.
+		azurePGInstallOrExplain(sub, rg, name)
+		opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+			if err := azurePGRotateAdminPasswordIfRunning(sub, rg, name, rotatedPassword); err != nil {
+				return &AsyncOperationError{Code: "PasswordRotationFailed", Message: err.Error()}
+			}
+			return nil
+		})
+		pgWriteAsyncAccepted(w, r, sub, location, opID)
+		return
+	}
 	pgWriteAsyncAccepted(w, r, sub, location, issueAzureAsyncOperation(nil))
 }
 
@@ -333,7 +370,9 @@ func handlePGGetBackup(w http.ResponseWriter, r *http.Request) {
 
 func handlePGCreateBackup(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	serverID := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+	rg := sim.PathParam(r, "resourceGroupName")
+	serverName := sim.PathParam(r, "name")
+	serverID := pgServerID(sub, rg, serverName)
 	if _, ok := pgServers.Get(serverID); !ok {
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
@@ -344,23 +383,49 @@ func handlePGCreateBackup(w http.ResponseWriter, r *http.Request) {
 		Name: backupName,
 		Type: "Microsoft.DBforPostgreSQL/flexibleServers/backups",
 		Properties: map[string]any{
-			"backupType":    "Customer On-Demand",
-			"completedTime": time.Now().UTC().Format(time.RFC3339Nano),
-			"source":        "Full",
+			"backupType": "Customer On-Demand",
+			"source":     "Full",
 		},
 	}
 	pgBackups.Put(b.ID, b)
-	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), issueAzureAsyncOperation(nil))
+	// The capture runs through the backup's own long-running operation —
+	// completedTime lands, and the poll succeeds, only once the server's
+	// volume is actually captured. A failed capture fails the operation and
+	// withdraws the backup.
+	backupVolume := azurePGBackupVolume(rg, serverName, backupName)
+	opID := issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
+		if err := azurePGCaptureVolume(rg, serverName, backupVolume); err != nil {
+			pgBackups.Delete(b.ID)
+			azurePGRemoveBackupVolume(backupVolume)
+			return &AsyncOperationError{Code: "BackupFailed", Message: err.Error()}
+		}
+		if !pgBackups.Update(b.ID, func(backup *PGBackup) {
+			if backup.Properties == nil {
+				backup.Properties = map[string]any{}
+			}
+			backup.Properties["completedTime"] = time.Now().UTC().Format(time.RFC3339Nano)
+		}) {
+			// The backup was deleted while its capture ran; the volume, if
+			// the capture made one, goes with it.
+			azurePGRemoveBackupVolume(backupVolume)
+		}
+		return nil
+	})
+	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), opID)
 }
 
 func handlePGDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	serverID := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
-	id := pgBackupID(serverID, sim.PathParam(r, "backupName"))
+	rg := sim.PathParam(r, "resourceGroupName")
+	serverName := sim.PathParam(r, "name")
+	serverID := pgServerID(sub, rg, serverName)
+	backupName := sim.PathParam(r, "backupName")
+	id := pgBackupID(serverID, backupName)
 	if !pgBackups.Delete(id) {
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "backup not found")
 		return
 	}
+	azurePGRemoveBackupVolume(azurePGBackupVolume(rg, serverName, backupName))
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), issueAzureAsyncOperation(nil))
 }
 

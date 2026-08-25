@@ -460,10 +460,20 @@ func smApplyManagedRotation(secretName string, record smManagedRotationRecord, p
 	if !ok {
 		return SecretVersion{}, fmt.Errorf("managed rotation could not find Cloud SQL user %s on instance %s", record.Username, record.InstanceID)
 	}
+	sealed, err := sqlSealSecret(password)
+	if err != nil {
+		return SecretVersion{}, fmt.Errorf("seal rotated credential: %w", err)
+	}
 	sqlUserSecrets.Put(
 		sqlUserKey(record.Project, record.InstanceID, user.Host, user.Name),
-		sqlUserCredential{Password: password},
+		sqlUserCredential{Sealed: sealed},
 	)
+	// A rotated credential reaches the running engine the same way a
+	// users.update does, so the database accepts the new password the
+	// secret version now carries.
+	if err := sqlReconcileIfRunning(record.Project, record.InstanceID); err != nil {
+		return SecretVersion{}, fmt.Errorf("apply rotated credential to the database engine: %w", err)
+	}
 	return smAddVersionPayload(secretName, []byte(password), false, 0)
 }
 

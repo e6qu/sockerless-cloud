@@ -17,6 +17,11 @@ type LogSink interface {
 	WriteLog(line LogLine)
 }
 
+// NoopSink discards all log output.
+type NoopSink struct{}
+
+func (NoopSink) WriteLog(LogLine) {}
+
 // ProcessResult is returned when a workload completes.
 type ProcessResult struct {
 	ExitCode  int

@@ -55,6 +55,12 @@ var (
 	ctx                = context.Background()
 	subscriptionID     = "00000000-0000-0000-0000-000000000001"
 
+	// simAzureDNSAddr is the simulator's DNS front (SIM_AZURE_DNS_LISTEN_ADDR).
+	// Tests that dial a resource by its advertised hostname — a PostgreSQL
+	// flexible server's fullyQualifiedDomainName — resolve it here, the way a
+	// deployment points its resolver at the simulator.
+	simAzureDNSAddr string
+
 	// azureFilesDataDir is where the simulator materializes every Azure Files
 	// share: <dir>/<account>/<share>. It is the directory a Container Apps
 	// workload's Volume{StorageType: AzureFile} bind-mounts, so it is where a
@@ -186,6 +192,14 @@ func TestMain(m *testing.M) {
 	amqpLn.Close()
 	sbAMQPEndpoint = fmt.Sprintf("127.0.0.1:%d", amqpPort)
 
+	dnsLn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		log.Fatalf("Failed to find free DNS port: %v", err)
+	}
+	dnsPort := dnsLn.LocalAddr().(*net.UDPAddr).Port
+	dnsLn.Close()
+	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
+
 	certDir, err := os.MkdirTemp("", "sockerless-servicebus-amqp-tls-*")
 	if err != nil {
 		log.Fatalf("Failed to create Service Bus AMQP cert dir: %v", err)
@@ -208,6 +222,7 @@ func TestMain(m *testing.M) {
 		fmt.Sprintf("SIM_SERVICEBUS_AMQP_TLS_CERT=%s", certPath),
 		fmt.Sprintf("SIM_SERVICEBUS_AMQP_TLS_KEY=%s", keyPath),
 		"SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON="+advertisedEndpoints,
+		"SIM_AZURE_DNS_LISTEN_ADDR="+simAzureDNSAddr,
 	)
 	simCmd.Stdout = os.Stdout
 	simCmd.Stderr = os.Stderr
