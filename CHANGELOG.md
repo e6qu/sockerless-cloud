@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/e6qu/sockerless-cloud/compare/v0.19.0...v0.20.0) (2026-08-25)
+
+
+### Features
+
+* **gates:** drift locks for all three clouds, honest AWS gates, and Azure PostgreSQL stops faking ([#77](https://github.com/e6qu/sockerless-cloud/issues/77)) ([ddb0b66](https://github.com/e6qu/sockerless-cloud/commit/ddb0b6666e8b5a17ecce16e88dcfcbae1bf43a44))
+
 ## [0.19.0](https://github.com/e6qu/sockerless-cloud/compare/v0.18.1...v0.19.0) (2026-08-25)
 
 
