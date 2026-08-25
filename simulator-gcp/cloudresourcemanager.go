@@ -816,19 +816,16 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 	srv.HandleFunc("GET /v3/operations/{operation}", crmGetOperation)
 
 	// Cloud Billing projects.getBillingInfo: google_project's terraform
-	// Read calls it unconditionally; a project with no billing account
-	// returns an empty billingAccountName with billing disabled.
+	// Read calls it unconditionally. The answer comes from the same link
+	// store projects.updateBillingInfo writes, so the two halves of the
+	// surface never disagree; a project with no link returns an empty
+	// billingAccountName with billing disabled.
 	srv.HandleFunc("GET /v1/projects/{project}/billingInfo", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := crmResolveProject(sim.PathParam(r, "project"))
 		if !ok {
 			crmProjectPermissionDenied(w)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"name":               "projects/" + p.ProjectId + "/billingInfo",
-			"projectId":          p.ProjectId,
-			"billingAccountName": "",
-			"billingEnabled":     false,
-		})
+		sim.WriteJSON(w, http.StatusOK, billingProjectInfo(p.ProjectId))
 	})
 }

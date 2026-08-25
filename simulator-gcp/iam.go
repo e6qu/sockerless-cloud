@@ -1056,6 +1056,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	crmLiens = sim.MakeStore[CRMLien](srv.DB(), "crm_liens")
 	crmOrgPolicies = sim.MakeStore[CRMOrgPolicyRow](srv.DB(), "crm_org_policies")
 	registerCloudResourceManagerV1(srv, projectPolicies, resourcePolicies)
+	registerCloudBilling(srv, resourcePolicies)
 	registerCloudResourceManagerV2(srv, resourcePolicies)
 	tagKeys := sim.MakeStore[CRMTagKey](srv.DB(), "crm_tag_keys")
 	tagValues := sim.MakeStore[CRMTagValue](srv.DB(), "crm_tag_values")

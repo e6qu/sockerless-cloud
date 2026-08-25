@@ -28,7 +28,7 @@ Surface registered in `simulator-gcp/cloudresourcemanager.go` (and related files
 | `DELETE /v1/liens/{lien}` | ✓ `simulator-gcp/cloudresourcemanager.go:810::crmDeleteLien` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/operations/{operation}` | ✓ `simulator-gcp/cloudresourcemanager.go:815::crmGetOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v3/operations/{operation}` | ✓ `simulator-gcp/cloudresourcemanager.go:816::crmGetOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/billingInfo` | ✓ `simulator-gcp/cloudresourcemanager.go:821::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/billingInfo` | ✓ `simulator-gcp/cloudresourcemanager.go:823::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

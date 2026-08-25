@@ -1,5 +1,37 @@
 # WHAT WE DID
 
+## 2026-08-25, twenty-second pass — Google Cloud Billing fully served
+
+The survey had flagged Cloud Billing as mislabelled: called "declined" in
+the work list while its floor comment recorded plain mux misses, with no
+reasoning on file. The decision came back "implement", and the document
+probes 36 of 36 now.
+
+Billing accounts are real control-plane state: created (top-level or as a
+subaccount of a master), listed with the API's master_billing_account
+filter, patched (display name, the one field the API admits), and moved
+between organizations — through both the POST spelling and the
+organization-scoped GET spelling, exactly as the Discovery document
+declares them. The project link is one store with two doors:
+projects.updateBillingInfo writes it and projects.getBillingInfo — the
+read terraform-provider-google issues on every google_project Read, which
+this simulator already served — reads it, so the two halves can never
+disagree; linking to a closed account is refused, and unlinking disables
+billing. The IAM triple rides the same per-resource policy store as every
+other AIP-141 resource, with the GET getIamPolicy spelling now served
+alongside the POST verbs the generic dispatcher already answered.
+
+The service catalog is the installation's own: services.list names the
+services this simulator hosts under stable identifiers in the API's format,
+and skus.list is served and empty — a SKU carries published pricing, this
+deployment has no price sheet, and an empty catalog is that truth, pinned
+by a test so it never becomes fabricated pricing.
+
+Proven through the real clients: the google.golang.org/api/cloudbilling/v1
+SDK end to end (lifecycle, subaccounts, move, links, IAM, 404s) and gcloud
+billing (accounts list/describe, projects link/describe/list/unlink), with
+the runtime spec validator armed and clean.
+
 ## 2026-08-25, twenty-first pass — the gates tell the truth, and the survey's findings closed
 
 A three-cloud gap survey of the chosen slices found the ratchets green and

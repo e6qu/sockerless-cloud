@@ -86,6 +86,7 @@ Legend:
 | `gcp-artifactregistry` | direct | direct | direct | `simulator-gcp/sdk-tests/artifactregistry_oci_test.go`; `simulator-gcp/cli-tests/artifactregistry_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-bigtable` | direct | direct | direct | `simulator-gcp/sdk-tests/spanner_dataflow_bigtable_test.go`; `simulator-gcp/cli-tests/spanner_dataflow_bigtable_test.go`; `simulator-gcp/terraform-tests/main.tf`; `simulator-gcp/terraform-tests/apply_test.go` |
 | `gcp-bigquery` | direct | direct | direct | `simulator-gcp/sdk-tests/data_saas_test.go`; `simulator-gcp/cli-tests/data_saas_test.go`; `simulator-gcp/terraform-tests/main.tf` |
+| `gcp-cloudbilling` | direct | direct | direct | `simulator-gcp/sdk-tests/cloudbilling_test.go`; `simulator-gcp/cli-tests/cloudbilling_cli_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-cloudbuild` | direct | direct | direct | `simulator-gcp/sdk-tests/build_test.go`; `simulator-gcp/cli-tests/client_surface_audit_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-operations_cancel` | direct | direct | none | `simulator-gcp/sdk-tests/operations_cancel_test.go`; `simulator-gcp/cli-tests/operations_cancel_test.go` (the AIP-151 cancel method across every Google slice that publishes it; no Terraform resource cancels an operation) |
 | `gcp-cloudfunctions` | direct | direct | direct | `simulator-gcp/sdk-tests/functions_sdk_test.go`; `simulator-gcp/cli-tests/functions_test.go`; `simulator-gcp/terraform-tests/main.tf` |
