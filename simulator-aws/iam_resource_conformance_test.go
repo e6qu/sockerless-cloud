@@ -1189,20 +1189,36 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // derivation — no gate code changed — it only stops crediting derivation nobody
 // measured.
 //
-// Amazon EC2's 55: an operation that creates its resource has no identifier for
-// it yet, the Disassociate/Detach family names an association rather than
-// either end of it, CreateTags carries identifiers of mixed types with nothing
-// published to map an id back to its type, and CancelImportTask's one
-// identifier could belong to either type it authorizes against.
+// Amazon EC2's 56: an operation that creates its resource has no identifier
+// for it yet, and CancelImportTask's one identifier could belong to either
+// type it authorizes against. The tag operations and the hottest of the
+// Disassociate/Detach family derive for real callers now — each tagged id's
+// type is stated by its prefix (longest match wins), and a route table,
+// address or network-interface association resolves to its parent through a
+// generation-keyed index over the simulator's own state — but both stay in
+// this count because the probe fills identifiers no prefix map or store can
+// answer; TestIAMResourceARNs_EC2TagsDeriveEachIdFromItsPrefix and
+// TestIAMResourceARNs_EC2ResolvesAssociationsToTheirParents pin the real
+// behaviour. The remaining associations (IAM instance profile, subnet and
+// VPC CIDR blocks) still derive nothing.
 //
-// AWS Glue's 35: the data-quality operations name a result rather than the
-// ruleset they authorize against, and the rest create something that has no
-// identifier yet. Its registry and schema operations, which name their resource
-// inside a nested RegistryId/SchemaId member, derive now.
+// AWS Glue's 25: the data-quality operations name a result or a run rather
+// than the ruleset they authorize against, GetDashboardUrl names a resource
+// by a bare id and a separate type member, and the rest create something
+// that has no identifier yet. The usage profiles, connection types and
+// integrations derive now — a usage profile and a connection type are
+// name-addressed, and an integration is named by an ARN-valued
+// IntegrationIdentifier — and the tagging operations authorize the
+// ResourceArn the caller sends, pinned by
+// TestIAMResourceARNs_GlueTaggingTakesTheARNTheRequestNames.
 //
-// Amazon RDS's 27: the copy operations name a source and a target that does not
-// exist yet, and the custom-engine-version operations need an identifier the
-// request does not carry. The tagging and maintenance operations are counted
+// Amazon RDS's 22: the copy operations derive both of their ends now — the
+// target's ARN is fully determined by the name the request supplies before
+// the resource exists, the same argument that derives an AWS Step Functions
+// create, and an ARN-named cross-region source is authorized as sent —
+// pinned by TestIAMResourceARNs_RDSCopyAuthorizesSourceAndTarget. The
+// custom-engine-version creates still need an identifier the request does
+// not carry. The tagging and maintenance operations are counted
 // here too, but only because the probe fills every field with a placeholder:
 // they name their resource by ARN outright, which a real caller supplies and
 // the gate does read — TestIAMResourceARNs_RDSTakesTheARNTheRequestNames pins
@@ -1231,11 +1247,11 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // store. The tagging operations' ARN-valued ResourceId and ResourceIdList are
 // read now.
 //
-// Amazon ElastiCache's 6: the tagging operations name their target by an
+// Amazon ElastiCache's 4: the tagging operations name their target by an
 // ARN-valued ResourceName a real caller supplies where the probe fills a
-// placeholder, the copy operations name a source and a target that does not
-// exist yet, and CreateGlobalReplicationGroup names a global datastore whose
-// id AWS completes with an assigned prefix no request carries.
+// placeholder, and CreateGlobalReplicationGroup names a global datastore
+// whose id AWS completes with an assigned prefix no request carries. The
+// copy operations derive both of their ends now, like Amazon RDS's.
 //
 // Amazon EC2 Auto Scaling's 4: the tagging operations carry each target inside
 // a nested tag entry rather than under a member of its own, and the two
@@ -1362,7 +1378,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // and pins that a type the service does not declare derives nothing. This is
 // the same measurement gap as the Amazon ECS attribute operations and the
 // Amazon RDS tagging family: real callers derive, the probe cannot say so.
-const iamDerivationCoverageFloor = 1741
+const iamDerivationCoverageFloor = 1758
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1565,6 +1581,12 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		}
 		fmt.Fprintf(&report, "  %-24s %3d operations not derived from the declared type%s\n",
 			service, len(missingByService[service]), note)
+		if os.Getenv("IAM_DERIVATION_LIST_MISSING") != "" {
+			sort.Strings(missingByService[service])
+			for _, op := range missingByService[service] {
+				fmt.Fprintf(&report, "      %s\n", op)
+			}
+		}
 	}
 	t.Log(report.String())
 

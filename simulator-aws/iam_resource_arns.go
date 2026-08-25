@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // Deriving the resource ARN a request names, for the services whose requests
@@ -57,11 +59,11 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 	case "dynamodb":
 		return iamDynamoDBResourceARNs(r, types, region, account)
 	case "ec2":
-		return iamEC2ResourceARNs(r, types, region, account)
+		return iamEC2ResourceARNs(r, op, types, region, account)
 	case "ecs":
 		return iamECSResourceARNs(r, op, types, arn)
 	case "elasticache":
-		return iamElastiCacheResourceARNs(r, types, region, account)
+		return iamElastiCacheResourceARNs(r, op, types, region, account)
 	case "events":
 		return iamEventBridgeResourceARNs(r, types, region, account)
 	case "firehose":
@@ -99,7 +101,7 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 	case "organizations":
 		return iamOrganizationsResourceARNs(r, types)
 	case "rds":
-		return iamRDSResourceARNs(r, types, region, account)
+		return iamRDSResourceARNs(r, op, types, region, account)
 	case "ssm":
 		return iamSSMResourceARNs(r, types, region, account)
 	case "codebuild":
@@ -1035,10 +1037,178 @@ func iamDynamoDBResourceARNs(r *http.Request, types []string, region, account st
 // — a security group's ${SecurityGroupId} arrives as GroupId, a dedicated
 // host's ${DedicatedHostId} as HostId — which is mechanical. The rest are
 // genuine renamings, listed in iamEC2ParameterAliases.
-func iamEC2ResourceARNs(r *http.Request, types []string, region, account string) []string {
+func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	params := iamQueryRequestParameters(r)
-	return iamTableDrivenARNs("ec2", types, region, account, iamEC2ParameterAliases,
-		func(field string) []string { return params[strings.ToLower(field)] })
+	lookup := func(field string) []string { return params[strings.ToLower(field)] }
+
+	// The tag operations carry identifiers of mixed types under one member,
+	// and Amazon EC2's identifiers state their type in their prefix — the
+	// convention every id the API assigns follows (i- an instance, vol- a
+	// volume, tgw-attach- a transit gateway attachment). Longest prefix wins,
+	// an id with no known prefix derives nothing, and each id authorizes
+	// against its own resource's ARN — a grant scoped to one instance must
+	// allow tagging that instance and deny tagging another.
+	// The Disassociate/Detach family names an association rather than either
+	// end of it, and the resource the reference authorizes is the parent the
+	// association belongs to. The parent is resolved through the simulator's
+	// own state — the derived ARN is the one the resource actually has — and
+	// through a generation-keyed index, because this path runs per request
+	// and the association lives inside its parent's row.
+	switch op {
+	case "DisassociateRouteTable":
+		var out []string
+		for _, assoc := range lookup("AssociationId") {
+			if rtb, ok := iamEC2RouteTablesByAssociation.Lookup(ec2RouteTables, assoc, iamEC2RouteTableAssociationKeys); ok {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":route-table/"+rtb.RouteTableId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DisassociateAddress":
+		var out []string
+		for _, assoc := range lookup("AssociationId") {
+			if address, ok := iamEC2ElasticIPsByAssociation.Lookup(ec2ElasticIPs, assoc, iamEC2ElasticIPAssociationKeys); ok {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":elastic-ip/"+address.AllocationId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DetachNetworkInterface":
+		var out []string
+		for _, attachment := range lookup("AttachmentId") {
+			if eni, ok := iamEC2InterfacesByAttachment.Lookup(ec2NetworkInterfaces, attachment, iamEC2InterfaceAttachmentKeys); ok {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":network-interface/"+eni.NetworkInterfaceId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
+
+	if op == "CreateTags" || op == "DeleteTags" {
+		var out []string
+		for _, id := range lookup("ResourceId") {
+			resourceType, known := iamEC2TypeForIDPrefix(id)
+			if !known {
+				continue
+			}
+			format, declared := iamResourceARNFormats["ec2:"+resourceType]
+			if !declared {
+				continue
+			}
+			out = append(out, iamFillARNFormat(format, region, account, []string{id}))
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
+	return iamTableDrivenARNs("ec2", types, region, account, iamEC2ParameterAliases, lookup)
+}
+
+// The association-to-parent lookups the Disassociate/Detach family needs,
+// answered from generation-keyed indexes so a per-request derivation never
+// decodes a whole store.
+var (
+	iamEC2RouteTablesByAssociation sim.GenerationIndex[EC2RouteTable]
+	iamEC2ElasticIPsByAssociation  sim.GenerationIndex[EC2ElasticIP]
+	iamEC2InterfacesByAttachment   sim.GenerationIndex[EC2NetworkInterface]
+)
+
+func iamEC2RouteTableAssociationKeys(rtb EC2RouteTable) []string {
+	keys := make([]string, 0, len(rtb.Associations))
+	for _, association := range rtb.Associations {
+		if association.AssociationId != "" {
+			keys = append(keys, association.AssociationId)
+		}
+	}
+	return keys
+}
+
+func iamEC2ElasticIPAssociationKeys(address EC2ElasticIP) []string {
+	if address.AssociationId == "" {
+		return nil
+	}
+	return []string{address.AssociationId}
+}
+
+func iamEC2InterfaceAttachmentKeys(eni EC2NetworkInterface) []string {
+	if eni.AttachmentId == "" {
+		return nil
+	}
+	return []string{eni.AttachmentId}
+}
+
+// iamEC2IDPrefixTypes maps Amazon EC2's identifier prefixes to the resource
+// types the reference declares. Longer prefixes are matched first, so
+// tgw-attach- resolves before tgw- and vpce-svc- before vpce-.
+var iamEC2IDPrefixTypes = map[string]string{
+	"i-":           "instance",
+	"vol-":         "volume",
+	"snap-":        "snapshot",
+	"ami-":         "image",
+	"sg-":          "security-group",
+	"sgr-":         "security-group-rule",
+	"subnet-":      "subnet",
+	"vpc-":         "vpc",
+	"rtb-":         "route-table",
+	"igw-":         "internet-gateway",
+	"eigw-":        "egress-only-internet-gateway",
+	"acl-":         "network-acl",
+	"eni-":         "network-interface",
+	"dopt-":        "dhcp-options",
+	"eipalloc-":    "elastic-ip",
+	"lt-":          "launch-template",
+	"nat-":         "natgateway",
+	"pcx-":         "vpc-peering-connection",
+	"vpce-":        "vpc-endpoint",
+	"vpce-svc-":    "vpc-endpoint-service",
+	"tgw-":         "transit-gateway",
+	"tgw-attach-":  "transit-gateway-attachment",
+	"tgw-rtb-":     "transit-gateway-route-table",
+	"cgw-":         "customer-gateway",
+	"vgw-":         "vpn-gateway",
+	"vpn-":         "vpn-connection",
+	"fl-":          "vpc-flow-log",
+	"ipam-":        "ipam",
+	"ipam-pool-":   "ipam-pool",
+	"ipam-scope-":  "ipam-scope",
+	"key-":         "key-pair",
+	"pl-":          "prefix-list",
+	"cr-":          "capacity-reservation",
+	"crf-":         "capacity-reservation-fleet",
+	"fleet-":       "fleet",
+	"sfr-":         "spot-fleet-request",
+	"sir-":         "spot-instances-request",
+	"h-":           "dedicated-host",
+	"fpga-":        "fpga-image",
+	"tmf-":         "traffic-mirror-filter",
+	"tms-":         "traffic-mirror-session",
+	"tmt-":         "traffic-mirror-target",
+	"iew-":         "instance-event-window",
+	"vai-":         "verified-access-instance",
+	"vagrp-":       "verified-access-group",
+	"vae-":         "verified-access-endpoint",
+	"vatp-":        "verified-access-trust-provider",
+	"import-ami-":  "import-image-task",
+	"import-snap-": "import-snapshot-task",
+}
+
+// iamEC2TypeForIDPrefix resolves an identifier to its declared resource type
+// by its longest matching prefix.
+func iamEC2TypeForIDPrefix(id string) (string, bool) {
+	bestType, bestLen := "", 0
+	for prefix, resourceType := range iamEC2IDPrefixTypes {
+		if strings.HasPrefix(id, prefix) && len(prefix) > bestLen {
+			bestType, bestLen = resourceType, len(prefix)
+		}
+	}
+	return bestType, bestLen > 0
 }
 
 // iamEC2ParameterAliases maps an ARN format's identifier variable to the
@@ -1466,6 +1636,19 @@ func iamFirehoseResourceARNs(r *http.Request, types []string, region, account st
 // of whichever spelling it uses.
 func iamGlueResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
+	// The tagging operations name their target by ResourceArn outright, which
+	// needs no assembly — the ARN the caller sent is the ARN to authorize
+	// against.
+	var arns []string
+	for _, value := range fields["resourcearn"] {
+		if strings.HasPrefix(value, "arn:") {
+			arns = append(arns, value)
+		}
+	}
+	if len(arns) > 0 {
+		sort.Strings(arns)
+		return arns
+	}
 	return iamTableDrivenARNs("glue", types, region, account, iamGlueFieldAliases,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
@@ -1479,6 +1662,9 @@ func iamGlueResourceARNs(r *http.Request, types []string, region, account string
 // resource type.
 var iamGlueFieldAliases = map[string][]string{
 	"CatalogName":             {"CatalogId"},
+	"ConnectionTypeName":      {"ConnectionType"},
+	"IntegrationId":           {"IntegrationIdentifier"},
+	"UsageProfileId":          {"Name"},
 	"UserDefinedFunctionName": {"FunctionName"},
 }
 
@@ -1566,9 +1752,54 @@ func iamJSONStrings(value json.RawMessage) ([]string, bool) {
 // Two of the twenty-four types carry an identifier no request names — a custom
 // engine version's own id and a proxy target group's — and are resolved through
 // the simulator's state instead, so every one of the twenty-four derives.
-func iamRDSResourceARNs(r *http.Request, types []string, region, account string) []string {
+// iamRDSCopyIdentifierPairs names the two ends a copy operation carries, and
+// iamRDSCopySegments the ARN segment of the type both ends share.
+var iamRDSCopyIdentifierPairs = map[string][2]string{
+	"CopyDBSnapshot":              {"SourceDBSnapshotIdentifier", "TargetDBSnapshotIdentifier"},
+	"CopyDBClusterSnapshot":       {"SourceDBClusterSnapshotIdentifier", "TargetDBClusterSnapshotIdentifier"},
+	"CopyDBParameterGroup":        {"SourceDBParameterGroupIdentifier", "TargetDBParameterGroupIdentifier"},
+	"CopyDBClusterParameterGroup": {"SourceDBClusterParameterGroupIdentifier", "TargetDBClusterParameterGroupIdentifier"},
+	"CopyOptionGroup":             {"SourceOptionGroupIdentifier", "TargetOptionGroupIdentifier"},
+}
+
+var iamRDSCopySegments = map[string]string{
+	"CopyDBSnapshot":              "snapshot",
+	"CopyDBClusterSnapshot":       "cluster-snapshot",
+	"CopyDBParameterGroup":        "pg",
+	"CopyDBClusterParameterGroup": "cluster-pg",
+	"CopyOptionGroup":             "og",
+}
+
+func iamRDSResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	params := iamQueryRequestParameters(r)
 	lookup := func(field string) []string { return params[strings.ToLower(field)] }
+
+	// A copy authorizes both of its ends. The table-driven builder names one
+	// field per format, so the pairs are read here: a bare name fills the
+	// type's published format — the target's ARN is fully determined before
+	// the resource exists, the same argument that derives an AWS Step
+	// Functions create — and a source named by ARN, the cross-region form,
+	// is authorized as sent.
+	if pair, isCopy := iamRDSCopyIdentifierPairs[op]; isCopy {
+		segment := iamRDSCopySegments[op]
+		var ends []string
+		for _, field := range pair {
+			for _, id := range lookup(field) {
+				if id == "" {
+					continue
+				}
+				if strings.HasPrefix(id, "arn:") {
+					ends = append(ends, id)
+					continue
+				}
+				ends = append(ends, "arn:aws:rds:"+region+":"+account+":"+segment+":"+id)
+			}
+		}
+		if len(ends) > 0 {
+			sort.Strings(ends)
+			return ends
+		}
+	}
 
 	// Two of Amazon RDS's ARNs carry an identifier no request ever names. A
 	// custom engine version is addressed by its engine and version, a proxy
@@ -1774,10 +2005,43 @@ func iamEventBridgeEntryBuses(r *http.Request, region, account string) []string 
 // of its twelve resource types is published under the parameter the API sends,
 // so the derivation is the published ARN format and the request, with nothing
 // hand-written in between.
-func iamElastiCacheResourceARNs(r *http.Request, types []string, region, account string) []string {
+func iamElastiCacheResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	params := iamQueryRequestParameters(r)
-	return iamTableDrivenARNs("elasticache", types, region, account, nil,
-		func(field string) []string { return params[strings.ToLower(field)] })
+	lookup := func(field string) []string { return params[strings.ToLower(field)] }
+
+	// A copy authorizes both of its ends, and the target's ARN is fully
+	// determined by the name the request supplies before the snapshot
+	// exists — the same argument that derives the Amazon RDS copies.
+	if pair, isCopy := iamElastiCacheCopyIdentifierPairs[op]; isCopy {
+		segment := iamElastiCacheCopySegments[op]
+		var ends []string
+		for _, field := range pair {
+			for _, id := range lookup(field) {
+				if id == "" {
+					continue
+				}
+				ends = append(ends, "arn:aws:elasticache:"+region+":"+account+":"+segment+":"+id)
+			}
+		}
+		if len(ends) > 0 {
+			sort.Strings(ends)
+			return ends
+		}
+	}
+	return iamTableDrivenARNs("elasticache", types, region, account, nil, lookup)
+}
+
+// iamElastiCacheCopyIdentifierPairs names the two ends a copy operation
+// carries, and iamElastiCacheCopySegments the ARN segment of the type both
+// ends share.
+var iamElastiCacheCopyIdentifierPairs = map[string][2]string{
+	"CopySnapshot":                {"SourceSnapshotName", "TargetSnapshotName"},
+	"CopyServerlessCacheSnapshot": {"SourceServerlessCacheSnapshotName", "TargetServerlessCacheSnapshotName"},
+}
+
+var iamElastiCacheCopySegments = map[string]string{
+	"CopySnapshot":                "snapshot",
+	"CopyServerlessCacheSnapshot": "serverlesscachesnapshot",
 }
 
 // ===== Amazon Elastic Container Service =====

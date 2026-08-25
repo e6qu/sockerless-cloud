@@ -894,6 +894,104 @@ func TestIAMResourceARNs_RDSTakesTheARNTheRequestNames(t *testing.T) {
 	}
 }
 
+// Tagging carries identifiers of mixed types under one member, and each id
+// authorizes against its own resource: the type is stated by the id's
+// prefix, longest match first, and an unknown prefix derives nothing rather
+// than guessing.
+func TestIAMResourceARNs_EC2TagsDeriveEachIdFromItsPrefix(t *testing.T) {
+	r := iamEC2Request("CreateTags", map[string]string{
+		"ResourceId.1": "i-0123456789abcdef0",
+		"ResourceId.2": "vol-0123456789abcdef0",
+		"ResourceId.3": "tgw-attach-0123456789abcdef0",
+	})
+	assertDerivedARNs(t, r, "ec2:CreateTags",
+		"arn:aws:ec2:us-east-1:123456789012:instance/i-0123456789abcdef0",
+		"arn:aws:ec2:us-east-1:123456789012:transit-gateway-attachment/tgw-attach-0123456789abcdef0",
+		"arn:aws:ec2:us-east-1:123456789012:volume/vol-0123456789abcdef0")
+}
+
+// The Disassociate/Detach family names an association, and the resource the
+// reference authorizes is the parent it belongs to — resolved through the
+// simulator's own state, so the derived ARN is the one the resource actually
+// has.
+func TestIAMResourceARNs_EC2ResolvesAssociationsToTheirParents(t *testing.T) {
+	// Background work from an earlier test must finish before the stores
+	// it is reading are replaced.
+	AwaitSimulatorBackground()
+	ec2RouteTables = sim.MakeStore[EC2RouteTable](nil, "ec2_route_tables")
+	ec2ElasticIPs = sim.MakeStore[EC2ElasticIP](nil, "ec2_elastic_ips")
+	ec2NetworkInterfaces = sim.MakeStore[EC2NetworkInterface](nil, "ec2_network_interfaces")
+
+	ec2RouteTables.Put("rtb-0a1b2c3d4e5f60718", EC2RouteTable{
+		RouteTableId: "rtb-0a1b2c3d4e5f60718",
+		Associations: []EC2RouteTableAssociation{{
+			AssociationId: "rtbassoc-0f9e8d7c6b5a41320",
+			RouteTableId:  "rtb-0a1b2c3d4e5f60718",
+			SubnetId:      "subnet-00112233445566778",
+		}},
+	})
+	ec2ElasticIPs.Put("eipalloc-0aabbccddeeff0011", EC2ElasticIP{
+		AllocationId:  "eipalloc-0aabbccddeeff0011",
+		AssociationId: "eipassoc-09876543210fedcba",
+	})
+	ec2NetworkInterfaces.Put("eni-0123456789abcdef0", EC2NetworkInterface{
+		NetworkInterfaceId: "eni-0123456789abcdef0",
+		AttachmentId:       "eni-attach-0123456789abcdef0",
+	})
+
+	t.Run("a route table association resolves to its table", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("DisassociateRouteTable", map[string]string{"AssociationId": "rtbassoc-0f9e8d7c6b5a41320"}),
+			"ec2:DisassociateRouteTable",
+			"arn:aws:ec2:us-east-1:123456789012:route-table/rtb-0a1b2c3d4e5f60718")
+	})
+	t.Run("an address association resolves to its allocation", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("DisassociateAddress", map[string]string{"AssociationId": "eipassoc-09876543210fedcba"}),
+			"ec2:DisassociateAddress",
+			"arn:aws:ec2:us-east-1:123456789012:elastic-ip/eipalloc-0aabbccddeeff0011")
+	})
+	t.Run("an attachment resolves to its network interface", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("DetachNetworkInterface", map[string]string{"AttachmentId": "eni-attach-0123456789abcdef0"}),
+			"ec2:DetachNetworkInterface",
+			"arn:aws:ec2:us-east-1:123456789012:network-interface/eni-0123456789abcdef0")
+	})
+}
+
+// The AWS Glue tagging operations name their target by ResourceArn outright;
+// the ARN the caller sent is the one authorized, with nothing assembled.
+func TestIAMResourceARNs_GlueTaggingTakesTheARNTheRequestNames(t *testing.T) {
+	const job = "arn:aws:glue:us-east-1:123456789012:job/nightly-etl"
+	assertDerivedARNs(t,
+		iamGlueRequest("TagResource", `{"ResourceArn":"`+job+`","TagsToAdd":{"team":"data"}}`),
+		"glue:TagResource", job)
+}
+
+// A copy authorizes both of its ends: the target's ARN is fully determined by
+// the name the request supplies before the snapshot exists, and a source
+// named by ARN — the cross-region form — is authorized as sent rather than
+// reassembled.
+func TestIAMResourceARNs_RDSCopyAuthorizesSourceAndTarget(t *testing.T) {
+	t.Run("both ends by name", func(t *testing.T) {
+		assertDerivedARNs(t, iamRDSRequest("CopyDBSnapshot", map[string]string{
+			"SourceDBSnapshotIdentifier": "nightly",
+			"TargetDBSnapshotIdentifier": "nightly-copy",
+		}), "rds:CopyDBSnapshot",
+			"arn:aws:rds:us-east-1:123456789012:snapshot:nightly",
+			"arn:aws:rds:us-east-1:123456789012:snapshot:nightly-copy")
+	})
+	t.Run("an ARN source is taken as sent", func(t *testing.T) {
+		const source = "arn:aws:rds:eu-west-1:123456789012:snapshot:nightly"
+		assertDerivedARNs(t, iamRDSRequest("CopyDBSnapshot", map[string]string{
+			"SourceDBSnapshotIdentifier": source,
+			"TargetDBSnapshotIdentifier": "nightly-copy",
+		}), "rds:CopyDBSnapshot",
+			source,
+			"arn:aws:rds:us-east-1:123456789012:snapshot:nightly-copy")
+	})
+}
+
 // The whole point, end to end: a policy scoped to one database instance allows
 // that instance and denies another.
 func TestIAMEnforce_RDSInstanceScopedGrant(t *testing.T) {
