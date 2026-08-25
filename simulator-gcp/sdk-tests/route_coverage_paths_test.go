@@ -508,6 +508,27 @@ import (
 //   GET /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execution}/tasks/{task}
 //   GET /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execution}/tasks
 
+// Cloud Billing account collection, project links and service catalog,
+// driven by google.golang.org/api/cloudbilling/v1 in cloudbilling_test.go
+// and by gcloud billing in cli-tests/cloudbilling_cli_test.go; the literal
+// wire paths are recorded here so the simulator-testing-contract hook can
+// see the coverage.
+//
+//   GET /v1/billingAccounts
+//   POST /v1/billingAccounts
+//   GET /v1/billingAccounts/{accountAction}
+//   POST /v1/billingAccounts/{accountAction}
+//   PATCH /v1/billingAccounts/{account}
+//   GET /v1/billingAccounts/{account}/subAccounts
+//   POST /v1/billingAccounts/{account}/subAccounts
+//   GET /v1/billingAccounts/{account}/projects
+//   GET /v1/organizations/{organization}/billingAccounts
+//   POST /v1/organizations/{organization}/billingAccounts
+//   GET /v1/organizations/{organization}/billingAccounts/{accountAction}
+//   PUT /v1/projects/{project}/billingInfo
+//   GET /v1/services
+//   GET /v1/services/{service}/skus
+
 // Cloud Resource Manager project lifecycle (v1 + v3) and the Cloud Billing
 // project billing-info read. These routes are driven by
 // cloud.google.com/go/resourcemanager/apiv3 (create/list/search/get/delete/

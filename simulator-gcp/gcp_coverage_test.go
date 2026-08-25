@@ -163,12 +163,13 @@ var gcpMethodFloor = map[string]int{
 	// gets no answer; the routing constraint is the recorded trade.
 	"logging-v2": 504,
 
-	// Cloud Billing: projects.getBillingInfo — the read
-	// terraform-provider-google issues on every google_project Read — and the
-	// POST IAM verbs are served. The billing-account collection, its
-	// sub-accounts, services, SKUs and projects.updateBillingInfo are mux
-	// misses.
-	"cloudbilling-v1": 6,
+	// Cloud Billing: every documented method is served. The account
+	// collection, its sub-accounts, the organization-scoped spellings, the
+	// project links (updateBillingInfo writing the store getBillingInfo
+	// reads), the IAM triple, and the installation's own service catalog —
+	// whose SKU lists are empty because this deployment publishes no price
+	// sheet, which is that catalog's truth.
+	"cloudbilling-v1": 36,
 
 	// Cloud Resource Manager v1: every documented method is served — the
 	// projects lifecycle and its getAncestry hierarchy read, the IAM triple,

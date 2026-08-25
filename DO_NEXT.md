@@ -50,13 +50,11 @@
    is one SQLite database, a dual-region quorum with one replica, and raw
    PostgreSQL and Cassandra wire protocols it does not speak. Serving any of
    them means inventing the answer, so they belong with the declined catalogs
-   below rather than on a work list. Google Cloud Billing (6 of 36) is NOT in
-   the same class: its floor comment records plain mux misses, and the
-   unserved fifteen are ordinary CRUD over data the simulator already holds
-   (billingAccounts get/list/create/patch/move, its sub-accounts and
-   projects, services and SKUs, projects.updateBillingInfo). It needs a
-   decision — implement the collection, or record a real decline reason —
-   not the declined label it carried here. Read a measured Google number as spellings before treating
+   below rather than on a work list. Google Cloud Billing is fully served
+   (36 of 36): the account collection, sub-accounts, organization-scoped
+   spellings, project links, the IAM triple, and the installation's own
+   service catalog — whose SKU lists are empty because the deployment
+   publishes no price sheet. Read a measured Google number as spellings before treating
    the gap as a method count.
 
 ## Consumer follow-ups in the sockerless repository

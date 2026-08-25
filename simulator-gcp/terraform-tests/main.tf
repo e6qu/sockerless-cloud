@@ -928,6 +928,7 @@ resource "google_project" "tf_project" {
   name            = "TF Test Project"
   project_id      = "tf-created-project"
   org_id          = "123456789012"
+  billing_account = "0A0A0A-B1B1B1-C2C2C2"
   deletion_policy = "DELETE"
 
   labels = {
