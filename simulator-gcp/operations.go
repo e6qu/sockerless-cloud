@@ -45,7 +45,13 @@ func registerOperations(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"operations": out})
 	})
 
-	srv.HandleFunc("GET /v2/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
+	// operations.get takes the whole remaining path, not one segment: the
+	// documents declare it as `v2/{+name}` over names matching `^operations/.*$`,
+	// and a real operation name carries its resource's own path inside it —
+	// "operations/projects/{project}/operations/{id}" for Cloud Bigtable admin.
+	// Matching one segment answers the flat names and 404s the rest, which is
+	// what a client polling a create hits.
+	srv.HandleFunc("GET /v2/operations/{operation...}", func(w http.ResponseWriter, r *http.Request) {
 		name := fmt.Sprintf("operations/%s", sim.PathParam(r, "operation"))
 		if op, ok := crOperations.Get(name); ok {
 			sim.WriteJSON(w, http.StatusOK, op)

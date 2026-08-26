@@ -387,14 +387,13 @@ while IFS= read -r tf; do
     }
     in_rp && /version[[:space:]]*=/ {
       match($0, /"[^"]+"/); ver=substr($0, RSTART+1, RLENGTH-2)
-      if (name != "" && src != "" && ver != "") {
-        print name "|" src "|" ver
-        name=""; src=""; ver=""
-      }
     }
     in_rp {
       depth = next_depth
-      if (depth <= 0) { in_rp=0; name=""; src=""; ver="" }
+      if (depth <= 0) {
+        if (name != "" && src != "") { print name "|" src "|" ver }
+        in_rp=0; name=""; src=""; ver=""
+      }
     }
   ' "$tf")
 
@@ -402,6 +401,18 @@ while IFS= read -r tf; do
 
   while IFS='|' read -r name source ver_constraint; do
     [[ -z "$source" ]] && continue
+    # A provider entry with no version installs whatever is newest at `terraform
+    # init`, which walks straight past the adoption quarantine this check
+    # exists to enforce: hashicorp/google 8.0.0 was published at 19:15Z on
+    # 2026-08-26 and CI installed it 77 minutes later, breaking the Google
+    # Cloud Terraform job on main. It was invisible here because the parser
+    # only emitted entries that carried a version, so the one provider that
+    # could not be held was also the one nobody was told about.
+    if [[ -z "$ver_constraint" ]]; then
+      echo "  FAIL  $tf: $name ($source) declares no version — an unpinned provider installs the newest release at init, ignoring the ${quarantine_seconds}s adoption quarantine; pin it so a major shows up here as drift instead of as a broken build"
+      fail=$((fail + 1))
+      continue
+    fi
     index="$work/tf-index.json"
     if ! curl -fsSL -o "$index" "https://registry.terraform.io/v1/providers/${source}" 2>/dev/null; then
       echo "  FAIL  $tf: $name ($source) could not be read from the Terraform registry"

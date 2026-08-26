@@ -361,6 +361,7 @@ import (
 //   POST /v2/projects/{project}/instances/{instanceAction}
 //   PUT /v2/projects/{project}/instances/{instance}
 //   GET /v2/operations/projects/{project}/operations
+//   GET /v2/operations/{operation...}
 //   PATCH /v2/projects/{project}/instances/{instance}/clusters/{cluster}
 //   GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}/hotTablets
 //   GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}/memoryLayer

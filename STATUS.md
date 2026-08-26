@@ -115,6 +115,12 @@ Current state of the sockerless-cloud repository.
   Cloud Bigtable backups and snapshots capture the source table's schema and
   rows, so a restore yields the rows the copy held rather than an empty
   table.
+- **Every Terraform provider is pinned**, and `check-latest-deps.sh` fails on
+  one that is not. An unpinned provider installs the newest release at
+  `terraform init`, which walks past the 24-hour adoption quarantine: that is
+  how `hashicorp/google` 8.0.0 reached CI 77 minutes after publication and
+  broke the Google Cloud Terraform job on `main`. The check had been blind to
+  it, because its parser only emitted provider entries that carried a version.
 - **Two doors, one state**: every gRPC service the Google Cloud simulator
   mounts is crossed against its REST door by
   `simulator-gcp/sdk-tests/cross_door_test.go`, which writes through one

@@ -1,16 +1,20 @@
 terraform {
   required_providers {
     archive = {
-      source = "hashicorp/archive"
+      source  = "hashicorp/archive"
+      version = "2.8.0"
     }
     google = {
-      source = "hashicorp/google"
+      source  = "hashicorp/google"
+      version = "7.46.0"
     }
     google-beta = {
-      source = "hashicorp/google-beta"
+      source  = "hashicorp/google-beta"
+      version = "7.46.0"
     }
     random = {
-      source = "hashicorp/random"
+      source  = "hashicorp/random"
+      version = "3.9.0"
     }
   }
 }
@@ -354,7 +358,15 @@ resource "google_cloud_run_v2_worker_pool" "tf_crv2_worker_pool" {
   deletion_protection = false
   description         = "terraform-managed Cloud Run worker pool"
   launch_stage        = "GA"
-  custom_audiences    = ["https://worker.tf-test.example.com"]
+
+  # custom_audiences is deliberately absent. The provider deprecates it on this
+  # resource — "not applicable to WorkerPool" — and the 8.0.0 major removes the
+  # argument outright, so setting it is a warning today and a hard schema error
+  # the moment that major is adopted. The Cloud Run v2 document does declare
+  # customAudiences on GoogleCloudRunV2WorkerPool, and the simulator serves it:
+  # cloudrun_v2_workerpools_instances_rest_test.go sets it and reads it back
+  # through the API, which is where a field the provider declines to model
+  # belongs.
 
   labels = { managed_by = "terraform" }
 

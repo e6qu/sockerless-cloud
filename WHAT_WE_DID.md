@@ -28,6 +28,31 @@ and read one store, so an operation is one resource whichever protocol returned
 it. The REST listing had also ignored its own `{project}` parameter and
 reported every project's operations; it is scoped now.
 
+**Every Terraform provider is pinned, and an unpinned one is now a failure.**
+`hashicorp/google` 8.0.0 was published at 19:15Z on 2026-08-26 and the Google
+Cloud Terraform job installed it 77 minutes later, breaking `main`: the major
+removes `custom_audiences` from `google_cloud_run_v2_worker_pool`. The
+repository has a 24-hour adoption quarantine for exactly this, and the
+provider walked past it by being unpinned — `terraform init` takes the newest
+release when nothing says otherwise.
+
+The freshness check could not have caught it. Its parser emitted a provider
+entry only when that entry carried a version, so the one provider that could
+not be held was also the one nobody was told about — the failure mode the
+file's own comment warns of, one level down. It fails on an unpinned provider
+now, and that immediately found three more: `azurerm` twice and `azuread`
+once, the same break waiting on the next Azure major.
+
+The Google providers are pinned at 7.46.0 rather than 8.0.0, because a
+two-hour-old major is precisely what the quarantine exists to refuse; the
+check reports the pin as held while it ages. `custom_audiences` is gone from
+the worker pool regardless: the provider deprecates it there as "not
+applicable to WorkerPool" and the major removes it, so the configuration
+validates against both 7.46.0 and 8.0.0 and adopting the major will be a
+no-op. The field stays covered where it belongs — the Cloud Run v2 document
+declares it, the simulator serves it, and the SDK suite sets it and reads it
+back.
+
 A flaky Cloud Run test was fixed with it. `TestCloudRun_ExecutionRunningState`
 holds a container for ten seconds and samples the execution once the
 container's marker reaches Cloud Logging; under the load of the full suite that

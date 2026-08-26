@@ -362,6 +362,15 @@ func TestCrossDoor_Operations(t *testing.T) {
 	}
 	require.Contains(t, names, op.GetName(),
 		"an operation a gRPC call returned must be reported by the REST operations door")
+
+	// And fetched by name through it. operations.get takes the whole remaining
+	// path (`v2/{+name}` over `^operations/.*$`), so the name's own slashes are
+	// part of it: a route matching a single segment answers the flat names and
+	// 404s these, which is exactly what a client polling a create hits.
+	fetched, err := rest.Operations.Get(op.GetName()).Do()
+	require.NoError(t, err, "the REST operations door must fetch an operation by its full name")
+	require.Equal(t, op.GetName(), fetched.Name)
+	require.True(t, fetched.Done)
 }
 
 func TestCrossDoor_Spanner(t *testing.T) {
