@@ -50,7 +50,7 @@ var grpcServiceImplementations = map[string]string{
 	"google.cloud.secretmanager.v1.SecretManagerService": "secretManagerGRPC",
 	"google.firestore.v1.Firestore":                      "firestoreGRPC",
 	"google.logging.v2.LoggingServiceV2":                 "loggingServer",
-	"google.longrunning.Operations":                      "bigtableOperationsGRPC",
+	"google.longrunning.Operations":                      "grpcOperationsService",
 	"google.pubsub.v1.Publisher":                         "pubsubPublisherGRPC",
 	"google.pubsub.v1.SchemaService":                     "pubsubSchemaGRPC",
 	"google.pubsub.v1.Subscriber":                        "pubsubSubscriberGRPC",
@@ -62,57 +62,45 @@ var grpcServiceImplementations = map[string]string{
 // Unimplemented server, which is a silent regression — a client's call
 // starts failing with a status the service used to answer properly.
 //
-// 130 of 213 today, and the shape of the remainder matters more than the
-// number. Most unserved methods are the gRPC spelling of an operation this
-// simulator already serves over REST — Cloud Bigtable's admin surface is
-// 164/164 over REST while its two gRPC admin services are 13 of 66, and
-// Cloud Logging is 504/508 over REST against 2 of 6 here — so closing them
-// is wiring an existing store to a second door, not new behaviour. The
-// exceptions are the streaming methods, which have no REST analogue to wire
-// to: Firestore's Listen and Write, Cloud Logging's TailLogEntries, Cloud
-// Bigtable's ReadChangeStream and ExecuteQuery.
+// 210 of 213, and the shape of the remainder matters more than the number.
+// Complete: both Cloud Bigtable admin services, Cloud KMS, Cloud Logging, the
+// long-running Operations service, Pub/Sub's three services, Secret Manager.
 //
-// Complete: Pub/Sub's three services, Secret Manager.
+// The three that remain are not wiring left undone. Each needs state this
+// simulator does not hold, and each would have to invent that state to answer
+// at all — so each stays on the embedded Unimplemented server, where a client
+// gets a clear status instead of a plausible wrong one.
 //
-// Cloud Spanner's 16 of 17: FetchCacheUpdate is the session-cache stream a
-// client uses to keep a local schema cache warm; the simulator holds one
-// SQLite database and publishes no cache updates against it.
+// Cloud Bigtable's data service, 14 of 15: OpenMaterializedView. A
+// materialized view's rows are the continuously maintained result of the
+// GoogleSQL query it was created with. The simulator stores that query string
+// and nothing else — no materialized result set, and no evaluator for the
+// aggregate queries materialized views are defined by — so a session over one
+// could only read rows that were never computed.
 //
-// Firestore's 14 of 17: Listen and Write are the bidirectional streams whose
-// token and target-id bookkeeping has no REST analogue here, and
-// ExecutePipeline is the pipeline API; each stays on the Unimplemented
-// default so a client gets a clear status rather than a synthetic stream.
+// Firestore's 16 of 17: ExecutePipeline. Pipeline stages carry expression
+// trees from the pipeline function library (field references, comparisons,
+// arithmetic, array and map accessors, aggregate accumulators) against
+// arbitrary document sources in any stage order. The simulator has the
+// structured-query evaluator only, and a pipeline is not expressible as a
+// structured query.
 //
-// Cloud KMS's 24 of 35: the import-job family and the trusted-key-wrapped
-// export and import need the wrapping-key round trip the REST slice records
-// metadata for without performing; the two delete methods need gRPC
-// long-running-operation plumbing; the retired-resource reads are outside
-// the data-plane slice; and Decapsulate is ML-KEM, a primitive Go's
-// standard library does not expose — the REST spelling refuses it with
-// FAILED_PRECONDITION for the same reason.
-//
-// Cloud Bigtable's instance admin 8 of 31 and table admin 5 of 35: the gRPC
-// services carry the instance, cluster and table lifecycle the emulator
-// clients exercise; the app profiles, logical and materialized views,
-// backups, snapshots, authorized views, schema bundles, consistency tokens
-// and the IAM triples are served over REST and not yet wired here. The data
-// service's 6 of 15 is the same shape — reads and mutations are served,
-// the newer prepared-query and authorized-view entry points are not.
-//
-// Cloud Logging's 2 of 6 and the long-running Operations service's 3 of 5
-// are the smallest wiring gaps: DeleteLog, ListLogs and
-// ListMonitoredResourceDescriptors are served over REST, and
-// CancelOperation and ListOperations sit beside the GetOperation this
-// service already answers.
+// Cloud Spanner's 16 of 17: FetchCacheUpdate. Its payload is a location
+// cache — split ranges, the groups and zones serving them, and the key
+// recipes for choosing among them. The simulator is one SQLite database in
+// one process with no splits, replicas or zones, so every field that makes
+// the update useful has no source, and there would be nothing to stream after
+// a first message: cache updates report splits moving, and no split here
+// moves.
 var grpcMethodFloor = map[string]int{
-	"google.bigtable.admin.v2.BigtableInstanceAdmin":     8,
-	"google.bigtable.admin.v2.BigtableTableAdmin":        5,
-	"google.bigtable.v2.Bigtable":                        6,
-	"google.cloud.kms.v1.KeyManagementService":           24,
+	"google.bigtable.admin.v2.BigtableInstanceAdmin":     31,
+	"google.bigtable.admin.v2.BigtableTableAdmin":        35,
+	"google.bigtable.v2.Bigtable":                        14,
+	"google.cloud.kms.v1.KeyManagementService":           35,
 	"google.cloud.secretmanager.v1.SecretManagerService": 17,
-	"google.firestore.v1.Firestore":                      14,
-	"google.logging.v2.LoggingServiceV2":                 2,
-	"google.longrunning.Operations":                      3,
+	"google.firestore.v1.Firestore":                      16,
+	"google.logging.v2.LoggingServiceV2":                 6,
+	"google.longrunning.Operations":                      5,
 	"google.pubsub.v1.Publisher":                         9,
 	"google.pubsub.v1.SchemaService":                     10,
 	"google.pubsub.v1.Subscriber":                        16,

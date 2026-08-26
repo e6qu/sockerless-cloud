@@ -1,5 +1,77 @@
 # WHAT WE DID
 
+## 2026-08-26, twenty-fifth pass — the gRPC gaps are closed, 210 of 213
+
+The previous pass measured the Google Cloud gRPC surfaces and found 130 of
+213 methods served. This pass closed the gap: **210 of 213**. Complete: both
+Cloud Bigtable admin services (31/31 and 35/35), Cloud KMS 35/35, Cloud
+Logging 6/6, the long-running Operations service 5/5, Pub/Sub's three
+services, Secret Manager; the Cloud Bigtable data service is at 14/15 and
+Firestore at 16/17.
+
+Most of it was the second door the measurement predicted — app profiles,
+logical and materialized views, backups, authorized views, schema bundles,
+consistency tokens, IAM triples, import jobs, `DeleteLog`, `ListLogs`,
+`ListMonitoredResourceDescriptors`, `CancelOperation`, `ListOperations` —
+wired to the stores the REST slices already serve, so a resource written
+through one door reads back through the other. The rest was genuinely new
+behaviour: Firestore's `Listen` and `Write` bidirectional streams following
+the document store's own change counter, Cloud Logging's `TailLogEntries`,
+Cloud Bigtable's change stream over a real mutation log, its session
+protocol (`OpenTable`, `OpenAuthorizedView`) and its GoogleSQL `SELECT *`,
+and Cloud KMS's import-job family performing real RSA-OAEP and AES-KWP
+unwraps.
+
+**Three methods remain unserved, each because the state it would report does
+not exist here** — recorded in the floor comment rather than left as a task:
+`Bigtable.OpenMaterializedView` (a materialized view's rows are the
+maintained result of a GoogleSQL query the simulator stores as a string and
+never evaluates), `Firestore.ExecutePipeline` (pipeline expression trees are
+not expressible as the structured query the evaluator speaks), and
+`Spanner.FetchCacheUpdate` (a location cache of splits, groups and zones,
+none of which one SQLite database in one process has). Each stays on its
+embedded Unimplemented server, where a client gets a clear status instead of
+a plausible wrong one.
+
+**Backups and snapshots became real copies.** A Cloud Bigtable backup
+recorded only its own metadata, so `RestoreTable` produced an empty table and
+reported success — every row lost behind a green result. Backups and
+snapshots now capture the source table's schema and rows, keyed by the
+backup's or snapshot's own name, and a restore reads that capture; a copied
+backup holds its own, so deleting the source leaves the copy restorable. The
+snapshot family is served on the gRPC door alone, since the bigtableadmin
+Discovery document declares no snapshots collection.
+
+**Five defects the work surfaced, fixed with it:**
+
+- The REST `dropRowRange` acknowledged without deleting anything, behind a
+  comment claiming the simulator did not model row data — stale, since it
+  does. It now deletes from the same store `ReadRows` serves, as the gRPC
+  spelling does.
+- Cloud KMS deleted a CryptoKeyVersion in any state, and cascaded a
+  CryptoKey delete through its versions. The API permits neither: a version
+  is deletable only once it has reached a terminal state and was never
+  imported, and a key only once it has no versions left. Enforcing that
+  exposed a dead end — nothing ever moved a version out of
+  `DESTROY_SCHEDULED` — so `destroyScheduledDuration` is now honoured, at its
+  documented 30-day default rather than a hardcoded 24 hours, and the
+  transition to `DESTROYED` is derived from the scheduled time.
+- `ImportCryptoKeyVersion` dropped `trustedWrappingEnabled` and `ListLogs`
+  dropped `resourceNames`. Both are declared fields, and a widened listing
+  answered with the parent's logs alone reads as "those are all the logs".
+- Firestore stamped commit times at millisecond truncation. A watching
+  client treats a document whose `updateTime` equals the one it holds as
+  unchanged, so two writes inside one millisecond left the second invisible
+  to every watcher. Firestore commit times now carry the microseconds real
+  Firestore carries.
+- Registering the gRPC services started Pub/Sub's ack-deadline sweeper, so
+  anything enumerating the mounted surface without serving it — the coverage
+  ratchet, the route conformance tests — started another sweeper racing the
+  first. Registration now only mounts handlers, and the sweeper starts when
+  the process starts serving, beside the Cloud Spanner schedule loop that
+  already worked that way. This was a real data race, caught by the race
+  detector on the previous pass's own gate.
+
 ## 2026-08-26, twenty-fourth pass — the gRPC surfaces are measured for the first time
 
 The survey named one blindness the drift locks did not cover: the Google

@@ -14,17 +14,22 @@
    writes, Cloud Run v2's export family, and Compute Engine's deliberate
    long tail (559 of 1,007).
 
-1. Wire the gRPC methods that already exist over REST. The new ratchet in
-   simulator-gcp/grpc_coverage_test.go measures 130 of 213, and its comment
-   names each gap: Cloud Bigtable's two admin services (13 of 66) and its
-   data service (6 of 15), Cloud KMS (24 of 35), Cloud Logging (2 of 6) and
-   the long-running Operations service (3 of 5) are mostly second doors onto
-   stores the REST slices already serve — Cloud Logging's four and
-   Operations' two are the smallest, and the natural place to start. The
-   streaming methods (Firestore Listen and Write, TailLogEntries,
-   ReadChangeStream, ExecuteQuery) are the subset that needs real new
-   behaviour, and Cloud Spanner's FetchCacheUpdate publishes cache updates
-   one SQLite database does not have.
+1. The gRPC surfaces are served (2026-08-26). The ratchet in
+   simulator-gcp/grpc_coverage_test.go holds 210 of 213, and the three that
+   remain are not work waiting to be picked up:
+   `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and
+   `Spanner.FetchCacheUpdate` each need state this simulator does not hold —
+   a materialized result set, a pipeline expression evaluator, and a
+   split/zone topology — and the floor comment records why for each. Reopen
+   one only if the simulator gains the state it would report; serving it
+   before then means inventing that state.
+
+   What this pass exposed is worth carrying to the other two clouds: nothing
+   measures whether an operation served over one protocol is served over the
+   other, and Cloud Bigtable's two doors disagreed in three places —
+   `dropRowRange` deleted rows over gRPC and acknowledged without deleting
+   over REST, backups captured no data on either, and snapshots existed on
+   neither. A door-parity check would have named all three.
 
 2. The full-store-read class is closed: scripts/check-store-scans.sh holds
    the floor at zero, and its comment now records that every exemption the

@@ -58,6 +58,7 @@ var (
 	bigtableTables       sim.Store[bigtableTable]
 	bigtableAppProfiles  sim.Store[bigtableResource]
 	bigtableBackups      sim.Store[bigtableResource]
+	bigtableSnapshots    sim.Store[bigtableResource]
 	bigtableAuthViews    sim.Store[bigtableResource]
 	bigtableSchemaBundle sim.Store[bigtableResource]
 	bigtableLogicalView  sim.Store[bigtableResource]
@@ -72,6 +73,8 @@ func registerBigtable(srv *sim.Server) {
 	bigtableRows = sim.MakeStore[btStoredTableData](srv.DB(), "bigtable_table_rows")
 	bigtableAppProfiles = sim.MakeStore[bigtableResource](srv.DB(), "bigtable_app_profiles")
 	bigtableBackups = sim.MakeStore[bigtableResource](srv.DB(), "bigtable_backups")
+	bigtableTableCaptures = sim.MakeStore[btBackupPayload](srv.DB(), "bigtable_table_captures")
+	bigtableSnapshots = sim.MakeStore[bigtableResource](srv.DB(), "bigtable_snapshots")
 	bigtableAuthViews = sim.MakeStore[bigtableResource](srv.DB(), "bigtable_authorized_views")
 	bigtableSchemaBundle = sim.MakeStore[bigtableResource](srv.DB(), "bigtable_schema_bundles")
 	bigtableLogicalView = sim.MakeStore[bigtableResource](srv.DB(), "bigtable_logical_views")
@@ -589,7 +592,16 @@ func handleBigtableCreateBackup(w http.ResponseWriter, r *http.Request) {
 	if body == nil {
 		body = bigtableResource{}
 	}
+	sourceTable, _ := body["sourceTable"].(string)
+	if sourceTable == "" {
+		sim.GCPError(w, http.StatusBadRequest, "sourceTable is required", "INVALID_ARGUMENT")
+		return
+	}
 	name := clusterName + "/backups/" + backupID
+	if !btCaptureTable(name, sourceTable) {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", sourceTable)
+		return
+	}
 	body["name"] = name
 	body["state"] = "READY"
 	// Backup has no etag field in the Discovery schema — do not set one.
@@ -639,6 +651,7 @@ func handleBigtableDeleteBackup(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
 		return
 	}
+	btDeleteCapture(name)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -665,14 +678,21 @@ func handleBigtableBackupCollectionAction(w http.ResponseWriter, r *http.Request
 		sim.GCPError(w, http.StatusBadRequest, "backupId is required", "INVALID_ARGUMENT")
 		return
 	}
+	source, ok := bigtableBackups.Get(req.SourceBackup)
+	if !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.SourceBackup)
+		return
+	}
 	name := clusterName + "/backups/" + req.BackupID
 	body := bigtableResource{
 		"name":         name,
 		"sourceBackup": req.SourceBackup,
+		"sourceTable":  source["sourceTable"],
 		"expireTime":   req.ExpireTime,
 		"state":        "READY",
 	}
 	bigtableBackups.Put(name, body)
+	btCopyCapture(name, req.SourceBackup)
 	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.Backup")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -846,9 +866,7 @@ func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 	case "modifyColumnFamilies":
 		handleBigtableModifyColumnFamilies(w, r, name, table)
 	case "dropRowRange":
-		// Drops the requested rows; the sim doesn't model row data, so it
-		// acknowledges with an empty body (the documented response type).
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+		handleBigtableDropRowRange(w, r, name)
 	case "generateConsistencyToken":
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"consistencyToken": generateUUID()})
 	case "checkConsistency":
@@ -859,6 +877,40 @@ func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 	default:
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown table action %q", sim.PathParam(r, "tableAction"))
 	}
+}
+
+// handleBigtableDropRowRange deletes the requested rows from the table's row
+// store — the same store ReadRows serves and the gRPC spelling of this method
+// deletes from, so a prefix dropped through either door is gone from both.
+func handleBigtableDropRowRange(w http.ResponseWriter, r *http.Request, name string) {
+	var req struct {
+		RowKeyPrefix           []byte `json:"rowKeyPrefix"`
+		DeleteAllDataFromTable bool   `json:"deleteAllDataFromTable"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	td := bigtableTableData(name)
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	switch {
+	case req.DeleteAllDataFromTable:
+		td.rows = map[string]map[string]map[string][]btCell{}
+	case len(req.RowKeyPrefix) > 0:
+		prefix := string(req.RowKeyPrefix)
+		for key := range td.rows {
+			if strings.HasPrefix(key, prefix) {
+				delete(td.rows, key)
+			}
+		}
+	default:
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"one of rowKeyPrefix or deleteAllDataFromTable is required")
+		return
+	}
+	btPersistTableData(name, td)
+	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 func handleBigtableModifyColumnFamilies(w http.ResponseWriter, r *http.Request, name string, table bigtableTable) {
@@ -908,13 +960,15 @@ func handleBigtableRestoreTable(w http.ResponseWriter, r *http.Request, project,
 		sim.GCPError(w, http.StatusBadRequest, "tableId is required", "INVALID_ARGUMENT")
 		return
 	}
-	table := bigtableTable{
-		Name:           bigtableTableName(project, instance, req.TableID),
-		Granularity:    "MILLIS",
-		ColumnFamilies: map[string]map[string]any{},
-		ClusterStates:  map[string]map[string]any{},
+	if req.Backup == "" {
+		sim.GCPError(w, http.StatusBadRequest, "backup is required", "INVALID_ARGUMENT")
+		return
 	}
-	bigtableTables.Put(table.Name, table)
+	table, ok := btRestoreCapture(req.Backup, bigtableTableName(project, instance, req.TableID))
+	if !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.Backup)
+		return
+	}
 	op := newBigtableAdminLRO(project, table, "type.googleapis.com/google.bigtable.admin.v2.Table")
 	sim.WriteJSON(w, http.StatusOK, op)
 }

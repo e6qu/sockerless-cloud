@@ -439,9 +439,7 @@ func handleLoggingDeleteExclusion(w http.ResponseWriter, r *http.Request) {
 // ---- Logs ----
 
 func handleLoggingListLogs(w http.ResponseWriter, r *http.Request) {
-	parent := loggingScopeParent(r)
-	prefix := parent + "/logs/"
-	names := loggingLogNames(prefix)
+	names := loggingListLogsScopes(loggingScopeParent(r), r.URL.Query()["resourceNames"])
 	page, next, ok := paginateList(w, r, names)
 	if !ok {
 		return
@@ -542,12 +540,7 @@ func handleLoggingGetLocation(w http.ResponseWriter, r *http.Request) {
 // ---- Monitored resource descriptors ----
 
 func handleLoggingListMRD(w http.ResponseWriter, r *http.Request) {
-	descriptors := []map[string]any{
-		{"type": "global", "displayName": "Global", "name": "monitoredResourceDescriptors/global"},
-		{"type": "gce_instance", "displayName": "GCE VM Instance", "name": "monitoredResourceDescriptors/gce_instance"},
-		{"type": "cloud_run_revision", "displayName": "Cloud Run Revision", "name": "monitoredResourceDescriptors/cloud_run_revision"},
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"resourceDescriptors": descriptors})
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"resourceDescriptors": loggingMonitoredResourceDescriptors})
 }
 
 // ---- Buckets ----
@@ -758,8 +751,7 @@ func handleLoggingListViewLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingViewLogsList(w http.ResponseWriter, r *http.Request) {
-	prefix := loggingScopeParent(r) + "/logs/"
-	names := loggingLogNames(prefix)
+	names := loggingListLogsScopes(loggingScopeParent(r), r.URL.Query()["resourceNames"])
 	page, next, ok := paginateList(w, r, names)
 	if !ok {
 		return
@@ -1186,6 +1178,42 @@ func loggingLogNames(prefix string) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// loggingListLogsScopes returns the distinct, sorted log names a logs.list
+// call covers: those under the parent, plus those under every resource name
+// the caller widened the listing with. Dropping resourceNames would answer a
+// widened listing with the parent's logs alone, which reads as "those are all
+// the logs" — a wrong result, not a partial one.
+//
+// A bucket- or view-scoped resource name resolves to the container that owns
+// it: this simulator keeps one copy of a container's entries rather than a
+// copy per bucket, so the container's logs are what a view over it sees.
+func loggingListLogsScopes(parent string, resourceNames []string) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, scope := range append([]string{parent}, resourceNames...) {
+		if scope == "" {
+			continue
+		}
+		for _, name := range loggingLogNames(loggingResourceContainer(scope) + "/logs/") {
+			if !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// loggingResourceContainer trims a bucket- or view-scoped resource name back
+// to the container that owns it, leaving a container name unchanged.
+func loggingResourceContainer(name string) string {
+	if i := strings.Index(name, "/locations/"); i >= 0 {
+		return name[:i]
+	}
+	return name
 }
 
 func lastSegment(s string) string {

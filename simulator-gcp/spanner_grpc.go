@@ -2015,3 +2015,19 @@ func slicesEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// FetchCacheUpdate streams a client's location cache: the database's split
+// ranges, the groups serving each range with their zones, and the key recipes
+// that encode a row key into the sortable form used to select a range. Its
+// purpose is to let a client address the server holding a key directly instead
+// of routing through a frontend, and to keep doing so as splits move.
+//
+// The simulator is a single SQLite database in a single process. It has no
+// splits, no replica groups, no zones and no server topology, so every field
+// that makes a cache update useful has no source here; a stream carrying only
+// key recipes would hand the client a cache with nothing to route on. Nor is
+// there anything to stream after a first message: cache updates exist to
+// report splits moving, and no split in the simulator moves. The method stays
+// on the embedded UnimplementedSpannerServer, so a client asking for a location
+// cache gets a clear status instead of a routing document describing a
+// topology that does not exist.

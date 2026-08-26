@@ -1,12 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	fspb "cloud.google.com/go/firestore/apiv1/firestorepb"
@@ -975,10 +982,401 @@ func (s *firestoreGRPC) PartitionQuery(_ context.Context, req *fspb.PartitionQue
 	return &fspb.PartitionQueryResponse{}, nil
 }
 
-// Listen and Write are bidirectional / streaming pipelines whose target-id
-// assignment and stream-token bookkeeping have no REST analogue in the existing
-// slice. They remain on the UnimplementedFirestoreServer default so a client
-// that calls them gets a clear Unimplemented status rather than a partial or
-// synthetic stream. ExecutePipeline is a newer RPC outside the
-// cloud.google.com/go/firestore high-level client surface exercised here and is
-// likewise left as the Unimplemented default.
+// ---------------------------------------------------------------------------
+// Write — the bidirectional write stream
+// ---------------------------------------------------------------------------
+
+// fsWriteStreamTokens holds the token of the most recent response each open
+// write stream received. The stream id and the token are the resumption
+// contract: a client reconnecting presents both, and only the token the server
+// issued last is still accepted — sending a token retires every earlier one.
+//
+// The writes themselves go through fsApplyWrite into fsDocuments, the same path
+// Commit, BatchWrite and the REST slice take, so a document written over the
+// stream is immediately visible to a subsequent GetDocument.
+var fsWriteStreamTokens = struct {
+	mu     sync.Mutex
+	tokens map[string][]byte
+}{tokens: map[string][]byte{}}
+
+func fsIssueWriteStreamToken(streamID string) []byte {
+	token := []byte(generateUUID())
+	fsWriteStreamTokens.mu.Lock()
+	fsWriteStreamTokens.tokens[streamID] = token
+	fsWriteStreamTokens.mu.Unlock()
+	return token
+}
+
+func fsCurrentWriteStreamToken(streamID string) ([]byte, bool) {
+	fsWriteStreamTokens.mu.Lock()
+	defer fsWriteStreamTokens.mu.Unlock()
+	token, ok := fsWriteStreamTokens.tokens[streamID]
+	return token, ok
+}
+
+func (s *firestoreGRPC) Write(srv fspb.Firestore_WriteServer) error {
+	streamID := ""
+	for {
+		req, err := srv.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if streamID == "" {
+			// The first request opens or resumes the stream and carries no
+			// writes; the response carries the id (only for a stream this
+			// request created) and the token the next request acknowledges.
+			if req.GetDatabase() == "" {
+				return status.Error(codes.InvalidArgument, "database is required on the first request")
+			}
+			if len(req.GetWrites()) > 0 {
+				return status.Error(codes.InvalidArgument, "writes must be empty on the first request")
+			}
+			resp := &fspb.WriteResponse{}
+			if resumed := req.GetStreamId(); resumed != "" {
+				current, known := fsCurrentWriteStreamToken(resumed)
+				if !known {
+					return status.Errorf(codes.InvalidArgument, "Unknown stream id: %s", resumed)
+				}
+				// The simulator keeps no history of already-sent responses, so
+				// the only position it can resume from is the one its last
+				// token names. An older token would require replaying
+				// responses that were never retained.
+				if !bytes.Equal(req.GetStreamToken(), current) {
+					return status.Error(codes.FailedPrecondition, "The stream token is no longer valid; restart the stream.")
+				}
+				streamID = resumed
+			} else {
+				if len(req.GetStreamToken()) > 0 {
+					return status.Error(codes.InvalidArgument, "stream_token must be unset when creating a new stream")
+				}
+				streamID = generateUUID()
+				resp.StreamId = streamID
+			}
+			resp.StreamToken = fsIssueWriteStreamToken(streamID)
+			if err := srv.Send(resp); err != nil {
+				return err
+			}
+			continue
+		}
+
+		// Every later request applies its writes in order and answers with
+		// their results, the commit time, and the token that acknowledges this
+		// response.
+		resp := &fspb.WriteResponse{
+			WriteResults: make([]*fspb.WriteResult, 0, len(req.GetWrites())),
+			CommitTime:   fsTimestampToProto(fsNow()),
+		}
+		for _, w := range req.GetWrites() {
+			res, e := fsApplyWrite(fsWriteFromProto(w))
+			if e != nil {
+				// The writes in one request are executed atomically and in
+				// order; a failure ends the stream with that write's status.
+				return fsGRPCErr(e)
+			}
+			resp.WriteResults = append(resp.WriteResults, fsWriteResultFromMap(res))
+		}
+		resp.StreamToken = fsIssueWriteStreamToken(streamID)
+		if err := srv.Send(resp); err != nil {
+			return err
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Listen — the bidirectional watch stream
+// ---------------------------------------------------------------------------
+
+// fsListenPollInterval is how often a Listen stream consults the document
+// store's generation counter. The counter is the store's own change signal —
+// it advances on every write that changed the store and on no other event — so
+// a stream that re-reads its targets when the generation moves reports real
+// writes and nothing else.
+const fsListenPollInterval = 25 * time.Millisecond
+
+// fsListenTarget is one target on a Listen stream: the spec the client added
+// and the snapshot last reported for it (document name → the version that
+// snapshot carried), which is what the next sweep diffs against.
+type fsListenTarget struct {
+	target   *fspb.Target
+	snapshot map[string]string
+}
+
+// fsDocumentVersion identifies a document's exact content. The diff compares
+// versions rather than update times because update times are truncated to the
+// millisecond: two writes inside one millisecond carry the same update time
+// and would otherwise look like no write at all.
+func fsDocumentVersion(d FSDocument) (string, error) {
+	encoded, err := json.Marshal(d)
+	if err != nil {
+		return "", status.Errorf(codes.Internal, "encoding document %q: %v", d.Name, err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func (s *firestoreGRPC) Listen(srv fspb.Firestore_ListenServer) error {
+	ctx := srv.Context()
+	requests := make(chan *fspb.ListenRequest)
+	receiveFailed := make(chan error, 1)
+	go func() {
+		for {
+			req, err := srv.Recv()
+			if err != nil {
+				receiveFailed <- err
+				return
+			}
+			select {
+			case requests <- req:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Every response is sent from this loop, so the stream has exactly one
+	// writer.
+	targets := map[int32]*fsListenTarget{}
+	generation := fsDocuments.Generation()
+	ticker := time.NewTicker(fsListenPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case err := <-receiveFailed:
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		case req := <-requests:
+			generation = fsDocuments.Generation()
+			if err := fsListenHandleRequest(srv, targets, req); err != nil {
+				return err
+			}
+		case <-ticker.C:
+			current := fsDocuments.Generation()
+			if current == generation || len(targets) == 0 {
+				generation = current
+				continue
+			}
+			generation = current
+			readTime := fsNow()
+			for _, id := range fsListenTargetIDs(targets) {
+				if err := fsListenSyncTarget(srv, id, targets[id], readTime); err != nil {
+					return err
+				}
+			}
+			if err := fsListenSendTargetChange(srv, fspb.TargetChange_NO_CHANGE, nil, readTime); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// fsListenHandleRequest applies one client request to the stream's target set.
+func fsListenHandleRequest(srv fspb.Firestore_ListenServer, targets map[int32]*fsListenTarget, req *fspb.ListenRequest) error {
+	switch change := req.GetTargetChange().(type) {
+	case *fspb.ListenRequest_AddTarget:
+		target := change.AddTarget
+		id := target.GetTargetId()
+		if id == 0 {
+			id = fsListenNextServerTargetID(targets)
+		}
+		state := &fsListenTarget{target: target, snapshot: map[string]string{}}
+		targets[id] = state
+
+		readTime := fsNow()
+		if err := fsListenSendTargetChange(srv, fspb.TargetChange_ADD, []int32{id}, readTime); err != nil {
+			return err
+		}
+		// A target that resumes from a token or a read time reports only what
+		// changed after that point, so everything already at or before it is
+		// seeded into the snapshot instead of being re-sent.
+		resumeFrom := fsListenResumePoint(target)
+		matches := fsListenMatches(target)
+		if resumeFrom != "" {
+			for _, d := range matches {
+				if d.UpdateTime > resumeFrom {
+					continue
+				}
+				version, err := fsDocumentVersion(d)
+				if err != nil {
+					return err
+				}
+				state.snapshot[d.Name] = version
+			}
+		}
+		if err := fsListenSyncTarget(srv, id, state, readTime); err != nil {
+			return err
+		}
+		if resumeFrom != "" {
+			// The store keeps no tombstones, so a document deleted while the
+			// client was away cannot be named. The existence filter carries the
+			// target's true match count, which is what lets the client discover
+			// that its cache holds documents the target no longer matches.
+			if err := srv.Send(&fspb.ListenResponse{ResponseType: &fspb.ListenResponse_Filter{
+				Filter: &fspb.ExistenceFilter{TargetId: id, Count: int32(len(matches))},
+			}}); err != nil {
+				return err
+			}
+		}
+		if err := fsListenSendTargetChange(srv, fspb.TargetChange_CURRENT, []int32{id}, readTime); err != nil {
+			return err
+		}
+		if err := fsListenSendTargetChange(srv, fspb.TargetChange_NO_CHANGE, nil, readTime); err != nil {
+			return err
+		}
+		if target.GetOnce() {
+			delete(targets, id)
+			return fsListenSendTargetChange(srv, fspb.TargetChange_REMOVE, []int32{id}, readTime)
+		}
+		return nil
+
+	case *fspb.ListenRequest_RemoveTarget:
+		id := change.RemoveTarget
+		if _, ok := targets[id]; !ok {
+			return status.Errorf(codes.InvalidArgument, "Target %d is not active on this stream.", id)
+		}
+		delete(targets, id)
+		return fsListenSendTargetChange(srv, fspb.TargetChange_REMOVE, []int32{id}, fsNow())
+	}
+	return status.Error(codes.InvalidArgument, "add_target or remove_target is required")
+}
+
+// fsListenSyncTarget emits the difference between a target's last reported
+// snapshot and the documents it matches now, then records the new snapshot.
+func fsListenSyncTarget(srv fspb.Firestore_ListenServer, id int32, state *fsListenTarget, readTime string) error {
+	docs := fsListenMatches(state.target)
+	next := make(map[string]string, len(docs))
+	for _, d := range docs {
+		version, err := fsDocumentVersion(d)
+		if err != nil {
+			return err
+		}
+		next[d.Name] = version
+		if previous, seen := state.snapshot[d.Name]; seen && previous == version {
+			continue
+		}
+		if err := srv.Send(&fspb.ListenResponse{ResponseType: &fspb.ListenResponse_DocumentChange{
+			DocumentChange: &fspb.DocumentChange{Document: fsDocToProto(d), TargetIds: []int32{id}},
+		}}); err != nil {
+			return err
+		}
+	}
+
+	gone := make([]string, 0, len(state.snapshot))
+	for name := range state.snapshot {
+		if _, still := next[name]; !still {
+			gone = append(gone, name)
+		}
+	}
+	sort.Strings(gone)
+	rt := fsTimestampToProto(readTime)
+	for _, name := range gone {
+		if _, stored := fsDocuments.Get(name); stored {
+			// The document still exists; it left this target's view.
+			if err := srv.Send(&fspb.ListenResponse{ResponseType: &fspb.ListenResponse_DocumentRemove{
+				DocumentRemove: &fspb.DocumentRemove{Document: name, RemovedTargetIds: []int32{id}, ReadTime: rt},
+			}}); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := srv.Send(&fspb.ListenResponse{ResponseType: &fspb.ListenResponse_DocumentDelete{
+			DocumentDelete: &fspb.DocumentDelete{Document: name, RemovedTargetIds: []int32{id}, ReadTime: rt},
+		}}); err != nil {
+			return err
+		}
+	}
+	state.snapshot = next
+	return nil
+}
+
+// fsListenSendTargetChange emits one TargetChange. The resume token is the
+// read time it reports: a target re-added with that token resumes from exactly
+// the snapshot the client last saw.
+func fsListenSendTargetChange(srv fspb.Firestore_ListenServer, kind fspb.TargetChange_TargetChangeType, ids []int32, readTime string) error {
+	return srv.Send(&fspb.ListenResponse{ResponseType: &fspb.ListenResponse_TargetChange{
+		TargetChange: &fspb.TargetChange{
+			TargetChangeType: kind,
+			TargetIds:        ids,
+			ReadTime:         fsTimestampToProto(readTime),
+			ResumeToken:      []byte(readTime),
+		},
+	}})
+}
+
+// fsListenMatches returns the documents a target matches right now, in name
+// order. A query target runs through fsEvaluateQuery — the same evaluator
+// RunQuery and the REST runQuery handler use.
+func fsListenMatches(target *fspb.Target) []FSDocument {
+	switch tt := target.GetTargetType().(type) {
+	case *fspb.Target_Documents:
+		seen := map[string]bool{}
+		out := make([]FSDocument, 0, len(tt.Documents.GetDocuments()))
+		for _, name := range tt.Documents.GetDocuments() {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			if d, ok := fsDocuments.Get(name); ok {
+				out = append(out, d)
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+		return out
+	case *fspb.Target_Query:
+		return fsEvaluateQuery(tt.Query.GetParent(), fsStructuredQueryFromProto(tt.Query.GetStructuredQuery()))
+	}
+	return nil
+}
+
+// fsListenResumePoint returns the read time a target resumes from, or "" when
+// it starts from the current state of the store.
+func fsListenResumePoint(target *fspb.Target) string {
+	switch rt := target.GetResumeType().(type) {
+	case *fspb.Target_ResumeToken:
+		return string(rt.ResumeToken)
+	case *fspb.Target_ReadTime:
+		return fsTimestampFromProto(rt.ReadTime)
+	}
+	return ""
+}
+
+// fsListenNextServerTargetID picks an id for a target the client left at zero.
+func fsListenNextServerTargetID(targets map[int32]*fsListenTarget) int32 {
+	id := int32(1)
+	for {
+		if _, taken := targets[id]; !taken {
+			return id
+		}
+		id++
+	}
+}
+
+// fsListenTargetIDs returns the stream's target ids in a stable order.
+func fsListenTargetIDs(targets map[int32]*fsListenTarget) []int32 {
+	ids := make([]int32, 0, len(targets))
+	for id := range targets {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+// ExecutePipeline executes a Firestore pipeline: a stage list whose stages
+// carry expression trees built from the pipeline function library (field
+// references, comparisons, arithmetic, array and map accessors, aggregate
+// accumulators). The simulator holds documents and the structured-query
+// evaluator that RunQuery and the REST runQuery handler share; it has no
+// evaluator for pipeline expressions, and a pipeline's stages are not
+// expressible as a structured query — collection sources may be replaced by
+// arbitrary document sets, stages compose in any order, and expressions
+// compute values that no document field holds. It therefore stays on the
+// UnimplementedFirestoreServer default: a client that calls it gets a clear
+// status rather than a result set computed from a subset of its pipeline.

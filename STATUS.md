@@ -94,8 +94,34 @@ Current state of the sockerless-cloud repository.
   lifecycle and both list scopes). VPC networks allocate bridge subnets from
   a host-side pool with ENI addresses as real secondary interface addresses,
   so same-CIDR VPCs coexist.
+- **gRPC surfaces**: the Google Cloud simulator serves **210 of 213**
+  declared gRPC methods, ratcheted by
+  `simulator-gcp/grpc_coverage_test.go`. It reads the declared methods from
+  the server itself (the gate calls the same `registerAllGRPCServices`
+  production calls, and `grpc.Server.GetServiceInfo` reports each service's
+  method set from the generated `ServiceDesc`) and the served methods from
+  the implementation's own declarations in the syntax tree — reflection
+  cannot make that distinction, because Go names a method promoted from an
+  embedded `Unimplemented` server after the outer type. It carries a served
+  floor, a declared-total lock so a re-vendored proto that adds methods
+  fails rather than drifting, and a check that every mounted service is
+  measured. Complete: both Cloud Bigtable admin services, Cloud KMS, Cloud
+  Logging, the long-running Operations service, Pub/Sub's three services,
+  Secret Manager. The three unserved methods each need state the simulator
+  does not hold — a materialized result set
+  (`Bigtable.OpenMaterializedView`), a pipeline expression evaluator
+  (`Firestore.ExecutePipeline`), a split and zone topology
+  (`Spanner.FetchCacheUpdate`) — and the floor comment records why for each.
+  Cloud Bigtable backups and snapshots capture the source table's schema and
+  rows, so a restore yields the rows the copy held rather than an empty
+  table.
 - **Data races**: zero across all three simulator modules, held by the
-  `race (simulator-*)` CI job rather than by memory. The first detector run of
+  `race (simulator-*)` CI job rather than by memory. Registration mounts
+  handlers and starts nothing: Pub/Sub's ack-deadline sweeper and the Cloud
+  Spanner backup-schedule loop both start when the process starts serving,
+  so anything enumerating the mounted surface without serving it — the gRPC
+  coverage ratchet, the route conformance tests — does not set a second
+  clock running against the same stores. The first detector run of
   `simulator-aws` reported 144: asynchronous simulator work in untracked
   goroutines and timers, still reading package-level stores after the test that
   started it had ended, plus two shutdown paths that reported completion while
