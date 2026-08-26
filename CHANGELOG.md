@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/e6qu/sockerless-cloud/compare/v0.21.0...v0.22.0) (2026-08-26)
+
+
+### Features
+
+* **gcp,azure:** serve the implementable tails, and fix what serving them exposed ([#81](https://github.com/e6qu/sockerless-cloud/issues/81)) ([93392f8](https://github.com/e6qu/sockerless-cloud/commit/93392f8a6e908f3dd301e475efceb21f2e315cda))
+
 ## [0.21.0](https://github.com/e6qu/sockerless-cloud/compare/v0.20.0...v0.21.0) (2026-08-25)
 
 
