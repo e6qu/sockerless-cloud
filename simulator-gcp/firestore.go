@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
@@ -191,8 +192,18 @@ func fsDatabasePrefix(project, database string) string {
 	return "projects/" + project + "/databases/" + database + "/documents"
 }
 
+// fsNow stamps a Firestore commit time, at the microsecond granularity real
+// Firestore commits carry rather than the millisecond truncation the shared
+// helper applies.
+//
+// The precision is load-bearing, not cosmetic. A watching client
+// (cloud.google.com/go/firestore's watch loop, and every client library built
+// the same way) treats a document whose updateTime equals the one it already
+// holds as unchanged. At millisecond granularity two writes to one document
+// inside the same millisecond therefore leave the second invisible to every
+// watcher: the change reaches the client and is discarded there.
 func fsNow() string {
-	return nowTimestamp()
+	return time.Now().UTC().Truncate(time.Microsecond).Format("2006-01-02T15:04:05.000000Z")
 }
 
 func fsFullName(project, database, docPath string) string {
@@ -1385,8 +1396,8 @@ func fsIndexOpMetadata(indexName string) map[string]any {
 		"@type":     "type.googleapis.com/google.firestore.admin.v1.IndexOperationMetadata",
 		"index":     indexName,
 		"state":     "SUCCESSFUL",
-		"startTime": nowTimestamp(),
-		"endTime":   nowTimestamp(),
+		"startTime": fsNow(),
+		"endTime":   fsNow(),
 	}
 }
 
@@ -1397,8 +1408,8 @@ func fsFieldOpMetadata(fieldName string) map[string]any {
 		"@type":     "type.googleapis.com/google.firestore.admin.v1.FieldOperationMetadata",
 		"field":     fieldName,
 		"state":     "SUCCESSFUL",
-		"startTime": nowTimestamp(),
-		"endTime":   nowTimestamp(),
+		"startTime": fsNow(),
+		"endTime":   fsNow(),
 	}
 }
 
@@ -1425,7 +1436,7 @@ func handleFSDatabasesCollection(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Database already exists: %s", name)
 		return
 	}
-	now := nowTimestamp()
+	now := fsNow()
 	body["name"] = name
 	body["uid"] = generateUUID()
 	body["createTime"] = now
@@ -1474,7 +1485,7 @@ func handleFSPatchDatabase(w http.ResponseWriter, r *http.Request) {
 		d.Body[k] = v
 	}
 	d.Body["name"] = name
-	d.Body["updateTime"] = nowTimestamp()
+	d.Body["updateTime"] = fsNow()
 	fsDatabases.Put(name, d)
 	op := fsNewAdminOp(project, database, d.Body, "type.googleapis.com/google.firestore.admin.v1.Database", nil)
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -1529,7 +1540,7 @@ func handleFSDatabaseVerb(w http.ResponseWriter, r *http.Request) {
 			newID = generateUUID()
 		}
 		name := fsDatabaseName(project, newID)
-		now := nowTimestamp()
+		now := fsNow()
 		db := map[string]any{"name": name, "uid": generateUUID(), "createTime": now, "updateTime": now}
 		fsDatabases.Put(name, fsResource{Name: name, Body: db})
 		op := fsNewAdminOp(project, newID, db, "type.googleapis.com/google.firestore.admin.v1.Database", nil)
@@ -1658,7 +1669,7 @@ func handleFSCreateBackupSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	bsID := generateUUID()
 	name := fsBackupScheduleName(project, database, bsID)
-	now := nowTimestamp()
+	now := fsNow()
 	body["name"] = name
 	body["createTime"] = now
 	body["updateTime"] = now
@@ -1704,7 +1715,7 @@ func handleFSPatchBackupSchedule(w http.ResponseWriter, r *http.Request) {
 		d.Body[k] = v
 	}
 	d.Body["name"] = name
-	d.Body["updateTime"] = nowTimestamp()
+	d.Body["updateTime"] = fsNow()
 	fsBackupSchedules.Put(name, d)
 	sim.WriteJSON(w, http.StatusOK, d.Body)
 }
@@ -1775,7 +1786,7 @@ func handleFSUserCredsCollection(w http.ResponseWriter, r *http.Request) {
 	name := fsUserCredsName(project, database, ucID)
 	body["name"] = name
 	body["state"] = "ENABLED"
-	body["createTime"] = nowTimestamp()
+	body["createTime"] = fsNow()
 	body["securePassword"] = generateUUID()
 	fsUserCreds.Put(name, fsResource{Name: name, Body: body})
 	sim.WriteJSON(w, http.StatusOK, body)

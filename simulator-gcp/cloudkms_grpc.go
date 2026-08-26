@@ -10,17 +10,22 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -52,29 +57,29 @@ import (
 // cloudKmsGRPC implements the KeyManagementService gRPC service on the shared
 // REST stores and crypto helpers.
 //
-// Implemented RPCs cover the full admin CRUD the high-level client drives
-// (KeyRings / CryptoKeys / CryptoKeyVersions lifecycle + GetPublicKey +
-// UpdateCryptoKeyPrimaryVersion) and every data-plane crypto op (Encrypt /
-// Decrypt / AsymmetricSign / AsymmetricDecrypt / MacSign / MacVerify /
-// RawEncrypt / RawDecrypt / GenerateRandomBytes), each doing real work via the
-// REST slice's stores and Go-stdlib crypto helpers.
+// Every RPC the generated service declares is served here, over the same
+// stores the REST slice owns:
 //
-// Left as the UnimplementedKeyManagementServiceServer default:
-//   - ListRetiredResources / GetRetiredResource — read paths over the REST
-//     slice's kmsRetiredResources store; not exercised by the gRPC client's
-//     crypto flows and out of scope for the data-plane slice.
-//   - DeleteCryptoKey / DeleteCryptoKeyVersion — both return longrunning
-//     Operations in the real API; the gRPC LRO plumbing (operation name
-//     polling) is a separate slice and not part of this data-plane landing.
-//   - ImportCryptoKeyVersion / CreateImportJob — import needs the wrapping-key
-//     unwrap round-trip the REST slice records metadata for but does not
-//     perform (the wrapped blob is opaque to the sim); the REST import handler
-//     provisions fresh material instead, and surfacing that honestly over gRPC
-//     is deferred to a dedicated import slice.
-//   - Decapsulate — post-quantum key encapsulation (ML-KEM / X-Wing) is a
-//     primitive Go's standard library does not expose; the REST slice rejects
-//     it with FAILED_PRECONDITION and the gRPC base's Unimplemented status is
-//     the faithful equivalent.
+//   - admin CRUD the high-level client drives (KeyRings / CryptoKeys /
+//     CryptoKeyVersions lifecycle + GetPublicKey +
+//     UpdateCryptoKeyPrimaryVersion + the two deletes);
+//   - every data-plane crypto op (Encrypt / Decrypt / AsymmetricSign /
+//     AsymmetricDecrypt / MacSign / MacVerify / RawEncrypt / RawDecrypt /
+//     GenerateRandomBytes), each doing real work through the REST slice's
+//     Go-stdlib crypto helpers;
+//   - the ImportJob family, whose wrapping key is a real RSA key pair: an
+//     import unwraps the caller's blob with RSA-OAEP (plus RFC 5649 AES key
+//     unwrap for the hybrid methods) and stores the material the caller
+//     supplied, exactly as the REST spelling does;
+//   - the trusted-key-wrapped export and import, which wrap and unwrap with
+//     AES-KWP under an HSM-trusted AES_256_KWP version's material;
+//   - the RetiredResource reads, over the same kmsRetiredResources store the
+//     REST reads serve.
+//
+// Decapsulate is served as a refusal: post-quantum key encapsulation (ML-KEM /
+// X-Wing) is a primitive Go's standard library does not expose, so the method
+// returns the same FAILED_PRECONDITION the REST spelling returns rather than
+// inventing shared-secret bytes. Both doors give a client the same answer.
 type cloudKmsGRPC struct {
 	kmspb.UnimplementedKeyManagementServiceServer
 }
@@ -181,6 +186,10 @@ func kmsPurposeFromString(s string) kmspb.CryptoKey_CryptoKeyPurpose {
 		return kmspb.CryptoKey_RAW_ENCRYPT_DECRYPT
 	case "MAC":
 		return kmspb.CryptoKey_MAC
+	case "KEY_ENCAPSULATION":
+		return kmspb.CryptoKey_KEY_ENCAPSULATION
+	case "AES_WRAPPING":
+		return kmspb.CryptoKey_AES_WRAPPING
 	default:
 		return kmspb.CryptoKey_ENCRYPT_DECRYPT
 	}
@@ -197,6 +206,10 @@ func kmsPurposeString(p kmspb.CryptoKey_CryptoKeyPurpose) string {
 		return "RAW_ENCRYPT_DECRYPT"
 	case kmspb.CryptoKey_MAC:
 		return "MAC"
+	case kmspb.CryptoKey_KEY_ENCAPSULATION:
+		return "KEY_ENCAPSULATION"
+	case kmspb.CryptoKey_AES_WRAPPING:
+		return "AES_WRAPPING"
 	default:
 		return "ENCRYPT_DECRYPT"
 	}
@@ -280,19 +293,25 @@ func kmsKeyRingToProto(kr kmsKeyRing) *kmspb.KeyRing {
 }
 
 // kmsCryptoKeyVersionToProto converts the REST-store CryptoKeyVersion wire
-// shape to the proto CryptoKeyVersion.
+// shape to the proto CryptoKeyVersion. The import-related flags travel with it
+// so a gRPC client sees the same version state the REST reads report: whether
+// the version may be reimported, whether it may be exported under a trusted
+// wrapping key, and whether it is itself an HSM-trusted wrapping key.
 func kmsCryptoKeyVersionToProto(v kmsCryptoKeyVersion) *kmspb.CryptoKeyVersion {
 	return &kmspb.CryptoKeyVersion{
-		Name:             v.Name,
-		State:            kmsStateFromString(v.State),
-		ProtectionLevel:  kmsProtectionLevelFromString(v.ProtectionLevel),
-		Algorithm:        kmsAlgorithmFromString(v.Algorithm),
-		CreateTime:       kmsParseRFC3339(v.CreateTime),
-		GenerateTime:     kmsParseRFC3339(v.GenerateTime),
-		DestroyTime:      kmsParseRFC3339(v.DestroyTime),
-		DestroyEventTime: kmsParseRFC3339(v.DestroyEventTime),
-		ImportJob:        v.ImportJob,
-		ImportTime:       kmsParseRFC3339(v.ImportTime),
+		Name:                   v.Name,
+		State:                  kmsStateFromString(v.State),
+		ProtectionLevel:        kmsProtectionLevelFromString(v.ProtectionLevel),
+		Algorithm:              kmsAlgorithmFromString(v.Algorithm),
+		CreateTime:             kmsParseRFC3339(v.CreateTime),
+		GenerateTime:           kmsParseRFC3339(v.GenerateTime),
+		DestroyTime:            kmsParseRFC3339(v.DestroyTime),
+		DestroyEventTime:       kmsParseRFC3339(v.DestroyEventTime),
+		ImportJob:              v.ImportJob,
+		ImportTime:             kmsParseRFC3339(v.ImportTime),
+		ReimportEligible:       v.ReimportEligible,
+		TrustedWrappingEnabled: v.TrustedWrappingEnabled,
+		HsmTrusted:             v.HSMTrusted,
 	}
 }
 
@@ -317,8 +336,11 @@ func kmsCryptoKeyToProto(k kmsStoredCryptoKey) *kmspb.CryptoKey {
 			out.RotationSchedule = &kmspb.CryptoKey_RotationPeriod{RotationPeriod: d}
 		}
 	}
+	if k.DestroyScheduledDuration != "" {
+		out.DestroyScheduledDuration = kmsParseDuration(k.DestroyScheduledDuration)
+	}
 	if k.PrimaryVersionID != "" {
-		if v, ok := kmsCryptoKeyVersions.Get(k.Name + "/cryptoKeyVersions/" + k.PrimaryVersionID); ok {
+		if v, ok := kmsGetCryptoKeyVersion(k.Name + "/cryptoKeyVersions/" + k.PrimaryVersionID); ok {
 			out.Primary = kmsCryptoKeyVersionToProto(v)
 		}
 	}
@@ -446,6 +468,7 @@ func (s *cloudKmsGRPC) CreateCryptoKey(ctx context.Context, req *kmspb.CreateCry
 	if ck.GetRotationPeriod() != nil {
 		stored.RotationPeriod = kmsDurationString(ck.GetRotationPeriod())
 	}
+	stored.DestroyScheduledDuration = kmsDestroyScheduledDuration(kmsDurationString(ck.GetDestroyScheduledDuration()))
 
 	if !req.GetSkipInitialVersionCreation() {
 		ver, err := kmsCreateVersionForAlg(name, "1", protection, algorithm)
@@ -502,7 +525,7 @@ func (s *cloudKmsGRPC) ListCryptoKeyVersions(ctx context.Context, req *kmspb.Lis
 	var all []*kmspb.CryptoKeyVersion
 	for _, v := range kmsCryptoKeyVersions.List() {
 		if strings.HasPrefix(v.Name, prefix) {
-			all = append(all, kmsCryptoKeyVersionToProto(v))
+			all = append(all, kmsCryptoKeyVersionToProto(kmsVersionSettled(v)))
 		}
 	}
 	sort.Slice(all, func(i, j int) bool {
@@ -521,7 +544,7 @@ func (s *cloudKmsGRPC) ListCryptoKeyVersions(ctx context.Context, req *kmspb.Lis
 
 func (s *cloudKmsGRPC) GetCryptoKeyVersion(ctx context.Context, req *kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
 	name := kmsNormalizeName(req.GetName())
-	v, ok := kmsCryptoKeyVersions.Get(name)
+	v, ok := kmsGetCryptoKeyVersion(name)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "CryptoKeyVersion %s not found", name)
 	}
@@ -557,7 +580,15 @@ func (s *cloudKmsGRPC) CreateCryptoKeyVersion(ctx context.Context, req *kmspb.Cr
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "could not generate key version: %v", err)
 	}
-	v, _ := kmsCryptoKeyVersions.Get(keyName + "/cryptoKeyVersions/" + versionID)
+	v, _ := kmsGetCryptoKeyVersion(keyName + "/cryptoKeyVersions/" + versionID)
+	// trusted_wrapping_enabled is a writable field on the created version: it
+	// marks the version exportable under a trusted wrapping key. The REST
+	// spelling takes it from the request body, so this door takes it from the
+	// request message.
+	if ckv := req.GetCryptoKeyVersion(); ckv.GetTrustedWrappingEnabled() {
+		v.TrustedWrappingEnabled = true
+		kmsCryptoKeyVersions.Put(v.Name, v)
+	}
 	return kmsCryptoKeyVersionToProto(v), nil
 }
 
@@ -567,7 +598,7 @@ func (s *cloudKmsGRPC) UpdateCryptoKeyVersion(ctx context.Context, req *kmspb.Up
 		return nil, status.Error(codes.InvalidArgument, "crypto_key_version is required")
 	}
 	name := kmsNormalizeName(ckv.GetName())
-	v, ok := kmsCryptoKeyVersions.Get(name)
+	v, ok := kmsGetCryptoKeyVersion(name)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "CryptoKeyVersion %s not found", name)
 	}
@@ -597,7 +628,7 @@ func (s *cloudKmsGRPC) UpdateCryptoKeyPrimaryVersion(ctx context.Context, req *k
 	if req.GetCryptoKeyVersionId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "crypto_key_version_id is required")
 	}
-	if _, ok := kmsCryptoKeyVersions.Get(keyName + "/cryptoKeyVersions/" + req.GetCryptoKeyVersionId()); !ok {
+	if _, ok := kmsGetCryptoKeyVersion(keyName + "/cryptoKeyVersions/" + req.GetCryptoKeyVersionId()); !ok {
 		return nil, status.Errorf(codes.InvalidArgument, "CryptoKeyVersion %s not found", req.GetCryptoKeyVersionId())
 	}
 	k.PrimaryVersionID = req.GetCryptoKeyVersionId()
@@ -607,7 +638,7 @@ func (s *cloudKmsGRPC) UpdateCryptoKeyPrimaryVersion(ctx context.Context, req *k
 
 func (s *cloudKmsGRPC) DestroyCryptoKeyVersion(ctx context.Context, req *kmspb.DestroyCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
 	name := kmsNormalizeName(req.GetName())
-	v, ok := kmsCryptoKeyVersions.Get(name)
+	v, ok := kmsGetCryptoKeyVersion(name)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "CryptoKeyVersion %s not found", name)
 	}
@@ -615,14 +646,14 @@ func (s *cloudKmsGRPC) DestroyCryptoKeyVersion(ctx context.Context, req *kmspb.D
 		return nil, status.Errorf(codes.FailedPrecondition, "CryptoKeyVersion %s is already %s", name, v.State)
 	}
 	v.State = "DESTROY_SCHEDULED"
-	v.DestroyTime = time.Now().UTC().Add(kmsDestroyScheduledDelay).Format(time.RFC3339)
+	v.DestroyTime = time.Now().UTC().Add(kmsDestroyDelayFor(kmsCryptoKeyNameFromVersion(name))).Format(time.RFC3339)
 	kmsCryptoKeyVersions.Put(name, v)
 	return kmsCryptoKeyVersionToProto(v), nil
 }
 
 func (s *cloudKmsGRPC) RestoreCryptoKeyVersion(ctx context.Context, req *kmspb.RestoreCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
 	name := kmsNormalizeName(req.GetName())
-	v, ok := kmsCryptoKeyVersions.Get(name)
+	v, ok := kmsGetCryptoKeyVersion(name)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "CryptoKeyVersion %s not found", name)
 	}
@@ -637,7 +668,7 @@ func (s *cloudKmsGRPC) RestoreCryptoKeyVersion(ctx context.Context, req *kmspb.R
 
 func (s *cloudKmsGRPC) GetPublicKey(ctx context.Context, req *kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error) {
 	name := kmsNormalizeName(req.GetName())
-	version, ok := kmsCryptoKeyVersions.Get(name)
+	version, ok := kmsGetCryptoKeyVersion(name)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "CryptoKeyVersion %s not found", name)
 	}
@@ -681,7 +712,7 @@ func (s *cloudKmsGRPC) Encrypt(ctx context.Context, req *kmspb.EncryptRequest) (
 	if key.Purpose != kmsPurposeEncryptDecrypt {
 		return nil, status.Errorf(codes.FailedPrecondition, "CryptoKey %s is not for ENCRYPT_DECRYPT", keyName)
 	}
-	version, ok := kmsCryptoKeyVersions.Get(versionName)
+	version, ok := kmsGetCryptoKeyVersion(versionName)
 	if !ok || version.State != "ENABLED" {
 		return nil, status.Errorf(codes.FailedPrecondition, "primary version of %s is not enabled", keyName)
 	}
@@ -728,7 +759,7 @@ func (s *cloudKmsGRPC) Decrypt(ctx context.Context, req *kmspb.DecryptRequest) (
 		return nil, status.Error(codes.InvalidArgument, "Decryption failed: the ciphertext is malformed")
 	}
 	versionName := fmt.Sprintf("%s/cryptoKeyVersions/%d", keyName, versionNum)
-	version, ok := kmsCryptoKeyVersions.Get(versionName)
+	version, ok := kmsGetCryptoKeyVersion(versionName)
 	if !ok {
 		return nil, status.Error(codes.InvalidArgument, "Decryption failed: the version used to encrypt does not exist")
 	}
@@ -1026,6 +1057,336 @@ func (s *cloudKmsGRPC) GenerateRandomBytes(ctx context.Context, req *kmspb.Gener
 }
 
 // ---------------------------------------------------------------------------
+// ImportJobs — the wrapping-key lifecycle behind ImportCryptoKeyVersion
+// ---------------------------------------------------------------------------
+
+func (s *cloudKmsGRPC) CreateImportJob(ctx context.Context, req *kmspb.CreateImportJobRequest) (*kmspb.ImportJob, error) {
+	ringName := kmsNormalizeName(req.GetParent())
+	if _, ok := kmsKeyRings.Get(ringName); !ok {
+		return nil, status.Errorf(codes.NotFound, "KeyRing %s not found", ringName)
+	}
+	if req.GetImportJobId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "import_job_id is required")
+	}
+	name := ringName + "/importJobs/" + req.GetImportJobId()
+	if _, exists := kmsImportJobs.Get(name); exists {
+		return nil, status.Errorf(codes.AlreadyExists, "ImportJob %s already exists", name)
+	}
+	requested := req.GetImportJob()
+	method := requested.GetImportMethod().String()
+	bits, ok := kmsWrappingKeyBits(method)
+	if !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported importMethod %q", method)
+	}
+	// The wrapping key is a real RSA key pair of the size the import method
+	// selects. The public half goes back to the client, which wraps its key
+	// material with it; the private half stays in the service and is what
+	// ImportCryptoKeyVersion unwraps with.
+	priv, err := rsa.GenerateKey(rand.Reader, bits)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "could not generate wrapping key: %v", err)
+	}
+	pemStr, err := kmsPublicKeyPEM(&priv.PublicKey)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "could not encode wrapping public key: %v", err)
+	}
+	privatePEM, err := kmsPrivateKeyPEM(priv)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "could not encode wrapping private key: %v", err)
+	}
+	now := kmsNow()
+	job := kmsImportJob{
+		Name:            name,
+		ImportMethod:    method,
+		ProtectionLevel: kmsProtectionLevelString(requested.GetProtectionLevel()),
+		State:           "ACTIVE",
+		PublicKey:       &kmsWrappingPubKey{Pem: pemStr},
+		CreateTime:      now,
+		GenerateTime:    now,
+	}
+	kmsImportJobs.Put(name, job)
+	kmsImportJobMaterial.Put(name, kmsKeyMaterialRecord{PrivatePEM: privatePEM})
+	return kmsImportJobToProto(job), nil
+}
+
+func (s *cloudKmsGRPC) GetImportJob(ctx context.Context, req *kmspb.GetImportJobRequest) (*kmspb.ImportJob, error) {
+	name := kmsNormalizeName(req.GetName())
+	job, ok := kmsImportJobs.Get(name)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "ImportJob %s not found", name)
+	}
+	return kmsImportJobToProto(job), nil
+}
+
+func (s *cloudKmsGRPC) ListImportJobs(ctx context.Context, req *kmspb.ListImportJobsRequest) (*kmspb.ListImportJobsResponse, error) {
+	parent := kmsNormalizeName(req.GetParent())
+	prefix := parent + "/importJobs/"
+	var all []*kmspb.ImportJob
+	for _, job := range kmsImportJobs.List() {
+		if strings.HasPrefix(job.Name, prefix) {
+			all = append(all, kmsImportJobToProto(job))
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	start := kmsPageOffset(req.GetPageToken())
+	end, next := kmsPageBounds(start, int(req.GetPageSize()), len(all))
+	return &kmspb.ListImportJobsResponse{
+		ImportJobs:    all[start:end],
+		NextPageToken: next,
+		TotalSize:     int32(len(all)),
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// key import and trusted-key-wrapped export
+// ---------------------------------------------------------------------------
+
+// ImportCryptoKeyVersion unwraps the caller's material with the selected
+// ImportJob's private wrapping key and persists exactly that material in the
+// version. The unwrap is real: RSA-OAEP for the direct methods, RSA-OAEP of an
+// AES key followed by an RFC 5649 key unwrap for the hybrid _AES_256 methods.
+func (s *cloudKmsGRPC) ImportCryptoKeyVersion(ctx context.Context, req *kmspb.ImportCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+	keyName := kmsNormalizeName(req.GetParent())
+	key, ok := kmsCryptoKeys.Get(keyName)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "CryptoKey %s not found", keyName)
+	}
+	jobName := kmsNormalizeName(req.GetImportJob())
+	if jobName == "" {
+		return nil, status.Error(codes.InvalidArgument, "import_job is required")
+	}
+	job, ok := kmsImportJobs.Get(jobName)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "ImportJob %s not found", jobName)
+	}
+	if job.State != "ACTIVE" || !strings.HasPrefix(jobName, strings.Split(keyName, "/cryptoKeys/")[0]+"/importJobs/") {
+		return nil, status.Error(codes.FailedPrecondition, "ImportJob is not active in the target key ring")
+	}
+	jobMaterial, ok := kmsImportJobMaterial.Get(jobName)
+	if !ok || len(jobMaterial.PrivatePEM) == 0 {
+		return nil, status.Error(codes.Internal, "ImportJob wrapping key material is unavailable")
+	}
+	privateKey, err := kmsPrivateFromPEM(jobMaterial.PrivatePEM)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "ImportJob private key is invalid: %v", err)
+	}
+	rsaPrivate, isRSA := privateKey.(*rsa.PrivateKey)
+	if !isRSA {
+		return nil, status.Error(codes.Internal, "ImportJob wrapping key is not RSA")
+	}
+	// wrapped_key and the deprecated rsa_aes_wrapped_key carry the same blob;
+	// exactly one of them belongs in a request.
+	wrapped := req.GetWrappedKey()
+	legacy := req.GetRsaAesWrappedKey()
+	if (len(wrapped) == 0) == (len(legacy) == 0) {
+		return nil, status.Error(codes.InvalidArgument, "exactly one of wrapped_key or rsa_aes_wrapped_key is required")
+	}
+	if len(wrapped) == 0 {
+		wrapped = legacy
+	}
+	raw, err := kmsUnwrapImportJobMaterial(rsaPrivate, job.ImportMethod, wrapped)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "could not unwrap key material: %v", err)
+	}
+	algorithm := key.Algorithm
+	if req.GetAlgorithm() != kmspb.CryptoKeyVersion_CRYPTO_KEY_VERSION_ALGORITHM_UNSPECIFIED {
+		algorithm = req.GetAlgorithm().String()
+	}
+	record, err := kmsImportedMaterialRecord(algorithm, raw)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	versionName, err := kmsImportTargetVersion(keyName, kmsNormalizeName(req.GetCryptoKeyVersion()), algorithm)
+	if err != nil {
+		return nil, err
+	}
+	now := kmsNow()
+	version := kmsCryptoKeyVersion{
+		Name:             versionName,
+		State:            "ENABLED",
+		ProtectionLevel:  job.ProtectionLevel,
+		Algorithm:        algorithm,
+		CreateTime:       now,
+		GenerateTime:     now,
+		ImportJob:        jobName,
+		ImportTime:       now,
+		ReimportEligible: true,
+
+		// An imported version is exportable under a trusted wrapping key only
+		// when the import asked for it, the same way a generated version
+		// carries the flag its create call set.
+		TrustedWrappingEnabled: req.GetTrustedWrappingEnabled(),
+	}
+	kmsCryptoKeyVersions.Put(versionName, version)
+	kmsKeyMaterial.Put(versionName, record)
+	return kmsCryptoKeyVersionToProto(version), nil
+}
+
+// ImportTrustedKeyWrappedCryptoKeyVersion unwraps material wrapped under an
+// HSM-trusted AES_256_KWP version's key with the RFC 5649 key unwrap, and
+// stores it in a version that is itself exportable under a trusted key.
+func (s *cloudKmsGRPC) ImportTrustedKeyWrappedCryptoKeyVersion(ctx context.Context, req *kmspb.ImportTrustedKeyWrappedCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+	keyName := kmsNormalizeName(req.GetParent())
+	key, ok := kmsCryptoKeys.Get(keyName)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "CryptoKey %s not found", keyName)
+	}
+	algorithm := req.GetAlgorithm()
+	if len(req.GetWrappedKey()) == 0 || req.GetImportingKey() == "" ||
+		algorithm == kmspb.CryptoKeyVersion_CRYPTO_KEY_VERSION_ALGORITHM_UNSPECIFIED {
+		return nil, status.Error(codes.InvalidArgument, "wrapped_key, importing_key, and algorithm are required")
+	}
+	_, wrappingMaterial, err := kmsLoadTrustedWrappingKeyGRPC(kmsNormalizeName(req.GetImportingKey()))
+	if err != nil {
+		return nil, err
+	}
+	raw, err := kmsAESKeyUnwrapWithPadding(wrappingMaterial.Key, req.GetWrappedKey())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "trusted wrapped key is invalid: %v", err)
+	}
+	record, err := kmsImportedMaterialRecord(algorithm.String(), raw)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	versionName, err := kmsImportTargetVersion(keyName, kmsNormalizeName(req.GetCryptoKeyVersion()), algorithm.String())
+	if err != nil {
+		return nil, err
+	}
+	now := kmsNow()
+	version := kmsCryptoKeyVersion{
+		Name:                   versionName,
+		State:                  "ENABLED",
+		ProtectionLevel:        key.ProtectionLevel,
+		Algorithm:              algorithm.String(),
+		CreateTime:             now,
+		GenerateTime:           now,
+		ImportTime:             now,
+		TrustedWrappingEnabled: true,
+		ReimportEligible:       true,
+	}
+	kmsCryptoKeyVersions.Put(versionName, version)
+	kmsKeyMaterial.Put(versionName, record)
+	return kmsCryptoKeyVersionToProto(version), nil
+}
+
+// ExportTrustedKeyWrappedCryptoKeyVersion wraps a trusted-wrapping-enabled
+// version's material under an HSM-trusted AES_256_KWP version with the RFC 5649
+// key wrap. Asymmetric material is wrapped in its PKCS#8 DER form, which is
+// what the PEM the sim stores decodes to.
+func (s *cloudKmsGRPC) ExportTrustedKeyWrappedCryptoKeyVersion(ctx context.Context, req *kmspb.ExportTrustedKeyWrappedCryptoKeyVersionRequest) (*kmspb.ExportTrustedKeyWrappedCryptoKeyVersionResponse, error) {
+	versionName := kmsNormalizeName(req.GetName())
+	version, targetMaterial, err := kmsLoadEnabledVersionGRPC(versionName)
+	if err != nil {
+		return nil, err
+	}
+	if !version.TrustedWrappingEnabled {
+		return nil, status.Error(codes.FailedPrecondition, "CryptoKeyVersion does not have trusted wrapping enabled")
+	}
+	_, wrappingMaterial, err := kmsLoadTrustedWrappingKeyGRPC(kmsNormalizeName(req.GetWrappingKey()))
+	if err != nil {
+		return nil, err
+	}
+	targetBytes := targetMaterial.Key
+	if len(targetBytes) == 0 && len(targetMaterial.PrivatePEM) > 0 {
+		block, _ := pem.Decode(targetMaterial.PrivatePEM)
+		if block == nil {
+			return nil, status.Error(codes.Internal, "stored private key is not valid PKCS#8 PEM")
+		}
+		targetBytes = block.Bytes
+	}
+	wrapped, err := kmsAESKeyWrapWithPadding(wrappingMaterial.Key, targetBytes)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "could not wrap key material: %v", err)
+	}
+	return &kmspb.ExportTrustedKeyWrappedCryptoKeyVersionResponse{
+		WrappedKey:       wrapped,
+		WrappedKeyCrc32C: kmsInt64Value(kmsCRC(wrapped)),
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// deletes — long-running operations over the same removal the REST DELETE does
+// ---------------------------------------------------------------------------
+
+// DeleteCryptoKey removes the CryptoKey and its IAM policy, once every child
+// version has been deleted — the delete does not cascade. The removal is
+// complete when the RPC returns, so the Operation comes back already Done with
+// its result inline and a client never has to poll it.
+func (s *cloudKmsGRPC) DeleteCryptoKey(ctx context.Context, req *kmspb.DeleteCryptoKeyRequest) (*longrunningpb.Operation, error) {
+	name := kmsNormalizeName(req.GetName())
+	if _, ok := kmsCryptoKeys.Get(name); !ok {
+		return nil, status.Errorf(codes.NotFound, "CryptoKey %s not found", name)
+	}
+	if reason := kmsCryptoKeyUndeletable(name); reason != "" {
+		return nil, status.Error(codes.FailedPrecondition, reason)
+	}
+	kmsCryptoKeys.Delete(name)
+	kmsIamPolicies.Delete(name)
+	return kmsCompletedOperation(name)
+}
+
+// DeleteCryptoKeyVersion removes a single version and its key material, for the
+// versions Cloud KMS permits it on.
+func (s *cloudKmsGRPC) DeleteCryptoKeyVersion(ctx context.Context, req *kmspb.DeleteCryptoKeyVersionRequest) (*longrunningpb.Operation, error) {
+	name := kmsNormalizeName(req.GetName())
+	version, ok := kmsGetCryptoKeyVersion(name)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "CryptoKeyVersion %s not found", name)
+	}
+	if reason := kmsVersionUndeletable(version); reason != "" {
+		return nil, status.Error(codes.FailedPrecondition, reason)
+	}
+	kmsCryptoKeyVersions.Delete(name)
+	kmsKeyMaterial.Delete(name)
+	return kmsCompletedOperation(name)
+}
+
+// ---------------------------------------------------------------------------
+// RetiredResources — the records of deleted CryptoKeys
+// ---------------------------------------------------------------------------
+
+func (s *cloudKmsGRPC) ListRetiredResources(ctx context.Context, req *kmspb.ListRetiredResourcesRequest) (*kmspb.ListRetiredResourcesResponse, error) {
+	parent := kmsNormalizeName(req.GetParent())
+	prefix := parent + "/retiredResources/"
+	var all []*kmspb.RetiredResource
+	for _, rr := range kmsRetiredResources.List() {
+		if strings.HasPrefix(rr.Name, prefix) {
+			all = append(all, kmsRetiredResourceToProto(rr))
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	start := kmsPageOffset(req.GetPageToken())
+	end, next := kmsPageBounds(start, int(req.GetPageSize()), len(all))
+	return &kmspb.ListRetiredResourcesResponse{
+		RetiredResources: all[start:end],
+		NextPageToken:    next,
+		TotalSize:        int64(len(all)),
+	}, nil
+}
+
+func (s *cloudKmsGRPC) GetRetiredResource(ctx context.Context, req *kmspb.GetRetiredResourceRequest) (*kmspb.RetiredResource, error) {
+	name := kmsNormalizeName(req.GetName())
+	rr, ok := kmsRetiredResources.Get(name)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "RetiredResource %s not found", name)
+	}
+	return kmsRetiredResourceToProto(rr), nil
+}
+
+// ---------------------------------------------------------------------------
+// key encapsulation
+// ---------------------------------------------------------------------------
+
+// Decapsulate refuses with the reason the refusal exists: post-quantum key
+// encapsulation (ML-KEM / X-Wing) is a primitive Go's standard library does not
+// expose, so there is no shared secret to derive and none is invented. The REST
+// spelling refuses identically, so both doors answer a client the same way.
+func (s *cloudKmsGRPC) Decapsulate(ctx context.Context, req *kmspb.DecapsulateRequest) (*kmspb.DecapsulateResponse, error) {
+	name := kmsNormalizeName(req.GetName())
+	return nil, status.Errorf(codes.FailedPrecondition, "decapsulate is not supported for CryptoKeyVersion %s", name)
+}
+
+// ---------------------------------------------------------------------------
 // helpers — resolve version names, format timestamps / durations, paginate
 // ---------------------------------------------------------------------------
 
@@ -1066,7 +1427,7 @@ func kmsCryptoKeyNameFromVersion(versionName string) string {
 // kmsLoadEnabledVersionGRPC is the gRPC analogue of kmsLoadEnabledVersion: it
 // returns the ENABLED version and its material, or a gRPC error.
 func kmsLoadEnabledVersionGRPC(versionName string) (kmsCryptoKeyVersion, kmsKeyMaterialRecord, error) {
-	version, ok := kmsCryptoKeyVersions.Get(versionName)
+	version, ok := kmsGetCryptoKeyVersion(versionName)
 	if !ok {
 		return version, kmsKeyMaterialRecord{}, status.Errorf(codes.NotFound, "CryptoKeyVersion %s not found", versionName)
 	}
@@ -1163,6 +1524,164 @@ func kmsPageOffset(token string) int {
 		return 0
 	}
 	return n
+}
+
+// kmsImportJobToProto converts the REST-store ImportJob to the proto ImportJob.
+// Attestation and cryptoKeyBackend are absent because an ImportJob is created
+// with neither: the sim's wrapping key is a software RSA key pair, so there is
+// no HSM attestation to report and no external backend to name.
+func kmsImportJobToProto(j kmsImportJob) *kmspb.ImportJob {
+	out := &kmspb.ImportJob{
+		Name:            j.Name,
+		ImportMethod:    kmsImportMethodFromString(j.ImportMethod),
+		ProtectionLevel: kmsProtectionLevelFromString(j.ProtectionLevel),
+		State:           kmsImportJobStateFromString(j.State),
+		CreateTime:      kmsParseRFC3339(j.CreateTime),
+		GenerateTime:    kmsParseRFC3339(j.GenerateTime),
+		ExpireTime:      kmsParseRFC3339(j.ExpireTime),
+		ExpireEventTime: kmsParseRFC3339(j.ExpireEventTime),
+	}
+	if j.PublicKey != nil {
+		out.PublicKey = &kmspb.ImportJob_WrappingPublicKey{Pem: j.PublicKey.Pem}
+	}
+	return out
+}
+
+// kmsImportMethodFromString maps the REST slice's import-method string to the
+// proto enum. The REST slice stores methods by their proto name, which is the
+// key of the generated value map.
+func kmsImportMethodFromString(s string) kmspb.ImportJob_ImportMethod {
+	if v, ok := kmspb.ImportJob_ImportMethod_value[s]; ok {
+		return kmspb.ImportJob_ImportMethod(v)
+	}
+	return kmspb.ImportJob_IMPORT_METHOD_UNSPECIFIED
+}
+
+// kmsImportJobStateFromString maps the REST slice's ImportJob state string to
+// the proto enum.
+func kmsImportJobStateFromString(s string) kmspb.ImportJob_ImportJobState {
+	if v, ok := kmspb.ImportJob_ImportJobState_value[s]; ok {
+		return kmspb.ImportJob_ImportJobState(v)
+	}
+	return kmspb.ImportJob_IMPORT_JOB_STATE_UNSPECIFIED
+}
+
+// kmsWrappingKeyBits returns the RSA modulus size an import method's wrapping
+// key uses, and false for a method the sim cannot generate a wrapping key for
+// (the HPKE key-encapsulation methods need ML-KEM, which Go's standard library
+// does not expose).
+func kmsWrappingKeyBits(importMethod string) (int, bool) {
+	switch importMethod {
+	case "RSA_OAEP_3072_SHA1_AES_256", "RSA_OAEP_3072_SHA256_AES_256", "RSA_OAEP_3072_SHA256":
+		return 3072, true
+	case "RSA_OAEP_4096_SHA1_AES_256", "RSA_OAEP_4096_SHA256_AES_256", "RSA_OAEP_4096_SHA256":
+		return 4096, true
+	default:
+		return 0, false
+	}
+}
+
+// kmsRetiredResourceToProto converts the REST-store RetiredResource to the
+// proto RetiredResource.
+func kmsRetiredResourceToProto(rr kmsRetiredResource) *kmspb.RetiredResource {
+	return &kmspb.RetiredResource{
+		Name:             rr.Name,
+		OriginalResource: rr.OriginalResource,
+		ResourceType:     rr.ResourceType,
+		DeleteTime:       kmsParseRFC3339(rr.DeleteTime),
+	}
+}
+
+// kmsImportTargetVersion resolves the version an import writes to. An empty
+// requested name reserves the next sequential ID atomically under the store
+// write lock; a supplied name is a reimport, which is only allowed into a
+// version that is eligible for it, is DESTROYED or IMPORT_FAILED, and keeps its
+// algorithm.
+func kmsImportTargetVersion(keyName, requested, algorithm string) (string, error) {
+	if requested == "" {
+		var assigned int
+		kmsCryptoKeys.Update(keyName, func(k *kmsStoredCryptoKey) {
+			if k.VersionSeq < kmsHighestVersionID(keyName) {
+				k.VersionSeq = kmsHighestVersionID(keyName)
+			}
+			k.VersionSeq++
+			assigned = k.VersionSeq
+		})
+		return keyName + "/cryptoKeyVersions/" + strconv.Itoa(assigned), nil
+	}
+	if !strings.HasPrefix(requested, keyName+"/cryptoKeyVersions/") {
+		return "", status.Error(codes.InvalidArgument, "crypto_key_version must be a child of parent")
+	}
+	existing, exists := kmsGetCryptoKeyVersion(requested)
+	if !exists || !existing.ReimportEligible ||
+		(existing.State != "DESTROYED" && existing.State != "IMPORT_FAILED") {
+		return "", status.Error(codes.FailedPrecondition, "crypto_key_version is not eligible for reimport")
+	}
+	if existing.Algorithm != algorithm {
+		return "", status.Error(codes.InvalidArgument, "algorithm must match the existing CryptoKeyVersion")
+	}
+	return requested, nil
+}
+
+// kmsLoadTrustedWrappingKeyGRPC resolves the wrapping key a trusted export or
+// import names — a CryptoKey resolves to its highest enabled version — and
+// holds it to what trusted wrapping requires: an HSM-trusted AES_256_KWP
+// version on an HSM_SINGLE_TENANT protection level, carrying 32 bytes of key
+// material.
+func kmsLoadTrustedWrappingKeyGRPC(name string) (kmsCryptoKeyVersion, kmsKeyMaterialRecord, error) {
+	if !strings.Contains(name, "/cryptoKeyVersions/") {
+		prefix := strings.TrimSuffix(name, "/") + "/cryptoKeyVersions/"
+		var candidates []kmsCryptoKeyVersion
+		for _, version := range kmsCryptoKeyVersions.List() {
+			if strings.HasPrefix(version.Name, prefix) && version.State == "ENABLED" {
+				candidates = append(candidates, version)
+			}
+		}
+		sort.Slice(candidates, func(i, j int) bool { return kmsVersionLess(candidates[j].Name, candidates[i].Name) })
+		if len(candidates) == 0 {
+			return kmsCryptoKeyVersion{}, kmsKeyMaterialRecord{}, status.Errorf(codes.NotFound, "trusted wrapping key %s has no enabled version", name)
+		}
+		name = candidates[0].Name
+	}
+	version, material, err := kmsLoadEnabledVersionGRPC(name)
+	if err != nil {
+		return version, material, err
+	}
+	if !version.HSMTrusted || version.Algorithm != "AES_256_KWP" ||
+		version.ProtectionLevel != "HSM_SINGLE_TENANT" || len(material.Key) != 32 {
+		return version, material, status.Error(codes.FailedPrecondition, "wrapping_key must be an HSM-trusted AES_256_KWP CryptoKeyVersion")
+	}
+	return version, material, nil
+}
+
+// kmsCompletedOperation wraps a finished deletion in the long-running Operation
+// the delete RPCs return. The work is already done when the RPC answers, so the
+// Operation carries Done and its empty result inline — the same empty body the
+// REST DELETE responds with. DeleteCryptoKeyMetadata.retired_resource stays
+// unset because a delete records no RetiredResource.
+func kmsCompletedOperation(resourceName string) (*longrunningpb.Operation, error) {
+	result, err := anypb.New(&emptypb.Empty{})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "could not build operation result: %v", err)
+	}
+	op := &longrunningpb.Operation{
+		Name:   kmsLocationFromName(resourceName) + "/operations/" + generateUUID(),
+		Done:   true,
+		Result: &longrunningpb.Operation_Response{Response: result},
+	}
+	grpcRecordOperation(op)
+	return op, nil
+}
+
+// kmsLocationFromName trims a Cloud KMS resource name back to the
+// projects/{p}/locations/{loc} parent its operations hang off. A name that is
+// already shorter is returned unchanged.
+func kmsLocationFromName(name string) string {
+	parts := strings.Split(name, "/")
+	if len(parts) < 4 {
+		return name
+	}
+	return strings.Join(parts[:4], "/")
 }
 
 // kmsPageBounds returns the end index and next-page token for a page starting

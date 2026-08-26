@@ -3,17 +3,23 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -36,6 +42,25 @@ type LogEntry struct {
 type MonitoredResource struct {
 	Type   string            `json:"type"`
 	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// MonitoredResourceDescriptor describes a monitored resource type log entries
+// may name. The JSON tags are the REST spelling
+// (monitoredResourceDescriptors.list).
+type MonitoredResourceDescriptor struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	DisplayName string `json:"displayName,omitempty"`
+}
+
+// loggingMonitoredResourceDescriptors is the descriptor set this simulator
+// serves, and the single source both doors read: the REST
+// GET /v2/monitoredResourceDescriptors handler and the gRPC
+// ListMonitoredResourceDescriptors method.
+var loggingMonitoredResourceDescriptors = []MonitoredResourceDescriptor{
+	{Name: "monitoredResourceDescriptors/global", Type: "global", DisplayName: "Global"},
+	{Name: "monitoredResourceDescriptors/gce_instance", Type: "gce_instance", DisplayName: "GCE VM Instance"},
+	{Name: "monitoredResourceDescriptors/cloud_run_revision", Type: "cloud_run_revision", DisplayName: "Cloud Run Revision"},
 }
 
 // Package-level state store shared between HTTP and gRPC handlers.
@@ -520,6 +545,170 @@ func (s *loggingServer) ListLogEntries(_ context.Context, req *loggingpb.ListLog
 		Entries:       pbEntries,
 		NextPageToken: next,
 	}, nil
+}
+
+// DeleteLog removes every entry a log holds, over the same store the REST
+// DELETE .../logs/{log} handler deletes from. A log with no entries simply
+// stops existing: Cloud Logging has no separate log resource to miss, and the
+// log reappears the moment an entry is written to that name again.
+func (s *loggingServer) DeleteLog(_ context.Context, req *loggingpb.DeleteLogRequest) (*emptypb.Empty, error) {
+	if req.GetLogName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "log_name is required")
+	}
+	logEntries.Delete(req.GetLogName())
+	return &emptypb.Empty{}, nil
+}
+
+// ListLogs names the logs under a parent that hold at least one entry — the
+// same derivation, over the same store, the REST GET .../logs handler serves.
+func (s *loggingServer) ListLogs(_ context.Context, req *loggingpb.ListLogsRequest) (*loggingpb.ListLogsResponse, error) {
+	if req.GetParent() == "" {
+		return nil, status.Error(codes.InvalidArgument, "parent is required")
+	}
+	names := loggingListLogsScopes(req.GetParent(), req.GetResourceNames())
+	page, next, err := loggingPageOfNames(names, int(req.GetPageSize()), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	return &loggingpb.ListLogsResponse{LogNames: page, NextPageToken: next}, nil
+}
+
+// ListMonitoredResourceDescriptors serves the descriptor set in
+// loggingMonitoredResourceDescriptors, which the REST
+// monitoredResourceDescriptors.list handler serves too. The set is small enough
+// that the REST spelling returns it whole; this door does the same.
+func (s *loggingServer) ListMonitoredResourceDescriptors(_ context.Context, req *loggingpb.ListMonitoredResourceDescriptorsRequest) (*loggingpb.ListMonitoredResourceDescriptorsResponse, error) {
+	descriptors := make([]*monitoredres.MonitoredResourceDescriptor, 0, len(loggingMonitoredResourceDescriptors))
+	for _, d := range loggingMonitoredResourceDescriptors {
+		descriptors = append(descriptors, &monitoredres.MonitoredResourceDescriptor{
+			Name:        d.Name,
+			Type:        d.Type,
+			DisplayName: d.DisplayName,
+		})
+	}
+	return &loggingpb.ListMonitoredResourceDescriptorsResponse{ResourceDescriptors: descriptors}, nil
+}
+
+// Tail flush bounds. The buffer window is the client's, straight from the
+// request: Cloud Logging holds entries that long before returning them so late
+// arrivals are not reported out of order, and defaults to two seconds. The
+// floor keeps a zero window from spinning; it is the same cadence the Pub/Sub
+// streaming pull uses to observe its queues.
+const (
+	loggingTailDefaultBufferWindow = 2 * time.Second
+	loggingTailMaxBufferWindow     = 60 * time.Second
+	loggingTailMinFlushInterval    = 50 * time.Millisecond
+)
+
+// TailLogEntries streams the entries the log store holds for the tailed
+// resources, then keeps streaming whatever is written to them until the client
+// goes away. Nothing is synthesised: every entry it sends was written through
+// WriteLogEntries (either door), and a tail of a store nothing writes to
+// legitimately falls silent after its backlog.
+func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLogEntriesServer) error {
+	ctx := stream.Context()
+	first, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	window, err := loggingTailBufferWindow(first)
+	if err != nil {
+		return err
+	}
+	flush := max(window, loggingTailMinFlushInterval)
+
+	// The client may re-send its parameters on the same stream; a Recv error is
+	// also how the tail learns the client is finished.
+	var (
+		paramsMu sync.Mutex
+		params   = first
+	)
+	clientErr := make(chan error, 1)
+	go func() {
+		for {
+			next, recvErr := stream.Recv()
+			if recvErr != nil {
+				clientErr <- recvErr
+				return
+			}
+			paramsMu.Lock()
+			params = next
+			paramsMu.Unlock()
+		}
+	}()
+
+	// Entries already streamed are tracked by insert ID rather than by a
+	// timestamp cursor, so an entry that lands out of order is still delivered
+	// exactly once instead of being skipped for being older than the last send.
+	sent := map[string]bool{}
+	ticker := time.NewTicker(flush)
+	defer ticker.Stop()
+	for {
+		paramsMu.Lock()
+		filter, resourceNames := params.GetFilter(), params.GetResourceNames()
+		paramsMu.Unlock()
+
+		entries, _ := listLogEntries(filter, resourceNames, 0, "", "")
+		var fresh []*loggingpb.LogEntry
+		for _, e := range entries {
+			if sent[e.InsertID] {
+				continue
+			}
+			sent[e.InsertID] = true
+			fresh = append(fresh, logEntryToProto(e))
+		}
+		if len(fresh) > 0 {
+			if err := stream.Send(&loggingpb.TailLogEntriesResponse{Entries: fresh}); err != nil {
+				return err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case e := <-clientErr:
+			if errors.Is(e, io.EOF) {
+				return nil
+			}
+			return e
+		case <-ticker.C:
+		}
+	}
+}
+
+// loggingTailBufferWindow reads the tail's buffer window, holding it to the
+// 0-60000ms range the API documents.
+func loggingTailBufferWindow(req *loggingpb.TailLogEntriesRequest) (time.Duration, error) {
+	if req.GetBufferWindow() == nil {
+		return loggingTailDefaultBufferWindow, nil
+	}
+	window := req.GetBufferWindow().AsDuration()
+	if window < 0 || window > loggingTailMaxBufferWindow {
+		return 0, status.Errorf(codes.InvalidArgument, "buffer_window must be between 0 and %s, got %s", loggingTailMaxBufferWindow, window)
+	}
+	return window, nil
+}
+
+// loggingPageOfNames slices a sorted name list by the numeric offset page token
+// the REST list handlers use, so both doors read and mint the same tokens.
+func loggingPageOfNames(names []string, pageSize int, pageToken string) ([]string, string, error) {
+	start := 0
+	if pageToken != "" {
+		n, err := strconv.Atoi(pageToken)
+		if err != nil || n < 0 || n > len(names) {
+			return nil, "", status.Errorf(codes.InvalidArgument, "invalid page_token %q", pageToken)
+		}
+		start = n
+	}
+	if pageSize < 0 {
+		return nil, "", status.Errorf(codes.InvalidArgument, "invalid page_size %d", pageSize)
+	}
+	page := names[start:]
+	next := ""
+	if pageSize > 0 && len(page) > pageSize {
+		next = strconv.Itoa(start + pageSize)
+		page = page[:pageSize]
+	}
+	return page, next, nil
 }
 
 // registerCloudLoggingGRPC registers the gRPC Cloud Logging service on a grpc.Server.

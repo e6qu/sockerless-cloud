@@ -3,10 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"hash/crc32"
 	"hash/fnv"
+	"io"
 	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +22,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -113,8 +123,10 @@ func btPersistTableData(name string, td *btTableData) {
 	bigtableRows.Put(name, btStoredTableData{Rows: btRowsToStored(td.rows)})
 }
 
-// btDeleteTableData drops a deleted table's rows from the working copy and
-// the durable store, so a table recreated under the same name starts empty.
+// btDeleteTableData drops a deleted table's rows from the working copy and the
+// durable store, and its change history with them, so a table recreated under
+// the same name starts empty and its change stream reports nothing that
+// happened to the table it replaced.
 func btDeleteTableData(name string) {
 	bigtableData.mu.Lock()
 	delete(bigtableData.tables, name)
@@ -122,6 +134,9 @@ func btDeleteTableData(name string) {
 	if bigtableRows != nil {
 		bigtableRows.Delete(name)
 	}
+	bigtableChanges.mu.Lock()
+	delete(bigtableChanges.logs, name)
+	bigtableChanges.mu.Unlock()
 }
 
 func bigtableTableData(name string) *btTableData {
@@ -172,21 +187,41 @@ func btTableFamilies(tableName string) map[string]bool {
 
 // ── mutations ────────────────────────────────────────────────────────────────
 
-func btApplyMutations(td *btTableData, families map[string]bool, rowKey string, muts []*btpb.Mutation) error {
+// btValidateMutations rejects an entry the table cannot accept before any of
+// it is applied, so a rejected mutation leaves the row exactly as it was —
+// the single-row atomicity real Bigtable gives MutateRow.
+func btValidateMutations(families map[string]bool, muts []*btpb.Mutation) error {
+	for _, m := range muts {
+		switch mut := m.GetMutation().(type) {
+		case *btpb.Mutation_SetCell_:
+			if fam := mut.SetCell.GetFamilyName(); !families[fam] {
+				return status.Errorf(codes.NotFound, "unknown column family %q", fam)
+			}
+		case *btpb.Mutation_DeleteFromColumn_, *btpb.Mutation_DeleteFromFamily_, *btpb.Mutation_DeleteFromRow_:
+		default:
+			return status.Error(codes.Unimplemented, "unsupported mutation type")
+		}
+	}
+	return nil
+}
+
+// btApplyMutations applies one row's mutations and records them in the table's
+// change log. It is the one path every row mutation takes, so the log it
+// writes is the table's complete record of applied changes.
+func btApplyMutations(tableName string, td *btTableData, families map[string]bool, rowKey string, muts []*btpb.Mutation) error {
+	if err := btValidateMutations(families, muts); err != nil {
+		return err
+	}
 	nowMicros := time.Now().UnixMicro()
 	for _, m := range muts {
 		switch mut := m.GetMutation().(type) {
 		case *btpb.Mutation_SetCell_:
 			sc := mut.SetCell
-			fam := sc.GetFamilyName()
-			if !families[fam] {
-				return status.Errorf(codes.NotFound, "unknown column family %q", fam)
-			}
 			ts := sc.GetTimestampMicros()
 			if ts < 0 {
 				ts = nowMicros
 			}
-			btSetCell(td, rowKey, fam, string(sc.GetColumnQualifier()), btCell{ts: ts, value: sc.GetValue()})
+			btSetCell(td, rowKey, sc.GetFamilyName(), string(sc.GetColumnQualifier()), btCell{ts: ts, value: sc.GetValue()})
 		case *btpb.Mutation_DeleteFromColumn_:
 			d := mut.DeleteFromColumn
 			btDeleteFromColumn(td, rowKey, d.GetFamilyName(), string(d.GetColumnQualifier()), d.GetTimeRange())
@@ -194,14 +229,13 @@ func btApplyMutations(td *btTableData, families map[string]bool, rowKey string, 
 			btDeleteFromFamily(td, rowKey, mut.DeleteFromFamily.GetFamilyName())
 		case *btpb.Mutation_DeleteFromRow_:
 			delete(td.rows, rowKey)
-		default:
-			return status.Error(codes.Unimplemented, "unsupported mutation type")
 		}
 	}
 	// Drop a row that has become empty.
 	if r, ok := td.rows[rowKey]; ok && len(r) == 0 {
 		delete(td.rows, rowKey)
 	}
+	btRecordChange(tableName, rowKey, muts)
 	return nil
 }
 
@@ -274,7 +308,7 @@ func (s *bigtableDataGRPC) MutateRow(_ context.Context, req *btpb.MutateRowReque
 	}
 	td.mu.Lock()
 	defer td.mu.Unlock()
-	if err := btApplyMutations(td, btTableFamilies(req.GetTableName()), string(req.GetRowKey()), req.GetMutations()); err != nil {
+	if err := btApplyMutations(req.GetTableName(), td, btTableFamilies(req.GetTableName()), string(req.GetRowKey()), req.GetMutations()); err != nil {
 		return nil, err
 	}
 	btPersistTableData(req.GetTableName(), td)
@@ -292,7 +326,7 @@ func (s *bigtableDataGRPC) MutateRows(req *btpb.MutateRowsRequest, srv btpb.Bigt
 	entries := make([]*btpb.MutateRowsResponse_Entry, 0, len(req.GetEntries()))
 	for i, e := range req.GetEntries() {
 		st := &btpb.MutateRowsResponse_Entry{Index: int64(i), Status: status.New(codes.OK, "").Proto()}
-		if err := btApplyMutations(td, families, string(e.GetRowKey()), e.GetMutations()); err != nil {
+		if err := btApplyMutations(req.GetTableName(), td, families, string(e.GetRowKey()), e.GetMutations()); err != nil {
 			s, _ := status.FromError(err)
 			st.Status = s.Proto()
 		}
@@ -324,7 +358,7 @@ func (s *bigtableDataGRPC) CheckAndMutateRow(_ context.Context, req *btpb.CheckA
 		muts = req.GetTrueMutations()
 	}
 	if len(muts) > 0 {
-		if err := btApplyMutations(td, btTableFamilies(req.GetTableName()), rowKey, muts); err != nil {
+		if err := btApplyMutations(req.GetTableName(), td, btTableFamilies(req.GetTableName()), rowKey, muts); err != nil {
 			return nil, err
 		}
 		btPersistTableData(req.GetTableName(), td)
@@ -342,11 +376,32 @@ func (s *bigtableDataGRPC) ReadModifyWriteRow(_ context.Context, req *btpb.ReadM
 	defer td.mu.Unlock()
 	rowKey := string(req.GetRowKey())
 	now := time.Now().UnixMicro()
+	// Every rule is checked before any of them writes, so a rejected
+	// read-modify-write leaves the row untouched.
 	for _, rule := range req.GetRules() {
-		fam := rule.GetFamilyName()
-		if !families[fam] {
+		if fam := rule.GetFamilyName(); !families[fam] {
 			return nil, status.Errorf(codes.NotFound, "unknown column family %q", fam)
 		}
+		switch rule.GetRule().(type) {
+		case *btpb.ReadModifyWriteRule_AppendValue, *btpb.ReadModifyWriteRule_IncrementAmount:
+		default:
+			return nil, status.Error(codes.Unimplemented, "unsupported read-modify-write rule")
+		}
+	}
+	// The cells the rules produce are the change the table really recorded, so
+	// they go to the change log as the SetCells they are.
+	applied := make([]*btpb.Mutation, 0, len(req.GetRules()))
+	setCell := func(fam, qual string, value []byte) {
+		btSetCell(td, rowKey, fam, qual, btCell{ts: now, value: value})
+		applied = append(applied, &btpb.Mutation{Mutation: &btpb.Mutation_SetCell_{SetCell: &btpb.Mutation_SetCell{
+			FamilyName:      fam,
+			ColumnQualifier: []byte(qual),
+			TimestampMicros: now,
+			Value:           value,
+		}}})
+	}
+	for _, rule := range req.GetRules() {
+		fam := rule.GetFamilyName()
 		qual := string(rule.GetColumnQualifier())
 		latest, ok := btLatestCell(td, rowKey, fam, qual)
 		switch r := rule.GetRule().(type) {
@@ -355,7 +410,7 @@ func (s *bigtableDataGRPC) ReadModifyWriteRow(_ context.Context, req *btpb.ReadM
 			if ok {
 				base = latest.value
 			}
-			btSetCell(td, rowKey, fam, qual, btCell{ts: now, value: append(append([]byte{}, base...), r.AppendValue...)})
+			setCell(fam, qual, append(append([]byte{}, base...), r.AppendValue...))
 		case *btpb.ReadModifyWriteRule_IncrementAmount:
 			cur := int64(0)
 			if ok && len(latest.value) == 8 {
@@ -363,12 +418,11 @@ func (s *bigtableDataGRPC) ReadModifyWriteRow(_ context.Context, req *btpb.ReadM
 			}
 			buf := make([]byte, 8)
 			binary.BigEndian.PutUint64(buf, uint64(cur+r.IncrementAmount))
-			btSetCell(td, rowKey, fam, qual, btCell{ts: now, value: buf})
-		default:
-			return nil, status.Error(codes.Unimplemented, "unsupported read-modify-write rule")
+			setCell(fam, qual, buf)
 		}
 	}
 	btPersistTableData(req.GetTableName(), td)
+	btRecordChange(req.GetTableName(), rowKey, applied)
 	// The response carries only the new (latest) value of each modified column,
 	// not the full version history — matching real Bigtable.
 	var modified []btReadCell
@@ -532,6 +586,10 @@ func btRowSetPredicate(rs *btpb.RowSet) func(string) bool {
 	}
 }
 
+// btInRowRange reports whether a row key falls in a range. An empty end key is
+// the end of the table, not the empty string: that is how a client spells an
+// unbounded range, and how the last change-stream partition names the rest of
+// the key space.
 func btInRowRange(k string, rr *btpb.RowRange) bool {
 	switch sk := rr.GetStartKey().(type) {
 	case *btpb.RowRange_StartKeyClosed:
@@ -545,11 +603,11 @@ func btInRowRange(k string, rr *btpb.RowRange) bool {
 	}
 	switch ek := rr.GetEndKey().(type) {
 	case *btpb.RowRange_EndKeyClosed:
-		if k > string(ek.EndKeyClosed) {
+		if len(ek.EndKeyClosed) > 0 && k > string(ek.EndKeyClosed) {
 			return false
 		}
 	case *btpb.RowRange_EndKeyOpen:
-		if k >= string(ek.EndKeyOpen) {
+		if len(ek.EndKeyOpen) > 0 && k >= string(ek.EndKeyOpen) {
 			return false
 		}
 	}
@@ -827,3 +885,1025 @@ func btCompileRE(pat []byte) (*regexp.Regexp, error) {
 	}
 	return re, nil
 }
+
+// ── instance coordinates ─────────────────────────────────────────────────────
+
+// btInstanceOfTable returns the instance a table resource name belongs to.
+func btInstanceOfTable(tableName string) string {
+	if i := strings.Index(tableName, "/tables/"); i >= 0 {
+		return tableName[:i]
+	}
+	return ""
+}
+
+// btRequireInstance resolves an instance the admin surface created, returning a
+// loud NotFound when it never did.
+func btRequireInstance(name string) error {
+	if name == "" {
+		return status.Error(codes.InvalidArgument, "name is required")
+	}
+	if _, ok := bigtableInstances.Get(name); !ok {
+		return status.Errorf(codes.NotFound, "instance %q not found", name)
+	}
+	return nil
+}
+
+// btRequireAppProfile checks the routing profile a data request names. The
+// "default" profile is the instance's implicit one and is not a stored
+// resource; any other id must have been created.
+func btRequireAppProfile(instanceName, appProfileID string) error {
+	if appProfileID == "" || appProfileID == "default" {
+		return nil
+	}
+	name := instanceName + "/appProfiles/" + appProfileID
+	if _, ok := bigtableAppProfiles.Get(name); !ok {
+		return status.Errorf(codes.NotFound, "app profile %q not found", name)
+	}
+	return nil
+}
+
+// btInstanceCluster returns the id and zone of the cluster serving an
+// instance. An instance without a cluster serves nothing, so a data-plane
+// answer that has to name its serving cluster fails loudly instead of
+// reporting an empty one.
+func btInstanceCluster(instanceName string) (id, zone string, err error) {
+	prefix := instanceName + "/clusters/"
+	clusters := bigtableClusters.Filter(func(c bigtableCluster) bool { return strings.HasPrefix(c.Name, prefix) })
+	if len(clusters) == 0 {
+		return "", "", status.Errorf(codes.FailedPrecondition, "instance %q has no cluster", instanceName)
+	}
+	sort.Slice(clusters, func(i, j int) bool { return clusters[i].Name < clusters[j].Name })
+	c := clusters[0]
+	zone = c.Location
+	if i := strings.LastIndex(zone, "/"); i >= 0 {
+		zone = zone[i+1:]
+	}
+	return strings.TrimPrefix(c.Name, prefix), zone, nil
+}
+
+// ── connection keep-alive and client configuration ───────────────────────────
+
+func (s *bigtableDataGRPC) PingAndWarm(_ context.Context, req *btpb.PingAndWarmRequest) (*btpb.PingAndWarmResponse, error) {
+	if err := btRequireInstance(req.GetName()); err != nil {
+		return nil, err
+	}
+	if err := btRequireAppProfile(req.GetName(), req.GetAppProfileId()); err != nil {
+		return nil, err
+	}
+	// Warming is real work here: a table's rows live in the durable store until
+	// its first data access hydrates the working copy, so warming the instance
+	// hydrates its tables and the first read after it pays no hydration cost.
+	prefix := req.GetName() + "/tables/"
+	for _, t := range bigtableTables.Filter(func(t bigtableTable) bool { return strings.HasPrefix(t.Name, prefix) }) {
+		bigtableTableData(t.Name)
+	}
+	return &btpb.PingAndWarmResponse{}, nil
+}
+
+func (s *bigtableDataGRPC) GetClientConfiguration(_ context.Context, req *btpb.GetClientConfigurationRequest) (*btpb.ClientConfiguration, error) {
+	if err := btRequireInstance(req.GetInstanceName()); err != nil {
+		return nil, err
+	}
+	if err := btRequireAppProfile(req.GetInstanceName(), req.GetAppProfileId()); err != nil {
+		return nil, err
+	}
+	// The configuration reports what this server is: it serves the session API
+	// for the point operations that protocol carries, so the whole session
+	// share belongs on it, and its configuration is fixed for the life of the
+	// process, so there is nothing for a client to poll for. The channel-pool,
+	// session-pool, load-balancing and telemetry directives are left unset:
+	// they instruct a client about a fleet of frontends, and this server has no
+	// fleet to describe.
+	return &btpb.ClientConfiguration{
+		SessionConfiguration: &btpb.SessionClientConfiguration{SessionLoad: 1},
+		Polling:              &btpb.ClientConfiguration_StopPolling{StopPolling: true},
+	}, nil
+}
+
+// ── change stream ────────────────────────────────────────────────────────────
+
+// btChangeRecord is one applied row mutation, as the change stream reports it.
+type btChangeRecord struct {
+	sequence   int64
+	rowKey     string
+	commitTime time.Time
+	mutations  []*btpb.Mutation
+}
+
+// btChangeLogLimit bounds the change history one table retains. Real Bigtable
+// retains a table's change stream for its change_stream_retention_period; the
+// simulator retains a fixed number of records and refuses, loudly, to start a
+// stream before the oldest one it still holds.
+const btChangeLogLimit = 10000
+
+// btChangeLog is a table's record of the mutations applied to it, in commit
+// order. btApplyMutations and ReadModifyWriteRow — the only two paths that
+// change a row — append to it, so a stream reading it reports mutations that
+// really happened and never invents one.
+//
+// The log lives for the process. A restart hydrates a table's rows from the
+// durable store but starts its change history empty, so a stream opened after
+// a restart reports the changes made since the restart and refuses a start
+// point before it.
+type btChangeLog struct {
+	mu       sync.Mutex
+	records  []btChangeRecord
+	next     int64
+	evicted  int64         // records dropped to stay within btChangeLogLimit
+	appended chan struct{} // closed and replaced on every append
+}
+
+var bigtableChanges = struct {
+	mu   sync.Mutex
+	logs map[string]*btChangeLog
+}{logs: map[string]*btChangeLog{}}
+
+func btTableChangeLog(tableName string) *btChangeLog {
+	bigtableChanges.mu.Lock()
+	defer bigtableChanges.mu.Unlock()
+	l, ok := bigtableChanges.logs[tableName]
+	if !ok {
+		l = &btChangeLog{appended: make(chan struct{})}
+		bigtableChanges.logs[tableName] = l
+	}
+	return l
+}
+
+// btRecordChange appends the mutations one row write applied.
+func btRecordChange(tableName, rowKey string, muts []*btpb.Mutation) {
+	if len(muts) == 0 {
+		return
+	}
+	recorded := make([]*btpb.Mutation, 0, len(muts))
+	for _, m := range muts {
+		clone := &btpb.Mutation{}
+		proto.Merge(clone, m)
+		recorded = append(recorded, clone)
+	}
+	l := btTableChangeLog(tableName)
+	l.mu.Lock()
+	l.next++
+	l.records = append(l.records, btChangeRecord{
+		sequence:   l.next,
+		rowKey:     rowKey,
+		commitTime: time.Now().UTC(),
+		mutations:  recorded,
+	})
+	if len(l.records) > btChangeLogLimit {
+		drop := len(l.records) - btChangeLogLimit
+		l.records = append([]btChangeRecord(nil), l.records[drop:]...)
+		l.evicted += int64(drop)
+	}
+	close(l.appended)
+	l.appended = make(chan struct{})
+	l.mu.Unlock()
+}
+
+// btChangesSince returns the records after cursor together with the channel
+// that closes on the next append. Reading both under one lock means a record
+// appended after the call still wakes the caller.
+func (l *btChangeLog) btChangesSince(cursor int64) ([]btChangeRecord, <-chan struct{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []btChangeRecord
+	for _, r := range l.records {
+		if r.sequence > cursor {
+			out = append(out, r)
+		}
+	}
+	return out, l.appended
+}
+
+// btChangeCursorAt returns the cursor a stream starting at startTime reads
+// from: the sequence of the newest record committed before it. A start time
+// older than the retained history cannot be served from what the log holds.
+func (l *btChangeLog) btChangeCursorAt(startTime time.Time) (int64, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.evicted > 0 && (len(l.records) == 0 || startTime.Before(l.records[0].commitTime)) {
+		return 0, status.Errorf(codes.OutOfRange,
+			"start_time %s is older than the retained change history", startTime.Format(time.RFC3339Nano))
+	}
+	cursor := l.evicted
+	for _, r := range l.records {
+		if !r.commitTime.Before(startTime) {
+			break
+		}
+		cursor = r.sequence
+	}
+	return cursor, nil
+}
+
+// btChangeHead returns the sequence of the newest recorded change.
+func (l *btChangeLog) btChangeHead() int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.next
+}
+
+func (s *bigtableDataGRPC) GenerateInitialChangeStreamPartitions(req *btpb.GenerateInitialChangeStreamPartitionsRequest, srv btpb.Bigtable_GenerateInitialChangeStreamPartitionsServer) error {
+	if _, err := btRequireTable(req.GetTableName()); err != nil {
+		return err
+	}
+	if err := btRequireAppProfile(btInstanceOfTable(req.GetTableName()), req.GetAppProfileId()); err != nil {
+		return err
+	}
+	// The simulator holds each table whole, in one process. One tablet means
+	// one partition, and the empty start and end keys are its whole key space.
+	return srv.Send(&btpb.GenerateInitialChangeStreamPartitionsResponse{Partition: btFullTablePartition()})
+}
+
+// btFullTablePartition is the partition covering a table's entire key space.
+func btFullTablePartition() *btpb.StreamPartition {
+	return &btpb.StreamPartition{RowRange: &btpb.RowRange{
+		StartKey: &btpb.RowRange_StartKeyClosed{StartKeyClosed: []byte{}},
+		EndKey:   &btpb.RowRange_EndKeyOpen{EndKeyOpen: []byte{}},
+	}}
+}
+
+func (s *bigtableDataGRPC) ReadChangeStream(req *btpb.ReadChangeStreamRequest, srv btpb.Bigtable_ReadChangeStreamServer) error {
+	if _, err := btRequireTable(req.GetTableName()); err != nil {
+		return err
+	}
+	instance := btInstanceOfTable(req.GetTableName())
+	if err := btRequireAppProfile(instance, req.GetAppProfileId()); err != nil {
+		return err
+	}
+	clusterID, _, err := btInstanceCluster(instance)
+	if err != nil {
+		return err
+	}
+
+	partition := req.GetPartition()
+	if partition == nil {
+		partition = btFullTablePartition()
+	}
+	inPartition := func(rowKey string) bool { return btInRowRange(rowKey, partition.GetRowRange()) }
+
+	log := btTableChangeLog(req.GetTableName())
+	cursor, err := btChangeStreamStart(log, req, partition)
+	if err != nil {
+		return err
+	}
+
+	heartbeat := 5 * time.Second
+	if d := req.GetHeartbeatDuration(); d != nil {
+		if heartbeat = d.AsDuration(); heartbeat <= 0 {
+			return status.Error(codes.InvalidArgument, "heartbeat_duration must be positive")
+		}
+	}
+	var endTime time.Time
+	if ts := req.GetEndTime(); ts != nil {
+		endTime = ts.AsTime()
+	}
+
+	ctx := srv.Context()
+	ticker := time.NewTicker(heartbeat)
+	defer ticker.Stop()
+	for {
+		records, appended := log.btChangesSince(cursor)
+		for _, rec := range records {
+			if !endTime.IsZero() && rec.commitTime.After(endTime) {
+				return btCloseChangeStream(srv, partition, cursor)
+			}
+			cursor = rec.sequence
+			if !inPartition(rec.rowKey) {
+				continue
+			}
+			if err := srv.Send(btDataChangeResponse(rec, clusterID)); err != nil {
+				return err
+			}
+		}
+		if !endTime.IsZero() && !time.Now().Before(endTime) {
+			return btCloseChangeStream(srv, partition, cursor)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-appended:
+		case <-ticker.C:
+			if err := srv.Send(&btpb.ReadChangeStreamResponse{
+				StreamRecord: &btpb.ReadChangeStreamResponse_Heartbeat_{Heartbeat: &btpb.ReadChangeStreamResponse_Heartbeat{
+					ContinuationToken:     btContinuationToken(partition, cursor),
+					EstimatedLowWatermark: timestamppb.New(time.Now().UTC()),
+				}},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// btChangeStreamStart resolves where a ReadChangeStream begins: after the
+// position its continuation tokens name, at its start time, or — with neither
+// set — at the current end of the log, so only later changes are delivered.
+func btChangeStreamStart(log *btChangeLog, req *btpb.ReadChangeStreamRequest, partition *btpb.StreamPartition) (int64, error) {
+	switch start := req.GetStartFrom().(type) {
+	case *btpb.ReadChangeStreamRequest_ContinuationTokens:
+		tokens := start.ContinuationTokens.GetTokens()
+		if len(tokens) == 0 {
+			return 0, status.Error(codes.InvalidArgument, "continuation_tokens must not be empty")
+		}
+		cursor := int64(-1)
+		for _, t := range tokens {
+			if !proto.Equal(t.GetPartition().GetRowRange(), partition.GetRowRange()) {
+				return 0, status.Error(codes.InvalidArgument, "continuation token partition does not cover the requested partition")
+			}
+			seq, err := strconv.ParseInt(t.GetToken(), 10, 64)
+			if err != nil {
+				return 0, status.Errorf(codes.InvalidArgument, "invalid continuation token %q", t.GetToken())
+			}
+			// A merge delivers one token per merged partition; reading from the
+			// earliest of them delivers every change none of them has seen.
+			if cursor < 0 || seq < cursor {
+				cursor = seq
+			}
+		}
+		return cursor, nil
+	case *btpb.ReadChangeStreamRequest_StartTime:
+		return log.btChangeCursorAt(start.StartTime.AsTime())
+	}
+	return log.btChangeHead(), nil
+}
+
+func btContinuationToken(partition *btpb.StreamPartition, cursor int64) *btpb.StreamContinuationToken {
+	return &btpb.StreamContinuationToken{Partition: partition, Token: strconv.FormatInt(cursor, 10)}
+}
+
+// btCloseChangeStream ends a stream that reached its end_time, handing back the
+// position a later stream resumes from.
+func btCloseChangeStream(srv btpb.Bigtable_ReadChangeStreamServer, partition *btpb.StreamPartition, cursor int64) error {
+	return srv.Send(&btpb.ReadChangeStreamResponse{
+		StreamRecord: &btpb.ReadChangeStreamResponse_CloseStream_{CloseStream: &btpb.ReadChangeStreamResponse_CloseStream{
+			Status:             status.New(codes.OK, "").Proto(),
+			ContinuationTokens: []*btpb.StreamContinuationToken{btContinuationToken(partition, cursor)},
+		}},
+	})
+}
+
+// btDataChangeResponse renders one recorded change. The mutations travel whole
+// — the simulator holds each value in memory and never splits one across
+// messages — and the tiebreaker is zero because a single-cluster instance has
+// no concurrent conflicting write to resolve.
+func btDataChangeResponse(rec btChangeRecord, clusterID string) *btpb.ReadChangeStreamResponse {
+	chunks := make([]*btpb.ReadChangeStreamResponse_MutationChunk, 0, len(rec.mutations))
+	for _, m := range rec.mutations {
+		chunks = append(chunks, &btpb.ReadChangeStreamResponse_MutationChunk{Mutation: m})
+	}
+	return &btpb.ReadChangeStreamResponse{
+		StreamRecord: &btpb.ReadChangeStreamResponse_DataChange_{DataChange: &btpb.ReadChangeStreamResponse_DataChange{
+			Type:                  btpb.ReadChangeStreamResponse_DataChange_USER,
+			SourceClusterId:       clusterID,
+			RowKey:                []byte(rec.rowKey),
+			CommitTimestamp:       timestamppb.New(rec.commitTime),
+			Chunks:                chunks,
+			Done:                  true,
+			Token:                 strconv.FormatInt(rec.sequence, 10),
+			EstimatedLowWatermark: timestamppb.New(rec.commitTime),
+		}},
+	}
+}
+
+// ── session API (OpenTable / OpenAuthorizedView / OpenMaterializedView) ──────
+
+// The session entry points are bidirectional streams carrying the same point
+// reads and mutations the unary data plane serves: a client opens a session
+// against a table or an authorized view, then sends virtual RPCs — one
+// SessionReadRowRequest or SessionMutateRowRequest each — and receives a
+// response per rpc_id. They read and write the one per-table cell store, so a
+// row mutated over a session is visible to ReadRows and vice versa.
+
+// btSessionStream is the shape the three session entry points share: the
+// generated server streams differ only in the RPC they belong to.
+type btSessionStream interface {
+	Context() context.Context
+	Send(*btpb.SessionResponse) error
+	Recv() (*btpb.SessionRequest, error)
+}
+
+// btSession is one opened session: the response payload the open handshake
+// answers with, the cluster serving it, and the handler that executes each
+// virtual RPC's payload.
+type btSession struct {
+	openPayload []byte
+	clusterID   string
+	zoneID      string
+	serve       func(payload []byte) ([]byte, error)
+}
+
+// btServeSession runs the session protocol: an open handshake, then virtual
+// RPCs until the client closes the session or the stream ends.
+func btServeSession(stream btSessionStream, open func(payload []byte) (*btSession, error)) error {
+	req, err := stream.Recv()
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	openReq := req.GetOpenSession()
+	if openReq == nil {
+		return status.Error(codes.InvalidArgument, "the first request on a session stream must be open_session")
+	}
+	session, err := open(openReq.GetPayload())
+	if err != nil {
+		return err
+	}
+	clusterInfo := &btpb.ClusterInformation{ClusterId: session.clusterID, ZoneId: session.zoneID}
+	if err := stream.Send(&btpb.SessionResponse{Payload: &btpb.SessionResponse_OpenSession{
+		OpenSession: &btpb.OpenSessionResponse{
+			Payload: session.openPayload,
+			Backend: &btpb.BackendIdentifier{ApplicationFrontendZone: session.zoneID},
+		},
+	}}); err != nil {
+		return err
+	}
+
+	for {
+		req, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		switch payload := req.GetPayload().(type) {
+		case *btpb.SessionRequest_CloseSession:
+			return nil
+		case *btpb.SessionRequest_OpenSession:
+			return status.Error(codes.InvalidArgument, "the session is already open")
+		case *btpb.SessionRequest_VirtualRpc:
+			vrpc := payload.VirtualRpc
+			started := time.Now()
+			result, serveErr := session.serve(vrpc.GetPayload())
+			if serveErr != nil {
+				if err := stream.Send(&btpb.SessionResponse{Payload: &btpb.SessionResponse_Error{
+					Error: &btpb.ErrorResponse{
+						RpcId:       vrpc.GetRpcId(),
+						ClusterInfo: clusterInfo,
+						Status:      status.Convert(serveErr).Proto(),
+					},
+				}}); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := stream.Send(&btpb.SessionResponse{Payload: &btpb.SessionResponse_VirtualRpc{
+				VirtualRpc: &btpb.VirtualRpcResponse{
+					RpcId:       vrpc.GetRpcId(),
+					ClusterInfo: clusterInfo,
+					Stats:       &btpb.SessionRequestStats{BackendLatency: durationpb.New(time.Since(started))},
+					Payload:     result,
+				},
+			}}); err != nil {
+				return err
+			}
+		default:
+			return status.Error(codes.InvalidArgument, "session request payload is required")
+		}
+	}
+}
+
+// btSessionPermissions splits a session's requested permission into what it may
+// read and what it may write. An unset permission opens the session for both,
+// the access a client gets when it asks for none in particular. The table,
+// authorized-view and materialized-view permission enums are separate types
+// with identical numbering, so the split is made on the number they share.
+func btSessionPermissions(permission int32) (canRead, canWrite bool) {
+	switch permission {
+	case int32(btpb.OpenTableRequest_PERMISSION_READ):
+		return true, false
+	case int32(btpb.OpenTableRequest_PERMISSION_WRITE):
+		return false, true
+	default:
+		return true, true
+	}
+}
+
+func (s *bigtableDataGRPC) OpenTable(stream btpb.Bigtable_OpenTableServer) error {
+	return btServeSession(stream, func(payload []byte) (*btSession, error) {
+		var open btpb.OpenTableRequest
+		if err := proto.Unmarshal(payload, &open); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "open_session payload is not an OpenTableRequest: %v", err)
+		}
+		tableName := open.GetTableName()
+		td, err := btRequireTable(tableName)
+		if err != nil {
+			return nil, err
+		}
+		instance := btInstanceOfTable(tableName)
+		if err := btRequireAppProfile(instance, open.GetAppProfileId()); err != nil {
+			return nil, err
+		}
+		clusterID, zoneID, err := btInstanceCluster(instance)
+		if err != nil {
+			return nil, err
+		}
+		canRead, canWrite := btSessionPermissions(int32(open.GetPermission()))
+		openPayload, err := proto.Marshal(&btpb.OpenTableResponse{})
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "encoding OpenTableResponse: %v", err)
+		}
+		return &btSession{
+			openPayload: openPayload,
+			clusterID:   clusterID,
+			zoneID:      zoneID,
+			serve: func(payload []byte) ([]byte, error) {
+				var req btpb.TableRequest
+				if err := proto.Unmarshal(payload, &req); err != nil {
+					return nil, status.Errorf(codes.InvalidArgument, "virtual RPC payload is not a TableRequest: %v", err)
+				}
+				var resp btpb.TableResponse
+				switch p := req.GetPayload().(type) {
+				case *btpb.TableRequest_ReadRow:
+					row, err := btSessionReadRow(td, nil, p.ReadRow, canRead)
+					if err != nil {
+						return nil, err
+					}
+					resp.Payload = &btpb.TableResponse_ReadRow{ReadRow: &btpb.SessionReadRowResponse{Row: row}}
+				case *btpb.TableRequest_MutateRow:
+					if err := btSessionMutateRow(tableName, td, nil, p.MutateRow, canWrite); err != nil {
+						return nil, err
+					}
+					resp.Payload = &btpb.TableResponse_MutateRow{MutateRow: &btpb.SessionMutateRowResponse{}}
+				default:
+					return nil, status.Error(codes.InvalidArgument, "TableRequest carries no read_row or mutate_row")
+				}
+				return proto.Marshal(&resp)
+			},
+		}, nil
+	})
+}
+
+func (s *bigtableDataGRPC) OpenAuthorizedView(stream btpb.Bigtable_OpenAuthorizedViewServer) error {
+	return btServeSession(stream, func(payload []byte) (*btSession, error) {
+		var open btpb.OpenAuthorizedViewRequest
+		if err := proto.Unmarshal(payload, &open); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "open_session payload is not an OpenAuthorizedViewRequest: %v", err)
+		}
+		viewName := open.GetAuthorizedViewName()
+		subset, tableName, err := btAuthorizedViewSubset(viewName)
+		if err != nil {
+			return nil, err
+		}
+		td, err := btRequireTable(tableName)
+		if err != nil {
+			return nil, err
+		}
+		instance := btInstanceOfTable(tableName)
+		if err := btRequireAppProfile(instance, open.GetAppProfileId()); err != nil {
+			return nil, err
+		}
+		clusterID, zoneID, err := btInstanceCluster(instance)
+		if err != nil {
+			return nil, err
+		}
+		canRead, canWrite := btSessionPermissions(int32(open.GetPermission()))
+		openPayload, err := proto.Marshal(&btpb.OpenAuthorizedViewResponse{})
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "encoding OpenAuthorizedViewResponse: %v", err)
+		}
+		return &btSession{
+			openPayload: openPayload,
+			clusterID:   clusterID,
+			zoneID:      zoneID,
+			serve: func(payload []byte) ([]byte, error) {
+				var req btpb.AuthorizedViewRequest
+				if err := proto.Unmarshal(payload, &req); err != nil {
+					return nil, status.Errorf(codes.InvalidArgument, "virtual RPC payload is not an AuthorizedViewRequest: %v", err)
+				}
+				var resp btpb.AuthorizedViewResponse
+				switch p := req.GetPayload().(type) {
+				case *btpb.AuthorizedViewRequest_ReadRow:
+					row, err := btSessionReadRow(td, subset, p.ReadRow, canRead)
+					if err != nil {
+						return nil, err
+					}
+					resp.Payload = &btpb.AuthorizedViewResponse_ReadRow{ReadRow: &btpb.SessionReadRowResponse{Row: row}}
+				case *btpb.AuthorizedViewRequest_MutateRow:
+					if err := btSessionMutateRow(tableName, td, subset, p.MutateRow, canWrite); err != nil {
+						return nil, err
+					}
+					resp.Payload = &btpb.AuthorizedViewResponse_MutateRow{MutateRow: &btpb.SessionMutateRowResponse{}}
+				default:
+					return nil, status.Error(codes.InvalidArgument, "AuthorizedViewRequest carries no read_row or mutate_row")
+				}
+				return proto.Marshal(&resp)
+			},
+		}, nil
+	})
+}
+
+// btSessionReadRow serves one session read from the table's cell store,
+// through the same filter evaluator ReadRows uses.
+func btSessionReadRow(td *btTableData, subset *btViewSubset, req *btpb.SessionReadRowRequest, canRead bool) (*btpb.Row, error) {
+	if !canRead {
+		return nil, status.Error(codes.PermissionDenied, "the session was opened without read permission")
+	}
+	rowKey := string(req.GetKey())
+	if subset != nil && !subset.coversRow(rowKey) {
+		return nil, status.Errorf(codes.PermissionDenied, "row %q is outside the authorized view", rowKey)
+	}
+	td.mu.Lock()
+	cells := btGatherRow(td, rowKey)
+	td.mu.Unlock()
+	if subset != nil {
+		cells = subset.filterCells(cells)
+	}
+	var err error
+	if cells, err = btApplyFilter(rowKey, cells, req.GetFilter()); err != nil {
+		return nil, err
+	}
+	if len(cells) == 0 {
+		return nil, nil
+	}
+	return btRowToProto(rowKey, cells), nil
+}
+
+// btSessionMutateRow applies one session mutation to the table's cell store,
+// through the same path MutateRow takes — including its change-log record.
+func btSessionMutateRow(tableName string, td *btTableData, subset *btViewSubset, req *btpb.SessionMutateRowRequest, canWrite bool) error {
+	if !canWrite {
+		return status.Error(codes.PermissionDenied, "the session was opened without write permission")
+	}
+	if len(req.GetMutations()) == 0 {
+		return status.Error(codes.InvalidArgument, "mutations is required")
+	}
+	rowKey := string(req.GetKey())
+	if subset != nil {
+		if err := subset.authorizeMutations(rowKey, req.GetMutations()); err != nil {
+			return err
+		}
+	}
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	if err := btApplyMutations(tableName, td, btTableFamilies(tableName), rowKey, req.GetMutations()); err != nil {
+		return err
+	}
+	btPersistTableData(tableName, td)
+	return nil
+}
+
+// ── authorized-view subsets ──────────────────────────────────────────────────
+
+// btViewSubset is the slice of a table an authorized view exposes: the row
+// prefixes it covers and, per column family, the qualifiers within it. It is
+// read from the AuthorizedView resource the admin surface stored, so a session
+// on a view sees exactly what the view was created with.
+type btViewSubset struct {
+	rowPrefixes []string
+	families    map[string]btViewFamilySubset
+}
+
+type btViewFamilySubset struct {
+	qualifiers        []string
+	qualifierPrefixes []string
+}
+
+func (v *btViewSubset) coversRow(rowKey string) bool {
+	for _, p := range v.rowPrefixes {
+		if strings.HasPrefix(rowKey, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *btViewSubset) coversColumn(family, qualifier string) bool {
+	fam, ok := v.families[family]
+	if !ok {
+		return false
+	}
+	for _, q := range fam.qualifiers {
+		if q == qualifier {
+			return true
+		}
+	}
+	for _, p := range fam.qualifierPrefixes {
+		if strings.HasPrefix(qualifier, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *btViewSubset) filterCells(cells []btReadCell) []btReadCell {
+	return btFilterCells(cells, func(c btReadCell) bool { return v.coversColumn(c.family, c.qual) })
+}
+
+// authorizeMutations rejects a write that would touch a cell outside the view.
+func (v *btViewSubset) authorizeMutations(rowKey string, muts []*btpb.Mutation) error {
+	if !v.coversRow(rowKey) {
+		return status.Errorf(codes.PermissionDenied, "row %q is outside the authorized view", rowKey)
+	}
+	for _, m := range muts {
+		switch mut := m.GetMutation().(type) {
+		case *btpb.Mutation_SetCell_:
+			if !v.coversColumn(mut.SetCell.GetFamilyName(), string(mut.SetCell.GetColumnQualifier())) {
+				return status.Errorf(codes.PermissionDenied, "column %q:%q is outside the authorized view",
+					mut.SetCell.GetFamilyName(), mut.SetCell.GetColumnQualifier())
+			}
+		case *btpb.Mutation_DeleteFromColumn_:
+			if !v.coversColumn(mut.DeleteFromColumn.GetFamilyName(), string(mut.DeleteFromColumn.GetColumnQualifier())) {
+				return status.Errorf(codes.PermissionDenied, "column %q:%q is outside the authorized view",
+					mut.DeleteFromColumn.GetFamilyName(), mut.DeleteFromColumn.GetColumnQualifier())
+			}
+		default:
+			// A family- or row-wide delete reaches columns the view does not
+			// expose, so it is not a mutation a view session can express.
+			return status.Error(codes.PermissionDenied, "an authorized view session can only mutate columns the view exposes")
+		}
+	}
+	return nil
+}
+
+// btAuthorizedViewSubset reads an authorized view's subset from the resource
+// the admin surface stored, and returns the table it is a view of.
+func btAuthorizedViewSubset(viewName string) (*btViewSubset, string, error) {
+	if viewName == "" {
+		return nil, "", status.Error(codes.InvalidArgument, "authorized_view_name is required")
+	}
+	idx := strings.Index(viewName, "/authorizedViews/")
+	if idx < 0 {
+		return nil, "", status.Errorf(codes.InvalidArgument, "%q is not an authorized view name", viewName)
+	}
+	resource, ok := bigtableAuthViews.Get(viewName)
+	if !ok {
+		return nil, "", status.Errorf(codes.NotFound, "authorized view %q not found", viewName)
+	}
+	view, ok := resource["subsetView"].(map[string]any)
+	if !ok {
+		return nil, "", status.Errorf(codes.FailedPrecondition, "authorized view %q has no subsetView", viewName)
+	}
+	subset := &btViewSubset{families: map[string]btViewFamilySubset{}}
+	prefixes, err := btDecodeBytesList(view["rowPrefixes"])
+	if err != nil {
+		return nil, "", status.Errorf(codes.FailedPrecondition, "authorized view %q: rowPrefixes: %v", viewName, err)
+	}
+	subset.rowPrefixes = prefixes
+	families, _ := view["familySubsets"].(map[string]any)
+	for family, raw := range families {
+		spec, _ := raw.(map[string]any)
+		qualifiers, err := btDecodeBytesList(spec["qualifiers"])
+		if err != nil {
+			return nil, "", status.Errorf(codes.FailedPrecondition, "authorized view %q: family %q qualifiers: %v", viewName, family, err)
+		}
+		qualifierPrefixes, err := btDecodeBytesList(spec["qualifierPrefixes"])
+		if err != nil {
+			return nil, "", status.Errorf(codes.FailedPrecondition, "authorized view %q: family %q qualifierPrefixes: %v", viewName, family, err)
+		}
+		subset.families[family] = btViewFamilySubset{qualifiers: qualifiers, qualifierPrefixes: qualifierPrefixes}
+	}
+	return subset, viewName[:idx], nil
+}
+
+// btDecodeBytesList decodes the base64 the REST admin surface stores a repeated
+// bytes field as.
+func btDecodeBytesList(raw any) ([]string, error) {
+	list, _ := raw.([]any)
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		encoded, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected a base64 string, got %T", item)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("decoding %q: %w", encoded, err)
+		}
+		out = append(out, string(decoded))
+	}
+	return out, nil
+}
+
+// ── SQL over the data plane (PrepareQuery / ExecuteQuery) ────────────────────
+
+// Bigtable's SQL surface is served for the query shape the simulator can
+// answer from what it holds: `SELECT * FROM <table>`, which reads the table's
+// stored rows. The result set is the one GoogleSQL defines for it — a `_key`
+// BYTES column followed by one MAP<BYTES, BYTES> column per column family,
+// each carrying that row's latest value per qualifier.
+//
+// Every other query is refused with a loud Unimplemented naming what is
+// served. A simulator that answered an unparsed query with an empty result set
+// would report "no rows" for a query that has rows, which is worse than a
+// refusal: the client cannot tell the difference.
+
+// btPreparedQuery is one prepared statement: the table it reads and the result
+// schema ExecuteQuery must produce for it.
+type btPreparedQuery struct {
+	tableName  string
+	columns    []*btpb.ColumnMetadata
+	validUntil time.Time
+}
+
+var bigtablePreparedQueries = struct {
+	mu      sync.Mutex
+	queries map[string]btPreparedQuery
+}{queries: map[string]btPreparedQuery{}}
+
+// btPreparedQueryLifetime is how long a prepared query stays usable. Real
+// Bigtable expires a prepared query so clients re-plan against a changed
+// schema; the simulator expires it for the same reason, and a column family
+// added after preparation reaches the client through the refreshed plan.
+const btPreparedQueryLifetime = time.Hour
+
+var btSelectStarQuery = regexp.MustCompile("(?is)^\\s*SELECT\\s+\\*\\s+FROM\\s+`?([A-Za-z0-9_][A-Za-z0-9_.-]*)`?\\s*;?\\s*$")
+
+// btPlanQuery resolves a query string against the instance's tables, returning
+// the table it reads and the columns its result set carries.
+func btPlanQuery(instanceName, query string) (string, []*btpb.ColumnMetadata, error) {
+	match := btSelectStarQuery.FindStringSubmatch(query)
+	if match == nil {
+		return "", nil, status.Errorf(codes.Unimplemented,
+			"the simulator serves `SELECT * FROM <table>`; it cannot plan %q", query)
+	}
+	tableName := instanceName + "/tables/" + match[1]
+	table, ok := bigtableTables.Get(tableName)
+	if !ok {
+		return "", nil, status.Errorf(codes.NotFound, "table %q not found", tableName)
+	}
+	bytesType := &btpb.Type{Kind: &btpb.Type_BytesType{BytesType: &btpb.Type_Bytes{}}}
+	columns := []*btpb.ColumnMetadata{{Name: "_key", Type: bytesType}}
+	for _, family := range btSortedFamilies(table) {
+		columns = append(columns, &btpb.ColumnMetadata{
+			Name: family,
+			Type: &btpb.Type{Kind: &btpb.Type_MapType{MapType: &btpb.Type_Map{
+				KeyType:   bytesType,
+				ValueType: bytesType,
+			}}},
+		})
+	}
+	return tableName, columns, nil
+}
+
+func btSortedFamilies(table bigtableTable) []string {
+	families := make([]string, 0, len(table.ColumnFamilies))
+	for family := range table.ColumnFamilies {
+		families = append(families, family)
+	}
+	sort.Strings(families)
+	return families
+}
+
+func (s *bigtableDataGRPC) PrepareQuery(_ context.Context, req *btpb.PrepareQueryRequest) (*btpb.PrepareQueryResponse, error) {
+	if err := btRequireInstance(req.GetInstanceName()); err != nil {
+		return nil, err
+	}
+	if err := btRequireAppProfile(req.GetInstanceName(), req.GetAppProfileId()); err != nil {
+		return nil, err
+	}
+	if req.GetProtoFormat() == nil {
+		return nil, status.Error(codes.InvalidArgument, "data_format must be proto_format")
+	}
+	if len(req.GetParamTypes()) > 0 {
+		return nil, status.Errorf(codes.Unimplemented,
+			"the simulator serves `SELECT * FROM <table>`, which binds no parameters")
+	}
+	tableName, columns, err := btPlanQuery(req.GetInstanceName(), req.GetQuery())
+	if err != nil {
+		return nil, err
+	}
+	prepared := []byte(generateUUID())
+	validUntil := time.Now().Add(btPreparedQueryLifetime)
+	bigtablePreparedQueries.mu.Lock()
+	// An expired plan can never be executed again, so it is dropped here rather
+	// than held for the life of the process.
+	for token, query := range bigtablePreparedQueries.queries {
+		if time.Now().After(query.validUntil) {
+			delete(bigtablePreparedQueries.queries, token)
+		}
+	}
+	bigtablePreparedQueries.queries[string(prepared)] = btPreparedQuery{
+		tableName:  tableName,
+		columns:    columns,
+		validUntil: validUntil,
+	}
+	bigtablePreparedQueries.mu.Unlock()
+	return &btpb.PrepareQueryResponse{
+		Metadata:      &btpb.ResultSetMetadata{Schema: &btpb.ResultSetMetadata_ProtoSchema{ProtoSchema: &btpb.ProtoSchema{Columns: columns}}},
+		PreparedQuery: prepared,
+		ValidUntil:    timestamppb.New(validUntil),
+	}, nil
+}
+
+func (s *bigtableDataGRPC) ExecuteQuery(req *btpb.ExecuteQueryRequest, srv btpb.Bigtable_ExecuteQueryServer) error {
+	if err := btRequireInstance(req.GetInstanceName()); err != nil {
+		return err
+	}
+	if err := btRequireAppProfile(req.GetInstanceName(), req.GetAppProfileId()); err != nil {
+		return err
+	}
+	if len(req.GetParams()) > 0 || len(req.GetViewParameters()) > 0 {
+		return status.Errorf(codes.Unimplemented,
+			"the simulator serves `SELECT * FROM <table>`, which binds no parameters")
+	}
+
+	prepared := req.GetPreparedQuery()
+	query := req.GetQuery()
+	if (len(prepared) == 0) == (query == "") {
+		return status.Error(codes.InvalidArgument, "exactly one of query and prepared_query is required")
+	}
+
+	var plan btPreparedQuery
+	if len(prepared) > 0 {
+		if req.GetProtoFormat() != nil {
+			return status.Error(codes.InvalidArgument, "data_format must be empty when prepared_query is set")
+		}
+		bigtablePreparedQueries.mu.Lock()
+		stored, ok := bigtablePreparedQueries.queries[string(prepared)]
+		bigtablePreparedQueries.mu.Unlock()
+		if !ok {
+			return status.Error(codes.FailedPrecondition, "the prepared query is not known to this server")
+		}
+		if time.Now().After(stored.validUntil) {
+			return status.Error(codes.FailedPrecondition, "the prepared query has expired")
+		}
+		plan = stored
+	} else {
+		tableName, columns, err := btPlanQuery(req.GetInstanceName(), query)
+		if err != nil {
+			return err
+		}
+		plan = btPreparedQuery{tableName: tableName, columns: columns}
+	}
+
+	// A resume token names how many rows the interrupted attempt delivered, so
+	// a resumed execution continues after them.
+	delivered := 0
+	if token := req.GetResumeToken(); len(token) > 0 {
+		n, err := strconv.Atoi(string(token))
+		if err != nil || n < 0 {
+			return status.Errorf(codes.InvalidArgument, "invalid resume_token %q", token)
+		}
+		delivered = n
+	}
+
+	td, err := btRequireTable(plan.tableName)
+	if err != nil {
+		return err
+	}
+	td.mu.Lock()
+	keys := make([]string, 0, len(td.rows))
+	for k := range td.rows {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	values := make([]*btpb.Value, 0, len(keys)*len(plan.columns))
+	for _, key := range keys[min(delivered, len(keys)):] {
+		values = append(values, btQueryRowValues(td, key, plan.columns)...)
+	}
+	td.mu.Unlock()
+
+	batch, err := proto.Marshal(&btpb.ProtoRows{Values: values})
+	if err != nil {
+		return status.Errorf(codes.Internal, "encoding result rows: %v", err)
+	}
+	checksum := crc32.Checksum(batch, crc32.MakeTable(crc32.Castagnoli))
+	return srv.Send(&btpb.ExecuteQueryResponse{Response: &btpb.ExecuteQueryResponse_Results{
+		Results: &btpb.PartialResultSet{
+			PartialRows:   &btpb.PartialResultSet_ProtoRowsBatch{ProtoRowsBatch: &btpb.ProtoRowsBatch{BatchData: batch}},
+			BatchChecksum: &checksum,
+			ResumeToken:   []byte(strconv.Itoa(len(keys))),
+		},
+	}})
+}
+
+// btQueryRowValues renders one row as the flat value sequence a ProtoRows
+// batch carries: the row key, then one map per column family holding that
+// family's latest value per qualifier. Callers hold td.mu.
+func btQueryRowValues(td *btTableData, rowKey string, columns []*btpb.ColumnMetadata) []*btpb.Value {
+	values := make([]*btpb.Value, 0, len(columns))
+	values = append(values, &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: []byte(rowKey)}})
+	row := td.rows[rowKey]
+	for _, column := range columns[1:] {
+		cells := row[column.GetName()]
+		qualifiers := make([]string, 0, len(cells))
+		for qualifier := range cells {
+			qualifiers = append(qualifiers, qualifier)
+		}
+		sort.Strings(qualifiers)
+		entries := make([]*btpb.Value, 0, len(qualifiers))
+		for _, qualifier := range qualifiers {
+			versions := cells[qualifier]
+			if len(versions) == 0 {
+				continue
+			}
+			entries = append(entries, &btpb.Value{Kind: &btpb.Value_ArrayValue{ArrayValue: &btpb.ArrayValue{Values: []*btpb.Value{
+				{Kind: &btpb.Value_BytesValue{BytesValue: []byte(qualifier)}},
+				{Kind: &btpb.Value_BytesValue{BytesValue: versions[0].value}}, // newest-first
+			}}}})
+		}
+		values = append(values, &btpb.Value{Kind: &btpb.Value_ArrayValue{ArrayValue: &btpb.ArrayValue{Values: entries}}})
+	}
+	return values
+}
+
+// OpenMaterializedView opens a session on a materialized view, whose rows are
+// the continuously maintained result of the GoogleSQL query the view was
+// created with. The simulator stores that query string and nothing else: it
+// materializes no result set, and it has no evaluator for the aggregate
+// queries materialized views are defined by (GROUP BY over column families
+// with windowed accumulators). A session on such a view could only read rows
+// that were never computed, so the method stays on the embedded Unimplemented
+// server and a client gets a clear status instead.

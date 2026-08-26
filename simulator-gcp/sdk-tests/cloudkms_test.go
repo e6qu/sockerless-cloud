@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"hash/crc32"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudkms/v1"
@@ -710,20 +711,63 @@ func TestCloudKMSDeleteCryptoKeyAndVersionSDK(t *testing.T) {
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-delete")
 
 	keyName := ringName + "/cryptoKeys/del-key"
-	_, err := svc.Projects.Locations.KeyRings.CryptoKeys.Create(ringName, &cloudkms.CryptoKey{Purpose: "ENCRYPT_DECRYPT"}).CryptoKeyId("del-key").Do()
+	// destroyScheduledDuration decides when a scheduled destroy completes; a
+	// second of it lets this test watch the whole lifecycle the delete
+	// preconditions are stated in terms of.
+	created, err := svc.Projects.Locations.KeyRings.CryptoKeys.Create(ringName, &cloudkms.CryptoKey{
+		Purpose:                  "ENCRYPT_DECRYPT",
+		DestroyScheduledDuration: "1s",
+	}).CryptoKeyId("del-key").Do()
 	require.NoError(t, err)
+	require.Equal(t, "1s", created.DestroyScheduledDuration)
 	v2, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Create(keyName, &cloudkms.CryptoKeyVersion{}).Do()
 	require.NoError(t, err)
 
-	// Delete the second version.
+	// A live version still holds key material, so the delete is refused.
+	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Delete(v2.Name).Do()
+	requireKMSErrorCode(t, err, 400)
+
+	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Destroy(v2.Name, &cloudkms.DestroyCryptoKeyVersionRequest{}).Do()
+	require.NoError(t, err)
+	kmsAwaitRESTVersionState(t, svc, v2.Name, "DESTROYED")
+
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Delete(v2.Name).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Get(v2.Name).Do()
 	requireKMSErrorCode(t, err, 404)
 
-	// Delete the whole key.
+	// Version 1 survives, so the key delete is refused rather than cascading.
+	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Delete(keyName).Do()
+	requireKMSErrorCode(t, err, 400)
+
+	first := keyName + "/cryptoKeyVersions/1"
+	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Destroy(first, &cloudkms.DestroyCryptoKeyVersionRequest{}).Do()
+	require.NoError(t, err)
+	kmsAwaitRESTVersionState(t, svc, first, "DESTROYED")
+	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Delete(first).Do()
+	require.NoError(t, err)
+
+	// Delete the now-empty key.
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Delete(keyName).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Get(keyName).Do()
 	requireKMSErrorCode(t, err, 404)
+}
+
+// kmsAwaitRESTVersionState polls a version until it reports want, which is how
+// a client observes a scheduled destroy completing.
+func kmsAwaitRESTVersionState(t *testing.T, svc *cloudkms.Service, name, want string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		v, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Get(name).Do()
+		require.NoError(t, err)
+		if v.State == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("CryptoKeyVersion %s is %s, want %s", name, v.State, want)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

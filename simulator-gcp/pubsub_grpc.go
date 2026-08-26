@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	pspb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
@@ -53,20 +54,27 @@ func registerPubSubGRPC(gs *grpc.Server) {
 	pspb.RegisterPublisherServer(gs, &pubsubPublisherGRPC{})
 	pspb.RegisterSubscriberServer(gs, &pubsubSubscriberGRPC{})
 	pspb.RegisterSchemaServiceServer(gs, &pubsubSchemaGRPC{})
-	go pubsubAckDeadlineSweeper()
+}
+
+// pubsubStartAckDeadlineSweeper starts the sweeper, once per process.
+//
+// It runs from the point the simulator begins serving rather than from
+// registration, because registration must only mount handlers. Anything that
+// enumerates the mounted surface without serving it — the gRPC coverage
+// ratchet does exactly that, and the route conformance tests build a
+// simulator for the same reason — would otherwise set another sweeper running
+// against the same stores, racing the first.
+var pubsubSweeperOnce sync.Once
+
+func pubsubStartAckDeadlineSweeper() {
+	pubsubSweeperOnce.Do(func() { go pubsubAckDeadlineSweeper() })
 }
 
 // pubsubAckDeadlineSweeper periodically returns inflight messages whose ack
 // deadline has elapsed to their subscription's queue, implementing at-least-once
-// delivery. It runs once per simulator process and serves both the REST and gRPC
-// surfaces, since they share the inflight store.
-var pubsubSweeperStarted bool
-
+// delivery. It serves both the REST and gRPC surfaces, since they share the
+// inflight store.
 func pubsubAckDeadlineSweeper() {
-	if pubsubSweeperStarted {
-		return
-	}
-	pubsubSweeperStarted = true
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for range ticker.C {

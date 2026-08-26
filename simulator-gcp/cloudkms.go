@@ -46,10 +46,10 @@ const (
 	kmsDefaultProtectionLevel = "SOFTWARE"
 	kmsSymmetricAlgorithm     = "GOOGLE_SYMMETRIC_ENCRYPTION"
 	kmsPurposeEncryptDecrypt  = "ENCRYPT_DECRYPT"
-	// kmsDestroyScheduledDelay is how far in the future a destroyed
-	// version's destroyTime is set (real KMS default is 24h–30d; the
-	// sim uses 24h).
-	kmsDestroyScheduledDelay = 24 * time.Hour
+	// kmsDefaultDestroyScheduledDuration is how long a version spends in
+	// DESTROY_SCHEDULED before it becomes DESTROYED, when its CryptoKey did
+	// not set destroyScheduledDuration. Cloud KMS documents 30 days.
+	kmsDefaultDestroyScheduledDuration = 30 * 24 * time.Hour
 )
 
 // kmsKeyRing is the wire shape for a KeyRing resource.
@@ -85,14 +85,15 @@ type kmsCryptoKeyVersion struct {
 // from the live primary version on read so destroy/disable state shows
 // through.
 type kmsCryptoKey struct {
-	Name             string                       `json:"name"`
-	Primary          *kmsCryptoKeyVersion         `json:"primary,omitempty"`
-	Purpose          string                       `json:"purpose,omitempty"`
-	CreateTime       string                       `json:"createTime,omitempty"`
-	NextRotationTime string                       `json:"nextRotationTime,omitempty"`
-	RotationPeriod   string                       `json:"rotationPeriod,omitempty"`
-	VersionTemplate  *kmsCryptoKeyVersionTemplate `json:"versionTemplate,omitempty"`
-	Labels           map[string]string            `json:"labels,omitempty"`
+	Name                     string                       `json:"name"`
+	Primary                  *kmsCryptoKeyVersion         `json:"primary,omitempty"`
+	Purpose                  string                       `json:"purpose,omitempty"`
+	CreateTime               string                       `json:"createTime,omitempty"`
+	NextRotationTime         string                       `json:"nextRotationTime,omitempty"`
+	RotationPeriod           string                       `json:"rotationPeriod,omitempty"`
+	DestroyScheduledDuration string                       `json:"destroyScheduledDuration,omitempty"`
+	VersionTemplate          *kmsCryptoKeyVersionTemplate `json:"versionTemplate,omitempty"`
+	Labels                   map[string]string            `json:"labels,omitempty"`
 }
 
 // kmsStoredCryptoKey is the persisted CryptoKey metadata. Versions live
@@ -107,6 +108,9 @@ type kmsStoredCryptoKey struct {
 	Algorithm        string            `json:"algorithm"`
 	Labels           map[string]string `json:"labels,omitempty"`
 	PrimaryVersionID string            `json:"primaryVersionId"`
+	// DestroyScheduledDuration is immutable and set at creation; it decides
+	// when a scheduled destroy completes.
+	DestroyScheduledDuration string `json:"destroyScheduledDuration,omitempty"`
 	// VersionSeq is the monotonic version counter for this key. Reserved
 	// atomically under the store write lock so concurrent
 	// CreateCryptoKeyVersion calls never collide on a version ID. Stored only;
@@ -403,9 +407,12 @@ func registerCloudKMS(srv *sim.Server) {
 			CreateTime:       kmsNow(),
 			NextRotationTime: req.NextRotationTime,
 			RotationPeriod:   req.RotationPeriod,
-			ProtectionLevel:  protection,
-			Algorithm:        algorithm,
-			Labels:           req.Labels,
+
+			DestroyScheduledDuration: kmsDestroyScheduledDuration(req.DestroyScheduledDuration),
+
+			ProtectionLevel: protection,
+			Algorithm:       algorithm,
+			Labels:          req.Labels,
 		}
 		// Every purpose gets an initial version unless the caller opts out.
 		// Real KMS auto-creates the first CryptoKeyVersion (with material of the
@@ -422,7 +429,7 @@ func registerCloudKMS(srv *sim.Server) {
 			stored.VersionSeq = 1
 			if r.URL.Query().Get("trustedWrappingEnabled") == "true" {
 				versionName := name + "/cryptoKeyVersions/" + ver
-				version, _ := kmsCryptoKeyVersions.Get(versionName)
+				version, _ := kmsGetCryptoKeyVersion(versionName)
 				version.TrustedWrappingEnabled = true
 				kmsCryptoKeyVersions.Put(versionName, version)
 			}
@@ -545,7 +552,7 @@ func registerCloudKMS(srv *sim.Server) {
 		var all []kmsCryptoKeyVersion
 		for _, v := range kmsCryptoKeyVersions.List() {
 			if strings.HasPrefix(v.Name, prefix) {
-				all = append(all, v)
+				all = append(all, kmsVersionSettled(v))
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return kmsVersionLess(all[i].Name, all[j].Name) })
@@ -574,7 +581,7 @@ func registerCloudKMS(srv *sim.Server) {
 			return
 		}
 		name := kmsCryptoKeyName(r) + "/cryptoKeyVersions/" + versionID
-		v, ok := kmsCryptoKeyVersions.Get(name)
+		v, ok := kmsGetCryptoKeyVersion(name)
 		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "CryptoKeyVersion %s not found", name)
 			return
@@ -615,7 +622,7 @@ func registerCloudKMS(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not generate key version: %v", err)
 			return
 		}
-		v, _ := kmsCryptoKeyVersions.Get(keyName + "/cryptoKeyVersions/" + versionID)
+		v, _ := kmsGetCryptoKeyVersion(keyName + "/cryptoKeyVersions/" + versionID)
 		v.TrustedWrappingEnabled = req.TrustedWrappingEnabled
 		kmsCryptoKeyVersions.Put(v.Name, v)
 		sim.WriteJSON(w, http.StatusOK, v)
@@ -630,7 +637,7 @@ func registerCloudKMS(srv *sim.Server) {
 	// between ENABLED and DISABLED through this PATCH, not a dedicated verb.
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersion}", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsCryptoKeyName(r) + "/cryptoKeyVersions/" + sim.PathParam(r, "cryptoKeyVersion")
-		v, ok := kmsCryptoKeyVersions.Get(name)
+		v, ok := kmsGetCryptoKeyVersion(name)
 		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "CryptoKeyVersion %s not found", name)
 			return
@@ -695,7 +702,7 @@ func registerCloudKMS(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown cryptoKeyVersion action %q", action)
 			return
 		}
-		v, ok := kmsCryptoKeyVersions.Get(name)
+		v, ok := kmsGetCryptoKeyVersion(name)
 		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "CryptoKeyVersion %s not found", name)
 			return
@@ -707,7 +714,7 @@ func registerCloudKMS(srv *sim.Server) {
 				return
 			}
 			v.State = "DESTROY_SCHEDULED"
-			v.DestroyTime = time.Now().UTC().Add(kmsDestroyScheduledDelay).Format(time.RFC3339)
+			v.DestroyTime = time.Now().UTC().Add(kmsDestroyDelayFor(kmsCryptoKeyName(r))).Format(time.RFC3339)
 		case "restore":
 			if v.State != "DESTROY_SCHEDULED" {
 				sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "CryptoKeyVersion %s is not DESTROY_SCHEDULED (state %s)", name, v.State)
@@ -741,12 +748,9 @@ func registerCloudKMSExtras(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "CryptoKey %s not found", name)
 			return
 		}
-		prefix := name + "/cryptoKeyVersions/"
-		for _, v := range kmsCryptoKeyVersions.List() {
-			if strings.HasPrefix(v.Name, prefix) {
-				kmsCryptoKeyVersions.Delete(v.Name)
-				kmsKeyMaterial.Delete(v.Name)
-			}
+		if reason := kmsCryptoKeyUndeletable(name); reason != "" {
+			sim.GCPError(w, http.StatusBadRequest, reason, "FAILED_PRECONDITION")
+			return
 		}
 		kmsCryptoKeys.Delete(name)
 		kmsIamPolicies.Delete(name)
@@ -755,8 +759,13 @@ func registerCloudKMSExtras(srv *sim.Server) {
 
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersion}", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsCryptoKeyName(r) + "/cryptoKeyVersions/" + sim.PathParam(r, "cryptoKeyVersion")
-		if _, ok := kmsCryptoKeyVersions.Get(name); !ok {
+		version, ok := kmsGetCryptoKeyVersion(name)
+		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "CryptoKeyVersion %s not found", name)
+			return
+		}
+		if reason := kmsVersionUndeletable(version); reason != "" {
+			sim.GCPError(w, http.StatusBadRequest, reason, "FAILED_PRECONDITION")
 			return
 		}
 		kmsCryptoKeyVersions.Delete(name)
@@ -1542,6 +1551,102 @@ func kmsHighestVersionID(keyName string) int {
 	return highest
 }
 
+// kmsDestroyScheduledDuration normalizes a CryptoKey's destroy schedule,
+// falling back to the documented default when the create left it unset.
+func kmsDestroyScheduledDuration(requested string) string {
+	if requested != "" {
+		return requested
+	}
+	return strconv.Itoa(int(kmsDefaultDestroyScheduledDuration.Seconds())) + "s"
+}
+
+// kmsDestroyDelayFor returns how long a version of this key spends in
+// DESTROY_SCHEDULED. A key carrying no duration, or one this simulator cannot
+// parse, uses the default rather than destroying immediately.
+func kmsDestroyDelayFor(keyName string) time.Duration {
+	key, ok := kmsCryptoKeys.Get(keyName)
+	if !ok || key.DestroyScheduledDuration == "" {
+		return kmsDefaultDestroyScheduledDuration
+	}
+	seconds, err := strconv.ParseFloat(strings.TrimSuffix(key.DestroyScheduledDuration, "s"), 64)
+	if err != nil || seconds < 0 {
+		return kmsDefaultDestroyScheduledDuration
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
+// kmsVersionSettled applies the one time-driven transition a CryptoKeyVersion
+// has: a destroy is scheduled for a point in the future, and when that point
+// passes the version is DESTROYED and its material is gone.
+//
+// The transition is derived from DestroyTime rather than driven by a timer, so
+// it holds for a version written before the process started and needs no clock
+// running to be correct. Without it a scheduled destroy never completes and
+// the version sits in DESTROY_SCHEDULED forever — a state machine with a dead
+// end, and one that would make DeleteCryptoKeyVersion unreachable.
+func kmsVersionSettled(v kmsCryptoKeyVersion) kmsCryptoKeyVersion {
+	if v.State != "DESTROY_SCHEDULED" || v.DestroyTime == "" {
+		return v
+	}
+	due, err := time.Parse(time.RFC3339, v.DestroyTime)
+	if err != nil || time.Now().UTC().Before(due) {
+		return v
+	}
+	v.State = "DESTROYED"
+	v.DestroyEventTime = v.DestroyTime
+	return v
+}
+
+// kmsGetCryptoKeyVersion reads a version with its scheduled destroy settled.
+// Every read goes through here so no caller sees a stale DESTROY_SCHEDULED.
+func kmsGetCryptoKeyVersion(name string) (kmsCryptoKeyVersion, bool) {
+	v, ok := kmsCryptoKeyVersions.Get(name)
+	if !ok {
+		return v, false
+	}
+	return kmsVersionSettled(v), true
+}
+
+// kmsCryptoKeyVersionsOf returns a CryptoKey's versions.
+func kmsCryptoKeyVersionsOf(keyName string) []kmsCryptoKeyVersion {
+	prefix := keyName + "/cryptoKeyVersions/"
+	var out []kmsCryptoKeyVersion
+	for _, v := range kmsCryptoKeyVersions.List() {
+		if strings.HasPrefix(v.Name, prefix) {
+			out = append(out, kmsVersionSettled(v))
+		}
+	}
+	return out
+}
+
+// kmsVersionUndeletable reports why a CryptoKeyVersion cannot be permanently
+// deleted, or "" when the delete is allowed.
+//
+// Cloud KMS accepts the delete only for a version that was never imported and
+// has reached DESTROYED, IMPORT_FAILED or GENERATION_FAILED. Deleting outside
+// those states would drop material a client can still name and decrypt with,
+// leaving the caller to discover the loss at the next Decrypt.
+func kmsVersionUndeletable(v kmsCryptoKeyVersion) string {
+	if v.ImportTime != "" || v.ImportJob != "" {
+		return fmt.Sprintf("CryptoKeyVersion %s was imported and cannot be deleted", v.Name)
+	}
+	switch v.State {
+	case "DESTROYED", "IMPORT_FAILED", "GENERATION_FAILED":
+		return ""
+	}
+	return fmt.Sprintf("CryptoKeyVersion %s is %s; only a DESTROYED, IMPORT_FAILED or GENERATION_FAILED version can be deleted", v.Name, v.State)
+}
+
+// kmsCryptoKeyUndeletable reports why a CryptoKey cannot be deleted, or "" when
+// the delete is allowed. Every child version must already have been deleted;
+// the key delete does not cascade.
+func kmsCryptoKeyUndeletable(keyName string) string {
+	if remaining := kmsCryptoKeyVersionsOf(keyName); len(remaining) > 0 {
+		return fmt.Sprintf("CryptoKey %s still has %d CryptoKeyVersion(s); delete them first", keyName, len(remaining))
+	}
+	return ""
+}
+
 // ----- crypto handlers -----
 
 func kmsHandleEncrypt(w http.ResponseWriter, r *http.Request, keyName string) {
@@ -1589,7 +1694,7 @@ func kmsHandleEncrypt(w http.ResponseWriter, r *http.Request, keyName string) {
 		return
 	}
 	versionName := keyName + "/cryptoKeyVersions/" + versionID
-	version, ok := kmsCryptoKeyVersions.Get(versionName)
+	version, ok := kmsGetCryptoKeyVersion(versionName)
 	if !ok || version.State != "ENABLED" {
 		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "primary version of %s is not enabled", keyName)
 		return
@@ -1649,7 +1754,7 @@ func kmsHandleDecrypt(w http.ResponseWriter, r *http.Request, keyName string) {
 		return
 	}
 	versionName := fmt.Sprintf("%s/cryptoKeyVersions/%d", keyName, versionNum)
-	version, ok := kmsCryptoKeyVersions.Get(versionName)
+	version, ok := kmsGetCryptoKeyVersion(versionName)
 	if !ok {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Decryption failed: the version used to encrypt does not exist")
 		return
@@ -1693,7 +1798,7 @@ func kmsHandleUpdatePrimaryVersion(w http.ResponseWriter, r *http.Request, keyNa
 		sim.GCPError(w, http.StatusBadRequest, "cryptoKeyVersionId is required", "INVALID_ARGUMENT")
 		return
 	}
-	if _, ok := kmsCryptoKeyVersions.Get(keyName + "/cryptoKeyVersions/" + req.CryptoKeyVersionId); !ok {
+	if _, ok := kmsGetCryptoKeyVersion(keyName + "/cryptoKeyVersions/" + req.CryptoKeyVersionId); !ok {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "CryptoKeyVersion %s not found", req.CryptoKeyVersionId)
 		return
 	}
@@ -2025,7 +2130,7 @@ func kmsHandleRawDecrypt(w http.ResponseWriter, r *http.Request, versionName str
 // ----- Asymmetric sign / decrypt + public key -----
 
 func kmsHandleGetPublicKey(w http.ResponseWriter, r *http.Request, versionName string) {
-	version, ok := kmsCryptoKeyVersions.Get(versionName)
+	version, ok := kmsGetCryptoKeyVersion(versionName)
 	if !ok {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "CryptoKeyVersion %s not found", versionName)
 		return
@@ -2198,11 +2303,12 @@ func kmsHandleImportCryptoKeyVersion(w http.ResponseWriter, r *http.Request, key
 		return
 	}
 	var req struct {
-		ImportJob        string `json:"importJob"`
-		Algorithm        string `json:"algorithm"`
-		CryptoKeyVersion string `json:"cryptoKeyVersion"`
-		WrappedKey       string `json:"wrappedKey"`
-		RsaAesWrappedKey string `json:"rsaAesWrappedKey"`
+		ImportJob              string `json:"importJob"`
+		Algorithm              string `json:"algorithm"`
+		CryptoKeyVersion       string `json:"cryptoKeyVersion"`
+		WrappedKey             string `json:"wrappedKey"`
+		RsaAesWrappedKey       string `json:"rsaAesWrappedKey"`
+		TrustedWrappingEnabled bool   `json:"trustedWrappingEnabled"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -2280,7 +2386,7 @@ func kmsHandleImportCryptoKeyVersion(w http.ResponseWriter, r *http.Request, key
 			sim.GCPError(w, http.StatusBadRequest, "cryptoKeyVersion must be a child of parent", "INVALID_ARGUMENT")
 			return
 		}
-		existing, exists := kmsCryptoKeyVersions.Get(versionName)
+		existing, exists := kmsGetCryptoKeyVersion(versionName)
 		if !exists || !existing.ReimportEligible ||
 			(existing.State != "DESTROYED" && existing.State != "IMPORT_FAILED") {
 			sim.GCPError(w, http.StatusBadRequest, "cryptoKeyVersion is not eligible for reimport", "FAILED_PRECONDITION")
@@ -2302,6 +2408,11 @@ func kmsHandleImportCryptoKeyVersion(w http.ResponseWriter, r *http.Request, key
 		ImportJob:        req.ImportJob,
 		ImportTime:       now,
 		ReimportEligible: true,
+
+		// An imported version is exportable under a trusted wrapping key only
+		// when the import asked for it, the same way a generated version
+		// carries the flag its create call set.
+		TrustedWrappingEnabled: req.TrustedWrappingEnabled,
 	}
 	kmsCryptoKeyVersions.Put(versionName, version)
 	kmsKeyMaterial.Put(versionName, record)
@@ -2432,7 +2543,7 @@ func kmsHandleImportTrustedKeyWrappedCryptoKeyVersion(w http.ResponseWriter, r *
 			sim.GCPError(w, http.StatusBadRequest, "cryptoKeyVersion must be a child of parent", "INVALID_ARGUMENT")
 			return
 		}
-		existing, exists := kmsCryptoKeyVersions.Get(versionName)
+		existing, exists := kmsGetCryptoKeyVersion(versionName)
 		if !exists || !existing.ReimportEligible ||
 			(existing.State != "DESTROYED" && existing.State != "IMPORT_FAILED") {
 			sim.GCPError(w, http.StatusBadRequest, "cryptoKeyVersion is not eligible for reimport", "FAILED_PRECONDITION")
@@ -2758,7 +2869,7 @@ func kmsLocationName(r *http.Request) string {
 // kmsLoadEnabledVersion fetches an ENABLED version and its key material, writing
 // the appropriate error and returning ok=false otherwise.
 func kmsLoadEnabledVersion(w http.ResponseWriter, versionName string) (kmsCryptoKeyVersion, kmsKeyMaterialRecord, bool) {
-	version, ok := kmsCryptoKeyVersions.Get(versionName)
+	version, ok := kmsGetCryptoKeyVersion(versionName)
 	if !ok {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "CryptoKeyVersion %s not found", versionName)
 		return version, kmsKeyMaterialRecord{}, false
@@ -2838,19 +2949,20 @@ func kmsPublicFromPEM(pemBytes []byte) (any, error) {
 // primary version.
 func kmsAssembleCryptoKey(k kmsStoredCryptoKey) kmsCryptoKey {
 	out := kmsCryptoKey{
-		Name:             k.Name,
-		Purpose:          k.Purpose,
-		CreateTime:       k.CreateTime,
-		NextRotationTime: k.NextRotationTime,
-		RotationPeriod:   k.RotationPeriod,
-		Labels:           k.Labels,
+		Name:                     k.Name,
+		Purpose:                  k.Purpose,
+		CreateTime:               k.CreateTime,
+		NextRotationTime:         k.NextRotationTime,
+		RotationPeriod:           k.RotationPeriod,
+		DestroyScheduledDuration: k.DestroyScheduledDuration,
+		Labels:                   k.Labels,
 		VersionTemplate: &kmsCryptoKeyVersionTemplate{
 			ProtectionLevel: k.ProtectionLevel,
 			Algorithm:       k.Algorithm,
 		},
 	}
 	if k.PrimaryVersionID != "" {
-		if v, ok := kmsCryptoKeyVersions.Get(k.Name + "/cryptoKeyVersions/" + k.PrimaryVersionID); ok {
+		if v, ok := kmsGetCryptoKeyVersion(k.Name + "/cryptoKeyVersions/" + k.PrimaryVersionID); ok {
 			primary := v
 			out.Primary = &primary
 		}
