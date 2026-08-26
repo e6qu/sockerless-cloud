@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/e6qu/sockerless-cloud/compare/v0.22.0...v0.23.0) (2026-08-26)
+
+
+### Features
+
+* **gcp:** close the gRPC coverage gaps — 210 of 213 methods served ([#84](https://github.com/e6qu/sockerless-cloud/issues/84)) ([81c46a7](https://github.com/e6qu/sockerless-cloud/commit/81c46a7104d71f577a53681d5bdcd33701da7a92))
+
 ## [0.22.0](https://github.com/e6qu/sockerless-cloud/compare/v0.21.0...v0.22.0) (2026-08-26)
 
 
