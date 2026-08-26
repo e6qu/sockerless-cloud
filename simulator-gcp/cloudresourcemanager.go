@@ -689,10 +689,18 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 		id, action, found := gcpCustomMethod(idAction)
 		// Resolve the method before the project, the way Google's frontend
 		// does. This pattern receives every POST custom method addressed to a
-		// project — including other services' (Cloud SQL Admin's
-		// projects:pointInTimeRestore) — and answering those with the
-		// project's 403 would claim the project is inaccessible when the
-		// method is simply not routed.
+		// project — including other services': real Google separates services
+		// by hostname, so Cloud SQL Admin's `projects/{p}:pointInTimeRestore`
+		// shares this URI shape, and on the collapsed single-port mux this
+		// dispatcher receives it. That verb identifies its owner (Cloud
+		// Resource Manager publishes no such method) and is forwarded there;
+		// a verb neither service publishes is answered as unrouted rather
+		// than with the project's 403, which would claim the project is
+		// inaccessible when the method is simply not routed.
+		if found && action == "pointInTimeRestore" {
+			handleSQLPointInTimeRestore(w, r, id)
+			return
+		}
 		if !found || !crmV1ProjectPOSTMethods[action] {
 			gcpMethodNotFound(w)
 			return

@@ -405,6 +405,26 @@ func registerAuthorization(srv *sim.Server) {
 	srv.HandleFunc("PUT "+subRD, handleRoleDefinitionPut)
 	srv.HandleFunc("DELETE "+subRD, handleRoleDefinitionDelete)
 
+	// Permissions_ListForResourceGroup / Permissions_ListForResource: the
+	// permissions the calling principal's role assignments grant at the
+	// addressed scope, read out of the same assignment and role-definition
+	// stores the RBAC routes above maintain.
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Authorization/permissions",
+		func(w http.ResponseWriter, r *http.Request) {
+			scope := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/resourceGroups/" + sim.PathParam(r, "resourceGroupName")
+			handlePermissionsList(w, r, scope)
+		})
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{parentResourcePath}/{resourceType}/{resourceName}/providers/Microsoft.Authorization/permissions",
+		func(w http.ResponseWriter, r *http.Request) {
+			scope := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
+				"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
+				"/providers/" + sim.PathParam(r, "resourceProviderNamespace") +
+				"/" + sim.PathParam(r, "parentResourcePath") +
+				"/" + sim.PathParam(r, "resourceType") +
+				"/" + sim.PathParam(r, "resourceName")
+			handlePermissionsList(w, r, scope)
+		})
+
 	// Middleware to handle authorization requests at ANY scope level.
 	// Go 1.22 mux doesn't support variable-length wildcards in the middle of
 	// patterns, but the azurerm provider looks up role definitions and creates
@@ -708,6 +728,87 @@ func handleRoleDefinitionDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	customRoleDefs.Delete(roleDefID)
 	sim.WriteJSON(w, http.StatusOK, c.Response)
+}
+
+// rbacScopeCovers reports whether a role assignment made at assignmentScope
+// applies at requestScope: Azure RBAC assignments inherit downward, so an
+// assignment covers its own scope and every scope beneath it. Comparison is
+// case-insensitive and segment-bounded, matching ARM's resource-ID semantics.
+func rbacScopeCovers(assignmentScope, requestScope string) bool {
+	a := strings.ToLower(strings.Trim(assignmentScope, "/"))
+	s := strings.ToLower(strings.Trim(requestScope, "/"))
+	if a == "" { // the tenant root scope "/" covers everything
+		return true
+	}
+	return s == a || strings.HasPrefix(s, a+"/")
+}
+
+// customRoleDefPermissions renders a custom role definition's stored
+// properties.permissions entries in the Permission wire shape. The entries
+// are the arrays the creating client stored — nothing is synthesized beyond
+// the empty-array form the ARM shape carries for an absent list.
+func customRoleDefPermissions(c CustomRoleDefinition) []map[string]any {
+	props, _ := c.Response["properties"].(map[string]any)
+	entries, _ := props["permissions"].([]any)
+	out := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		entry, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		lists := func(key string) []any {
+			if v, ok := entry[key].([]any); ok {
+				return v
+			}
+			return []any{}
+		}
+		out = append(out, map[string]any{
+			"actions":        lists("actions"),
+			"notActions":     lists("notActions"),
+			"dataActions":    lists("dataActions"),
+			"notDataActions": lists("notDataActions"),
+		})
+	}
+	return out
+}
+
+// handlePermissionsList serves Permissions_ListForResourceGroup and
+// Permissions_ListForResource: one Permission entry per permission set of
+// every role definition the calling principal is assigned at (or above) the
+// scope. The caller is the bearer token's oid — the same principal identity
+// role assignments store — so the answer is exactly what the stored RBAC
+// state grants that identity, never a synthesized allow-all.
+func handlePermissionsList(w http.ResponseWriter, r *http.Request, scope string) {
+	auth := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	claims, err := verifyAzureSimJWT(auth)
+	if err != nil {
+		// AzureBearerVerificationMiddleware has already verified the token on
+		// this path; a failure here means the header changed between the
+		// middleware and the handler and is answered like the middleware
+		// answers it.
+		sim.AzureError(w, "InvalidAuthenticationToken",
+			"The access token is not valid: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+	oid, _ := claims["oid"].(string)
+	permissions := []map[string]any{}
+	for _, ra := range azureRoleAssignmentsAll.LookupAll(azureRoleAssignments, "all", azureRoleAssignmentAllKeys) {
+		if !strings.EqualFold(ra.Properties.PrincipalId, oid) {
+			continue
+		}
+		if !rbacScopeCovers(ra.Properties.Scope, scope) {
+			continue
+		}
+		guid := roleDefinitionGUID(ra.Properties.RoleDefinitionId)
+		if d, ok := builtinRoleDefByID(guid); ok {
+			permissions = append(permissions, permissionsJSON(d.Permissions)...)
+			continue
+		}
+		if c, ok := customRoleDefs.Get(guid); ok {
+			permissions = append(permissions, customRoleDefPermissions(c)...)
+		}
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": permissions})
 }
 
 // customRoleDefName returns a custom role definition's roleName for $filter matching.

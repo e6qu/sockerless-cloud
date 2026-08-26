@@ -186,6 +186,12 @@ func verifyServiceAccountAssertion(assertion string, now time.Time) (saAssertion
 	digest := sha256.Sum256([]byte(signingInput))
 	verified := false
 	for _, candidate := range candidates {
+		// A disabled key does not authenticate: real Google refuses an
+		// assertion signed with a key keys.disable turned off, until
+		// keys.enable turns it back on.
+		if key, ok := iamSAKeys.Get(candidate.Name); ok && key.Disabled {
+			continue
+		}
 		block, _ := pem.Decode([]byte(candidate.PublicKeyPEM))
 		if block == nil {
 			continue

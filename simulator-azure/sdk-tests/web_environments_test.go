@@ -202,6 +202,11 @@ func aseAppStates(apps []*armappservice.Site) map[string]string {
 // reports Linux workers only once a Linux plan is placed in it, and subtracts
 // the capacity those plans take from its stamp capacity.
 func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
+	// An App Service Environment is placed in a virtual network subnet, and
+	// creating a real subnet needs the Linux network capabilities the
+	// simulator's fabric is built on. A host that cannot provide them skips;
+	// Linux runs the test.
+	requireNetworkHost(t)
 	requireResourceGroup(t, aseRG)
 	subnetID := requireSubnet(t, aseRG, "sdk-ase-vnet", "10.60.0.0/16", "ase-subnet", aseSubnet)
 	client := environmentsClient(t)

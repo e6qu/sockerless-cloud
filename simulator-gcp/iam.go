@@ -74,12 +74,18 @@ var gcpResourcePolicies sim.Store[IAMPolicy]
 // only returns privateKeyData on creation; subsequent Gets omit it.
 // PublicKeyData carries the base64 of the public half in the encoding the
 // caller named with `publicKeyType`, and is absent when none was asked for.
+// KeyOrigin records who supplied the key material: GOOGLE_PROVIDED for keys
+// the service generated, USER_PROVIDED for keys uploaded by the caller.
+// Disabled is the bit keys.enable / keys.disable flip; a disabled key stops
+// authenticating at the OAuth2 token endpoint until re-enabled.
 type GCPServiceAccountKey struct {
 	Name            string `json:"name"`
 	KeyAlgorithm    string `json:"keyAlgorithm"`
 	ValidAfterTime  string `json:"validAfterTime"`
 	ValidBeforeTime string `json:"validBeforeTime"`
 	KeyType         string `json:"keyType"`
+	KeyOrigin       string `json:"keyOrigin,omitempty"`
+	Disabled        bool   `json:"disabled,omitempty"`
 	PrivateKeyData  string `json:"privateKeyData,omitempty"` // only on Create response
 	PrivateKeyType  string `json:"privateKeyType,omitempty"` // only on Create response
 	PublicKeyData   string `json:"publicKeyData,omitempty"`  // only when publicKeyType is requested
@@ -141,6 +147,7 @@ func serviceAccountSystemManagedKey(accounts sim.Store[GCPServiceAccount], saNam
 		ValidAfterTime:  saCertificateEpoch.Format(time.RFC3339),
 		ValidBeforeTime: saCertificateEpoch.AddDate(10, 0, 0).Format(time.RFC3339),
 		KeyType:         "SYSTEM_MANAGED",
+		KeyOrigin:       "GOOGLE_PROVIDED",
 	}, true
 }
 
@@ -151,6 +158,7 @@ func serviceAccountSystemManagedKey(accounts sim.Store[GCPServiceAccount], saNam
 // Both are assigned once in registerIAM.
 var (
 	iamServiceAccounts sim.Store[GCPServiceAccount]
+	iamSAKeys          sim.Store[GCPServiceAccountKey]
 	iamSAKeyPublics    sim.Store[GCPServiceAccountKeyMaterial]
 	iamSASystemKeys    sim.Store[serviceAccountSystemKey]
 )
@@ -160,6 +168,7 @@ func registerIAM(srv *sim.Server) {
 	saKeys := sim.MakeStore[GCPServiceAccountKey](srv.DB(), "iam_sa_keys")
 	saKeyPublics := sim.MakeStore[GCPServiceAccountKeyMaterial](srv.DB(), "iam_sa_key_publics")
 	iamServiceAccounts = serviceAccounts
+	iamSAKeys = saKeys
 	iamSAKeyPublics = saKeyPublics
 	iamSASystemKeys = sim.MakeStore[serviceAccountSystemKey](srv.DB(), "iam_sa_system_keys")
 	projectPolicies := sim.MakeStore[IAMPolicy](srv.DB(), "iam_project_policies")
@@ -367,6 +376,7 @@ func registerIAM(srv *sim.Server) {
 			ValidAfterTime:  now.Format(time.RFC3339),
 			ValidBeforeTime: now.AddDate(10, 0, 0).Format(time.RFC3339),
 			KeyType:         "USER_MANAGED",
+			KeyOrigin:       "GOOGLE_PROVIDED",
 		}
 		// Generate the key material before persisting metadata: if generation
 		// fails, the store must not retain a key that never had private-key
@@ -390,6 +400,147 @@ func registerIAM(srv *sim.Server) {
 		resp.PrivateKeyData = privateKeyData
 		resp.PrivateKeyType = "TYPE_GOOGLE_CREDENTIALS_FILE"
 		sim.WriteJSON(w, http.StatusOK, resp)
+	})
+
+	// Upload service account key — serviceAccounts.keys.upload. The caller
+	// supplies only the public half: an RSA public key wrapped in an X.509 v3
+	// certificate, base64-encoded in `publicKeyData` per the Discovery
+	// request schema. The private half never reaches Google, which is the
+	// method's point. The key is stored USER_MANAGED / USER_PROVIDED under
+	// the public-key-derived identifier serviceAccountKeyID gives every key
+	// here, and registering the public half makes JWT-bearer assertions
+	// signed with the matching private key verifiable at the OAuth2 token
+	// endpoint — an uploaded key authenticates, exactly as against real
+	// Cloud IAM.
+	srv.HandleFunc("POST /v1/projects/{project}/serviceAccounts/{email}/keys:upload", func(w http.ResponseWriter, r *http.Request) {
+		project := sim.PathParam(r, "project")
+		email := sim.PathParam(r, "email")
+		if project == "-" {
+			project = gcpProjectFromEmail(email)
+		}
+		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
+		if _, ok := serviceAccounts.Get(saName); !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
+			return
+		}
+		if crmOrgPolicyBooleanEnforced("projects/"+project, crmConstraintDisableServiceAccountKeyUpload) {
+			sim.GCPError(w, http.StatusBadRequest,
+				"Key upload is not allowed on this service account.", "FAILED_PRECONDITION")
+			return
+		}
+		var req struct {
+			PublicKeyData string `json:"publicKeyData"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		raw, err := base64.StdEncoding.DecodeString(req.PublicKeyData)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "publicKeyData must be base64: %v", err)
+			return
+		}
+		block, _ := pem.Decode(raw)
+		if block == nil || block.Type != "CERTIFICATE" {
+			sim.GCPError(w, http.StatusBadRequest,
+				"The public key must be an RSA public key wrapped in an X.509 v3 certificate, in PEM format.", "INVALID_ARGUMENT")
+			return
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid X.509 certificate: %v", err)
+			return
+		}
+		rsaPub, ok := cert.PublicKey.(*rsa.PublicKey)
+		if !ok {
+			sim.GCPError(w, http.StatusBadRequest,
+				"The certificate's public key must be an RSA key.", "INVALID_ARGUMENT")
+			return
+		}
+		// The ServiceAccountKey keyAlgorithm enum names the two RSA sizes the
+		// service accepts; a certificate carrying any other size is refused
+		// rather than reported under an algorithm the API does not define.
+		var algorithm string
+		switch rsaPub.N.BitLen() {
+		case 1024:
+			algorithm = "KEY_ALG_RSA_1024"
+		case 2048:
+			algorithm = "KEY_ALG_RSA_2048"
+		default:
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"the certificate's RSA key is %d bits; service account keys must be RSA 1024 or 2048", rsaPub.N.BitLen())
+			return
+		}
+		keyID, err := serviceAccountKeyID(rsaPub)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "derive key id: %v", err)
+			return
+		}
+		keyName := saName + "/keys/" + keyID
+		if _, exists := saKeys.Get(keyName); exists {
+			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+				"a key with the same public key material already exists on service account %s", email)
+			return
+		}
+		pubDER, err := x509.MarshalPKIXPublicKey(rsaPub)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "marshal public key: %v", err)
+			return
+		}
+		// The key's validity window is the certificate's own — the caller
+		// minted the certificate, so the caller set the window.
+		key := GCPServiceAccountKey{
+			Name:            keyName,
+			KeyAlgorithm:    algorithm,
+			ValidAfterTime:  cert.NotBefore.UTC().Format(time.RFC3339),
+			ValidBeforeTime: cert.NotAfter.UTC().Format(time.RFC3339),
+			KeyType:         "USER_MANAGED",
+			KeyOrigin:       "USER_PROVIDED",
+		}
+		saKeys.Put(keyName, key)
+		saKeyPublics.Put(keyName, GCPServiceAccountKeyMaterial{
+			Name:           keyName,
+			PublicKeyPEM:   string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})),
+			CertificatePEM: string(pem.EncodeToMemory(block)),
+		})
+		sim.WriteJSON(w, http.StatusOK, key)
+	})
+
+	// Enable / disable a service account key — the two AIP-136 custom methods
+	// the keys collection publishes (`keys/{key}:enable`, `keys/{key}:disable`).
+	// Go's mux captures the "{key}:{verb}" segment whole; the verb is resolved
+	// before the key, the way Google's frontend resolves a method before the
+	// resource. Both return Empty. The disabled bit is honored where it
+	// matters: the OAuth2 token endpoint refuses assertions signed with a
+	// disabled key until it is re-enabled.
+	srv.HandleFunc("POST /v1/projects/{project}/serviceAccounts/{email}/keys/{keyAction}", func(w http.ResponseWriter, r *http.Request) {
+		project := sim.PathParam(r, "project")
+		email := sim.PathParam(r, "email")
+		if project == "-" {
+			project = gcpProjectFromEmail(email)
+		}
+		keyID, verb, found := gcpCustomMethod(sim.PathParam(r, "keyAction"))
+		if !found || (verb != "enable" && verb != "disable") {
+			gcpMethodNotFound(w)
+			return
+		}
+		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
+		keyName := saName + "/keys/" + keyID
+		if _, ok := saKeys.Get(keyName); !ok {
+			// A system-managed key belongs to Google, not to the account's
+			// owner: it cannot be disabled, the same refusal Delete makes.
+			if system, ok := serviceAccountSystemManagedKey(serviceAccounts, saName, email); ok && system.Name == keyName {
+				sim.GCPError(w, http.StatusBadRequest,
+					"Request contains an invalid argument.", "INVALID_ARGUMENT")
+				return
+			}
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
+			return
+		}
+		saKeys.Update(keyName, func(k *GCPServiceAccountKey) {
+			k.Disabled = verb == "disable"
+		})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
 	// Get service account key. The private half is returned only by Create;
@@ -776,6 +927,139 @@ func registerIAM(srv *sim.Server) {
 			})
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"permissions": out})
+	})
+
+	// iamPolicies.lintPolicy — lints the condition object the request itself
+	// carries ("The resource name is not used to read a policy from IAM. Only
+	// the data in the request object is linted", per the Discovery method).
+	// A request with no condition has nothing to lint and truthfully gets
+	// empty findings; a condition is run through iamLintCondition's
+	// structural checks.
+	srv.HandleFunc("POST /v1/iamPolicies:lintPolicy", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			FullResourceName string `json:"fullResourceName"`
+			Condition        *struct {
+				Expression  string `json:"expression"`
+				Title       string `json:"title"`
+				Description string `json:"description"`
+				Location    string `json:"location"`
+			} `json:"condition"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		results := []map[string]any{}
+		if req.Condition != nil {
+			results = append(results, iamLintCondition(req.Condition.Expression)...)
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"lintResults": results})
+	})
+
+	// iamPolicies.queryAuditableServices — the services whose audit logging
+	// can be configured on the resource. The catalog is this installation's
+	// own, the same argument as Cloud Billing's services.list: it names the
+	// services this simulator hosts, because those are the services a policy
+	// set here could ever audit.
+	srv.HandleFunc("POST /v1/iamPolicies:queryAuditableServices", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			FullResourceName string `json:"fullResourceName"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		if _, ok := gcpFullResourceHost(req.FullResourceName); !ok {
+			sim.GCPError(w, http.StatusBadRequest,
+				"fullResourceName must be a full resource name, e.g. //cloudresourcemanager.googleapis.com/projects/my-project", "INVALID_ARGUMENT")
+			return
+		}
+		services := make([]map[string]any, 0, len(gcpAuditableServices))
+		for _, name := range gcpAuditableServices {
+			services = append(services, map[string]any{"name": name})
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"services": services})
+	})
+
+	// roles.queryGrantableRoles — the roles that can be granted on a given
+	// resource. The catalog queried is the one this simulator holds: the
+	// bounded predefined set plus the tenant's custom roles in the resource's
+	// project/organization scope. A Cloud Resource Manager resource (project,
+	// folder, organization) accepts every role; any other resource accepts
+	// the roles that carry at least one permission of its service — the same
+	// service-prefix modeling gcpTestablePermissions uses.
+	srv.HandleFunc("POST /v1/roles:queryGrantableRoles", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			FullResourceName string `json:"fullResourceName"`
+			View             string `json:"view"`
+			PageSize         int    `json:"pageSize"`
+			PageToken        string `json:"pageToken"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		host, ok := gcpFullResourceHost(req.FullResourceName)
+		if !ok {
+			sim.GCPError(w, http.StatusBadRequest,
+				"fullResourceName must be a full resource name, e.g. //cloudresourcemanager.googleapis.com/projects/my-project", "INVALID_ARGUMENT")
+			return
+		}
+		service := strings.TrimSuffix(host, ".googleapis.com")
+		full := req.View == "FULL"
+
+		roles := []map[string]any{}
+		for _, role := range gcpPredefinedRoles() {
+			if gcpRoleGrantableOnService(role.IncludedPermissions, service) {
+				roles = append(roles, gcpRoleJSON(role, full))
+			}
+		}
+		// Custom roles defined in the resource's own project/organization
+		// scope are grantable there too, under the same service filter.
+		if scope := gcpFullResourceScope(req.FullResourceName); scope != "" {
+			prefix := scope + "/roles/"
+			for _, role := range customRoles.Filter(func(cr GCPCustomRole) bool {
+				return strings.HasPrefix(cr.Name, prefix) && !cr.Deleted
+			}) {
+				if gcpRoleGrantableOnService(role.IncludedPermissions, service) {
+					roles = append(roles, gcpCustomRoleJSON(role, full))
+				}
+			}
+		}
+		sort.Slice(roles, func(i, j int) bool {
+			ni, _ := roles[i]["name"].(string)
+			nj, _ := roles[j]["name"].(string)
+			return ni < nj
+		})
+
+		// Body-carried pagination: the token is the start offset the previous
+		// page ended at. The documented default page size is 300, ceiling
+		// 2,000.
+		start := 0
+		if req.PageToken != "" {
+			decoded, err := strconv.Atoi(req.PageToken)
+			if err != nil || decoded < 0 || decoded > len(roles) {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", req.PageToken)
+				return
+			}
+			start = decoded
+		}
+		size := req.PageSize
+		if size <= 0 {
+			size = 300
+		}
+		if size > 2000 {
+			size = 2000
+		}
+		end := start + size
+		if end > len(roles) {
+			end = len(roles)
+		}
+		resp := map[string]any{"roles": roles[start:end]}
+		if end < len(roles) {
+			resp["nextPageToken"] = strconv.Itoa(end)
+		}
+		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
 	// Custom roles — projects.roles.* and organizations.roles.*. A custom
@@ -2133,6 +2417,165 @@ func gcpTestablePermissions() []string {
 	return out
 }
 
+// gcpAuditableServices is the catalog iamPolicies.queryAuditableServices
+// serves: the Google Cloud services this simulator hosts, under their public
+// API hostnames — the same installation's-own-catalog rule Cloud Billing's
+// services.list follows. A service not hosted here cannot produce audit logs
+// here, so it does not belong in the answer.
+var gcpAuditableServices = []string{
+	"apigateway.googleapis.com",
+	"artifactregistry.googleapis.com",
+	"bigquery.googleapis.com",
+	"bigtableadmin.googleapis.com",
+	"cloudbilling.googleapis.com",
+	"cloudbuild.googleapis.com",
+	"cloudfunctions.googleapis.com",
+	"cloudkms.googleapis.com",
+	"cloudresourcemanager.googleapis.com",
+	"compute.googleapis.com",
+	"dataflow.googleapis.com",
+	"dns.googleapis.com",
+	"eventarc.googleapis.com",
+	"firestore.googleapis.com",
+	"iam.googleapis.com",
+	"iamcredentials.googleapis.com",
+	"logging.googleapis.com",
+	"pubsub.googleapis.com",
+	"redis.googleapis.com",
+	"run.googleapis.com",
+	"secretmanager.googleapis.com",
+	"serviceusage.googleapis.com",
+	"spanner.googleapis.com",
+	"sqladmin.googleapis.com",
+	"storage.googleapis.com",
+	"vpcaccess.googleapis.com",
+}
+
+// gcpFullResourceHost splits a full resource name
+// ("//cloudresourcemanager.googleapis.com/projects/my-project") into its
+// service host, reporting false for anything that is not a full resource name
+// (missing "//", missing host, or missing resource path).
+func gcpFullResourceHost(name string) (string, bool) {
+	trimmed, ok := strings.CutPrefix(name, "//")
+	if !ok {
+		return "", false
+	}
+	host, path, found := strings.Cut(trimmed, "/")
+	if !found || host == "" || path == "" {
+		return "", false
+	}
+	return host, true
+}
+
+// gcpFullResourceScope returns the project/organization node a full resource
+// name sits under ("projects/my-project", "organizations/123") — the scope
+// whose custom roles are grantable on the resource — or "" when the name
+// carries neither collection.
+func gcpFullResourceScope(name string) string {
+	trimmed, ok := strings.CutPrefix(name, "//")
+	if !ok {
+		return ""
+	}
+	_, path, found := strings.Cut(trimmed, "/")
+	if !found {
+		return ""
+	}
+	segs := strings.Split(path, "/")
+	if len(segs) >= 2 && (segs[0] == "projects" || segs[0] == "organizations") && segs[1] != "" {
+		return segs[0] + "/" + segs[1]
+	}
+	return ""
+}
+
+// gcpRoleGrantableOnService reports whether a role belongs in a
+// queryGrantableRoles answer for a resource of the given service (the API
+// hostname's first label). A Cloud Resource Manager resource — a project,
+// folder or organization — is the umbrella every role can be granted on; any
+// other resource takes the roles that carry at least one of its service's
+// permissions, whose prefix is the service's permission family
+// ("storage." for storage.googleapis.com resources).
+func gcpRoleGrantableOnService(permissions []string, service string) bool {
+	if service == "cloudresourcemanager" {
+		return true
+	}
+	prefix := service + "."
+	for _, p := range permissions {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// iamLintCondition runs lintPolicy's checks over one condition expression and
+// returns the findings. The full Common Expression Language compile real
+// Cloud IAM runs is not reimplemented here; these are the structural checks
+// whose verdicts are certain either way — an empty expression, an
+// unterminated string literal, or unbalanced brackets can never compile, and
+// an expression free of those defects earns no finding from this validation
+// unit. Each finding carries the CONDITION level and the
+// ConditionCompileCheck unit name the real linter reports for a condition
+// that fails to compile.
+func iamLintCondition(expression string) []map[string]any {
+	finding := func(offset int, message string) []map[string]any {
+		return []map[string]any{{
+			"level":              "CONDITION",
+			"validationUnitName": "LintValidationUnits/ConditionCompileCheck",
+			"fieldName":          "condition.expression",
+			"locationOffset":     offset,
+			"severity":           "ERROR",
+			"debugMessage":       message,
+		}}
+	}
+	if strings.TrimSpace(expression) == "" {
+		return finding(0, "The condition expression is empty.")
+	}
+
+	// Bracket pairing and string-literal termination: track the open-bracket
+	// stack outside string literals, and the quote that opened the literal
+	// (with backslash escapes) inside one.
+	type open struct {
+		char   byte
+		offset int
+	}
+	var stack []open
+	inString := byte(0)
+	stringStart := 0
+	for i := 0; i < len(expression); i++ {
+		c := expression[i]
+		if inString != 0 {
+			switch c {
+			case '\\':
+				i++
+			case inString:
+				inString = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			inString = c
+			stringStart = i
+		case '(', '[', '{':
+			stack = append(stack, open{char: c, offset: i})
+		case ')', ']', '}':
+			expected := map[byte]byte{')': '(', ']': '[', '}': '{'}[c]
+			if len(stack) == 0 || stack[len(stack)-1].char != expected {
+				return finding(i, fmt.Sprintf("Syntax error: unmatched %q.", string(c)))
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	if inString != 0 {
+		return finding(stringStart, "Syntax error: unterminated string literal.")
+	}
+	if len(stack) > 0 {
+		last := stack[len(stack)-1]
+		return finding(last.offset, fmt.Sprintf("Syntax error: unclosed %q.", string(last.char)))
+	}
+	return nil
+}
+
 // gcpCustomRoleJSON renders a custom role into the roles.get / roles.list wire
 // shape. includedPermissions is omitted unless full (roles.list BASIC view
 // carries no permissions; roles.get and create/update return FULL).
@@ -2901,10 +3344,40 @@ func registerWorkforcePools(srv *sim.Server) {
 	}.register()
 
 	// Subjects — only delete (soft) + undelete + operations.get in the doc.
+	// A subject is a federated identity, not an API-created resource, so its
+	// store row materializes when it is deleted: delete records the DELETED
+	// state, undelete flips the same row back, and a subject with no row was
+	// never deleted.
 	srv.HandleFunc("DELETE "+base+"/workforcePools/{pool}/subjects/{subject}", func(w http.ResponseWriter, r *http.Request) {
 		name := fmt.Sprintf("locations/%s/workforcePools/%s/subjects/%s",
 			sim.PathParam(r, "location"), sim.PathParam(r, "pool"), sim.PathParam(r, "subject"))
 		res := map[string]any{"name": name, "state": "DELETED"}
+		iamResources.Put(name, res)
+		op := newIAMLRO(name, res, "type.googleapis.com/google.iam.v1.WorkforcePoolSubject")
+		sim.WriteJSON(w, http.StatusOK, op)
+	})
+	// subjects.undelete — the collection's one POST custom method. Go's mux
+	// captures the "{subject}:undelete" segment whole; the verb resolves
+	// before the subject, the way Google's frontend resolves a method before
+	// the resource.
+	srv.HandleFunc("POST "+base+"/workforcePools/{pool}/subjects/{subjectAction}", func(w http.ResponseWriter, r *http.Request) {
+		subject, verb, found := gcpCustomMethod(sim.PathParam(r, "subjectAction"))
+		if !found || verb != "undelete" {
+			gcpMethodNotFound(w)
+			return
+		}
+		name := fmt.Sprintf("locations/%s/workforcePools/%s/subjects/%s",
+			sim.PathParam(r, "location"), sim.PathParam(r, "pool"), subject)
+		res, ok := iamResources.Get(name)
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+			return
+		}
+		if res["state"] != "DELETED" {
+			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "%s is not deleted", name)
+			return
+		}
+		res["state"] = "ACTIVE"
 		iamResources.Put(name, res)
 		op := newIAMLRO(name, res, "type.googleapis.com/google.iam.v1.WorkforcePoolSubject")
 		sim.WriteJSON(w, http.StatusOK, op)

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -180,6 +182,20 @@ func registerCloudSQL(srv *sim.Server) {
 	registerCloudSQLPrefix(srv, "/v1")
 	registerCloudSQLPrefix(srv, "/sql/v1beta4")
 
+	// instances.pointInTimeRestore's v1beta4 spelling. The /v1 spelling's mux
+	// pattern (`POST /v1/projects/{...}`) belongs to Cloud Resource Manager's
+	// project colon-verb dispatcher, which forwards this verb to
+	// handleSQLPointInTimeRestore; under /sql/v1beta4 the pattern is this
+	// module's own, so it is mounted here — once, not per prefix.
+	srv.HandleFunc("POST /sql/v1beta4/projects/{projectAction}", func(w http.ResponseWriter, r *http.Request) {
+		project, verb, found := gcpCustomMethod(sim.PathParam(r, "projectAction"))
+		if !found || verb != "pointInTimeRestore" {
+			gcpMethodNotFound(w)
+			return
+		}
+		handleSQLPointInTimeRestore(w, r, project)
+	})
+
 	// A persistent control-plane restart rebinds every instance's address
 	// and re-adopts the engine containers the earlier process left running.
 	// The API-only tier holds no engines and rebinding modeled instances
@@ -224,8 +240,10 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 	srv.HandleFunc("DELETE "+prefix+"/projects/{project}/instances/{instance}/sslCerts/{sha1Fingerprint}", handleSQLDeleteSslCert)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/createEphemeral", handleSQLCreateEphemeralCert)
 
-	// connect resource (connectSettings + :generateEphemeralCert colon-verb).
+	// connect resource (connectSettings + :generateEphemeralCert colon-verb +
+	// the DNS-name resolve, `locations/{location}/dns/{dnsName}:resolveConnectSettings`).
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/connectSettings", handleSQLConnectGet)
+	srv.HandleFunc("GET "+prefix+"/locations/{location}/dns/{dnsNameAction}", handleSQLConnectResolve)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}", handleSQLInstanceColonVerb)
 
 	// instances GET sub-resources.
@@ -248,11 +266,12 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/releaseSsrsLease", handleSQLReleaseSsrsLease)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/verifyExternalSyncSettings", handleSQLVerifyExternalSyncSettings)
 
-	// Backups resource. (instances.pointInTimeRestore is the
-	// project-scoped colon-verb `projects/{project}:pointInTimeRestore`,
-	// whose Go-mux spelling `POST .../projects/{project}` collides with
-	// IAM's project-scoped action handler on the collapsed single-port
-	// mux; it stays uncovered rather than fight IAM for the pattern.)
+	// Backups resource. (instances.pointInTimeRestore is the project-scoped
+	// colon-verb `projects/{project}:pointInTimeRestore`; its /v1 Go-mux
+	// spelling `POST /v1/projects/{...}` is owned by Cloud Resource Manager's
+	// project colon-verb dispatcher on the collapsed single-port mux, which
+	// forwards the verb here — see registerCloudSQL for the /sql/v1beta4
+	// spelling this module mounts itself.)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/backups", handleSQLCreateBackup)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/backups", handleSQLListBackups)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/backups/{backup}", handleSQLGetBackup)
@@ -436,6 +455,155 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 	opName := op.Name
 	simGo(func() {
 		sqlSettleOperation(project, opName, sqlCloneVolume(project, source, dest))
+	})
+	sim.WriteJSON(w, http.StatusOK, op)
+}
+
+// sqlParseBackupDRDatasource splits the Backup and Disaster Recovery Service
+// datasource URI PointInTimeRestoreContext carries
+// (projects/{project}/locations/{region}/backupVaults/{vault}/dataSources/{datasource})
+// into the coordinates of the Cloud SQL instance whose backups it names. This
+// simulator hosts no Backup and Disaster Recovery service, so the datasource
+// segment is the protected instance's own name — the coordinate a deployment
+// against this simulator configures, the way every other cross-service name
+// here resolves.
+func sqlParseBackupDRDatasource(name string) (project, instance string, ok bool) {
+	parts := strings.Split(name, "/")
+	if len(parts) != 8 || parts[0] != "projects" || parts[2] != "locations" ||
+		parts[4] != "backupVaults" || parts[6] != "dataSources" {
+		return "", "", false
+	}
+	for _, p := range parts[1:] {
+		if p == "" {
+			return "", "", false
+		}
+	}
+	return parts[1], parts[7], true
+}
+
+// handleSQLPointInTimeRestore serves instances.pointInTimeRestore: a restore
+// to a NEW instance from the source instance's backups, at the requested
+// point in time. The restore clones the newest successful backup run captured
+// at or before pointInTime — the backup-volume machinery
+// sqladmin_backup_storage.go documents — so the target boots on the data the
+// source held then. project is the URI parent
+// (`projects/{project}:pointInTimeRestore`); the target instance is created
+// in it. The route is dispatched from Cloud Resource Manager's project
+// colon-verb fan-in for /v1 and from this module's own /sql/v1beta4 mount.
+func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project string) {
+	var req struct {
+		Datasource     string `json:"datasource"`
+		PointInTime    string `json:"pointInTime"`
+		TargetInstance string `json:"targetInstance"`
+		PreferredZone  string `json:"preferredZone"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		return
+	}
+	if req.PointInTime == "" {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "pointInTime is required")
+		return
+	}
+	pointInTime, err := time.Parse(time.RFC3339, req.PointInTime)
+	if err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "pointInTime must be an RFC 3339 timestamp: %v", err)
+		return
+	}
+	if req.TargetInstance == "" {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "targetInstance is required")
+		return
+	}
+	// The target is named bare or as projects/{project}/instances/{name};
+	// either way the instance lands in the request's parent project.
+	target := req.TargetInstance
+	if i := strings.LastIndex(target, "/"); i >= 0 {
+		target = target[i+1:]
+	}
+	sourceProject, sourceInstance, ok := sqlParseBackupDRDatasource(req.Datasource)
+	if !ok {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"datasource must be of the form projects/{project}/locations/{region}/backupVaults/{backupvault}/dataSources/{datasource}, got %q", req.Datasource)
+		return
+	}
+	src, ok := sqlInstances.Get(sqlInstanceKey(sourceProject, sourceInstance))
+	if !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "datasource %q names no Cloud SQL instance", req.Datasource)
+		return
+	}
+	if _, exists := sqlInstances.Get(sqlInstanceKey(project, target)); exists {
+		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance %q already exists", target)
+		return
+	}
+
+	// The newest successful backup run captured at or before the requested
+	// time is the state the target restores to. No such run means the
+	// requested time predates the instance's backup history — nothing real
+	// to restore.
+	var backupRun *SQLBackupRun
+	for _, run := range sqlBackupRuns.List() {
+		if run.Instance != sourceInstance || run.Status != "SUCCESSFUL" {
+			continue
+		}
+		// A backup-run row carries no project of its own; the row under the
+		// source project's key is the source's run, not a same-named
+		// instance's in another project.
+		if _, owned := sqlBackupRuns.Get(sqlBackupRunKey(sourceProject, sourceInstance, run.ID)); !owned {
+			continue
+		}
+		captured, err := time.Parse(time.RFC3339, run.EndTime)
+		if err != nil || captured.After(pointInTime) {
+			continue
+		}
+		if backupRun == nil || run.EndTime > backupRun.EndTime {
+			run := run
+			backupRun = &run
+		}
+	}
+	if backupRun == nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"no backup of instance %q exists at or before %s; the requested point in time cannot be restored", sourceInstance, req.PointInTime)
+		return
+	}
+
+	// The target instance carries the source's configuration, users and
+	// credentials, the way instances.clone builds its destination.
+	restored := src
+	restored.Name = target
+	restored.Project = project
+	restored.ConnectionName = fmt.Sprintf("%s:%s:%s", project, restored.Region, target)
+	if req.PreferredZone != "" {
+		restored.GceZone = req.PreferredZone
+	}
+	restored.SelfLink = gcpSelfLink(r, sqlAPIPrefix(r)+"/projects/"+project+"/instances/"+target)
+	for _, u := range sqlUsers.List() {
+		if u.Project != sourceProject || u.Instance != sourceInstance {
+			continue
+		}
+		restoredUser := u
+		restoredUser.Project = project
+		restoredUser.Instance = target
+		sqlUsers.Put(sqlUserKey(project, target, u.Host, u.Name), restoredUser)
+		if credential, ok := sqlUserSecrets.Get(sqlUserKey(sourceProject, sourceInstance, u.Host, u.Name)); ok {
+			sqlUserSecrets.Put(sqlUserKey(project, target, u.Host, u.Name), credential)
+		}
+	}
+	installed, installErr := sqlInstallDataPlane(&restored)
+	if installErr != nil || !installed {
+		restored.IpAddresses = []map[string]any{
+			{"type": "PRIMARY", "ipAddress": "10.0.0.1"},
+		}
+	}
+	sqlInstances.Put(sqlInstanceKey(project, target), restored)
+
+	// The vendored Operation.operationType enum publishes no point-in-time
+	// value; the service performs this restore as a clone to a new instance,
+	// and CLONE is the type the clone-based point-in-time path reports.
+	op := newSQLOperationRunning(project, "CLONE", target)
+	opName := op.Name
+	backupVolume := sqlBackupRunVolume(sourceProject, sourceInstance, backupRun.ID)
+	simGo(func() {
+		sqlSettleOperation(project, opName, sqlRestoreVolume(project, target, backupVolume))
 	})
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -1522,6 +1690,38 @@ func handleSQLCreateEphemeralCert(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, sqlNewSslCert(r, project, instance, "ephemeral"))
 }
 
+// sqlInstanceDNSName is the DNS name of an instance, in the
+// "<suffix>.<region>.sql.goog" shape Cloud SQL publishes in
+// ConnectSettings.dnsName. Real Cloud SQL mints the suffix as an opaque
+// per-instance identifier; this deployment mints it deterministically from
+// the instance's identity — the way connectionName is derived — so the name
+// is stable across restarts and connect.resolve maps it back to the instance.
+func sqlInstanceDNSName(inst SQLInstance) string {
+	if inst.Name == "" || inst.Region == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(inst.Project + "/" + inst.Name))
+	return hex.EncodeToString(sum[:8]) + "." + inst.Region + ".sql.goog"
+}
+
+// sqlConnectSettingsJSON renders the sql#connectSettings document for an
+// instance — the payload connect.get serves and connect.resolve serves for
+// the same instance found by DNS name.
+func sqlConnectSettingsJSON(r *http.Request, inst SQLInstance) map[string]any {
+	settings := map[string]any{
+		"kind":            "sql#connectSettings",
+		"databaseVersion": inst.DatabaseVersion,
+		"backendType":     inst.BackendType,
+		"region":          inst.Region,
+		"ipAddresses":     inst.IpAddresses,
+		"serverCaCert":    sqlNewSslCert(r, inst.Project, inst.Name, "server-ca"),
+	}
+	if dnsName := sqlInstanceDNSName(inst); dnsName != "" {
+		settings["dnsName"] = dnsName
+	}
+	return settings
+}
+
 // handleSQLConnectGet serves connect.get (connectSettings), returning the
 // instance's connect metadata (region, databaseVersion, IP addresses, CA).
 func handleSQLConnectGet(w http.ResponseWriter, r *http.Request) {
@@ -1532,14 +1732,33 @@ func handleSQLConnectGet(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":            "sql#connectSettings",
-		"databaseVersion": inst.DatabaseVersion,
-		"backendType":     inst.BackendType,
-		"region":          inst.Region,
-		"ipAddresses":     inst.IpAddresses,
-		"serverCaCert":    sqlNewSslCert(r, project, instance, "server-ca"),
-	})
+	sim.WriteJSON(w, http.StatusOK, sqlConnectSettingsJSON(r, inst))
+}
+
+// handleSQLConnectResolve serves connect.resolve
+// (`GET .../locations/{location}/dns/{dnsName}:resolveConnectSettings`):
+// the reverse of connect.get, resolving an instance's published DNS name back
+// to the same connect-settings document. Go's mux captures the
+// "{dnsName}:{verb}" segment whole; the verb resolves first, the way Google's
+// frontend resolves a method before the resource.
+func handleSQLConnectResolve(w http.ResponseWriter, r *http.Request) {
+	location := sim.PathParam(r, "location")
+	dnsName, verb, found := gcpCustomMethod(sim.PathParam(r, "dnsNameAction"))
+	if !found || verb != "resolveConnectSettings" {
+		gcpMethodNotFound(w)
+		return
+	}
+	// A DNS name is spelled with or without the zone-file trailing dot;
+	// both address the same record.
+	dnsName = strings.TrimSuffix(dnsName, ".")
+	for _, inst := range sqlInstances.List() {
+		if inst.Region == location && sqlInstanceDNSName(inst) == dnsName {
+			sim.WriteJSON(w, http.StatusOK, sqlConnectSettingsJSON(r, inst))
+			return
+		}
+	}
+	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		"DNS name %q does not resolve to a Cloud SQL instance in location %q", dnsName, location)
 }
 
 // sqlCancellableOperationTypes are the operation types Cloud SQL supports

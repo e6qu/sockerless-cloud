@@ -309,6 +309,9 @@ func registerCloudDNS(srv *sim.Server) {
 			return
 		}
 		zones.Delete(key)
+		// The zone's IAM policy dies with the zone: a later zone created
+		// under the same name starts with no bindings.
+		gcpResourceIAMStore().Delete("dnsManagedZone/" + project + "/" + zoneName)
 		oldZone := zone.ManagedZone
 		recordDNSZoneOperation(operations, project, zoneName, "delete", &oldZone, nil)
 
@@ -641,6 +644,33 @@ func registerCloudDNS(srv *sim.Server) {
 	// Update managed zone (full replace of mutable fields).
 	srv.HandleFunc("PUT /dns/v1/projects/{project}/managedZones/{zone}", func(w http.ResponseWriter, r *http.Request) {
 		dnsManagedZoneUpdate(w, r, zones, operations, true)
+	})
+
+	// Managed-zone IAM — the AIP-141 triple, which Cloud DNS spells as POSTs
+	// on the zone (`managedZones/{zone}:getIamPolicy` and friends): the wire
+	// `gcloud dns managed-zones get-iam-policy` and terraform's
+	// google_dns_managed_zone_iam_* resources speak. Go's mux captures the
+	// "{zone}:{verb}" segment whole; the verb resolves before the zone, the
+	// way Google's frontend resolves a method before the resource. The policy
+	// rides the same per-resource store every other AIP-141 resource uses, so
+	// etag / member-validation / optimistic-concurrency behavior matches.
+	srv.HandleFunc("POST /dns/v1/projects/{project}/managedZones/{zoneAction}", func(w http.ResponseWriter, r *http.Request) {
+		project := sim.PathParam(r, "project")
+		zoneName, verb, found := gcpCustomMethod(sim.PathParam(r, "zoneAction"))
+		if !found {
+			gcpMethodNotFound(w)
+			return
+		}
+		switch verb {
+		case "getIamPolicy", "setIamPolicy", "testIamPermissions":
+			if _, ok := zones.Get(project + "/" + zoneName); !ok {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+				return
+			}
+			handleResourceIAM(w, r, gcpResourceIAMStore(), "dnsManagedZone/"+project+"/"+zoneName, verb)
+		default:
+			gcpMethodNotFound(w)
+		}
 	})
 
 	// List DNSSEC keys for a zone — derived from the zone's dnssecConfig.

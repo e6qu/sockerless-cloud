@@ -1,5 +1,86 @@
 # WHAT WE DID
 
+## 2026-08-26, twenty-third pass — the implementable tails, served
+
+The survey's remaining gaps split into two kinds: families that cannot be
+served without inventing Microsoft's or Google's own data (recommendations,
+runtime-stack catalogs, packet captures, Key Access Justifications), and
+methods that were simply mux misses. This pass served the second kind.
+
+**Google Cloud (+66 method spellings).** Cloud DNS managed zones carry an
+IAM policy like every other AIP-141 resource, through the same per-resource
+policy store; the document is complete at 80/80. IAM v1 is complete at
+266/266: an uploaded user-managed key stores the X.509-wrapped RSA public
+key the caller supplies (and refuses anything else, as the API does),
+enable and disable flip the stored key's state, and the three catalog reads
+— lint, auditable services, grantable roles — answer from the policies,
+services and roles this installation actually holds. Cloud SQL is complete
+at 150/150: the connector's resolve answers from the same instance state
+connect settings read, and point-in-time restore builds a new instance from
+the backup covering the requested moment, on the volume machinery the
+snapshot work established. Service Usage is complete at 20/20. Cloud
+Storage gained the rapid-cache collection and the managed-folder patch —
+whose configuration nests its policies map exactly as the schema declares,
+which the runtime validator proved by rejecting the shape a first draft
+sent.
+
+**Microsoft Azure (+26 operations).** Key Vault's data planes are complete
+for keys (25/25: recover, rotate, and real random bytes) and certificates
+(27/27: contacts, issuers, recover). Microsoft.Authorization is complete on
+both documents: the by-full-resource-ID spellings for role assignments and
+definitions, and the permission listings — which report what the *caller*
+may do, read from the role definitions their own assignments name, which is
+what Azure Resource Manager's operation means. Microsoft.Resources is
+complete at 40/40; the generic by-resource-ID methods needed no parallel
+store, because a real by-ID URL is the same bytes as the typed URL and Go's
+mux precedence already dispatches it — what was missing was Azure's answer
+for the addresses no typed route serves. The container registry data plane
+gained four more operations.
+
+**A fidelity bug the tests found, and the carve-out it needed.** Azure's
+three existence checks — ResourceGroups_CheckExistence,
+Resources_CheckExistence and Resources_CheckExistenceById — are HEAD
+requests declaring exactly 204 or 404, but Go routes a HEAD to the GET
+handler and the read's 200 went out instead. Management-plane HEAD requests
+now map the read's verdict onto the check's vocabulary. The first version of
+that mapping was too broad and broke API Management, whose twenty-five
+entity-tag reads answer HEAD with 200 and an ETag of their own: the carve-out
+is derived from the vendored swaggers — API Management and Azure Cosmos DB
+are the two providers that declare HEAD operations — and
+TestAzureProviderOwnsHEADMatchesTheVendoredSwaggers re-derives that set on
+every run, so a re-vendor that gives another provider a HEAD operation fails
+until the list agrees. The storage and registry data planes sit outside the
+management-plane prefix entirely and keep HEAD's own meaning.
+
+**Two capability gates that were checking the wrong server.** The Azure
+PostgreSQL replica and geo-restore tests each stand up a *second* server,
+and each asked the loopback question only of the first. On a host with one
+usable loopback address the source takes it, the second server stays
+modeled, and the tests sat through a three-minute connect budget before
+failing. The gate is now asked of every server that needs a listener: Linux
+still never skips, and a host without a second address skips only the half
+that needs one.
+
+**A store-scan regression, caught by its floor.** The new certificate-issuer
+listing read its whole store on a data-plane path. It answers from a
+generation index keyed by vault now, and the floor is back at zero.
+
+**Two long-red tests, gated at last.** The App Service Environment
+placement and diagnostics tests place an environment in a virtual network
+subnet, which needs the Linux network capabilities the simulator's fabric
+is built on — so they had been failing on every macOS run rather than
+skipping, and the noise was being read around. They call the repository's
+own capability gate now: Linux runs them, a host without the capability
+skips, and a local suite that is green means green.
+
+Every newly served operation is driven by the client a real caller uses —
+the generated Go clients for Cloud DNS, IAM, Cloud SQL and Service Usage,
+raw Azure Resource Manager requests for the Azure surfaces, and the JSON
+API directly for Cloud Storage's rapid caches, whose collection the
+generated client does not carry yet. Both coverage floors moved with
+rewritten comments; the declared-total locks are untouched, which is what
+made it safe to raise them.
+
 ## 2026-08-25, twenty-second pass — Google Cloud Billing fully served
 
 The survey had flagged Cloud Billing as mislabelled: called "declined" in

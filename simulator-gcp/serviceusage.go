@@ -110,6 +110,48 @@ func registerServiceUsage(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
+	// services.batchGet — the batch form of services.get: one response
+	// carrying, for each name asked, the same record the single get serves
+	// from the same store (including its default: a service never touched by
+	// enable/disable reads ENABLED). Per the method's own documentation the
+	// parent must be a project, every name must sit under it, and a single
+	// request gets at most 30 services.
+	srv.HandleFunc("GET /v1/projects/{project}/services:batchGet", func(w http.ResponseWriter, r *http.Request) {
+		project := sim.PathParam(r, "project")
+		parentPrefix := fmt.Sprintf("projects/%s/services/", project)
+		names := r.URL.Query()["names"]
+		if len(names) == 0 {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "names must name at least one service to retrieve")
+			return
+		}
+		if len(names) > 30 {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"a single request can get a maximum of 30 services at a time; got %d", len(names))
+			return
+		}
+		out := make([]ServiceUsageState, 0, len(names))
+		for _, name := range names {
+			service := strings.TrimPrefix(name, parentPrefix)
+			if service == name || service == "" || strings.Contains(service, "/") {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					"service name %q must be of the form %s{service}", name, parentPrefix)
+				return
+			}
+			svc, ok := services.Get(name)
+			if !ok {
+				svc = ServiceUsageState{
+					Name:   name,
+					State:  "ENABLED",
+					Parent: "projects/" + project,
+				}
+				svc.Config.Name = service
+				svc.Config.Title = service
+			}
+			out = append(out, svc)
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"services": out})
+	})
+
 	// Delete a long-running operation (serviceusage.operations.delete).
 	// Per AIP / google.longrunning, this drops the client's interest in
 	// the operation result and returns google.protobuf.Empty ({}). It does

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"time"
@@ -54,12 +55,132 @@ func registerResourcesARM(srv *sim.Server) {
 	// Resource-provider registration at management-group scope.
 	srv.HandleFunc("POST /providers/Microsoft.Management/managementGroups/{groupId}/providers/{resourceProviderNamespace}/register", handleProviderRegisterAtMG)
 
+	// The generic-resource operations. Their real request URLs ARE the typed
+	// resource paths — Resources_GetById's {resourceId} is "/subscriptions/…/
+	// providers/{ns}/{type}/{name}", so a client calling the by-ID or
+	// provider-path spelling puts the same bytes on the wire as the typed
+	// operation and Go's mux precedence dispatches it to the typed provider
+	// route. That precedence IS the generic dispatch; what these patterns add
+	// is Azure Resource Manager's own answer for the instances no typed route
+	// serves:
+	//
+	//   - "/{resourceId}" catches the single-segment spelling. One URL segment
+	//     can never be a valid ARM identifier (every resource ID and every
+	//     tenant-level provider path spans several segments), and real ARM
+	//     refuses such a request with 404 MissingSubscription. The same
+	//     pattern is the routing arm for the by-full-resource-ID templates of
+	//     the Microsoft.Authorization role-assignment and role-definition
+	//     documents ("/{roleAssignmentId}", "/{roleId}"), whose multi-segment
+	//     spellings the scoped RBAC routes and middleware already serve.
+	//   - The parent-scoped provider path catches addresses whose provider or
+	//     type the simulator mounts no typed route for: an unknown namespace
+	//     gets ARM's InvalidResourceNamespace refusal, a namespace the
+	//     simulator does implement gets a declared 501 naming the unserved
+	//     resource path rather than a bare mux 404.
+	// Azure Resource Manager's existence checks — ResourceGroups_
+	// CheckExistence, Resources_CheckExistence and Resources_CheckExistenceById
+	// — are HEAD requests on the resource's own address, and each declares
+	// exactly 204 or 404. Go routes a HEAD to the GET handler, which answers
+	// the read's 200, so the check would report a status ARM never returns.
+	// This maps the read's verdict onto the check's vocabulary: anything the
+	// GET would answer 2xx becomes 204, and the read's own 404 passes through.
+	// It is scoped to management-plane paths, and skips the providers whose
+	// own swagger declares HEAD operations: API Management answers entity-tag
+	// reads with 200 and an ETag, and Azure Cosmos DB has one such read too.
+	// The storage and registry data planes are outside the prefix entirely
+	// and keep HEAD's own meaning (blob and blob-exists).
+	srv.WrapHandler(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodHead || !strings.HasPrefix(strings.ToLower(r.URL.Path), "/subscriptions/") ||
+				azureProviderOwnsHEAD(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			recorder := httptest.NewRecorder()
+			next.ServeHTTP(recorder, r)
+			for key, values := range recorder.Header() {
+				for _, value := range values {
+					w.Header().Add(key, value)
+				}
+			}
+			status := recorder.Code
+			if status >= 200 && status < 300 {
+				status = http.StatusNoContent
+			}
+			w.Header().Del("Content-Length")
+			w.WriteHeader(status)
+		})
+	})
+
+	byID := func(w http.ResponseWriter, r *http.Request) {
+		sim.AzureError(w, "MissingSubscription",
+			"The request did not have a subscription or a valid tenant level resource provider.",
+			http.StatusNotFound)
+	}
+	srv.HandleFunc("GET /{resourceId}", byID) // GET also routes HEAD (Resources_CheckExistenceById)
+	srv.HandleFunc("PUT /{resourceId}", byID)
+	srv.HandleFunc("PATCH /{resourceId}", byID)
+	srv.HandleFunc("DELETE /{resourceId}", byID)
+
+	const genericResource = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{parentResourcePath}/{resourceType}/{resourceName}"
+	srv.HandleFunc("GET "+genericResource, handleGenericProviderResource) // GET also routes HEAD (Resources_CheckExistence)
+	srv.HandleFunc("PUT "+genericResource, handleGenericProviderResource)
+	srv.HandleFunc("PATCH "+genericResource, handleGenericProviderResource)
+	srv.HandleFunc("DELETE "+genericResource, handleGenericProviderResource)
+
 	// Legacy predefined tagNames catalog.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/tagNames", handleTagNamesList)
 	srv.HandleFunc("PUT /subscriptions/{subscriptionId}/tagNames/{tagName}", handleTagNameCreate)
 	srv.HandleFunc("DELETE /subscriptions/{subscriptionId}/tagNames/{tagName}", handleTagNameDelete)
 	srv.HandleFunc("PUT /subscriptions/{subscriptionId}/tagNames/{tagName}/tagValues/{tagValue}", handleTagValueCreate)
 	srv.HandleFunc("DELETE /subscriptions/{subscriptionId}/tagNames/{tagName}/tagValues/{tagValue}", handleTagValueDelete)
+}
+
+// azureProviderOwnsHEADNamespaces are the resource providers whose vendored
+// swagger declares HEAD operations of its own. Their HEAD is a read with its
+// own status vocabulary — API Management's entity-tag reads answer 200 with
+// an ETag — not Azure Resource Manager's existence check, so the 204 mapping
+// leaves them alone.
+//
+// TestAzureProviderOwnsHEADMatchesTheVendoredSwaggers derives the same set
+// from the specs, so a re-vendor that gives another provider a HEAD
+// operation fails until this list agrees.
+var azureProviderOwnsHEADNamespaces = []string{
+	"microsoft.apimanagement",
+	"microsoft.documentdb",
+}
+
+// azureProviderOwnsHEAD reports whether the path addresses a provider that
+// serves HEAD itself.
+func azureProviderOwnsHEAD(path string) bool {
+	lower := strings.ToLower(path)
+	for _, ns := range azureProviderOwnsHEADNamespaces {
+		if strings.Contains(lower, "/providers/"+ns+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// handleGenericProviderResource answers the parent-scoped generic-resource
+// spellings (Resources_{CheckExistence,Get,CreateOrUpdate,Update,Delete}) for
+// the only addresses that reach it: those no typed provider route matched,
+// because Go's mux always prefers the typed route's literal segments. An
+// address under a namespace the simulator does not implement gets Azure
+// Resource Manager's own refusal; an address under an implemented namespace
+// names a resource path the simulator serves no handler for, which is
+// declared as a 501 gap rather than disguised as a routing 404.
+func handleGenericProviderResource(w http.ResponseWriter, r *http.Request) {
+	requested := sim.PathParam(r, "resourceProviderNamespace")
+	ns, known := azureKnownProvider(requested)
+	if !known {
+		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound,
+			"The resource namespace %q is invalid.", requested)
+		return
+	}
+	sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+		"The simulator's %s provider serves no handler for the resource path %s/%s/%s.",
+		ns, sim.PathParam(r, "parentResourcePath"), sim.PathParam(r, "resourceType"), sim.PathParam(r, "resourceName"))
 }
 
 func handleResourcesOperations(w http.ResponseWriter, _ *http.Request) {

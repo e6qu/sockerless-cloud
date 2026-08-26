@@ -18,7 +18,9 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -279,6 +281,8 @@ func registerKeyVault(srv *sim.Server) {
 	keyVaultPrivConn = sim.MakeStore[KeyVaultPrivateEndpointConnection](srv.DB(), "keyvault_private_endpoint_connections")
 	keyVaultKeys = sim.MakeStore[kvKeyStored](srv.DB(), "keyvault_keys")
 	keyVaultCertificates = sim.MakeStore[kvCertStored](srv.DB(), "keyvault_certificates")
+	keyVaultCertContacts = sim.MakeStore[kvCertContacts](srv.DB(), "keyvault_certificate_contacts")
+	keyVaultCertIssuers = sim.MakeStore[kvCertIssuerStored](srv.DB(), "keyvault_certificate_issuers")
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault"
 
@@ -992,8 +996,19 @@ func handleKeyVaultDataPlane(w http.ResponseWriter, r *http.Request, vault strin
 		handleKVListDeletedKeys(w, r, vault)
 	case strings.HasPrefix(path, "deletedkeys/"):
 		segs := strings.Split(path, "/")
+		// segs:
+		//   ["deletedkeys", "<name>"]            → soft-deleted key Get / Purge
+		//   ["deletedkeys", "<name>", "recover"] → POST recover
 		if len(segs) < 2 {
 			sim.AzureError(w, "BadRequest", "Missing key name", http.StatusBadRequest)
+			return
+		}
+		if len(segs) == 3 && segs[2] == "recover" {
+			if r.Method != http.MethodPost {
+				sim.AzureError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
+				return
+			}
+			handleKVRecoverDeletedKey(w, r, vault, segs[1])
 			return
 		}
 		switch r.Method {
@@ -1012,8 +1027,19 @@ func handleKeyVaultDataPlane(w http.ResponseWriter, r *http.Request, vault strin
 		handleKVListDeletedCertificates(w, r, vault)
 	case strings.HasPrefix(path, "deletedcertificates/"):
 		segs := strings.Split(path, "/")
+		// segs:
+		//   ["deletedcertificates", "<name>"]            → soft-deleted certificate Get / Purge
+		//   ["deletedcertificates", "<name>", "recover"] → POST recover
 		if len(segs) < 2 {
 			sim.AzureError(w, "BadRequest", "Missing certificate name", http.StatusBadRequest)
+			return
+		}
+		if len(segs) == 3 && segs[2] == "recover" {
+			if r.Method != http.MethodPost {
+				sim.AzureError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
+				return
+			}
+			handleKVRecoverDeletedCertificate(w, r, vault, segs[1])
 			return
 		}
 		switch r.Method {
@@ -1024,6 +1050,14 @@ func handleKeyVaultDataPlane(w http.ResponseWriter, r *http.Request, vault strin
 		default:
 			sim.AzureError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
 		}
+	case path == "rng" || path == "rng/":
+		// GetRandomBytes (POST /rng): random bytes drawn from the platform's
+		// CSPRNG, the operation a managed HSM's RNG serves.
+		if r.Method != http.MethodPost {
+			sim.AzureError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
+			return
+		}
+		handleKVGetRandomBytes(w, r)
 	case strings.HasPrefix(path, "keys/") || path == "keys":
 		handleKVKey(w, r, vault, path)
 	case strings.HasPrefix(path, "certificates/") || path == "certificates":
@@ -1071,6 +1105,11 @@ type kvKeyStored struct {
 	DeletedAt        int64          `json:"deletedAt,omitempty"`
 	ScheduledPurgeAt int64          `json:"scheduledPurgeAt,omitempty"`
 	RecoveryID       string         `json:"recoveryId,omitempty"`
+	// RotationPolicy is the key's configured rotation policy document
+	// (lifetimeActions + attributes), set through PUT /keys/{name}/rotationpolicy.
+	// Nil means the policy was never configured, in which case reads answer Key
+	// Vault's baseline policy (a Notify action 30 days before expiry).
+	RotationPolicy map[string]any `json:"rotationPolicy,omitempty"`
 	KeyVaultKey
 }
 
@@ -1235,7 +1274,53 @@ func (c kvCertStored) findVersion(version string) (kvCertVersion, bool) {
 var (
 	keyVaultKeys         sim.Store[kvKeyStored]
 	keyVaultCertificates sim.Store[kvCertStored]
+	// keyVaultCertContacts holds each vault's certificate-contacts collection,
+	// keyed by vault name (one collection per vault).
+	keyVaultCertContacts sim.Store[kvCertContacts]
+	// keyVaultCertIssuers holds the vaults' certificate issuers, keyed
+	// "<vault>/<issuerName>".
+	keyVaultCertIssuers sim.Store[kvCertIssuerStored]
 )
+
+// kvCertContact is one certificate contact — the Contact wire shape.
+type kvCertContact struct {
+	Email string `json:"email,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Phone string `json:"phone,omitempty"`
+}
+
+// kvCertContacts is a vault's certificate-contacts collection. The wire shape
+// (Contacts) adds a read-only id, stamped on read.
+type kvCertContacts struct {
+	Vault    string          `json:"vault"`
+	Contacts []kvCertContact `json:"contacts,omitempty"`
+}
+
+// kvIssuerCredentials is the IssuerCredentials wire shape. The password is
+// write-only: it is stored but never rendered back, exactly as Key Vault
+// omits pwd from issuer reads.
+type kvIssuerCredentials struct {
+	AccountID string `json:"account_id,omitempty"`
+	Password  string `json:"pwd,omitempty"`
+}
+
+// kvIssuerAttributes is the IssuerAttributes wire shape.
+type kvIssuerAttributes struct {
+	Enabled bool  `json:"enabled"`
+	Created int64 `json:"created,omitempty"`
+	Updated int64 `json:"updated,omitempty"`
+}
+
+// kvCertIssuerStored is one certificate issuer as persisted; issuerBundle
+// renders the IssuerBundle wire shape from it.
+type kvCertIssuerStored struct {
+	Vault       string               `json:"vault"`
+	Name        string               `json:"name"`
+	Provider    string               `json:"provider,omitempty"`
+	Credentials *kvIssuerCredentials `json:"credentials,omitempty"`
+	OrgDetails  map[string]any       `json:"org_details,omitempty"`
+	Attributes  kvIssuerAttributes   `json:"attributes"`
+}
 
 // Each vault's data plane is its own host, and a list operation names exactly
 // one vault, so these serve a vault's rows without decoding every other
@@ -1292,6 +1377,9 @@ func handleKVKey(w http.ResponseWriter, r *http.Request, vault, path string) {
 		case verb == "backup":
 			handleKVBackupKey(w, r, vault, name)
 			return
+		case verb == "rotate" && len(segs) == 3:
+			handleKVRotateKey(w, r, vault, name)
+			return
 		case len(segs) == 3 && kvIsCryptoVerb(verb):
 			// Version-less crypto (POST /keys/{name}/{verb}) targets the key's
 			// current version, like real Key Vault and azkeys.Encrypt(name, "").
@@ -1302,11 +1390,22 @@ func handleKVKey(w http.ResponseWriter, r *http.Request, vault, path string) {
 			return
 		}
 	case http.MethodPut:
+		// PUT /keys/{name}/rotationpolicy is the rotation-policy write, not a
+		// key import — routing it into ImportKey would replace the stored key
+		// with a version decoded from the policy document.
+		if verb == "rotationpolicy" && len(segs) == 3 {
+			handleKVUpdateKeyRotationPolicy(w, r, vault, name)
+			return
+		}
 		handleKVImportKey(w, r, vault, name)
 		return
 	case http.MethodGet:
 		if verb == "versions" {
 			handleKVListKeyVersions(w, r, vault, name)
+			return
+		}
+		if verb == "rotationpolicy" && len(segs) == 3 {
+			handleKVGetKeyRotationPolicy(w, r, vault, name)
 			return
 		}
 		handleKVGetKey(w, r, vault, name, verb)
@@ -1344,70 +1443,12 @@ func handleKVCreateKey(w http.ResponseWriter, r *http.Request, vault, name strin
 	version := generateUUID()
 	id := buildKVURL(r, vault, "keys", name, version)
 	kty := defaultKVKty(body.Kty)
-	jwk := map[string]any{
-		"kid": id,
-		"kty": kty,
-	}
-	privateKeyPEM := ""
-	switch kty {
-	case "RSA", "RSA-HSM":
-		bits := body.KeySize
-		if bits <= 0 {
-			bits = 2048
-		}
-		k, err := rsa.GenerateKey(rand.Reader, bits)
-		if err != nil {
-			sim.AzureError(w, "InternalServerError",
-				"failed to generate RSA key: "+err.Error(),
-				http.StatusInternalServerError)
-			return
-		}
-		jwk["n"] = base64.RawURLEncoding.EncodeToString(k.N.Bytes())
-		jwk["e"] = base64.RawURLEncoding.EncodeToString(big.NewInt(int64(k.E)).Bytes())
-		privateKeyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(k)}))
-	case "EC", "EC-HSM":
-		// Generate a real EC public key on the requested curve so
-		// JWK consumers (go-jose, crypto/ecdsa) can parse the
-		// resulting `x` / `y` / `crv` triple. The curve name is
-		// the JWK form (P-256 / P-384 / P-521); map to crypto/elliptic.
-		curveName := body.Crv
-		if curveName == "" {
-			curveName = "P-256"
-		}
-		curve, ok := ecCurveByJWKName(curveName)
-		if !ok {
-			sim.AzureError(w, "InvalidRequest",
-				"unsupported curve: "+curveName, http.StatusBadRequest)
-			return
-		}
-		k, err := ecdsa.GenerateKey(curve, rand.Reader)
-		if err != nil {
-			sim.AzureError(w, "InternalServerError",
-				"failed to generate EC key: "+err.Error(),
-				http.StatusInternalServerError)
-			return
-		}
-		jwk["crv"] = curveName
-		jwk["x"] = base64.RawURLEncoding.EncodeToString(k.X.Bytes())
-		jwk["y"] = base64.RawURLEncoding.EncodeToString(k.Y.Bytes())
-	case "oct", "oct-HSM":
-		bits := body.KeySize
-		if bits <= 0 {
-			bits = 256
-		}
-		keyMaterial := make([]byte, bits/8)
-		if _, err := rand.Read(keyMaterial); err != nil {
-			sim.AzureError(w, "InternalServerError",
-				"failed to generate symmetric key: "+err.Error(),
-				http.StatusInternalServerError)
-			return
-		}
-		privateKeyPEM = base64.RawURLEncoding.EncodeToString(keyMaterial)
-	default:
-		sim.AzureError(w, "InvalidRequest",
-			"unsupported kty: "+kty, http.StatusBadRequest)
+	jwk, privateKeyPEM, keyErr := generateKVKeyMaterial(kty, body.KeySize, body.Crv)
+	if keyErr != nil {
+		keyErr.write(w)
 		return
 	}
+	jwk["kid"] = id
 	if body.Crv != "" {
 		jwk["crv"] = body.Crv
 	}
@@ -1710,6 +1751,328 @@ func handleKVRestoreKey(w http.ResponseWriter, r *http.Request, vault string) {
 	sim.AzureError(w, "BadParameter", "key backup blob does not contain any key versions", http.StatusBadRequest)
 }
 
+// kvKeyMaterialError pairs a Key Vault error code, message and HTTP status so
+// generateKVKeyMaterial's callers answer exactly what CreateKey answers for
+// the same failure.
+type kvKeyMaterialError struct {
+	code    string
+	message string
+	status  int
+}
+
+func (e *kvKeyMaterialError) write(w http.ResponseWriter) {
+	sim.AzureError(w, e.code, e.message, e.status)
+}
+
+// generateKVKeyMaterial mints real key material for one Key Vault key version:
+// the public JWK (without a kid — the caller stamps the version URL) and the
+// private half the cryptographic operations use. keySize is in bits and zero
+// selects the service default (RSA 2048, oct 256); crv is the JWK curve name
+// and empty selects P-256.
+func generateKVKeyMaterial(kty string, keySize int, crv string) (map[string]any, string, *kvKeyMaterialError) {
+	jwk := map[string]any{"kty": kty}
+	privateKeyPEM := ""
+	switch kty {
+	case "RSA", "RSA-HSM":
+		bits := keySize
+		if bits <= 0 {
+			bits = 2048
+		}
+		k, err := rsa.GenerateKey(rand.Reader, bits)
+		if err != nil {
+			return nil, "", &kvKeyMaterialError{"InternalServerError",
+				"failed to generate RSA key: " + err.Error(), http.StatusInternalServerError}
+		}
+		jwk["n"] = base64.RawURLEncoding.EncodeToString(k.N.Bytes())
+		jwk["e"] = base64.RawURLEncoding.EncodeToString(big.NewInt(int64(k.E)).Bytes())
+		privateKeyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(k)}))
+	case "EC", "EC-HSM":
+		// Generate a real EC public key on the requested curve so
+		// JWK consumers (go-jose, crypto/ecdsa) can parse the
+		// resulting `x` / `y` / `crv` triple. The curve name is
+		// the JWK form (P-256 / P-384 / P-521); map to crypto/elliptic.
+		curveName := crv
+		if curveName == "" {
+			curveName = "P-256"
+		}
+		curve, ok := ecCurveByJWKName(curveName)
+		if !ok {
+			return nil, "", &kvKeyMaterialError{"InvalidRequest",
+				"unsupported curve: " + curveName, http.StatusBadRequest}
+		}
+		k, err := ecdsa.GenerateKey(curve, rand.Reader)
+		if err != nil {
+			return nil, "", &kvKeyMaterialError{"InternalServerError",
+				"failed to generate EC key: " + err.Error(), http.StatusInternalServerError}
+		}
+		jwk["crv"] = curveName
+		jwk["x"] = base64.RawURLEncoding.EncodeToString(k.X.Bytes())
+		jwk["y"] = base64.RawURLEncoding.EncodeToString(k.Y.Bytes())
+	case "oct", "oct-HSM":
+		bits := keySize
+		if bits <= 0 {
+			bits = 256
+		}
+		keyMaterial := make([]byte, bits/8)
+		if _, err := rand.Read(keyMaterial); err != nil {
+			return nil, "", &kvKeyMaterialError{"InternalServerError",
+				"failed to generate symmetric key: " + err.Error(), http.StatusInternalServerError}
+		}
+		privateKeyPEM = base64.RawURLEncoding.EncodeToString(keyMaterial)
+	default:
+		return nil, "", &kvKeyMaterialError{"InvalidRequest",
+			"unsupported kty: " + kty, http.StatusBadRequest}
+	}
+	return jwk, privateKeyPEM, nil
+}
+
+// handleKVRecoverDeletedKey transitions a soft-deleted key back to active
+// (RecoverDeletedKey, POST /deletedkeys/{name}/recover) and answers the
+// recovered key's current version as a KeyBundle, as real Key Vault does.
+func handleKVRecoverDeletedKey(w http.ResponseWriter, r *http.Request, vault, name string) {
+	key := keyVaultKeyKey(vault, name)
+	rec, ok := keyVaultKeys.Get(key)
+	if !ok || !rec.isDeleted() {
+		sim.AzureErrorf(w, "KeyNotFound", http.StatusNotFound,
+			"Deleted key %q was not found.", name)
+		return
+	}
+	rec.DeletedAt = 0
+	rec.ScheduledPurgeAt = 0
+	rec.RecoveryID = ""
+	keyVaultKeys.Put(key, rec)
+	latest, ok := rec.latest()
+	if !ok {
+		sim.AzureErrorf(w, "KeyNotFound", http.StatusNotFound,
+			"A key with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, keyBundle(latest.KeyVaultKey))
+}
+
+// handleKVRotateKey mints a new version of the key (RotateKey, POST
+// /keys/{name}/rotate): fresh key material of the same type and strength as
+// the current version — same kty, same RSA modulus / symmetric-key size, same
+// curve — with the current version's key_ops and tags carried over, exactly
+// what Key Vault's rotation produces. When the key's rotation policy sets
+// attributes.expiryTime, the new version's expiry is stamped from it.
+func handleKVRotateKey(w http.ResponseWriter, r *http.Request, vault, name string) {
+	rec, ok := keyVaultKeys.Get(keyVaultKeyKey(vault, name))
+	if !ok || rec.isDeleted() {
+		sim.AzureErrorf(w, "KeyNotFound", http.StatusNotFound,
+			"A key with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	current, ok := rec.latest()
+	if !ok {
+		sim.AzureErrorf(w, "KeyNotFound", http.StatusNotFound,
+			"A key with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	kty, _ := current.JsonWebKey["kty"].(string)
+	crv, _ := current.JsonWebKey["crv"].(string)
+	jwk, privateKeyPEM, keyErr := generateKVKeyMaterial(defaultKVKty(kty), kvStoredKeyBits(current), crv)
+	if keyErr != nil {
+		keyErr.write(w)
+		return
+	}
+	version := generateUUID()
+	id := buildKVURL(r, vault, "keys", name, version)
+	jwk["kid"] = id
+	if ops, ok := current.JsonWebKey["key_ops"]; ok {
+		jwk["key_ops"] = ops
+	}
+	now := time.Now()
+	newKey := KeyVaultKey{
+		ID:         id,
+		JsonWebKey: jwk,
+		Attributes: KeyVaultAttrs{Enabled: current.Attributes.Enabled, Created: now.Unix(), Updated: now.Unix()},
+		Tags:       current.Tags,
+	}
+	if expiry, ok := kvRotationExpiry(rec.RotationPolicy, now); ok {
+		newKey.Attributes.Expires = expiry.Unix()
+	}
+	if len(rec.Versions) == 0 {
+		// A record restored from a backup blob taken before versions were
+		// tracked keeps its material in the top-level fields; fold it into the
+		// version list so the rotation appends rather than replaces.
+		rec.Versions = []kvKeyVersion{current}
+	}
+	rec.Versions = append(rec.Versions, kvKeyVersion{Version: version, KeyVaultKey: newKey, PrivateKeyPEM: privateKeyPEM})
+	rec.KeyVaultKey = newKey
+	rec.PrivateKeyPEM = privateKeyPEM
+	keyVaultKeys.Put(keyVaultKeyKey(vault, name), rec)
+	sim.WriteJSON(w, http.StatusOK, keyBundle(newKey))
+}
+
+// kvStoredKeyBits reads the strength of a stored key version: the RSA modulus
+// size or the symmetric key size, in bits. Zero (EC keys, or material absent)
+// lets generateKVKeyMaterial apply its default; EC strength travels in the
+// curve name instead.
+func kvStoredKeyBits(v kvKeyVersion) int {
+	if n, ok := jwkBytes(v.JsonWebKey, "n"); ok {
+		return len(n) * 8
+	}
+	kty, _ := v.JsonWebKey["kty"].(string)
+	if kty == "oct" || kty == "oct-HSM" {
+		if material, err := base64.RawURLEncoding.DecodeString(v.PrivateKeyPEM); err == nil {
+			return len(material) * 8
+		}
+	}
+	return 0
+}
+
+// kvRotationExpiry applies a rotation policy's attributes.expiryTime (an ISO
+// 8601 period such as "P90D") to the rotation instant. It reports false when
+// the policy sets no expiry.
+func kvRotationExpiry(policy map[string]any, now time.Time) (time.Time, bool) {
+	attrs, _ := policy["attributes"].(map[string]any)
+	expiryTime, _ := attrs["expiryTime"].(string)
+	if expiryTime == "" {
+		return time.Time{}, false
+	}
+	expiry, ok := kvAddISO8601Period(now, expiryTime)
+	return expiry, ok
+}
+
+// kvISO8601Period matches the date components of an ISO 8601 period — the
+// granularity Key Vault rotation-policy durations use (P1Y, P6M, P90D, …).
+var kvISO8601Period = regexp.MustCompile(`^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?$`)
+
+// kvAddISO8601Period adds an ISO 8601 date period to an instant. It reports
+// false for a spelling that is not a date period (including a bare "P").
+func kvAddISO8601Period(t time.Time, period string) (time.Time, bool) {
+	m := kvISO8601Period.FindStringSubmatch(period)
+	if m == nil || (m[1] == "" && m[2] == "" && m[3] == "" && m[4] == "") {
+		return time.Time{}, false
+	}
+	n := func(s string) int {
+		v, _ := strconv.Atoi(s)
+		return v
+	}
+	return t.AddDate(n(m[1]), n(m[2]), n(m[3])*7+n(m[4])), true
+}
+
+// handleKVGetRandomBytes answers GetRandomBytes (POST /rng): `count` bytes
+// drawn from crypto/rand, base64url-encoded, within the documented 1–128
+// range.
+func handleKVGetRandomBytes(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Count *int `json:"count"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sim.AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Count == nil {
+		sim.AzureError(w, "BadParameter", "The 'count' property is required.", http.StatusBadRequest)
+		return
+	}
+	if *body.Count < 1 || *body.Count > 128 {
+		sim.AzureErrorf(w, "BadParameter", http.StatusBadRequest,
+			"The requested number of random bytes must be between 1 and 128; %d was requested.", *body.Count)
+		return
+	}
+	buf := make([]byte, *body.Count)
+	if _, err := rand.Read(buf); err != nil {
+		sim.AzureError(w, "InternalServerError", "failed to draw random bytes: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"value": base64.RawURLEncoding.EncodeToString(buf),
+	})
+}
+
+// kvDefaultRotationPolicy is the rotation policy Key Vault reports for a key
+// whose policy was never configured: a Notify action 30 days before expiry
+// and no automatic rotation. The attributes carry the key's own creation
+// instant — the baseline policy exists from the key's birth.
+func kvDefaultRotationPolicy(created int64) map[string]any {
+	return map[string]any{
+		"lifetimeActions": []map[string]any{{
+			"trigger": map[string]any{"timeBeforeExpiry": "P30D"},
+			"action":  map[string]any{"type": "Notify"},
+		}},
+		"attributes": map[string]any{"created": created, "updated": created},
+	}
+}
+
+// handleKVGetKeyRotationPolicy serves GetKeyRotationPolicy
+// (GET /keys/{name}/rotationpolicy): the stored policy document, or the
+// service's baseline policy when none was ever configured.
+func handleKVGetKeyRotationPolicy(w http.ResponseWriter, r *http.Request, vault, name string) {
+	rec, ok := keyVaultKeys.Get(keyVaultKeyKey(vault, name))
+	if !ok || rec.isDeleted() {
+		sim.AzureErrorf(w, "KeyNotFound", http.StatusNotFound,
+			"A key with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	policy := rec.RotationPolicy
+	if policy == nil {
+		policy = kvDefaultRotationPolicy(rec.Attributes.Created)
+	}
+	sim.WriteJSON(w, http.StatusOK, kvRotationPolicyWire(r, vault, name, policy))
+}
+
+// handleKVUpdateKeyRotationPolicy serves UpdateKeyRotationPolicy
+// (PUT /keys/{name}/rotationpolicy): stores the client's policy document and
+// echoes it back with the policy identifier and updated timestamps stamped.
+func handleKVUpdateKeyRotationPolicy(w http.ResponseWriter, r *http.Request, vault, name string) {
+	rec, ok := keyVaultKeys.Get(keyVaultKeyKey(vault, name))
+	if !ok || rec.isDeleted() {
+		sim.AzureErrorf(w, "KeyNotFound", http.StatusNotFound,
+			"A key with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	var body struct {
+		LifetimeActions []map[string]any `json:"lifetimeActions"`
+		Attributes      map[string]any   `json:"attributes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sim.AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if expiryTime, _ := body.Attributes["expiryTime"].(string); expiryTime != "" {
+		if _, ok := kvAddISO8601Period(time.Now(), expiryTime); !ok {
+			sim.AzureErrorf(w, "BadParameter", http.StatusBadRequest,
+				"The expiryTime %q is not a valid ISO 8601 period.", expiryTime)
+			return
+		}
+	}
+	now := time.Now().Unix()
+	created := now
+	if prev, _ := rec.RotationPolicy["attributes"].(map[string]any); prev != nil {
+		if c, ok := prev["created"].(int64); ok {
+			created = c
+		} else if c, ok := prev["created"].(float64); ok {
+			created = int64(c)
+		}
+	}
+	attrs := map[string]any{"created": created, "updated": now}
+	if expiryTime, _ := body.Attributes["expiryTime"].(string); expiryTime != "" {
+		attrs["expiryTime"] = expiryTime
+	}
+	policy := map[string]any{"attributes": attrs}
+	if body.LifetimeActions != nil {
+		policy["lifetimeActions"] = body.LifetimeActions
+	}
+	rec.RotationPolicy = policy
+	keyVaultKeys.Put(keyVaultKeyKey(vault, name), rec)
+	sim.WriteJSON(w, http.StatusOK, kvRotationPolicyWire(r, vault, name, policy))
+}
+
+// kvRotationPolicyWire renders a rotation policy document with its read-only
+// identifier — https://<vault-host>/keys/<name>/rotationpolicy — stamped, the
+// KeyRotationPolicy wire shape.
+func kvRotationPolicyWire(r *http.Request, vault, name string, policy map[string]any) map[string]any {
+	out := make(map[string]any, len(policy)+1)
+	for k, v := range policy {
+		out[k] = v
+	}
+	out["id"] = strings.TrimSuffix(buildKVURL(r, vault, "keys", name, "rotationpolicy"), "/")
+	return out
+}
+
 // kvIsCryptoVerb reports whether the path segment names a Key Vault key
 // cryptographic operation (the ops handleKVCryptoKey dispatches).
 func kvIsCryptoVerb(verb string) bool {
@@ -1877,6 +2240,46 @@ func handleKVCertificate(w http.ResponseWriter, r *http.Request, vault, path str
 		handleKVRestoreCertificate(w, r, vault)
 		return
 	}
+	// /certificates/contacts and /certificates/issuers are vault-level
+	// collections that Key Vault addresses under the certificates prefix —
+	// "contacts" and "issuers" are route segments, never certificate names.
+	if name == "contacts" && len(segs) == 2 {
+		switch r.Method {
+		case http.MethodGet:
+			handleKVGetCertificateContacts(w, r, vault)
+		case http.MethodPut:
+			handleKVSetCertificateContacts(w, r, vault)
+		case http.MethodDelete:
+			handleKVDeleteCertificateContacts(w, r, vault)
+		default:
+			sim.AzureError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	if name == "issuers" {
+		if len(segs) == 2 {
+			if r.Method != http.MethodGet {
+				sim.AzureError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
+				return
+			}
+			handleKVListCertificateIssuers(w, r, vault)
+			return
+		}
+		issuer := segs[2]
+		switch r.Method {
+		case http.MethodGet:
+			handleKVGetCertificateIssuer(w, r, vault, issuer)
+		case http.MethodPut:
+			handleKVSetCertificateIssuer(w, r, vault, issuer)
+		case http.MethodPatch:
+			handleKVUpdateCertificateIssuer(w, r, vault, issuer)
+		case http.MethodDelete:
+			handleKVDeleteCertificateIssuer(w, r, vault, issuer)
+		default:
+			sim.AzureError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
+		}
+		return
+	}
 	verb := ""
 	if len(segs) >= 3 {
 		verb = segs[2]
@@ -1906,11 +2309,21 @@ func handleKVCertificate(w http.ResponseWriter, r *http.Request, vault, path str
 			handleKVListCertificateVersions(w, r, vault, name)
 			return
 		}
+		if verb == "policy" && len(segs) == 3 {
+			handleKVGetCertificatePolicy(w, r, vault, name)
+			return
+		}
 		handleKVGetCertificate(w, r, vault, name, verb)
 		return
 	case http.MethodPatch:
 		if verb == "pending" {
 			handleKVUpdateCertificateOperation(w, r, vault, name)
+			return
+		}
+		// PATCH /certificates/{name}/policy updates the certificate's policy
+		// document — "policy" is a route segment, not a version.
+		if verb == "policy" && len(segs) == 3 {
+			handleKVUpdateCertificatePolicy(w, r, vault, name)
 			return
 		}
 		handleKVUpdateCertificate(w, r, vault, name, verb)
@@ -2317,6 +2730,344 @@ func handleKVRestoreCertificate(w http.ResponseWriter, r *http.Request, vault st
 		return
 	}
 	sim.AzureError(w, "BadParameter", "certificate backup blob does not contain any certificate versions", http.StatusBadRequest)
+}
+
+// handleKVRecoverDeletedCertificate transitions a soft-deleted certificate
+// back to active (RecoverDeletedCertificate, POST
+// /deletedcertificates/{name}/recover) and answers the recovered
+// certificate's current version as a CertificateBundle.
+func handleKVRecoverDeletedCertificate(w http.ResponseWriter, r *http.Request, vault, name string) {
+	key := keyVaultCertKey(vault, name)
+	rec, ok := keyVaultCertificates.Get(key)
+	if !ok || !rec.isDeleted() {
+		sim.AzureErrorf(w, "CertificateNotFound", http.StatusNotFound,
+			"Deleted certificate %q was not found.", name)
+		return
+	}
+	rec.DeletedAt = 0
+	rec.ScheduledPurgeAt = 0
+	rec.RecoveryID = ""
+	keyVaultCertificates.Put(key, rec)
+	latest, ok := rec.latest()
+	if !ok {
+		sim.AzureErrorf(w, "CertificateNotFound", http.StatusNotFound,
+			"A certificate with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, latest.KeyVaultCertificate)
+}
+
+// kvContactsWire renders a vault's contacts collection in the Contacts wire
+// shape, with the read-only collection identifier stamped.
+func kvContactsWire(r *http.Request, vault string, contacts []kvCertContact) map[string]any {
+	return map[string]any{
+		"id":       strings.TrimSuffix(buildKVURL(r, vault, "certificates", "contacts", ""), "/"),
+		"contacts": contacts,
+	}
+}
+
+// handleKVGetCertificateContacts serves GetCertificateContacts
+// (GET /certificates/contacts). A vault with no contacts set answers 404, as
+// real Key Vault does.
+func handleKVGetCertificateContacts(w http.ResponseWriter, r *http.Request, vault string) {
+	rec, ok := keyVaultCertContacts.Get(vault)
+	if !ok {
+		sim.AzureError(w, "ContactsNotFound", "Contacts not found", http.StatusNotFound)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, kvContactsWire(r, vault, rec.Contacts))
+}
+
+// handleKVSetCertificateContacts serves SetCertificateContacts
+// (PUT /certificates/contacts): replaces the vault's contact list and echoes
+// the stored collection.
+func handleKVSetCertificateContacts(w http.ResponseWriter, r *http.Request, vault string) {
+	var body struct {
+		Contacts []kvCertContact `json:"contacts"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sim.AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	keyVaultCertContacts.Put(vault, kvCertContacts{Vault: vault, Contacts: body.Contacts})
+	sim.WriteJSON(w, http.StatusOK, kvContactsWire(r, vault, body.Contacts))
+}
+
+// handleKVDeleteCertificateContacts serves DeleteCertificateContacts
+// (DELETE /certificates/contacts): removes the collection and answers the
+// contacts it held; 404 when none were set.
+func handleKVDeleteCertificateContacts(w http.ResponseWriter, r *http.Request, vault string) {
+	rec, ok := keyVaultCertContacts.Get(vault)
+	if !ok {
+		sim.AzureError(w, "ContactsNotFound", "Contacts not found", http.StatusNotFound)
+		return
+	}
+	keyVaultCertContacts.Delete(vault)
+	sim.WriteJSON(w, http.StatusOK, kvContactsWire(r, vault, rec.Contacts))
+}
+
+func keyVaultIssuerKey(vault, name string) string { return vault + "/" + name }
+
+// issuerBundle renders a stored issuer in the IssuerBundle wire shape. The
+// credential password is write-only and never rendered, as in real Key Vault.
+func issuerBundle(r *http.Request, rec kvCertIssuerStored) map[string]any {
+	out := map[string]any{
+		"id":         strings.TrimSuffix(buildKVURL(r, rec.Vault, "certificates", "issuers", rec.Name), "/"),
+		"provider":   rec.Provider,
+		"attributes": rec.Attributes,
+	}
+	if rec.Credentials != nil && rec.Credentials.AccountID != "" {
+		out["credentials"] = map[string]any{"account_id": rec.Credentials.AccountID}
+	}
+	if rec.OrgDetails != nil {
+		out["org_details"] = rec.OrgDetails
+	}
+	return out
+}
+
+// keyVaultCertIssuersByVault indexes the issuers by the vault that holds
+// them: the listing is reached from a data-plane handler, so decoding every
+// vault's issuers on each request is the read the store-scan floor forbids.
+var keyVaultCertIssuersByVault sim.GenerationIndex[kvCertIssuerStored]
+
+func keyVaultCertIssuerVaultKeys(rec kvCertIssuerStored) []string {
+	if rec.Vault == "" {
+		return nil
+	}
+	return []string{rec.Vault}
+}
+
+// handleKVListCertificateIssuers serves GetCertificateIssuers
+// (GET /certificates/issuers): the CertificateIssuerItem rows — issuer id and
+// provider — for the vault, paged like the other vault collections.
+func handleKVListCertificateIssuers(w http.ResponseWriter, r *http.Request, vault string) {
+	rows := keyVaultCertIssuersByVault.LookupAll(keyVaultCertIssuers, vault, keyVaultCertIssuerVaultKeys)
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+	items := make([]map[string]any, 0, len(rows))
+	for _, rec := range rows {
+		items = append(items, map[string]any{
+			"id":       strings.TrimSuffix(buildKVURL(r, vault, "certificates", "issuers", rec.Name), "/"),
+			"provider": rec.Provider,
+		})
+	}
+	page, next := kvPage(r, items)
+	out := map[string]any{"value": page}
+	if next != "" {
+		out["nextLink"] = kvNextLink(r, next)
+	}
+	sim.WriteJSON(w, http.StatusOK, out)
+}
+
+// handleKVGetCertificateIssuer serves GetCertificateIssuer
+// (GET /certificates/issuers/{name}).
+func handleKVGetCertificateIssuer(w http.ResponseWriter, r *http.Request, vault, name string) {
+	rec, ok := keyVaultCertIssuers.Get(keyVaultIssuerKey(vault, name))
+	if !ok {
+		sim.AzureErrorf(w, "IssuerNotFound", http.StatusNotFound,
+			"Issuer %q not found.", name)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, issuerBundle(r, rec))
+}
+
+// handleKVSetCertificateIssuer serves SetCertificateIssuer
+// (PUT /certificates/issuers/{name}): stores the issuer record and answers
+// the IssuerBundle.
+func handleKVSetCertificateIssuer(w http.ResponseWriter, r *http.Request, vault, name string) {
+	var body struct {
+		Provider    string               `json:"provider"`
+		Credentials *kvIssuerCredentials `json:"credentials,omitempty"`
+		OrgDetails  map[string]any       `json:"org_details,omitempty"`
+		Attributes  *kvIssuerAttributes  `json:"attributes,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sim.AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Provider == "" {
+		sim.AzureError(w, "BadParameter", "The 'provider' property is required.", http.StatusBadRequest)
+		return
+	}
+	now := time.Now().Unix()
+	rec := kvCertIssuerStored{
+		Vault:       vault,
+		Name:        name,
+		Provider:    body.Provider,
+		Credentials: body.Credentials,
+		OrgDetails:  body.OrgDetails,
+		Attributes:  kvIssuerAttributes{Enabled: true, Created: now, Updated: now},
+	}
+	if prev, ok := keyVaultCertIssuers.Get(keyVaultIssuerKey(vault, name)); ok {
+		rec.Attributes.Created = prev.Attributes.Created
+	}
+	if body.Attributes != nil {
+		rec.Attributes.Enabled = body.Attributes.Enabled
+	}
+	keyVaultCertIssuers.Put(keyVaultIssuerKey(vault, name), rec)
+	sim.WriteJSON(w, http.StatusOK, issuerBundle(r, rec))
+}
+
+// handleKVUpdateCertificateIssuer serves UpdateCertificateIssuer
+// (PATCH /certificates/issuers/{name}): merges the provided members over the
+// stored issuer.
+func handleKVUpdateCertificateIssuer(w http.ResponseWriter, r *http.Request, vault, name string) {
+	rec, ok := keyVaultCertIssuers.Get(keyVaultIssuerKey(vault, name))
+	if !ok {
+		sim.AzureErrorf(w, "IssuerNotFound", http.StatusNotFound,
+			"Issuer %q not found.", name)
+		return
+	}
+	var body struct {
+		Provider    string               `json:"provider,omitempty"`
+		Credentials *kvIssuerCredentials `json:"credentials,omitempty"`
+		OrgDetails  map[string]any       `json:"org_details,omitempty"`
+		Attributes  *kvIssuerAttributes  `json:"attributes,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sim.AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Provider != "" {
+		rec.Provider = body.Provider
+	}
+	if body.Credentials != nil {
+		rec.Credentials = body.Credentials
+	}
+	if body.OrgDetails != nil {
+		rec.OrgDetails = body.OrgDetails
+	}
+	if body.Attributes != nil {
+		rec.Attributes.Enabled = body.Attributes.Enabled
+	}
+	rec.Attributes.Updated = time.Now().Unix()
+	keyVaultCertIssuers.Put(keyVaultIssuerKey(vault, name), rec)
+	sim.WriteJSON(w, http.StatusOK, issuerBundle(r, rec))
+}
+
+// handleKVDeleteCertificateIssuer serves DeleteCertificateIssuer
+// (DELETE /certificates/issuers/{name}): removes the issuer and answers the
+// bundle it held.
+func handleKVDeleteCertificateIssuer(w http.ResponseWriter, r *http.Request, vault, name string) {
+	rec, ok := keyVaultCertIssuers.Get(keyVaultIssuerKey(vault, name))
+	if !ok {
+		sim.AzureErrorf(w, "IssuerNotFound", http.StatusNotFound,
+			"Issuer %q not found.", name)
+		return
+	}
+	keyVaultCertIssuers.Delete(keyVaultIssuerKey(vault, name))
+	sim.WriteJSON(w, http.StatusOK, issuerBundle(r, rec))
+}
+
+// kvCertPolicyWire stamps the read-only policy identifier
+// (.../certificates/{name}/policy) onto a policy document.
+func kvCertPolicyWire(r *http.Request, vault, name string, policy kvCertPolicy) kvCertPolicy {
+	policy.ID = strings.TrimSuffix(buildKVURL(r, vault, "certificates", name, "policy"), "/")
+	return policy
+}
+
+// kvDerivedCertPolicy reconstructs a certificate's policy from the stored
+// certificate itself, for certificates imported or merged without an explicit
+// policy document. Everything in it is read out of the real certificate — the
+// subject from the parsed X.509, the key type and size from its public key,
+// the content type from the stored record — mirroring how Key Vault derives
+// an imported certificate's policy; the issuer is Unknown exactly as Key
+// Vault reports certificates it did not enroll.
+func kvDerivedCertPolicy(v KeyVaultCertificate) kvCertPolicy {
+	policy := kvCertPolicy{
+		SecretProps: &kvCertSecretProps{ContentType: v.ContentType},
+		Issuer:      &kvCertIssuer{Name: "Unknown"},
+		Attributes:  &KeyVaultAttrs{Enabled: true, Created: v.Attributes.Created, Updated: v.Attributes.Updated},
+	}
+	cert, err := x509.ParseCertificate(v.CER)
+	if err != nil {
+		return policy
+	}
+	policy.X509Props = &kvCertX509Props{Subject: cert.Subject.String()}
+	switch key := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		policy.KeyProps = &kvCertKeyProps{KeyType: "RSA", KeySize: key.Size() * 8}
+	case *ecdsa.PublicKey:
+		policy.KeyProps = &kvCertKeyProps{KeyType: "EC", Curve: "P-" + strconv.Itoa(key.Curve.Params().BitSize)}
+	}
+	return policy
+}
+
+// handleKVGetCertificatePolicy serves GetCertificatePolicy
+// (GET /certificates/{name}/policy): the certificate's stored policy, or the
+// policy derived from the certificate itself when it was imported without
+// one.
+func handleKVGetCertificatePolicy(w http.ResponseWriter, r *http.Request, vault, name string) {
+	rec, ok := keyVaultCertificates.Get(keyVaultCertKey(vault, name))
+	if !ok || rec.isDeleted() {
+		sim.AzureErrorf(w, "CertificateNotFound", http.StatusNotFound,
+			"A certificate with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	v, ok := rec.latest()
+	if !ok {
+		sim.AzureErrorf(w, "CertificateNotFound", http.StatusNotFound,
+			"A certificate with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	policy := kvDerivedCertPolicy(v.KeyVaultCertificate)
+	if v.Policy != nil {
+		policy = *v.Policy
+	}
+	sim.WriteJSON(w, http.StatusOK, kvCertPolicyWire(r, vault, name, policy))
+}
+
+// handleKVUpdateCertificatePolicy serves UpdateCertificatePolicy
+// (PATCH /certificates/{name}/policy): replaces the provided policy members
+// over the certificate's current policy and stores the result on the current
+// version.
+func handleKVUpdateCertificatePolicy(w http.ResponseWriter, r *http.Request, vault, name string) {
+	rec, ok := keyVaultCertificates.Get(keyVaultCertKey(vault, name))
+	if !ok || rec.isDeleted() {
+		sim.AzureErrorf(w, "CertificateNotFound", http.StatusNotFound,
+			"A certificate with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	var patch kvCertPolicy
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		sim.AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	v, ok := rec.latest()
+	if !ok {
+		sim.AzureErrorf(w, "CertificateNotFound", http.StatusNotFound,
+			"A certificate with (name/id) %q was not found in this key vault.", name)
+		return
+	}
+	policy := kvDerivedCertPolicy(v.KeyVaultCertificate)
+	if v.Policy != nil {
+		policy = *v.Policy
+	}
+	if patch.KeyProps != nil {
+		policy.KeyProps = patch.KeyProps
+	}
+	if patch.SecretProps != nil {
+		policy.SecretProps = patch.SecretProps
+	}
+	if patch.X509Props != nil {
+		policy.X509Props = patch.X509Props
+	}
+	if patch.LifetimeActions != nil {
+		policy.LifetimeActions = patch.LifetimeActions
+	}
+	if patch.Issuer != nil {
+		policy.Issuer = patch.Issuer
+	}
+	if patch.Attributes != nil {
+		policy.Attributes = patch.Attributes
+	}
+	policy.ID = ""
+	stored := policy
+	if len(rec.Versions) > 0 {
+		rec.Versions[len(rec.Versions)-1].Policy = &stored
+	}
+	rec.Policy = &stored
+	keyVaultCertificates.Put(keyVaultCertKey(vault, name), rec)
+	sim.WriteJSON(w, http.StatusOK, kvCertPolicyWire(r, vault, name, policy))
 }
 
 func defaultKVKty(s string) string {

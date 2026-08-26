@@ -249,11 +249,17 @@ func TestAzurePGFlexibleServer_ReplicaCloneAndListing(t *testing.T) {
 	require.Len(t, replicas.Value, 1, "the source must list exactly its replica")
 	assert.Equal(t, replicaName, replicas.Value[0].Name)
 
-	if dataPlane {
+	// A second server needs a second loopback address. Linux provides one
+	// and the data plane must install there; a host with only 127.0.0.1
+	// (macOS without root) has already given it to the source, so the
+	// replica stays modeled and the clone's data-plane half is skipped —
+	// the same capability gate the source took, applied where the second
+	// listener is needed.
+	replicaFQDN, _ := replicaProps["fullyQualifiedDomainName"].(string)
+	require.NotEmpty(t, replicaFQDN)
+	if dataPlane && pgTryDataPlane(t, replicaFQDN) {
 		// The clone carried the data: the replica serves the primary's row
 		// under the primary's credential.
-		replicaFQDN, _ := replicaProps["fullyQualifiedDomainName"].(string)
-		require.NotEmpty(t, replicaFQDN)
 		conn := pgConnectTLS(t, testContext, adminLogin, adminPassword, replicaFQDN)
 		defer func() { _ = conn.Close(context.Background()) }()
 		assert.Equal(t, []string{"primary-row"}, pgReadLedger(t, testContext, conn))
@@ -314,9 +320,10 @@ func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 	assert.Equal(t, adminLogin, restoredProps["administratorLogin"],
 		"the restored server keeps the source's administrator login")
 
-	if dataPlane {
-		restoredFQDN, _ := restoredProps["fullyQualifiedDomainName"].(string)
-		require.NotEmpty(t, restoredFQDN)
+	// The restored server is a second listener, gated like the replica's.
+	restoredFQDN, _ := restoredProps["fullyQualifiedDomainName"].(string)
+	require.NotEmpty(t, restoredFQDN)
+	if dataPlane && pgTryDataPlane(t, restoredFQDN) {
 		conn := pgConnectTLS(t, testContext, adminLogin, adminPassword, restoredFQDN)
 		defer func() { _ = conn.Close(context.Background()) }()
 		assert.Equal(t, []string{"before-backup"}, pgReadLedger(t, testContext, conn),
