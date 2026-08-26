@@ -1,5 +1,41 @@
 # WHAT WE DID
 
+## 2026-08-26, twenty-sixth pass — the two doors are crossed
+
+Closing the gRPC gaps left one thing unmeasured, and the previous pass said so:
+several Google Cloud services are reached over two protocols and served here
+from one set of stores, and nothing checked that claim. Every suite drove one
+door and read back through the same door, so a handler that answered plausibly
+while doing nothing passed as long as its sibling behaved. That is how the REST
+`dropRowRange` came to acknowledge deletes it never performed while the gRPC
+spelling deleted for real.
+
+`simulator-gcp/sdk-tests/cross_door_test.go` crosses every mounted gRPC service
+against its REST door — writing through one protocol and observing through the
+other, in both directions — and `simulator-gcp/cross_door_test.go` holds that
+file to the services the server actually mounts, so a two-door service cannot
+arrive uncrossed. Both halves of the gate were negative-controlled: removing a
+service's entry names it, renaming a test breaks the table, and reverting
+`dropRowRange` to its no-op fails the Cloud Bigtable crossing.
+
+**The crossing found a second divergence immediately.** The long-running
+Operations service kept its own in-memory store while the REST operations doors
+read the shared one, and the two minted different name shapes for the same
+resource — so an operation a gRPC call returned was invisible to the REST
+operations door, and the reverse. Both doors now mint the name the
+bigtableadmin document declares (`operations/projects/{project}/operations/…`)
+and read one store, so an operation is one resource whichever protocol returned
+it. The REST listing had also ignored its own `{project}` parameter and
+reported every project's operations; it is scoped now.
+
+A flaky Cloud Run test was fixed with it. `TestCloudRun_ExecutionRunningState`
+holds a container for ten seconds and samples the execution once the
+container's marker reaches Cloud Logging; under the load of the full suite that
+trip outlasted the container, so the execution had already settled and
+`runningCount` was zero. The hold is thirty seconds now — long enough to
+survive a busy machine, short enough that the container still exits on its own,
+which the succeeded-count assertion depends on.
+
 ## 2026-08-26, twenty-fifth pass — the gRPC gaps are closed, 210 of 213
 
 The previous pass measured the Google Cloud gRPC surfaces and found 130 of

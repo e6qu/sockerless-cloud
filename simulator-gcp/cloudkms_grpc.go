@@ -1669,7 +1669,9 @@ func kmsCompletedOperation(resourceName string) (*longrunningpb.Operation, error
 		Done:   true,
 		Result: &longrunningpb.Operation_Response{Response: result},
 	}
-	grpcRecordOperation(op)
+	if err := grpcRecordOperation(op); err != nil {
+		return nil, err
+	}
 	return op, nil
 }
 

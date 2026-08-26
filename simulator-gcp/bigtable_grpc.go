@@ -7,13 +7,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	btadmin "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,22 +26,86 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// grpcLongRunningOperations holds every long-running operation the gRPC
-// services return, whichever service returned it. The server mounts one
-// google.longrunning.Operations service, so an operation name it hands a
-// client has to resolve there — a Cloud KMS delete's operation as much as a
-// Cloud Bigtable create's.
-var grpcLongRunningOperations = struct {
-	sync.Mutex
-	items map[string]*longrunningpb.Operation
-}{items: map[string]*longrunningpb.Operation{}}
+// A long-running operation is one resource whichever protocol minted it, so
+// both doors read and write one store: crOperations, the shared operations
+// store the REST operations handlers already serve from. The gRPC service
+// converts at the boundary rather than keeping a second copy — when it kept
+// one, an operation a gRPC call returned was invisible to the REST operations
+// door and the reverse, which is a divergence no client should be able to
+// observe.
 
-// grpcRecordOperation files a completed operation so GetOperation,
-// ListOperations and CancelOperation can find it by name.
-func grpcRecordOperation(op *longrunningpb.Operation) {
-	grpcLongRunningOperations.Lock()
-	grpcLongRunningOperations.items[op.Name] = op
-	grpcLongRunningOperations.Unlock()
+// grpcRecordOperation files an operation in the shared store, in the REST
+// rendering the store holds.
+func grpcRecordOperation(op *longrunningpb.Operation) error {
+	stored, err := grpcOperationToStored(op)
+	if err != nil {
+		return err
+	}
+	if crOperations == nil {
+		return status.Error(codes.Internal, "the operations store is not wired")
+	}
+	crOperations.Put(op.GetName(), stored)
+	return nil
+}
+
+// grpcOperationToStored renders a protobuf Operation into the JSON shape the
+// shared store holds — the same shape the REST doors write, so either door can
+// read what the other stored.
+func grpcOperationToStored(op *longrunningpb.Operation) (Operation, error) {
+	out := Operation{Name: op.GetName(), Done: op.GetDone()}
+	if response := op.GetResponse(); response != nil {
+		raw, err := protojson.Marshal(response)
+		if err != nil {
+			return Operation{}, status.Errorf(codes.Internal, "could not render operation response: %v", err)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			return Operation{}, status.Errorf(codes.Internal, "could not render operation response: %v", err)
+		}
+		out.Response = body
+	}
+	if opErr := op.GetError(); opErr != nil {
+		out.Error = &OperationError{Code: int(opErr.GetCode()), Message: opErr.GetMessage()}
+	}
+	return out, nil
+}
+
+// grpcOperationFromStored reads a stored operation back into its protobuf
+// shape. The stored response carries the @type the REST rendering wrote, which
+// is what lets it become a protobuf Any again.
+func grpcOperationFromStored(stored Operation) (*longrunningpb.Operation, error) {
+	op := &longrunningpb.Operation{Name: stored.Name, Done: stored.Done}
+	if stored.Response != nil {
+		raw, err := json.Marshal(stored.Response)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "could not read operation response: %v", err)
+		}
+		response := &anypb.Any{}
+		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, response); err != nil {
+			return nil, status.Errorf(codes.Internal, "could not read operation response: %v", err)
+		}
+		op.Result = &longrunningpb.Operation_Response{Response: response}
+	}
+	if stored.Error != nil {
+		op.Result = &longrunningpb.Operation_Error{Error: &statuspb.Status{
+			Code:    int32(stored.Error.Code),
+			Message: stored.Error.Message,
+		}}
+	}
+	return op, nil
+}
+
+// grpcStoredOperations returns the stored operations whose name begins with
+// prefix, in name order.
+func grpcStoredOperations(prefix string) []Operation {
+	var matched []Operation
+	for _, op := range crOperations.List() {
+		if prefix == "" || strings.HasPrefix(op.Name, prefix) {
+			matched = append(matched, op)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].Name < matched[j].Name })
+	return matched
 }
 
 type bigtableInstanceAdminGRPC struct {
@@ -300,13 +364,11 @@ func (s *bigtableTableAdminGRPC) ModifyColumnFamilies(_ context.Context, req *bt
 }
 
 func (s *grpcOperationsService) GetOperation(_ context.Context, req *longrunningpb.GetOperationRequest) (*longrunningpb.Operation, error) {
-	grpcLongRunningOperations.Lock()
-	defer grpcLongRunningOperations.Unlock()
-	op, ok := grpcLongRunningOperations.items[req.GetName()]
+	stored, ok := crOperations.Get(req.GetName())
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "operation %q not found", req.GetName())
 	}
-	return op, nil
+	return grpcOperationFromStored(stored)
 }
 
 func (s *grpcOperationsService) WaitOperation(ctx context.Context, req *longrunningpb.WaitOperationRequest) (*longrunningpb.Operation, error) {
@@ -314,9 +376,7 @@ func (s *grpcOperationsService) WaitOperation(ctx context.Context, req *longrunn
 }
 
 func (s *grpcOperationsService) DeleteOperation(_ context.Context, req *longrunningpb.DeleteOperationRequest) (*emptypb.Empty, error) {
-	grpcLongRunningOperations.Lock()
-	defer grpcLongRunningOperations.Unlock()
-	delete(grpcLongRunningOperations.items, req.GetName())
+	crOperations.Delete(req.GetName())
 	return &emptypb.Empty{}, nil
 }
 
@@ -327,16 +387,15 @@ func (s *grpcOperationsService) ListOperations(_ context.Context, req *longrunni
 	if req.GetFilter() != "" {
 		return nil, status.Error(codes.Unimplemented, "the operations list filter is not supported")
 	}
-	prefix := req.GetName()
-	grpcLongRunningOperations.Lock()
-	matched := make([]*longrunningpb.Operation, 0, len(grpcLongRunningOperations.items))
-	for name, op := range grpcLongRunningOperations.items {
-		if prefix == "" || strings.HasPrefix(name, prefix) {
-			matched = append(matched, op)
+	stored := grpcStoredOperations(req.GetName())
+	matched := make([]*longrunningpb.Operation, 0, len(stored))
+	for _, entry := range stored {
+		op, err := grpcOperationFromStored(entry)
+		if err != nil {
+			return nil, err
 		}
+		matched = append(matched, op)
 	}
-	grpcLongRunningOperations.Unlock()
-	sort.Slice(matched, func(i, j int) bool { return matched[i].GetName() < matched[j].GetName() })
 	page, next := bigtableGRPCPage(matched, req.GetPageSize(), req.GetPageToken())
 	return &longrunningpb.ListOperationsResponse{Operations: page, NextPageToken: next}, nil
 }
@@ -346,9 +405,7 @@ func (s *grpcOperationsService) ListOperations(_ context.Context, req *longrunni
 // receives it, so there is never work left to interrupt: a known operation is
 // acknowledged and keeps its result, and an unknown name is a NotFound.
 func (s *grpcOperationsService) CancelOperation(_ context.Context, req *longrunningpb.CancelOperationRequest) (*emptypb.Empty, error) {
-	grpcLongRunningOperations.Lock()
-	defer grpcLongRunningOperations.Unlock()
-	if _, ok := grpcLongRunningOperations.items[req.GetName()]; !ok {
+	if _, ok := crOperations.Get(req.GetName()); !ok {
 		return nil, status.Errorf(codes.NotFound, "operation %q not found", req.GetName())
 	}
 	return &emptypb.Empty{}, nil
@@ -360,14 +417,29 @@ func bigtableDoneOperation(resourceName string, resource proto.Message) (*longru
 		return nil, err
 	}
 	op := &longrunningpb.Operation{
-		Name: fmt.Sprintf("%s/operations/%d", resourceName, time.Now().UnixNano()),
+		Name: bigtableOperationName(resourceName),
 		Done: true,
 		Result: &longrunningpb.Operation_Response{
 			Response: resp,
 		},
 	}
-	grpcRecordOperation(op)
+	if err := grpcRecordOperation(op); err != nil {
+		return nil, err
+	}
 	return op, nil
+}
+
+// bigtableOperationName is where a Cloud Bigtable admin operation lives:
+// under the project, in the "operations/" collection the bigtableadmin
+// document declares (its operations.get name pattern is "^operations/.*$",
+// and its list parent is "operations/projects/{project}"). Both doors mint
+// this shape, so an operation returned over one is addressable over the other.
+func bigtableOperationName(resourceName string) string {
+	project := "unknown"
+	if parts := strings.Split(resourceName, "/"); len(parts) >= 2 && parts[0] == "projects" {
+		project = parts[1]
+	}
+	return fmt.Sprintf("operations/projects/%s/operations/%d", project, time.Now().UnixNano())
 }
 
 func bigtableProjectFromParent(parent string) (string, error) {

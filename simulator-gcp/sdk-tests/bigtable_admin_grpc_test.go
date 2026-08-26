@@ -2,6 +2,7 @@ package gcp_sdk_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -875,22 +876,23 @@ func TestBigtableAdminGRPC_Operations(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, created.GetName())
 
-	listed, err := ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: instance})
+	// A Cloud Bigtable admin operation lives under the project, in the
+	// "operations/" collection the bigtableadmin document declares — the same
+	// name the REST operations door addresses it by.
+	const operationsParent = "operations/projects/bt-grpc-ops"
+	require.True(t, strings.HasPrefix(created.GetName(), operationsParent+"/operations/"),
+		"an operation name must be the one both doors address: got %q", created.GetName())
+
+	listed, err := ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: operationsParent})
 	require.NoError(t, err)
 	names := make([]string, 0, len(listed.GetOperations()))
 	for _, op := range listed.GetOperations() {
 		names = append(names, op.GetName())
 	}
-	assert.Contains(t, names, created.GetName(), "the create operation must be listed under its resource's parent")
+	assert.Contains(t, names, created.GetName(), "the create operation must be listed under its project")
 
-	// The listing is scoped to the parent: the logical view's own operations
-	// are a subset of the instance's.
-	scoped, err := ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: instance + "/logicalViews/daily"})
-	require.NoError(t, err)
-	require.Len(t, scoped.GetOperations(), 1)
-	assert.Equal(t, created.GetName(), scoped.GetOperations()[0].GetName())
-
-	empty, err := ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: instance + "/logicalViews/nothing"})
+	// The listing is scoped: another project's operations collection is empty.
+	empty, err := ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: "operations/projects/bt-grpc-ops-elsewhere"})
 	require.NoError(t, err)
 	assert.Empty(t, empty.GetOperations())
 
@@ -907,10 +909,10 @@ func TestBigtableAdminGRPC_Operations(t *testing.T) {
 	assert.True(t, after.GetDone())
 	assert.Nil(t, after.GetError())
 
-	_, err = ops.CancelOperation(ctx, &longrunningpb.CancelOperationRequest{Name: instance + "/operations/404"})
+	_, err = ops.CancelOperation(ctx, &longrunningpb.CancelOperationRequest{Name: operationsParent + "/operations/404"})
 	requireGRPCCode(t, err, codes.NotFound)
 
-	_, err = ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: instance, Filter: "done=true"})
+	_, err = ops.ListOperations(ctx, &longrunningpb.ListOperationsRequest{Name: operationsParent, Filter: "done=true"})
 	requireGRPCCode(t, err, codes.Unimplemented)
 
 	_, err = ops.DeleteOperation(ctx, &longrunningpb.DeleteOperationRequest{Name: created.GetName()})
