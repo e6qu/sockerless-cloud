@@ -14,14 +14,26 @@
    writes, Cloud Run v2's export family, and Compute Engine's deliberate
    long tail (559 of 1,007).
 
-1. The full-store-read class is closed: scripts/check-store-scans.sh holds
+1. Wire the gRPC methods that already exist over REST. The new ratchet in
+   simulator-gcp/grpc_coverage_test.go measures 130 of 213, and its comment
+   names each gap: Cloud Bigtable's two admin services (13 of 66) and its
+   data service (6 of 15), Cloud KMS (24 of 35), Cloud Logging (2 of 6) and
+   the long-running Operations service (3 of 5) are mostly second doors onto
+   stores the REST slices already serve — Cloud Logging's four and
+   Operations' two are the smallest, and the natural place to start. The
+   streaming methods (Firestore Listen and Write, TailLogEntries,
+   ReadChangeStream, ExecuteQuery) are the subset that needs real new
+   behaviour, and Cloud Spanner's FetchCacheUpdate publishes cache updates
+   one SQLite database does not have.
+
+2. The full-store-read class is closed: scripts/check-store-scans.sh holds
    the floor at zero, and its comment now records that every exemption the
    file ever carried — including the final seven — turned out to be a keyed
    lookup on a second reading. A new scan on a request path is a regression;
    convert it to a GenerationIndex rather than writing a new exemption
    paragraph.
 
-2. App Service is at 616 of 692 operations, and the 76 that remain were
+3. App Service is at 616 of 692 operations, and the 76 that remain were
    enumerated rather than left as "the long tail". They are, by family:
 
    - **Network trace / packet capture** (18 spellings: `networkTrace`,
@@ -52,7 +64,7 @@
    simulator can observe today. Each family needs either a primitive the
    container engine does not expose or data only the real platform holds.
 
-3. Cloud Spanner admin is **closed**, not pending. Its measured number counts
+4. Cloud Spanner admin is **closed**, not pending. Its measured number counts
    Discovery *method spellings*, not methods — the document declares most
    methods twice, an expanded `flatPath` and a `{+name}` template — so 188 of
    198 reads like ten missing methods and is five: 99 distinct methods, 94

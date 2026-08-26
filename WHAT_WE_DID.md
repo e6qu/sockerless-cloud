@@ -1,5 +1,42 @@
 # WHAT WE DID
 
+## 2026-08-26, twenty-fourth pass — the gRPC surfaces are measured for the first time
+
+The survey named one blindness the drift locks did not cover: the Google
+Cloud simulator's gRPC services had no coverage measurement at all. The
+Discovery probe speaks HTTP, and a gRPC service that embeds its generated
+Unimplemented server answers every method it does not implement with
+codes.Unimplemented — a correct status and an invisible gap. Nobody could
+say how much of Cloud Bigtable, Cloud Spanner, Firestore, Pub/Sub, Cloud
+KMS, Secret Manager or Cloud Logging was actually served.
+
+They serve **130 of 213 methods**. The measurement compares two facts: the
+declared methods come from the server itself — the ratchet calls the same
+registerAllGRPCServices production calls, and grpc.Server.GetServiceInfo
+reports each service's method set from the generated ServiceDesc — and the
+served methods come from the implementation's own declarations, read from
+the syntax tree. Reflection cannot make that distinction: Go names a
+promoted method's wrapper after the outer type, so a first attempt
+measured every service as complete before the ground truth (Cloud
+Logging's implementation declares exactly two of its six methods)
+disproved it.
+
+The shape of the remainder matters more than the number. Most unserved
+methods are the gRPC spelling of an operation this simulator already serves
+over REST — Cloud Bigtable's admin surface is 164/164 over REST against 13
+of 66 here, Cloud Logging 504/508 against 2 of 6 — so closing them is
+wiring an existing store to a second door rather than new behaviour. The
+exceptions are the streaming methods with no REST analogue to wire to:
+Firestore's Listen and Write, Cloud Logging's TailLogEntries, Cloud
+Bigtable's ReadChangeStream and ExecuteQuery. Pub/Sub's three services and
+Secret Manager are complete.
+
+The gate carries the same two locks the REST gates carry — a served floor
+that only rises, and a declared-total lock so a re-vendored proto that adds
+methods fails rather than drifting — plus a check that every mounted
+service is measured, so a new service cannot arrive unseen. All three were
+negative-controlled before being trusted.
+
 ## 2026-08-26, twenty-third pass — the implementable tails, served
 
 The survey's remaining gaps split into two kinds: families that cannot be
