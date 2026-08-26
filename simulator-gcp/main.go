@@ -183,13 +183,10 @@ func grpcPortFromConfig(listenAddr string) string {
 	return strconv.Itoa(port + 1)
 }
 
-func startGRPCServer(port string) {
-	lis, err := net.Listen("tcp", ":"+port)
-	if err != nil {
-		log.Fatalf("gRPC: failed to listen on :%s: %v", port, err)
-	}
-
-	gs := grpc.NewServer()
+// registerAllGRPCServices mounts every gRPC service the simulator serves.
+// The coverage ratchet calls this same function, so a service cannot be
+// added to the server without the gate seeing it.
+func registerAllGRPCServices(gs *grpc.Server) {
 	registerCloudLoggingGRPC(gs)
 	registerBigtableGRPC(gs)
 	registerBigtableDataGRPC(gs)
@@ -198,6 +195,16 @@ func startGRPCServer(port string) {
 	registerSpannerGRPC(gs)
 	registerCloudKMSGRPC(gs)
 	registerSecretManagerGRPC(gs)
+}
+
+func startGRPCServer(port string) {
+	lis, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		log.Fatalf("gRPC: failed to listen on :%s: %v", port, err)
+	}
+
+	gs := grpc.NewServer()
+	registerAllGRPCServices(gs)
 
 	fmt.Fprintf(os.Stderr, "  gRPC Cloud Logging, Bigtable Admin + Data, Firestore, Pub/Sub, Spanner, Cloud KMS, Secret Manager on :%s\n", port)
 	if err := gs.Serve(lis); err != nil {
