@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +50,11 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// A simulator this process starts must not outlive it. The cleanup
+	// below stops each one, and a killed `go test` never reaches it — so
+	// the simulator watches this pid and exits when it goes. Set here
+	// rather than at each start: every one of them inherits os.Environ().
+	os.Setenv("SOCKERLESS_PARENT_PID", strconv.Itoa(os.Getpid()))
 	// The Azure CLI (az) is a large Python application with no clean, self-
 	// contained, cross-platform tarball we can drop into PATH from TestMain the
 	// way the AWS CLI bundle or the Google Cloud CLI tarball allow — a faithful

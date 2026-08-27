@@ -38,14 +38,22 @@
    CLI and Terraform clients that reach the same operation agree — and the
    shard-coverage gates already hold each of those surfaces to its own tests.
 
-2. The full-store-read class is closed: scripts/check-store-scans.sh holds
+2. Simulators no longer outlive their tests (2026-08-27). If orphaned
+   simulators ever reappear, the watch is the first thing to check: a harness
+   that starts one without `SOCKERLESS_PARENT_PID` in its environment gets no
+   watch at all, silently, because the variable is read by the simulator and
+   nothing asserts the harness set it. `TestSimulatorExitsWithItsParent` covers
+   the Google Cloud suite's own path; the equivalent for the other two clouds
+   is their `shared` package's unit tests plus the wiring being identical.
+
+3. The full-store-read class is closed: scripts/check-store-scans.sh holds
    the floor at zero, and its comment now records that every exemption the
    file ever carried — including the final seven — turned out to be a keyed
    lookup on a second reading. A new scan on a request path is a regression;
    convert it to a GenerationIndex rather than writing a new exemption
    paragraph.
 
-3. App Service is at 616 of 692 operations, and the 76 that remain were
+4. App Service is at 616 of 692 operations, and the 76 that remain were
    enumerated rather than left as "the long tail". They are, by family:
 
    - **Network trace / packet capture** (18 spellings: `networkTrace`,
@@ -76,7 +84,7 @@
    simulator can observe today. Each family needs either a primitive the
    container engine does not expose or data only the real platform holds.
 
-4. Cloud Spanner admin is **closed**, not pending. Its measured number counts
+5. Cloud Spanner admin is **closed**, not pending. Its measured number counts
    Discovery *method spellings*, not methods — the document declares most
    methods twice, an expanded `flatPath` and a `{+name}` template — so 188 of
    198 reads like ten missing methods and is five: 99 distinct methods, 94

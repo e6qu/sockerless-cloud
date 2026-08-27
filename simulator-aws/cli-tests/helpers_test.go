@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -192,6 +193,11 @@ var requiredAWSCLIOperations = [][2]string{
 }
 
 func TestMain(m *testing.M) {
+	// A simulator this process starts must not outlive it. The cleanup
+	// below stops each one, and a killed `go test` never reaches it — so
+	// the simulator watches this pid and exits when it goes. Set here
+	// rather than at each start: every one of them inherits os.Environ().
+	os.Setenv("SOCKERLESS_PARENT_PID", strconv.Itoa(os.Getpid()))
 	// Some CI / host images ship an AWS Command Line Interface that predates
 	// simulator-tested surfaces. Use the host binary only when it knows every
 	// operation the suite drives and speaks the current Amazon CloudWatch

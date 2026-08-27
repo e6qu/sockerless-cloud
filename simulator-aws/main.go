@@ -35,6 +35,10 @@ func main() {
 	if sim.RunContainerReaper() {
 		return
 	}
+	// A simulator started by a test harness must not outlive it. The harness
+	// stops it from its own cleanup, which a killed `go test` never reaches —
+	// and the reaper waits on the simulator, so both would linger.
+	sim.ExitWithParent()
 	cfg := sim.ConfigFromEnv("aws")
 	if cfg.ListenAddr == ":8443" {
 		cfg.ListenAddr = ":4566" // AWS simulator default port

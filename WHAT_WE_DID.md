@@ -1,5 +1,49 @@
 # WHAT WE DID
 
+## 2026-08-27, twenty-seventh pass — a simulator does not outlive its test
+
+Every test harness starts a simulator as a child process and stops it from its
+own cleanup, and each simulator starts a container reaper that polls the
+simulator's PID and removes its containers once it exits. Nothing closed the
+outer loop. A `go test` killed outright — a timeout kill, a stopped run, an
+editor closing the process — never reaches its cleanup, so the simulator kept
+running, the reaper kept seeing it alive, and the pair survived together.
+Seventeen were found on one machine, aged two to twelve days across all three
+clouds, beside a workload container up two days and twenty-eight stale volumes,
+holding ports and memory the whole time. They are the likeliest explanation for
+a run of local-only failures: an OOM-killed `mkfs.ext4` in the Azure microVM
+boot, an Azure simulator that never became healthy, and a Cloud Run execution
+sampled after its container had already settled.
+
+A simulator now watches the pid in `SOCKERLESS_PARENT_PID` and exits once that
+process is gone — the relationship the reaper already had with the simulator,
+one level up. The variable is explicit rather than inferred from
+`os.Getppid()`, because a guessed parent would end a `nohup`ed simulator the
+moment its shell closed, and a simulator run by hand, by a service manager or
+by a container runtime has no parent it should die with; unset, the watch does
+nothing. It polls rather than handling a signal, because the ending that
+matters is the one signal a process cannot trap. It is set once per `TestMain`
+rather than at each of the seventeen places a simulator is started, because
+every one of them passes `os.Environ()`.
+
+The watch lives in each cloud's own `shared` package, beside the reaper it
+mirrors, and not in `realexec`. The simulators require the support modules at
+tagged versions with no `replace` directives, so that `go install` works
+against a tag; a function added to the working tree's `realexec` is invisible
+to any build that is not using the workspace, and the harnesses build with
+`GOWORK=off`. The first attempt put it in `realexec` and broke every AWS suite
+with `undefined: realexec.ExitWithParent` — the tagged version had no such
+function. `realexec.ProcessAlive`, which the watch is built on, is in the
+tagged version already.
+
+`TestSimulatorExitsWithItsParent` drives the whole chain: a real simulator
+watching a stand-in parent, held up for three seconds to prove the watch does
+not fire on its own, then required to follow that parent into exit. Without the
+watch it fails with "the simulator outlived the parent it was told to watch".
+Each cloud's copy carries unit tests covering what the watch must ignore —
+unset, unparseable, zero, negative, and its own pid — because a watch that
+fired on every input would pass a happy-path test.
+
 ## 2026-08-26, twenty-sixth pass — the two doors are crossed
 
 Closing the gRPC gaps left one thing unmeasured, and the previous pass said so:
