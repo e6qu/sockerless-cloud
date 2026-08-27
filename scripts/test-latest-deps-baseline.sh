@@ -68,14 +68,14 @@ git -C "$fixture" commit -qm 'baseline'
 baseline="$(git -C "$fixture" rev-parse HEAD)"
 
 expect() {
-	local want_status="$1" want_text="$2" label="$3" out status
+	local want_status="$1" want_text="$2" label="$3" out exit_status
 	shift 3
 	set +e
 	out="$(cd "$fixture" && GITHUB_TOKEN="${GITHUB_TOKEN:-}" bash "$fixture/scripts/check-latest-deps.sh" "$@" 2>&1)"
-	status=$?
+	exit_status=$?
 	set -e
-	if [[ "$status" != "$want_status" ]]; then
-		echo "$label: expected exit $want_status, got $status" >&2
+	if [[ "$exit_status" != "$want_status" ]]; then
+		echo "$label: expected exit $want_status, got $exit_status" >&2
 		printf '%s\n' "$out" >&2
 		exit 1
 	fi

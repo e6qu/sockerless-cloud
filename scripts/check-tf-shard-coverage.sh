@@ -46,17 +46,17 @@ if [ ! -s "$shards_file" ]; then
   exit 1
 fi
 
-status=0
+exit_status=0
 
 while IFS= read -r package; do
   [ -n "$package" ] || continue
   count=$(grep -cxF "$package" "$shards_file" || true)
   if [ "$count" -eq 0 ]; then
     echo "FAIL: Terraform package $package matches NO CI shard — it never runs, and never compiles, in CI" >&2
-    status=1
+    exit_status=1
   elif [ "$count" -gt 1 ]; then
     echo "FAIL: Terraform package $package is named by $count CI shards — it runs more than once" >&2
-    status=1
+    exit_status=1
   fi
 done <"$packages_file"
 
@@ -64,11 +64,11 @@ while IFS= read -r shard; do
   [ -n "$shard" ] || continue
   if ! grep -qxF "$shard" "$packages_file"; then
     echo "FAIL: CI shard names Terraform package $shard, which has no tests under $tf_dir" >&2
-    status=1
+    exit_status=1
   fi
 done <"$shards_file"
 
-if [ "$status" -ne 0 ]; then
+if [ "$exit_status" -ne 0 ]; then
   echo "Fix the aws 'tf_packages' matrix entries in $ci so each package is sharded exactly once." >&2
   exit 1
 fi

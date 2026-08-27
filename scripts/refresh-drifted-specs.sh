@@ -89,26 +89,26 @@ refresh_azure() {
 }
 
 refresh_gcp() {
-  local file="$1" row host path version name central captured
+  local file="$1" row host srcpath version name central captured
   if ! row="$(sources_row "$ROOT/specs/cloud-api/gcp/SOURCES.md" "$file")"; then
     echo "no Google source row for $file" >&2
     failed=1
     return
   fi
   host="$(field "$row" 2)"
-  path="$(field "$row" 3)"
+  srcpath="$(field "$row" 3)"
   # `$discovery/rest?version=v2` for a per-host document, and
   # `discovery/v1/apis/<name>/<version>/rest` for one only the central index
   # serves. fetch-gcp-discovery.sh selects between them explicitly.
   central=""
-  case "$path" in
+  case "$srcpath" in
   *discovery/v1/apis/*)
     central="central"
-    version="${path%/rest}"
+    version="${srcpath%/rest}"
     version="${version##*/}"
     ;;
   *)
-    version="${path##*version=}"
+    version="${srcpath##*version=}"
     ;;
   esac
   # `run-v2.discovery.json.gz` → local name `run`; the fetcher derives the

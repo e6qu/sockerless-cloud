@@ -13,15 +13,15 @@ for cloud in aws gcp azure; do
     --ignore-pattern "src/__tests__/**" \
     --reporters "console" \
     src 2>&1)
-  status=$?
+  exit_status=$?
   set -e
   if echo "$out" | grep -q "^Clone found"; then
     count=$(echo "$out" | grep -c "^Clone found" || true)
     echo "FAIL: simulator-$cloud jscpd found $count clone(s) above threshold (200 tokens):" >&2
     echo "$out" >&2
     fail=1
-  elif [ "$status" -ne 0 ]; then
-    echo "FAIL: simulator-$cloud jscpd exited with status $status:" >&2
+  elif [ "$exit_status" -ne 0 ]; then
+    echo "FAIL: simulator-$cloud jscpd exited with status $exit_status:" >&2
     echo "$out" >&2
     fail=1
   else

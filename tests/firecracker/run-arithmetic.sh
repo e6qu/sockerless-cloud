@@ -26,7 +26,7 @@ metadata_pid=""
 metadata_dnat_installed=0
 
 cleanup() {
-  status=$?
+  exit_status=$?
   if [ -n "$fc_pid" ] && kill -0 "$fc_pid" >/dev/null 2>&1; then
     sudo kill "$fc_pid" >/dev/null 2>&1 || true
     wait "$fc_pid" >/dev/null 2>&1 || true
@@ -43,7 +43,7 @@ cleanup() {
   fi
   sudo ip link del "$tap_dev" >/dev/null 2>&1 || true
   sudo rm -f "$api_socket" >/dev/null 2>&1 || true
-  if [ "$status" -ne 0 ] && [ -d "$workdir" ]; then
+  if [ "$exit_status" -ne 0 ] && [ -d "$workdir" ]; then
     for log in "$workdir/firecracker-api-response.txt" "$workdir/firecracker.log" "$workdir/firecracker-console.log"; do
       if sudo test -s "$log"; then
         echo "----- $log -----" >&2
@@ -259,11 +259,11 @@ while [ ! -S "$api_socket" ]; do
 done
 
 fc_put() {
-  path="$1"
+  filepath="$1"
   payload="$2"
   response="$workdir/firecracker-api-response.txt"
-  http_status="$(sudo curl -sS -X PUT --unix-socket "$api_socket" --data "$payload" -o "$response" -w "%{http_code}" "http://localhost${path}")" || {
-    echo "Firecracker API PUT $path failed before receiving an HTTP response" >&2
+  http_status="$(sudo curl -sS -X PUT --unix-socket "$api_socket" --data "$payload" -o "$response" -w "%{http_code}" "http://localhost${filepath}")" || {
+    echo "Firecracker API PUT $filepath failed before receiving an HTTP response" >&2
     if sudo test -s "$response"; then
       sudo cat "$response" >&2
     fi
@@ -272,7 +272,7 @@ fc_put() {
   case "$http_status" in
     2*) ;;
     *)
-      echo "Firecracker API PUT $path returned HTTP $http_status" >&2
+      echo "Firecracker API PUT $filepath returned HTTP $http_status" >&2
       if sudo test -s "$response"; then
         sudo cat "$response" >&2
       fi
@@ -285,11 +285,11 @@ fc_put() {
 }
 
 fc_patch() {
-  path="$1"
+  filepath="$1"
   payload="$2"
   response="$workdir/firecracker-api-response.txt"
-  http_status="$(sudo curl -sS -X PATCH --unix-socket "$api_socket" --data "$payload" -o "$response" -w "%{http_code}" "http://localhost${path}")" || {
-    echo "Firecracker API PATCH $path failed before receiving an HTTP response" >&2
+  http_status="$(sudo curl -sS -X PATCH --unix-socket "$api_socket" --data "$payload" -o "$response" -w "%{http_code}" "http://localhost${filepath}")" || {
+    echo "Firecracker API PATCH $filepath failed before receiving an HTTP response" >&2
     if sudo test -s "$response"; then
       sudo cat "$response" >&2
     fi
@@ -298,7 +298,7 @@ fc_patch() {
   case "$http_status" in
     2*) ;;
     *)
-      echo "Firecracker API PATCH $path returned HTTP $http_status" >&2
+      echo "Firecracker API PATCH $filepath returned HTTP $http_status" >&2
       if sudo test -s "$response"; then
         sudo cat "$response" >&2
       fi

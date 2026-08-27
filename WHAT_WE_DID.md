@@ -2,6 +2,28 @@
 
 ## 2026-08-28, twenty-ninth pass — pin the tools CI installs, and follow the cloud that withdrew a surface
 
+The freshness gate's new Go-tool section then failed in CI while passing every
+local run, and the cause was the shell. CI runs `zsh scripts/check-latest-deps.sh`;
+zsh binds `path` to `PATH` as an array, so the section's `local path=$1` emptied
+the command search path for the whole function and every `go` call inside it
+failed to resolve. The symptom was "no module resolves" for all three tools.
+The resolver now names its local `candidate`, keeps the `go list` error that
+the verdict used to discard, and captures stderr to a file rather than
+`2>&1 >/dev/null` — zsh's MULTIOS reads that idiom differently from bash and
+swallowed the error it was meant to surface.
+
+Five more scripts carried the same class, and `status` is worse than `path`:
+zsh makes it read-only, so an assignment aborts the script outright. Both
+parse cleanly under bash and under the `zsh -n` sweep CI already runs, because
+the damage is at runtime. `scripts/check-zsh-special-vars.sh` now refuses an
+assignment to any name zsh reserves, in pre-commit and in CI, and eighteen
+bindings across eight scripts were renamed to satisfy it.
+
+Renaming is not free: rewriting `${path//\\/}` in the Google Discovery reader
+was missed by the first sweep, which left the freshness check probing bare
+hostnames and reporting every document unqueryable while still exiting 0. All
+three clouds report their full row counts again — 30, 74 and 120.
+
 The `dupl` quality gate failed on a download, not on the code: `go install
 github.com/mibk/dupl@latest` hit an `INTERNAL_ERROR` from proxy.golang.org and
 the gate never ran. `deadcode` and `dupl` were the only two unpinned tool
