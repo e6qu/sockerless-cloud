@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -65,6 +66,11 @@ func mintSimAccessToken(base string) (string, error) {
 }
 
 func TestMain(m *testing.M) {
+	// A simulator this process starts must not outlive it. The cleanup
+	// below stops each one, and a killed `go test` never reaches it — so
+	// the simulator watches this pid and exits when it goes. Set here
+	// rather than at each start: every one of them inherits os.Environ().
+	os.Setenv("SOCKERLESS_PARENT_PID", strconv.Itoa(os.Getpid()))
 	noProxy := mergeNoProxy(os.Getenv("NO_PROXY"),
 		"localhost",
 		"127.0.0.1",

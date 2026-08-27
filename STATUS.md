@@ -115,6 +115,16 @@ Current state of the sockerless-cloud repository.
   Cloud Bigtable backups and snapshots capture the source table's schema and
   rows, so a restore yields the rows the copy held rather than an empty
   table.
+- **A simulator does not outlive its test**: every harness sets
+  `SOCKERLESS_PARENT_PID` once in `TestMain`, every simulator it starts
+  inherits it through `os.Environ()`, and each simulator exits when that
+  process is gone. This closes the loop the container reaper left open — the
+  reaper waits on the simulator, and nothing waited on the test — which had
+  stranded simulators for days at a time when a `go test` was killed before
+  its cleanup ran. The watch lives in each cloud's `shared` package rather
+  than in `realexec`, because the simulators require the support modules at
+  tagged versions with no `replace`, so a function in the working tree's
+  `realexec` is invisible to a `GOWORK=off` build.
 - **Every Terraform provider is pinned**, and `check-latest-deps.sh` fails on
   one that is not. An unpinned provider installs the newest release at
   `terraform init`, which walks past the 24-hour adoption quarantine: that is
