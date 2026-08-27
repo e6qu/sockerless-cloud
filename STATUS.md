@@ -84,13 +84,15 @@ Current state of the sockerless-cloud repository.
   figures written here had drifted from the tests that produce them): IAM
   resource derivation **1,764 of 1,994** served operations;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
-  catalog vendored); `storage-v1` **89 of 89**; `cloudrun-v1` 152 of 152;
+  catalog vendored); `storage-v1` **89 of 89**; `cloudbuild-v1` 86 of 114 at Discovery revision
+  20260814, down from 98 of 130 because Google withdrew the `gitLabConfigs`
+  collection; `cloudrun-v1` 152 of 152;
   `spanner-v1` 188 of 198; `web-arm-openapi-2025-03-01` 616 of 692 (App
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family);
   `containerregistry-dataplane-containerregistry-2021-07-01` 24 of 29;
   `keyvault-arm-managedhsm-2023-07-01` 6 of 16 (the Managed HSM pool's own
-  lifecycle and both list scopes). Google Cloud totals **4,426 of 5,442**
+  lifecycle and both list scopes). Google Cloud totals **4,414 of 5,426**
   Discovery method spellings; Azure **2,511 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint
@@ -136,6 +138,11 @@ Current state of the sockerless-cloud repository.
   than in `realexec`, because the simulators require the support modules at
   tagged versions with no `replace`, so a function in the working tree's
   `realexec` is invisible to a `GOWORK=off` build.
+- **Every version CI depends on is pinned, tools included.** The two quality-gate
+  tools installed at `@latest` — `deadcode` and `dupl` — now name versions, and
+  `check-latest-deps.sh` reads every `go install <pkg>@<version>` in a workflow,
+  failing outright on `@latest` and holding the pin to the same adoption
+  quarantine as a module or a provider.
 - **Every Terraform provider is pinned**, and `check-latest-deps.sh` fails on
   one that is not. An unpinned provider installs the newest release at
   `terraform init`, which walks past the 24-hour adoption quarantine: that is

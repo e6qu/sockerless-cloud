@@ -139,17 +139,6 @@ type GitHubEnterpriseConfig struct {
 	SslCa         string         `json:"sslCa,omitempty"`
 }
 
-// GitLabConfig mirrors the Cloud Build v1 GitLab source-host config.
-type GitLabConfig struct {
-	Name                  string           `json:"name,omitempty"`
-	Username              string           `json:"username,omitempty"`
-	Secrets               map[string]any   `json:"secrets,omitempty"`
-	CreateTime            string           `json:"createTime,omitempty"`
-	WebhookKey            string           `json:"webhookKey,omitempty"`
-	ConnectedRepositories []map[string]any `json:"connectedRepositories,omitempty"`
-	EnterpriseConfig      map[string]any   `json:"enterpriseConfig,omitempty"`
-}
-
 // BitbucketServerConfig mirrors the Cloud Build v1 Bitbucket Server config.
 type BitbucketServerConfig struct {
 	Name                  string           `json:"name,omitempty"`
@@ -177,7 +166,6 @@ var cbRunning sync.Map
 var cbTriggers sim.Store[BuildTrigger]
 var cbWorkerPools sim.Store[WorkerPool]
 var cbGHEConfigs sim.Store[GitHubEnterpriseConfig]
-var cbGitLabConfigs sim.Store[GitLabConfig]
 var cbBitbucketConfigs sim.Store[BitbucketServerConfig]
 
 func registerCloudBuild(srv *sim.Server) {
@@ -185,7 +173,6 @@ func registerCloudBuild(srv *sim.Server) {
 	cbTriggers = sim.MakeStore[BuildTrigger](srv.DB(), "cloudbuild_triggers")
 	cbWorkerPools = sim.MakeStore[WorkerPool](srv.DB(), "cloudbuild_worker_pools")
 	cbGHEConfigs = sim.MakeStore[GitHubEnterpriseConfig](srv.DB(), "cloudbuild_ghe_configs")
-	cbGitLabConfigs = sim.MakeStore[GitLabConfig](srv.DB(), "cloudbuild_gitlab_configs")
 	cbBitbucketConfigs = sim.MakeStore[BitbucketServerConfig](srv.DB(), "cloudbuild_bitbucket_configs")
 
 	// CreateBuild: POST /v1/projects/{project}/builds
@@ -370,14 +357,6 @@ func registerCloudBuild(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs/{config}", handleGetGHEConfig)
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs/{config}", handlePatchGHEConfig)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs/{config}", handleDeleteGHEConfig)
-
-	// GitLab configs (regional) + repos list.
-	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/gitLabConfigs", handleCreateGitLabConfig)
-	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/gitLabConfigs", handleListGitLabConfigs)
-	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/gitLabConfigs/{config}", handleGetGitLabConfig)
-	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/gitLabConfigs/{config}", handlePatchGitLabConfig)
-	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/gitLabConfigs/{config}", handleDeleteGitLabConfig)
-	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/gitLabConfigs/{config}/repos", handleListGitLabRepos)
 
 	// Bitbucket Server configs (regional) + repos list.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs", handleCreateBitbucketConfig)
@@ -646,98 +625,6 @@ func handleDeleteGHEConfig(w http.ResponseWriter, r *http.Request) {
 	key := cbConfigKey(sim.PathParam(r, "project"), buildTriggerLocation(r), "githubEnterpriseConfigs", sim.PathParam(r, "config"))
 	cbGHEConfigs.Delete(key)
 	sim.WriteJSON(w, http.StatusOK, CloudBuildOperation{Name: key, Done: true})
-}
-
-func handleCreateGitLabConfig(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	id := r.URL.Query().Get("gitlabConfigId")
-	if id == "" {
-		id = generateUUID()
-	}
-	var cfg GitLabConfig
-	if err := sim.ReadJSON(r, &cfg); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid gitLabConfig body: %v", err)
-		return
-	}
-	cfg.Name = cbConfigKey(project, location, "gitLabConfigs", id)
-	cfg.CreateTime = nowTimestamp()
-	cbGitLabConfigs.Put(cfg.Name, cfg)
-	op := cbDoneOperation(
-		fmt.Sprintf("projects/%s/locations/%s/operations/gitlab-%s", project, location, id),
-		"type.googleapis.com/google.devtools.cloudbuild.v1.GitLabConfig", cfg)
-	sim.WriteJSON(w, http.StatusOK, op)
-}
-
-func handleGetGitLabConfig(w http.ResponseWriter, r *http.Request) {
-	key := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "gitLabConfigs", sim.PathParam(r, "config"))
-	cfg, ok := cbGitLabConfigs.Get(key)
-	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gitLabConfig %s not found", key)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, cfg)
-}
-
-func handleListGitLabConfigs(w http.ResponseWriter, r *http.Request) {
-	prefix := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "gitLabConfigs", "")
-	configs := cbGitLabConfigs.Filter(func(c GitLabConfig) bool { return strings.HasPrefix(c.Name, prefix) })
-	sort.Slice(configs, func(i, j int) bool { return configs[i].Name < configs[j].Name })
-	page, next, ok := paginateListParam(w, r, configs, "pageSize")
-	if !ok {
-		return
-	}
-	resp := map[string]any{"gitlabConfigs": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
-}
-
-func handlePatchGitLabConfig(w http.ResponseWriter, r *http.Request) {
-	key := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "gitLabConfigs", sim.PathParam(r, "config"))
-	prior, ok := cbGitLabConfigs.Get(key)
-	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gitLabConfig %s not found", key)
-		return
-	}
-	var update GitLabConfig
-	if err := sim.ReadJSON(r, &update); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid gitLabConfig body: %v", err)
-		return
-	}
-	mask := r.URL.Query().Get("updateMask")
-	if mask == "" || updateMaskHas(mask, "username") {
-		prior.Username = update.Username
-	}
-	if mask == "" || updateMaskHas(mask, "secrets") {
-		prior.Secrets = update.Secrets
-	}
-	if mask == "" || updateMaskHas(mask, "enterpriseConfig") {
-		prior.EnterpriseConfig = update.EnterpriseConfig
-	}
-	cbGitLabConfigs.Put(key, prior)
-	op := cbDoneOperation(cbConfigOperationName(r, "gitlab"),
-		"type.googleapis.com/google.devtools.cloudbuild.v1.GitLabConfig", prior)
-	sim.WriteJSON(w, http.StatusOK, op)
-}
-
-func handleDeleteGitLabConfig(w http.ResponseWriter, r *http.Request) {
-	key := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "gitLabConfigs", sim.PathParam(r, "config"))
-	cbGitLabConfigs.Delete(key)
-	sim.WriteJSON(w, http.StatusOK, CloudBuildOperation{Name: key, Done: true})
-}
-
-func handleListGitLabRepos(w http.ResponseWriter, r *http.Request) {
-	key := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "gitLabConfigs", sim.PathParam(r, "config"))
-	if _, ok := cbGitLabConfigs.Get(key); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gitLabConfig %s not found", key)
-		return
-	}
-	// A freshly created config has no connected repositories to enumerate;
-	// the real API returns the discovered repos, which only exist after a
-	// connection handshake the simulator does not perform.
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"gitlabRepositories": []any{}})
 }
 
 func handleCreateBitbucketConfig(w http.ResponseWriter, r *http.Request) {

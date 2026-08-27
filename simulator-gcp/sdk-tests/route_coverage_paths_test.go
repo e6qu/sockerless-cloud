@@ -43,7 +43,6 @@ import (
 //   DELETE /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}
 //   DELETE /v1/projects/{project}/locations/{location}/enrollments/{enrollment}
 //   DELETE /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs/{config}
-//   DELETE /v1/projects/{project}/locations/{location}/gitLabConfigs/{config}
 //   DELETE /v1/projects/{project}/locations/{location}/googleApiSources/{source}
 //   DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}
 //   DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersion}
@@ -116,9 +115,6 @@ import (
 //   GET /v1/projects/{project}/locations/{location}/enrollments/{enrollment}
 //   GET /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs
 //   GET /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs/{config}
-//   GET /v1/projects/{project}/locations/{location}/gitLabConfigs
-//   GET /v1/projects/{project}/locations/{location}/gitLabConfigs/{config}
-//   GET /v1/projects/{project}/locations/{location}/gitLabConfigs/{config}/repos
 //   GET /v1/projects/{project}/locations/{location}/googleApiSources
 //   GET /v1/projects/{project}/locations/{location}/googleApiSources/{source}
 //   GET /v1/projects/{project}/locations/{location}/googleChannelConfig
@@ -183,7 +179,6 @@ import (
 //   PATCH /v1/projects/{project}/locations/{location}/ekmConnections/{ekmConnection}
 //   PATCH /v1/projects/{project}/locations/{location}/enrollments/{enrollment}
 //   PATCH /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs/{config}
-//   PATCH /v1/projects/{project}/locations/{location}/gitLabConfigs/{config}
 //   PATCH /v1/projects/{project}/locations/{location}/googleApiSources/{source}
 //   PATCH /v1/projects/{project}/locations/{location}/googleChannelConfig
 //   PATCH /v1/projects/{project}/locations/{location}/messageBuses/{bus}
@@ -229,7 +224,6 @@ import (
 //   POST /v1/projects/{project}/locations/{location}/enrollments
 //   POST /v1/projects/{project}/locations/{location}/enrollments/{enrollmentAction}
 //   POST /v1/projects/{project}/locations/{location}/githubEnterpriseConfigs
-//   POST /v1/projects/{project}/locations/{location}/gitLabConfigs
 //   POST /v1/projects/{project}/locations/{location}/googleApiSources
 //   POST /v1/projects/{project}/locations/{location}/googleApiSources/{sourceAction}
 //   POST /v1/projects/{project}/locations/{location}/keyHandles

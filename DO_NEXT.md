@@ -31,6 +31,18 @@
    the Application Insights query data plane; and the two published catalogs
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
+0-spec. **Eighteen Google Discovery documents are behind upstream** (measured
+   2026-08-27 by `scripts/check-spec-freshness.sh gcp`): Compute Engine,
+   Firestore, Cloud Run v1 and v2, Logging, Storage, Cloud KMS, BigQuery,
+   Pub/Sub, IAM and the rest. Re-vendor each as its tail is served rather than
+   in one sweep — a re-vendor moves both the declared total and the served
+   floor, and the floor comment has to say which methods moved and why.
+
+   Cloud Build is done (revision 20260814): Google withdrew the whole
+   `gitLabConfigs` collection, and the simulator no longer serves it. Expect
+   more withdrawals — a served count that falls after a re-vendor is not
+   automatically a regression, but it must be shown to be a withdrawal.
+
 0a. **A served count can hide an unserved method.** The coverage probe reads
    any handler answer as served, so a sibling collection swallowed by a
    multi-segment wildcard counts as covered while no handler for it exists.
@@ -143,6 +155,13 @@ exchange (sockerless #926) and the build-context blob client's shared-key
 credential (sockerless #927). Nothing is pending on the consumer side.
 
 ## Tooling quirks that are not simulator defects
+
+- This host's Podman drops `buildx` with `rpc error: ... EOF` at the
+  `exporting to docker image format` step, which fails the Terraform harness
+  before Terraform runs at all. `podman machine stop && podman machine start`
+  clears it. Do not restart the machine while another suite is running: it
+  pulls the engine out from under every container-dependent test and produces
+  failures that look like the change under test.
 
 - The Google Cloud Terraform package runs under `-timeout 300s` and takes
   163s with a warm provider cache. The first run on a cold one spends the

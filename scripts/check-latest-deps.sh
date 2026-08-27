@@ -14,6 +14,9 @@
 #   3. GitHub Actions in .github/workflows — every owner/repo action must be
 #      pinned to the newest published semantic version tag that has cleared the
 #      quarantine.
+#   4. Go tools a workflow installs — every `go install <pkg>@<version>` must
+#      name a version, never `@latest`, and that version is held to the same
+#      quarantine as everything else.
 #
 # Exit code: 0 only when every direct dependency is on the newest adoptable
 # version. 1 on any drift, and on any dependency whose publication time cannot
@@ -640,6 +643,68 @@ if [[ -d .github/workflows ]]; then
     fi
     report_version_state "$file: $repo" "$pinned" "$file" "$repo"
   done <<<"$actions"
+fi
+
+# 4. Go tools installed by workflows ----------------------------------
+# `go install <pkg>@latest` resolves at job time, so a release published
+# minutes earlier runs in CI with no quarantine and no commit — the same hole
+# an unpinned Terraform provider opens. It also makes the download
+# non-cacheable and the job's verdict irreproducible. Pin the version; this
+# checks the pin the way it checks every other dependency.
+#
+# `go install` takes a package path, and the version belongs to the module
+# containing it, so walk the path upwards until a module resolves.
+go_tool_module() {
+  local path=$1
+  while [[ $path == *.*/* ]]; do
+    if GOFLAGS='' go list -m -versions "$path" >/dev/null 2>&1; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+    path=${path%/*}
+  done
+  return 1
+}
+
+echo
+echo "=== Workflow Go tool freshness (adoption quarantine ${quarantine_seconds}s) ==="
+if [[ -d .github/workflows ]]; then
+  tools=$(
+    git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' | sort | while IFS= read -r wf; do
+      [[ -z "$wf" ]] && continue
+      # `|| true`: a workflow with no `go install` makes grep exit 1, and
+      # under pipefail that would abandon the whole scan silently.
+      grep -oE 'go install [A-Za-z0-9_./-]+@[A-Za-z0-9_.+-]+' "$wf" 2>/dev/null \
+        | sed -e 's/^go install //' -e "s|^|$wf\||" || true
+    done | sort -u
+  )
+  while IFS='|' read -r file tool_ref; do
+    [[ -z "$tool_ref" ]] && continue
+    pkg=${tool_ref%@*}
+    pinned=${tool_ref#*@}
+    if [[ $pinned == latest ]]; then
+      echo "  FAIL  $file: $pkg is installed @latest — pin the version so the tool clears the adoption quarantine like every other dependency"
+      fail=$((fail + 1))
+      continue
+    fi
+    module=$(go_tool_module "$pkg") || {
+      echo "  FAIL  $file: no module resolves for $pkg, so its pin $pinned cannot be aged"
+      fail=$((fail + 1))
+      continue
+    }
+    published=$(GOFLAGS='' go list -m -versions "$module" 2>/dev/null \
+      | tr ' ' '\n' | tail -n +2 \
+      | grep -vE '\-(beta|alpha|rc|dev|preview)' || true)
+    [[ -z "$published" ]] && continue
+    LOOKUP_CLASS=go
+    LOOKUP_SUBJECT=$module
+    if ! adoptable_version "$pinned" "$published"; then
+      echo "  FAIL  $file: $module publication time for $UNREADABLE could not be determined from the module proxy (a version of unknown age is never adopted)"
+      fail=$((fail + 1))
+      continue
+    fi
+    report_version_state "$file: $pkg" "$pinned" "$file" "$module"
+  done <<<"$tools"
 fi
 
 echo

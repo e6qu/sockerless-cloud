@@ -1,5 +1,43 @@
 # WHAT WE DID
 
+## 2026-08-28, twenty-ninth pass — pin the tools CI installs, and follow the cloud that withdrew a surface
+
+The `dupl` quality gate failed on a download, not on the code: `go install
+github.com/mibk/dupl@latest` hit an `INTERNAL_ERROR` from proxy.golang.org and
+the gate never ran. `deadcode` and `dupl` were the only two unpinned tool
+installs in CI — `golangci-lint` was already pinned — so both now name a
+version. `@latest` resolves at job time, which puts a release published minutes
+earlier into CI with no quarantine and no commit, and makes the download
+uncacheable and the verdict irreproducible.
+
+`check-latest-deps.sh` covered Go modules, Terraform providers and GitHub
+Actions but not the tools a workflow installs, so it now reads every `go
+install <pkg>@<version>`, fails outright on `@latest`, and holds the pinned
+version to the same adoption quarantine as everything else. The section shipped
+broken on its first draft: under `set -euo pipefail` a `grep` exiting 1 on the
+first workflow without a `go install` abandoned the whole scan, so it printed
+its header and found nothing. Both negative controls — an `@latest` install and
+a deliberately stale pin — came back silent, which is what exposed it.
+
+Bundling the drift the gate then reported upgraded 46 AWS SDK modules, two
+Google client modules, `hashicorp/aws` to 6.62.0, and `hashicorp/google` and
+`hashicorp/google-beta` to 8.0.0. The Google provider's major bump is exercised
+end to end: all seven Terraform tests apply, plan clean and destroy.
+
+The Google client upgrade broke a compile, and the cause belonged to the cloud
+rather than the client. `google.golang.org/api` v0.294.0 dropped the
+`GitLabConfig` type because Google withdrew the whole `gitLabConfigs`
+collection from Cloud Build v1 between Discovery revision 20260627 and 20260814
+— the simulator was serving a surface the cloud no longer publishes. The
+document is re-vendored at 20260814 and the collection is gone from the
+simulator, its store, its type, its SDK test and the wire-path index. Cloud
+Build declares 114 method spellings where it declared 130, and serves 86 where
+it served 98; both drops are the withdrawal, and the floor comment says so.
+
+The same sweep found eighteen Google Discovery documents behind upstream,
+including Compute Engine, Firestore, Cloud Run v1 and v2, Logging and Storage.
+That backlog belongs to the tail-serving work rather than to this pass.
+
 ## 2026-08-27, twenty-eighth pass — Cloud Storage is whole, and a phantom class is named
 
 The storage v1 document is served end to end: 89 of 89 method spellings, up

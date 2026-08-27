@@ -69,7 +69,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"bigquery-v2":             95,
 	"bigtableadmin-v2":        164,
 	"cloudbilling-v1":         36,
-	"cloudbuild-v1":           130,
+	"cloudbuild-v1":           114,
 	"cloudfunctions-v2":       42,
 	"cloudkms-v1":             172,
 	"cloudresourcemanager-v1": 76,
@@ -205,9 +205,15 @@ var gcpMethodFloor = map[string]int{
 	// cancel behind both. The rest of the regional (locations/{location}) builds
 	// surface including .retry, the webhook receivers
 	// (githubDotComWebhook.receive, webhook, regionalWebhook),
-	// connectedRepositories.batchCreate, removeGitLabConnectedRepository and
-	// removeBitbucketServerConnectedRepository are mux misses.
-	"cloudbuild-v1": 98,
+	// connectedRepositories.batchCreate and removeBitbucketServerConnectedRepository
+	// are mux misses.
+	//
+	// Declared fell from 130 to 114 and served from 98 to 86 at Discovery
+	// revision 20260814: Google withdrew the whole gitLabConfigs collection
+	// (create, get, list, patch, delete, repos.list — sixteen spellings, twelve
+	// of them served). google.golang.org/api dropped the GitLabConfig type in
+	// v0.294.0, which is what surfaced it. Neither drop is a regression.
+	"cloudbuild-v1": 86,
 
 	// Memorystore for Redis: instance CRUD, upgrade, failover and
 	// operations.cancel are served. ACL policy revision get/list are served
