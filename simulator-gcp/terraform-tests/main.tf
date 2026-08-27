@@ -726,6 +726,33 @@ resource "google_storage_bucket" "tf_bucket" {
   force_destroy = true
 
   uniform_bucket_level_access = true
+
+  # The retention a delete honours before the object becomes restorable
+  # rather than gone.
+  soft_delete_policy {
+    retention_duration_seconds = 604800
+  }
+}
+
+# A second bucket with fine-grained access, because uniform bucket-level
+# access is exactly what turns the legacy per-object ACL surface off.
+resource "google_storage_bucket" "tf_acl_bucket" {
+  name          = "tf-test-acl-bucket-${random_id.bucket_suffix.hex}"
+  location      = "us-central1"
+  force_destroy = true
+}
+
+resource "google_storage_bucket_object" "tf_acl_object" {
+  name    = "acl-target.txt"
+  bucket  = google_storage_bucket.tf_acl_bucket.name
+  content = "granted through terraform"
+}
+
+resource "google_storage_object_access_control" "tf_object_reader" {
+  object = google_storage_bucket_object.tf_acl_object.output_name
+  bucket = google_storage_bucket.tf_acl_bucket.name
+  role   = "READER"
+  entity = "allUsers"
 }
 
 resource "random_id" "bucket_suffix" {

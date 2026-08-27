@@ -703,6 +703,15 @@ func TestRouteCoveragePathsAreServed(t *testing.T) {
 //   POST /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}/disable
 //   PATCH /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}
 //   PATCH /storage/v1/b/{bucket}/managedFolders/{managedFolder}
+//   GET /storage/v1/b/{bucket}/o/{object}/acl
+//   GET /storage/v1/b/{bucket}/o/{object}/acl/{entity}
+//   POST /storage/v1/b/{bucket}/o/{object}/acl
+//   PUT /storage/v1/b/{bucket}/o/{object}/acl/{entity}
+//   PATCH /storage/v1/b/{bucket}/o/{object}/acl/{entity}
+//   DELETE /storage/v1/b/{bucket}/o/{object}/acl/{entity}
+//   POST /storage/v1/b/{bucket}/o/{object}/restore
+//   POST /storage/v1/b/{bucket}/o/bulkRestore
+//   POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}
 //   GET /v1/projects/{project}/services:batchGet
 //   POST /dns/v1/projects/{project}/managedZones/{zoneAction}
 //   POST /sql/v1beta4/projects/{projectAction}

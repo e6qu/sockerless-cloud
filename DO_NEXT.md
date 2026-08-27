@@ -1,18 +1,51 @@
 # DO NEXT
 
-0. The implementable tails are served (2026-08-26). What remains unserved on
-   each cloud is now, without exception, a family that cannot be answered
-   without inventing the provider's own data or a primitive the container
-   engine does not expose — the per-document floor comments name each one
-   and why. The exceptions worth revisiting only if a consumer appears:
-   Azure's Managed HSM tail, the container registry's blob-upload session,
-   the Application Insights query data plane, storage-account migrations,
-   Event Grid extension topics, Log Analytics' resource-scoped query and key
-   regeneration, the Compute resource provider's operations and usages
-   listings, and the instance metadata service's identity and attested
-   documents; on Google Cloud, Firestore's change streams and streaming
-   writes, Cloud Run v2's export family, and Compute Engine's deliberate
-   long tail (559 of 1,007).
+0. **The remaining tails are being served, document by document, on one
+   branch.** An earlier revision of this item claimed that what remained
+   unserved was "without exception" a family needing invented data or a
+   primitive the container engine lacks. That was wrong, and the floor
+   comments said so in their own words: measured on 2026-08-27, roughly 79
+   Google Cloud method spellings were plain routing misses. A route a handler
+   never sees and a fact the simulator cannot know are different problems, and
+   filing the first under the second hid ordinary work.
+
+   Done: **Cloud Storage, 89 of 89** (2026-08-27) — soft delete and the
+   restore surface it exists for, `objects.move`, and the per-object access
+   controls.
+
+   Left, largest first, with the per-document floor comment naming each:
+   Compute Engine's long tail (1,118 of 2,014 spellings; 559 of 1,007
+   methods), Cloud Build's regional surface and webhook receivers (32),
+   Artifact Registry's package-format publish and prewarm families (22),
+   Firestore's streaming verbs and change streams (24, of which about ten are
+   routing), Cloud Run v2's export family and source upload (17), Cloud
+   Logging's `projects.locations.get` (4, a routing trade recorded beside the
+   route), BigQuery's media upload path (1), Memorystore's export/import/
+   reschedule verbs (6); then Azure's 41 non-App-Service operations and the
+   implementable part of App Service's 76; then the 230 AWS IAM derivations.
+
+   Genuinely blocked, and to be left unserved with the reason recorded rather
+   than answered with invented data: Cloud Spanner's Key Visualizer scans,
+   quorum change and wire-protocol adapter; Cloud KMS' Key Access
+   Justifications; App Service's packet capture and process dump/modules/kill;
+   the Application Insights query data plane; and the two published catalogs
+   declined three times (Microsoft's runtime stacks, Google's SKU list).
+
+0a. **A served count can hide an unserved method.** The coverage probe reads
+   any handler answer as served, so a sibling collection swallowed by a
+   multi-segment wildcard counts as covered while no handler for it exists.
+   Cloud Storage's five per-object ACL reads and writes were covered that way
+   for as long as the gate has existed; `/o/{object}/acl` reached
+   `objects.get`, which answered `object "doc.txt/acl" not found`. When a
+   document's count moves by one, check whether the collection beneath a
+   `{x...}` route has siblings — the visible gap may be the only member of its
+   family that had no catch-all to fall into. The same sweep has not yet been
+   run over the other documents.
+
+0b. **Judge a route on both clients before believing it.** The generated Go
+   client sends `softDeleted=true`; gcloud sends `softDeleted=True`. An
+   exact-match comparison passes every SDK test and returns an empty list to
+   the CLI, silently. Query booleans go through `strconv.ParseBool`.
 
 1. The gRPC surfaces are served (2026-08-26). The ratchet in
    simulator-gcp/grpc_coverage_test.go holds 210 of 213, and the three that
@@ -110,6 +143,15 @@ exchange (sockerless #926) and the build-context blob client's shared-key
 credential (sockerless #927). Nothing is pending on the consumer side.
 
 ## Tooling quirks that are not simulator defects
+
+- The Google Cloud Terraform package runs under `-timeout 300s` and takes
+  163s with a warm provider cache. The first run on a cold one spends the
+  difference downloading providers and dies at 307s, and what it prints is a
+  goroutine dump from `runTimed`'s watchdog rather than a named failure — so
+  it reads like a hang in whichever command was in flight. Measured on
+  2026-08-27, both runs on the same tree. Re-run before diagnosing; if the
+  warm number ever approaches the budget, raise the budget rather than
+  trimming the stack, because the stack is the coverage.
 
 - The two container engines take different blob-upload paths, so a registry
   upload change cannot be judged on a local run. Docker's `docker push` opens

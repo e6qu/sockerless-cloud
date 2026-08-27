@@ -1,5 +1,56 @@
 # WHAT WE DID
 
+## 2026-08-27, twenty-eighth pass — Cloud Storage is whole, and a phantom class is named
+
+The storage v1 document is served end to end: 89 of 89 method spellings, up
+from 85. What the four new ones needed was one missing concept rather than four
+routes. `objects.restore` and `objects.bulkRestore` had nothing to restore
+because a delete dropped the object outright, so soft delete is now real — a
+bucket carries the seven-day retention policy Cloud Storage gives it, a delete
+under one retires the object instead of destroying it,
+`objects.list?softDeleted=true` reports the retired generations with both
+delete times, and restore brings one back with its bytes. `bulkRestore`
+selects with the members the service actually declares — `matchGlobs` and the
+created/soft-deleted time bounds — over a glob compiled so `**` crosses `/`
+and `*` does not. `objects.move` renames within a hierarchical-namespace
+bucket and rejects a flat one the way the service does.
+
+Serving soft delete closed a leak that had nothing to do with coverage. The
+delete path removed the store row and the bucket index entry but never the
+backing file under `GCSBucketHostDir`, so every deleted object left its payload
+on the host for the life of the process. Retention is what decides between the
+two endings now: an object retired under a policy keeps its bytes because
+restore will need them, and an object deleted without one is destroyed, file
+included, as are the retired objects whose `hardDeleteTime` has passed.
+
+The fifth method is the one worth remembering. Only
+`objectAccessControls.insert` showed up as unserved; its five siblings —
+`list`, `get`, `update`, `patch`, `delete` — were counted as **served** and no
+handler for them existed. `/o/{object}/acl` matched the `{object...}`
+catch-all that serves `objects.get`, which answered `object "doc.txt/acl" not
+found`: a JSON 404 the coverage probe reads as a handler answering. Only
+`insert` was visible, because POST had no catch-all to swallow it. The whole
+per-object ACL surface is now real — entries seeded at object creation from the
+bucket's default object ACL, as the service does, and the legacy surface
+refused with the documented 400 when the bucket has uniform bucket-level access
+enabled. `TestGCS_ObjectACLIsNotTheObjectHandler` holds the listing to naming
+the object itself, and unregistering the routes reproduces the old answer
+verbatim.
+
+The gcloud leg caught a defect the SDK leg could not. The generated Go client
+sends `softDeleted=true`; gcloud, rendering Python's bool, sends
+`softDeleted=True`. A handler comparing against the lower-case spelling serves
+the SDK perfectly and returns an empty list to the CLI, with no error anywhere
+— so the parameter is read with `strconv.ParseBool` and both clients drive the
+same routes.
+
+`BUGS.md` was repaired in passing: a table row's text had spilled past its
+cell, swallowing BUG-2932's entire row, so the file rendered six open bugs and
+held seven. BUG-2909's figures had drifted a second time — the row said 190 in
+its title and 1,758 of 1,994 in its body while the ratchet measured 1,764 —
+and now says 1,764 of 1,994 with 230 remaining, which is what
+`TestIAMResourceDerivationCoverage` reports.
+
 ## 2026-08-27, twenty-seventh pass — a simulator does not outlive its test
 
 Every test harness starts a simulator as a child process and stops it from its

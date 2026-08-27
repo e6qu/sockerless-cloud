@@ -179,13 +179,20 @@ var gcpMethodFloor = map[string]int{
 	// org-policy family on all three hierarchy nodes.
 	"cloudresourcemanager-v1": 76,
 
-	// Cloud Storage: objects.restore, objects.move, objects.bulkRestore and
-	// objectAccessControls.insert are unmounted — the probe gets Go's own
-	// mux miss on each. Every other method the document describes is served,
-	// including the rapidCaches collection (store-backed control-plane state
-	// settled synchronously, like anywhere caches) and managedFolders.patch
-	// (rapidCacheConfig, the resource's one mutable member).
-	"storage-v1": 85,
+	// Cloud Storage: the whole document is served. Raised from 85 by
+	// objects.restore, objects.bulkRestore, objects.move and the per-object
+	// access-control surface.
+	//
+	// Four of those five had never been routed. The fifth is the reason this
+	// count is worth reading twice: objectAccessControls.list, .get, .update,
+	// .patch and .delete were already counted as served, and no handler for
+	// them existed. `/o/{object}/acl` matched the `{object...}` catch-all that
+	// serves objects.get, which answered "object \"<name>/acl\" not found" —
+	// a JSON 404 the probe reads as a handler answering. Only .insert showed
+	// up as missing, because POST had no catch-all to swallow it. A count that
+	// moves by one can therefore be hiding five; a sibling collection under a
+	// multi-segment wildcard is where to look.
+	"storage-v1": 89,
 
 	// Artifact Registry: the Docker/Maven/npm/Python read surface, repository
 	// and rule CRUD are served, as is operations.cancel. The package-format
