@@ -654,13 +654,25 @@ fi
 #
 # `go install` takes a package path, and the version belongs to the module
 # containing it, so walk the path upwards until a module resolves.
+# go_tool_module_error carries why the last attempt failed. Without it the
+# caller could only say "no module resolves", which is a verdict with its
+# evidence thrown away: the same three tools resolve by hand and fail in CI,
+# and the reason went to /dev/null both times.
+go_tool_module_error=""
+
 go_tool_module() {
   local path=$1
+  local err=""
+  go_tool_module_error=""
   while [[ $path == *.*/* ]]; do
-    if GOFLAGS='' go list -m -versions "$path" >/dev/null 2>&1; then
+    if err=$(GOFLAGS='' go list -m -versions "$path" 2>&1 >/dev/null); then
       printf '%s\n' "$path"
       return 0
     fi
+    # Keep the first failure: it is the one for the full package path, which is
+    # the query the operator actually wrote. Later ones are for truncated
+    # parents and say only that a prefix is not a module.
+    [[ -n "$go_tool_module_error" ]] || go_tool_module_error=$err
     path=${path%/*}
   done
   return 1
@@ -689,6 +701,7 @@ if [[ -d .github/workflows ]]; then
     fi
     module=$(go_tool_module "$pkg") || {
       echo "  FAIL  $file: no module resolves for $pkg, so its pin $pinned cannot be aged"
+      [[ -n "$go_tool_module_error" ]] && echo "        go list said: ${go_tool_module_error}"
       fail=$((fail + 1))
       continue
     }
