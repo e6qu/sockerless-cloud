@@ -270,8 +270,6 @@ func handlePGPatchConfiguration(w http.ResponseWriter, r *http.Request) {
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), issueAzureAsyncOperation(nil))
 }
 
-// --- Administrators ---
-
 func pgAdminID(serverID, objectID string) string {
 	return serverID + "/administrators/" + objectID
 }
@@ -338,8 +336,6 @@ func handlePGDeleteAdministrator(w http.ResponseWriter, r *http.Request) {
 	}
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), issueAzureAsyncOperation(nil))
 }
-
-// --- Backups ---
 
 func pgBackupID(serverID, backupName string) string {
 	return serverID + "/backups/" + backupName
@@ -429,8 +425,6 @@ func handlePGDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), issueAzureAsyncOperation(nil))
 }
 
-// --- Replicas ---
-
 // handlePGListReplicas lists the read replicas of a server: every flexible
 // server whose replicationRole marks it a replica and whose top-level
 // properties.sourceServerResourceId — where ServerProperties carries it —
@@ -456,8 +450,6 @@ func handlePGListReplicas(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }
-
-// --- VirtualEndpoints ---
 
 func pgVirtualEndpointID(serverID, name string) string {
 	return serverID + "/virtualendpoints/" + name

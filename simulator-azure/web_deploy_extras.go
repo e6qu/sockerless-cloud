@@ -197,8 +197,6 @@ func webPublishingPassword(resID string) string {
 	return hex.EncodeToString(sum[:12])
 }
 
-// --- Package application -------------------------------------------------
-
 // webDeployPackageLimit bounds a fetched deployment package.
 const webDeployPackageLimit = 256 << 20 // 256 MiB
 
@@ -261,8 +259,6 @@ func webApplyDeploymentPackage(resID, packageURI string) (int, error) {
 	webCaptureAppSnapshot(resID)
 	return written, nil
 }
-
-// --- Wire shapes -----------------------------------------------------------
 
 func msDeployStatusWire(rec WebMSDeployRecord) map[string]any {
 	props := map[string]any{
@@ -366,8 +362,6 @@ func providerSourceControlWire(row WebProviderSourceControlRow) map[string]any {
 		"properties": props,
 	}
 }
-
-// --- Handlers ----------------------------------------------------------------
 
 // registerWebDeploymentExtras mounts the site/slot-level deployment routes.
 // The MSDeploy extension exists on sites, slots and their instances; OneDeploy

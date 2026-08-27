@@ -11,7 +11,6 @@ import (
 // family and the reserved-instance catalog/purchase flow through the
 // aws CLI. Grouped because appdata2 carries RDS.
 func TestRDSCLI_RestoreAndReserved(t *testing.T) {
-	// --- Restore family ---
 	srcCluster := "cli-rext-src-cluster"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", srcCluster,
@@ -116,7 +115,6 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 			"--db-instance-identifier", instS3, "--skip-final-snapshot").Run()
 	})
 
-	// --- Reserved instances ---
 	offerOut := runCLI(t, awsCLI("rds", "describe-reserved-db-instances-offerings"))
 	var offerings struct {
 		ReservedDBInstancesOfferings []struct {
@@ -157,7 +155,6 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 // zero-ETL integrations, tenant databases, and Aurora Limitless shard
 // groups through the aws CLI.
 func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
-	// --- Blue/green ---
 	source := "arn:aws:rds:us-east-1:123456789012:cluster:cli-bg-source"
 	bgOut := runCLI(t, awsCLI("rds", "create-blue-green-deployment",
 		"--blue-green-deployment-name", "cli-rext-bg",
@@ -201,7 +198,6 @@ func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
 	assert.Equal(t, "SWITCHOVER_COMPLETED", sw.BlueGreenDeployment.Status)
 	assert.Equal(t, target, sw.BlueGreenDeployment.Source)
 
-	// --- Integrations ---
 	intSrc := "arn:aws:rds:us-east-1:123456789012:cluster:cli-int-source"
 	intTgt := "arn:aws:redshift-serverless:us-east-1:123456789012:namespace/ns-1"
 	intOut := runCLI(t, awsCLI("rds", "create-integration",
@@ -234,7 +230,6 @@ func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
 	runCLI(t, awsCLI("rds", "modify-integration",
 		"--integration-identifier", integ.IntegrationArn))
 
-	// --- Tenant databases ---
 	cdbInst := "cli-rext-oracle-cdb"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", cdbInst,
@@ -286,7 +281,6 @@ func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
 			"--db-instance-identifier", cdbInst, "--tenant-db-name", "tenant1renamed").Run()
 	})
 
-	// --- Shard groups ---
 	limitlessCluster := "cli-rext-limitless"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", limitlessCluster,
@@ -344,7 +338,6 @@ func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
 // export tasks, the assorted cluster operations, snapshot attributes,
 // and the static catalog describes through the aws CLI.
 func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
-	// --- Activity streams ---
 	dasArn := "arn:aws:rds:us-east-1:123456789012:cluster:cli-das"
 	saOut := runCLI(t, awsCLI("rds", "start-activity-stream",
 		"--resource-arn", dasArn,
@@ -359,7 +352,6 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 	runCLI(t, awsCLI("rds", "modify-activity-stream", "--resource-arn", dasArn))
 	runCLI(t, awsCLI("rds", "stop-activity-stream", "--resource-arn", dasArn))
 
-	// --- Backtrack + cluster ops ---
 	clusterID := "cli-rext-ops-cluster"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", clusterID,
@@ -463,7 +455,6 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 			"--db-cluster-identifier", clusterArn))
 	}
 
-	// --- Cluster-snapshot attributes ---
 	csID := "cli-rext-snapattr-snap"
 	runCLI(t, awsCLI("rds", "create-db-cluster-snapshot",
 		"--db-cluster-snapshot-identifier", csID,
@@ -490,7 +481,6 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 	assert.ElementsMatch(t, []string{"123456789012", "all"},
 		attr.DBClusterSnapshotAttributesResult.DBClusterSnapshotAttributes[0].AttributeValues)
 
-	// --- ModifyDBSnapshot + export tasks ---
 	instID := "cli-rext-snapmod-instance"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instID,
@@ -549,7 +539,6 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 	assert.Equal(t, "exports-bucket", dexp.ExportTasks[0].S3Bucket)
 	runCLI(t, awsCLI("rds", "cancel-export-task", "--export-task-identifier", exportID))
 
-	// --- Static describes ---
 	ogo := runCLI(t, awsCLI("rds", "describe-option-group-options", "--engine-name", "mysql"))
 	var ogoR struct {
 		OptionGroupOptions []struct {

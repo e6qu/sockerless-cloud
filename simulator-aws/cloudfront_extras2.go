@@ -16,8 +16,6 @@ import (
 // named resource carrying an Id + ARN + an ETag returned in the response
 // header and required as If-Match on Update/Delete.
 
-// ---------- Field-Level Encryption Config ----------
-
 type CFContentTypeProfileConfig struct {
 	ForwardWhenContentTypeIsUnknown bool `xml:"ForwardWhenContentTypeIsUnknown"`
 }
@@ -64,8 +62,6 @@ type cfStoredFLE struct {
 	FLE  CFFieldLevelEncryption
 	ETag string
 }
-
-// ---------- Field-Level Encryption Profile ----------
 
 type CFFieldPatterns struct {
 	Quantity int      `xml:"Quantity"`
@@ -122,8 +118,6 @@ type cfStoredFLEProfile struct {
 	ETag    string
 }
 
-// ---------- Key Value Store ----------
-
 // CFKeyValueStore mirrors the SDK KeyValueStore shape, which CloudFront
 // returns as the response payload directly (httpPayload binding).
 type CFKeyValueStore struct {
@@ -175,8 +169,6 @@ type cfStoredKVS struct {
 	KVS  CFKeyValueStore
 	ETag string
 }
-
-// ---------- Real-time Log Config ----------
 
 type CFKinesisStreamConfig struct {
 	RoleARN   string `xml:"RoleARN"`
@@ -263,8 +255,6 @@ type CFRealtimeLogConfigs struct {
 	Items       []CFRealtimeLogConfigMember `xml:"Items>member,omitempty"`
 }
 
-// ---------- Streaming Distribution ----------
-
 type CFS3Origin struct {
 	DomainName           string `xml:"DomainName"`
 	OriginAccessIdentity string `xml:"OriginAccessIdentity"`
@@ -342,8 +332,6 @@ type cfStoredStreamingDist struct {
 	ETag string
 }
 
-// ---------- VPC Origin ----------
-
 type CFOriginSslProtocols struct {
 	Quantity int      `xml:"Quantity"`
 	Items    []string `xml:"Items>SslProtocol,omitempty"`
@@ -407,8 +395,6 @@ type cfStoredVpcOrigin struct {
 	ETag   string
 }
 
-// ---------- Anycast IP List ----------
-
 // CFAnycastIpList — AnycastIps is a flat list of <AnycastIp> elements nested
 // directly under <AnycastIps> (the AnycastIps shape is a Smithy list, not a
 // Quantity/Items wrapper).
@@ -459,8 +445,6 @@ type cfStoredAnycastIpList struct {
 	List CFAnycastIpList
 	ETag string
 }
-
-// ---------- Storage ----------
 
 var (
 	cfFLEConfigs             sim.Store[cfStoredFLE]
@@ -555,8 +539,6 @@ func registerCloudFrontExtras2(srv *sim.Server) {
 	mux.HandleFunc("GET /"+v+"/anycast-ip-list/{Id}", cloudTrailRecordedREST("GetAnycastIpList", "cloudfront.amazonaws.com", anycastRes, handleCFGetAnycastIpList))
 	mux.HandleFunc("DELETE /"+v+"/anycast-ip-list/{Id}", cloudTrailRecordedREST("DeleteAnycastIpList", "cloudfront.amazonaws.com", anycastRes, handleCFDeleteAnycastIpList))
 }
-
-// ----- Field-Level Encryption Config handlers -----
 
 func handleCFCreateFLE(w http.ResponseWriter, r *http.Request) {
 	var cfg CFFieldLevelEncryptionConfig
@@ -667,8 +649,6 @@ func handleCFListFLE(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// ----- Field-Level Encryption Profile handlers -----
-
 func handleCFCreateFLEProfile(w http.ResponseWriter, r *http.Request) {
 	var cfg CFFieldLevelEncryptionProfileConfig
 	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
@@ -777,8 +757,6 @@ func handleCFListFLEProfiles(w http.ResponseWriter, _ *http.Request) {
 		Items:    items,
 	})
 }
-
-// ----- Key Value Store handlers -----
 
 func cfKVSARN(name string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:key-value-store/%s", awsAccountID(), name)
@@ -892,8 +870,6 @@ func handleCFListKVS(w http.ResponseWriter, _ *http.Request) {
 		Items:    items,
 	})
 }
-
-// ----- Real-time Log Config handlers -----
 
 // cfRealtimeLogKey resolves a real-time log config store key from a request
 // that identifies the resource by Name or ARN. Returns the key (Name) or "".
@@ -1013,8 +989,6 @@ func handleCFListRealtimeLog(w http.ResponseWriter, _ *http.Request) {
 		Items:       items,
 	})
 }
-
-// ----- Streaming Distribution handlers -----
 
 func cfStreamingARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:streaming-distribution/%s", awsAccountID(), id)
@@ -1182,8 +1156,6 @@ func handleCFListStreamingDist(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// ----- VPC Origin handlers -----
-
 func cfVpcOriginARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront:us-east-1:%s:vpcorigin/%s", awsAccountID(), id)
 }
@@ -1301,8 +1273,6 @@ func handleCFListVpcOrigins(w http.ResponseWriter, _ *http.Request) {
 		Items:    items,
 	})
 }
-
-// ----- Anycast IP List handlers -----
 
 func cfAnycastARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:anycast-ip-list/%s", awsAccountID(), id)

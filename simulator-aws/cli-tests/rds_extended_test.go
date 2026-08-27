@@ -23,7 +23,6 @@ func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
 			"--skip-final-snapshot").Run()
 	})
 
-	// --- DB cluster snapshot ---
 	snapID := "cli-ext-cluster-snap"
 	out := runCLI(t, awsCLI("rds", "create-db-cluster-snapshot",
 		"--db-cluster-snapshot-identifier", snapID,
@@ -77,7 +76,6 @@ func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
 	runCLI(t, awsCLI("rds", "delete-db-cluster-snapshot",
 		"--db-cluster-snapshot-identifier", snapID))
 
-	// --- DB cluster parameter group ---
 	pgName := "cli-ext-cluster-pg"
 	out = runCLI(t, awsCLI("rds", "create-db-cluster-parameter-group",
 		"--db-cluster-parameter-group-name", pgName,
@@ -119,7 +117,6 @@ func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
 // TestRDSCLI_OptionGroupAndReplica covers option groups,
 // read replicas, and CopyDBSnapshot through the aws CLI.
 func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
-	// --- Option group ---
 	ogName := "cli-ext-option-group"
 	out := runCLI(t, awsCLI("rds", "create-option-group",
 		"--option-group-name", ogName,
@@ -159,7 +156,6 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 	runCLI(t, awsCLI("rds", "list-tags-for-resource", "--resource-name", ogArn))
 	runCLI(t, awsCLI("rds", "delete-option-group", "--option-group-name", ogName))
 
-	// --- Read replica + CopyDBSnapshot ---
 	srcID := "cli-ext-replica-src"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", srcID,

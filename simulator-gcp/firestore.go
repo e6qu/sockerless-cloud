@@ -1147,7 +1147,6 @@ func fsMapsEqual(a, b *FSMapValue) bool {
 	return true
 }
 
-// ----------------------------------------------------------------------------
 // Firestore v1 Admin API surface
 //
 // The admin resources (databases, collectionGroups/{cg}/indexes,
@@ -1413,8 +1412,6 @@ func fsFieldOpMetadata(fieldName string) map[string]any {
 	}
 }
 
-// --- Databases ---
-
 func fsDatabaseName(project, database string) string {
 	return fmt.Sprintf("projects/%s/databases/%s", project, database)
 }
@@ -1550,8 +1547,6 @@ func handleFSDatabaseVerb(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// --- Indexes ---
-
 func handleFSCreateIndex(w http.ResponseWriter, r *http.Request) {
 	project, database, cg := sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "cg")
 	body, err := fsReadBody(r)
@@ -1602,8 +1597,6 @@ func handleFSDeleteIndex(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// --- Fields ---
-
 func fsFieldName(project, database, cg, field string) string {
 	return fmt.Sprintf("projects/%s/databases/%s/collectionGroups/%s/fields/%s", project, database, cg, field)
 }
@@ -1653,8 +1646,6 @@ func handleFSPatchField(w http.ResponseWriter, r *http.Request) {
 	op := fsNewAdminOp(project, database, d.Body, "type.googleapis.com/google.firestore.admin.v1.Field", fsFieldOpMetadata(name))
 	sim.WriteJSON(w, http.StatusOK, op)
 }
-
-// --- Backup schedules ---
 
 func fsBackupScheduleName(project, database, bs string) string {
 	return fmt.Sprintf("projects/%s/databases/%s/backupSchedules/%s", project, database, bs)
@@ -1729,8 +1720,6 @@ func handleFSDeleteBackupSchedule(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// --- Backups ---
-
 func fsBackupName(project, location, backup string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/backups/%s", project, location, backup)
 }
@@ -1765,8 +1754,6 @@ func handleFSDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// --- User creds ---
 
 func fsUserCredsName(project, database, uc string) string {
 	return fmt.Sprintf("projects/%s/databases/%s/userCreds/%s", project, database, uc)
@@ -1854,8 +1841,6 @@ func handleFSUserCredsVerb(w http.ResponseWriter, r *http.Request) {
 	fsUserCreds.Put(name, d)
 	sim.WriteJSON(w, http.StatusOK, d.Body)
 }
-
-// --- Operations ---
 
 func fsOperationName(project, database, op string) string {
 	return fmt.Sprintf("projects/%s/databases/%s/operations/%s", project, database, op)

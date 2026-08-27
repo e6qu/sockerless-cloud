@@ -151,8 +151,6 @@ func ebPartnerSourceArn(name string) string {
 	return fmt.Sprintf("arn:aws:events:%s::event-source/aws.partner/%s", awsRegion(), name)
 }
 
-// ---------- API destinations ----------
-
 func handleEBCreateApiDestination(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name                         string `json:"Name"`
@@ -337,8 +335,6 @@ func handleEBDeleteApiDestination(w http.ResponseWriter, r *http.Request) {
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Connections ----------
 
 func ebConnectionExistsByARN(arn string) bool {
 	for _, c := range ebConnections.List() {
@@ -613,8 +609,6 @@ func handleEBDeleteConnection(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- Global endpoints ----------
-
 func handleEBCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name              string          `json:"Name"`
@@ -808,8 +802,6 @@ func handleEBDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Partner event sources + consumer-side event sources ----------
 
 // ebPartnerExpiry is the offered-but-unclaimed lifetime of a partner event
 // source — real EventBridge expires an unmatched offer after a fixed window.

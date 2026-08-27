@@ -18,8 +18,6 @@ import (
 // SQLite-persisted store and renders the exact ec2Query XML the AWS SDK for Go
 // v2 and the aws CLI deserialize, matching com.amazonaws.ec2.
 
-// ---- Types ----
-
 // EC2IdFormatSetting records the per-resource-type useLongIds preference at the
 // account level. Real EC2 has long IDs permanently enabled for every resource
 // type (the opt-in period closed years ago), so the honest default is true.
@@ -193,8 +191,6 @@ func ec2IdFormatUseLongIds(resource string) bool {
 	return true
 }
 
-// ---- ID format ----
-
 func idFormatStatusSetXML(resources []string) string {
 	var b strings.Builder
 	b.WriteString("<statusSet>")
@@ -286,8 +282,6 @@ func handleDescribePrincipalIdFormat(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribePrincipalIdFormatResponse %s><requestId>%s</requestId><principalSet><item><arn>%s</arn>%s</item></principalSet></DescribePrincipalIdFormatResponse>`,
 		ec2Xmlns(), generateUUID(), arn, idFormatStatusSetXML(resources))
 }
-
-// ---- EIP address attributes (PTR record) ----
 
 // ec2AddrAttr loads the stored PTR attribute for an allocation, synthesizing one
 // from the allocation's public IP if none has been set yet (real EC2 returns an
@@ -410,8 +404,6 @@ func handleDescribeMovingAddresses(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), b.String())
 }
 
-// ---- ClassicLink ----
-
 func handleAttachClassicLinkVpc(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	vpcID := r.FormValue("VpcId")
@@ -444,8 +436,6 @@ func handleDetachClassicLinkVpc(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DetachClassicLinkVpcResponse %s><requestId>%s</requestId><return>true</return></DetachClassicLinkVpcResponse>`,
 		ec2Xmlns(), generateUUID())
 }
-
-// ---- Nitro Enclave certificate ↔ IAM role ----
 
 // enclaveCertKey is the composite store key: certificate ARN + role ARN, since
 // a certificate may be associated with multiple roles.
@@ -506,8 +496,6 @@ func handleGetAssociatedEnclaveCertificateIamRoles(w http.ResponseWriter, r *htt
 	fmt.Fprintf(w, `<GetAssociatedEnclaveCertificateIamRolesResponse %s><requestId>%s</requestId>%s</GetAssociatedEnclaveCertificateIamRolesResponse>`,
 		ec2Xmlns(), generateUUID(), b.String())
 }
-
-// ---- Client VPN export/import ----
 
 func handleExportClientVpnClientCertificateRevocationList(w http.ResponseWriter, r *http.Request) {
 	epID := r.FormValue("ClientVpnEndpointId")
@@ -579,8 +567,6 @@ func ec2EscapeXML(s string) string {
 	return r.Replace(s)
 }
 
-// ---- Site-to-Site VPN tunnel replacement / certificate ----
-
 func handleGetVpnTunnelReplacementStatus(w http.ResponseWriter, r *http.Request) {
 	vpnID := r.FormValue("VpnConnectionId")
 	conn, ok := ec2VpnConnections.Get(vpnID)
@@ -650,8 +636,6 @@ func handleReplaceVpnTunnel(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ReplaceVpnTunnelResponse %s><requestId>%s</requestId><return>true</return></ReplaceVpnTunnelResponse>`,
 		ec2Xmlns(), generateUUID())
 }
-
-// ---- Transit gateway Connect peer ----
 
 func tgwConnectPeerBodyXML(p EC2TransitGatewayConnectPeer) string {
 	var inside strings.Builder
@@ -772,8 +756,6 @@ func tgwConnectPeerMatchesFilters(p EC2TransitGatewayConnectPeer, filters map[st
 	return true
 }
 
-// ---- Transit gateway Client VPN attachments ----
-//
 // The sim does not model a separate transit-gateway client-VPN attachment
 // store: a Client VPN endpoint associated to a transit gateway is represented
 // by the endpoint itself. These accept/reject/delete/describe operations
@@ -813,8 +795,6 @@ func handleDescribeTransitGatewayMeteringPolicies(w http.ResponseWriter, r *http
 	fmt.Fprintf(w, `<DescribeTransitGatewayMeteringPoliciesResponse %s><requestId>%s</requestId><transitGatewayMeteringPolicies/></DescribeTransitGatewayMeteringPoliciesResponse>`,
 		ec2Xmlns(), generateUUID())
 }
-
-// ---- VPC peering options / reject ----
 
 func parsePeeringOptions(r *http.Request, prefix string) (dns, classicOut, vpcToClassic bool, present bool) {
 	if v := r.FormValue(prefix + ".AllowDnsResolutionFromRemoteVpc"); v != "" {
@@ -874,8 +854,6 @@ func handleRejectVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<RejectVpcPeeringConnectionResponse %s><requestId>%s</requestId><return>true</return></RejectVpcPeeringConnectionResponse>`,
 		ec2Xmlns(), generateUUID())
 }
-
-// ---- Network ACL association ----
 
 func handleReplaceNetworkAclAssociation(w http.ResponseWriter, r *http.Request) {
 	assocID := r.FormValue("AssociationId")

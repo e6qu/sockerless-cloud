@@ -73,7 +73,6 @@ func TestEC2CLI_ReservedInstances(t *testing.T) {
 		t.Fatalf("delete-queued failed deletions: got %q, want 1", nFailed)
 	}
 
-	// --- Convertible RI exchange quote / accept ---
 	tgtOffering := q("ec2", "describe-reserved-instances-offerings",
 		"--filters", "Name=instance-type,Values=c5.xlarge",
 		"--query", "ReservedInstancesOfferings[0].ReservedInstancesOfferingId", "--output", "text")
@@ -150,7 +149,6 @@ func TestEC2CLI_CapacityReservationBilling(t *testing.T) {
 		t.Fatalf("disassociate billing owner Return: got %q, want True", dis)
 	}
 
-	// --- splitting / moving ---
 	src := q("ec2", "create-capacity-reservation",
 		"--instance-type", "m5.large", "--instance-platform", "Linux/UNIX",
 		"--availability-zone", "us-east-1a", "--instance-count", "10",

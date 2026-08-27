@@ -158,9 +158,7 @@ func registerSSMOpsItems(r *sim.AWSRouter, srv *sim.Server) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // OpsItems
-// ---------------------------------------------------------------------------
 
 func newSSMOpsItemID() string {
 	b := make([]byte, 14)
@@ -650,14 +648,12 @@ func handleSSMListOpsItemRelatedItems(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ---------------------------------------------------------------------------
 // Maintenance Window executions
 //
 // The sim has no native maintenance-window trigger, so a window's execution is
 // settled deterministically on read: a single SUCCESS execution per window,
 // one task-execution per registered task, one invocation per task. The IDs are
 // derived from the window/task IDs so successive reads are stable.
-// ---------------------------------------------------------------------------
 
 const ssmMWExecStatus = "SUCCESS"
 
@@ -1226,9 +1222,7 @@ func handleSSMUpdateMaintenanceWindowTask(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// ---------------------------------------------------------------------------
 // Session Manager
-// ---------------------------------------------------------------------------
 
 func newSSMSessionID() string {
 	return "sockerless-" + uuid.New().String()[:24]
@@ -1401,9 +1395,7 @@ func handleSSMGetConnectionStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Hybrid activations
-// ---------------------------------------------------------------------------
 
 func newSSMActivationID() string {
 	return uuid.New().String()

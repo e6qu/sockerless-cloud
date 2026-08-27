@@ -242,7 +242,6 @@ func cosmosEchoReadSession(w http.ResponseWriter, r *http.Request, account, db, 
 	w.Header().Set("x-ms-session-token", cosmosSessionToken(cosmosPKRangeID(key), lsn))
 }
 
-// cosmosParseSessionToken parses a "<pkRangeId>:<lsn>" token.
 func cosmosParseSessionToken(tok string) (rangeID int, lsn uint64, ok bool) {
 	i := strings.LastIndexByte(tok, ':')
 	if i < 0 {

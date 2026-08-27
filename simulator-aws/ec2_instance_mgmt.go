@@ -127,8 +127,6 @@ func ec2PutAccountSettings(s EC2AccountInstanceSettings) {
 	ec2AccountInstanceSettings.Put(s.AccountId, s)
 }
 
-// -------------------- EC2 Instance Connect endpoints --------------------
-
 func handleCreateInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request) {
 	subnetID := r.FormValue("SubnetId")
 	if subnetID == "" {
@@ -332,8 +330,6 @@ func handleDeleteInstanceConnectEndpoint(w http.ResponseWriter, r *http.Request)
 		ec2Xmlns(), generateUUID(), ec2InstanceConnectEndpointFieldsXML(eice))
 }
 
-// -------------------- Instance-event-notification attributes --------------------
-
 // ec2InstanceTagAttributeXML renders the account's registered tag keys as the
 // instanceTagAttribute element shared by the register/deregister/describe ops.
 func ec2InstanceTagAttributeXML(s EC2AccountInstanceSettings) string {
@@ -396,8 +392,6 @@ func handleDescribeInstanceEventNotificationAttributes(w http.ResponseWriter, r 
 		ec2Xmlns(), generateUUID(), ec2InstanceTagAttributeXML(s))
 }
 
-// -------------------- Serial-console access --------------------
-
 func handleEnableSerialConsoleAccess(w http.ResponseWriter, r *http.Request) {
 	s := ec2AccountSettings()
 	s.SerialConsoleAccess = true
@@ -422,8 +416,6 @@ func handleGetSerialConsoleAccessStatus(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<GetSerialConsoleAccessStatusResponse %s><requestId>%s</requestId><serialConsoleAccessEnabled>%t</serialConsoleAccessEnabled><managedBy>account</managedBy></GetSerialConsoleAccessStatusResponse>`,
 		ec2Xmlns(), generateUUID(), s.SerialConsoleAccess)
 }
-
-// -------------------- IMDS account-level defaults --------------------
 
 func handleGetInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request) {
 	s := ec2AccountSettings()
@@ -474,8 +466,6 @@ func handleModifyInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request
 		ec2Xmlns(), generateUUID())
 }
 
-// -------------------- Monitoring --------------------
-
 // ec2MonitoringResponse flips detailed monitoring on each named instance and
 // renders the shared MonitorInstances/UnmonitorInstances instancesSet body.
 func ec2MonitoringResponse(w http.ResponseWriter, r *http.Request, root string, enable bool) {
@@ -509,8 +499,6 @@ func handleMonitorInstances(w http.ResponseWriter, r *http.Request) {
 func handleUnmonitorInstances(w http.ResponseWriter, r *http.Request) {
 	ec2MonitoringResponse(w, r, "UnmonitorInstancesResponse", false)
 }
-
-// -------------------- Reboot / Report / Reset --------------------
 
 func handleRebootInstances(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "InstanceId")
@@ -581,8 +569,6 @@ func handleResetInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ResetInstanceAttributeResponse %s><requestId>%s</requestId><return>true</return></ResetInstanceAttributeResponse>`,
 		ec2Xmlns(), generateUUID())
 }
-
-// -------------------- EC2-Classic --------------------
 
 // handleDescribeClassicLinkInstances returns an honest-empty set: the sim runs
 // only in a VPC (EC2-Classic was retired AWS-wide), so no instances are ever

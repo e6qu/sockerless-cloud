@@ -62,7 +62,6 @@ func TestSNS_PlatformApplicationLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "application should appear in ListPlatformApplications")
 
-	// --- endpoint CRUD under the application ---
 	ep, err := c.CreatePlatformEndpoint(ctx, &sns.CreatePlatformEndpointInput{
 		PlatformApplicationArn: aws.String(appARN),
 		Token:                  aws.String("device-token-123"),

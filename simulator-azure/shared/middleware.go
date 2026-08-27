@@ -14,20 +14,16 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// loggedErrorBodyLimit caps how much of a 5xx response body the request log
-// captures (see statusWriter.Write).
+// Caps how much of a 5xx body statusWriter.Write keeps for the request log.
 const loggedErrorBodyLimit = 4096
 
 type contextKey int
 
 const (
-	// RequestIDKey is the context key for the request ID.
 	requestIDKey contextKey = iota
-	// IdentityKey is the context key for the extracted caller identity.
 	identityKey
 )
 
-// RequestID returns the request ID from the context.
 func RequestID(ctx context.Context) string {
 	if v, ok := ctx.Value(requestIDKey).(string); ok {
 		return v
@@ -35,8 +31,6 @@ func RequestID(ctx context.Context) string {
 	return ""
 }
 
-// RequestIDMiddleware generates a unique request ID and stores it in context.
-// It also sets the provider-specific response header.
 func RequestIDMiddleware(provider string) func(http.Handler) http.Handler {
 	headerName := requestIDHeader(provider)
 	return func(next http.Handler) http.Handler {
@@ -49,7 +43,6 @@ func RequestIDMiddleware(provider string) func(http.Handler) http.Handler {
 	}
 }
 
-// LoggingMiddleware logs each request with zerolog.
 func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +58,6 @@ func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler
 				Dur("duration", time.Since(start)).
 				Str("request_id", RequestID(r.Context()))
 
-			// Add provider-specific headers to log
 			switch provider {
 			case "aws":
 				if target := r.Header.Get("X-Amz-Target"); target != "" {
@@ -77,12 +69,9 @@ func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler
 				}
 			}
 
-			// Streaming-envelope sentinels. Surfacing these on the
-			// request log makes the known-bad shape ("handler reads
-			// raw body without consuming the chunked envelope")
-			// greppable in operator output. Fields only appear when
-			// the corresponding header is present, so normal
-			// fixed-Content-Length traffic stays quiet.
+			// Log streaming-envelope sentinels so "handler reads raw
+			// body without consuming the chunked envelope" stays
+			// greppable. Present only when the header is.
 			if ce := r.Header.Get("Content-Encoding"); ce != "" {
 				event.Str("content_encoding", ce)
 			}
@@ -110,9 +99,8 @@ func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler
 	}
 }
 
-// AuthPassthroughMiddleware extracts auth identity from provider-specific
-// headers without validating credentials. The identity is stored in the
-// request context. Requests without auth headers are accepted.
+// Extract the caller identity without validating credentials, and accept a
+// request that carries no auth headers at all.
 func AuthPassthroughMiddleware(provider string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +130,6 @@ func extractIdentity(r *http.Request, provider string) string {
 		}
 		return "aws-user"
 	case "gcp":
-		// Bearer token — extract last segment as hint
 		if strings.HasPrefix(auth, "Bearer ") {
 			return "gcp-user"
 		}
@@ -175,35 +162,18 @@ func generateRequestID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// AzurePathNormalizationMiddleware normalizes URL path casing for Azure REST API
-// compatibility. Azure SDK clients may use different casing (e.g., "resourcegroups"
-// vs "resourceGroups") and the real Azure API is case-insensitive on URL paths.
-// The sim canonicalizes known segments to the casing the route registrations use.
-//
-// Provider segments like `Microsoft.Cache/Redis` are emitted by the azurerm
-// Terraform provider in lowercase form (`microsoft.cache/redis`); SDK clients
-// generated from Azure REST API specs typically use the canonical mixed case.
-// Both reach real Azure successfully; both must reach the sim too.
+// Azure Resource Manager matches URL paths case-insensitively, and its clients
+// disagree: the azurerm Terraform provider sends `microsoft.cache/redis` where
+// SDK clients send `Microsoft.Cache/Redis`. Both reach real Azure, so both must
+// reach the simulator. Canonicalize to the casing the routes register.
 func AzurePathNormalizationMiddleware(next http.Handler) http.Handler {
-	// Map of lowercase segment → canonical casing the route registrations
-	// expect. Two categories:
-	//
-	//   (1) Resource-type / provider segments that real Azure clients
-	//       send mixed-case but we register canonical mixed-case
-	//       (resourceGroups, Microsoft.Cache, etc.). Lower → canonical
-	//       mixed-case.
-	//
-	//   (2) Action / sub-resource verbs where real Azure clients send
-	//       *varying* casings (terraform-provider-azurerm uses camelCase
-	//       `appSettings`, older azurestack uses lowercase
-	//       `appsettings`). To get a single deterministic handler-side
-	//       casing, we canonicalize every variant to LOWERCASE and
-	//       register the handlers lowercase. Real Azure ARM is
-	//       case-insensitive on these so any client casing reaches
-	//       the same handler.
+	// Resource-type and provider segments map to canonical mixed case.
+	// Action and sub-resource verbs map to lowercase, because clients vary
+	// (`appSettings` from terraform-provider-azurerm, `appsettings` from
+	// azurestack) and the handlers register one casing.
 	replacements := map[string]string{
-		// No trailing slash: the segment also ends the path in the SDK's
-		// list-resource-groups URL (GET /subscriptions/{id}/resourcegroups).
+		// No trailing slash: the segment also ends the SDK's
+		// list-resource-groups URL.
 		"/resourcegroups":            "/resourceGroups",
 		"/microsoft.cache/redis":     "/Microsoft.Cache/Redis",
 		"/microsoft.cache":           "/Microsoft.Cache",
@@ -212,12 +182,10 @@ func AzurePathNormalizationMiddleware(next http.Handler) http.Handler {
 		"/microsoft.dbforpostgresql": "/Microsoft.DBforPostgreSQL",
 		"/microsoft.keyvault":        "/Microsoft.KeyVault",
 		"/microsoft.storage":         "/Microsoft.Storage",
-		// azure-mgmt-web (the az CLI's track2 SDK) spells the namespace
-		// "microsoft.Web" in several StaticSites operation URL templates.
+		// azure-mgmt-web spells the namespace "microsoft.Web" in several
+		// StaticSites URL templates.
 		"/microsoft.web": "/Microsoft.Web",
 
-		// Action verbs + sub-resource segments — canonicalize to
-		// lowercase to match handler registrations.
 		"/appsettings":                        "/appsettings",
 		"/connectionstrings":                  "/connectionstrings",
 		"/slotconfignames":                    "/slotconfignames",
@@ -251,7 +219,6 @@ func AzurePathNormalizationMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// statusWriter wraps http.ResponseWriter to capture the status code.
 type statusWriter struct {
 	http.ResponseWriter
 	status int
@@ -263,11 +230,9 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// Write captures up to loggedErrorBodyLimit bytes of the response so a 5xx can
-// be logged with its error body (the request-log line reads sw.body).
 func (w *statusWriter) Write(p []byte) (int, error) {
-	// Only buffer the body for error responses (logged on ≥500); large 2xx
-	// OCI/S3 transfers must not pay the extra copy.
+	// Buffer error bodies only; large 2xx OCI/S3 transfers must not pay the
+	// extra copy.
 	if w.status >= 500 && w.body.Len() < loggedErrorBodyLimit {
 		remaining := loggedErrorBodyLimit - w.body.Len()
 		if len(p) > remaining {
@@ -279,7 +244,7 @@ func (w *statusWriter) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
-// Hijack implements http.Hijacker so WebSocket upgrades work through the middleware.
+// Lets WebSocket upgrades through the middleware chain.
 func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
 		return h.Hijack()

@@ -108,10 +108,8 @@ func registerRDSRestoreExtras(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBMajorEngineVersions", handleRDSDescribeDBMajorEngineVersions)
 }
 
-// ---------------------------------------------------------------------------
 // Stores for the resources introduced here. The instance/cluster/snapshot
 // stores are declared in rds.go and reused.
-// ---------------------------------------------------------------------------
 
 var (
 	rdsReservedInstances    sim.Store[RDSReservedInstance]
@@ -220,9 +218,7 @@ type RDSExportTask struct {
 	ExportOnly           []string
 }
 
-// ---------------------------------------------------------------------------
 // Restore family
-// ---------------------------------------------------------------------------
 
 // rdsClusterFromSource builds a new RDSCluster row from an optional
 // source cluster/snapshot, applying the new identifier and any
@@ -449,9 +445,7 @@ func handleRDSRestoreInstanceFromS3(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "RestoreDBInstanceFromS3", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Reserved instances
-// ---------------------------------------------------------------------------
 
 // rdsReservedOfferings is the small real-shaped offering catalog the
 // sim serves. The IDs are fixed so a purchase referencing one resolves.
@@ -607,9 +601,7 @@ func handleRDSPurchaseReservedInstancesOffering(w http.ResponseWriter, r *http.R
 	rdsXMLResponse(w, "PurchaseReservedDBInstancesOffering", renderRDSReservedInstance(ri), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Blue/green deployments
-// ---------------------------------------------------------------------------
 
 func renderRDSBlueGreenDeployment(d RDSBlueGreenDeployment) string {
 	var b strings.Builder
@@ -715,9 +707,7 @@ func handleRDSSwitchoverBlueGreenDeployment(w http.ResponseWriter, r *http.Reque
 	rdsXMLResponse(w, "SwitchoverBlueGreenDeployment", renderRDSBlueGreenDeployment(d), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Zero-ETL integrations
-// ---------------------------------------------------------------------------
 
 // renderRDSIntegrationInner emits the Integration member fields without
 // a wrapping element. The single-resource ops (Create/Modify/Delete)
@@ -848,9 +838,7 @@ func handleRDSDeleteIntegration(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteIntegration", renderRDSIntegrationInner(in), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Tenant databases
-// ---------------------------------------------------------------------------
 
 func rdsTenantKey(instanceID, tenantName string) string {
 	return instanceID + "/" + tenantName
@@ -973,9 +961,7 @@ func handleRDSDeleteTenantDatabase(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteTenantDatabase", renderRDSTenantDatabase(t), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Aurora Limitless shard groups
-// ---------------------------------------------------------------------------
 
 // renderRDSShardGroupInner emits the DBShardGroup member fields without
 // a wrapping element — the Create/Modify/Delete/Reboot ops bind their
@@ -1100,9 +1086,7 @@ func handleRDSRebootShardGroup(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "RebootDBShardGroup", renderRDSShardGroupInner(g), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Database activity streams (per-cluster status toggle)
-// ---------------------------------------------------------------------------
 
 // rdsActivityStreamStatus holds the current activity-stream status for a
 // cluster ARN: started | stopped. With no real Kinesis stream, the
@@ -1165,9 +1149,7 @@ func handleRDSModifyActivityStream(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "ModifyActivityStream", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Aurora backtrack
-// ---------------------------------------------------------------------------
 
 // rdsClusterBacktracks holds recorded backtracks keyed by cluster
 // identifier. Backtrack rewinds an Aurora MySQL cluster to a prior
@@ -1255,9 +1237,7 @@ func handleRDSDescribeClusterBacktracks(w http.ResponseWriter, r *http.Request) 
 	rdsXMLResponse(w, "DescribeDBClusterBacktracks", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Snapshot-export tasks
-// ---------------------------------------------------------------------------
 
 func renderRDSExportTask(t RDSExportTask) string {
 	var b strings.Builder
@@ -1369,9 +1349,7 @@ func handleRDSCancelExportTask(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "CancelExportTask", renderRDSExportTask(t), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Cluster operations
-// ---------------------------------------------------------------------------
 
 func handleRDSRebootCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
@@ -1537,9 +1515,7 @@ func handleRDSDisableHTTPEndpoint(w http.ResponseWriter, r *http.Request) {
 // HTTP endpoint) enablement per resource ARN.
 var rdsHTTPEndpointEnabled sim.Store[bool]
 
-// ---------------------------------------------------------------------------
 // Cluster-snapshot attributes and ModifyDBSnapshot
-// ---------------------------------------------------------------------------
 
 // rdsClusterSnapshotAttrs holds the "restore" attribute values granted
 // per cluster-snapshot identifier.
@@ -1633,9 +1609,7 @@ func handleRDSModifySnapshot(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "ModifyDBSnapshot", renderRDSSnapshot(snap), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Static describes (real-shaped catalogs / engine defaults)
-// ---------------------------------------------------------------------------
 
 func handleRDSDescribeOptionGroupOptions(w http.ResponseWriter, r *http.Request) {
 	engine := r.FormValue("EngineName")
@@ -1761,9 +1735,7 @@ func handleRDSDescribeDBMajorEngineVersions(w http.ResponseWriter, r *http.Reque
 	rdsXMLResponse(w, "DescribeDBMajorEngineVersions", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Small shared helpers
-// ---------------------------------------------------------------------------
 
 func rdsParseFloat(s string) float64 {
 	var f float64

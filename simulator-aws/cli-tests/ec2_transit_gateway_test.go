@@ -9,7 +9,6 @@ import (
 // the aws CLI: gateway → route table → VPC attachment → association /
 // propagation / routes, with tolerant teardown.
 func TestEC2CLI_TransitGatewayCore(t *testing.T) {
-	// --- Transit gateway ---
 	tgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",
 		"--description", "cli-core-tgw",
 		"--options", "AmazonSideAsn=64514,DnsSupport=enable,MulticastSupport=enable",
@@ -30,7 +29,6 @@ func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "modify-transit-gateway", "--transit-gateway-id", tgwID,
 		"--description", "cli-updated"))
 
-	// --- Route table ---
 	rtID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway-route-table",
 		"--transit-gateway-id", tgwID,
 		"--query", "TransitGatewayRouteTable.TransitGatewayRouteTableId", "--output", "text")))
@@ -46,7 +44,6 @@ func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 		t.Fatalf("route table state = %q, want available", rtState)
 	}
 
-	// --- VPC + subnet + attachment ---
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.60.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	subnetID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",
@@ -82,7 +79,6 @@ func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 		t.Fatalf("attachment resourceType = %q, want vpc", attResType)
 	}
 
-	// --- Associations + propagations ---
 	runCLI(t, awsCLI("ec2", "disassociate-transit-gateway-route-table",
 		"--transit-gateway-route-table-id", assocRT, "--transit-gateway-attachment-id", attID))
 	runCLI(t, awsCLI("ec2", "associate-transit-gateway-route-table",
@@ -116,7 +112,6 @@ func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "disable-transit-gateway-route-table-propagation",
 		"--transit-gateway-route-table-id", rtID, "--transit-gateway-attachment-id", attID))
 
-	// --- Routes ---
 	routeType := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway-route",
 		"--transit-gateway-route-table-id", rtID, "--destination-cidr-block", "10.88.0.0/16",
 		"--transit-gateway-attachment-id", attID,
@@ -165,7 +160,6 @@ func TestEC2CLI_TransitGatewayExtras(t *testing.T) {
 		"--query", "TransitGatewayVpcAttachment.TransitGatewayAttachmentId", "--output", "text")))
 	defer runCLIIgnore(awsCLI("ec2", "delete-transit-gateway-vpc-attachment", "--transit-gateway-attachment-id", attID))
 
-	// --- Prefix list references ---
 	plID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-managed-prefix-list",
 		"--prefix-list-name", "cli-tgw-pl", "--max-entries", "5", "--address-family", "IPv4",
 		"--query", "PrefixList.PrefixListId", "--output", "text")))
@@ -187,7 +181,6 @@ func TestEC2CLI_TransitGatewayExtras(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "delete-transit-gateway-prefix-list-reference",
 		"--transit-gateway-route-table-id", assocRT, "--prefix-list-id", plID))
 
-	// --- Connect ---
 	connID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway-connect",
 		"--transport-transit-gateway-attachment-id", attID, "--options", "Protocol=gre",
 		"--query", "TransitGatewayConnect.TransitGatewayAttachmentId", "--output", "text")))
@@ -199,7 +192,6 @@ func TestEC2CLI_TransitGatewayExtras(t *testing.T) {
 		t.Fatalf("connect transport = %q, want %q", connTransport, attID)
 	}
 
-	// --- Multicast domain ---
 	mcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway-multicast-domain",
 		"--transit-gateway-id", tgwID, "--options", "Igmpv2Support=enable",
 		"--query", "TransitGatewayMulticastDomain.TransitGatewayMulticastDomainId", "--output", "text")))
@@ -214,7 +206,6 @@ func TestEC2CLI_TransitGatewayExtras(t *testing.T) {
 		t.Fatalf("multicast domain state = %q, want available", mcState)
 	}
 
-	// --- Peering ---
 	peerTGW := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",
 		"--query", "TransitGateway.TransitGatewayId", "--output", "text")))
 	defer runCLIIgnore(awsCLI("ec2", "delete-transit-gateway", "--transit-gateway-id", peerTGW))

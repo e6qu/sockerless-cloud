@@ -715,7 +715,6 @@ func handleFilesGetRangeList(w http.ResponseWriter, r *http.Request, account, sh
 	writeStorageXML(w, http.StatusOK, out)
 }
 
-// fileByteRange is one inclusive byte range of a file.
 type fileByteRange struct {
 	Start int64
 	End   int64

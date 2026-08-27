@@ -14,9 +14,7 @@ import (
 // This file implements the Lambda event-source-mapping, layer, and
 // reserved-concurrency slices, plus ListFunctionUrlConfigs.
 
-// ---------------------------------------------------------------------------
 // Event source mappings
-// ---------------------------------------------------------------------------
 
 // LambdaEventSourceMapping mirrors the EventSourceMappingConfiguration shape.
 // Only the members sockerless / the AWS SDK + CLI + Terraform exercise are
@@ -265,9 +263,7 @@ func lambdaNowEpoch() float64 {
 	return float64(time.Now().UnixMilli()) / 1000.0
 }
 
-// ---------------------------------------------------------------------------
 // Layers + layer versions
-// ---------------------------------------------------------------------------
 
 // LambdaLayerVersion is one published layer version. Real Lambda assigns the
 // version number monotonically per layer name starting at 1.
@@ -560,9 +556,7 @@ func handleLambdaGetLayerVersionByArn(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, lambdaLayerVersionResponse(r, lv))
 }
 
-// ---------------------------------------------------------------------------
 // Reserved concurrency
-// ---------------------------------------------------------------------------
 
 func handleLambdaPutFunctionConcurrency(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
@@ -616,9 +610,7 @@ func handleLambdaDeleteFunctionConcurrency(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---------------------------------------------------------------------------
 // ListFunctionUrlConfigs
-// ---------------------------------------------------------------------------
 
 func handleLambdaListFunctionUrlConfigs(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")

@@ -17,8 +17,6 @@ import (
 // and only matter for the create/get/list flow — they're operations,
 // not state, so no Terraform resource references them.
 
-// ---------- Function types ----------
-
 type CFFunctionConfig struct {
 	XMLName                   xml.Name                     `xml:"FunctionConfig"`
 	Comment                   string                       `xml:"Comment"`
@@ -92,8 +90,6 @@ func cfDecodeFunctionCode(encoded []byte) ([]byte, error) {
 	return decoded[:n], nil
 }
 
-// ---------- Invalidation types ----------
-
 type CFInvalidationBatch struct {
 	XMLName         xml.Name `xml:"InvalidationBatch"`
 	Xmlns           string   `xml:"xmlns,attr,omitempty"`
@@ -137,8 +133,6 @@ type cfStoredInvalidation struct {
 	DistributionID string
 }
 
-// ---------- State ----------
-
 var (
 	cfFunctions     sim.Store[cfStoredFunction]
 	cfInvalidations sim.Store[cfStoredInvalidation]
@@ -172,8 +166,6 @@ func registerCloudFrontFunctions(srv *sim.Server) {
 	mux.HandleFunc("GET /"+cfAPIVersion+"/distribution/{distId}/invalidation", cloudTrailRecordedREST("ListInvalidations", "cloudfront.amazonaws.com", distributionResource, handleCFListInvalidations))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/distribution/{distId}/invalidation/{id}", cloudTrailRecordedREST("GetInvalidation", "cloudfront.amazonaws.com", distributionResource, handleCFGetInvalidation))
 }
-
-// ----- Function handlers -----
 
 func handleCFCreateFunction(w http.ResponseWriter, r *http.Request) {
 	var req cfCreateFunctionRequest
@@ -338,8 +330,6 @@ func handleCFListFunctions(w http.ResponseWriter, r *http.Request) {
 	}
 	cfWriteXML(w, http.StatusOK, list)
 }
-
-// ----- Invalidation handlers -----
 
 func handleCFCreateInvalidation(w http.ResponseWriter, r *http.Request) {
 	distID := r.PathValue("distId")

@@ -19,8 +19,6 @@ import (
 // rendered as the exact ec2Query XML the AWS SDK for Go v2 and the aws CLI
 // deserialize (element names taken verbatim from the EC2 Smithy model).
 
-// ---- Types ----
-
 type EC2AddressTransfer struct {
 	AllocationId                     string
 	PublicIp                         string
@@ -189,8 +187,6 @@ func ec2ReturnResponse(w http.ResponseWriter, action string) {
 	ec2Response(w, action, "<return>true</return>")
 }
 
-// ---- Address transfers ----
-
 func handleEnableAddressTransfer(w http.ResponseWriter, r *http.Request) {
 	allocID := r.FormValue("AllocationId")
 	transferAccount := r.FormValue("TransferAccountId")
@@ -281,8 +277,6 @@ func addressTransferBodyXML(at EC2AddressTransfer) string {
 	return b.String()
 }
 
-// ---- BYOIP CIDRs ----
-
 func handleProvisionByoipCidr(w http.ResponseWriter, r *http.Request) {
 	cidr := r.FormValue("Cidr")
 	if cidr == "" {
@@ -362,8 +356,6 @@ func byoipCidrBodyXML(b EC2ByoipCidr) string {
 	}
 	return sb.String()
 }
-
-// ---- Public IPv4 pools ----
 
 func handleCreatePublicIpv4Pool(w http.ResponseWriter, r *http.Request) {
 	id := ec2ID("ipv4pool-ec2")
@@ -474,8 +466,6 @@ func publicIpv4PoolRangeXML(rng EC2PublicIpv4PoolRange) string {
 	return fmt.Sprintf("<firstAddress>%s</firstAddress><lastAddress>%s</lastAddress><addressCount>%d</addressCount><availableAddressCount>%d</availableAddressCount>",
 		rng.FirstAddress, rng.LastAddress, rng.AddressCount, rng.AvailableAddressCount)
 }
-
-// ---- NAT-gateway secondary addresses ----
 
 func handleAssignPrivateNatGatewayAddress(w http.ResponseWriter, r *http.Request) {
 	natgw, ok := natGatewayAddressTarget(w, r)
@@ -611,8 +601,6 @@ func natGatewayAddressMutation(w http.ResponseWriter, r *http.Request, action st
 	ec2Response(w, action, fmt.Sprintf("<natGatewayId>%s</natGatewayId>%s", id, natgwAddrSetXML(natgw.NatGatewayAddresses)))
 }
 
-// ---- Trunk interfaces ----
-
 func handleAssociateTrunkInterface(w http.ResponseWriter, r *http.Request) {
 	branch := r.FormValue("BranchInterfaceId")
 	trunk := r.FormValue("TrunkInterfaceId")
@@ -686,8 +674,6 @@ func trunkAssociationBodyXML(a EC2TrunkInterfaceAssociation) string {
 	b.WriteString(writeTagSetXML(a.Tags))
 	return b.String()
 }
-
-// ---- Carrier gateways ----
 
 func handleCreateCarrierGateway(w http.ResponseWriter, r *http.Request) {
 	vpcID := r.FormValue("VpcId")
@@ -768,8 +754,6 @@ func carrierGatewayBodyXML(c EC2CarrierGateway) string {
 		c.CarrierGatewayId, c.VpcId, c.State, c.OwnerId, writeTagSetXML(c.Tags))
 }
 
-// ---- Customer-owned IP (COIP) pools ----
-
 func handleCreateCoipPool(w http.ResponseWriter, r *http.Request) {
 	lgwRouteTable := r.FormValue("LocalGatewayRouteTableId")
 	if lgwRouteTable == "" {
@@ -836,8 +820,6 @@ func coipPoolBodyXML(p EC2CoipPool) string {
 	return b.String()
 }
 
-// ---- Network-interface permissions ----
-
 func handleCreateNetworkInterfacePermission(w http.ResponseWriter, r *http.Request) {
 	eniID := r.FormValue("NetworkInterfaceId")
 	if eniID == "" {
@@ -902,8 +884,6 @@ func eniPermissionBodyXML(p EC2NetworkInterfacePermission) string {
 	return b.String()
 }
 
-// ---- VGW route propagation ----
-
 func handleEnableVgwRoutePropagation(w http.ResponseWriter, r *http.Request) {
 	setVgwRoutePropagation(w, r, "EnableVgwRoutePropagation", true)
 }
@@ -943,8 +923,6 @@ func setVgwRoutePropagation(w http.ResponseWriter, r *http.Request, action strin
 	// the mutation with <return>true</return>.
 	ec2ReturnResponse(w, action)
 }
-
-// ---- VPN concentrators ----
 
 func handleCreateVpnConcentrator(w http.ResponseWriter, r *http.Request) {
 	concType := r.FormValue("Type")
@@ -1002,8 +980,6 @@ func vpnConcentratorBodyXML(c EC2VpnConcentrator) string {
 	b.WriteString(writeTagSetXML(c.Tags))
 	return b.String()
 }
-
-// ---- Managed-prefix-list modify ----
 
 func handleModifyManagedPrefixList(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("PrefixListId")

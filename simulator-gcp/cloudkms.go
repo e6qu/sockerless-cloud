@@ -279,8 +279,6 @@ func registerCloudKMS(srv *sim.Server) {
 	kmsHsmProposals = sim.MakeStore[kmsHsmProposal](srv.DB(), "kms_hsm_proposals")
 	kmsRetiredResources = sim.MakeStore[kmsRetiredResource](srv.DB(), "kms_retired_resources")
 
-	// ----- KeyRings -----
-
 	// CreateKeyRing: POST .../keyRings?keyRingId=X
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -362,8 +360,6 @@ func registerCloudKMS(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown keyRing action %q", action)
 		}
 	})
-
-	// ----- CryptoKeys -----
 
 	// CreateCryptoKey: POST .../keyRings/{keyRing}/cryptoKeys?cryptoKeyId=X
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys", func(w http.ResponseWriter, r *http.Request) {
@@ -538,8 +534,6 @@ func registerCloudKMS(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown cryptoKey action %q", action)
 		}
 	})
-
-	// ----- CryptoKeyVersions -----
 
 	// ListCryptoKeyVersions: GET .../cryptoKeys/{cryptoKey}/cryptoKeyVersions
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions", func(w http.ResponseWriter, r *http.Request) {
@@ -793,15 +787,10 @@ func registerCloudKMSExtras(srv *sim.Server) {
 		kmsHandleImportCryptoKeyVersion(w, r, kmsCryptoKeyName(r))
 	})
 
-	// ----- ImportJobs -----
 	kmsRegisterImportJobs(srv)
-	// ----- EkmConnections + EkmConfig -----
 	kmsRegisterEkm(srv)
-	// ----- KeyHandles (Autokey) -----
 	kmsRegisterKeyHandles(srv)
-	// ----- AutokeyConfig + KajPolicyConfig singletons -----
 	kmsRegisterConfigSingletons(srv)
-	// ----- SingleTenantHsmInstances + proposals + retiredResources -----
 	kmsRegisterSingleTenantHsm(srv)
 
 	// GenerateRandomBytes: POST .../locations/{locationAction} where
@@ -1647,8 +1636,6 @@ func kmsCryptoKeyUndeletable(keyName string) string {
 	return ""
 }
 
-// ----- crypto handlers -----
-
 func kmsHandleEncrypt(w http.ResponseWriter, r *http.Request, keyName string) {
 	key, ok := kmsCryptoKeys.Get(keyName)
 	if !ok {
@@ -1807,8 +1794,6 @@ func kmsHandleUpdatePrimaryVersion(w http.ResponseWriter, r *http.Request, keyNa
 	sim.WriteJSON(w, http.StatusOK, kmsAssembleCryptoKey(key))
 }
 
-// ----- IAM (getIamPolicy / setIamPolicy / testIamPermissions) -----
-
 func kmsHandleGetIamPolicy(w http.ResponseWriter, r *http.Request, resource string) {
 	pol, ok := kmsIamPolicies.Get(resource)
 	if !ok {
@@ -1846,8 +1831,6 @@ func kmsHandleTestIamPermissions(w http.ResponseWriter, r *http.Request, resourc
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"permissions": req.Permissions})
 }
 
-// ----- location-level crypto -----
-
 // kmsHandleGenerateRandomBytes returns cryptographically-random bytes from
 // crypto/rand, with a real CRC32C over the result.
 func kmsHandleGenerateRandomBytes(w http.ResponseWriter, r *http.Request) {
@@ -1873,8 +1856,6 @@ func kmsHandleGenerateRandomBytes(w http.ResponseWriter, r *http.Request) {
 		"dataCrc32c": fmt.Sprintf("%d", kmsCRC(data)),
 	})
 }
-
-// ----- MAC (HMAC) -----
 
 func kmsHandleMacSign(w http.ResponseWriter, r *http.Request, versionName string) {
 	version, material, ok := kmsLoadEnabledVersion(w, versionName)
@@ -1963,8 +1944,6 @@ func kmsHandleMacVerify(w http.ResponseWriter, r *http.Request, versionName stri
 		"protectionLevel":          version.ProtectionLevel,
 	})
 }
-
-// ----- Raw symmetric encrypt/decrypt (caller-supplied IV, AES-GCM) -----
 
 func kmsHandleRawEncrypt(w http.ResponseWriter, r *http.Request, versionName string) {
 	version, material, ok := kmsLoadEnabledVersion(w, versionName)
@@ -2126,8 +2105,6 @@ func kmsHandleRawDecrypt(w http.ResponseWriter, r *http.Request, versionName str
 		"protectionLevel":                           version.ProtectionLevel,
 	})
 }
-
-// ----- Asymmetric sign / decrypt + public key -----
 
 func kmsHandleGetPublicKey(w http.ResponseWriter, r *http.Request, versionName string) {
 	version, ok := kmsGetCryptoKeyVersion(versionName)
@@ -2749,8 +2726,6 @@ func kmsAESKeyUnwrapWithPadding(kek, wrapped []byte) ([]byte, error) {
 	}
 	return append([]byte(nil), padded[:length]...), nil
 }
-
-// ----- helpers -----
 
 func kmsNow() string { return time.Now().UTC().Format(time.RFC3339) }
 

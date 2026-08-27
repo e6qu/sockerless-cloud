@@ -269,8 +269,6 @@ func registerRDSProxiesRoles(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(rdsAPIVersion, "DescribePendingMaintenanceActions", handleRDSDescribePendingMaintenanceActions)
 }
 
-// --- ARN helpers ---
-
 func rdsProxyARN(name string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:db-proxy:%s", awsRegion(), awsAccountID(), name)
 }
@@ -308,9 +306,7 @@ func rdsClusterAutoBackupARN(resID string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:cluster-auto-backup:%s", awsRegion(), awsAccountID(), resID)
 }
 
-// =====================================================================
 // DB proxies
-// =====================================================================
 
 func renderRDSProxyInner(p RDSProxy) string {
 	var b strings.Builder
@@ -478,9 +474,7 @@ func handleRDSDeleteProxy(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteDBProxy", renderRDSProxy(p), sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // DB proxy endpoints
-// =====================================================================
 
 func renderRDSProxyEndpointInner(e RDSProxyEndpoint) string {
 	var b strings.Builder
@@ -619,9 +613,7 @@ func handleRDSDeleteProxyEndpoint(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteDBProxyEndpoint", renderRDSProxyEndpoint(e), sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // DB proxy targets and target groups
-// =====================================================================
 
 func rdsProxyTargetKey(proxy string, t RDSProxyTarget) string {
 	id := t.RdsResourceId
@@ -807,9 +799,7 @@ func handleRDSDeregisterProxyTargets(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeregisterDBProxyTargets", "", sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // IAM role associations on clusters / instances
-// =====================================================================
 
 func rdsAddRole(store sim.Store[rdsRoleSet], resID, roleArn, feature string) {
 	rs, ok := store.Get(resID)
@@ -892,9 +882,7 @@ func handleRDSRemoveRoleFromInstance(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "RemoveRoleFromDBInstance", "", sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // DB security groups (EC2-Classic style)
-// =====================================================================
 
 func renderRDSDBSecurityGroup(g RDSDBSecurityGroup) string {
 	var b strings.Builder
@@ -1044,9 +1032,7 @@ func handleRDSRevokeSecurityGroupIngress(w http.ResponseWriter, r *http.Request)
 	rdsXMLResponse(w, "RevokeDBSecurityGroupIngress", renderRDSDBSecurityGroup(updated), sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // Certificates
-// =====================================================================
 
 func rdsSeedCertificates() {
 	if len(rdsCertificates.List()) > 0 {
@@ -1133,9 +1119,7 @@ func handleRDSModifyCertificates(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "ModifyCertificates", renderRDSCertificate(c), sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // Automated backups
-// =====================================================================
 
 func rdsEnsureInstanceAutoBackup(inst RDSInstance) RDSInstanceAutomatedBackup {
 	if b, ok := rdsInstanceAutomatedBackups.Get(inst.DbiResourceId); ok {
@@ -1310,9 +1294,7 @@ func handleRDSDeleteClusterAutomatedBackup(w http.ResponseWriter, r *http.Reques
 	rdsXMLResponse(w, "DeleteDBClusterAutomatedBackup", renderRDSClusterAutoBackup(found), sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // Log files
-// =====================================================================
 
 func rdsLogFileData(inst RDSInstance) string {
 	return fmt.Sprintf(
@@ -1363,9 +1345,7 @@ func handleRDSDownloadLogFilePortion(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DownloadDBLogFilePortion", b.String(), sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // Parameter / option group copies
-// =====================================================================
 
 // rdsCopyGroup is the shared copy-a-named-group flow (cluster parameter group /
 // parameter group / option group): validate the source/target/description,
@@ -1447,9 +1427,7 @@ func handleRDSCopyOptionGroup(w http.ResponseWriter, r *http.Request) {
 		}, renderRDSOptionGroup)
 }
 
-// =====================================================================
 // Event subscription source identifiers
-// =====================================================================
 
 func handleRDSAddSourceIdentifier(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("SubscriptionName")
@@ -1498,9 +1476,7 @@ func handleRDSRemoveSourceIdentifier(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "RemoveSourceIdentifierFromSubscription", renderRDSEventSubscription(updated), sim.RequestID(r.Context()))
 }
 
-// =====================================================================
 // Pending maintenance actions
-// =====================================================================
 
 func rdsEnsureMaintenanceActions(resourceID string) rdsMaintenanceActions {
 	if m, ok := rdsPendingMaintenance.Get(resourceID); ok {

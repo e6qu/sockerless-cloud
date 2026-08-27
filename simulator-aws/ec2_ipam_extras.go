@@ -20,8 +20,6 @@ import (
 // XML the AWS SDK for Go v2 and the aws CLI deserialize (member casing taken
 // from ec2.smithy.json).
 
-// ---- Types ----
-
 type EC2IpamPolicyAllocationRule struct {
 	SourceIpamPoolId string
 }
@@ -213,8 +211,6 @@ func ec2ParseIpamPolicyAllocationRules(r *http.Request, prefix string) []EC2Ipam
 	}
 	return rules
 }
-
-// ---- IPAM policies ----
 
 func handleCreateIpamPolicy(w http.ResponseWriter, r *http.Request) {
 	ipamID := r.FormValue("IpamId")
@@ -433,8 +429,6 @@ func handleGetIpamPolicyOrganizationTargets(w http.ResponseWriter, r *http.Reque
 </GetIpamPolicyOrganizationTargetsResponse>`, ec2Xmlns(), generateUUID())
 }
 
-// ---- BYOASN ----
-
 func ipamByoasnBodyXML(b EC2IpamByoasn) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "<asn>%s</asn><ipamId>%s</ipamId>", b.Asn, b.IpamId)
@@ -570,8 +564,6 @@ func ipamByoipCidrXML(b EC2IpamByoipCidr) string {
 	}
 	return sb.String()
 }
-
-// ---- Prefix-list resolvers ----
 
 // ec2ParseIpamPLResolverRules reads Rule.N.{RuleType,StaticCidr,IpamScopeId,
 // ResourceType} request params.
@@ -915,8 +907,6 @@ func handleGetIpamPrefixListResolverVersionEntries(w http.ResponseWriter, r *htt
 </GetIpamPrefixListResolverVersionEntriesResponse>`, ec2Xmlns(), generateUUID(), items.String())
 }
 
-// ---- External-resource verification tokens ----
-
 func ipamExtResTokenXML(t EC2IpamExternalResourceVerificationToken) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<ipamExternalResourceVerificationTokenId>%s</ipamExternalResourceVerificationTokenId><ipamExternalResourceVerificationTokenArn>%s</ipamExternalResourceVerificationTokenArn>",
@@ -993,8 +983,6 @@ func handleDeleteIpamExternalResourceVerificationToken(w http.ResponseWriter, r 
 </DeleteIpamExternalResourceVerificationTokenResponse>`, ec2Xmlns(), generateUUID(), ipamExtResTokenXML(tok))
 }
 
-// ---- Discovered resources ----
-//
 // The sim has no live cross-account discovery backend, so these return
 // honest-empty result sets — exactly the shape a real IPAM resource discovery
 // returns before it has scanned any monitored account.
@@ -1022,8 +1010,6 @@ func handleGetIpamDiscoveredResourceCidrs(w http.ResponseWriter, r *http.Request
   <ipamDiscoveredResourceCidrSet/>
 </GetIpamDiscoveredResourceCidrsResponse>`, ec2Xmlns(), generateUUID())
 }
-
-// ---- Pool allocation mutation ----
 
 func handleModifyIpamPoolAllocation(w http.ResponseWriter, r *http.Request) {
 	allocID := r.FormValue("IpamPoolAllocationId")

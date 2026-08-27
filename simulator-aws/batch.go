@@ -312,8 +312,6 @@ func batchWriteError(w http.ResponseWriter, status int, msg string) {
 	})
 }
 
-// ---------- Compute Environments ----------
-
 func handleBatchCreateComputeEnvironment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ComputeEnvironmentName string            `json:"computeEnvironmentName"`
@@ -451,8 +449,6 @@ func handleBatchDeleteComputeEnvironment(w http.ResponseWriter, r *http.Request)
 	batchComputeEnvs.Delete(batchNameFromARN(req.ComputeEnvironment))
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Job Queues ----------
 
 func handleBatchCreateJobQueue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -592,8 +588,6 @@ func handleBatchDeleteJobQueue(w http.ResponseWriter, r *http.Request) {
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- Job Definitions ----------
-
 func handleBatchRegisterJobDefinition(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JobDefinitionName   string            `json:"jobDefinitionName"`
@@ -709,8 +703,6 @@ func handleBatchDeregisterJobDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Jobs ----------
 
 func handleBatchSubmitJob(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -953,8 +945,6 @@ func handleBatchTerminateJob(w http.ResponseWriter, r *http.Request) {
 	handleBatchCancelJob(w, r)
 }
 
-// ---------- Scheduling Policies ----------
-
 func handleBatchCreateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name             string            `json:"name"`
@@ -1078,8 +1068,6 @@ func handleBatchDeleteSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- Tags (resource-level) ----------
-
 func handleBatchListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("resourceArn")
 	tags := batchTagsForARN(arn)
@@ -1194,8 +1182,6 @@ func batchRemoveTags(arn string, keys []string) {
 		}
 	}
 }
-
-// ---------- Consumable Resources ----------
 
 func handleBatchCreateConsumableResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1373,8 +1359,6 @@ func handleBatchListJobsByConsumableResource(w http.ResponseWriter, r *http.Requ
 	batchWriteJSON(w, http.StatusOK, out)
 }
 
-// ---------- Service Environments ----------
-
 func handleBatchCreateServiceEnvironment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
@@ -1508,8 +1492,6 @@ func handleBatchDeleteServiceEnvironment(w http.ResponseWriter, r *http.Request)
 	batchServiceEnvs.Delete(batchNameFromARN(req.ServiceEnvironment))
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Service Jobs ----------
 
 func handleBatchSubmitServiceJob(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1736,8 +1718,6 @@ func handleBatchUpdateServiceJob(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- Quota Shares ----------
-
 func handleBatchCreateQuotaShare(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QuotaShareName               string            `json:"quotaShareName"`
@@ -1919,8 +1899,6 @@ func handleBatchDeleteQuotaShare(w http.ResponseWriter, r *http.Request) {
 	batchQuotaShares.Delete(batchNameFromARN(req.QuotaShareArn))
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Job Queue Snapshot ----------
 
 func handleBatchGetJobQueueSnapshot(w http.ResponseWriter, r *http.Request) {
 	var req struct {

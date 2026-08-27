@@ -93,8 +93,6 @@ func registerIAMProvidersCerts(r *sim.AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ---------- SAML providers ----------
-
 func iamSAMLArn(name string) string {
 	return fmt.Sprintf("arn:aws:iam::%s:saml-provider/%s", awsAccountID(), name)
 }
@@ -241,8 +239,6 @@ func handleIAMUntagSAMLProvider(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "UntagSAMLProvider")
 }
 
-// ---------- OIDC provider tags ----------
-
 func handleIAMListOIDCProviderTags(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("OpenIDConnectProviderArn")
 	provider, ok := iamOIDCProviders.Get(arn)
@@ -252,8 +248,6 @@ func handleIAMListOIDCProviderTags(w http.ResponseWriter, r *http.Request) {
 	}
 	iamTagListResultXML(w, "ListOpenIDConnectProviderTags", iamMapToTags(provider.Tags))
 }
-
-// ---------- Server certificates ----------
 
 func iamServerCertArn(path, name string) string {
 	return fmt.Sprintf("arn:aws:iam::%s:server-certificate%s%s", awsAccountID(), path, name)
@@ -432,8 +426,6 @@ func handleIAMUntagServerCertificate(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "UntagServerCertificate")
 }
 
-// ---------- Account aliases ----------
-
 func handleIAMCreateAccountAlias(w http.ResponseWriter, r *http.Request) {
 	alias := r.FormValue("AccountAlias")
 	if alias == "" {
@@ -483,8 +475,6 @@ func handleIAMListAccountAliases(w http.ResponseWriter, r *http.Request) {
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </ListAccountAliasesResponse>`, iamXmlns, members.String(), generateUUID())
 }
-
-// ---------- Shared tag helpers ----------
 
 // iamTagListResultXML emits the ListXxxTags response shape (Tags member list +
 // IsTruncated; the sim never truncates a tag list).

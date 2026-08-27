@@ -779,8 +779,6 @@ func handleDescribeRegions(w http.ResponseWriter, r *http.Request) {
 </DescribeRegionsResponse>`, ec2Xmlns(), generateUUID(), region, region)
 }
 
-// ---- VPC ----
-
 func handleCreateVpc(w http.ResponseWriter, r *http.Request) {
 	cidr := r.FormValue("CidrBlock")
 	requestedEncryptionMode, requestedExclusions, hasRequestedEncryption, err := vpcEncryptionConfigurationFromCreateRequest(r)
@@ -1036,8 +1034,6 @@ func handleModifyVpcAttribute(w http.ResponseWriter, r *http.Request) {
 </ModifyVpcAttributeResponse>`, ec2Xmlns(), generateUUID())
 }
 
-// ---- Subnet ----
-
 func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 	vpcId := r.FormValue("VpcId")
 	cidr := r.FormValue("CidrBlock")
@@ -1283,8 +1279,6 @@ func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 </DeleteSubnetResponse>`, ec2Xmlns(), generateUUID())
 }
 
-// ---- Internet Gateway ----
-
 func handleCreateInternetGateway(w http.ResponseWriter, r *http.Request) {
 	tags := parseTags(r)
 	id := ec2ID("igw")
@@ -1397,8 +1391,6 @@ func handleDeleteInternetGateway(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId><return>true</return>
 </DeleteInternetGatewayResponse>`, ec2Xmlns(), generateUUID())
 }
-
-// ---- Elastic IP ----
 
 func handleAllocateAddress(w http.ResponseWriter, r *http.Request) {
 	domain := r.FormValue("Domain")
@@ -1620,8 +1612,6 @@ func handleDescribeAddressesAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ---- NAT Gateway ----
-
 func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 	subnetId := r.FormValue("SubnetId")
 	allocId := r.FormValue("AllocationId")
@@ -1786,8 +1776,6 @@ func handleDeleteNatGateway(w http.ResponseWriter, r *http.Request) {
   <natGatewayId>%s</natGatewayId>
 </DeleteNatGatewayResponse>`, ec2Xmlns(), generateUUID(), id)
 }
-
-// ---- Route Table ----
 
 func handleCreateRouteTable(w http.ResponseWriter, r *http.Request) {
 	vpcId := r.FormValue("VpcId")
@@ -2185,8 +2173,6 @@ func handleDisassociateRouteTable(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId><return>true</return>
 </DisassociateRouteTableResponse>`, ec2Xmlns(), generateUUID())
 }
-
-// ---- Security Group ----
 
 func handleCreateSecurityGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("GroupName")
@@ -3088,8 +3074,6 @@ func handleUpdateSecurityGroupRuleDescriptionsEgress(w http.ResponseWriter, r *h
 	updateSecurityGroupRuleDescriptions(groupId, parseIpPermission(r, "IpPermissions.1"), true)
 	ec2WriteSimpleResponse(w, "UpdateSecurityGroupRuleDescriptionsEgressResponse")
 }
-
-// ---- Instances ----
 
 func ec2ParamList(r *http.Request, prefix string) []string {
 	var values []string
@@ -5447,8 +5431,6 @@ func handleDescribeInstanceTypeOfferings(w http.ResponseWriter, r *http.Request)
   <instanceTypeOfferingSet>%s</instanceTypeOfferingSet>
 </DescribeInstanceTypeOfferingsResponse>`, ec2Xmlns(), generateUUID(), items.String())
 }
-
-// ---- Network Interfaces ----
 
 // ec2AnyStrInValues reports whether any of items matches any of vals.
 func ec2AnyStrInValues(items, vals []string) bool {

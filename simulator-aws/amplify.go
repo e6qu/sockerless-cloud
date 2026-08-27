@@ -35,8 +35,6 @@ import (
 //     (amplify_dataplane.go) on the app's default-domain, cloudfront.net,
 //     and verified custom-domain hosts.
 
-// ---------- Types ----------
-
 // AmplifyJobStatus is the JobStatus enum subset the sim assigns. The full
 // model enum also carries CREATED/PROVISIONING/CANCELLING, which the sim's
 // pipelines never enter.
@@ -304,8 +302,6 @@ var (
 	amplifyRepositoryConnections sim.Store[amplifyRepositoryConnection]
 )
 
-// ---------- Helpers ----------
-
 func amplifyRandomID() string {
 	buf := make([]byte, 6)
 	_, _ = rand.Read(buf)
@@ -449,8 +445,6 @@ func amplifyRepositoryCloneMethod(repository string) string {
 	return ""
 }
 
-// ---------- Registration ----------
-
 func registerAmplify(srv *sim.Server) {
 	amplifyApps = sim.MakeStore[amplifyStoredApp](srv.DB(), "amplify_apps")
 	amplifyWebhooks = sim.MakeStore[amplifyStoredWebhook](srv.DB(), "amplify_webhooks")
@@ -505,8 +499,6 @@ func registerAmplify(srv *sim.Server) {
 	// Domains + BackendEnvironments (amplify_domains.go)
 	registerAmplifyDomains(srv)
 }
-
-// ---------- Apps ----------
 
 type amplifyCreateAppReq struct {
 	Name                       string              `json:"name"`
@@ -848,8 +840,6 @@ func handleAmplifyListApps(w http.ResponseWriter, r *http.Request) {
 	amplifyWriteListPage(w, "apps", apps, token, maxResults)
 }
 
-// ---------- Branches ----------
-
 type amplifyCreateBranchReq struct {
 	BranchName                 string             `json:"branchName"`
 	Description                string             `json:"description,omitempty"`
@@ -1103,8 +1093,6 @@ func handleAmplifyListBranches(w http.ResponseWriter, r *http.Request) {
 	amplifyWriteListPage(w, "branches", branches, token, maxResults)
 }
 
-// ---------- Webhooks ----------
-
 type amplifyCreateWebhookReq struct {
 	BranchName  string `json:"branchName"`
 	Description string `json:"description,omitempty"`
@@ -1224,8 +1212,6 @@ func handleAmplifyListWebhooks(w http.ResponseWriter, r *http.Request) {
 	sortBy(items, func(wh AmplifyWebhook) string { return wh.WebhookId })
 	amplifyWriteListPage(w, "webhooks", items, token, maxResults)
 }
-
-// ---------- Jobs ----------
 
 type amplifyStartJobReq struct {
 	JobType       string  `json:"jobType"` // RELEASE / RETRY / MANUAL / WEB_HOOK
@@ -1866,8 +1852,6 @@ func amplifyAppOwnsDomain(stored amplifyStoredApp, domain string) bool {
 	return false
 }
 
-// ---------- Deployments ----------
-
 type amplifyCreateDeploymentReq struct {
 	FileMap map[string]string `json:"fileMap,omitempty"`
 }
@@ -2102,8 +2086,6 @@ func amplifyResolveDeploymentSource(r *http.Request, appID, branch, jobID, sourc
 	amplifyPutS3Object(destination, response.Header.Get("Content-Type"), data)
 	return []amplifyUploadedArtifact{{FileName: "archive.zip", Key: destination}}, nil
 }
-
-// ---------- Tagging ----------
 
 // Tag URLs use the resource ARN as a wildcard tail. We just trim the prefix.
 

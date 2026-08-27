@@ -421,8 +421,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		return name, true
 	}
 
-	// ---- Packages ----
-
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
 		if !ok {
@@ -506,8 +504,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), pkg, pkgType)
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
-
-	// ---- Versions ----
 
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages/{pkg}/versions", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
@@ -612,8 +608,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// ---- Tags ----
-
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages/{pkg}/tags", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
 		if !ok {
@@ -707,8 +701,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		tags.Delete(name)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
-
-	// ---- Files ----
 
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/files", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
@@ -843,8 +835,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"operation": lro})
 	})
 
-	// ---- Rules ----
-
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
 		if !ok {
@@ -947,8 +937,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		rules.Delete(name)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
-
-	// ---- Attachments ----
 
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/attachments", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
@@ -1059,8 +1047,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		registerARArtifactImport(kind)
 	}
 
-	// ---- Typed artifact listings (maven/npm/python) + dockerImage get ----
-
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/dockerImages/{image}", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
 		if !ok {
@@ -1117,8 +1103,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"prewarmedArtifacts": []any{}})
 	})
-
-	// ---- Repository PATCH ----
 
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/repositories/{repo}", func(w http.ResponseWriter, r *http.Request) {
 		name := repoName(r)

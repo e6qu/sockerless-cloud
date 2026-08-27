@@ -81,8 +81,6 @@ func glueTableColumnNames(t GlueTable) []string {
 	return names
 }
 
-// ---------- Lake Formation unfiltered-metadata reads ----------
-
 func handleGlueGetUnfilteredTableMetadata(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CatalogId    string `json:"CatalogId"`
@@ -173,8 +171,6 @@ func handleGlueGetUnfilteredPartitionsMetadata(w http.ResponseWriter, r *http.Re
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- Data Quality annotations ----------
 
 func handleGlueBatchPutDataQualityStatisticAnnotation(w http.ResponseWriter, r *http.Request) {
 	var req struct {

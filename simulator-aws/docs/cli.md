@@ -17,7 +17,7 @@ export AWS_DEFAULT_REGION=us-east-1
 export AWS_PAGER=
 ```
 
-`AWS_ENDPOINT_URL` redirects all AWS CLI requests to the simulator. Any access key and secret will be accepted. `AWS_PAGER=` disables the pager for easier scripting.
+`AWS_ENDPOINT_URL` redirects all AWS CLI requests to the simulator. The simulator accepts any access key and secret. `AWS_PAGER=` disables the pager for easier scripting.
 
 For S3 commands, the simulator routes S3 under a `/s3` prefix:
 
@@ -250,6 +250,6 @@ The script builds the simulator, starts it on a random port, runs 61 tests, and 
 
 ## Notes
 
-- Authentication is accepted but not validated. Any access key and secret will work.
+- The simulator accepts authentication without validating it. Any access key and secret works.
 - All state is in-memory and resets when the simulator restarts.
 - The simulator returns the local-test account ID `123456789012` for STS calls.

@@ -462,8 +462,6 @@ func registerWebStaticSites(srv *sim.Server) {
 	srv.HandleFunc("POST "+webSubscriptionProvider+"/locations/{location}/previewStaticSiteWorkflowFile", handleStaticSitePreviewWorkflow)
 }
 
-// --- Resource CRUD -----------------------------------------------------------
-
 // staticSiteView returns the site with its read-only aggregate members
 // (customDomains, userProvidedFunctionApps, linkedBackends,
 // databaseConnections) assembled from the child stores, as real Azure
@@ -761,8 +759,6 @@ func handleStaticSiteDetach(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// --- Secrets and application settings ----------------------------------------
-
 func handleStaticSiteListSecrets(w http.ResponseWriter, r *http.Request) {
 	ss, ok := staticSiteOr404(w, r)
 	if !ok {
@@ -881,8 +877,6 @@ func handleStaticSiteBuildSettingsList(w http.ResponseWriter, r *http.Request) {
 	writeStaticSiteSettings(w, b.ID, staticSiteSettingsName(r), true, stored.Settings)
 }
 
-// --- Builds -------------------------------------------------------------------
-
 // staticSiteBuildView returns the build with its read-only aggregate members
 // assembled from the child stores.
 func staticSiteBuildView(b StaticSiteBuildARMResource) StaticSiteBuildARMResource {
@@ -957,8 +951,6 @@ func handleStaticSiteBuildDelete(w http.ResponseWriter, r *http.Request) {
 	webStaticSiteSettings.Delete(staticSiteSettingsScope(id))
 	w.WriteHeader(http.StatusOK)
 }
-
-// --- Zip deployments ----------------------------------------------------------
 
 // StaticSiteZipDeployment mirrors the swagger StaticSiteZipDeployment request
 // properties.
@@ -1038,8 +1030,6 @@ func handleStaticSiteBuildZipDeploy(w http.ResponseWriter, r *http.Request) {
 	staticSiteZipDeploy(w, r, ss, sim.PathParam(r, "environmentName"))
 }
 
-// --- Functions ----------------------------------------------------------------
-
 // Managed functions are produced by the Static Web Apps build pipeline (Oryx
 // building the repository's api folder), which has no ARM surface the
 // simulator could run; with no pipeline-built functions, the list is
@@ -1059,8 +1049,6 @@ func handleStaticSiteBuildFunctionsList(w http.ResponseWriter, r *http.Request) 
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 }
-
-// --- Users, roles, invitations -------------------------------------------------
 
 func handleStaticSiteUsersList(w http.ResponseWriter, r *http.Request) {
 	ss, ok := staticSiteOr404(w, r)
@@ -1213,8 +1201,6 @@ func handleStaticSiteListConfiguredRoles(w http.ResponseWriter, r *http.Request)
 	sort.Strings(roles)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"properties": roles})
 }
-
-// --- Custom domains -------------------------------------------------------------
 
 // staticSiteDomainDNSValidated answers, truthfully off the simulator's Azure
 // DNS record sets, whether the domain's ownership proof is in place:
@@ -1436,8 +1422,6 @@ func handleStaticSiteCustomDomainValidate(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-// --- Basic auth -----------------------------------------------------------------
-
 // staticSiteDefaultBasicAuth is the record real Azure reports before basic
 // auth has ever been configured: applicable to no environments, no secret set.
 func staticSiteDefaultBasicAuth(siteID string) StaticSiteBasicAuthPropertiesARMResource {
@@ -1513,8 +1497,6 @@ func handleStaticSiteBasicAuthPut(w http.ResponseWriter, r *http.Request) {
 	webStaticSiteBasicAuth.Put(ba.ID, ba)
 	sim.WriteJSON(w, http.StatusOK, ba)
 }
-
-// --- Database connections ---------------------------------------------------------
 
 // registerStaticSiteDatabaseConnections mounts the six database-connection
 // operations at one scope (site or build); idSuffix distinguishes the
@@ -1648,8 +1630,6 @@ func registerStaticSiteDatabaseConnections(srv *sim.Server, pattern, scope strin
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// --- Linked backends ----------------------------------------------------------------
 
 // staticSiteResolveBackend checks a backendResourceId against the simulator's
 // own resource stores — the backend types Static Web Apps can link are App
@@ -1787,8 +1767,6 @@ func registerStaticSiteLinkedBackends(srv *sim.Server, pattern, scope string) {
 	})
 }
 
-// --- User-provided function apps ------------------------------------------------------
-
 // registerStaticSiteUserProvidedFunctionApps mounts the four user-provided
 // function-app operations at one scope (site or build). Registration links an
 // EXISTING Microsoft.Web site: the functionAppResourceId is resolved against
@@ -1886,8 +1864,6 @@ func registerStaticSiteUserProvidedFunctionApps(srv *sim.Server, pattern, scope 
 	})
 }
 
-// --- Private endpoint connections + private link resources ------------------------------
-
 func handleStaticSitePECList(w http.ResponseWriter, r *http.Request) {
 	ss, ok := staticSiteOr404(w, r)
 	if !ok {
@@ -1982,8 +1958,6 @@ func handleStaticSitePrivateLinkResources(w http.ResponseWriter, r *http.Request
 		}},
 	})
 }
-
-// --- Workflow preview + detach ------------------------------------------------------
 
 func handleStaticSitePreviewWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req struct {

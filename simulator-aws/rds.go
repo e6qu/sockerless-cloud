@@ -1171,8 +1171,6 @@ func handleRDSReboot(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "RebootDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
-// ----- DB clusters -----
-
 func rdsClusterARN(id string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:cluster:%s", awsRegion(), awsAccountID(), id)
 }
@@ -1396,8 +1394,6 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteDBCluster", renderRDSCluster(cl), sim.RequestID(r.Context()))
 }
 
-// ----- DB subnet groups -----
-
 func rdsSubnetGroupARN(name string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:subgrp:%s", awsRegion(), awsAccountID(), name)
 }
@@ -1526,8 +1522,6 @@ func handleRDSDeleteSubnetGroup(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteDBSubnetGroup", "", sim.RequestID(r.Context()))
 }
 
-// ----- DB parameter groups -----
-
 func rdsParamGroupARN(name string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:pg:%s", awsRegion(), awsAccountID(), name)
 }
@@ -1610,8 +1604,6 @@ func handleRDSDeleteParamGroup(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteDBParameterGroup", "", sim.RequestID(r.Context()))
 }
 
-// ----- Read replicas -----
-
 func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
 	srcID := r.FormValue("SourceDBInstanceIdentifier")
@@ -1668,8 +1660,6 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 	})
 	rdsXMLResponse(w, "CreateDBInstanceReadReplica", renderRDSInstance(replica), sim.RequestID(r.Context()))
 }
-
-// ----- CopyDBSnapshot -----
 
 func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	srcID := r.FormValue("SourceDBSnapshotIdentifier")
@@ -1737,8 +1727,6 @@ func handleRDSCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	simGo(func() { rdsCopySnapshotData(targetID, srcSnapID) })
 	rdsXMLResponse(w, "CopyDBSnapshot", renderRDSSnapshot(copySnap), sim.RequestID(r.Context()))
 }
-
-// ----- DB cluster snapshots -----
 
 func rdsClusterSnapshotARN(id string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:cluster-snapshot:%s", awsRegion(), awsAccountID(), id)
@@ -1874,8 +1862,6 @@ func handleRDSDeleteClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteDBClusterSnapshot", renderRDSClusterSnapshot(snap), sim.RequestID(r.Context()))
 }
 
-// ----- DB cluster parameter groups -----
-
 func rdsClusterParamGroupARN(name string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:cluster-pg:%s", awsRegion(), awsAccountID(), name)
 }
@@ -1960,8 +1946,6 @@ func handleRDSDeleteClusterParamGroup(w http.ResponseWriter, r *http.Request) {
 	rdsClusterParamGroups.Delete(name)
 	rdsXMLResponse(w, "DeleteDBClusterParameterGroup", "", sim.RequestID(r.Context()))
 }
-
-// ----- Option groups -----
 
 func rdsOptionGroupARN(name string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:og:%s", awsRegion(), awsAccountID(), name)
@@ -2055,8 +2039,6 @@ func handleRDSDeleteOptionGroup(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteOptionGroup", "", sim.RequestID(r.Context()))
 }
 
-// ----- Events -----
-
 // handleRDSDescribeEvents returns RDS service events. The sim does not
 // generate engine-level events (no engine is run), so the list is
 // empty unless an event source is being described — matching real RDS,
@@ -2121,8 +2103,6 @@ func handleRDSDescribeEventCategories(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</EventCategoriesMapList>")
 	rdsXMLResponse(w, "DescribeEventCategories", b.String(), sim.RequestID(r.Context()))
 }
-
-// ----- Engine metadata -----
 
 // rdsEngineVersionRow is a faithful static-but-real DB engine version
 // the SDK/CLI can consume. The set mirrors the current GA majors the
@@ -2216,8 +2196,6 @@ func handleRDSDescribeOrderableOptions(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</OrderableDBInstanceOptions>")
 	rdsXMLResponse(w, "DescribeOrderableDBInstanceOptions", b.String(), sim.RequestID(r.Context()))
 }
-
-// ----- Instance/cluster state transitions -----
 
 // Real RDS transitions an instance through starting→available and
 // stopping→stopped. The simulator keeps the instance volume but tears down
@@ -2326,8 +2304,6 @@ func handleRDSFailoverCluster(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "FailoverDBCluster", renderRDSCluster(cl), sim.RequestID(r.Context()))
 }
 
-// ----- DB snapshot attributes -----
-
 func parseRDSIndexedStringList(r *http.Request, prefix string) []string {
 	var out []string
 	for n := 1; n <= 200; n++ {
@@ -2414,8 +2390,6 @@ func applyAttributeValueDelta(cur, add, remove []string) []string {
 	}
 	return out
 }
-
-// ----- Parameter detail -----
 
 // rdsDefaultParameters returns a representative slice of engine
 // parameters. RDS exposes hundreds; the sim returns a small faithful
@@ -2569,8 +2543,6 @@ func handleRDSModifyClusterParameterGroup(w http.ResponseWriter, r *http.Request
 	rdsXMLResponse(w, "ModifyDBClusterParameterGroup", body, sim.RequestID(r.Context()))
 }
 
-// ----- CopyDBClusterSnapshot -----
-
 func handleRDSCopyClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 	srcID := r.FormValue("SourceDBClusterSnapshotIdentifier")
 	targetID := r.FormValue("TargetDBClusterSnapshotIdentifier")
@@ -2611,8 +2583,6 @@ func handleRDSCopyClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 	rdsClusterSnapshots.Put(targetID, cp)
 	rdsXMLResponse(w, "CopyDBClusterSnapshot", renderRDSClusterSnapshot(cp), sim.RequestID(r.Context()))
 }
-
-// ----- Global clusters -----
 
 func rdsGlobalClusterARN(id string) string {
 	return fmt.Sprintf("arn:aws:rds::%s:global-cluster:%s", awsAccountID(), id)
@@ -2759,8 +2729,6 @@ func handleRDSDeleteGlobalCluster(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteGlobalCluster", renderRDSGlobalCluster(g, "GlobalCluster"), sim.RequestID(r.Context()))
 }
 
-// ----- Event subscriptions -----
-
 func rdsEventSubscriptionARN(name string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:es:%s", awsRegion(), awsAccountID(), name)
 }
@@ -2896,8 +2864,6 @@ func handleRDSDeleteEventSubscription(w http.ResponseWriter, r *http.Request) {
 	s.Status = "deleting"
 	rdsXMLResponse(w, "DeleteEventSubscription", renderRDSEventSubscription(s), sim.RequestID(r.Context()))
 }
-
-// ----- DB cluster endpoints -----
 
 func rdsClusterEndpointARN(id string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:cluster-endpoint:%s", awsRegion(), awsAccountID(), id)

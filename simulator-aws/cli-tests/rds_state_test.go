@@ -12,7 +12,6 @@ import (
 // Aurora global cluster family end-to-end through the aws CLI. Grouped
 // into one round-trip func (appdata2 carries RDS).
 func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
-	// --- DB instance start/stop ---
 	instID := "cli-state-pg-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instID,
@@ -40,7 +39,6 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 	parseJSON(t, out, &stopResp)
 	assert.Equal(t, "available", stopResp.DBInstance.DBInstanceStatus)
 
-	// --- promote-read-replica ---
 	replicaID := "cli-state-replica"
 	runCLI(t, awsCLI("rds", "create-db-instance-read-replica",
 		"--db-instance-identifier", replicaID,
@@ -59,7 +57,6 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 	parseJSON(t, out, &promResp)
 	assert.Equal(t, replicaID, promResp.DBInstance.DBInstanceIdentifier)
 
-	// --- DB cluster start/stop/failover ---
 	clusterID := "cli-state-aurora"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", clusterID,
@@ -87,7 +84,6 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 
 	runCLI(t, awsCLI("rds", "failover-db-cluster", "--db-cluster-identifier", clusterID))
 
-	// --- global cluster ---
 	gid := "cli-global-cluster"
 	out = runCLI(t, awsCLI("rds", "create-global-cluster",
 		"--global-cluster-identifier", gid,
@@ -134,7 +130,6 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 // DB cluster endpoints, and copy-db-cluster-snapshot end-to-end through
 // the aws CLI. Grouped into one round-trip func (appdata2 carries RDS).
 func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
-	// --- event subscription ---
 	subName := "cli-rds-events"
 	out := runCLI(t, awsCLI("rds", "create-event-subscription",
 		"--subscription-name", subName,
@@ -163,7 +158,6 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 		"--subscription-name", subName, "--no-enabled"))
 	runCLI(t, awsCLI("rds", "delete-event-subscription", "--subscription-name", subName))
 
-	// --- parameter detail ---
 	pgName := "cli-detail-pg"
 	runCLI(t, awsCLI("rds", "create-db-parameter-group",
 		"--db-parameter-group-name", pgName,
@@ -217,7 +211,6 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 		"--db-cluster-parameter-group-name", cpgName,
 		"--parameters", "ParameterName=character_set_server,ParameterValue=latin1,ApplyMethod=immediate"))
 
-	// --- snapshot attribute sharing ---
 	instID := "cli-attr-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instID,
@@ -259,7 +252,6 @@ func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
 	assert.ElementsMatch(t, []string{"123456789012", "210987654321"},
 		attrResp.DBSnapshotAttributesResult.DBSnapshotAttributes[0].AttributeValues)
 
-	// --- cluster endpoint + copy-db-cluster-snapshot ---
 	clusterID := "cli-endpoint-cluster"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", clusterID,

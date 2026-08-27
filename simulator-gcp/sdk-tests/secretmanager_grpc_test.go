@@ -24,7 +24,6 @@ import (
 // for its payload integrity field.
 var smGRPCCrc32CTable = crc32.MakeTable(crc32.Castagnoli)
 
-// smGRPCCrc32C computes the CRC32C checksum.
 func smGRPCCrc32C(b []byte) int64 { return int64(crc32.Checksum(b, smGRPCCrc32CTable)) }
 
 // newSecretManagerGRPCClient builds the high-level
@@ -475,9 +474,7 @@ func TestSecretManager_GRPC_NotFoundCodes(t *testing.T) {
 	require.Equal(t, name, after.GetName())
 }
 
-// ---------------------------------------------------------------------------
 // helpers
-// ---------------------------------------------------------------------------
 
 // smGRPCListAllSecrets exhausts the ListSecrets iterator under the parent.
 // iterator.Done is the only sentinel that ends the walk; any other error is a

@@ -21,13 +21,11 @@ type Registry struct {
 	Properties RegistryProperties `json:"properties"`
 }
 
-// RegistrySku holds the SKU for a container registry.
 type RegistrySku struct {
 	Name string `json:"name"`
 	Tier string `json:"tier,omitempty"`
 }
 
-// RegistryProperties holds the properties of a container registry.
 type RegistryProperties struct {
 	LoginServer              string          `json:"loginServer"`
 	ProvisioningState        string          `json:"provisioningState"`
@@ -267,8 +265,6 @@ func registerACR(srv *sim.Server) {
 		}
 	})
 
-	// --- Cache Rules (pull-through cache) ---
-	//
 	// Matches armcontainerregistry.CacheRulesClient endpoints. Reference:
 	// subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry
 	//   registries/{registry}/cacheRules[/{rule}]
@@ -993,8 +989,6 @@ func registerACRChildResources(srv *sim.Server) {
 		})
 }
 
-// --- Webhooks ---
-//
 // Webhooks need bespoke handlers because the create/update parameters carry
 // write-only secret fields (serviceUri, customHeaders) that the Webhook
 // response schema does not declare. The stored row keeps the secrets for

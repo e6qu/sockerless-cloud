@@ -100,7 +100,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	})
 	assert.ElementsMatch(t, []string{"keepme", "report"}, backupCLIWebJobs(t, site))
 
-	// --- Backup configuration -------------------------------------------------
 	runCLI(t, azRest("PUT", backupCLIURL("sites/"+site+"/config/backup"),
 		fmt.Sprintf(`{"properties":{"backupName":"clinightly","enabled":true,"storageAccountUrl":%q,
 		 "backupSchedule":{"frequencyInterval":1,"frequencyUnit":"Day","keepAtLeastOneBackup":true,"retentionPeriodInDays":7}}}`,
@@ -115,7 +114,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	assert.Equal(t, "clinightly", cfg.Properties.BackupName)
 	assert.Equal(t, containerURL, cfg.Properties.StorageAccountURL)
 
-	// --- Take the backup --------------------------------------------------------
 	var item struct {
 		Properties struct {
 			BackupID    int    `json:"id"`
@@ -144,7 +142,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	assert.Contains(t, names, strings.TrimSuffix(item.Properties.BlobName, ".zip")+".xml",
 		"Microsoft documents an XML manifest beside every backup ZIP")
 
-	// --- Reads ------------------------------------------------------------------
 	backupID := fmt.Sprintf("%d", item.Properties.BackupID)
 	var listed struct {
 		Value []struct {
@@ -187,7 +184,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 			containerURL, item.Properties.BlobName))), &discovered)
 	assert.Equal(t, site, discovered.Properties.SiteName)
 
-	// --- Change the content, then restore ----------------------------------------
 	backupCLIDeploy(t, site, map[string]string{
 		"App_Data/jobs/triggered/extra/run.sh": "#!/bin/sh\nexit 0\n",
 	})
@@ -213,7 +209,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 		return len(backupCLIWebJobs(t, target)) == 2
 	}, "the archive must restore into a different app")
 
-	// --- Snapshots ----------------------------------------------------------------
 	var snaps struct {
 		Value []struct {
 			Properties struct {
@@ -232,7 +227,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 	runCLI(t, azRest("POST", backupCLIURL("sites/"+site+"/restoreSnapshot"),
 		`{"properties":{"overwrite":true}}`))
 
-	// --- Deleting the backup removes its blobs ---------------------------------
 	runCLI(t, azRest("DELETE", backupCLIURL("sites/"+site+"/backups/"+backupID), ""))
 	var afterDelete []struct {
 		Name string `json:"name"`
@@ -245,7 +239,6 @@ func TestWebAppBackupRestore_CLI(t *testing.T) {
 
 	runCLI(t, azRest("DELETE", backupCLIURL("sites/"+site+"/config/backup"), ""))
 
-	// --- Deleted-app retention and restore ---------------------------------------
 	runCLI(t, azRest("DELETE", backupCLIURL("sites/"+target), ""))
 	var deleted struct {
 		Value []struct {

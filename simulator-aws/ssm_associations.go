@@ -273,8 +273,6 @@ func ssmAssociationResources(a SSMAssociation) []string {
 	return ids
 }
 
-// --- State Manager associations ---
-
 type ssmCreateAssociationReq struct {
 	Name                          string              `json:"Name"`
 	DocumentVersion               string              `json:"DocumentVersion"`
@@ -952,8 +950,6 @@ func handleSSMStartAssociationsOnce(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// --- Automation ---
-
 func ssmBuildAutomation(docName, docVersion, mode, changeReq string, params map[string][]string, targets []SSMTarget) SSMAutomationExecution {
 	now := float64(time.Now().Unix())
 	id := uuid.New().String()
@@ -1266,8 +1262,6 @@ func handleSSMGetExecutionPreview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Run Command ---
-
 func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		InstanceIds     []string            `json:"InstanceIds"`
@@ -1337,7 +1331,6 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ssmOrDefault returns value, or fallback when value is unset.
 func ssmOrDefault(value, fallback string) string {
 	if value == "" {
 		return fallback

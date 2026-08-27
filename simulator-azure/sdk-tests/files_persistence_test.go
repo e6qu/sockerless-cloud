@@ -36,7 +36,6 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	)
 	payload := []byte("bytes in a nested directory")
 
-	// ---- Files: a nested directory carrying metadata, holding a file ----
 	resp := restartRawReq(t, "PUT", endpoint, "/"+share+"?restype=share", filesHost, "", nil, nil)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
@@ -57,7 +56,6 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// ---- Files: a snapshot, a stored permission and a share lease ----
 	resp = restartRawReq(t, "PUT", endpoint, "/"+share+"?restype=share&comp=snapshot", filesHost, "", nil, nil)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	snapshot := resp.Header.Get("x-ms-snapshot")
@@ -78,7 +76,6 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// ---- Queues: a stored access policy and the service configuration ----
 	resp = restartRawReq(t, "PUT", endpoint, "/"+queue, queuesHost, "", nil, nil)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
@@ -96,7 +93,6 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 	resp.Body.Close()
 
-	// ---- restart ----
 	require.NoError(t, shutdownAzureSimulator(cmd))
 	cmd = startPersistentAzureSimulator(t, stateDir, port)
 	t.Cleanup(func() { _ = shutdownAzureSimulator(cmd) })

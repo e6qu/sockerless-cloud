@@ -34,8 +34,6 @@ import (
 //   - Change Calendar state, plus the just-in-time node-access token /
 //     request records.
 
-// ---- stores -------------------------------------------------------------
-
 // SSMInventoryEntry is one captured inventory item type for a node:
 // the typed content (a list of attribute maps) plus capture metadata.
 type SSMInventoryEntry struct {
@@ -198,8 +196,6 @@ func ssmTrackManagedInstance(instanceID string) {
 		LastPingDateTime: now,
 	})
 }
-
-// ---- Inventory ----------------------------------------------------------
 
 func handleSSMPutInventory(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -549,8 +545,6 @@ func handleSSMListInventoryEntries(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ---- Compliance ---------------------------------------------------------
-
 func handleSSMPutComplianceItems(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceId       string `json:"ResourceId"`
@@ -845,8 +839,6 @@ func ssmHighestSeverity(items []SSMComplianceItem) string {
 	return order[best]
 }
 
-// ---- Nodes + managed-instance information -------------------------------
-
 func ssmManagedInstanceList() []SSMManagedInstance {
 	all := ssmManagedInstances.List()
 	sortBy(all, func(m SSMManagedInstance) string { return m.InstanceId })
@@ -1084,8 +1076,6 @@ func handleSSMUpdateManagedInstanceRole(w http.ResponseWriter, r *http.Request) 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---- Document permissions + metadata ------------------------------------
-
 func handleSSMDescribeDocumentPermission(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name           string `json:"Name"`
@@ -1269,8 +1259,6 @@ func handleSSMListDocumentMetadataHistory(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// ---- Change Calendar ----------------------------------------------------
-
 func handleSSMGetCalendarState(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CalendarNames []string `json:"CalendarNames"`
@@ -1318,8 +1306,6 @@ func ssmCalendarDefaultClosed(content string) bool {
 	up := strings.ToUpper(content)
 	return strings.Contains(up, "DEFAULT-CLOSED") || strings.Contains(up, "CLOSED")
 }
-
-// ---- Just-in-time node access -------------------------------------------
 
 func handleSSMStartAccessRequest(w http.ResponseWriter, r *http.Request) {
 	var req struct {

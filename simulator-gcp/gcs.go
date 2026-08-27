@@ -1675,8 +1675,6 @@ func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.S
 	registerGCSBucketLifecycle(srv, buckets, objects, bucketExists)
 }
 
-// --- Bucket access controls (storage#bucketAccessControl) ---
-
 func registerGCSBucketACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, entity string) string { return bucket + "\x00" + entity }
 	build := func(r *http.Request, bucket, entity, role string) GCSBucketACL {
@@ -1768,8 +1766,6 @@ func registerGCSBucketACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExi
 	})
 }
 
-// --- Default object access controls (storage#objectAccessControl) ---
-
 func registerGCSDefaultObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, entity string) string { return bucket + "\x00" + entity }
 	build := func(r *http.Request, bucket, entity, role string) GCSObjectACL {
@@ -1859,8 +1855,6 @@ func registerGCSDefaultObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], bu
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// --- Folders (storage#folder, HNS buckets) ---
 
 func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, name string) string { return bucket + "\x00" + name }
@@ -1980,8 +1974,6 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(f)))
 	})
 }
-
-// --- Managed folders (storage#managedFolder) + their IAM ---
 
 func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, name string) string { return bucket + "\x00" + name }
@@ -2141,8 +2133,6 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	})
 }
 
-// --- Notification configs (storage#notification) ---
-
 func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, id string) string { return bucket + "\x00" + id }
 
@@ -2204,8 +2194,6 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// --- HMAC keys (storage#hmacKeyMetadata) + project service account ---
 
 func registerGCSHmacKeys(srv *sim.Server) {
 	srv.HandleFunc("GET /storage/v1/projects/{projectId}/serviceAccount", func(w http.ResponseWriter, r *http.Request) {
@@ -2324,8 +2312,6 @@ func registerGCSHmacKeys(srv *sim.Server) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// --- Anywhere caches (storage#anywhereCache) ---
 
 func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	caches := sim.MakeStore[GCSAnywhereCache](srv.DB(), "gcs_anywhere_caches")
@@ -2452,8 +2438,6 @@ type GCSAnywhereCache struct {
 	PendingUpdate   bool   `json:"pendingUpdate,omitempty"`
 	IngestOnWrite   bool   `json:"ingestOnWrite,omitempty"`
 }
-
-// --- Rapid caches (storage#rapidCache) ---
 
 // registerGCSRapidCaches mounts the rapidCaches collection: a rapid cache is
 // bucket-scoped control-plane state (zone, TTL, admission policy, cache

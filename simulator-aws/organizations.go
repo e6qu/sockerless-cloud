@@ -56,7 +56,6 @@ type OrgOrganization struct {
 	MasterAccountEmail string `json:"MasterAccountEmail"`
 }
 
-// OrgAccount is a member account.
 type OrgAccount struct {
 	Id              string `json:"Id"`
 	Arn             string `json:"Arn"`
@@ -68,7 +67,6 @@ type OrgAccount struct {
 	ParentId        string `json:"-"`
 }
 
-// OrgRoot is the organization root.
 type OrgRoot struct {
 	Id   string `json:"Id"`
 	Arn  string `json:"Arn"`
@@ -86,7 +84,6 @@ type OrgOU struct {
 	ParentId string `json:"ParentId"`
 }
 
-// OrgPolicy is a policy document.
 type OrgPolicy struct {
 	Id          string `json:"Id"`
 	Arn         string `json:"Arn"`
@@ -97,7 +94,6 @@ type OrgPolicy struct {
 	Content     string `json:"Content"`
 }
 
-// OrgHandshake is an invitation handshake.
 type OrgHandshake struct {
 	Id                  string              `json:"Id"`
 	Arn                 string              `json:"Arn"`

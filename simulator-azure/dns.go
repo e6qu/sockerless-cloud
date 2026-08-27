@@ -9,7 +9,6 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
-// PrivateDnsZone represents an Azure Private DNS Zone.
 type PrivateDnsZone struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -20,7 +19,6 @@ type PrivateDnsZone struct {
 	Properties DnsZoneProperties `json:"properties"`
 }
 
-// DnsZoneProperties holds the properties of a Private DNS Zone.
 type DnsZoneProperties struct {
 	MaxNumberOfRecordSets                 int    `json:"maxNumberOfRecordSets"`
 	NumberOfRecordSets                    int    `json:"numberOfRecordSets"`
@@ -31,7 +29,6 @@ type DnsZoneProperties struct {
 	ProvisioningState                     string `json:"provisioningState"`
 }
 
-// RecordSet represents a DNS record set.
 type RecordSet struct {
 	ID         string              `json:"id"`
 	Name       string              `json:"name"`
@@ -61,12 +58,10 @@ type RecordSetProperties struct {
 	Metadata         map[string]string `json:"metadata,omitempty"`
 }
 
-// ARecord represents an A record.
 type ARecord struct {
 	IPv4Address string `json:"ipv4Address"`
 }
 
-// AAAARecord represents an AAAA (IPv6) record.
 type AAAARecord struct {
 	IPv6Address string `json:"ipv6Address"`
 }
@@ -77,18 +72,15 @@ type CNAMERecord struct {
 	CName string `json:"cname"`
 }
 
-// MXRecord represents an MX record.
 type MXRecord struct {
 	Preference int32  `json:"preference"`
 	Exchange   string `json:"exchange"`
 }
 
-// PTRRecord represents a PTR record.
 type PTRRecord struct {
 	PTRDName string `json:"ptrdname"`
 }
 
-// SRVRecord represents an SRV record.
 type SRVRecord struct {
 	Priority int32  `json:"priority"`
 	Weight   int32  `json:"weight"`
@@ -558,8 +550,6 @@ func registerPrivateDNS(srv *sim.Server) {
 				sim.WriteJSON(w, http.StatusOK, map[string]any{"value": filtered})
 			})
 	}
-
-	// --- Virtual Network Links ---
 
 	vnetLinks := sim.MakeStore[VNetLink](srv.DB(), "dns_vnet_links")
 	azurePrivateDNSVNetLinks = vnetLinks

@@ -181,9 +181,7 @@ func registerEC2TGWMulticast(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteTransitGatewayRouteTableAnnouncement", handleDeleteTransitGatewayRouteTableAnnouncement)
 }
 
-// ============================================================================
 // Multicast domain associations
-// ============================================================================
 
 func handleAssociateTransitGatewayMulticastDomain(w http.ResponseWriter, r *http.Request) {
 	domainID := r.FormValue("TransitGatewayMulticastDomainId")
@@ -284,8 +282,6 @@ func handleGetTransitGatewayMulticastDomainAssociations(w http.ResponseWriter, r
 	tgwResponse(w, "GetTransitGatewayMulticastDomainAssociations", b.String())
 }
 
-// ---- multicast group registration ----
-
 func handleRegisterTransitGatewayMulticastGroupMembers(w http.ResponseWriter, r *http.Request) {
 	registerMulticastGroup(w, r, true,
 		"RegisterTransitGatewayMulticastGroupMembers", "registeredMulticastGroupMembers", "registeredNetworkInterfaceIds")
@@ -373,9 +369,7 @@ func multicastGroupKey(domainID, groupIP, eni string, member bool) string {
 	return strings.Join([]string{domainID, groupIP, eni, role}, "/")
 }
 
-// ============================================================================
 // Policy tables
-// ============================================================================
 
 func handleCreateTransitGatewayPolicyTable(w http.ResponseWriter, r *http.Request) {
 	tgwID := r.FormValue("TransitGatewayId")
@@ -602,9 +596,7 @@ func handleDeleteTransitGatewayPolicyTableEntry(w http.ResponseWriter, r *http.R
 
 func policyTableEntryKey(ptID, ruleNum string) string { return ptID + "/" + ruleNum }
 
-// ============================================================================
 // Metering policies
-// ============================================================================
 
 func handleCreateTransitGatewayMeteringPolicy(w http.ResponseWriter, r *http.Request) {
 	tgwID := r.FormValue("TransitGatewayId")
@@ -758,9 +750,7 @@ func parseTagsTGW(r *http.Request) []EC2Tag {
 	return tags
 }
 
-// ============================================================================
 // Route table announcements
-// ============================================================================
 
 func handleCreateTransitGatewayRouteTableAnnouncement(w http.ResponseWriter, r *http.Request) {
 	rtID := r.FormValue("TransitGatewayRouteTableId")
@@ -817,9 +807,7 @@ func handleDeleteTransitGatewayRouteTableAnnouncement(w http.ResponseWriter, r *
 		"<transitGatewayRouteTableAnnouncement>"+tgwRouteTableAnnouncementBodyXML(ann)+"</transitGatewayRouteTableAnnouncement>")
 }
 
-// ============================================================================
 // XML rendering
-// ============================================================================
 
 // tgwMulticastAssociationsBodyXML renders TransitGatewayMulticastDomainAssociations
 // (the Associate/Disassociate/Accept/Reject response shape).

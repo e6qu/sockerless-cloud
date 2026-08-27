@@ -58,7 +58,7 @@ aws iam create-service-linked-role --aws-service-name cloudfront.amazonaws.com
 | `AWS_ENDPOINT_URL_<SERVICE>` | (client-side) | The AWS SDKs' standard per-service setting (for example `AWS_ENDPOINT_URL_SQS`). It overrides the global coordinate for that service. |
 | `AWS_DEFAULT_REGION` | `us-east-1` | The sim accepts any region; some validation (CloudFront → ACM us-east-1 pin) is region-aware. |
 
-Docker or Podman is required for ECS and Lambda execution paths. For
+The ECS and Lambda execution paths require Docker or Podman. For
 control-plane or data-plane API checks that do not start workloads,
 `SIM_RUNTIME=process` starts the AWS simulator without initializing Docker/Podman.
 The `/health` response reports `runtime` and
@@ -71,7 +71,7 @@ credentials through the real workload configuration surface—Amazon ECS
 container overrides, AWS CodeBuild environment overrides, or AWS Lambda
 function environment variables. The simulator does not inject or broker a
 private endpoint variable. In the Linux real-VPC tier, an explicitly supplied
-outer-host simulator-listener authority is mapped onto the existing managed
+the outer-host simulator-listener authority maps onto the existing managed
 task-local route because the isolated namespace intentionally has no route to
 Docker's host gateway; other host authorities remain unreachable. The
 official-client suite proves this by
@@ -90,9 +90,9 @@ host. An end-to-end SDK test deploys code and environment explicitly, invokes
 the managed runtime, and observes its authenticated downstream Amazon SQS
 write.
 
-**ECS managed EBS volumes** use Docker named volumes (`sockerless-ebs-<id>`) rather than bind-mounts on the sim process's filesystem. This means the sim can run in a container (with the Docker socket mounted) and task containers will see the correct volume data — no path-sharing between host and sim container is required.
+**ECS managed EBS volumes** use Docker named volumes (`sockerless-ebs-<id>`) rather than bind-mounting the sim process's filesystem. This means the sim can run in a container (with the Docker socket mounted) and task containers will see the correct volume data — no path-sharing between host and sim container is required.
 
-**VPC and Subnet creation** (`CreateVpc`, `CreateSubnet`) always succeeds at the control-plane level (API state is stored). Real Linux network-namespace fabric is set up lazily when a data-plane resource attaches to the VPC/subnet and host networking capabilities (`ip`, `nft`, `sysctl`) are present. Without those capabilities the API calls still succeed and `awsvpc` tasks fall to the per-VPC Docker-network fabric described below.
+**VPC and Subnet creation** (`CreateVpc`, `CreateSubnet`) always succeeds at the control-plane level, recording API state. Real Linux network-namespace fabric is set up lazily when a data-plane resource attaches to the VPC/subnet and host networking capabilities (`ip`, `nft`, `sysctl`) are present. Without those capabilities the API calls still succeed and `awsvpc` tasks fall to the per-VPC Docker-network fabric described below.
 
 ### ECS task networking
 
@@ -101,7 +101,7 @@ task lands on, exactly as it does on real Amazon Elastic Container Service (ECS)
 
 | `networkMode` | What the task gets | How the simulator realizes it |
 |---|---|---|
-| `awsvpc` | Its own elastic network interface in a subnet of the VPC. `networkConfiguration` is **required**; `RunTask` rejects the request without it. | On Linux with `CAP_NET_ADMIN` + `nsenter`, a pause container holds the task's network namespace and the ENI veth is plumbed into it from the VPC's namespace. Everywhere else, a per-VPC user-defined Docker network (`sockerless-sim-vpc-<vpc-id>`) whose IPAM subnet is a /24 slice of the reserved host-side pool `10.213.0.0/16` — never the VPC CIDR, so two live VPCs sharing a CIDR coexist — with the task's ENI address plumbed onto the container's interface as a secondary by an ephemeral `CAP_NET_ADMIN` setup container. Same-VPC tasks reach each other on their ENI addresses over the shared bridge; same-CIDR VPCs sit on different bridges and stay isolated. |
+| `awsvpc` | Its own elastic network interface in a subnet of the VPC. `networkConfiguration` is **mandatory**; `RunTask` rejects the request without it. | On Linux with `CAP_NET_ADMIN` + `nsenter`, a pause container holds the task's network namespace and the ENI veth is plumbed into it from the VPC's namespace. Everywhere else, a per-VPC user-defined Docker network (`sockerless-sim-vpc-<vpc-id>`) whose IPAM subnet is a /24 slice of the reserved host-side pool `10.213.0.0/16` — never the VPC CIDR, so two live VPCs sharing a CIDR coexist — with the task's ENI address plumbed onto the container's interface as a secondary by an ephemeral `CAP_NET_ADMIN` setup container. Same-VPC tasks reach each other on their ENI addresses over the shared bridge; same-CIDR VPCs sit on different bridges and stay isolated. |
 | `bridge` (the default when `networkMode` is unset) | An address on the container instance's default Docker bridge. No ENI. `networkConfiguration` is rejected. | The container runtime's default `bridge` network. |
 | `host` | The container instance's own network stack. No ENI. | Docker `host` network mode. |
 | `none` | No connectivity. No ENI. | Docker `none` network mode. |
@@ -128,8 +128,8 @@ can't initialize iptables table `raw': Table does not exist)
 This covers the default `bridge` network **and** every user-defined bridge
 network — Docker programs the rule per endpoint, so the per-VPC networks the
 `awsvpc` Docker-network tier uses need the `raw` table too, and so does the
-`awsvpc` namespace tier's pause container (it is created on the default network
-before being moved into the task's namespace). Only `networkMode: host` and
+`awsvpc` namespace tier's pause container (the simulator creates it on the default network, then moves it into the
+task's namespace). Only `networkMode: host` and
 `networkMode: none` create no bridge endpoint at all.
 
 The simulator does not work around this — it reports the failure with the
@@ -220,7 +220,7 @@ AWS Step Functions Task states support optimized Amazon ECS `RunTask`
 request/response, `.sync`, and callback-token integrations, plus the optimized
 AWS CodeBuild build and build-batch operations. Synchronous workflows poll the
 actual service resources, propagate terminal failures, and stop work they
-started when the execution is aborted. CodeBuild clones private Git sources
+started when the caller aborts the execution. CodeBuild clones private Git sources
 with encrypted imported or AWS Secrets Manager credentials and executes the
 checked-in build specification inside the project's exact configured image;
 stopping a build or build batch cancels that container.
@@ -307,7 +307,7 @@ None open for the services covered here. Selected closed items:
 
 - **BUG-991** — `docker run --rm` against `backends/docker` used to fail with `No such container`. Fixed by removing the Store-direct shortcut in `handleContainerWait`.
 - **BUG-992** — `docker images` used to return empty even when the upstream daemon had images. Fixed by delegating to `s.self.ImageList`.
-- **issue #381** — ECS managed EBS volumes were stored on the sim process's own filesystem and bind-mounted by path, so task containers launched as Docker siblings couldn't see the data. `CreateVpc`/`CreateSubnet` also hard-failed without host nftables even when only control-plane API calls were needed. Fixed: ECS EBS volumes now use Docker named volumes; VPC/Subnet store state unconditionally and set up real networking fabric lazily when host caps are present and a data-plane resource attaches.
+- **issue #381** — ECS managed EBS volumes lived on the sim process's own filesystem and bind-mounted by path, so task containers launched as Docker siblings couldn't see the data. `CreateVpc`/`CreateSubnet` also hard-failed without host nftables even when only control-plane API calls were needed. Fixed: ECS EBS volumes now use Docker named volumes; VPC/Subnet store state unconditionally and set up real networking fabric lazily when host caps are present and a data-plane resource attaches.
 
 ## What's out of scope
 
@@ -317,6 +317,6 @@ None open for the services covered here. Selected closed items:
 - **ACM cert auto-validation** — `RequestCertificate` with `ValidationMethod=DNS` stays `PENDING_VALIDATION` until you `ImportCertificate` to flip a cert to `ISSUED`. Real ACM polls Route 53 for the challenge CNAME.
 - **Multi-region routing** — sim is single-region (defaults to `us-east-1`). Cross-region replication / failover is not modelled.
 - **Cost / billing surfaces** — `cur`, `pricing`, `cost-explorer` are absent.
-- **Real authentication** — sigv4 headers are accepted but not cryptographically verified.
+- **Real authentication** — the simulator accepts sigv4 headers without verifying them cryptographically.
 
 See also: [API_SPEC.md](API_SPEC.md), [docs/POD_MATERIALIZATION.md](https://github.com/e6qu/sockerless/blob/main/docs/POD_MATERIALIZATION.md), [specs/CLOUD_RESOURCE_MAPPING.md](https://github.com/e6qu/sockerless/blob/main/specs/CLOUD_RESOURCE_MAPPING.md), [backends/ecs/README.md](https://github.com/e6qu/sockerless/blob/main/backends/ecs/README.md), [backends/lambda/README.md](https://github.com/e6qu/sockerless/blob/main/backends/lambda/README.md).

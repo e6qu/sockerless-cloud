@@ -16,8 +16,6 @@ import (
 // sim.Stores, with ec2Query XML responses matching the EC2 wire shapes the AWS
 // SDK Go v2 and aws CLI parse.
 
-// ---- Site-to-Site VPN types ----
-
 // EC2CustomerGateway models a customer gateway: the on-premises side of a
 // Site-to-Site VPN connection, identified by a public IP and a BGP ASN.
 type EC2CustomerGateway struct {
@@ -83,8 +81,6 @@ type EC2VpnConnection struct {
 	Routes            []EC2VpnStaticRoute
 	Tags              []EC2Tag
 }
-
-// ---- Client VPN types ----
 
 // EC2ClientVpnAuth models one authentication method of a Client VPN endpoint.
 type EC2ClientVpnAuth struct {
@@ -218,8 +214,6 @@ func registerEC2VPN(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("ApplySecurityGroupsToClientVpnTargetNetwork", handleApplySecurityGroupsToClientVpnTargetNetwork)
 }
 
-// ==================== Customer gateways ====================
-
 func handleCreateCustomerGateway(w http.ResponseWriter, r *http.Request) {
 	ip := r.FormValue("IpAddress")
 	if ip == "" {
@@ -342,8 +336,6 @@ func handleDeleteCustomerGateway(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteCustomerGatewayResponse %s><requestId>%s</requestId><return>true</return></DeleteCustomerGatewayResponse>`, ec2Xmlns(), generateUUID())
 }
-
-// ==================== VPN gateways ====================
 
 func handleCreateVpnGateway(w http.ResponseWriter, r *http.Request) {
 	gwType := r.FormValue("Type")
@@ -524,8 +516,6 @@ func handleDeleteVpnGateway(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteVpnGatewayResponse %s><requestId>%s</requestId><return>true</return></DeleteVpnGatewayResponse>`, ec2Xmlns(), generateUUID())
 }
-
-// ==================== VPN connections ====================
 
 func handleCreateVpnConnection(w http.ResponseWriter, r *http.Request) {
 	cgwID := r.FormValue("CustomerGatewayId")
@@ -898,8 +888,6 @@ func handleGetVpnConnectionDeviceSampleConfiguration(w http.ResponseWriter, r *h
 		ec2Xmlns(), generateUUID(), xmlEscape(sample))
 }
 
-// ==================== Client VPN endpoints ====================
-
 func handleCreateClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
 	cidr := r.FormValue("ClientCidrBlock")
 	if cidr == "" {
@@ -1126,8 +1114,6 @@ func handleDeleteClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteClientVpnEndpointResponse %s><requestId>%s</requestId><status><code>deleting</code></status></DeleteClientVpnEndpointResponse>`, ec2Xmlns(), generateUUID())
 }
 
-// ==================== Client VPN routes ====================
-
 func handleCreateClientVpnRoute(w http.ResponseWriter, r *http.Request) {
 	epID := r.FormValue("ClientVpnEndpointId")
 	if _, ok := ec2ClientVpnEndpoint.Get(epID); !ok {
@@ -1199,8 +1185,6 @@ func handleDeleteClientVpnRoute(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteClientVpnRouteResponse %s><requestId>%s</requestId><status><code>deleting</code></status></DeleteClientVpnRouteResponse>`, ec2Xmlns(), generateUUID())
 }
 
-// ==================== Client VPN authorization rules ====================
-
 func handleAuthorizeClientVpnIngress(w http.ResponseWriter, r *http.Request) {
 	epID := r.FormValue("ClientVpnEndpointId")
 	if _, ok := ec2ClientVpnEndpoint.Get(epID); !ok {
@@ -1271,8 +1255,6 @@ func handleDescribeClientVpnAuthorizationRules(w http.ResponseWriter, r *http.Re
 	fmt.Fprintf(w, `<DescribeClientVpnAuthorizationRulesResponse %s><requestId>%s</requestId><authorizationRule>%s</authorizationRule></DescribeClientVpnAuthorizationRulesResponse>`,
 		ec2Xmlns(), generateUUID(), items.String())
 }
-
-// ==================== Client VPN target-network associations ====================
 
 func handleAssociateClientVpnTargetNetwork(w http.ResponseWriter, r *http.Request) {
 	epID := r.FormValue("ClientVpnEndpointId")
@@ -1379,8 +1361,6 @@ func handleApplySecurityGroupsToClientVpnTargetNetwork(w http.ResponseWriter, r 
 	fmt.Fprintf(w, `<ApplySecurityGroupsToClientVpnTargetNetworkResponse %s><requestId>%s</requestId><securityGroupIds>%s</securityGroupIds></ApplySecurityGroupsToClientVpnTargetNetworkResponse>`,
 		ec2Xmlns(), generateUUID(), items.String())
 }
-
-// ==================== Client VPN connections ====================
 
 func handleDescribeClientVpnConnections(w http.ResponseWriter, r *http.Request) {
 	epID := r.FormValue("ClientVpnEndpointId")

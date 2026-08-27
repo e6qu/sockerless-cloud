@@ -15,8 +15,6 @@ import (
 // is backed by a real SQLite-persisted store and rendered as the exact ec2Query
 // XML the AWS SDK for Go v2 and the aws CLI deserialize.
 
-// ---- Types ----
-
 type EC2NetworkAcl struct {
 	NetworkAclId string
 	VpcId        string
@@ -148,8 +146,6 @@ func registerEC2AclPeeringPrefix(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DescribeEgressOnlyInternetGateways", handleDescribeEgressOnlyInternetGateways)
 	r.Register("DeleteEgressOnlyInternetGateway", handleDeleteEgressOnlyInternetGateway)
 }
-
-// ---- Network ACLs ----
 
 func handleCreateNetworkAcl(w http.ResponseWriter, r *http.Request) {
 	vpcID := r.FormValue("VpcId")
@@ -379,8 +375,6 @@ func handleDeleteNetworkAclEntry(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteNetworkAclEntryResponse %s><requestId>%s</requestId><return>true</return></DeleteNetworkAclEntryResponse>`, ec2Xmlns(), generateUUID())
 }
 
-// ---- VPC peering connections ----
-
 func handleCreateVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
 	requesterVpc := r.FormValue("VpcId")
 	peerVpc := r.FormValue("PeerVpcId")
@@ -526,8 +520,6 @@ func handleDeleteVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteVpcPeeringConnectionResponse %s><requestId>%s</requestId><return>true</return></DeleteVpcPeeringConnectionResponse>`, ec2Xmlns(), generateUUID())
 }
 
-// ---- Managed prefix lists ----
-
 func handleCreateManagedPrefixList(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("PrefixListName")
 	af := r.FormValue("AddressFamily")
@@ -656,8 +648,6 @@ func handleGetManagedPrefixListEntries(w http.ResponseWriter, r *http.Request) {
   <entrySet>%s</entrySet>
 </GetManagedPrefixListEntriesResponse>`, ec2Xmlns(), generateUUID(), items.String())
 }
-
-// ---- Flow logs ----
 
 func handleCreateFlowLogs(w http.ResponseWriter, r *http.Request) {
 	resourceIDs := ec2ParamList(r, "ResourceId")
@@ -797,8 +787,6 @@ func handleDeleteFlowLogs(w http.ResponseWriter, r *http.Request) {
   %s
 </DeleteFlowLogsResponse>`, ec2Xmlns(), generateUUID(), unsuccessful.String())
 }
-
-// ---- Egress-only internet gateways ----
 
 func handleCreateEgressOnlyInternetGateway(w http.ResponseWriter, r *http.Request) {
 	vpcID := r.FormValue("VpcId")

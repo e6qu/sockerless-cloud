@@ -325,9 +325,7 @@ func privateEndpointAllocationMethod(pe *PrivateEndpoint) string {
 	return "Dynamic"
 }
 
-// ---------------------------------------------------------------------------
 // Target-side private endpoint connections
-// ---------------------------------------------------------------------------
 
 // azurePrivateLinkTarget describes how one resource provider records the
 // private endpoint connections opened against its resources. Each target reads
@@ -700,9 +698,7 @@ func privateEndpointTargetFqdn(conn PrivateLinkServiceConnection) string {
 	return name + "." + public
 }
 
-// ---------------------------------------------------------------------------
 // Available private endpoint types
-// ---------------------------------------------------------------------------
 
 // registerAvailablePrivateEndpointTypes reports which resource types a private
 // endpoint can terminate on in a region. The list is the set of targets this

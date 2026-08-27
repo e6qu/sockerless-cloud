@@ -24,7 +24,6 @@ type CWAnomalyDetector struct {
 	Dimensions []CWDimension `json:"Dimensions,omitempty"`
 }
 
-// CWInsightRule holds a Contributor Insights rule.
 type CWInsightRule struct {
 	Name                   string            `json:"Name"`
 	State                  string            `json:"State"`

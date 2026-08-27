@@ -568,9 +568,7 @@ func TestCloudKMS_GRPC_UpdateCryptoKeyLabels(t *testing.T) {
 	require.Equal(t, "sim", updated.GetLabels()["team"])
 }
 
-// ---------------------------------------------------------------------------
 // helpers
-// ---------------------------------------------------------------------------
 
 // requireGRPCCode asserts the error is a gRPC error with the expected code.
 func requireGRPCCode(t *testing.T, err error, want codes.Code) {

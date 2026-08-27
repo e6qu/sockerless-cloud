@@ -39,7 +39,6 @@ func TestAzureAPIM_CompletionSurfaces(t *testing.T) {
 	api := svc + "/apis/myapi"
 	mustStatus("PUT", api, `{"properties":{"displayName":"My API","path":"v1","apiType":"graphql"}}`, http.StatusOK)
 
-	// ---- GraphQL resolvers + resolver policies ----
 	resolver := api + "/resolvers/res1"
 	mustStatus("PUT", resolver, `{"properties":{"displayName":"My Resolver","path":"Query/items"}}`, http.StatusOK)
 	mustStatus("PATCH", resolver, `{"properties":{"description":"resolves items"}}`, http.StatusOK)
@@ -52,7 +51,6 @@ func TestAzureAPIM_CompletionSurfaces(t *testing.T) {
 	mustStatus("GET", resolver+"/policies", "", http.StatusOK)
 	head(resolverPolicy, http.StatusOK)
 
-	// ---- API issues + comments + attachments ----
 	issue := api + "/issues/issue1"
 	mustStatus("PUT", issue, `{"properties":{"title":"Bug","description":"It broke","userId":"`+svc+`/users/u1"}}`, http.StatusOK)
 	mustStatus("PATCH", issue, `{"properties":{"title":"Bug (updated)"}}`, http.StatusOK)
@@ -72,7 +70,6 @@ func TestAzureAPIM_CompletionSurfaces(t *testing.T) {
 	mustStatus("GET", issue+"/attachments", "", http.StatusOK)
 	head(attachment, http.StatusOK)
 
-	// ---- tag descriptions + API wiki ----
 	tagDesc := api + "/tagDescriptions/tagdesc1"
 	mustStatus("PUT", tagDesc, `{"properties":{"displayName":"v1 tag","tagId":"`+svc+`/tags/t1"}}`, http.StatusOK)
 	mustStatus("GET", tagDesc, "", http.StatusOK)
@@ -86,14 +83,12 @@ func TestAzureAPIM_CompletionSurfaces(t *testing.T) {
 	mustStatus("GET", api+"/wikis", "", http.StatusOK)
 	head(apiWiki, http.StatusOK)
 
-	// ---- operations grouped by tag ----
 	op := api + "/operations/getthing"
 	mustStatus("PUT", op, `{"properties":{"displayName":"Get","method":"GET","urlTemplate":"/thing"}}`, http.StatusOK)
 	mustStatus("PUT", op+"/tags/optag", `{"properties":{"displayName":"optag"}}`, http.StatusOK)
 	byTags := mustStatus("GET", api+"/operationsByTags", "", http.StatusOK)
 	assert.Contains(t, string(byTags), "optag")
 
-	// ---- product wiki ----
 	product := svc + "/products/myproduct"
 	mustStatus("PUT", product, `{"properties":{"displayName":"My Product","state":"published"}}`, http.StatusOK)
 	productWiki := product + "/wikis/default"
@@ -103,7 +98,6 @@ func TestAzureAPIM_CompletionSurfaces(t *testing.T) {
 	mustStatus("GET", product+"/wikis", "", http.StatusOK)
 	head(productWiki, http.StatusOK)
 
-	// ---- cascade delete + child removal ----
 	mustStatus("DELETE", resolverPolicy, "", http.StatusOK)
 	mustStatus("DELETE", resolver, "", http.StatusOK)
 	mustStatus("DELETE", attachment, "", http.StatusOK)

@@ -26,8 +26,6 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
-// --- Stores ------------------------------------------------------------------
-
 // DDBBackup is a point-in-time snapshot of a table's schema + items, taken by
 // CreateBackup. The item snapshot is stored verbatim so RestoreTableFromBackup
 // can recreate the table exactly.
@@ -230,8 +228,6 @@ func ddbStreamArn(stream string) string {
 func ddbTableItemsSnapshot(tableName string) map[string]map[string]any {
 	return ddbItemSnapshots(ddbTableSortedKeys(tableName + "/"))
 }
-
-// --- Backups -----------------------------------------------------------------
 
 func handleDDBCreateBackup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -544,8 +540,6 @@ func ddbRecreateTable(name string, keySchema []DDBKeySchemaEntry, attrs []DDBAtt
 	}
 	return t
 }
-
-// --- Global tables -----------------------------------------------------------
 
 func ddbGlobalTableDescription(gt DDBGlobalTable) map[string]any {
 	replicas := make([]map[string]any, 0, len(gt.Replicas))
@@ -882,8 +876,6 @@ func handleDDBDescribeTableReplicaAutoScaling(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// --- Resource-based policy ---------------------------------------------------
-
 func handleDDBPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
@@ -965,8 +957,6 @@ func ddbResourceExistsForPolicy(arn string) bool {
 	}
 	return false
 }
-
-// --- Kinesis streaming destinations ------------------------------------------
 
 func ddbStreamDestKey(table, stream string) string {
 	return table + "\x00" + stream
@@ -1110,8 +1100,6 @@ func handleDDBUpdateKinesisStreaming(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
-
-// --- Exports / imports -------------------------------------------------------
 
 func ddbExportDescription(e DDBExport) map[string]any {
 	d := map[string]any{
@@ -1398,8 +1386,6 @@ func handleDDBListImports(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, out)
 }
 
-// --- Contributor insights ----------------------------------------------------
-
 func ddbContribKey(table, index string) string {
 	return table + "\x00" + index
 }
@@ -1531,8 +1517,6 @@ func handleDDBListContributorInsights(w http.ResponseWriter, r *http.Request) {
 	}
 	writeDDBJSON(w, http.StatusOK, out)
 }
-
-// --- Endpoints discovery -----------------------------------------------------
 
 func handleDDBDescribeEndpoints(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{

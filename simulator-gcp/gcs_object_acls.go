@@ -7,32 +7,18 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
-// Per-object access controls (storage#objectAccessControl).
-//
-// The bucket-level and default-object surfaces were already served; the
-// per-object one was not, and it did not present as missing. `/o/{object}/acl`
-// matched the `{object...}` catch-all that serves objects.get, so a request
-// for an object's ACLs was answered "object \"<name>/acl\" not found" — a
-// plausible 404 for a request the simulator never understood. The route
-// coverage probe reads any handler answer as served, so all five reads and
-// writes counted as covered while no handler for them existed.
-//
-// The routes below take a single-segment {object}, which beats the catch-all
-// in the mux and matches the real service's contract: an object name is
-// percent-encoded in the path, so a name containing "/" arrives as one
-// segment. A name sent unencoded still reaches objects.get, exactly as it
-// does against Google Cloud Storage.
+// Routes take a single-segment {object} so they beat the `{object...}`
+// catch-all serving objects.get, which otherwise swallows `/o/{object}/acl`
+// and answers "object \"<name>/acl\" not found". Object names arrive
+// percent-encoded, so a name holding "/" is still one segment.
 
 var gcsObjectACLs sim.Store[GCSObjectACL]
 
-// gcsObjectACLKey keys one entry by its object and entity. Object names carry
-// "/" freely, so the separator is a byte no name can hold.
+// Separate on a byte an object name cannot hold; names carry "/" freely.
 func gcsObjectACLKey(bucket, object, entity string) string {
 	return bucket + "\x00" + object + "\x00" + entity
 }
 
-// gcsUniformBucketLevelAccess reports whether the bucket has uniform
-// bucket-level access enabled, which disables the legacy ACL surface.
 func gcsUniformBucketLevelAccess(bucket Bucket) bool {
 	iam, ok := bucket.Data["iamConfiguration"].(map[string]any)
 	if !ok {
@@ -46,14 +32,10 @@ func gcsUniformBucketLevelAccess(bucket Bucket) bool {
 	return enabled
 }
 
-// gcsProjectPrivateObjectACL is the predefined ACL Cloud Storage applies to a
-// bucket that declares no default object ACL of its own: the project's owners
-// and editors as OWNER, its viewers as READER. The entities are built from the
-// bucket's own project number rather than invented — an object's ACL is never
-// empty in the real service, which is what lets `gcloud storage objects update
-// --remove-acl-grant` work at all. The CLI computes the remaining list and
-// omits the member entirely when it comes out empty, so an object whose ACL
-// held only the grant being removed would keep it forever.
+// An object's ACL is never empty in the real service, and that matters:
+// `gcloud storage objects update --remove-acl-grant` omits the acl member
+// entirely when its computed list comes out empty, so a lone grant would
+// otherwise be unremovable.
 func gcsProjectPrivateObjectACL(bucket Bucket) []GCSObjectACL {
 	projectNumber, _ := bucket.Data["projectNumber"].(string)
 	if projectNumber == "" {
@@ -78,9 +60,6 @@ func gcsProjectPrivateObjectACL(bucket Bucket) []GCSObjectACL {
 	return entries
 }
 
-// gcsSeedDefaultObjectACL gives a new bucket the predefined projectPrivate
-// default object ACL when its create request declared none, which is what the
-// service does. Objects then inherit it through the ordinary seed path.
 func gcsSeedDefaultObjectACL(name string, bucket Bucket) {
 	if _, declared := bucket.Data["defaultObjectAcl"]; declared {
 		return
@@ -92,10 +71,8 @@ func gcsSeedDefaultObjectACL(name string, bucket Bucket) {
 	}
 }
 
-// gcsSeedObjectACL copies the bucket's default object ACL onto a newly created
-// object, which is what the real service does at creation time. Later edits to
-// the bucket default do not reach objects already written, so the copy has to
-// happen on the write rather than being projected on read.
+// Copy at creation, not on read: later edits to the bucket default must not
+// reach objects already written.
 func gcsSeedObjectACL(bucket, object, generation string) {
 	defaults := gcsObjectDefACLs.Filter(func(a GCSObjectACL) bool { return a.Bucket == bucket })
 	for _, entry := range defaults {
@@ -108,10 +85,8 @@ func gcsSeedObjectACL(bucket, object, generation string) {
 	}
 }
 
-// gcsReplaceObjectACL sets an object's entries to exactly those given. This is
-// the objects.patch door onto the same state the objectAccessControls
-// collection serves: the resource carries the whole ACL, so a patch that names
-// it replaces the set rather than merging into it.
+// The objects.patch door onto the collection's state. The resource carries
+// the whole ACL, so naming it replaces the set rather than merging into it.
 func gcsReplaceObjectACL(bucket, object, generation string, entries []GCSObjectACL) {
 	gcsDropObjectACL(bucket, object)
 	for _, entry := range entries {
@@ -134,8 +109,6 @@ func gcsReplaceObjectACL(bucket, object, generation string, entries []GCSObjectA
 	}
 }
 
-// gcsObjectACLEntries returns an object's entries, entity order, for the
-// resource projection that carries them.
 func gcsObjectACLEntries(bucket, object string) []GCSObjectACL {
 	items := gcsObjectACLs.Filter(func(a GCSObjectACL) bool {
 		return a.Bucket == bucket && a.Object == object
@@ -144,8 +117,7 @@ func gcsObjectACLEntries(bucket, object string) []GCSObjectACL {
 	return items
 }
 
-// gcsDropObjectACL removes an object's entries when the object goes away, so a
-// name written again does not inherit the previous object's grants.
+// Drop on delete so a name written again inherits no earlier grants.
 func gcsDropObjectACL(bucket, object string) {
 	for _, entry := range gcsObjectACLs.Filter(func(a GCSObjectACL) bool {
 		return a.Bucket == bucket && a.Object == object
@@ -155,8 +127,6 @@ func gcsDropObjectACL(bucket, object string) {
 }
 
 func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects sim.Store[GCSObject]) {
-	// resolve answers the two questions every route here asks first: does the
-	// object exist, and does this bucket still expose legacy ACLs at all.
 	resolve := func(w http.ResponseWriter, r *http.Request) (bucket, object string, obj GCSObject, ok bool) {
 		bucket, object = sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
 		b, found := buckets.Get(bucket)

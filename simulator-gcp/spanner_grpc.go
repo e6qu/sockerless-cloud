@@ -59,9 +59,7 @@ func registerSpannerGRPC(gs *grpc.Server) {
 	sppb.RegisterSpannerServer(gs, &spannerDataGRPC{})
 }
 
-// ---------------------------------------------------------------------------
 // per-database SQLite backing engine
-// ---------------------------------------------------------------------------
 
 // spannerBackend holds the materialized SQLite engine for one database plus
 // the count of DDL statements already applied, so a subsequent
@@ -239,9 +237,7 @@ func spannerDropBackend(dbName string) error {
 	return errors.Join(errs...)
 }
 
-// ---------------------------------------------------------------------------
 // DDL translation: Spanner SQL dialect → SQLite
-// ---------------------------------------------------------------------------
 
 var (
 	spannerInterleaveRe = regexp.MustCompile(`(?is)\s*,?\s*INTERLEAVE\s+IN\s+PARENT\b.*$`)
@@ -406,9 +402,7 @@ func quoteIdent(name string) string {
 	return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
 }
 
-// ---------------------------------------------------------------------------
 // path / name normalization
-// ---------------------------------------------------------------------------
 
 // spannerSessionDatabase resolves a session name to its parent database full
 // name (projects/.../databases/...). Returns "" if the session does not exist.
@@ -425,9 +419,7 @@ func spannerSessionDatabase(sessionName string) (string, error) {
 	return sess.Name[:idx], nil
 }
 
-// ---------------------------------------------------------------------------
 // proto Value <-> Go value conversion (per Spanner Type)
-// ---------------------------------------------------------------------------
 
 // spannerProtoToGo converts a proto Value to a Go value suitable for binding
 // to a SQLite parameter, guided by the column's Spanner type. INT64 values may
@@ -611,9 +603,7 @@ func spannerTypeForSQLite(declType string) *sppb.Type {
 	return &sppb.Type{Code: sppb.TypeCode_STRING}
 }
 
-// ---------------------------------------------------------------------------
 // metadata helpers
-// ---------------------------------------------------------------------------
 
 // spannerTableColumns returns the SQLite column names and Spanner types for a
 // table, in declared order. Used to shape ResultSet row types and to coerce
@@ -686,9 +676,7 @@ func spannerPrimaryKeyColumns(b *spannerBackend, table string) ([]string, error)
 	return pkCols, nil
 }
 
-// ---------------------------------------------------------------------------
 // query execution core
-// ---------------------------------------------------------------------------
 
 // spannerExecResult captures everything needed to shape a ResultSet: the column
 // names, their Spanner types, and the materialized row values (already in proto
@@ -886,9 +874,7 @@ func spannerShapeResultSet(r *spannerExecResult) *sppb.ResultSet {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Sessions RPCs
-// ---------------------------------------------------------------------------
 
 // spannerResolveTxn interprets a request's TransactionSelector. When the
 // selector asks to begin a transaction, a new id is minted and recorded against
@@ -1080,9 +1066,7 @@ func spannerStoredSessionToProto(s spannerSession) *sppb.Session {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // ExecuteSql / ExecuteStreamingSql
-// ---------------------------------------------------------------------------
 
 func (s *spannerDataGRPC) ExecuteSql(ctx context.Context, req *sppb.ExecuteSqlRequest) (*sppb.ResultSet, error) {
 	dbName, err := spannerSessionDatabase(req.GetSession())
@@ -1179,9 +1163,7 @@ func spannerResultSetToPartial(rs *sppb.ResultSet) *sppb.PartialResultSet {
 	return partial
 }
 
-// ---------------------------------------------------------------------------
 // Read / StreamingRead
-// ---------------------------------------------------------------------------
 
 // spannerBuildReadQuery translates a Spanner Read request into a parameterized
 // SQLite SELECT plus the bind args. It supports AllKeys, point-key lists, and
@@ -1417,9 +1399,7 @@ func spannerReorderReadColumns(req *sppb.ReadRequest, res *spannerExecResult) *s
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Transactions
-// ---------------------------------------------------------------------------
 
 func (s *spannerDataGRPC) BeginTransaction(_ context.Context, req *sppb.BeginTransactionRequest) (*sppb.Transaction, error) {
 	dbName, err := spannerSessionDatabase(req.GetSession())
@@ -1515,9 +1495,7 @@ func (s *spannerDataGRPC) Rollback(_ context.Context, req *sppb.RollbackRequest)
 	return &emptypb.Empty{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Mutations
-// ---------------------------------------------------------------------------
 
 // spannerApplyMutation applies one write mutation inside a SQLite transaction.
 // Insert / InsertOrUpdate / Replace / Update / Delete map onto SQLite's own
@@ -1762,9 +1740,7 @@ func spannerPrimaryKeyColumnsFromTx(tx *sql.Tx, table string) ([]string, error) 
 	return pkCols, nil
 }
 
-// ---------------------------------------------------------------------------
 // Batch DML and batch mutations
-// ---------------------------------------------------------------------------
 
 func (s *spannerDataGRPC) ExecuteBatchDml(ctx context.Context, req *sppb.ExecuteBatchDmlRequest) (*sppb.ExecuteBatchDmlResponse, error) {
 	if len(req.GetStatements()) == 0 {
@@ -1867,9 +1843,7 @@ func (s *spannerDataGRPC) BatchWrite(req *sppb.BatchWriteRequest, stream sppb.Sp
 	return nil
 }
 
-// ---------------------------------------------------------------------------
 // Partitioning
-// ---------------------------------------------------------------------------
 
 // The backing database lives in one SQLite engine, so a partition request has
 // exactly one real partition. Its opaque token remains bound to the session,

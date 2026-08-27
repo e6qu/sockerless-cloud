@@ -159,8 +159,6 @@ func snsAttributesXML(b *strings.Builder, wrapper string, attrs map[string]strin
 	fmt.Fprintf(b, "</%s>", wrapper)
 }
 
-// ---- Platform applications ----------------------------------------------
-
 func snsPlatformApplicationARN(platform, name string) string {
 	return fmt.Sprintf("arn:aws:sns:%s:%s:app/%s/%s",
 		awsRegion(), awsAccountID(), platform, name)
@@ -264,8 +262,6 @@ func handleSNSListPlatformApplications(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</ListPlatformApplicationsResult>")
 	snsXMLResponse(w, "ListPlatformApplications", b.String(), sim.RequestID(r.Context()))
 }
-
-// ---- Platform endpoints --------------------------------------------------
 
 // snsPlatformEndpointARN derives an endpoint ARN from its parent application
 // ARN by swapping the leading `app/` segment for `endpoint/` and appending a
@@ -392,8 +388,6 @@ func handleSNSListEndpointsByPlatformApplication(w http.ResponseWriter, r *http.
 	snsXMLResponse(w, "ListEndpointsByPlatformApplication", b.String(), reqID)
 }
 
-// ---- SMS sandbox ---------------------------------------------------------
-
 func handleSNSCreateSMSSandboxPhoneNumber(w http.ResponseWriter, r *http.Request) {
 	reqID := sim.RequestID(r.Context())
 	phone := r.FormValue("PhoneNumber")
@@ -478,8 +472,6 @@ func handleSNSGetSMSSandboxAccountStatus(w http.ResponseWriter, r *http.Request)
 		inSandbox)
 	snsXMLResponse(w, "GetSMSSandboxAccountStatus", body, reqID)
 }
-
-// ---- SMS attributes / opt-out / origination ------------------------------
 
 // snsSMSAttributeList parses the GetSMSAttributes `attributes.member.N` list of
 // requested attribute names (empty means "all").
@@ -594,8 +586,6 @@ func handleSNSListOriginationNumbers(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</ListOriginationNumbersResult>")
 	snsXMLResponse(w, "ListOriginationNumbers", b.String(), sim.RequestID(r.Context()))
 }
-
-// ---- Data-protection policy ----------------------------------------------
 
 func handleSNSPutDataProtectionPolicy(w http.ResponseWriter, r *http.Request) {
 	reqID := sim.RequestID(r.Context())

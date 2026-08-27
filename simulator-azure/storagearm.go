@@ -112,8 +112,6 @@ func registerStorageAccounts(srv *sim.Server) {
 
 	const acct = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}"
 
-	// --- Subscription / provider scoped catalog operations ---
-
 	srv.HandleFunc("GET /providers/Microsoft.Storage/operations", handleStorageOperationsList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Storage/skus", handleStorageSkusList)
 	// AzurePathNormalizationMiddleware canonicalizes the checkNameAvailability
@@ -124,15 +122,12 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Storage/locations/{location}/deletedAccounts/{deletedAccountName}", handleStorageDeletedAccountGet)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts", handleStorageAccountsListByRG)
 
-	// --- Storage account action verbs ---
-
 	srv.HandleFunc("POST "+acct+"/regenerateKey", handleStorageRegenerateKey)
 	srv.HandleFunc("POST "+acct+"/ListAccountSas", handleStorageListAccountSAS)
 	srv.HandleFunc("POST "+acct+"/ListServiceSas", handleStorageListServiceSAS)
 	srv.HandleFunc("POST "+acct+"/failover", handleStorageFailover)
 	srv.HandleFunc("POST "+acct+"/revokeUserDelegationKeys", handleStorageRevokeUserDelegationKeys)
 
-	// --- managementPolicies (always named "default") ---
 	srv.HandleFunc("PUT "+acct+"/managementPolicies/{managementPolicyName}",
 		storageChildPut(managementPolicies, "managementPolicies", "Microsoft.Storage/storageAccounts/managementPolicies", "managementPolicyName", func(p map[string]any) {
 			p["lastModifiedTime"] = storageNow()
@@ -142,7 +137,6 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+acct+"/managementPolicies/{managementPolicyName}",
 		storageChildDelete(managementPolicies, "managementPolicies", "managementPolicyName"))
 
-	// --- inventoryPolicies ---
 	srv.HandleFunc("PUT "+acct+"/inventoryPolicies/{blobInventoryPolicyName}",
 		storageChildPut(inventoryPolicies, "inventoryPolicies", "Microsoft.Storage/storageAccounts/inventoryPolicies", "blobInventoryPolicyName", func(p map[string]any) {
 			p["lastModifiedTime"] = storageNow()
@@ -154,7 +148,6 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("GET "+acct+"/inventoryPolicies",
 		storageChildList(inventoryPolicies, "inventoryPolicies"))
 
-	// --- privateEndpointConnections ---
 	srv.HandleFunc("PUT "+acct+"/privateEndpointConnections/{privateEndpointConnectionName}",
 		storageChildPut(privateEndpointConns, "privateEndpointConnections", "Microsoft.Storage/storageAccounts/privateEndpointConnections", "privateEndpointConnectionName", func(p map[string]any) {
 			if _, ok := p["privateLinkServiceConnectionState"]; !ok {
@@ -169,10 +162,8 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("GET "+acct+"/privateEndpointConnections",
 		storageChildList(privateEndpointConns, "privateEndpointConnections"))
 
-	// --- privateLinkResources (static catalog) ---
 	srv.HandleFunc("GET "+acct+"/privateLinkResources", handleStoragePrivateLinkResources)
 
-	// --- objectReplicationPolicies ---
 	srv.HandleFunc("PUT "+acct+"/objectReplicationPolicies/{objectReplicationPolicyId}",
 		storageChildPut(objectReplicationPolicies, "objectReplicationPolicies", "Microsoft.Storage/storageAccounts/objectReplicationPolicies", "objectReplicationPolicyId", func(p map[string]any) {
 			if _, ok := p["policyId"]; !ok {
@@ -187,7 +178,6 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("GET "+acct+"/objectReplicationPolicies",
 		storageChildList(objectReplicationPolicies, "objectReplicationPolicies"))
 
-	// --- encryptionScopes ---
 	encScopeFinalize := func(p map[string]any) {
 		if _, ok := p["source"]; !ok {
 			p["source"] = "Microsoft.Storage"
@@ -206,7 +196,6 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("GET "+acct+"/encryptionScopes",
 		storageChildList(encryptionScopes, "encryptionScopes"))
 
-	// --- localUsers ---
 	srv.HandleFunc("PUT "+acct+"/localUsers/{username}",
 		storageChildPut(localUsers, "localUsers", "Microsoft.Storage/storageAccounts/localUsers", "username", func(p map[string]any) {
 			if _, ok := p["sid"]; !ok {
@@ -222,10 +211,8 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("POST "+acct+"/localUsers/{username}/listKeys", handleStorageLocalUserListKeys)
 	srv.HandleFunc("POST "+acct+"/localUsers/{username}/regeneratePassword", handleStorageLocalUserRegeneratePassword)
 
-	// --- blobServices ---
 	srv.HandleFunc("GET "+acct+"/blobServices", storageServiceListHandler("blobServices", "Microsoft.Storage/storageAccounts/blobServices", serviceProperties))
 
-	// --- blob containers: update / legal-hold / immutability / lease ---
 	const containers = acct + "/blobServices/default/containers"
 	srv.HandleFunc("PATCH "+containers+"/{containerName}", handleStorageContainerUpdate)
 	srv.HandleFunc("POST "+containers+"/{containerName}/setLegalHold", handleStorageContainerSetLegalHold)
@@ -243,7 +230,6 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("POST "+containers+"/{containerName}/immutabilityPolicies/default/extend",
 		storageImmutabilityExtend(immutabilityPolicies))
 
-	// --- fileServices ---
 	srv.HandleFunc("GET "+acct+"/fileServices", storageServiceListHandler("fileServices", "Microsoft.Storage/storageAccounts/fileServices", serviceProperties))
 	srv.HandleFunc("PUT "+acct+"/fileServices/default", storageServiceSetHandler("fileServices", "Microsoft.Storage/storageAccounts/fileServices", serviceProperties))
 	srv.HandleFunc("GET "+acct+"/fileServices/default/usages", handleStorageFileServiceUsages)
@@ -252,7 +238,6 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("POST "+acct+"/fileServices/default/shares/{shareName}/restore", handleStorageFileShareRestore)
 	srv.HandleFunc("POST "+acct+"/fileServices/default/shares/{shareName}/lease", handleStorageFileShareLease)
 
-	// --- queueServices + queues ---
 	srv.HandleFunc("GET "+acct+"/queueServices", storageServiceListHandler("queueServices", "Microsoft.Storage/storageAccounts/queueServices", serviceProperties))
 	srv.HandleFunc("PUT "+acct+"/queueServices/default", storageServiceSetHandler("queueServices", "Microsoft.Storage/storageAccounts/queueServices", serviceProperties))
 	const queues = acct + "/queueServices/default/queues"
@@ -262,7 +247,6 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+queues+"/{queueName}", storageQueueDelete(storageQueues))
 	srv.HandleFunc("GET "+queues, storageQueueList(storageQueues))
 
-	// --- tableServices ---
 	srv.HandleFunc("GET "+acct+"/tableServices", storageServiceListHandler("tableServices", "Microsoft.Storage/storageAccounts/tableServices", serviceProperties))
 	srv.HandleFunc("PUT "+acct+"/tableServices/default", storageServiceSetHandler("tableServices", "Microsoft.Storage/storageAccounts/tableServices", serviceProperties))
 
@@ -316,8 +300,6 @@ func moveStorageAccountARM(oldID, newID string, childStores ...sim.Store[storage
 	// resource group: listKeys must serve the same material after the move.
 	pinAzureKeySlots(oldID, newID, azureKeyMaterial64, "key1", "key2")
 }
-
-// ---- generic account-scoped child resource CRUD ----
 
 func storageChildID(acctID, collection, name string) string {
 	return acctID + "/" + collection + "/" + name
@@ -432,8 +414,6 @@ func storageEncryptionScopePut(store sim.Store[storageARMChild], finalize func(m
 		sim.WriteJSON(w, http.StatusOK, child)
 	}
 }
-
-// ---- catalog operations ----
 
 func handleStorageOperationsList(w http.ResponseWriter, r *http.Request) {
 	op := func(name, resource, operation, desc string) map[string]any {
@@ -556,8 +536,6 @@ func handleStorageAccountsListByRG(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 }
-
-// ---- account action verbs ----
 
 // storageAccountKeysBody is the AccountListKeysResult shape listKeys and
 // regenerateKey both return, reflecting every rotation performed so far.
@@ -694,8 +672,6 @@ func handleStorageLocalUserRegeneratePassword(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// ---- service properties (list / set) ----
-
 func storageServiceResponse(acctID, service, typeStr string, props map[string]any) map[string]any {
 	merged := map[string]any{"cors": map[string]any{"corsRules": []any{}}}
 	for k, v := range props {
@@ -737,8 +713,6 @@ func storageServiceSetHandler(service, typeStr string, store sim.Store[map[strin
 		sim.WriteJSON(w, http.StatusOK, storageServiceResponse(acctID, service, typeStr, props))
 	}
 }
-
-// ---- blob containers: update / legal-hold / immutability / lease ----
 
 func storageContainerID(acctID, name string) string {
 	return acctID + "/blobServices/default/containers/" + name
@@ -958,8 +932,6 @@ func storageImmutabilityExtend(store sim.Store[storageARMChild]) http.HandlerFun
 	return storageImmutabilityMutate(store, false)
 }
 
-// ---- file services: usages + share update/restore/lease ----
-
 func handleStorageFileServiceUsages(w http.ResponseWriter, r *http.Request) {
 	acctID, _, ok := requireStorageAccount(w, r)
 	if !ok {
@@ -1073,8 +1045,6 @@ func handleStorageFileShareLease(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
-
-// ---- storage queues (ARM control plane) ----
 
 func storageQueueID(acctID, name string) string {
 	return acctID + "/queueServices/default/queues/" + name

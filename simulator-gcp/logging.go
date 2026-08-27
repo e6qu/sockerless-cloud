@@ -711,7 +711,6 @@ func loggingPageOfNames(names []string, pageSize int, pageToken string) ([]strin
 	return page, next, nil
 }
 
-// registerCloudLoggingGRPC registers the gRPC Cloud Logging service on a grpc.Server.
 func registerCloudLoggingGRPC(gs *grpc.Server) {
 	loggingpb.RegisterLoggingServiceV2Server(gs, &loggingServer{})
 }

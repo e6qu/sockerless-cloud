@@ -116,9 +116,7 @@ func handleBlobQuery(w http.ResponseWriter, r *http.Request, account, container,
 	_, _ = w.Write(encodeBlobQueryAvro(payload, int64(len(b.Data))))
 }
 
-// ---------------------------------------------------------------------------
 // Input / output serialization
-// ---------------------------------------------------------------------------
 
 // decodeBlobQueryInput turns the stored bytes into rows of string fields. For
 // delimited input the header row, when declared, becomes the column names; for
@@ -266,9 +264,7 @@ func encodeBlobQueryOutput(rows [][]string, headers []string, q *blobQuery, out 
 	return nil, fmt.Errorf("the output serialization format %q is not supported by this query engine", format)
 }
 
-// ---------------------------------------------------------------------------
 // Query
-// ---------------------------------------------------------------------------
 
 type blobQuery struct {
 	selectAll bool
@@ -502,9 +498,7 @@ func blobQueryCompare(got, op, want string) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
 // Avro object-container framing
-// ---------------------------------------------------------------------------
 
 // blobQueryAvroSchema is the union of record types Query Blob Contents streams,
 // exactly as the real service declares it in the file header. Clients read the

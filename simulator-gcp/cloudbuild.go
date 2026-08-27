@@ -462,8 +462,6 @@ func cbConfigKey(project, location, kind, id string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/%s/%s", project, location, kind, id)
 }
 
-// ---- Worker pools ----
-
 func handleCreateWorkerPool(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	location := sim.PathParam(r, "location")
@@ -567,8 +565,6 @@ func handleDeleteWorkerPool(w http.ResponseWriter, r *http.Request) {
 		"type.googleapis.com/google.protobuf.Empty", nil))
 }
 
-// ---- GitHub Enterprise configs ----
-
 func handleCreateGHEConfig(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	location := buildTriggerLocation(r)
@@ -651,8 +647,6 @@ func handleDeleteGHEConfig(w http.ResponseWriter, r *http.Request) {
 	cbGHEConfigs.Delete(key)
 	sim.WriteJSON(w, http.StatusOK, CloudBuildOperation{Name: key, Done: true})
 }
-
-// ---- GitLab configs ----
 
 func handleCreateGitLabConfig(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
@@ -745,8 +739,6 @@ func handleListGitLabRepos(w http.ResponseWriter, r *http.Request) {
 	// connection handshake the simulator does not perform.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"gitlabRepositories": []any{}})
 }
-
-// ---- Bitbucket Server configs ----
 
 func handleCreateBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")

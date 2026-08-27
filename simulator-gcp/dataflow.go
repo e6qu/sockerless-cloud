@@ -64,7 +64,6 @@ func registerDataflow(srv *sim.Server) {
 	dataflowJobs = sim.MakeStore[dataflowJob](srv.DB(), "dataflow_jobs")
 	dataflowSnapshots = sim.MakeStore[dataflowSnapshot](srv.DB(), "dataflow_snapshots")
 
-	// ----- jobs (global) -----
 	srv.HandleFunc("POST /v1b3/projects/{project}/jobs", handleDataflowCreateJobGlobal)
 	srv.HandleFunc("GET /v1b3/projects/{project}/jobs", handleDataflowListJobsGlobal)
 	srv.HandleFunc("GET /v1b3/projects/{project}/jobs:aggregated", handleDataflowAggregatedJobs)
@@ -78,7 +77,6 @@ func registerDataflow(srv *sim.Server) {
 	srv.HandleFunc("POST /v1b3/projects/{project}/jobs/{job}/workItems:lease", handleDataflowLeaseWorkItems)
 	srv.HandleFunc("POST /v1b3/projects/{project}/jobs/{job}/workItems:reportStatus", handleDataflowReportWorkItemStatus)
 
-	// ----- jobs (regional) -----
 	srv.HandleFunc("POST /v1b3/projects/{project}/locations/{location}/jobs", handleDataflowCreateJob)
 	srv.HandleFunc("GET /v1b3/projects/{project}/locations/{location}/jobs", handleDataflowListJobs)
 	srv.HandleFunc("GET /v1b3/projects/{project}/locations/{location}/jobs/{job}", handleDataflowGetJob)
@@ -95,28 +93,23 @@ func registerDataflow(srv *sim.Server) {
 	srv.HandleFunc("POST /v1b3/projects/{project}/locations/{location}/jobs/{job}/workItems:lease", handleDataflowLeaseWorkItems)
 	srv.HandleFunc("POST /v1b3/projects/{project}/locations/{location}/jobs/{job}/workItems:reportStatus", handleDataflowReportWorkItemStatus)
 
-	// ----- templates (global) -----
 	srv.HandleFunc("POST /v1b3/projects/{project}/templates", handleDataflowCreateJobFromTemplateGlobal)
 	srv.HandleFunc("GET /v1b3/projects/{project}/templates:get", handleDataflowGetTemplate)
 	srv.HandleFunc("POST /v1b3/projects/{project}/templates:launch", handleDataflowLaunchTemplateGlobal)
 
-	// ----- templates (regional) + flexTemplates -----
 	srv.HandleFunc("POST /v1b3/projects/{project}/locations/{location}/templates", handleDataflowCreateJobFromTemplate)
 	srv.HandleFunc("GET /v1b3/projects/{project}/locations/{location}/templates:get", handleDataflowGetTemplate)
 	srv.HandleFunc("POST /v1b3/projects/{project}/locations/{location}/templates:launch", handleDataflowLaunchTemplate)
 	srv.HandleFunc("POST /v1b3/projects/{project}/locations/{location}/flexTemplates:launch", handleDataflowLaunchFlexTemplate)
 
-	// ----- snapshots (global) -----
 	srv.HandleFunc("GET /v1b3/projects/{project}/snapshots", handleDataflowListSnapshotsGlobal)
 	srv.HandleFunc("DELETE /v1b3/projects/{project}/snapshots", handleDataflowDeleteSnapshotsGlobal)
 	srv.HandleFunc("GET /v1b3/projects/{project}/snapshots/{snapshot}", handleDataflowGetSnapshotGlobal)
 
-	// ----- snapshots (regional) -----
 	srv.HandleFunc("GET /v1b3/projects/{project}/locations/{location}/snapshots", handleDataflowListSnapshots)
 	srv.HandleFunc("GET /v1b3/projects/{project}/locations/{location}/snapshots/{snapshot}", handleDataflowGetSnapshot)
 	srv.HandleFunc("DELETE /v1b3/projects/{project}/locations/{location}/snapshots/{snapshot}", handleDataflowDeleteSnapshot)
 
-	// ----- workerMessages -----
 	srv.HandleFunc("POST /v1b3/projects/{project}/WorkerMessages", handleDataflowWorkerMessages)
 	srv.HandleFunc("POST /v1b3/projects/{project}/locations/{location}/WorkerMessages", handleDataflowWorkerMessages)
 }
@@ -456,8 +449,6 @@ func handleDataflowWorkerMessages(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"workerMessageResponses": []any{}})
 }
 
-// ----- templates -----
-
 // createJobFromTemplate (templates.create) launches a classic template, which
 // in the real service creates a Dataflow job. The response is a Job.
 func dataflowCreateJobFromTemplate(w http.ResponseWriter, r *http.Request, project, location string) {
@@ -563,7 +554,6 @@ func handleDataflowLaunchFlexTemplate(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
-// handleDataflowGetTemplate (templates.get) returns template metadata.
 func handleDataflowGetTemplate(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"status":       map[string]any{"code": 0},
@@ -574,8 +564,6 @@ func handleDataflowGetTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
-
-// ----- snapshots -----
 
 func listDataflowSnapshots(w http.ResponseWriter, project, location string) {
 	out := dataflowSnapshots.Filter(func(s dataflowSnapshot) bool {

@@ -10,8 +10,6 @@ import (
 // CloudFront policy resources — cache, origin-request, response-headers.
 // Same REST + XML wire as the Distribution + OAC endpoints in cloudfront.go.
 
-// ---------- CachePolicy ----------
-
 type CFCachePolicyConfig struct {
 	XMLName                                  xml.Name                                         `xml:"CachePolicyConfig"`
 	Xmlns                                    string                                           `xml:"xmlns,attr,omitempty"`
@@ -71,8 +69,6 @@ type CFCachePolicyList struct {
 	Items      []CFCachePolicySummary `xml:"Items>CachePolicySummary,omitempty"`
 }
 
-// ---------- OriginRequestPolicy ----------
-
 type CFOriginRequestPolicyConfig struct {
 	XMLName            xml.Name                                `xml:"OriginRequestPolicyConfig"`
 	Xmlns              string                                  `xml:"xmlns,attr,omitempty"`
@@ -119,8 +115,6 @@ type CFOriginRequestPolicyList struct {
 	NextMarker string                         `xml:"NextMarker,omitempty"`
 	Items      []CFOriginRequestPolicySummary `xml:"Items>OriginRequestPolicySummary,omitempty"`
 }
-
-// ---------- ResponseHeadersPolicy ----------
 
 type CFResponseHeadersPolicyConfig struct {
 	XMLName                   xml.Name                                `xml:"ResponseHeadersPolicyConfig"`
@@ -253,8 +247,6 @@ type CFResponseHeadersPolicyList struct {
 	Items      []CFResponseHeadersPolicySummary `xml:"Items>ResponseHeadersPolicySummary,omitempty"`
 }
 
-// ---------- Storage ----------
-
 type cfStoredCachePolicy struct {
 	Policy CFCachePolicy
 	ETag   string
@@ -312,8 +304,6 @@ func registerCloudFrontPolicies(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+cfAPIVersion+"/response-headers-policy/{id}", cloudTrailRecordedREST("UpdateResponseHeadersPolicy", "cloudfront.amazonaws.com", responseHeadersPolicyResource, handleCFUpdateRHP))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/response-headers-policy/{id}", cloudTrailRecordedREST("DeleteResponseHeadersPolicy", "cloudfront.amazonaws.com", responseHeadersPolicyResource, handleCFDeleteRHP))
 }
-
-// ----- CachePolicy handlers -----
 
 func handleCFCreateCachePolicy(w http.ResponseWriter, r *http.Request) {
 	var cfg CFCachePolicyConfig
@@ -429,8 +419,6 @@ func handleCFListCachePolicies(w http.ResponseWriter, r *http.Request) {
 	cfWriteXML(w, http.StatusOK, list)
 }
 
-// ----- OriginRequestPolicy handlers -----
-
 func handleCFCreateORP(w http.ResponseWriter, r *http.Request) {
 	var cfg CFOriginRequestPolicyConfig
 	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
@@ -544,8 +532,6 @@ func handleCFListORPs(w http.ResponseWriter, r *http.Request) {
 	}
 	cfWriteXML(w, http.StatusOK, list)
 }
-
-// ----- ResponseHeadersPolicy handlers -----
 
 func handleCFCreateRHP(w http.ResponseWriter, r *http.Request) {
 	var cfg CFResponseHeadersPolicyConfig

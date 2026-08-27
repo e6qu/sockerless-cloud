@@ -59,10 +59,8 @@ func registerLogicAppsMore(srv *sim.Server) {
 	logicServiceEnvs = sim.MakeStore[LogicResource](srv.DB(), "logic_service_environments")
 	logicSEManagedApis = sim.MakeStore[LogicResource](srv.DB(), "logic_service_environment_managed_apis")
 
-	// ---- provider operations ----
 	srv.HandleFunc("GET /providers/Microsoft.Logic/operations", handleLogicOperationsList)
 
-	// ---- workflow extras ----
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/generateUpgradedDefinition", handleLogicWorkflowGenerateUpgradedDefinition)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/listCallbackUrl", handleLogicWorkflowListCallbackURL)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/listSwagger", handleLogicWorkflowListSwagger)
@@ -70,12 +68,10 @@ func registerLogicAppsMore(srv *sim.Server) {
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/regenerateAccessKey", handleLogicWorkflowRegenerateAccessKey)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/locations/{location}/workflows/{workflowName}/validate", handleLogicWorkflowValidateByLocation)
 
-	// ---- workflow versions ----
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/versions", handleLogicVersionList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/versions/{versionId}", handleLogicResourceGet(logicWorkflowVersions, "version"))
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/versions/{versionId}/triggers/{triggerName}/listCallbackUrl", handleLogicTriggerListCallbackURL)
 
-	// ---- workflow triggers ----
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/triggers", handleLogicTriggerList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/triggers/{triggerName}", handleLogicTriggerGet)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/triggers/{triggerName}/schemas/json", handleLogicTriggerSchemaJSON)
@@ -83,12 +79,10 @@ func registerLogicAppsMore(srv *sim.Server) {
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/triggers/{triggerName}/reset", handleLogicTriggerReset)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/triggers/{triggerName}/setState", handleLogicTriggerSetState)
 
-	// ---- workflow trigger histories ----
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/triggers/{triggerName}/histories", handleLogicTriggerHistoryList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/triggers/{triggerName}/histories/{historyName}", handleLogicResourceGet(logicTriggerHistories, "trigger history"))
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/triggers/{triggerName}/histories/{historyName}/resubmit", handleLogicTriggerHistoryResubmit)
 
-	// ---- workflow run actions and their nested collections ----
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions", handleLogicRunActionList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}", handleLogicResourceGet(logicRunActions, "run action"))
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions", handleLogicEmptyList)
@@ -103,7 +97,6 @@ func registerLogicAppsMore(srv *sim.Server) {
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/listExpressionTraces", handleLogicExpressionTraces)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/listExpressionTraces", handleLogicExpressionTraces)
 
-	// ---- integration accounts ----
 	srv.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationAccounts/{integrationAccountName}", handleLogicResourcePut(logicIntegrationAccts, "Microsoft.Logic/integrationAccounts", http.StatusOK, false))
 	srv.HandleFunc("PATCH /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationAccounts/{integrationAccountName}", handleLogicResourcePatch(logicIntegrationAccts, "integration account"))
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationAccounts/{integrationAccountName}", handleLogicResourceGet(logicIntegrationAccts, "integration account"))
@@ -115,7 +108,6 @@ func registerLogicAppsMore(srv *sim.Server) {
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationAccounts/{integrationAccountName}/logTrackingEvents", handleLogicIntegrationAccountLogTrackingEvents)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationAccounts/{integrationAccountName}/regenerateAccessKey", handleLogicIntegrationAccountRegenerateAccessKey)
 
-	// ---- integration account artifacts ----
 	logicRegisterArtifact(srv, "maps", "Microsoft.Logic/integrationAccounts/maps", true)
 	logicRegisterArtifact(srv, "schemas", "Microsoft.Logic/integrationAccounts/schemas", true)
 	logicRegisterArtifact(srv, "partners", "Microsoft.Logic/integrationAccounts/partners", true)
@@ -125,7 +117,6 @@ func registerLogicAppsMore(srv *sim.Server) {
 	logicRegisterArtifact(srv, "sessions", "Microsoft.Logic/integrationAccounts/sessions", true)
 	logicRegisterArtifact(srv, "certificates", "Microsoft.Logic/integrationAccounts/certificates", true)
 
-	// ---- integration service environments ----
 	srv.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationServiceEnvironments/{integrationServiceEnvironmentName}", handleLogicServiceEnvPut)
 	srv.HandleFunc("PATCH /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationServiceEnvironments/{integrationServiceEnvironmentName}", handleLogicServiceEnvPatch)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/integrationServiceEnvironments/{integrationServiceEnvironmentName}", handleLogicResourceGet(logicServiceEnvs, "integration service environment"))
@@ -275,8 +266,6 @@ func handleLogicExpressionTraces(w http.ResponseWriter, _ *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"inputs": []any{}})
 }
 
-// ---- provider operations ----
-
 func handleLogicOperationsList(w http.ResponseWriter, _ *http.Request) {
 	op := func(name, resource, operation, description string) map[string]any {
 		return map[string]any{
@@ -300,8 +289,6 @@ func handleLogicOperationsList(w http.ResponseWriter, _ *http.Request) {
 		op("Microsoft.Logic/operations/read", "Operations", "List operations", "Lists all of the available Microsoft.Logic provider operations."),
 	}})
 }
-
-// ---- workflow extras ----
 
 func handleLogicWorkflowGenerateUpgradedDefinition(w http.ResponseWriter, r *http.Request) {
 	wf, ok := logicWorkflows.Get(strings.TrimSuffix(r.URL.Path, "/generateUpgradedDefinition"))
@@ -483,8 +470,6 @@ func handleLogicWorkflowMove(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// ---- workflow versions ----
-
 func handleLogicVersionList(w http.ResponseWriter, r *http.Request) {
 	prefix := r.URL.Path + "/"
 	writeLogicResourceList(w, logicWorkflowVersions, func(res LogicResource) bool { return strings.HasPrefix(res.ID, prefix) })
@@ -506,8 +491,6 @@ func logicSnapshotWorkflowVersion(wf LogicWorkflow) {
 		ID: id, Name: version, Type: wf.Type + "/versions", Properties: props,
 	})
 }
-
-// ---- workflow triggers ----
 
 func logicSyncTriggers(wf LogicWorkflow) {
 	state, _ := wf.Properties["state"].(string)
@@ -666,8 +649,6 @@ func handleLogicTriggerSetState(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// ---- workflow trigger histories ----
-
 func handleLogicTriggerHistoryList(w http.ResponseWriter, r *http.Request) {
 	if _, ok := logicResolveWorkflowForTrigger(r); !ok {
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
@@ -688,8 +669,6 @@ func handleLogicTriggerHistoryResubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
-
-// ---- run actions ----
 
 func handleLogicRunActionList(w http.ResponseWriter, r *http.Request) {
 	prefix := strings.TrimSuffix(r.URL.Path, "/actions") + "/actions/"
@@ -746,8 +725,6 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	})
 	return runName
 }
-
-// ---- integration accounts ----
 
 func handleLogicIntegrationAccountDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path
@@ -828,8 +805,6 @@ func handleLogicIntegrationAccountRegenerateAccessKey(w http.ResponseWriter, r *
 	sim.WriteJSON(w, http.StatusOK, acct)
 }
 
-// ---- integration account artifacts ----
-
 func logicRegisterArtifact(srv *sim.Server, seg, typ string, timestamps bool) {
 	switch seg {
 	case "maps":
@@ -891,8 +866,6 @@ func handleLogicArtifactContentCallbackURL(w http.ResponseWriter, r *http.Reques
 		"method": "GET",
 	})
 }
-
-// ---- integration service environments (LRO) ----
 
 func handleLogicServiceEnvPut(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path

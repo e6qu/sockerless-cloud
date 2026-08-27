@@ -174,7 +174,6 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 	c := &graphCall{t: t, version: version, params: map[string]string{}, visited: visited}
 	suffix := "-" + label
 
-	// --- users -------------------------------------------------------------
 	managerUPN := "graph-surface-manager" + suffix + "@example.com"
 	status, manager := c.do("users.create", map[string]any{
 		"displayName":       "Graph Surface Manager" + suffix,
@@ -250,7 +249,6 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 		"$count without ConsistencyLevel:eventual must be rejected")
 	assert.Equal(t, "Request_UnsupportedQuery", graphErrorCode(rejected))
 
-	// --- manager navigation property ---------------------------------------
 	status, _ = c.do("users.getManager", nil, "", nil)
 	assert.Equal(t, http.StatusNotFound, status, "a user with no manager answers 404")
 
@@ -263,14 +261,12 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 	assert.Equal(t, managerID, managerRead["id"])
 	assert.Equal(t, "#microsoft.graph.user", managerRead["@odata.type"])
 
-	// --- directoryObjects ---------------------------------------------------
 	status, directoryObject := c.do("directoryObjects.get", nil, "", nil)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, managerID, directoryObject["id"])
 	assert.Equal(t, "#microsoft.graph.user", directoryObject["@odata.type"],
 		"the polymorphic read must name the concrete directory type")
 
-	// --- applications -------------------------------------------------------
 	status, app := c.do("applications.create", map[string]any{
 		"displayName":    "graph-surface-app" + suffix,
 		"signInAudience": "AzureADMyOrg",
@@ -339,7 +335,6 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 	status, _ = c.do("applications.rmPassword", map[string]any{"keyId": keyID}, "", nil)
 	require.Equal(t, http.StatusNoContent, status)
 
-	// --- service principals --------------------------------------------------
 	status, sp := c.do("servicePrincipals.create", map[string]any{
 		"appId":                     appClientID,
 		"appRoleAssignmentRequired": true,
@@ -385,7 +380,6 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 	status, _ = c.do("servicePrincipals.rmPassword", map[string]any{"keyId": spKeyID}, "", nil)
 	require.Equal(t, http.StatusNoContent, status)
 
-	// --- groups ---------------------------------------------------------------
 	status, group := c.do("groups.create", map[string]any{
 		"displayName":     "graph-surface-group" + suffix,
 		"mailNickname":    "graph-surface-group" + suffix,
@@ -464,7 +458,6 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, []string{parentID}, graphIDs(t, childMemberOf))
 
-	// --- delegated /me reads --------------------------------------------------
 	memberToken := requestAzureToken(t, "tenant-graph-surface"+suffix, "oauth2/v2.0/token", url.Values{
 		"grant_type": {"password"},
 		"client_id":  {"client-graph-surface"},
@@ -480,7 +473,6 @@ func runGraphDirectorySurface(t *testing.T, version int, label string, visited m
 	require.Equal(t, http.StatusOK, status)
 	assert.Contains(t, graphIDs(t, meTransitive), childID)
 
-	// --- teardown --------------------------------------------------------------
 	status, _ = c.do("users.rmManager", nil, "", nil)
 	require.Equal(t, http.StatusNoContent, status)
 	status, _ = c.do("users.getManager", nil, "", nil)

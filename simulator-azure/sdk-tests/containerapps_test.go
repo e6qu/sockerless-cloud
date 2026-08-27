@@ -536,8 +536,6 @@ func TestContainerApps_GetJob(t *testing.T) {
 	assert.Equal(t, "public.ecr.aws/docker/library/alpine:latest", container["image"])
 }
 
-// --- SDK-level tests using armappcontainers ---
-
 // ensureRG creates a resource group via raw HTTP (needed before SDK calls).
 func ensureRG(t *testing.T, rg string) {
 	t.Helper()
@@ -743,8 +741,6 @@ func TestSDK_ContainerApps_DeleteJob(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 }
-
-// --- Error path tests ---
 
 func TestSDK_ContainerApps_GetNonExistentJob(t *testing.T) {
 	rg := "sdk-aca-err-rg"

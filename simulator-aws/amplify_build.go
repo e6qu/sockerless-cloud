@@ -33,8 +33,6 @@ import (
 // container exit code. A source that cannot be cloned is rejected by StartJob;
 // it never produces a successful job without executing work.
 
-// ---------- buildSpec ----------
-
 // amplifyBuildSpec is one executable application from an Amplify build
 // specification. It covers the backend, frontend, and test phase sequences,
 // monorepo roots/build paths, build-spec environment variables, cache paths,
@@ -184,8 +182,6 @@ func amplifyRealBuildPlan(app AmplifyApp, br AmplifyBranch) (spec string, repo s
 	return spec, repo, true
 }
 
-// ---------- running builds (StopJob cancellation) ----------
-
 var (
 	amplifyBuildMu      sync.Mutex
 	amplifyBuildCancels = map[string]func(){} // jobID → cancel running build container
@@ -214,8 +210,6 @@ func amplifyCancelRunningBuild(jobID string) {
 	}
 }
 
-// ---------- build image ----------
-
 // amplifyBuildImage is the managed build image used by this Amazon Amplify
 // Hosting runtime generation. AWS selects its build image service-side; it is
 // therefore fixed by the cloud implementation rather than caller-configurable
@@ -223,8 +217,6 @@ func amplifyCancelRunningBuild(jobID string) {
 func amplifyBuildImage() string {
 	return "public.ecr.aws/docker/library/node:22-bookworm"
 }
-
-// ---------- step/log plumbing ----------
 
 // amplifyStepLog accumulates one job step's log lines and lands them in the
 // sim's S3 so the step's logUrl resolves (sim-emitted-url-roundtrip).
@@ -318,8 +310,6 @@ func amplifyFinishJob(jobID string, to AmplifyJobStatus) bool {
 	})
 	return finished
 }
-
-// ---------- the build itself ----------
 
 const amplifyBuildTimeout = 15 * time.Minute
 

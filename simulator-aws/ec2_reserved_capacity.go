@@ -21,8 +21,6 @@ import (
 // sim.Store and settles into the state the real EC2 service returns. The
 // read-only describe-offering ops return a small honest, deterministic catalog.
 
-// -------------------- Models --------------------
-
 // EC2ReservedInstances is a purchased Reserved Instance commitment (ri-…). It
 // settles "active" with the count, type, AZ/scope, and a deterministic fixed
 // price drawn from the offering it was purchased from.
@@ -202,8 +200,6 @@ func registerEC2ReservedCapacity(r *sim.AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// -------------------- shared helpers --------------------
-
 // ec2WriteResponse writes an ec2Query XML response with the standard envelope.
 func ec2WriteResponse(w http.ResponseWriter, action, body string) {
 	w.Header().Set("Content-Type", "text/xml")
@@ -215,8 +211,6 @@ func ec2WriteResponse(w http.ResponseWriter, action, body string) {
 func ec2WriteReturnTrue(w http.ResponseWriter, action string) {
 	ec2WriteResponse(w, action, "<return>true</return>")
 }
-
-// -------------------- Reserved Instances --------------------
 
 // ec2RIOffering describes one entry of the deterministic Reserved Instance
 // offering catalog. Offering ids are derived from the instance type + term so a
@@ -774,8 +768,6 @@ func handleAcceptReservedInstancesExchangeQuote(w http.ResponseWriter, r *http.R
 		fmt.Sprintf("<exchangeId>%s</exchangeId>", ec2ID("riex")))
 }
 
-// -------------------- Capacity Reservation billing --------------------
-
 func ec2CapResBillingRequestFieldsXML(br EC2CapacityReservationBillingRequest) string {
 	statusMsg := ""
 	if br.StatusMessage != "" {
@@ -879,8 +871,6 @@ func handleDescribeCapacityReservationBillingRequests(w http.ResponseWriter, r *
 		fmt.Sprintf("<capacityReservationBillingRequestSet>%s</capacityReservationBillingRequestSet>", items.String()))
 }
 
-// -------------------- Capacity Reservation topology --------------------
-
 func handleDescribeCapacityReservationTopology(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "CapacityReservationId")
 	results := make([]EC2CapacityReservation, 0)
@@ -905,8 +895,6 @@ func handleDescribeCapacityReservationTopology(w http.ResponseWriter, r *http.Re
 	ec2WriteResponse(w, "DescribeCapacityReservationTopology",
 		fmt.Sprintf("<capacityReservationSet>%s</capacityReservationSet>", items.String()))
 }
-
-// -------------------- Capacity Reservation splitting / moving --------------------
 
 func handleCreateCapacityReservationBySplitting(w http.ResponseWriter, r *http.Request) {
 	srcID := r.FormValue("SourceCapacityReservationId")
@@ -976,8 +964,6 @@ func handleModifyInstanceCapacityReservationAttributes(w http.ResponseWriter, r 
 	ec2WriteReturnTrue(w, "ModifyInstanceCapacityReservationAttributes")
 }
 
-// -------------------- Capacity Reservation cancellation quotes --------------------
-
 func handleCreateCapacityReservationCancellationQuote(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("CapacityReservationId")
 	cr, ok := ec2CapacityReservations.Get(id)
@@ -1036,8 +1022,6 @@ func handleDescribeCapacityReservationCancellationQuotes(w http.ResponseWriter, 
 	ec2WriteResponse(w, "DescribeCapacityReservationCancellationQuotes",
 		fmt.Sprintf("<capacityReservationCancellationQuoteSet>%s</capacityReservationCancellationQuoteSet>", items.String()))
 }
-
-// -------------------- Capacity Blocks (ML) --------------------
 
 // ec2CapacityBlockOffering describes one entry of the deterministic Capacity
 // Block offering catalog.
@@ -1246,8 +1230,6 @@ func handleDescribeCapacityBlockStatus(w http.ResponseWriter, r *http.Request) {
 	ec2WriteResponse(w, "DescribeCapacityBlockStatus",
 		fmt.Sprintf("<capacityBlockStatusSet>%s</capacityBlockStatusSet>", items.String()))
 }
-
-// -------------------- Capacity Block extensions --------------------
 
 func handleDescribeCapacityBlockExtensionOfferings(w http.ResponseWriter, r *http.Request) {
 	crID := r.FormValue("CapacityReservationId")

@@ -122,9 +122,7 @@ func registerEC2EBSSnapshot(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyVolumeAttribute", handleModifyVolumeAttribute)
 }
 
-// ----------------------------------------------------------------------------
 // EBS encryption by default
-// ----------------------------------------------------------------------------
 
 func handleEnableEbsEncryptionByDefault(w http.ResponseWriter, r *http.Request) {
 	ec2EBSEncryption.Upsert("account", func(state *ebsEncryptionState) {
@@ -186,9 +184,7 @@ func handleResetEbsDefaultKmsKeyId(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), xmlEscape(out))
 }
 
-// ----------------------------------------------------------------------------
 // Fast snapshot restores
-// ----------------------------------------------------------------------------
 
 func fsrKey(snapID, az string) string { return snapID + "|" + az }
 
@@ -383,9 +379,7 @@ func fsrItemXML(f fastSnapshotRestore) string {
 	return b.String()
 }
 
-// ----------------------------------------------------------------------------
 // Snapshot tiering
-// ----------------------------------------------------------------------------
 
 func handleModifySnapshotTier(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("SnapshotId")
@@ -446,9 +440,7 @@ func handleRestoreSnapshotTier(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// ----------------------------------------------------------------------------
 // Snapshot Recycle Bin
-// ----------------------------------------------------------------------------
 
 func handleRestoreSnapshotFromRecycleBin(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("SnapshotId")
@@ -486,9 +478,7 @@ func writeRestoreSnapshotFromRecycleBinXML(w http.ResponseWriter, snap EC2Snapsh
 		snap.OwnerId, snap.Progress, snap.StartTime, snap.State, snap.VolumeId, snap.VolumeSize)
 }
 
-// ----------------------------------------------------------------------------
 // Snapshot block public access
-// ----------------------------------------------------------------------------
 
 func handleEnableSnapshotBlockPublicAccess(w http.ResponseWriter, r *http.Request) {
 	state := r.FormValue("State")
@@ -519,9 +509,7 @@ func handleGetSnapshotBlockPublicAccessState(w http.ResponseWriter, r *http.Requ
 		ec2Xmlns(), generateUUID(), state)
 }
 
-// ----------------------------------------------------------------------------
 // Volume attributes
-// ----------------------------------------------------------------------------
 
 func handleDescribeVolumeAttribute(w http.ResponseWriter, r *http.Request) {
 	volID := r.FormValue("VolumeId")

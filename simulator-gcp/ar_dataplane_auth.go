@@ -294,8 +294,6 @@ func arRegistryError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// --- repository resolution ---
-
 // arRegistryHostSuffix is the tail of every Artifact Registry Docker endpoint.
 // The label in front of it is the location the endpoint serves, and it is the
 // only place a /v2/ request carries one: the repository path holds the project,
@@ -369,8 +367,6 @@ func arRepositoryExists(r *http.Request, repo string) bool {
 	_, exists := arRepos.Get(resource)
 	return exists
 }
-
-// --- credentials ---
 
 // arAuthenticate resolves the identity behind a data-plane request. It reports
 // whether a credential was presented at all — the distinction that decides
@@ -537,8 +533,6 @@ func arKeyPairMatches(privateKeyPEM, publicKeyPEM string) error {
 	}
 	return nil
 }
-
-// --- the Docker token service ---
 
 // arRegistryTokenEnvelope is the JSON the Docker token service base64-encodes
 // into the opaque `token` it returns. The member names are Artifact Registry's

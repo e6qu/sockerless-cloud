@@ -119,9 +119,7 @@ func registerSSMPatchOps(r *sim.AWSRouter, srv *sim.Server) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Patch group registration / reads
-// ---------------------------------------------------------------------------
 
 func handleSSMRegisterPatchBaselineForPatchGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -472,9 +470,7 @@ func handleSSMGetDeployablePatchSnapshotForInstance(w http.ResponseWriter, r *ht
 	})
 }
 
-// ---------------------------------------------------------------------------
 // OpsMetadata
-// ---------------------------------------------------------------------------
 
 func ssmOpsMetadataArn(resourceID string) string {
 	// Real OpsMetadata ARN: arn:aws:ssm:<region>:<account>:opsmetadata/<resource-path>.
@@ -663,9 +659,7 @@ func handleSSMGetOpsSummary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Resource policies
-// ---------------------------------------------------------------------------
 
 func ssmPolicyHash(policy string) string {
 	h := sha256.Sum256([]byte(policy))
@@ -780,9 +774,7 @@ func handleSSMDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------------------------------------------------------------------------
 // Parameter history + labels
-// ---------------------------------------------------------------------------
 
 // ssmSyncParameterVersions reconciles the version-history store with the
 // live parameter. The live parameter store keeps only the latest version

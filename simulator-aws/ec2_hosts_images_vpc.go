@@ -234,9 +234,7 @@ func registerEC2HostsImagesVpc(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DescribeVpcBlockPublicAccessOptions", handleDescribeVpcBlockPublicAccessOptions)
 }
 
-// ----------------------------------------------------------------------------
 // Dedicated Hosts
-// ----------------------------------------------------------------------------
 
 func handleAllocateHosts(w http.ResponseWriter, r *http.Request) {
 	az := r.FormValue("AvailabilityZone")
@@ -581,9 +579,7 @@ func ec2UnsuccessfulItemsXML(items []ec2UnsuccessfulItem) string {
 	return b.String()
 }
 
-// ----------------------------------------------------------------------------
 // Instance Event Windows
-// ----------------------------------------------------------------------------
 
 // ec2ParseEventWindowTimeRanges reads the indexed TimeRange.N.* request params.
 func ec2ParseEventWindowTimeRanges(r *http.Request) []EC2EventWindowTimeRange {
@@ -855,9 +851,7 @@ func handleDisassociateInstanceEventWindow(w http.ResponseWriter, r *http.Reques
 		ec2Xmlns(), generateUUID(), ec2EventWindowFieldsXML(ew))
 }
 
-// ----------------------------------------------------------------------------
 // Image attributes + lifecycle
-// ----------------------------------------------------------------------------
 
 func handleDescribeImageAttribute(w http.ResponseWriter, r *http.Request) {
 	imageID := r.FormValue("ImageId")
@@ -1178,9 +1172,7 @@ func ec2Default(v, def string) string {
 	return v
 }
 
-// ----------------------------------------------------------------------------
 // Snapshot attributes + lifecycle
-// ----------------------------------------------------------------------------
 
 func handleDescribeSnapshotAttribute(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("SnapshotId")
@@ -1380,9 +1372,7 @@ func handleImportSnapshot(w http.ResponseWriter, r *http.Request) {
 		xmlEscape(bucket), xmlEscape(key), writeTagSetXML(snap.Tags))
 }
 
-// ----------------------------------------------------------------------------
 // VPC ClassicLink
-// ----------------------------------------------------------------------------
 
 func handleDescribeVpcClassicLink(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "VpcId")
@@ -1482,9 +1472,7 @@ func handleDescribeVpcClassicLinkDnsSupport(w http.ResponseWriter, r *http.Reque
 		ec2Xmlns(), generateUUID(), items.String())
 }
 
-// ----------------------------------------------------------------------------
 // VPC endpoint connections + notifications
-// ----------------------------------------------------------------------------
 
 func ec2VpcEndpointConnFieldsXML(c EC2VpcEndpointConnection) string {
 	var b strings.Builder
@@ -1691,9 +1679,7 @@ func handleDeleteVpcEndpointConnectionNotifications(w http.ResponseWriter, r *ht
 		ec2Xmlns(), generateUUID(), ec2UnsuccessfulItemsXML(unsuccessful))
 }
 
-// ----------------------------------------------------------------------------
 // VPC Block Public Access
-// ----------------------------------------------------------------------------
 
 func ec2VpcBpaExclusionFieldsXML(e EC2VpcBpaExclusion) string {
 	var b strings.Builder

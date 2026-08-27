@@ -207,8 +207,6 @@ func registerEC2NetworkInsights(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteLocalGatewayRoute", handleDeleteLocalGatewayRoute)
 }
 
-// ---- ARN helpers ----
-
 func ec2ResourceArn(resourceType, id string) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:%s/%s", awsRegion(), ec2Owner(), resourceType, id)
 }
@@ -219,9 +217,7 @@ func ec2Response(w http.ResponseWriter, action, body string) {
 		action, ec2Xmlns(), generateUUID(), body, action)
 }
 
-// ============================================================================
 // Network Insights paths
-// ============================================================================
 
 func handleCreateNetworkInsightsPath(w http.ResponseWriter, r *http.Request) {
 	id := ec2ID("nip")
@@ -318,9 +314,7 @@ func nipTagSetXML(tags []EC2Tag) string {
 	return writeTagSetXML(tags)
 }
 
-// ============================================================================
 // Network Insights analyses
-// ============================================================================
 
 func handleStartNetworkInsightsAnalysis(w http.ResponseWriter, r *http.Request) {
 	pathID := r.FormValue("NetworkInsightsPathId")
@@ -386,9 +380,7 @@ func niaBodyXML(a EC2NetworkInsightsAnalysis) string {
 	return b.String()
 }
 
-// ============================================================================
 // Network Insights access scopes (Network Access Analyzer)
-// ============================================================================
 
 func handleCreateNetworkInsightsAccessScope(w http.ResponseWriter, r *http.Request) {
 	id := ec2ID("nis")
@@ -459,9 +451,7 @@ func nisContentBodyXML(scopeID string) string {
 	return fmt.Sprintf("<networkInsightsAccessScopeId>%s</networkInsightsAccessScopeId>", scopeID)
 }
 
-// ============================================================================
 // Network Insights access scope analyses
-// ============================================================================
 
 func handleStartNetworkInsightsAccessScopeAnalysis(w http.ResponseWriter, r *http.Request) {
 	scopeID := r.FormValue("NetworkInsightsAccessScopeId")
@@ -545,9 +535,7 @@ func nisaBodyXML(a EC2NetworkInsightsAccessScopeAnalysis) string {
 	return b.String()
 }
 
-// ============================================================================
 // Route servers
-// ============================================================================
 
 func handleCreateRouteServer(w http.ResponseWriter, r *http.Request) {
 	id := ec2ID("rs")
@@ -696,8 +684,6 @@ func routeServerBodyXML(rs EC2RouteServer) string {
 	return b.String()
 }
 
-// ---- Route server endpoints ----
-
 func handleCreateRouteServerEndpoint(w http.ResponseWriter, r *http.Request) {
 	rsID := r.FormValue("RouteServerId")
 	rs, ok := ec2RouteServers.Get(rsID)
@@ -770,8 +756,6 @@ func routeServerEndpointBodyXML(ep EC2RouteServerEndpoint) string {
 	b.WriteString(nipTagSetXML(ep.Tags))
 	return b.String()
 }
-
-// ---- Route server peers ----
 
 func handleCreateRouteServerPeer(w http.ResponseWriter, r *http.Request) {
 	epID := r.FormValue("RouteServerEndpointId")
@@ -872,8 +856,6 @@ func routeServerPeerBodyXML(p EC2RouteServerPeer) string {
 	return b.String()
 }
 
-// ---- Route server propagations ----
-
 func handleEnableRouteServerPropagation(w http.ResponseWriter, r *http.Request) {
 	rsID := r.FormValue("RouteServerId")
 	rtID := r.FormValue("RouteTableId")
@@ -942,9 +924,7 @@ func routeServerPropagationBodyXML(p EC2RouteServerPropagation) string {
 	return b.String()
 }
 
-// ============================================================================
 // Local gateway routes
-// ============================================================================
 
 func lgwRouteKey(rtID, cidr, prefix string) string {
 	if cidr != "" {

@@ -66,7 +66,6 @@ func parseKQL(query string) kqlQuery {
 	return q
 }
 
-// parseKQLWhere parses a single where clause.
 func parseKQLWhere(clause string) kqlFilter {
 	// Try operators in order of length (>= before >)
 	for _, op := range []string{">=", ">", "=="} {

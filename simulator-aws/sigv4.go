@@ -230,7 +230,6 @@ func sigv4SecretFor(accessKeyID, presentedToken string) (string, *sigv4Error) {
 	return "", &sigv4Error{sigErrInvalidClientToken, sigMsgInvalidTok}
 }
 
-// sigv4CanonicalRequest assembles the canonical request string.
 func sigv4CanonicalRequest(r *http.Request, signedHeaders []string, canonicalQuery, payloadHash string, doubleEncodePath bool) string {
 	canonHeaders, signedHeadersStr := sigv4CanonicalHeaders(r, signedHeaders)
 	return strings.Join([]string{
@@ -394,8 +393,6 @@ func awsURIEncode(s string, encodeSlash bool) string {
 	return b.String()
 }
 
-// --- control-plane (POST /) gate -------------------------------------------
-
 // sigv4EnforceControlPlane authenticates a control-plane (awsJson / awsQuery)
 // request before authorization. Operations AWS accepts unsigned by
 // design — the web-identity and SAML assume-role calls, whose trust comes from
@@ -476,8 +473,6 @@ func sigv4RequestService(r *http.Request) string {
 	}
 	return ""
 }
-
-// --- S3 REST gate ----------------------------------------------------------
 
 // sigv4WriteS3Error renders an authentication failure in S3's XML shape with the
 // S3-specific error codes (S3 uses InvalidAccessKeyId, not InvalidClientTokenId).

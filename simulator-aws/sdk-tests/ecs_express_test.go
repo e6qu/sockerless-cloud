@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// expressCreateCluster makes a cluster for an Express test and returns its name.
 func expressCreateCluster(t *testing.T, c *ecs.Client, name string) string {
 	t.Helper()
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(name)})
@@ -102,8 +101,6 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.True(t, strings.HasPrefix(endpoint, "https://"), "endpoint %q must start https://", endpoint)
 	albHost := strings.TrimPrefix(endpoint, "https://")
 
-	// ---- Faithful assembly assertions ----
-
 	// The ALB exists via ELBv2 and its DNSName matches the ingress endpoint host.
 	lbs, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{})
 	require.NoError(t, err)
@@ -138,7 +135,6 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	assert.Equal(t, ecstypes.LaunchTypeFargate, ds.Services[0].LaunchType)
 	initialTaskDefinition := aws.ToString(ds.Services[0].TaskDefinition)
 
-	// ---- Describe round-trips tags (include TAGS) ----
 	desc, err := c.DescribeExpressGatewayService(ctx, &ecs.DescribeExpressGatewayServiceInput{
 		ServiceArn: svc.ServiceArn,
 		Include:    []ecstypes.ExpressGatewayServiceInclude{ecstypes.ExpressGatewayServiceIncludeTags},
@@ -156,7 +152,6 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, descNoTags.Service.Tags)
 
-	// ---- Update changes cpu/memory/scalingTarget ----
 	upd, err := c.UpdateExpressGatewayService(ctx, &ecs.UpdateExpressGatewayServiceInput{
 		ServiceArn: svc.ServiceArn,
 		Cpu:        aws.String("512"),
@@ -259,7 +254,6 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 		"Express update did not roll the backing Fargate service to the new managed task definition: %s",
 		rolloutDiagnostic)
 
-	// ---- Delete: status DRAINING + assembly torn down ----
 	del, err := c.DeleteExpressGatewayService(ctx, &ecs.DeleteExpressGatewayServiceInput{
 		ServiceArn: svc.ServiceArn,
 	})

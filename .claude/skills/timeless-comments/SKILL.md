@@ -1,9 +1,11 @@
 ---
 name: timeless-comments
-description: Specialist scan for time-anchored or historical comments — references to "previous", "earlier", "now", "before this commit", phase numbers, BUG IDs in code, or anything that describes the evolution of the codebase rather than its current invariants. Comments must explain WHY the code is the way it is today, not how it got here. Use before merging any Go / TypeScript / Markdown change that adds or edits comments.
+description: Specialist scan for comments that should not exist or should not read the way they do — restatements of the code beneath them, section banners, narration, verbose justification, passive voice, and time-anchored history ("previously", "now", phase numbers, BUG IDs). A comment must earn its place by explaining WHY, in active voice, as briefly as the fact allows. Use before merging any Go / TypeScript / Markdown change that adds or edits comments or docs.
 ---
 
-# Timeless-comments scan
+# Comment scan — earn the line, then cut it
+
+Default to no comment. Write one only when the code cannot say the thing itself, then cut it to the shortest form that still carries the fact. One line beats five; a clause beats a paragraph. Verbose commentary goes stale faster than code and buries the few comments worth reading.
 
 Useful comments explain a load-bearing invariant — a hidden constraint, a subtle property of the surrounding code, a workaround whose root cause is non-obvious, or a behavioural choice that would surprise the reader without an explanation. The reader is a future engineer (you, six months from now, or a teammate who never saw the diff) looking at the code in isolation. They don't have the PR description, the BUGS.md entry, the conversation history, or the prior versions of the file.
 
@@ -18,6 +20,44 @@ Time-anchored comments break this contract. They orient the reader to the diff, 
 Skip for: commit messages, PR descriptions, BUGS.md, STATUS.md, WHAT_WE_DID.md, CHANGELOG entries — these are explicitly historical artifacts.
 
 ## The patterns to scan
+
+### Pattern F — comments that say what the code already says
+
+Delete outright, no rewrite:
+
+- **Restatement.** `// RequestID returns the request ID from the context` above `func RequestID(ctx) string`. If every content word already appears in the identifier or the signature, the comment is noise.
+- **Section banners.** `// ---- Types ----`, `// ===== Amazon Glue =====`, rules of dashes, headings repeating the file name. Structure belongs to the file, not to a comment.
+- **Narration.** `// loop over the items`, `// return the result`, `// Create bucket` above `handleCreateBucket`.
+- **Justification and apology.** Why a choice was reasonable belongs in the commit message.
+
+```bash
+# Banner lines and rules
+rg -n '^\s*//\s*[-=~*_+#]{4,}\s*$' --type-add 'src:*.{go,ts,tsx}' --type src
+rg -n '^\s*//\s*[-=~*_]{2,}\s*\w' --type src
+
+# Single-line doc comments directly above the symbol they name
+rg -n -B0 -A1 '^// [A-Za-z_][A-Za-z0-9_]* (is|are|returns|holds|reports|represents|defines|wraps|stores) ' --type src
+```
+
+Nothing requires a Go doc comment here: `staticcheck` runs with ST1020/ST1021/ST1022 off, so an exported symbol whose name says everything gets none.
+
+### Pattern G — passive voice
+
+Write comments, documentation, tutorials and READMEs in **active voice, imperative mood**. Name the actor; the actor is usually the fact worth recording.
+
+| Passive | Active |
+|---|---|
+| the payload is read from the host file | read the payload from the host file |
+| `softDeleted=True` is sent by gcloud | gcloud sends `softDeleted=True` |
+| this is called when the bucket is deleted | the delete path calls this |
+| the entries are seeded at creation | seed the entries at creation |
+
+```bash
+rg -n '^\s*//.*\b(is|are|was|were|be|been|being)\s+[a-z]+(ed|en)\b' --type src
+rg -n '\b(is|are|was|were)\s+[a-z]+ed\s+by\b' -g '*.md'
+```
+
+Some hits are legitimate — "the field is deprecated", "the value is encoded as base64" describe a state, not a hidden actor. Rewrite the ones that hide who acts.
 
 ### Pattern A — history words
 
@@ -100,23 +140,15 @@ For each hit:
 type kvSecretStored struct { ... }
 ```
 
-### After (timeless)
+### After (timeless, and cut to the fact)
 
 ```go
-// kvSecretStored is the persistence record for KV secrets. Vault
-// and Name are exported with normal JSON tags so sim.Store JSON
-// round-trips preserve them. KeyVaultSecret (the wire shape) is
-// embedded so handler emission can hand back the embedded value
-// directly without re-mapping fields. Vault+Name don't appear on
-// the wire because they aren't on the embedded type.
+// Export Vault and Name so sim.Store's JSON round-trip keeps them; they stay
+// off the wire because the embedded KeyVaultSecret does not carry them.
 type kvSecretStored struct { ... }
 ```
 
-The "after" version:
-- Describes the type's role TODAY (persistence record + wrapper)
-- Explains the why (sim.Store does json.Marshal; tags must be exported)
-- Documents the wire-emission consequence (Vault+Name absent from wire)
-- Doesn't reference a former shape, a fix, a phase, or a bug
+Two lines, active voice, and every word carries something the code cannot. The role of the type is already in its name.
 
 ### Before (phase / bug anchor)
 
@@ -130,9 +162,7 @@ id := buildKVURL(r, vault, "secrets", name, version)
 ### After (timeless)
 
 ```go
-// All KV ID emitters route through buildKVURL so they share the
-// same scheme + host shape; r.URL.Scheme is unreliable behind the
-// sim's mux (often empty) so the helper hard-codes `https://`.
+// r.URL.Scheme is empty behind the mux, so buildKVURL hard-codes https://.
 id := buildKVURL(r, vault, "secrets", name, version)
 ```
 
@@ -147,11 +177,8 @@ runSmokeExec(t, ctx, resp.ID, ..., "step-2")
 ### After (timeless)
 
 ```go
-// The exec helpers verify their own stdout/exit code. Termination
-// is driven externally via dockerClient.ContainerStop → SIGTERM
-// → the container's `trap 'exit 0' TERM` handler. Signalling from
-// outside the container avoids the exec process being torn down
-// before it can report its exit status.
+// Signal from outside the container: an exec torn down from within cannot
+// report its exit status. ContainerStop → SIGTERM → the container's trap.
 runSmokeExec(t, ctx, resp.ID, ..., "step-2")
 ```
 
@@ -172,16 +199,20 @@ rg -n '\b(Phase\s+\d+|BUG-\d+)\b' --type-add 'src:*.{go,ts,tsx}' --type src \
 
 Any output is a candidate for the rewrite shapes above.
 
-## What stays — the timeless comment rubric
+## What stays — the rubric
 
-A comment passes the timeless test if:
+A comment earns its line if:
+
+0. **The code cannot say it.** Ask what a reader still could not work out from the identifier, the signature and the body. If the answer is "nothing", delete the comment rather than rewriting it.
 
 1. **It explains a CURRENT invariant** — a property that holds in the code right now and would surprise a reader without explanation.
 2. **It doesn't depend on the diff that introduced it** — removable from version control history without losing meaning.
 3. **It survives all reasonable future refactors of the surrounding code** — describes WHY the code is shaped this way, in terms that don't reference the specific code that was here before.
 4. **It cites only external, persistent facts** — SDK behaviour, protocol specs, cloud-provider docs, physical constraints — not internal evolution.
 
-If a comment fails any of these, rewrite it.
+5. **It is as short as the fact allows, in active voice.** Cut every clause that restates the code, justifies the choice, or hides the actor.
+
+If a comment fails rule 0, delete it. If it fails any other, rewrite it.
 
 ## Related skills
 

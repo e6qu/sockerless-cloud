@@ -370,7 +370,6 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NotNil(t, rotated.Key1)
 	require.NotEqual(t, *originalKeys.Key1, *rotated.Key1, "regenerateKey must rotate key1")
 
-	// ---- restart: SIGTERM, relaunch against the same data directory ----
 	require.NoError(t, shutdownAzureSimulator(cmd),
 		"simulator must exit cleanly before its SQLite database is reopened")
 	cmd = startPersistentAzureSimulator(t, stateDir, port)

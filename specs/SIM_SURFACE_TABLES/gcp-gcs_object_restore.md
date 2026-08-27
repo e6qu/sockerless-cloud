@@ -13,9 +13,9 @@ Surface registered in `simulator-gcp/gcs_object_restore.go` (and related files g
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /storage/v1/b/{bucket}/o/{object}/restore` | ✓ `simulator-gcp/gcs_object_restore.go:172::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/o/bulkRestore` | ✓ `simulator-gcp/gcs_object_restore.go:204::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}` | ✓ `simulator-gcp/gcs_object_restore.go:259::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/{object}/restore` | ✓ `simulator-gcp/gcs_object_restore.go:138::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/bulkRestore` | ✓ `simulator-gcp/gcs_object_restore.go:168::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}` | ✓ `simulator-gcp/gcs_object_restore.go:221::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -246,8 +246,6 @@ func registerAPIGatewayExtras(srv *sim.Server) {
 	mux.HandleFunc("GET /tags/{resourceArn}", cloudTrailRecordedREST("GetTags", src, nil, handleAPIGWGetTags))
 }
 
-// --- base path mappings ---
-
 func apigwBasePathKey(domain, basePath string) string {
 	if basePath == "" {
 		basePath = "(none)"
@@ -360,8 +358,6 @@ func normalizeBasePath(basePath string) string {
 	return basePath
 }
 
-// --- client certificates ---
-
 func handleAPIGWGenerateClientCertificate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description string            `json:"description"`
@@ -455,8 +451,6 @@ func apigwClientCertPEM(id string) string {
 	b.WriteString("-----END CERTIFICATE-----\n")
 	return b.String()
 }
-
-// --- documentation parts ---
 
 func apigwRequireRestAPI(w http.ResponseWriter, id string) bool {
 	if _, ok := apigwRestApis.Get(id); !ok {
@@ -582,8 +576,6 @@ func handleAPIGWImportDocumentationParts(w http.ResponseWriter, r *http.Request)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"ids": []string{p.Id}})
 }
 
-// --- documentation versions ---
-
 func handleAPIGWCreateDocumentationVersion(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
 	if !apigwRequireRestAPI(w, restApiId) {
@@ -671,8 +663,6 @@ func handleAPIGWDeleteDocumentationVersion(w http.ResponseWriter, r *http.Reques
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
-
-// --- gateway responses ---
 
 func handleAPIGWPutGatewayResponse(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
@@ -847,8 +837,6 @@ func apigwDefaultStatusCode(rt string) string {
 	}
 }
 
-// --- request validator (single) + model default template ---
-
 func handleAPIGWGetRequestValidator(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
 	rv, ok := apigwRequestValidators.Get(restApiId + "/" + sim.PathParam(r, "requestValidatorId"))
@@ -872,8 +860,6 @@ func handleAPIGWGetModelTemplate(w http.ResponseWriter, r *http.Request) {
 	tmpl := fmt.Sprintf("#set($inputRoot = $input.path('$'))\n{\n  \"_model\": \"%s\",\n  \"_schema\": %s\n}", m.Name, strconv.Quote(m.Schema))
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": tmpl})
 }
-
-// --- account settings singleton ---
 
 func apigwLoadAccount() APIGWAccount {
 	if acct, ok := apigwAccount.Get("account"); ok {
@@ -910,8 +896,6 @@ func handleAPIGWUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	apigwAccount.Put("account", acct)
 	sim.WriteJSON(w, http.StatusOK, acct)
 }
-
-// --- OpenAPI export + SDK generation ---
 
 func handleAPIGWGetExport(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
@@ -1039,8 +1023,6 @@ func apigwSdkTypeExists(id string) bool {
 	}
 	return false
 }
-
-// --- usage reporting + tag reads ---
 
 func handleAPIGWGetUsage(w http.ResponseWriter, r *http.Request) {
 	usagePlanId := sim.PathParam(r, "usagePlanId")

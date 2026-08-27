@@ -53,9 +53,7 @@ func registerFirestoreGRPC(gs *grpc.Server) {
 	fspb.RegisterFirestoreServer(gs, &firestoreGRPC{})
 }
 
-// ---------------------------------------------------------------------------
 // proto <-> REST-store converters
-// ---------------------------------------------------------------------------
 
 // fsValueToProto converts the REST JSON typed-value shape to the proto Value.
 func fsValueToProto(v FSValue) *fspb.Value {
@@ -208,9 +206,7 @@ func fsTimestampFromProto(ts *timestamppb.Timestamp) string {
 	return ts.AsTime().UTC().Truncate(time.Millisecond).Format(fsTimestampLayout)
 }
 
-// ---------------------------------------------------------------------------
 // request-field converters
-// ---------------------------------------------------------------------------
 
 func fsPreconditionFromProto(p *fspb.Precondition) *fsPrecondition {
 	if p == nil {
@@ -336,9 +332,7 @@ func fsCode(n int) codes.Code {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // query evaluation (reuses the REST slice's pure helpers)
-// ---------------------------------------------------------------------------
 
 // fsEvaluateQuery runs a structured query against the store, returning the
 // matching documents in order. It reuses fsWhereMatches, fsCompareToCursor,
@@ -550,9 +544,7 @@ func fsCursorFromProto(c *fspb.Cursor) *fsCursor {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // field-mask projection for GetDocument / ListDocuments
-// ---------------------------------------------------------------------------
 
 func fsProjectDocByMask(d FSDocument, mask *fspb.DocumentMask) FSDocument {
 	if mask == nil || len(mask.GetFieldPaths()) == 0 {
@@ -575,9 +567,7 @@ func fsProjectDocByMask(d FSDocument, mask *fspb.DocumentMask) FSDocument {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // transactions
-// ---------------------------------------------------------------------------
 
 // fsBeginTxnBytes creates a transaction token (opaque bytes), pins a read
 // snapshot time, and persists it in the shared fsTransactions store.
@@ -595,9 +585,7 @@ func fsReadTimeForTxnBytes(b []byte) (string, bool) {
 	return fsReadTimeForTxn(string(b))
 }
 
-// ---------------------------------------------------------------------------
 // Firestore RPCs
-// ---------------------------------------------------------------------------
 
 func (s *firestoreGRPC) GetDocument(_ context.Context, req *fspb.GetDocumentRequest) (*fspb.Document, error) {
 	doc, ok := fsDocuments.Get(req.GetName())
@@ -982,9 +970,7 @@ func (s *firestoreGRPC) PartitionQuery(_ context.Context, req *fspb.PartitionQue
 	return &fspb.PartitionQueryResponse{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Write — the bidirectional write stream
-// ---------------------------------------------------------------------------
 
 // fsWriteStreamTokens holds the token of the most recent response each open
 // write stream received. The stream id and the token are the resumption
@@ -1086,9 +1072,7 @@ func (s *firestoreGRPC) Write(srv fspb.Firestore_WriteServer) error {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Listen — the bidirectional watch stream
-// ---------------------------------------------------------------------------
 
 // fsListenPollInterval is how often a Listen stream consults the document
 // store's generation counter. The counter is the store's own change signal —

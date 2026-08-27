@@ -288,8 +288,6 @@ func registerNetwork(srv *sim.Server) {
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network"
 
-	// --- Virtual Networks ---
-
 	srv.HandleFunc("PUT "+armBase+"/virtualNetworks/{vnetName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -416,8 +414,6 @@ func registerNetwork(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// --- Subnets ---
-
 	srv.HandleFunc("PUT "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -489,8 +485,6 @@ func registerNetwork(srv *sim.Server) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-
-	// --- Network Security Groups ---
 
 	srv.HandleFunc("PUT "+armBase+"/networkSecurityGroups/{nsgName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
@@ -565,13 +559,10 @@ func registerNetwork(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// --- NSG Subnet Association ---
 	// This is handled via the subnet PUT endpoint above (networkSecurityGroup property on subnet).
 	// The azurerm_subnet_network_security_group_association resource just PUTs the subnet
 	// with the networkSecurityGroup reference set.
 
-	// --- NSG Security Rules (sub-resource) ---
-	//
 	// The NSG handlers above let callers embed SecurityRules in the
 	// NSG body, but armnetwork.SecurityRulesClient CRUDs each rule
 	// via its sub-resource path. Expose those so the backend can use
@@ -728,7 +719,6 @@ func registerNetwork(srv *sim.Server) {
 			})
 		})
 
-	// --- NAT Gateways + Route Tables ---
 	// Real Azure: `Microsoft.Network/natGateways` provides outbound
 	// connectivity for subnets that need explicit egress; route tables
 	// (`Microsoft.Network/routeTables`) override default-route behavior.
@@ -986,7 +976,6 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), resourceType)
 	}
 
-	// --- Virtual networks ---
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks", func(w http.ResponseWriter, r *http.Request) {
 		prefix := rgPrefix(r, "virtualNetworks")
 		azureWriteList(w, azureRefreshedVnets(prefix))
@@ -1008,7 +997,6 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, vnet)
 	})
 
-	// --- Network security groups ---
 	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups", func(w http.ResponseWriter, r *http.Request) {
 		prefix := rgPrefix(r, "networkSecurityGroups")
 		azureWriteList(w, azureNSGs.Filter(func(n NetworkSecurityGroup) bool { return strings.HasPrefix(n.ID, prefix) }))
@@ -1029,7 +1017,6 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, nsg)
 	})
 
-	// --- Route tables ---
 	srv.HandleFunc("GET "+armBase+"/routeTables", func(w http.ResponseWriter, r *http.Request) {
 		prefix := rgPrefix(r, "routeTables")
 		azureWriteList(w, azureRouteTables.Filter(func(rt RouteTable) bool { return strings.HasPrefix(rt.ID, prefix) }))
@@ -1050,7 +1037,6 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, rt)
 	})
 
-	// --- NAT gateways ---
 	srv.HandleFunc("GET "+subBase+"/natGateways", func(w http.ResponseWriter, r *http.Request) {
 		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 		items := azureNatGateways.Filter(func(gw NatGateway) bool { return strings.HasPrefix(gw.ID, prefix) })
@@ -1072,7 +1058,6 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, gw)
 	})
 
-	// --- Load balancers ---
 	srv.HandleFunc("GET "+subBase+"/loadBalancers", func(w http.ResponseWriter, r *http.Request) {
 		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 		azureWriteList(w, azureLBs.Filter(func(lb LoadBalancer) bool { return strings.HasPrefix(lb.ID, prefix) }))
@@ -1088,7 +1073,6 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lb)
 	})
 
-	// --- Network interfaces ---
 	srv.HandleFunc("GET "+subBase+"/networkInterfaces", func(w http.ResponseWriter, r *http.Request) {
 		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 		azureWriteList(w, azureNICs.Filter(func(n NetworkInterface) bool { return strings.HasPrefix(n.ID, prefix) }))
@@ -1105,7 +1089,6 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, nic)
 	})
 
-	// --- Public IP addresses ---
 	srv.HandleFunc("GET "+subBase+"/publicIPAddresses", func(w http.ResponseWriter, r *http.Request) {
 		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 		azureWriteList(w, azurePublicIPs.Filter(func(p PublicIPAddress) bool { return strings.HasPrefix(p.ID, prefix) }))
@@ -1122,7 +1105,6 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, pip)
 	})
 
-	// --- Public IP prefixes ---
 	srv.HandleFunc("GET "+subBase+"/publicIPPrefixes", func(w http.ResponseWriter, r *http.Request) {
 		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 		azureWriteList(w, azurePublicIPPrefixes.Filter(func(p PublicIPPrefix) bool { return strings.HasPrefix(p.ID, prefix) }))

@@ -20,7 +20,6 @@ import (
 // StopInstances handler uses. Nothing is marked EXECUTION_SUCCESS without the
 // simulator having performed the operation the definition describes.
 
-// budgetsAction is one stored budget action.
 type budgetsAction struct {
 	ActionId         string               `json:"actionId"`
 	BudgetName       string               `json:"budgetName"`
@@ -468,8 +467,6 @@ func budgetsPolicyNameFromARN(arn string) string {
 	}
 	return arn
 }
-
-// ---- notification updates and account-wide reads --------------------------
 
 func registerBudgetsNotificationExtras(r *sim.AWSRouter) {
 	r.Register("AWSBudgetServiceGateway.UpdateNotification", handleBudgetsUpdateNotification)

@@ -829,7 +829,6 @@ func (p *pqlParser) parsePrimary() partiQLExpr {
 	return nil
 }
 
-// parseFuncCol consumes `( col )`.
 func (p *pqlParser) parseFuncCol() string {
 	if p.peek().kind != pqlLParen {
 		p.fail("expected '(' after function")

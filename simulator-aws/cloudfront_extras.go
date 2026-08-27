@@ -15,8 +15,6 @@ import (
 // monitoring subscriptions. Same REST + XML wire as the Distribution and
 // policy endpoints in cloudfront.go / cloudfront_policies.go.
 
-// ---------- CloudFront Origin Access Identity (OAI) ----------
-
 type CFOriginAccessIdentityConfig struct {
 	XMLName         xml.Name `xml:"CloudFrontOriginAccessIdentityConfig"`
 	Xmlns           string   `xml:"xmlns,attr,omitempty"`
@@ -53,8 +51,6 @@ type cfStoredOAI struct {
 	Identity CFOriginAccessIdentity
 	ETag     string
 }
-
-// ---------- Continuous Deployment Policy ----------
 
 type CFStagingDistributionDnsNames struct {
 	Quantity int      `xml:"Quantity"`
@@ -116,8 +112,6 @@ type cfStoredCDP struct {
 	ETag   string
 }
 
-// ---------- Monitoring Subscription ----------
-
 type CFRealtimeMetricsSubscriptionConfig struct {
 	RealtimeMetricsSubscriptionStatus string `xml:"RealtimeMetricsSubscriptionStatus"`
 }
@@ -127,8 +121,6 @@ type CFMonitoringSubscription struct {
 	Xmlns                             string                               `xml:"xmlns,attr,omitempty"`
 	RealtimeMetricsSubscriptionConfig *CFRealtimeMetricsSubscriptionConfig `xml:"RealtimeMetricsSubscriptionConfig,omitempty"`
 }
-
-// ---------- Storage ----------
 
 var (
 	cfOAIs                       sim.Store[cfStoredOAI]
@@ -179,8 +171,6 @@ func registerCloudFrontExtras(srv *sim.Server) {
 	mux.HandleFunc("GET /"+cfAPIVersion+"/distributions/{DistributionId}/monitoring-subscription", cloudTrailRecordedREST("GetMonitoringSubscription", "cloudfront.amazonaws.com", distResource, handleCFGetMonitoringSubscription))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/distributions/{DistributionId}/monitoring-subscription", cloudTrailRecordedREST("DeleteMonitoringSubscription", "cloudfront.amazonaws.com", distResource, handleCFDeleteMonitoringSubscription))
 }
-
-// ----- OAI handlers -----
 
 func handleCFCreateOAI(w http.ResponseWriter, r *http.Request) {
 	var cfg CFOriginAccessIdentityConfig
@@ -291,8 +281,6 @@ func handleCFListOAIs(w http.ResponseWriter, _ *http.Request) {
 	cfWriteXML(w, http.StatusOK, list)
 }
 
-// ----- ContinuousDeploymentPolicy handlers -----
-
 func handleCFCreateCDP(w http.ResponseWriter, r *http.Request) {
 	var cfg CFContinuousDeploymentPolicyConfig
 	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
@@ -392,8 +380,6 @@ func handleCFListCDPs(w http.ResponseWriter, _ *http.Request) {
 	}
 	cfWriteXML(w, http.StatusOK, list)
 }
-
-// ----- MonitoringSubscription handlers -----
 
 func handleCFCreateMonitoringSubscription(w http.ResponseWriter, r *http.Request) {
 	distID := r.PathValue("DistributionId")

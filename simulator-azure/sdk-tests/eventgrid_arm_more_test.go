@@ -22,7 +22,6 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	cred := &fakeCredential{}
 	const location = "eastus"
 
-	// ---- Operations + topic types registries ----
 	ops, err := armeventgrid.NewOperationsClient(cred, clientOpts())
 	require.NoError(t, err)
 	opPager := ops.NewListPager(nil)
@@ -57,7 +56,6 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	}
 	assert.Greater(t, etCount, 0, "Microsoft.Storage.StorageAccounts has system event types")
 
-	// ---- Topic: create → update → regenerate key ----
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	topicName := "sdk-more-topic"
@@ -100,7 +98,6 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// ---- Domain: create → update → regenerate key ----
 	domains, err := armeventgrid.NewDomainsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	domainName := "sdk-more-domain"
@@ -125,7 +122,6 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	require.NotNil(t, dKeys.Key1)
 	require.NotNil(t, dKeys.Key2)
 
-	// ---- System topic: create → update ----
 	systemTopics, err := armeventgrid.NewSystemTopicsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	systemTopicName := "sdk-more-systemtopic"
@@ -247,7 +243,6 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	}
 	assertSubPresent(t, "by-resource", subName, byResource)
 
-	// ---- Private link resources + private endpoint connections ----
 	plr, err := armeventgrid.NewPrivateLinkResourcesClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	plrGet, err := plr.Get(ctx, rg, "topics", topicName, "topic", nil)

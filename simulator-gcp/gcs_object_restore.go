@@ -13,29 +13,13 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
-// Soft delete, and the restore surface it exists for.
-//
-// objects.restore and objects.bulkRestore were unserved because there was
-// nothing for them to restore: deleting an object dropped its row and the
-// object was gone. That also left the object's bytes behind — the delete path
-// removed the store row and the bucket index entry but never the backing file
-// under GCSBucketHostDir, so every deleted object leaked its payload onto the
-// host for the life of the process.
-//
-// Both follow from the same missing concept. A bucket has a soft-delete
-// policy; a delete under one retires the object instead of destroying it, and
-// the bytes are retained precisely until the retention expires. Serving that
-// makes restore real and makes the leak impossible to write: an object's
-// payload is now freed on the delete that has no policy to retain it, and on
-// the purge when retention runs out.
+// A delete under a soft-delete policy retires the object and keeps its bytes
+// until retention expires; a delete without one destroys both. Every path
+// that frees a payload goes through gcsRemoveObjectPayload.
 
-// gcsDefaultSoftDeleteRetention is the retention Cloud Storage gives a bucket
-// created without a soft-delete policy of its own: seven days.
+// What Cloud Storage gives a bucket that declares no policy of its own.
 const gcsDefaultSoftDeleteRetention = 7 * 24 * time.Hour
 
-// gcsSoftDeleted is an object retired by a delete under a soft-delete policy.
-// It holds the object resource as it stood, plus the two timestamps the
-// restore surface reports and filters on.
 type gcsSoftDeleted struct {
 	Object         GCSObject `json:"object"`
 	SoftDeleteTime string    `json:"softDeleteTime"`
@@ -44,26 +28,19 @@ type gcsSoftDeleted struct {
 
 var gcsSoftDeletedObjects sim.Store[gcsSoftDeleted]
 
-// gcsQueryBool reads a boolean query parameter the way the JSON API does,
-// which is not the way one client spells it. The generated Go client sends
-// `softDeleted=true`; gcloud, whose transport renders Python's bool, sends
-// `softDeleted=True`. Comparing against the lower-case spelling alone serves
-// the SDK and silently ignores the CLI — the listing comes back empty and
-// nothing reports an error.
+// The generated Go client sends `softDeleted=true`; gcloud renders Python's
+// bool and sends `softDeleted=True`. Matching one spelling silently ignores
+// the other client.
 func gcsQueryBool(r *http.Request, name string) bool {
 	value, err := strconv.ParseBool(strings.TrimSpace(r.URL.Query().Get(name)))
 	return err == nil && value
 }
 
-// gcsSoftDeleteKey addresses one retired generation. A name and a generation
-// together identify it, which is what restore takes.
 func gcsSoftDeleteKey(bucket, object, generation string) string {
 	return bucket + "\x00" + object + "\x00" + generation
 }
 
-// gcsSoftDeleteRetention reads the bucket's policy. A bucket whose policy sets
-// the duration to zero has soft delete turned off, which is how the service
-// spells disabling it.
+// A zero duration is how the service spells soft delete turned off.
 func gcsSoftDeleteRetention(bucket Bucket) time.Duration {
 	policy, ok := bucket.Data["softDeletePolicy"].(map[string]any)
 	if !ok {
@@ -84,9 +61,6 @@ func gcsSoftDeleteRetention(bucket Bucket) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// gcsApplyDefaultSoftDeletePolicy fills in the policy a new bucket gets when
-// it declares none, so the resource a client reads back names the retention
-// its deletes will actually apply.
 func gcsApplyDefaultSoftDeletePolicy(data map[string]any) {
 	if _, ok := data["softDeletePolicy"]; ok {
 		return
@@ -97,16 +71,13 @@ func gcsApplyDefaultSoftDeletePolicy(data map[string]any) {
 	}
 }
 
-// gcsRemoveObjectPayload frees the host file backing an object. Restoring a
-// soft-deleted object reads the same path, so this runs only where the object
-// is being destroyed rather than retired.
+// Call only where the object is destroyed, never where it is retired: restore
+// reads this same path.
 func gcsRemoveObjectPayload(bucket, object string) {
 	_ = os.Remove(filepath.Join(GCSBucketHostDir(bucket), object))
 }
 
-// gcsRetireObject is the delete path's decision: retire the object under the
-// bucket's policy, or destroy it and free its bytes. It reports whether the
-// object was retained.
+// Reports whether the object was retained.
 func gcsRetireObject(bucket Bucket, bucketName string, obj GCSObject) bool {
 	retention := gcsSoftDeleteRetention(bucket)
 	if retention == 0 {
@@ -123,9 +94,8 @@ func gcsRetireObject(bucket Bucket, bucketName string, obj GCSObject) bool {
 	return true
 }
 
-// gcsPurgeExpiredSoftDeletes destroys the retired objects whose retention has
-// run out. Cloud Storage deletes them permanently at hardDeleteTime, so a
-// listing must not report them and their bytes must not survive.
+// Past hardDeleteTime the service has deleted them permanently, so neither
+// the listing nor the bytes may survive.
 func gcsPurgeExpiredSoftDeletes(bucketName string) {
 	now := time.Now().UTC()
 	for _, entry := range gcsSoftDeletedObjects.Filter(func(e gcsSoftDeleted) bool {
@@ -141,9 +111,6 @@ func gcsPurgeExpiredSoftDeletes(bucketName string) {
 	}
 }
 
-// gcsSoftDeletedListing returns the bucket's retired objects, newest retirement
-// first, with the two timestamps set on each resource the way the service
-// reports them under softDeleted=true.
 func gcsSoftDeletedListing(bucketName, prefix string) []gcsSoftDeleted {
 	gcsPurgeExpiredSoftDeletes(bucketName)
 	items := gcsSoftDeletedObjects.Filter(func(e gcsSoftDeleted) bool {
@@ -168,7 +135,6 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		return bucket, true
 	}
 
-	// objects.restore — bring one retired generation back as the live object.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/o/{object}/restore", func(w http.ResponseWriter, r *http.Request) {
 		bucketName, objectName := sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
 		if _, ok := bucketOr404(w, bucketName); !ok {
@@ -199,8 +165,6 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, restored))
 	})
 
-	// objects.bulkRestore — restore every retired object the request selects,
-	// reported through the bucket's own long-running operation surface.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/o/bulkRestore", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		if _, ok := bucketOr404(w, bucketName); !ok {
@@ -239,9 +203,8 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			objects.Put(bucketName+"/"+name, object)
 			gcsIndexAdd(bucketName, name)
 			gcsSoftDeletedObjects.Delete(gcsSoftDeleteKey(bucketName, name, entry.Object.Generation))
-			// copySourceAcl keeps the entries the object carried; without it
-			// the restored object takes the bucket's default object ACL, the
-			// same rule a freshly written object follows.
+			// Without copySourceAcl the restored object takes the bucket
+			// default, the rule a freshly written object follows.
 			if !request.CopySourceAcl {
 				gcsDropObjectACL(bucketName, name)
 				gcsSeedObjectACL(bucketName, name, object.Generation)
@@ -255,7 +218,6 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		}))
 	})
 
-	// objects.move — rename an object within a hierarchical-namespace bucket.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		source, destination := sim.PathParam(r, "sourceObject"), sim.PathParam(r, "destinationObject")
@@ -297,8 +259,6 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 	})
 }
 
-// gcsHierarchicalNamespace reports whether the bucket was created with a
-// hierarchical namespace, which objects.move requires.
 func gcsHierarchicalNamespace(bucket Bucket) bool {
 	hns, ok := bucket.Data["hierarchicalNamespace"].(map[string]any)
 	if !ok {
@@ -308,9 +268,7 @@ func gcsHierarchicalNamespace(bucket Bucket) bool {
 	return enabled
 }
 
-// gcsMatchesAnyGlob applies bulkRestore's matchGlobs. The member's own
-// description is that an unspecified list restores every object in range, so
-// no globs means every name matches.
+// An unspecified list restores every object in range.
 func gcsMatchesAnyGlob(name string, globs []string) bool {
 	if len(globs) == 0 {
 		return true
@@ -323,10 +281,8 @@ func gcsMatchesAnyGlob(name string, globs []string) bool {
 	return false
 }
 
-// gcsGlobPattern compiles one Cloud Storage glob. The service's wildcards are
-// not path.Match's: `**` crosses "/" and `*` does not, `{a,b}` alternates, and
-// `[…]` is a character class. Translating to a regexp is what keeps `logs/**`
-// from matching only one level deep.
+// Cloud Storage wildcards are not path.Match's: `**` crosses "/" and `*` does
+// not, `{a,b}` alternates, `[…]` is a character class.
 func gcsGlobPattern(glob string) (*regexp.Regexp, error) {
 	var out strings.Builder
 	out.WriteString("^")
@@ -369,9 +325,7 @@ func gcsGlobPattern(glob string) (*regexp.Regexp, error) {
 	return regexp.Compile(out.String())
 }
 
-// gcsTimeWindowContains applies one of bulkRestore's after/before bounds pairs.
-// An absent bound does not constrain the selection, which is what an omitted
-// member means; an unparseable stored timestamp cannot exclude an object.
+// An absent bound does not constrain the selection.
 func gcsTimeWindowContains(stamp, after, before string) bool {
 	at, err := time.Parse("2006-01-02T15:04:05.000Z", stamp)
 	if err != nil {

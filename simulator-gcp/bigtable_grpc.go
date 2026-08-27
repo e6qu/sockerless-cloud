@@ -550,7 +550,6 @@ func bigtableStorageTypePB(t string) btadmin.StorageType {
 	return btadmin.StorageType_SSD
 }
 
-// ---------------------------------------------------------------------------
 // Pass-through resource families
 //
 // App profiles, backups, authorized views, schema bundles and the logical and
@@ -558,7 +557,6 @@ func bigtableStorageTypePB(t string) btadmin.StorageType {
 // by resource name. This door reads and writes those same stores, converting
 // through protojson so both spellings of the API observe the same fields under
 // the same names.
-// ---------------------------------------------------------------------------
 
 // bigtableResourceKind names one pass-through family: the store holding it,
 // the label its errors use, and whether the resource carries a server-managed
@@ -801,9 +799,7 @@ func bigtableGRPCPage[T any](items []T, pageSize int32, pageToken string) ([]T, 
 	return items[start:end], next
 }
 
-// ---------------------------------------------------------------------------
 // Parent resolution
-// ---------------------------------------------------------------------------
 
 func bigtableRequireInstance(name string) error {
 	if _, ok := bigtableInstances.Get(name); !ok {
@@ -861,9 +857,7 @@ func bigtableTableChild(parent, collection, id, idField string) (string, error) 
 	return parent + "/" + collection + "/" + id, nil
 }
 
-// ---------------------------------------------------------------------------
 // Instance admin: app profiles
-// ---------------------------------------------------------------------------
 
 func (s *bigtableInstanceAdminGRPC) CreateAppProfile(_ context.Context, req *btadmin.CreateAppProfileRequest) (*btadmin.AppProfile, error) {
 	name, err := bigtableInstanceChild(req.GetParent(), "appProfiles", req.GetAppProfileId(), "app_profile_id")
@@ -919,9 +913,7 @@ func (s *bigtableInstanceAdminGRPC) DeleteAppProfile(_ context.Context, req *bta
 	return &emptypb.Empty{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Instance admin: logical views
-// ---------------------------------------------------------------------------
 
 func (s *bigtableInstanceAdminGRPC) CreateLogicalView(_ context.Context, req *btadmin.CreateLogicalViewRequest) (*longrunningpb.Operation, error) {
 	name, err := bigtableInstanceChild(req.GetParent(), "logicalViews", req.GetLogicalViewId(), "logical_view_id")
@@ -981,9 +973,7 @@ func (s *bigtableInstanceAdminGRPC) DeleteLogicalView(_ context.Context, req *bt
 	return &emptypb.Empty{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Instance admin: materialized views
-// ---------------------------------------------------------------------------
 
 func (s *bigtableInstanceAdminGRPC) CreateMaterializedView(_ context.Context, req *btadmin.CreateMaterializedViewRequest) (*longrunningpb.Operation, error) {
 	name, err := bigtableInstanceChild(req.GetParent(), "materializedViews", req.GetMaterializedViewId(), "materialized_view_id")
@@ -1043,9 +1033,7 @@ func (s *bigtableInstanceAdminGRPC) DeleteMaterializedView(_ context.Context, re
 	return &emptypb.Empty{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Instance admin: instance and cluster updates, hot tablets
-// ---------------------------------------------------------------------------
 
 // UpdateInstance replaces an instance. Cloud Bigtable answers it
 // synchronously, with the instance as stored.
@@ -1154,9 +1142,7 @@ func bigtableUnsupportedMaskPath(md protoreflect.MessageDescriptor, path string)
 	return status.Errorf(codes.Unimplemented, "updating field %q is not supported", path)
 }
 
-// ---------------------------------------------------------------------------
 // Table admin: table lifecycle beyond create/read/delete
-// ---------------------------------------------------------------------------
 
 func (s *bigtableTableAdminGRPC) UpdateTable(_ context.Context, req *btadmin.UpdateTableRequest) (*longrunningpb.Operation, error) {
 	update := req.GetTable()
@@ -1250,9 +1236,7 @@ func (s *bigtableTableAdminGRPC) CheckConsistency(_ context.Context, req *btadmi
 	return &btadmin.CheckConsistencyResponse{Consistent: true}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Table admin: backups
-// ---------------------------------------------------------------------------
 
 func (s *bigtableTableAdminGRPC) CreateBackup(_ context.Context, req *btadmin.CreateBackupRequest) (*longrunningpb.Operation, error) {
 	name, err := bigtableClusterChild(req.GetParent(), "backups", req.GetBackupId(), "backup_id")
@@ -1327,9 +1311,7 @@ func (s *bigtableTableAdminGRPC) DeleteBackup(_ context.Context, req *btadmin.De
 	return &emptypb.Empty{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Table admin: snapshots
-// ---------------------------------------------------------------------------
 //
 // Snapshots are the older sibling of backups: a copy of a table taken into the
 // cluster that serves it, and a table created back out of that copy. The
@@ -1482,9 +1464,7 @@ func (s *bigtableTableAdminGRPC) RestoreTable(_ context.Context, req *btadmin.Re
 	return bigtableDoneOperation(name, bigtableTableToPB(table))
 }
 
-// ---------------------------------------------------------------------------
 // Table admin: authorized views
-// ---------------------------------------------------------------------------
 
 func (s *bigtableTableAdminGRPC) CreateAuthorizedView(_ context.Context, req *btadmin.CreateAuthorizedViewRequest) (*longrunningpb.Operation, error) {
 	name, err := bigtableTableChild(req.GetParent(), "authorizedViews", req.GetAuthorizedViewId(), "authorized_view_id")
@@ -1561,9 +1541,7 @@ func (s *bigtableTableAdminGRPC) DeleteAuthorizedView(_ context.Context, req *bt
 	return &emptypb.Empty{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Table admin: schema bundles
-// ---------------------------------------------------------------------------
 
 func (s *bigtableTableAdminGRPC) CreateSchemaBundle(_ context.Context, req *btadmin.CreateSchemaBundleRequest) (*longrunningpb.Operation, error) {
 	name, err := bigtableTableChild(req.GetParent(), "schemaBundles", req.GetSchemaBundleId(), "schema_bundle_id")
@@ -1623,14 +1601,12 @@ func (s *bigtableTableAdminGRPC) DeleteSchemaBundle(_ context.Context, req *btad
 	return &emptypb.Empty{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // IAM
 //
 // Both admin services expose the AIP-141 IAM triple over the per-resource
 // policy store every GCP resource in this simulator shares, and convert with
 // the same helpers the Secret Manager door uses — one policy per resource
 // name, whichever service the caller reached it through.
-// ---------------------------------------------------------------------------
 
 // bigtableIAMResourceExists reports whether the named IAM resource exists,
 // reading the store that holds that kind of resource. The collection segment

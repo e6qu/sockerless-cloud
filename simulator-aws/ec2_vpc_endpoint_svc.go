@@ -28,8 +28,6 @@ import (
 // VPC/subnet/security-group stores are the existing ec2.go ones; these ops add
 // the secondary metadata around them.
 
-// ---- state types ----
-
 // EC2VpcEndpointServiceConfiguration models a VpcEndpointServiceConfiguration:
 // the provider side of a PrivateLink service. ServiceName is the
 // com.amazonaws.vpce.<region>.<id> DNS name consumers target.
@@ -68,7 +66,6 @@ type EC2VpcCidrAssoc struct {
 	State         string
 }
 
-// EC2SubnetCidrReservation models a subnet CIDR reservation.
 type EC2SubnetCidrReservation struct {
 	SubnetCidrReservationId string
 	SubnetId                string
@@ -111,7 +108,6 @@ type EC2SecondaryCidrAssoc struct {
 	State         string
 }
 
-// EC2SecurityGroupVpcAssociation records a security-group ↔ VPC association.
 type EC2SecurityGroupVpcAssociation struct {
 	GroupId      string
 	VpcId        string
@@ -206,8 +202,6 @@ func registerEC2VpcEndpointSvc(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DescribeAccountVpcEncryptionControl", handleDescribeAccountVpcEncryptionControl)
 	r.Register("ModifyAccountVpcEncryptionControl", handleModifyAccountVpcEncryptionControl)
 }
-
-// ============================ VPC endpoint services ========================
 
 func handleCreateVpcEndpointServiceConfiguration(w http.ResponseWriter, r *http.Request) {
 	nlbArns := ec2ParamList(r, "NetworkLoadBalancerArn")
@@ -605,8 +599,6 @@ func ec2PrincipalType(principal string) string {
 	}
 }
 
-// ============================ VPC/Subnet CIDR ==============================
-
 func handleAssociateVpcCidrBlock(w http.ResponseWriter, r *http.Request) {
 	vpcId := r.FormValue("VpcId")
 	if _, ok := ec2Vpcs.Get(vpcId); !ok {
@@ -774,8 +766,6 @@ func subnetCidrReservationXML(res EC2SubnetCidrReservation) string {
 	b.WriteString(writeTagSetXML(res.Tags))
 	return b.String()
 }
-
-// ============================ Secondary networks/subnets ===================
 
 func handleCreateSecondaryNetwork(w http.ResponseWriter, r *http.Request) {
 	cidr := r.FormValue("Ipv4CidrBlock")
@@ -945,8 +935,6 @@ func secondaryCidrAssocSetXML(assocs []EC2SecondaryCidrAssoc) string {
 	return b.String()
 }
 
-// ============================ Security-group VPC associations ==============
-
 func handleAssociateSecurityGroupVpc(w http.ResponseWriter, r *http.Request) {
 	groupId := r.FormValue("GroupId")
 	vpcId := r.FormValue("VpcId")
@@ -1021,8 +1009,6 @@ func ec2SgVpcAssocMatchesFilters(a EC2SecurityGroupVpcAssociation, filters map[s
 	}
 	return true
 }
-
-// ============================ VPC encryption control =======================
 
 // ec2EncryptionExclusionResources is the fixed set of resource exclusion fields
 // a VpcEncryptionControl carries, in their VpcEncryptionControlExclusions
@@ -1373,8 +1359,6 @@ func vpcEncryptionControlXML(ctrl EC2VpcEncryptionControl) string {
 	b.WriteString(writeTagSetXML(ctrl.Tags))
 	return b.String()
 }
-
-// ============================ shared helpers ===============================
 
 // ec2StringSetXML renders a ValueStringList under the given set element with
 // <item> entries.

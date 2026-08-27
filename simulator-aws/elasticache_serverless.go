@@ -212,9 +212,7 @@ func ecParseStringList(r *http.Request, prefix, entry string) []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Serverless caches
-// ---------------------------------------------------------------------------
 
 // renderECServerlessCacheBody emits the ServerlessCache shape's members
 // without any wrapper element. CreateServerlessCache / Modify / Delete
@@ -421,9 +419,7 @@ func handleECDeleteServerlessCache(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DeleteServerlessCache", renderECServerlessCache(c), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Serverless cache snapshots
-// ---------------------------------------------------------------------------
 
 func renderECServerlessSnapshot(s ECServerlessCacheSnapshot) string {
 	var b strings.Builder
@@ -561,9 +557,7 @@ func handleECExportServerlessSnapshot(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "ExportServerlessCacheSnapshot", renderECServerlessSnapshot(s), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Global replication groups (Global Datastore)
-// ---------------------------------------------------------------------------
 
 func renderECGlobalReplGroup(g ECGlobalReplicationGroup) string {
 	var b strings.Builder
@@ -774,9 +768,7 @@ func handleECRebalanceSlotsGlobal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Cache security groups (EC2-Classic ingress)
-// ---------------------------------------------------------------------------
 
 func renderECCacheSecGroup(g ECCacheSecurityGroup) string {
 	var b strings.Builder
@@ -871,9 +863,7 @@ func handleECRevokeCacheSecGroupIngress(w http.ResponseWriter, r *http.Request) 
 	ecXMLResponse(w, "RevokeCacheSecurityGroupIngress", renderECCacheSecGroup(updated), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Service-update actions
-// ---------------------------------------------------------------------------
 
 // ecUpdateActionTargets enumerates (clusterId, replicationGroupId) pairs
 // the update action applies to, honoring the CacheClusterIds /
@@ -961,10 +951,8 @@ func handleECBatchStopUpdateAction(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "BatchStopUpdateAction", ecRenderUpdateActionResults(r, "stopping"), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Replica / shard reconfiguration + failover testing on the existing
 // replication-group store
-// ---------------------------------------------------------------------------
 
 // ecReplGroupAction looks up a replication group, applies fn, and returns
 // the updated group under the named result wrapper.
@@ -1020,9 +1008,7 @@ func handleECTestFailover(w http.ResponseWriter, r *http.Request) {
 	ecReplGroupAction(w, r, "TestFailover", nil)
 }
 
-// ---------------------------------------------------------------------------
 // Node-type modifications + reserved-node purchase + online migration
-// ---------------------------------------------------------------------------
 
 func handleECListAllowedNodeTypeModifications(w http.ResponseWriter, r *http.Request) {
 	scaleUp := []string{"cache.r7g.large", "cache.r7g.xlarge", "cache.r7g.2xlarge"}

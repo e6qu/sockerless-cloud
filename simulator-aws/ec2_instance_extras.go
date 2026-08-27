@@ -174,8 +174,6 @@ func ec2RequireInstance(w http.ResponseWriter, id string) (EC2Instance, bool) {
 	return inst, true
 }
 
-// -------------------- IAM instance-profile associations --------------------
-
 // ec2IamProfileArnAndID resolves the request's IamInstanceProfile.{Arn,Name}
 // pair to a (arn, id) tuple. Real EC2 derives the ARN from the named profile;
 // the sim renders an instance-profile ARN from the supplied name when only the
@@ -313,8 +311,6 @@ func handleDescribeIamInstanceProfileAssociations(w http.ResponseWriter, r *http
 		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
 }
 
-// -------------------- Bundle / product / export / import --------------------
-
 func handleBundleInstance(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2RequireInstance(w, instanceID); !ok {
@@ -431,8 +427,6 @@ func ec2ConversionTaskXML(t EC2ConversionTask) string {
 		t.ConversionTaskId, t.ExpirationTime, t.State, xmlEscape(t.StatusMessage), writeTagSetXML(t.Tags))
 }
 
-// -------------------- Credit specifications --------------------
-
 // ec2CpuCredits returns the instance's stored CPU-credit option, defaulting to
 // standard (real EC2's default for burstable instances) when none was set.
 func ec2CpuCredits(instanceID string) string {
@@ -493,8 +487,6 @@ func handleModifyInstanceCreditSpecification(w http.ResponseWriter, r *http.Requ
 	fmt.Fprintf(w, `<ModifyInstanceCreditSpecificationResponse %s><requestId>%s</requestId><successfulInstanceCreditSpecificationSet>%s</successfulInstanceCreditSpecificationSet><unsuccessfulInstanceCreditSpecificationSet>%s</unsuccessfulInstanceCreditSpecificationSet></ModifyInstanceCreditSpecificationResponse>`,
 		ec2Xmlns(), generateUUID(), success.String(), unsuccessful.String())
 }
-
-// -------------------- CPU / placement / maintenance / event --------------------
 
 func handleModifyInstanceCpuOptions(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
@@ -610,8 +602,6 @@ func handleModifyInstanceEventStartTime(w http.ResponseWriter, r *http.Request) 
 		ec2Xmlns(), generateUUID(), eventID, notBefore)
 }
 
-// -------------------- Console / password / TPM / UEFI --------------------
-
 func handleGetConsoleOutput(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2RequireInstance(w, instanceID); !ok {
@@ -683,8 +673,6 @@ func handleGetInstanceUefiData(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetInstanceUefiDataResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><uefiData>%s</uefiData></GetInstanceUefiDataResponse>`,
 		ec2Xmlns(), generateUUID(), instanceID, uefiData)
 }
-
-// -------------------- Image metadata / topology --------------------
 
 // handleEC2DescribeInstanceImageMetadata returns each instance with the
 // metadata of the AMI it was launched from, joining the instance store and the
@@ -793,8 +781,6 @@ func handleDescribeInstanceTopology(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeInstanceTopologyResponse %s><requestId>%s</requestId><instanceSet>%s</instanceSet>%s</DescribeInstanceTopologyResponse>`,
 		ec2Xmlns(), generateUUID(), items.String(), nextTokenXML)
 }
-
-// -------------------- SQL Server High Availability states --------------------
 
 // ec2SqlHaState fetches (or seeds) the SQL-HA registration for an instance.
 func ec2SqlHaState(instanceID string) EC2InstanceSqlHaState {
@@ -912,8 +898,6 @@ func handleEnableInstanceSqlHaStandbyDetections(w http.ResponseWriter, r *http.R
 func handleDisableInstanceSqlHaStandbyDetections(w http.ResponseWriter, r *http.Request) {
 	ec2SqlHaStandbyDetection(w, r, "DisableInstanceSqlHaStandbyDetectionsResponse", false)
 }
-
-// -------------------- Instance types from requirements --------------------
 
 func handleGetInstanceTypesFromInstanceRequirements(w http.ResponseWriter, r *http.Request) {
 	minVcpus := ec2AtoiOr(r.FormValue("InstanceRequirements.VCpuCount.Min"), 0)

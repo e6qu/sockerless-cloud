@@ -31,7 +31,6 @@ func TestSTS_GetFederationToken_CLI(t *testing.T) {
 	assert.Contains(t, res.FederatedUser.Arn, "federated-user/Bob")
 }
 
-// TestSTS_AssumeRoleWithSAML_CLI assumes a role from a SAML assertion.
 func TestSTS_AssumeRoleWithSAML_CLI(t *testing.T) {
 	role := "cli-saml-role"
 	runCLI(t, awsCLI("iam", "create-role",

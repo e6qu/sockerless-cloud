@@ -163,8 +163,6 @@ func glueIntegResPropArn(resourceArn string) string {
 		awsRegion(), awsAccountID(), strings.ReplaceAll(resourceArn, ":", "_"))
 }
 
-// ---------- Catalog ----------
-
 func handleGlueCreateCatalog(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name         string `json:"Name"`
@@ -332,8 +330,6 @@ func glueCatalogWire(c GlueCatalog) map[string]any {
 	}
 	return m
 }
-
-// ---------- Table Optimizer ----------
 
 // glueTableOptimizerKey scopes an optimizer to its table + type.
 func glueTableOptimizerKey(database, table, optType string) string {
@@ -532,8 +528,6 @@ func handleGlueListTableOptimizerRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- BatchGet families (read existing stores) ----------
 
 func handleGlueBatchGetCrawlers(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -748,8 +742,6 @@ func handleGlueBatchUpdatePartition(w http.ResponseWriter, r *http.Request) {
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- Integration (zero-ETL) ----------
 
 func glueIntegrationWire(i GlueIntegration) map[string]any {
 	m := map[string]any{
@@ -974,8 +966,6 @@ func handleGlueDescribeInboundIntegrations(w http.ResponseWriter, r *http.Reques
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// ---------- Integration resource properties ----------
-
 func handleGlueCreateIntegrationResourceProperty(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceArn                string         `json:"ResourceArn"`
@@ -1108,8 +1098,6 @@ func glueIntegResPropWire(p GlueIntegrationResourceProperty) map[string]any {
 	}
 	return m
 }
-
-// ---------- Integration table properties ----------
 
 func glueIntegTablePropKey(resourceArn, tableName string) string {
 	return resourceArn + "\x1f" + tableName

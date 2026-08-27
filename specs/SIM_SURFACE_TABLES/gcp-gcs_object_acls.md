@@ -13,12 +13,12 @@ Surface registered in `simulator-gcp/gcs_object_acls.go` (and related files grou
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /storage/v1/b/{bucket}/o/{object}/acl` | ✓ `simulator-gcp/gcs_object_acls.go:198::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /storage/v1/b/{bucket}/o/{object}/acl/{entity}` | ✓ `simulator-gcp/gcs_object_acls.go:216::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/o/{object}/acl` | ✓ `simulator-gcp/gcs_object_acls.go:232::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /storage/v1/b/{bucket}/o/{object}/acl/{entity}` | ✓ `simulator-gcp/gcs_object_acls.go:275::update` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /storage/v1/b/{bucket}/o/{object}/acl/{entity}` | ✓ `simulator-gcp/gcs_object_acls.go:276::update` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /storage/v1/b/{bucket}/o/{object}/acl/{entity}` | ✓ `simulator-gcp/gcs_object_acls.go:278::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/o/{object}/acl` | ✓ `simulator-gcp/gcs_object_acls.go:168::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/o/{object}/acl/{entity}` | ✓ `simulator-gcp/gcs_object_acls.go:186::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/{object}/acl` | ✓ `simulator-gcp/gcs_object_acls.go:202::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /storage/v1/b/{bucket}/o/{object}/acl/{entity}` | ✓ `simulator-gcp/gcs_object_acls.go:245::update` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /storage/v1/b/{bucket}/o/{object}/acl/{entity}` | ✓ `simulator-gcp/gcs_object_acls.go:246::update` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /storage/v1/b/{bucket}/o/{object}/acl/{entity}` | ✓ `simulator-gcp/gcs_object_acls.go:248::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

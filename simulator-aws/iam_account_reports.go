@@ -126,9 +126,7 @@ func iamResultXML(w http.ResponseWriter, op, inner string) {
 		op, op, inner, op, generateUUID(), op)
 }
 
-// ---------------------------------------------------------------------------
 // Account summary
-// ---------------------------------------------------------------------------
 
 // handleIAMGetAccountSummary returns the SummaryMap of real entity counts and
 // the fixed account quotas, computed from the live IAM stores.
@@ -195,9 +193,7 @@ func iamGlobalEndpointTokenVersionNum() int {
 	return 1
 }
 
-// ---------------------------------------------------------------------------
 // Account authorization details
-// ---------------------------------------------------------------------------
 
 // handleIAMGetAccountAuthorizationDetails enumerates the real users, groups,
 // roles, and managed policies with their inline + attached policies, paginated.
@@ -387,9 +383,7 @@ func iamManagedPolicyDetailXML(p IAMPolicy) string {
 		xmlEscape(p.Description), p.CreateDate, p.CreateDate, urlQueryEscapeIAM(p.PolicyDocument), p.DefaultVersionId, p.CreateDate)
 }
 
-// ---------------------------------------------------------------------------
 // Credential report
-// ---------------------------------------------------------------------------
 
 // handleIAMGenerateCredentialReport reports STARTED on the first call and
 // COMPLETE thereafter — the real two-call generate→ready flow.
@@ -479,9 +473,7 @@ func csvField(s string) string {
 	return s
 }
 
-// ---------------------------------------------------------------------------
 // Service last accessed
-// ---------------------------------------------------------------------------
 
 // handleIAMGenerateServiceLastAccessed records a job for the named principal
 // and returns its JobId. The job settles COMPLETED immediately.
@@ -666,9 +658,7 @@ func iamServiceDisplayName(ns string) string {
 	return strings.ToUpper(ns[:1]) + ns[1:]
 }
 
-// ---------------------------------------------------------------------------
 // Organizations access report
-// ---------------------------------------------------------------------------
 
 func handleIAMGenerateOrganizationsAccessReport(w http.ResponseWriter, r *http.Request) {
 	entityPath := r.FormValue("EntityPath")
@@ -733,9 +723,7 @@ func iamAllConfiguredServiceNamespaces() []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Organizations root credential management / sessions
-// ---------------------------------------------------------------------------
 
 // iamOrgId returns the deterministic Organizations id for this account.
 func iamOrgId() string {
@@ -800,9 +788,7 @@ func handleIAMListOrganizationsFeatures(w http.ResponseWriter, r *http.Request) 
 	iamOrgFeaturesResult(w, "ListOrganizationsFeatures")
 }
 
-// ---------------------------------------------------------------------------
 // Delegation requests
-// ---------------------------------------------------------------------------
 
 func iamDelegationRequestXML(d IAMDelegationRequest) string {
 	var b strings.Builder
@@ -964,9 +950,7 @@ func handleIAMSendDelegationToken(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "SendDelegationToken")
 }
 
-// ---------------------------------------------------------------------------
 // Outbound web-identity federation
-// ---------------------------------------------------------------------------
 
 // iamIssuerIdentifier returns the deterministic outbound-web-identity issuer
 // URL for this account.
@@ -1001,9 +985,7 @@ func handleIAMGetOutboundWebIdentityFederationInfo(w http.ResponseWriter, r *htt
 	iamResultXML(w, "GetOutboundWebIdentityFederationInfo", inner)
 }
 
-// ---------------------------------------------------------------------------
 // STS preferences + human-readable summary
-// ---------------------------------------------------------------------------
 
 func handleIAMSetSecurityTokenServicePreferences(w http.ResponseWriter, r *http.Request) {
 	version := r.FormValue("GlobalEndpointTokenVersion")

@@ -174,8 +174,8 @@ The automated terraform tests cover both Azure Stack-compatible ARM resources an
 
 ## Notes
 
-- TLS is required. Azure Terraform providers use HTTPS for metadata and ARM endpoint calls.
+- Use TLS: the Azure Terraform providers call metadata and ARM endpoints over HTTPS.
 - All state is in-memory and resets when the simulator restarts.
 - The OAuth2 endpoint accepts local-test credentials and returns Azure-shaped token responses, including per-resource JWT audiences from OAuth v2 `scope` and OAuth v1 `resource` requests.
-- `skip_provider_registration = true` is required to prevent provider registration API calls.
+- Set `skip_provider_registration = true` to stop the provider issuing registration calls.
 - On macOS, direct `go test` delegates into the shared Linux Docker image due to TLS trust behavior (see TLS requirement section above).

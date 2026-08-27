@@ -21,8 +21,6 @@ func moveTestResourceID(rg, provider, typeName, name string) string {
 	return "/subscriptions/sub-move/resourceGroups/" + rg + "/providers/" + provider + "/" + typeName + "/" + name
 }
 
-// ---- Microsoft.EventHub/namespaces ----
-
 func newEventHubMoveTestStores(t *testing.T) {
 	t.Helper()
 	ehNamespaces = sim.MakeStore[EHNamespace](nil, "test_eh_namespaces")
@@ -124,8 +122,6 @@ func eventHubMoveRecordExists(id string) bool {
 	return ok
 }
 
-// ---- Microsoft.Web/sites ----
-
 // TestWebSiteMovePinsSiteDerivedCredentials covers the two credentials a
 // Microsoft.Web site derives from its own resource ID: the publishing password
 // the deployment surfaces serve, and the access key a hosted workflow signs its
@@ -171,8 +167,6 @@ func TestWebSiteMovePinsSiteDerivedCredentials(t *testing.T) {
 		t.Fatal("regenerating the moved site's publishing password returned the pinned material")
 	}
 }
-
-// ---- Microsoft.Cache/redis ----
 
 func newRedisMoveTestStores(t *testing.T) {
 	t.Helper()
@@ -243,8 +237,6 @@ func TestRedisMovePinsAccessKeys(t *testing.T) {
 		t.Fatal("regenerating the moved cache's key returned the pinned material")
 	}
 }
-
-// ---- Microsoft.ContainerRegistry/registries ----
 
 func newACRMoveTestStores(t *testing.T) {
 	t.Helper()
@@ -327,8 +319,6 @@ func TestACRMovePinsAdminCredentials(t *testing.T) {
 		t.Fatal("regenerating the moved registry's password returned the pinned material")
 	}
 }
-
-// ---- Microsoft.EventGrid/topics and /domains ----
 
 func newEventGridMoveTestStores(t *testing.T) {
 	t.Helper()

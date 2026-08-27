@@ -203,8 +203,6 @@ func registerGlueSessionsBlueprints(r *sim.AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.GetBlueprintRuns", handleGlueGetBlueprintRuns)
 }
 
-// ---------- Interactive Sessions ----------
-
 func handleGlueCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Id                    string            `json:"Id"`
@@ -378,8 +376,6 @@ func handleGlueGetSessionEndpoint(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// ---------- Statements ----------
-
 func glueStatementKey(sessionID string, id int) string {
 	return sessionID + "/" + strconv.Itoa(id)
 }
@@ -510,8 +506,6 @@ func handleGlueCancelStatement(w http.ResponseWriter, r *http.Request) {
 	glueStatements.Put(key, st)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Dev Endpoints ----------
 
 func handleGlueCreateDevEndpoint(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -759,8 +753,6 @@ func handleGlueDeleteDevEndpoint(w http.ResponseWriter, r *http.Request) {
 	glueDevEndpoints.Delete(req.EndpointName)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Blueprints ----------
 
 func handleGlueCreateBlueprint(w http.ResponseWriter, r *http.Request) {
 	var req struct {

@@ -29,7 +29,6 @@ type PrivateDNSZoneGroup struct {
 	Properties PrivateDNSZoneGroupProperties `json:"properties"`
 }
 
-// PrivateDNSZoneGroupProperties holds the zone configurations of one group.
 type PrivateDNSZoneGroupProperties struct {
 	ProvisioningState     string                 `json:"provisioningState,omitempty"`
 	PrivateDNSZoneConfigs []PrivateDNSZoneConfig `json:"privateDnsZoneConfigs,omitempty"`

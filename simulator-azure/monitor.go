@@ -60,7 +60,6 @@ type QueryRequest struct {
 	Timespan string `json:"timespan,omitempty"`
 }
 
-// QueryResponse holds the response for a KQL query.
 type QueryResponse struct {
 	Tables []Table `json:"tables"`
 }
@@ -482,7 +481,6 @@ func logAnalyticsMetadata(workspaceID string) map[string]any {
 	}
 }
 
-// generateUUID generates a random UUID string.
 func generateUUID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)

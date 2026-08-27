@@ -44,7 +44,7 @@ control-plane store plus the Azure Files content root, which defaults to
 `<SIM_DATA_DIR>/files` (`SIM_AZURE_FILES_DATA_DIR` overrides) so share
 contents survive restarts alongside the metadata that describes them.
 
-Docker or Podman is required when Container Apps or Azure Functions calls execute
+Container Apps and Azure Functions calls require Docker or Podman to execute
 workloads. For API-only checks that do not invoke workload execution,
 `SIM_RUNTIME=process` starts the Azure simulator without initializing
 Docker/Podman.
@@ -69,7 +69,7 @@ connection string and point `ClientOptions.CustomEndpoint` at the raw
 AMQP listener. The listener also accepts the shared `SIM_TLS_CERT` /
 `SIM_TLS_KEY` values when the Service Bus-specific cert variables are
 unset. AMQP queue and topic receivers honor outstanding flow credit:
-messages sent after the receiver has issued credit are delivered without
+the broker delivers messages sent after the receiver issues credit without
 requiring another flow frame.
 
 ### Local DNS for host-addressed data planes
@@ -265,9 +265,9 @@ These are the load-bearing wire-quirks the sim implements to satisfy the real ad
 
 - **Double-slash cleanup** — `CleanPathMiddleware` strips leading `//` from paths (the `azurerm` provider appends a trailing slash to the ARM endpoint).
 - **Case-insensitive paths** — `AzurePathNormalizationMiddleware` normalises known segments (e.g., `/resourcegroups/` → `/resourceGroups/`).
-- **Auth outside mux** — OAuth2 token endpoints are handled as outer middleware to avoid conflicts with ACR's `/v2/` catch-all.
+- **Auth outside mux** — outer middleware serves the OAuth2 token endpoints, so they do not collide with ACR's `/v2/` catch-all.
 - **TLS for Terraform** — Azure Terraform tests use self-signed certs because the `azurestack` provider hardcodes `https://`. On macOS, direct `go test` delegates into Linux Docker so the providers validate the generated CA through `SSL_CERT_FILE`.
-- **Host-addressed data-plane DNS** — Data-plane requests are matched by Host header (`{account}.{service}.<zone>`). The optional simulator DNS listener serves the local zones over UDP/TCP so real clients can use returned Azure-shaped hosts directly.
+- **Host-addressed data-plane DNS** — the Host header routes data-plane requests (`{account}.{service}.<zone>`). The optional simulator DNS listener serves the local zones over UDP/TCP so real clients can use returned Azure-shaped hosts directly.
 - **Sync creates return 200** — `go-azure-sdk` treats 200 as immediate completion for `BeginCreate` LRO; the sim returns 200 instead of 201 for synchronous creates.
 
 ## Building
@@ -341,20 +341,20 @@ cd terraform-tests && go test -v ./...
 
 ## Execution model
 
-Container Apps job executions honor the `replicaTimeout` configuration (in seconds). When a command is provided, the simulator executes it as a real process and streams output to Log Analytics. When a replica timeout is configured and no command is present, the execution auto-completes with `Succeeded` status after that duration. When no timeout and no command are set, the execution stays running until explicitly stopped. Azure Functions invocations are synchronous and inject AppTraces entries queryable via KQL.
+Container Apps job executions honor the `replicaTimeout` configuration (in seconds). Given a command, the simulator executes it as a real process and streams output to Log Analytics. When a replica timeout is configured and no command is present, the execution auto-completes with `Succeeded` status after that duration. When no timeout and no command are set, the execution stays running until explicitly stopped. Azure Functions invocations are synchronous and inject AppTraces entries queryable via KQL.
 
 ## Known issues
 
-Active Azure simulator bugs live in [BUGS.md](../BUGS.md). The Terraform macOS TLS harness issue was fixed by delegating direct macOS test runs into the shared Linux Docker test image.
+Active Azure simulator bugs live in [BUGS.md](../BUGS.md). On macOS the Terraform harness runs inside the shared Linux Docker test image, which is what gives it a working TLS trust store.
 
 ## What's out of scope
 
-- **Full KQL parser**: only `where` + `take` + `limit` + simple `==` / `>=` predicates are supported.
+- **Full KQL parser**: the parser handles only `where` + `take` + `limit` and simple `==` / `>=` predicates.
 - **gRPC for Application Insights ingestion**: REST only.
 - **Multi-region replication / availability zones**.
-- **Real authentication**: tokens are accepted but not cryptographically verified.
+- **Real authentication**: the simulator accepts tokens without verifying them cryptographically.
 - **Cost / billing surfaces**.
-- **Azure AD identity flows beyond OAuth2 token issuance** (`/.well-known/openid-configuration` + JWKS are provided so SDK validators pass; user / group / app management is not modelled).
+- **Azure AD identity flows beyond OAuth2 token issuance** (the simulator serves `/.well-known/openid-configuration` + JWKS so SDK validators pass; user / group / app management is not modelled).
 
 ## Extended examples
 

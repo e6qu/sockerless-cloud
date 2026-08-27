@@ -21,7 +21,6 @@ type CWMuteSchedule struct {
 	Timezone   string `json:"Timezone,omitempty" cbor:"Timezone,omitempty"`
 }
 
-// CWAlarmMuteRule holds an alarm mute rule.
 type CWAlarmMuteRule struct {
 	Name        string            `json:"Name"`
 	Arn         string            `json:"Arn"`

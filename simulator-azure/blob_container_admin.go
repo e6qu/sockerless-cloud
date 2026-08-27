@@ -128,9 +128,7 @@ func handleSetContainerAccessPolicy(w http.ResponseWriter, r *http.Request, acco
 	w.WriteHeader(http.StatusOK)
 }
 
-// ---------------------------------------------------------------------------
 // Find Blobs by Tags
-// ---------------------------------------------------------------------------
 
 type blobFilterSegment struct {
 	XMLName         xml.Name         `xml:"EnumerationResults"`
@@ -214,9 +212,7 @@ func handleFilterBlobs(w http.ResponseWriter, r *http.Request, account, containe
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Tag filter expression
-// ---------------------------------------------------------------------------
 
 // blobTagFilter is a parsed `where=` expression: a conjunction of comparisons
 // between a tag name (bare or quoted with "…") and a string literal ('…').

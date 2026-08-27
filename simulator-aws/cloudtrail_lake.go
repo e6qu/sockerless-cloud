@@ -418,8 +418,6 @@ func cloudTrailEDSFromRequest(w http.ResponseWriter, r *http.Request) (CloudTrai
 	return eds, true
 }
 
-// ---- Lake queries ----
-
 func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueryStatement  string
@@ -700,8 +698,6 @@ func handleCloudTrailListInsightsMetricData(w http.ResponseWriter, r *http.Reque
 	writeAWSJSON(w, http.StatusOK, resp)
 }
 
-// ---- Dashboards ----
-
 func handleCloudTrailCreateDashboard(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name                         string
@@ -892,8 +888,6 @@ func handleCloudTrailStartDashboardRefresh(w http.ResponseWriter, r *http.Reques
 	writeAWSJSON(w, http.StatusOK, map[string]any{"RefreshId": cloudTrailRefreshID()})
 }
 
-// ---- Imports ----
-
 func handleCloudTrailStartImport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Destinations   []string
@@ -1026,8 +1020,6 @@ func handleCloudTrailListImportFailures(w http.ResponseWriter, r *http.Request) 
 	writeAWSJSON(w, http.StatusOK, map[string]any{"Failures": []map[string]any{}})
 }
 
-// ---- Federation ----
-
 func handleCloudTrailEnableFederation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		EventDataStore    string
@@ -1070,8 +1062,6 @@ func handleCloudTrailDisableFederation(w http.ResponseWriter, r *http.Request) {
 		"FederationStatus":  eds.FederationStatus,
 	})
 }
-
-// ---- Resource policy ----
 
 func handleCloudTrailPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1126,8 +1116,6 @@ func handleCloudTrailDeleteResourcePolicy(w http.ResponseWriter, r *http.Request
 	writeAWSJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---- Organization delegated admin ----
-
 func handleCloudTrailRegisterOrgAdmin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		MemberAccountId string
@@ -1158,8 +1146,6 @@ func handleCloudTrailDeregisterOrgAdmin(w http.ResponseWriter, r *http.Request) 
 	cloudTrailOrgAdmins.Delete(req.DelegatedAdminAccountId)
 	writeAWSJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---- Event configuration ----
 
 func handleCloudTrailGetEventConfiguration(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1230,8 +1216,6 @@ func handleCloudTrailPutEventConfiguration(w http.ResponseWriter, r *http.Reques
 	}
 	writeAWSJSON(w, http.StatusOK, resp)
 }
-
-// ---- Misc ----
 
 func handleCloudTrailListPublicKeys(w http.ResponseWriter, r *http.Request) {
 	var req struct {

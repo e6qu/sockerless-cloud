@@ -626,8 +626,6 @@ func registerCloudRun(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/configurations/{name}", getConfiguration)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/configurations", listConfigurations)
 
-	// --- Knative Revisions (get/list/delete) ---
-
 	getRevision := func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
@@ -665,8 +663,6 @@ func registerCloudRun(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/revisions/{name}", getRevision)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/revisions", listRevisions)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{namespace}/revisions/{name}", deleteRevision)
-
-	// --- Knative Routes (get/list) ---
 
 	getRoute := func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
@@ -776,8 +772,6 @@ func registerCloudRun(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/domainmappings/{name}", getDomainMapping)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/domainmappings", listDomainMappings)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{namespace}/domainmappings/{name}", deleteDomainMapping)
-
-	// --- AuthorizedDomains (list) ---
 
 	listAuthorizedDomains := func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{

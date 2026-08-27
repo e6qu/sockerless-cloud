@@ -11,8 +11,6 @@ import (
 // cookie verification. PublicKey wraps an Encoded PEM; KeyGroup
 // references a list of PublicKey IDs.
 
-// ---------- PublicKey ----------
-
 type CFPublicKeyConfig struct {
 	XMLName         xml.Name `xml:"PublicKeyConfig"`
 	Xmlns           string   `xml:"xmlns,attr,omitempty"`
@@ -52,8 +50,6 @@ type cfStoredPublicKey struct {
 	ETag      string
 }
 
-// ---------- KeyGroup ----------
-
 type CFKeyGroupConfig struct {
 	XMLName xml.Name `xml:"KeyGroupConfig"`
 	Xmlns   string   `xml:"xmlns,attr,omitempty"`
@@ -88,8 +84,6 @@ type cfStoredKeyGroup struct {
 	ETag     string
 }
 
-// ---------- State ----------
-
 var (
 	cfPublicKeys sim.Store[cfStoredPublicKey]
 	cfKeyGroups  sim.Store[cfStoredKeyGroup]
@@ -119,8 +113,6 @@ func registerCloudFrontKeys(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+cfAPIVersion+"/key-group/{id}", cloudTrailRecordedREST("UpdateKeyGroup", "cloudfront.amazonaws.com", keyGroupResource, handleCFUpdateKeyGroup))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/key-group/{id}", cloudTrailRecordedREST("DeleteKeyGroup", "cloudfront.amazonaws.com", keyGroupResource, handleCFDeleteKeyGroup))
 }
-
-// ----- PublicKey handlers -----
 
 func handleCFCreatePublicKey(w http.ResponseWriter, r *http.Request) {
 	var cfg CFPublicKeyConfig
@@ -248,8 +240,6 @@ func handleCFListPublicKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	cfWriteXML(w, http.StatusOK, list)
 }
-
-// ----- KeyGroup handlers -----
 
 func handleCFCreateKeyGroup(w http.ResponseWriter, r *http.Request) {
 	var cfg CFKeyGroupConfig

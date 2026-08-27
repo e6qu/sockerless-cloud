@@ -305,8 +305,6 @@ func elbv2ListenerCertificatesXML(listener ELBv2Listener, includeDefault bool) s
 	return b.String()
 }
 
-// ---- helpers ----
-
 // elbv2RuleArn builds a rule ARN from its listener ARN. Real ELBv2 rule ARNs
 // use the `listener-rule/` resource prefix (not `rule/`); terraform-provider-aws
 // reconstructs aws_lb_listener_rule.listener_arn from the rule ARN by requiring

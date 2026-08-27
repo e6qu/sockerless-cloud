@@ -1356,7 +1356,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		typeEmpty    = "type.googleapis.com/google.protobuf.Empty"
 	)
 
-	// ---- resource semantics ----------------------------------------------
 	// Resource semantics are optional cloud metadata. Resources with no
 	// assigned semantics return the requested full resource name and an empty
 	// map; this simulator currently exposes no API that assigns semantics.
@@ -1374,7 +1373,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		})
 	})
 
-	// ---- Cloud Resource Manager v1 GetProject --------------------------
 	// gcloud projects describe and google_project's terraform Read speak
 	// the v1 read. A project the sim has never seen is a real 403 — the
 	// API never discloses whether an inaccessible project exists.
@@ -1396,7 +1394,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		sim.WriteJSON(w, http.StatusOK, crmV1Project(p))
 	})
 
-	// ---- projects (v3) ---------------------------------------------------
 	srv.HandleFunc("GET /v3/projects:search", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query().Get("query")
 		rows := projects.Filter(func(p CRMProject) bool { return crmSearchMatch(p, query) })
@@ -1567,7 +1564,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		}
 	})
 
-	// ---- folders (v3) ----------------------------------------------------
 	srv.HandleFunc("GET /v3/folders:search", func(w http.ResponseWriter, r *http.Request) {
 		rows := folders.Filter(func(CRMFolder) bool { return true })
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
@@ -1685,7 +1681,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		}
 	})
 
-	// ---- organizations (v3) ----------------------------------------------
 	// The organization store is shared with the v1 reads; an organization the
 	// caller cannot see is a 403, never a 404.
 	srv.HandleFunc("GET /v3/organizations:search", func(w http.ResponseWriter, r *http.Request) {
@@ -1719,7 +1714,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		gcpMethodNotFound(w)
 	})
 
-	// ---- liens (v3) ------------------------------------------------------
 	// One lien collection under two spellings: the handlers are shared with
 	// the v1 routes in cloudresourcemanager.go.
 	srv.HandleFunc("POST /v3/liens", crmCreateLien)
@@ -1731,7 +1725,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	// (crmGetOperation) — every CRM LRO is persisted, so a poll returns
 	// the stored record and an unknown name is a real NOT_FOUND.
 
-	// ---- tagKeys (v3) ----------------------------------------------------
 	srv.HandleFunc("GET /v3/tagKeys/namespaced", func(w http.ResponseWriter, r *http.Request) {
 		ns := r.URL.Query().Get("name")
 		for _, k := range tagKeys.Filter(func(CRMTagKey) bool { return true }) {
@@ -1823,7 +1816,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported tagKey action")
 	})
 
-	// ---- tagValues (v3) --------------------------------------------------
 	srv.HandleFunc("GET /v3/tagValues/namespaced", func(w http.ResponseWriter, r *http.Request) {
 		ns := r.URL.Query().Get("name")
 		for _, v := range tagValues.Filter(func(CRMTagValue) bool { return true }) {
@@ -1953,7 +1945,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported tagValue action")
 	})
 
-	// ---- tagBindings (v3) ------------------------------------------------
 	srv.HandleFunc("POST /v3/tagBindings", func(w http.ResponseWriter, r *http.Request) {
 		var req CRMTagBinding
 		if err := sim.ReadJSON(r, &req); err != nil {
@@ -1989,12 +1980,10 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		sim.WriteJSON(w, http.StatusOK, crmLRO(map[string]any{}, typeEmpty, crmMetaDeleteTagBinding))
 	})
 
-	// ---- effectiveTags (v3) ---------------------------------------------
 	srv.HandleFunc("GET /v3/effectiveTags", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"effectiveTags": []any{}})
 	})
 
-	// ---- folders.capabilities (v3) --------------------------------------
 	// A folder capability is a boolean feature toggle on the folder; the only
 	// modeled one is the management capability. GET reads it, PATCH returns an
 	// Operation (the API models the mutation as long-running).
@@ -2016,7 +2005,6 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		sim.WriteJSON(w, http.StatusOK, crmLRO(cap, "type.googleapis.com/google.cloud.resourcemanager.v3.Capability", crmMetaUpdateCapability))
 	})
 
-	// ---- locations.tagBindingCollections (v3) ---------------------------
 	// A tagBindingCollection is the full set of direct tag bindings on a
 	// resource, keyed by its full-resource-name and addressable in a location.
 	// GET reads it; PATCH (the only mutator) returns an Operation.
@@ -3583,8 +3571,6 @@ func registerOAuthClients(srv *sim.Server) {
 	})
 }
 
-// --- IAM Credentials access-token lifetime ---
-//
 // The rule the IAM Service Account Credentials API publishes for the
 // `lifetime` member of GenerateAccessTokenRequest, verbatim from the
 // iamcredentials v1 Discovery document vendored at

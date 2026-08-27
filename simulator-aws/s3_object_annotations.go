@@ -37,7 +37,6 @@ type s3Annotation struct {
 // s3ObjectAnnotations are keyed "<bucket>/<key>\x00<annotationName>".
 var s3ObjectAnnotations sim.Store[s3Annotation]
 
-// s3AnnotationKey builds the store key for one annotation on one object.
 func s3AnnotationKey(bucket, key, name string) string {
 	return s3ObjectKey(bucket, key) + "\x00" + name
 }

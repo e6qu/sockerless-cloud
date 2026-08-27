@@ -25,9 +25,7 @@ import (
 //   - AWS Network Performance: source/destination region metric subscriptions
 //     plus GetAwsNetworkPerformanceData returning real-shaped metric points.
 
-// ============================================================================
 // Resource types
-// ============================================================================
 
 // EC2LocalGateway is an AWS Outposts local gateway (lgw-…). Real accounts get
 // one per Outpost; the sim seeds a single deterministic gateway so the
@@ -233,9 +231,7 @@ func registerEC2LgwCapacity(r *sim.AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 // ensureSeedLocalGateway returns the account's deterministic seeded local
 // gateway, creating it on first use. Real accounts get one local gateway per
@@ -295,9 +291,7 @@ func lgwStateReasonXML() string {
 	return "<stateReason><code>resource-available</code><message>The resource is available</message></stateReason>"
 }
 
-// ============================================================================
 // Local Gateway
-// ============================================================================
 
 func lgwBodyXML(g EC2LocalGateway) string {
 	return fmt.Sprintf("<localGatewayId>%s</localGatewayId><outpostArn>%s</outpostArn><ownerId>%s</ownerId><state>%s</state>%s",
@@ -637,9 +631,7 @@ func handleDescribeLocalGatewayVpcAssociations(w http.ResponseWriter, r *http.Re
 	tgwResponse(w, "DescribeLocalGatewayRouteTableVpcAssociations", fmt.Sprintf("<localGatewayRouteTableVpcAssociationSet>%s</localGatewayRouteTableVpcAssociationSet>", items.String()))
 }
 
-// ============================================================================
 // Capacity Manager
-// ============================================================================
 
 func capacityManagerState() EC2CapacityManagerState {
 	if s, ok := ec2CapacityManager.Get(ec2CapacityManagerKey); ok {
@@ -874,9 +866,7 @@ func handleUpdateCapacityManagerOrganizationsAccess(w http.ResponseWriter, r *ht
 	tgwResponse(w, "UpdateCapacityManagerOrganizationsAccess", fmt.Sprintf("<capacityManagerStatus>%s</capacityManagerStatus><organizationsAccess>%t</organizationsAccess>", s.Status, s.OrganizationsAccess))
 }
 
-// ============================================================================
 // Declarative Policies
-// ============================================================================
 
 func declarativePoliciesReportBodyXML(rp EC2DeclarativePoliciesReport) string {
 	var b strings.Builder
@@ -960,9 +950,7 @@ func handleGetDeclarativePoliciesReportSummary(w http.ResponseWriter, r *http.Re
 	tgwResponse(w, "GetDeclarativePoliciesReportSummary", b.String())
 }
 
-// ============================================================================
 // AWS Network Performance
-// ============================================================================
 
 func networkPerfSubKey(src, dst, metric, stat string) string {
 	return src + "/" + dst + "/" + metric + "/" + stat

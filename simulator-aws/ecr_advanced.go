@@ -127,8 +127,6 @@ func registerECRAdvanced(r *sim.AWSRouter, srv *sim.Server) {
 	}
 }
 
-// ---- Account settings ----
-
 func handleECRGetAccountSetting(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
@@ -186,8 +184,6 @@ func ecrDefaultAccountSettingValue(name string) string {
 		return ""
 	}
 }
-
-// ---- Registry scanning configuration ----
 
 func handleECRGetRegistryScanningConfiguration(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &struct{}{}); err != nil {
@@ -280,8 +276,6 @@ func handleECRBatchGetRepositoryScanningConfiguration(w http.ResponseWriter, r *
 		"failures":               failures,
 	})
 }
-
-// ---- Repository creation templates ----
 
 func handleECRCreateRepositoryCreationTemplate(w http.ResponseWriter, r *http.Request) {
 	var req ecrRepoCreationTemplateInput
@@ -477,8 +471,6 @@ func ecrNormalizeTemplate(t ECRRepositoryCreationTemplate) ECRRepositoryCreation
 	return t
 }
 
-// ---- Managed signing configuration ----
-
 func handleECRGetSigningConfiguration(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &struct{}{}); err != nil {
 		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -580,8 +572,6 @@ func handleECRDescribeImageSigningStatus(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// ---- Pull-time update exclusions ----
-
 func handleECRRegisterPullTimeUpdateExclusion(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PrincipalArn string `json:"principalArn"`
@@ -653,8 +643,6 @@ func handleECRListPullTimeUpdateExclusions(w http.ResponseWriter, r *http.Reques
 	}
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
-
-// ---- Pull-through cache rule update/validate ----
 
 func handleECRUpdatePullThroughCacheRule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -736,8 +724,6 @@ func handleECRValidatePullThroughCacheRule(w http.ResponseWriter, r *http.Reques
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ---- OCI image referrers ----
-
 func handleECRListImageReferrers(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RegistryId     string `json:"registryId"`
@@ -768,8 +754,6 @@ func handleECRListImageReferrers(w http.ResponseWriter, r *http.Request) {
 		"referrers": []any{},
 	})
 }
-
-// ---- Image storage class ----
 
 func handleECRUpdateImageStorageClass(w http.ResponseWriter, r *http.Request) {
 	var req struct {

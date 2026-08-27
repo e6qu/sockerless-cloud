@@ -47,8 +47,6 @@ func (st *specValidatorState) skip(op, path, reason string) {
 		Int64("totalSkips", n).Msg("spec-validate: subtree skipped (not judged)")
 }
 
-// --- query protocols (awsQuery / ec2Query) ---------------------------
-
 // validateQueryAction covers POST / exchanges routed by the
 // (Action, Version) form parameter pair.
 func (st *specValidatorState) validateQueryAction(reqBody []byte, respHeader http.Header, respBody []byte) []sim.SpecViolation {
@@ -168,8 +166,6 @@ func (v *xmlShapeValidator) outputMembers(target string) (map[string]smithyMembe
 	}
 	return shape.Members, true
 }
-
-// --- restXml ----------------------------------------------------------
 
 // validateRestXML covers S3 / CloudFront / Route 53 REST routes. The
 // operation is identified by the mux pattern that served the request
@@ -388,8 +384,6 @@ func shortShapeName(id string) string {
 	}
 	return id
 }
-
-// --- shape walker -----------------------------------------------------
 
 // xmlShapeValidator walks an XML element tree against Smithy shapes.
 type xmlShapeValidator struct {
@@ -712,8 +706,6 @@ func looksLikeXML(respHeader http.Header, respBody []byte) bool {
 	return len(trimmed) > 0 && trimmed[0] == '<'
 }
 
-// --- generic XML element tree ------------------------------------------
-
 type xmlNode struct {
 	name     string
 	attrs    []xml.Attr
@@ -762,8 +754,6 @@ func parseXMLTree(data []byte) (*xmlNode, error) {
 	}
 	return root, nil
 }
-
-// --- REST path normalization -------------------------------------------
 
 var awsParamSegment = regexp.MustCompile(`\{[^}]+\}`)
 

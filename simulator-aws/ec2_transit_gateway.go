@@ -234,8 +234,6 @@ func registerEC2TransitGateway(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteTransitGatewayConnect", handleDeleteTransitGatewayConnect)
 }
 
-// ---- helpers ----
-
 func tgwArn(id string) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:transit-gateway/%s", awsRegion(), ec2Owner(), id)
 }
@@ -256,8 +254,6 @@ func tgwResponse(w http.ResponseWriter, action, body string) {
 	fmt.Fprintf(w, "<%sResponse %s><requestId>%s</requestId>%s</%sResponse>",
 		action, ec2Xmlns(), generateUUID(), body, action)
 }
-
-// ---- XML rendering ----
 
 func tgwBodyXML(tgw EC2TransitGateway) string {
 	var cidrs strings.Builder
@@ -407,8 +403,6 @@ func tgwMulticastBodyXML(m EC2TransitGatewayMulticastDomain) string {
 		m.CreationTime, writeTagSetXML(m.Tags))
 }
 
-// ---- Transit gateway ----
-
 func handleCreateTransitGateway(w http.ResponseWriter, r *http.Request) {
 	now := ec2NowRFC3339Milli()
 	id := ec2ID("tgw")
@@ -516,8 +510,6 @@ func handleDeleteTransitGateway(w http.ResponseWriter, r *http.Request) {
 	tgwResponse(w, "DeleteTransitGateway", "<transitGateway>"+tgwBodyXML(tgw)+"</transitGateway>")
 }
 
-// ---- Route tables ----
-
 func handleCreateTransitGatewayRouteTable(w http.ResponseWriter, r *http.Request) {
 	tgwID := r.FormValue("TransitGatewayId")
 	if _, ok := ec2TransitGateways.Get(tgwID); !ok {
@@ -567,8 +559,6 @@ func handleDeleteTransitGatewayRouteTable(w http.ResponseWriter, r *http.Request
 	tgwResponse(w, "DeleteTransitGatewayRouteTable",
 		"<transitGatewayRouteTable>"+tgwRouteTableBodyXML(rt)+"</transitGatewayRouteTable>")
 }
-
-// ---- VPC attachments ----
 
 func handleCreateTransitGatewayVpcAttachment(w http.ResponseWriter, r *http.Request) {
 	tgwID := r.FormValue("TransitGatewayId")
@@ -743,8 +733,6 @@ func handleDescribeTransitGatewayAttachments(w http.ResponseWriter, r *http.Requ
 	b.WriteString("</transitGatewayAttachments>")
 	tgwResponse(w, "DescribeTransitGatewayAttachments", b.String())
 }
-
-// ---- Associations + propagations ----
 
 func tgwAddAssociation(rtID, attachID, resourceID, resourceType string) {
 	ec2TransitGatewayRouteTables.Update(rtID, func(rt *EC2TransitGatewayRouteTable) {
@@ -950,8 +938,6 @@ func handleGetTransitGatewayAttachmentPropagations(w http.ResponseWriter, r *htt
 	tgwResponse(w, "GetTransitGatewayAttachmentPropagations", b.String())
 }
 
-// ---- Routes ----
-
 func handleCreateTransitGatewayRoute(w http.ResponseWriter, r *http.Request) {
 	rtID := r.FormValue("TransitGatewayRouteTableId")
 	if _, ok := ec2TransitGatewayRouteTables.Get(rtID); !ok {
@@ -1079,8 +1065,6 @@ func handleExportTransitGatewayRoutes(w http.ResponseWriter, r *http.Request) {
 	tgwResponse(w, "ExportTransitGatewayRoutes", fmt.Sprintf("<s3Location>%s</s3Location>", loc))
 }
 
-// ---- Prefix list references ----
-
 func handleCreateTransitGatewayPrefixListReference(w http.ResponseWriter, r *http.Request) {
 	rtID := r.FormValue("TransitGatewayRouteTableId")
 	if _, ok := ec2TransitGatewayRouteTables.Get(rtID); !ok {
@@ -1177,8 +1161,6 @@ func handleDeleteTransitGatewayPrefixListReference(w http.ResponseWriter, r *htt
 		"<transitGatewayPrefixListReference>"+tgwPrefixListRefBodyXML(deleted, rtID)+"</transitGatewayPrefixListReference>")
 }
 
-// ---- Peering attachments ----
-
 func handleCreateTransitGatewayPeeringAttachment(w http.ResponseWriter, r *http.Request) {
 	tgwID := r.FormValue("TransitGatewayId")
 	if _, ok := ec2TransitGateways.Get(tgwID); !ok {
@@ -1268,8 +1250,6 @@ func handleDeleteTransitGatewayPeeringAttachment(w http.ResponseWriter, r *http.
 		"<transitGatewayPeeringAttachment>"+tgwPeeringBodyXML(p)+"</transitGatewayPeeringAttachment>")
 }
 
-// ---- Multicast domains ----
-
 func handleCreateTransitGatewayMulticastDomain(w http.ResponseWriter, r *http.Request) {
 	tgwID := r.FormValue("TransitGatewayId")
 	if _, ok := ec2TransitGateways.Get(tgwID); !ok {
@@ -1320,8 +1300,6 @@ func handleDeleteTransitGatewayMulticastDomain(w http.ResponseWriter, r *http.Re
 	tgwResponse(w, "DeleteTransitGatewayMulticastDomain",
 		"<transitGatewayMulticastDomain>"+tgwMulticastBodyXML(m)+"</transitGatewayMulticastDomain>")
 }
-
-// ---- Connect attachments ----
 
 func handleCreateTransitGatewayConnect(w http.ResponseWriter, r *http.Request) {
 	transportID := r.FormValue("TransportTransitGatewayAttachmentId")

@@ -34,7 +34,6 @@ type ApplicationGateway struct {
 	Properties ApplicationGatewayProperties `json:"properties"`
 }
 
-// ApplicationGatewayProperties is ApplicationGatewayPropertiesFormat.
 type ApplicationGatewayProperties struct {
 	Sku                                 *ApplicationGatewaySku                                 `json:"sku,omitempty"`
 	SslPolicy                           *ApplicationGatewaySslPolicy                           `json:"sslPolicy,omitempty"`
@@ -126,7 +125,6 @@ type ApplicationGatewayIPConfigurationProperties struct {
 	ProvisioningState string       `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayFrontendIPConfiguration is one frontend address.
 type ApplicationGatewayFrontendIPConfiguration struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayFrontendIPConfigurationProperties `json:"properties"`
@@ -143,19 +141,16 @@ type ApplicationGatewayFrontendIPConfigurationProperties struct {
 	ProvisioningState         string       `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayFrontendPort is one frontend port.
 type ApplicationGatewayFrontendPort struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayFrontendPortProperties `json:"properties"`
 }
 
-// ApplicationGatewayFrontendPortProperties holds the listening port.
 type ApplicationGatewayFrontendPortProperties struct {
 	Port              int32  `json:"port,omitempty"`
 	ProvisioningState string `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayBackendAddressPool is one pool of backend servers.
 type ApplicationGatewayBackendAddressPool struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayBackendAddressPoolProperties `json:"properties"`
@@ -169,7 +164,6 @@ type ApplicationGatewayBackendAddressPoolProperties struct {
 	ProvisioningState       string                             `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayBackendAddress is one backend server address.
 type ApplicationGatewayBackendAddress struct {
 	Fqdn      string `json:"fqdn,omitempty"`
 	IPAddress string `json:"ipAddress,omitempty"`
@@ -407,7 +401,6 @@ type ApplicationGatewayRewriteRuleSet struct {
 	Properties ApplicationGatewayRewriteRuleSetProperties `json:"properties"`
 }
 
-// ApplicationGatewayRewriteRuleSetProperties holds the ordered rewrite rules.
 type ApplicationGatewayRewriteRuleSetProperties struct {
 	RewriteRules      []ApplicationGatewayRewriteRule `json:"rewriteRules,omitempty"`
 	ProvisioningState string                          `json:"provisioningState,omitempty"`
@@ -422,7 +415,6 @@ type ApplicationGatewayRewriteRule struct {
 	ActionSet    *ApplicationGatewayRewriteRuleActionSet  `json:"actionSet,omitempty"`
 }
 
-// ApplicationGatewayRewriteRuleCondition is one condition of a rewrite rule.
 type ApplicationGatewayRewriteRuleCondition struct {
 	Variable   string `json:"variable,omitempty"`
 	Pattern    string `json:"pattern,omitempty"`
@@ -519,7 +511,6 @@ type ApplicationGatewayPrivateLinkConfigurationProperties struct {
 	ProvisioningState string                                         `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayPrivateLinkIPConfiguration is one private-link address.
 type ApplicationGatewayPrivateLinkIPConfiguration struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayPrivateLinkIPConfigurationProperties `json:"properties"`

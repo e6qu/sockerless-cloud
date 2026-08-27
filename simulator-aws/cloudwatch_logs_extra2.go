@@ -203,8 +203,6 @@ func registerCloudWatchLogsExtra2(r *sim.AWSRouter, srv *sim.Server) {
 
 func cwAccountPolicyKey(policyType, name string) string { return policyType + ":" + name }
 
-// ===== Account policies =====
-
 func handleCWPutAccountPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PolicyName        string `json:"policyName"`
@@ -280,8 +278,6 @@ func handleCWDeleteAccountPolicy(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ===== Query definitions =====
-
 func handleCWPutQueryDefinition(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name              string   `json:"name"`
@@ -347,8 +343,6 @@ func handleCWDeleteQueryDefinition(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"success": ok})
 }
 
-// ===== Resource policies =====
-
 func handleCWPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PolicyName     string `json:"policyName"`
@@ -394,8 +388,6 @@ func handleCWDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ===== Cross-account destinations =====
 
 func cwDestinationArn(name string) string {
 	return fmt.Sprintf("arn:aws:logs:%s:%s:destination:%s", awsRegion(), awsAccountID(), name)
@@ -484,8 +476,6 @@ func handleCWPutDestinationPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ===== Vended-log deliveries =====
 
 func cwDeliveryArn(id string) string {
 	return fmt.Sprintf("arn:aws:logs:%s:%s:delivery:%s", awsRegion(), awsAccountID(), id)
@@ -587,8 +577,6 @@ func handleCWDescribeDeliveries(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"deliveries": deliveries})
 }
 
-// ===== Delivery sources =====
-
 func handleCWPutDeliverySource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        string            `json:"name"`
@@ -659,8 +647,6 @@ func handleCWDeleteDeliverySource(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ===== Delivery destinations =====
 
 func handleCWPutDeliveryDestination(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -794,8 +780,6 @@ func handleCWDeleteDeliveryDestinationPolicy(w http.ResponseWriter, r *http.Requ
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ===== Log anomaly detectors =====
-
 func cwAnomalyDetectorArn(id string) string {
 	return fmt.Sprintf("arn:aws:logs:%s:%s:anomaly-detector:%s", awsRegion(), awsAccountID(), id)
 }
@@ -904,8 +888,6 @@ func handleCWDeleteLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ===== Field-index policies =====
-
 func handleCWPutIndexPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupIdentifier string `json:"logGroupIdentifier"`
@@ -979,8 +961,6 @@ func handleCWDescribeFieldIndexes(w http.ResponseWriter, r *http.Request) {
 	// the published list is empty, matching real CloudWatch Logs.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"fieldIndexes": []any{}})
 }
-
-// ===== Delivery configuration templates (published static list) =====
 
 // handleCWDescribeConfigurationTemplates returns the delivery configuration
 // templates AWS publishes for vended-log delivery. The shape and values mirror

@@ -79,9 +79,7 @@ func registerLambdaExtras2(srv *sim.Server) {
 	mux.HandleFunc("DELETE /2018-10-31/layers/{layer}/versions/{version}/policy/{statement}", cloudTrailRecordedREST("RemoveLayerVersionPermission", "lambda.amazonaws.com", nil, lambdaEnforced("RemoveLayerVersionPermission", nil, handleLambdaRemoveLayerVersionPermission)))
 }
 
-// ---------------------------------------------------------------------------
 // Function event-invoke config
-// ---------------------------------------------------------------------------
 
 type lambdaDestination struct {
 	Destination string `json:"Destination,omitempty"`
@@ -234,9 +232,7 @@ func handleLambdaListFunctionEventInvokeConfigs(w http.ResponseWriter, r *http.R
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Provisioned concurrency config
-// ---------------------------------------------------------------------------
 
 // LambdaProvisionedConcurrency mirrors the per-qualifier provisioned
 // concurrency config. Real Lambda reports READY once allocation completes; the
@@ -353,9 +349,7 @@ func handleLambdaDeleteProvisionedConcurrencyConfig(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---------------------------------------------------------------------------
 // Code-signing configs (account-level)
-// ---------------------------------------------------------------------------
 
 type lambdaAllowedPublishers struct {
 	SigningProfileVersionArns []string `json:"SigningProfileVersionArns,omitempty"`
@@ -486,9 +480,7 @@ func handleLambdaListCodeSigningConfigs(w http.ResponseWriter, r *http.Request) 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"CodeSigningConfigs": stored})
 }
 
-// ---------------------------------------------------------------------------
 // Per-function code-signing config attachment
-// ---------------------------------------------------------------------------
 
 type lambdaFunctionCodeSigningConfig struct {
 	FunctionName         string
@@ -555,9 +547,7 @@ func handleLambdaDeleteFunctionCodeSigningConfig(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---------------------------------------------------------------------------
 // Runtime-management config
-// ---------------------------------------------------------------------------
 
 type lambdaRuntimeMgmt struct {
 	FunctionName      string
@@ -635,9 +625,7 @@ func handleLambdaPutRuntimeManagementConfig(w http.ResponseWriter, r *http.Reque
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// ---------------------------------------------------------------------------
 // Account settings
-// ---------------------------------------------------------------------------
 
 func handleLambdaGetAccountSettings(w http.ResponseWriter, _ *http.Request) {
 	// Report real usage drawn from the function store; the limits match the
@@ -662,9 +650,7 @@ func handleLambdaGetAccountSettings(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Function recursion config
-// ---------------------------------------------------------------------------
 
 // function name -> RecursiveLoop (Allow|Terminate).
 var lambdaRecursion sim.Store[string]
@@ -707,9 +693,7 @@ func handleLambdaPutFunctionRecursionConfig(w http.ResponseWriter, r *http.Reque
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"RecursiveLoop": req.RecursiveLoop})
 }
 
-// ---------------------------------------------------------------------------
 // Layer-version permissions
-// ---------------------------------------------------------------------------
 
 type lambdaLayerPermission struct {
 	StatementId  string

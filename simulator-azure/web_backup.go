@@ -55,8 +55,6 @@ import (
 //     (CannotResolveStorageAccount)" and "Storage access failed." are the ones
 //     the handlers emit for those three conditions.
 
-// --- Wire-shaped stored records ---------------------------------------------
-
 // WebBackupSchedule mirrors the swagger BackupSchedule definition.
 type WebBackupSchedule struct {
 	FrequencyInterval     int32  `json:"frequencyInterval"`
@@ -182,8 +180,6 @@ func webCleanupBackups(resID string) {
 		webAppSnapshotsDR.Delete(row.ID)
 	}
 }
-
-// --- Archive and manifest ----------------------------------------------------
 
 // webBackupContentRoot is where an App Service backup archive holds the app's
 // file system: the same `site/wwwroot` layout the platform's own file system
@@ -367,8 +363,6 @@ func webReplaceSiteContent(resID string, files []WebSiteContentFile) {
 	webDiscoverWebJobs(resID)
 }
 
-// --- Storage coordinates -----------------------------------------------------
-
 // webBackupStorageTarget is the storage account and container a
 // `storageAccountUrl` addresses.
 type webBackupStorageTarget struct {
@@ -467,8 +461,6 @@ func webGetBackupBlob(target webBackupStorageTarget, name string) ([]byte, bool)
 	return obj.Data, true
 }
 
-// --- Snapshots ---------------------------------------------------------------
-
 // webCaptureAppSnapshot records a platform snapshot of the app: the complete
 // archive of its content plus its configuration at this instant, replicated
 // into the geo-redundant secondary as it is written.
@@ -519,8 +511,6 @@ func webSnapshotsFor(resID string, useDRSecondary bool) []WebAppSnapshotRow {
 	return rows
 }
 
-// --- Helpers shared with the site records ------------------------------------
-
 // webSiteRecord reads a site or slot by resource ID: the /slots/ segment
 // decides which store owns it.
 func webSiteRecord(resID string) (Site, bool) {
@@ -550,8 +540,6 @@ func webSiteNameFromID(resID string) string {
 // fileModeFromPerm converts a stored permission bitmask into the io/fs mode a
 // zip header carries.
 func fileModeFromPerm(perm uint32) fs.FileMode { return fs.FileMode(perm & 0o777) }
-
-// --- Wire rendering -----------------------------------------------------------
 
 func backupConfigWire(r *http.Request, row WebBackupConfigRow) map[string]any {
 	props := map[string]any{
@@ -651,8 +639,6 @@ func deletedSiteWire(row WebDeletedSiteRow) map[string]any {
 	return out
 }
 
-// --- Deleted-app retention ----------------------------------------------------
-
 // webRecordDeletedSite retains a just-deleted app so it can be restored into
 // another app (WebApps_RestoreFromDeletedApp) and enumerated by the
 // deletedSites reads. Called with the site record still in hand, before its
@@ -733,8 +719,6 @@ func webDeletedSiteByRequest(deletedSiteID string) (WebDeletedSiteRow, bool) {
 	}
 	return webDeletedSites.Get(id)
 }
-
-// --- Custom-domain reconciliation ---------------------------------------------
 
 // webApplyManifestHostNames reconciles the destination app's custom domains
 // with the manifest's list, which is what Microsoft documents a custom-backup

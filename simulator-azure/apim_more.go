@@ -128,8 +128,6 @@ func registerAPIMMore(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/{name}/backends/{backend}/reconnect", handleAPIMBackendReconnect)
 }
 
-// ---- generic leaf child CRUD ------------------------------------------------
-
 func apimReqPath(r *http.Request) string { return strings.TrimRight(r.URL.Path, "/") }
 
 func apimLastSeg(p string) string {
@@ -261,8 +259,6 @@ func apimChildList(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }
 
-// ---- GetEntityTag existence checks ------------------------------------------
-
 func apimApiExists(r *http.Request) bool {
 	_, ok := apimApis.Get(apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/apis/" + sim.PathParam(r, "api"))
 	return ok
@@ -292,8 +288,6 @@ func apimNamedValueExists(r *http.Request) bool {
 	_, ok := apimNamedValues.Get(apimNamedValueKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "nv")))
 	return ok
 }
-
-// ---- PATCH (Update) for the top-level stores --------------------------------
 
 // apimStoreKind identifies which top-level store a PATCH targets so a single
 // merge handler serves apis / operations / products.
@@ -359,8 +353,6 @@ func apimMergeProps(dst *map[string]any, src map[string]any) {
 		(*dst)[k] = v
 	}
 }
-
-// ---- service-level operations -----------------------------------------------
 
 func handleAPIMUpdateService(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
@@ -521,8 +513,6 @@ func handleAPIMGetDomainOwnershipIdentifier(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// ---- API revisions / products-by-api ----------------------------------------
-
 func handleAPIMListApiRevisions(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/apis/" + sim.PathParam(r, "api")
@@ -607,8 +597,6 @@ func handleAPIMOperationsByTags(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out, "count": len(out)})
 }
-
-// ---- product ↔ api / group associations -------------------------------------
 
 const apimProductApiAssocType = "sockerless.internal/apim/product-api"
 const apimProductGroupAssocType = "sockerless.internal/apim/product-group"
@@ -740,8 +728,6 @@ func handleAPIMListProductSubscriptions(w http.ResponseWriter, r *http.Request) 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }
 
-// ---- subscription actions ---------------------------------------------------
-
 func handleAPIMPatchSubscription(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/subscriptions/" + sim.PathParam(r, "sub")
@@ -781,8 +767,6 @@ func handleAPIMRegenerateSubKey(w http.ResponseWriter, r *http.Request) {
 	azureBumpKeyGen(id, slot, "")
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// ---- named-value actions ----------------------------------------------------
 
 func handleAPIMPatchNamedValue(w http.ResponseWriter, r *http.Request) {
 	key := apimNamedValueKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "nv"))
@@ -826,8 +810,6 @@ func handleAPIMRefreshNamedValueSecret(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, apimRedactNamedValue(nv))
 }
-
-// ---- backend actions --------------------------------------------------------
 
 func handleAPIMPatchBackend(w http.ResponseWriter, r *http.Request) {
 	key := apimBackendKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "backend"))

@@ -72,7 +72,6 @@ func registerMemorystoreRedis(srv *sim.Server) {
 	registerMemorystoreRedisClusters(srv)
 }
 
-// ---------------------------------------------------------------------------
 // Memorystore for Redis Cluster API
 //
 // The cluster surface is the newer Redis Cluster product (sharded, ACL
@@ -81,7 +80,6 @@ func registerMemorystoreRedis(srv *sim.Server) {
 // value (ACTIVE/READY) because there is no asynchronous work to wait on,
 // and every mutating call returns a synchronous done=true Operation just
 // like the instance surface above.
-// ---------------------------------------------------------------------------
 
 // MSRedisCluster mirrors google.cloud.redis.v1.Cluster — only the fields the
 // Discovery schema declares (the runtime spec-validator rejects any member
@@ -256,8 +254,6 @@ func registerMemorystoreRedisClusters(srv *sim.Server) {
 func msRedisLocationPrefix(r *http.Request, collection string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/%s/", sim.PathParam(r, "project"), sim.PathParam(r, "location"), collection)
 }
-
-// --- Clusters ---
 
 func handleMSRedisClusterCreate(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
@@ -492,8 +488,6 @@ func simRedisCACert(name string) string {
 	return fmt.Sprintf("-----BEGIN CERTIFICATE-----\nsim-redis-ca-%08x\n-----END CERTIFICATE-----", h.Sum32())
 }
 
-// --- Token-auth users + auth tokens ---
-
 func handleMSRedisAddTokenAuthUser(w http.ResponseWriter, r *http.Request, project, location, clusterID string) {
 	var req struct {
 		TokenAuthUser string `json:"tokenAuthUser"`
@@ -629,8 +623,6 @@ func handleMSRedisAuthTokenDelete(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// --- Backup collections + backups ---
-
 func handleMSRedisBackupCollectionList(w http.ResponseWriter, r *http.Request) {
 	prefix := msRedisLocationPrefix(r, "backupCollections")
 	out := []MSRedisBackupCollection{}
@@ -719,8 +711,6 @@ func handleMSRedisBackupAction(w http.ResponseWriter, r *http.Request) {
 	op := newLRO(project, location, backup, "type.googleapis.com/google.cloud.redis.v1.Backup")
 	sim.WriteJSON(w, http.StatusOK, op)
 }
-
-// --- ACL policies ---
 
 func handleMSRedisAclPolicyCreate(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")

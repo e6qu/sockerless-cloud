@@ -341,7 +341,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	store := newBackupStorage(t, rg, "sdkbackupacct", "websitebackups")
 
-	// --- The app's identifiable content -------------------------------------
 	original := mergeFiles(
 		triggeredJob("report", "#!/bin/sh\necho original report\n"),
 		triggeredJob("keepme", "#!/bin/sh\necho keepme\n"),
@@ -359,7 +358,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 		}}, nil)
 	require.NoError(t, err)
 
-	// --- Configure custom backups -------------------------------------------
 	cfg, err := client.UpdateBackupConfiguration(ctx, rg, name, armappservice.BackupRequest{
 		Properties: &armappservice.BackupRequestProperties{
 			BackupName:        to.Ptr("nightly"),
@@ -385,7 +383,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.NotNil(t, read.Properties.BackupSchedule)
 	assert.EqualValues(t, 7, *read.Properties.BackupSchedule.RetentionPeriodInDays)
 
-	// --- Take the backup ------------------------------------------------------
 	item, err := client.Backup(ctx, rg, name, armappservice.BackupRequest{
 		Properties: &armappservice.BackupRequestProperties{
 			BackupName:        to.Ptr("nightly"),
@@ -404,7 +401,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	assert.Nil(t, item.Properties.StorageAccountURL,
 		"GetBackupStatus-shaped reads must not carry the storage SAS secret")
 
-	// --- The archive really exists in the storage account --------------------
 	archive, ok := store.download(t, blobName)
 	require.True(t, ok, "the backup archive %q must exist in container %q", blobName, store.container)
 	entries := zipEntries(t, archive)
@@ -437,7 +433,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	_, err = client.GetHostNameBinding(ctx, rg, name, customDomain, nil)
 	requireAzureErrorCode(t, err, "ResourceNotFound", "the custom domain must really be unbound")
 
-	// --- The backup is listed and addressable ---------------------------------
 	var listed []*armappservice.BackupItem
 	pager := client.NewListBackupsPager(rg, name, nil)
 	for pager.More() {
@@ -468,7 +463,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.NotNil(t, secrets.Properties.StorageAccountURL)
 	assert.Equal(t, store.sasURL, *secrets.Properties.StorageAccountURL)
 
-	// --- DiscoverBackup reads the archive's own manifest ----------------------
 	discovered, err := client.DiscoverBackup(ctx, rg, name, armappservice.RestoreRequest{
 		Properties: &armappservice.RestoreRequestProperties{
 			StorageAccountURL: to.Ptr(store.sasURL),
@@ -480,7 +474,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.NotNil(t, discovered.Properties)
 	assert.Equal(t, name, *discovered.Properties.SiteName)
 
-	// --- Genuinely change the content -----------------------------------------
 	// A Web Deploy package creates and overwrites, and leaves files it does not
 	// carry alone (the DoNotDeleteRule default the "remove additional files at
 	// destination" switch exists to turn off), so this MERGES.
@@ -491,7 +484,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.Equal(t, []string{"extra", "keepme", "report"}, webJobNames(t, client, rg, name),
 		"a deployment must merge: keepme survives a package that does not carry it")
 
-	// --- Restore, which is the operation that DOES delete ----------------------
 	// Microsoft: "Without _backup.filter, restoring a backup deletes all
 	// existing files in the app and replaces them with the files in the backup."
 	restorePoller, err := client.BeginRestore(ctx, rg, name, itoa(int(backupID)), armappservice.RestoreRequest{
@@ -517,7 +509,6 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	require.NotNil(t, afterRestore.Properties.LastRestoreTimeStamp,
 		"a restore stamps the backup item it used")
 
-	// --- Negative control: the blob IS the backup ------------------------------
 	// Delete the archive through the Blob API and the very same restore must
 	// fail. A restore that still succeeded would prove the service kept its own
 	// copy and the blob round trip was decorative.
@@ -703,7 +694,6 @@ func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 	}, nil)
 	requireAzureErrorCode(t, err, "ResourceNotFound", "an unknown snapshotTime must be refused")
 
-	// --- Delete the app and restore it into a fresh one ------------------------
 	azureDeleteSite(rg, name)
 
 	deleted, err := armappservice.NewGlobalClient(subscriptionID, &fakeCredential{}, clientOpts())

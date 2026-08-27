@@ -52,9 +52,7 @@ func spannerQueryParam(r *http.Request, names ...string) string {
 	return ""
 }
 
-// ---------------------------------------------------------------------------
 // operations: get / delete / cancel across every Cloud Spanner collection
-// ---------------------------------------------------------------------------
 
 // spannerRouteOperation serves the google.longrunning.Operations methods on one
 // operation name: get, delete, and the ":cancel" custom method.
@@ -154,9 +152,7 @@ func handleSpannerListInstanceScopedOperations(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// ---------------------------------------------------------------------------
 // instance custom methods: the IAM triple and MoveInstance
-// ---------------------------------------------------------------------------
 
 func handleSpannerInstanceAction(w http.ResponseWriter, r *http.Request, instance, verb string) {
 	name := spannerInstanceName(sim.PathParam(r, "project"), instance)
@@ -238,9 +234,7 @@ func newSpannerFailedOperation(collection string, metadata map[string]any, code 
 	return op
 }
 
-// ---------------------------------------------------------------------------
 // database custom methods, UpdateDatabase and GetDatabaseDdl
-// ---------------------------------------------------------------------------
 
 // handleSpannerDatabaseAction is the colon-verb fan-in on a database resource.
 // The IAM triple is served; addSplitPoints and changequorum are reported as
@@ -327,9 +321,7 @@ func spannerDatabaseResponse(db spannerDatabase) map[string]any {
 	return m
 }
 
-// ---------------------------------------------------------------------------
 // database roles
-// ---------------------------------------------------------------------------
 
 // spannerCreateRoleRe and spannerDropRoleRe recognize the fine-grained access
 // control DDL that defines a database's roles.
@@ -397,9 +389,7 @@ func handleSpannerDatabaseRoleIAM(w http.ResponseWriter, r *http.Request, resour
 	handleResourceIAM(w, r, gcpResourceIAMStore(), resource, verb)
 }
 
-// ---------------------------------------------------------------------------
 // instance partitions
-// ---------------------------------------------------------------------------
 
 func spannerInstancePartitionName(project, instance, partition string) string {
 	return fmt.Sprintf("%s/instancePartitions/%s", spannerInstanceName(project, instance), partition)

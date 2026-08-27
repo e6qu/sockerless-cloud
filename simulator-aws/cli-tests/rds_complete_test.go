@@ -21,7 +21,6 @@ import (
 // (no `describe-serverless-v2-platform-versions` subcommand), so its
 // contract hook is covered SDK-side only.
 func TestRDSCLI_Complete(t *testing.T) {
-	// --- custom DB engine versions ---
 	cevEngine := "custom-oracle-ee"
 	cevVersion := "19.cev.cli.1"
 	t.Cleanup(func() {
@@ -73,7 +72,6 @@ func TestRDSCLI_Complete(t *testing.T) {
 			"--db-instance-identifier", instID, "--skip-final-snapshot").Run()
 	})
 
-	// --- DB recommendations ---
 	out = runCLI(t, awsCLI("rds", "describe-db-recommendations",
 		"--filters", "Name=db-instance-arn,Values="+instArn))
 	var recs struct {
@@ -98,7 +96,6 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &modRec))
 	assert.Equal(t, "dismissed", modRec.DBRecommendation.Status)
 
-	// --- valid DB instance modifications ---
 	out = runCLI(t, awsCLI("rds", "describe-valid-db-instance-modifications",
 		"--db-instance-identifier", instID))
 	var vmod struct {
@@ -112,7 +109,6 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NotEmpty(t, vmod.ValidDBInstanceModificationsMessage.Storage)
 	assert.Equal(t, "gp2", vmod.ValidDBInstanceModificationsMessage.Storage[0].StorageType)
 
-	// --- automated-backups replication ---
 	out = runCLI(t, awsCLI("rds", "start-db-instance-automated-backups-replication",
 		"--source-db-instance-arn", instArn,
 		"--backup-retention-period", "14"))
@@ -171,7 +167,6 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NotEmpty(t, stdb.DBSnapshotTenantDatabases)
 	assert.Equal(t, "CLITENANT", stdb.DBSnapshotTenantDatabases[0].TenantDBName)
 
-	// --- Serverless v1 cluster capacity ---
 	clusterID := "cli-cmpl-aurora-cluster"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", clusterID,
@@ -192,7 +187,6 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &cap))
 	assert.Equal(t, 8, cap.CurrentCapacity)
 
-	// --- option-group option membership (ModifyOptionGroup API) ---
 	ogName := "cli-cmpl-options"
 	runCLI(t, awsCLI("rds", "create-option-group",
 		"--option-group-name", ogName,
@@ -231,7 +225,6 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &rmOpt))
 	assert.Empty(t, rmOpt.OptionGroup.Options)
 
-	// --- read-replica switchover ---
 	primaryID := "cli-cmpl-primary-db"
 	replicaID := "cli-cmpl-replica-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
@@ -260,7 +253,6 @@ func TestRDSCLI_Complete(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &swRR))
 	assert.Empty(t, swRR.DBInstance.ReadReplicaSourceDBInstanceIdentifier)
 
-	// --- global-cluster switchover ---
 	gWriter := "cli-cmpl-g-writer"
 	gGlobal := "cli-cmpl-global"
 	out = runCLI(t, awsCLI("rds", "create-db-cluster",

@@ -100,8 +100,6 @@ func registerWebWorkflows(srv *sim.Server) {
 	wf("GET", "/versions/{versionId}", webWorkflowVersionsGet)
 }
 
-// ---- artifact deployment --------------------------------------------------
-
 // webDeployWorkflowArtifacts realizes WebApps_DeployWorkflowArtifacts[Slot]:
 // the request's files merge into the site's deployed artifact set (and
 // filesToDelete removes members), every "<workflow>/workflow.json" file
@@ -231,8 +229,6 @@ func webDeleteSiteWorkflow(wfID string) {
 	}
 }
 
-// ---- WorkflowEnvelope read surface ------------------------------------------
-
 // webSiteWorkflows returns the site's (or slot's) workflows, sorted by name.
 func webSiteWorkflows(resID string) []LogicWorkflow {
 	prefix := resID + webHostruntimeWorkflows + "/"
@@ -319,8 +315,6 @@ func webListWorkflowsConnections(w http.ResponseWriter, r *http.Request) {
 		"properties": map[string]any{"files": files},
 	})
 }
-
-// ---- hostruntime workflow management bridge ----------------------------------
 
 // webHostWorkflow resolves the addressed site-hosted workflow; on a missing
 // site or workflow it writes the ARM 404 and reports false.

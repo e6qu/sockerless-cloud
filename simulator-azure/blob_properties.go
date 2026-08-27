@@ -133,9 +133,7 @@ func handleSetBlobExpiry(w http.ResponseWriter, r *http.Request, account, contai
 	writeBlobPropertyWriteHeaders(w, b, http.StatusOK)
 }
 
-// ---------------------------------------------------------------------------
 // Immutability policy and legal hold
-// ---------------------------------------------------------------------------
 
 func handleSetBlobImmutabilityPolicy(w http.ResponseWriter, r *http.Request, account, container, blob string) {
 	raw := r.Header.Get("x-ms-immutability-policy-until-date")
@@ -233,9 +231,7 @@ func handleSetBlobLegalHold(w http.ResponseWriter, r *http.Request, account, con
 	w.WriteHeader(http.StatusOK)
 }
 
-// ---------------------------------------------------------------------------
 // Blob tags
-// ---------------------------------------------------------------------------
 
 // blobTagsDocument is the <Tags> document Get Blob Tags returns and Set Blob
 // Tags accepts.
@@ -326,9 +322,7 @@ func handleSetBlobTags(w http.ResponseWriter, r *http.Request, account, containe
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---------------------------------------------------------------------------
 // Shared property-write plumbing
-// ---------------------------------------------------------------------------
 
 // blobForPropertyWrite loads the blob a property write addresses and enforces
 // its lease and immutability protections. It writes the error and returns

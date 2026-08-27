@@ -34,9 +34,7 @@ import (
 // real at-least-once delivery: a message that is not acknowledged before its
 // deadline returns to the subscription's queue and is redelivered.
 
-// ---------------------------------------------------------------------------
 // server types + registration
-// ---------------------------------------------------------------------------
 
 type pubsubPublisherGRPC struct {
 	pspb.UnimplementedPublisherServer
@@ -103,9 +101,7 @@ func pubsubAckDeadlineSweeper() {
 // wires the store, keyed like psSnapshots) and is deleted with its snapshot.
 var psSnapshotBacklogs sim.Store[[]PSMessage]
 
-// ---------------------------------------------------------------------------
 // proto <-> REST-store converters
-// ---------------------------------------------------------------------------
 
 func psTopicToProto(t PSTopic) *pspb.Topic {
 	out := &pspb.Topic{
@@ -384,9 +380,7 @@ func psSchemaSettingsFromJSON(raw json.RawMessage) *pspb.SchemaSettings {
 	return ss
 }
 
-// ---------------------------------------------------------------------------
 // shared delivery mechanics (operate on the REST-owned stores)
-// ---------------------------------------------------------------------------
 
 // psPublishMessages fans a batch of messages out to every subscription on the
 // topic, assigning each a fresh messageId + publishTime. Returns the assigned
@@ -483,9 +477,7 @@ func psModifyAckDeadline(ackIds []string, seconds int32) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Publisher RPCs
-// ---------------------------------------------------------------------------
 
 func (s *pubsubPublisherGRPC) CreateTopic(_ context.Context, req *pspb.Topic) (*pspb.Topic, error) {
 	name := req.GetName()
@@ -630,9 +622,7 @@ func (s *pubsubPublisherGRPC) DetachSubscription(_ context.Context, req *pspb.De
 	return &pspb.DetachSubscriptionResponse{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // Subscriber RPCs
-// ---------------------------------------------------------------------------
 
 func (s *pubsubSubscriberGRPC) CreateSubscription(_ context.Context, req *pspb.Subscription) (*pspb.Subscription, error) {
 	name := req.GetName()
@@ -901,9 +891,7 @@ func psStreamingPullReadLoop(stream pspb.Subscriber_StreamingPullServer) error {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Seek + Snapshots
-// ---------------------------------------------------------------------------
 
 func (s *pubsubSubscriberGRPC) Seek(_ context.Context, req *pspb.SeekRequest) (*pspb.SeekResponse, error) {
 	subName := req.GetSubscription()
@@ -1068,9 +1056,7 @@ func (s *pubsubSubscriberGRPC) DeleteSnapshot(_ context.Context, req *pspb.Delet
 	return &emptypb.Empty{}, nil
 }
 
-// ---------------------------------------------------------------------------
 // SchemaService RPCs
-// ---------------------------------------------------------------------------
 
 func (s *pubsubSchemaGRPC) CreateSchema(_ context.Context, req *pspb.CreateSchemaRequest) (*pspb.Schema, error) {
 	project := psNormalizeProject(req.GetParent())
@@ -1277,9 +1263,7 @@ func psNormalizeProject(s string) string {
 	return s
 }
 
-// ---------------------------------------------------------------------------
 // paging helper
-// ---------------------------------------------------------------------------
 
 func psPaging(total int, pageSize int32, pageToken string) (start, end int) {
 	end = total

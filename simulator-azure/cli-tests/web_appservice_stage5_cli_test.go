@@ -96,7 +96,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	rest("PUT", arm("Microsoft.Network/virtualNetworks/stage5-cli-vnet/subnets/appsvc"),
 		`{"properties":{"addressPrefix":"10.70.1.0/24","delegations":[{"name":"appservice","properties":{"serviceName":"Microsoft.Web/serverFarms"}}]}}`)
 
-	// --- az webapp vnet-integration add / list / remove -----------------------
 	// `add` PUTs the swift spelling; `list` reads the classic spelling. The
 	// entry the CLI shows is the proof the two spellings describe one state.
 	runCLI(t, env.command("webapp", "vnet-integration", "add",
@@ -136,7 +135,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 		"-g", rg, "-n", "stage5-cli-app", "-o", "json")), &listed)
 	assert.Empty(t, listed)
 
-	// --- az functionapp vnet-integration add / list / remove ------------------
 	runCLI(t, env.command("functionapp", "vnet-integration", "add",
 		"-g", rg, "-n", "stage5-cli-func", "--vnet", "stage5-cli-vnet", "--subnet", "appsvc", "-o", "json"))
 	listed = nil
@@ -145,7 +143,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	require.Len(t, listed, 1)
 	assert.True(t, strings.EqualFold(subnetID, listed[0].VnetResourceID))
 
-	// --- Plan-level views (az rest) --------------------------------------------
 	// The function app's live integration is what the plan view assembles.
 	var planConn struct {
 		ID         string `json:"id"`
@@ -220,7 +217,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	parseJSON(t, rest("GET", arm("Microsoft.Web/sites/stage5-cli-func/virtualNetworkConnections/stage5-cli-vnet_appsvc"), ""), &conn)
 	assert.True(t, strings.EqualFold(subnetID, conn.Properties.VnetResourceID))
 
-	// --- Hybrid connections (both spellings) -----------------------------------
 	var relay struct {
 		Properties struct {
 			ServiceBusNamespace string `json:"serviceBusNamespace"`
@@ -320,7 +316,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	assert.Len(t, features.Properties.HybridConnections, 1)
 	assert.Len(t, features.Properties.HybridConnectionsV2, 1)
 
-	// --- Private access ---------------------------------------------------------
 	var pa struct {
 		Properties struct {
 			Enabled         bool `json:"enabled"`
@@ -355,7 +350,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	require.Len(t, plr.Value, 1)
 	assert.Equal(t, "sites", plr.Value[0].Properties.GroupID)
 
-	// --- Capabilities, SKUs, worker instances ------------------------------------
 	var caps []struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
@@ -406,7 +400,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	require.Error(t, err, "RDP password on a Linux-worker plan must fail")
 	assert.Contains(t, string(rdpOut), "Windows Container")
 
-	// --- Delete tails ------------------------------------------------------------
 	rest("DELETE", arm("Microsoft.Web/serverfarms/stage5-cli-plan/hybridConnectionNamespaces/cli-relay-ns/relays/cli-relay"), "")
 	rest("DELETE", arm("Microsoft.Web/sites/stage5-cli-func/hybridconnection/cli-biztalk"), "")
 	rest("DELETE", arm("Microsoft.Web/sites/stage5-cli-func/virtualNetworkConnections/stage5-cli-vnet_appsvc"), "")

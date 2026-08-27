@@ -20,8 +20,6 @@ import (
 // the AWS SDK for Go v2 and the aws CLI deserialize (member casing taken from
 // ec2.smithy.json).
 
-// ---- Types ----
-
 type EC2IpamOperatingRegion struct {
 	RegionName string
 }
@@ -201,8 +199,6 @@ func registerEC2IPAM(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DisableIpamOrganizationAdminAccount", handleDisableIpamOrganizationAdminAccount)
 }
 
-// ---- shared helpers ----
-
 func ipamArn(resource string) string {
 	return fmt.Sprintf("arn:aws:ec2::%s:%s", awsAccountID(), resource)
 }
@@ -229,8 +225,6 @@ func operatingRegionSetXML(regions []EC2IpamOperatingRegion) string {
 	b.WriteString("</operatingRegionSet>")
 	return b.String()
 }
-
-// ---- IPAM ----
 
 func handleCreateIpam(w http.ResponseWriter, r *http.Request) {
 	region := awsRegion()
@@ -463,8 +457,6 @@ func handleDeleteIpam(w http.ResponseWriter, r *http.Request) {
 </DeleteIpamResponse>`, ec2Xmlns(), generateUUID(), ipamBodyXML(ipam))
 }
 
-// ---- Scopes ----
-
 func handleCreateIpamScope(w http.ResponseWriter, r *http.Request) {
 	ipamID := r.FormValue("IpamId")
 	ipam, ok := ec2Ipams.Get(ipamID)
@@ -599,8 +591,6 @@ func handleDeleteIpamScope(w http.ResponseWriter, r *http.Request) {
   <ipamScope>%s</ipamScope>
 </DeleteIpamScopeResponse>`, ec2Xmlns(), generateUUID(), ipamScopeBodyXML(s))
 }
-
-// ---- Pools ----
 
 func handleCreateIpamPool(w http.ResponseWriter, r *http.Request) {
 	scopeID := r.FormValue("IpamScopeId")
@@ -859,8 +849,6 @@ func handleDeleteIpamPool(w http.ResponseWriter, r *http.Request) {
 </DeleteIpamPoolResponse>`, ec2Xmlns(), generateUUID(), ipamPoolBodyXML(p))
 }
 
-// ---- Pool CIDRs ----
-
 func ipamPoolCidrBodyXML(c EC2IpamPoolCidr) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<cidr>%s</cidr><state>%s</state>", c.Cidr, c.State)
@@ -988,8 +976,6 @@ func ipamPoolCidrMatchesFilters(c EC2IpamPoolCidr, filters map[string][]string) 
 	}
 	return true
 }
-
-// ---- Pool allocations (CIDR carving) ----
 
 func ipamPoolAllocationBodyXML(a EC2IpamPoolAllocation) string {
 	var b strings.Builder
@@ -1220,8 +1206,6 @@ func handleDescribeIpamPoolAllocations(w http.ResponseWriter, r *http.Request) {
   <ipamPoolAllocationSet>%s</ipamPoolAllocationSet>
 </DescribeIpamPoolAllocationsResponse>`, ec2Xmlns(), generateUUID(), items)
 }
-
-// ---- Resource discoveries ----
 
 func handleCreateIpamResourceDiscovery(w http.ResponseWriter, r *http.Request) {
 	region := awsRegion()
@@ -1491,8 +1475,6 @@ func ipamResourceDiscoveryAssociationMatchesFilters(a EC2IpamResourceDiscoveryAs
 	return true
 }
 
-// ---- Resource CIDRs + address history ----
-//
 // GetIpamResourceCidrs surfaces the VPC/subnet CIDRs IPAM monitors. We synthesize
 // the monitored set from each pool allocation that targets a resource, joined to
 // the scope it belongs to — faithful in shape and content (a real IPAM populates
@@ -1606,8 +1588,6 @@ func handleModifyIpamResourceCidr(w http.ResponseWriter, r *http.Request) {
   <ipamResourceCidr>%s</ipamResourceCidr>
 </ModifyIpamResourceCidrResponse>`, ec2Xmlns(), generateUUID(), b.String())
 }
-
-// ---- Organizations delegated admin ----
 
 func handleEnableIpamOrganizationAdminAccount(w http.ResponseWriter, r *http.Request) {
 	acct := r.FormValue("DelegatedAdminAccountId")

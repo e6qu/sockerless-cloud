@@ -14,8 +14,6 @@ import (
 // AWS Amplify domain associations + backend environments. Same wire
 // pattern as amplify.go (REST + JSON, versionless paths under /apps/).
 
-// ---------- Domain types ----------
-
 // AmplifyDomainStatus / AmplifyDomainUpdateStatus are the DomainStatus and
 // UpdateStatus enum subsets the sim assigns. Domain verification is REAL
 // against the sim's own Route 53: an AMPLIFY_MANAGED association starts
@@ -82,8 +80,6 @@ type amplifyStoredDomain struct {
 	AppId  string
 }
 
-// ---------- BackendEnvironment types ----------
-
 type AmplifyBackendEnvironment struct {
 	BackendEnvironmentArn string  `json:"backendEnvironmentArn"`
 	EnvironmentName       string  `json:"environmentName"`
@@ -97,8 +93,6 @@ type amplifyStoredBackend struct {
 	Env   AmplifyBackendEnvironment
 	AppId string
 }
-
-// ---------- State ----------
 
 var (
 	amplifyDomains  sim.Store[amplifyStoredDomain]
@@ -133,8 +127,6 @@ func registerAmplifyDomains(srv *sim.Server) {
 	mux.HandleFunc("GET /apps/{appId}/backendenvironments/{environmentName}", cloudTrailRecordedREST("GetBackendEnvironment", "amplify.amazonaws.com", backendResource, handleAmplifyGetBackend))
 	mux.HandleFunc("DELETE /apps/{appId}/backendenvironments/{environmentName}", cloudTrailRecordedREST("DeleteBackendEnvironment", "amplify.amazonaws.com", backendResource, handleAmplifyDeleteBackend))
 }
-
-// ---------- Domain handlers ----------
 
 type amplifyCreateDomainReq struct {
 	DomainName                    string                      `json:"domainName"`
@@ -360,8 +352,6 @@ func handleAmplifyListDomains(w http.ResponseWriter, r *http.Request) {
 	sortBy(items, func(d AmplifyDomainAssociation) string { return d.DomainName })
 	amplifyWriteListPage(w, "domainAssociations", items, token, maxResults)
 }
-
-// ---------- BackendEnvironment handlers ----------
 
 type amplifyCreateBackendReq struct {
 	EnvironmentName     string `json:"environmentName"`

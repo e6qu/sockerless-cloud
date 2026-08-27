@@ -873,8 +873,6 @@ func bqParseTableRef(defaultProject, ref string) (string, string, string, error)
 	return project, dataset, table, nil
 }
 
-// ---- projects.list / projects.getServiceAccount / jobs.delete ----
-
 func handleBQListProjects(w http.ResponseWriter, r *http.Request) {
 	// Enumerate every project referenced by an existing dataset so the list
 	// reflects real persisted state rather than a fabricated catalog.
@@ -948,8 +946,6 @@ func handleBQDeleteJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---- datasets.undelete (POST colon-verb) ----
-
 func handleBQDatasetVerb(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	name, verb, _ := strings.Cut(sim.PathParam(r, "datasetVerb"), ":")
@@ -969,8 +965,6 @@ func handleBQDatasetVerb(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ---- tables IAM verbs ----
-
 func handleBQTableVerb(w http.ResponseWriter, r *http.Request) {
 	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
 	name, verb, _ := strings.Cut(sim.PathParam(r, "tableVerb"), ":")
@@ -982,8 +976,6 @@ func handleBQTableVerb(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown table verb: %s", verb)
 	}
 }
-
-// ---- Models ----
 
 func bqApplyModelDefaults(m BQModel, project, dataset, model string) BQModel {
 	now := bqMillisNow()
@@ -1074,8 +1066,6 @@ func handleBQDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// ---- Routines ----
 
 func bqApplyRoutineDefaults(rt BQRoutine, project, dataset, routine string) BQRoutine {
 	now := bqMillisNow()
@@ -1192,8 +1182,6 @@ func handleBQRoutineVerb(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown routine verb: %s", verb)
 	}
 }
-
-// ---- Row access policies ----
 
 func bqApplyRAPDefaults(rap BQRowAccessPolicy, project, dataset, table, policy string) BQRowAccessPolicy {
 	now := bqMillisNow()

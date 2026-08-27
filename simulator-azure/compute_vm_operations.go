@@ -54,8 +54,6 @@ func registerVirtualMachineOperations(srv *sim.Server) {
 	registerVirtualMachineBootDiagnostics(srv, armBase)
 }
 
-// ===== Operations answered from the machine's own state =====
-
 func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 	// VirtualMachines_ListAvailableSizes — the sizes this machine can be
 	// resized to. Azure answers with the sizes its current hardware cluster
@@ -192,8 +190,6 @@ func azureConvertVMDisksToManaged(vm *VirtualMachine) bool {
 	return changed
 }
 
-// ===== Operations that move the real guest =====
-
 func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 	logger := srv.Logger()
 
@@ -268,8 +264,6 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// ===== Boot diagnostics =====
 
 func registerVirtualMachineBootDiagnostics(srv *sim.Server, armBase string) {
 	// VirtualMachines_RetrieveBootDiagnosticsData returns the URIs of the

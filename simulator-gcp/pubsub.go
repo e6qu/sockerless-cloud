@@ -971,7 +971,6 @@ func psSchemaShortName(name string) string {
 	return name
 }
 
-// psSchemaRevisionKey is the store key for one revision.
 func psSchemaRevisionKey(name, revisionID string) string {
 	return name + "/" + revisionID
 }

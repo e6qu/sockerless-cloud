@@ -189,7 +189,6 @@ func cloudRunV1FindTask(namespace, taskID string) (Task, bool) {
 }
 
 func registerCloudRunV1Jobs(srv *sim.Server) {
-	// --- namespaces.jobs.{create,get,list,replaceJob,delete,run} ---
 
 	srv.HandleFunc("POST /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
@@ -382,8 +381,6 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, projected)
 	})
 
-	// --- namespaces.executions.{get,list,delete,cancel} ---
-
 	srv.HandleFunc("GET /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{name}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
@@ -479,8 +476,6 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, projected)
 	})
 
-	// --- namespaces.tasks.{get,list} ---
-
 	srv.HandleFunc("GET /apis/run.googleapis.com/v1/namespaces/{namespace}/tasks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
@@ -529,7 +524,6 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		})
 	})
 
-	// --- projects.locations.jobs.getIamPolicy ---
 	// The Cloud Run Admin v1 API publishes the job's IAM policy read at the
 	// global `run.googleapis.com/v1/projects/{p}/locations/{l}/jobs/{id}:getIamPolicy`
 	// path — the one `gcloud run jobs get-iam-policy` calls. Both API versions

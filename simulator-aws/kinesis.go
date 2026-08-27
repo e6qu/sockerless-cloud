@@ -991,8 +991,6 @@ func handleKinesisDescribeLimits(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Enhanced fan-out consumers ---
-
 func kinesisStreamByARN(streamARN string) (KinesisStream, bool) {
 	const sep = ":stream/"
 	idx := strings.Index(streamARN, sep)
@@ -1195,8 +1193,6 @@ func handleKinesisListStreamConsumers(w http.ResponseWriter, r *http.Request) {
 	writeKinesisJSON(w, http.StatusOK, resp)
 }
 
-// --- Resource policy ---
-
 // kinesisResolveResourceARN validates that the policy ARN names an existing
 // Kinesis stream or consumer, returning the canonical ARN to key the policy on.
 func kinesisResolveResourceARN(resourceARN string) (string, bool) {
@@ -1274,8 +1270,6 @@ func handleKinesisDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	iamDeleteResourcePolicy(arn)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
-
-// --- MergeShards / SplitShard ---
 
 func handleKinesisMergeShards(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1457,8 +1451,6 @@ func kinesisOpenShardCount(shards []KinesisShard) int64 {
 	return open
 }
 
-// --- Tagging (resource-ARN form) ---
-
 // kinesisTagTarget resolves a resource ARN to the stream that owns the tags.
 // Kinesis tag operations address a stream (consumers are not separately
 // taggable through TagResource in this slice), so the ARN must name a stream.
@@ -1539,8 +1531,6 @@ func handleKinesisListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	writeKinesisJSON(w, http.StatusOK, map[string]any{"Tags": tags})
 }
 
-// --- UpdateStreamMode ---
-
 func handleKinesisUpdateStreamMode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		StreamARN         string            `json:"StreamARN"`
@@ -1568,8 +1558,6 @@ func handleKinesisUpdateStreamMode(w http.ResponseWriter, r *http.Request) {
 	kinesisStreams.Put(stream.StreamName, stream)
 	writeKinesisJSON(w, http.StatusOK, map[string]any{})
 }
-
-// --- Account settings ---
 
 const kinesisAccountSettingsKey = "account"
 
@@ -1625,8 +1613,6 @@ func kinesisAccountSettingsBody(s KinesisAccountSettings) map[string]any {
 	}
 	return out
 }
-
-// --- UpdateMaxRecordSize / UpdateStreamWarmThroughput ---
 
 func handleKinesisUpdateMaxRecordSize(w http.ResponseWriter, r *http.Request) {
 	var req struct {

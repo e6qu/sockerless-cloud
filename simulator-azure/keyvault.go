@@ -99,7 +99,6 @@ type KeyVaultProperties struct {
 	ProvisioningState            string                 `json:"provisioningState,omitempty"`
 }
 
-// KeyVaultSku envelope.
 type KeyVaultSku struct {
 	Family string `json:"family"`
 	Name   string `json:"name"`

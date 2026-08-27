@@ -64,9 +64,7 @@ func registerSecretManagerGRPC(gs *grpc.Server) {
 	smpb.RegisterSecretManagerServiceServer(gs, &secretManagerGRPC{})
 }
 
-// ---------------------------------------------------------------------------
 // name helpers
-// ---------------------------------------------------------------------------
 
 // smNormalizeName strips a redundant leading "projects/" that callers
 // sometimes prepend to a name that is already a full path, avoiding the
@@ -131,9 +129,7 @@ func smPageBounds(start, pageSize, total int) (int, string) {
 	return end, base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(end)))
 }
 
-// ---------------------------------------------------------------------------
 // proto <-> REST-store converters
-// ---------------------------------------------------------------------------
 
 // smStateToProto maps the REST slice's state string to the proto enum.
 func smStateToProto(s string) smpb.SecretVersion_State {
@@ -402,9 +398,7 @@ func smVersionToProto(v SecretVersion) *smpb.SecretVersion {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // admin RPCs
-// ---------------------------------------------------------------------------
 
 func (s *secretManagerGRPC) ListSecrets(ctx context.Context, req *smpb.ListSecretsRequest) (*smpb.ListSecretsResponse, error) {
 	parent := smNormalizeName(req.GetParent())
@@ -566,9 +560,7 @@ func (s *secretManagerGRPC) GetSecretVersion(ctx context.Context, req *smpb.GetS
 	return smVersionToProto(v), nil
 }
 
-// ---------------------------------------------------------------------------
 // data-plane RPCs — real payload storage
-// ---------------------------------------------------------------------------
 
 func (s *secretManagerGRPC) AddSecretVersion(ctx context.Context, req *smpb.AddSecretVersionRequest) (*smpb.SecretVersion, error) {
 	parent := smNormalizeName(req.GetParent())
@@ -717,9 +709,7 @@ func smResolveVersionName(name string) (string, error) {
 	return fmt.Sprintf("%s/versions/%s", secretName, resolved), nil
 }
 
-// ---------------------------------------------------------------------------
 // IAM RPCs
-// ---------------------------------------------------------------------------
 
 func (s *secretManagerGRPC) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
 	resource := smNormalizeName(req.GetResource())

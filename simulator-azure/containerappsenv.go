@@ -625,8 +625,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		return envID, true
 	}
 
-	// ---- Certificates ----
-
 	// PUT - Create or update a certificate (synchronous in real ACA).
 	srv.HandleFunc("PUT "+armBase+"/certificates/{certificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
@@ -722,8 +720,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		})
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": filtered})
 	})
-
-	// ---- Managed Certificates ----
 
 	// PUT - Create or update a managed certificate. Real ACA models this
 	// as a long-running operation; the SDK's body poller terminates on

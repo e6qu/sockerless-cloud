@@ -92,8 +92,6 @@ func eventGridPartnerConfigurationID(r *http.Request) string {
 		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
 }
 
-// ---- Partner registrations ----
-
 func handleEventGridPutPartnerRegistration(w http.ResponseWriter, r *http.Request) {
 	eventGridCreateARMResource(w, r, eventGridPartnerRegistrations, eventGridPartnerRegistrationID(r),
 		sim.PathParam(r, "partnerRegistrationName"), "Microsoft.EventGrid/partnerRegistrations", func(props map[string]any) {
@@ -124,8 +122,6 @@ func handleEventGridListPartnerRegistrationsByRG(w http.ResponseWriter, r *http.
 func handleEventGridListPartnerRegistrationsBySub(w http.ResponseWriter, r *http.Request) {
 	eventGridListARMResources(w, eventGridPartnerRegistrations, "/subscriptions/"+sim.PathParam(r, "subscriptionId")+"/resourceGroups/")
 }
-
-// ---- Partner namespaces ----
 
 func handleEventGridPutPartnerNamespace(w http.ResponseWriter, r *http.Request) {
 	eventGridCreateARMResource(w, r, eventGridPartnerNamespaces, eventGridPartnerNamespaceID(r),
@@ -182,8 +178,6 @@ func handleEventGridRegeneratePartnerNamespaceKey(w http.ResponseWriter, r *http
 	eventGridRegenerateKeyResponse(w, r, eventGridPartnerNamespaces, eventGridPartnerNamespaceID(r), "partner namespace")
 }
 
-// ---- Channels ----
-
 func handleEventGridPutChannel(w http.ResponseWriter, r *http.Request) {
 	nsID := eventGridPartnerNamespaceID(r)
 	if _, ok := eventGridPartnerNamespaces.Get(nsID); !ok {
@@ -227,8 +221,6 @@ func handleEventGridGetChannelFullURL(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"endpointUrl": endpoint})
 }
-
-// ---- Partner configurations ----
 
 func handleEventGridPutPartnerConfiguration(w http.ResponseWriter, r *http.Request) {
 	eventGridCreateARMResource(w, r, eventGridPartnerConfigurations, eventGridPartnerConfigurationID(r),
@@ -317,8 +309,6 @@ func handleEventGridUnauthorizePartner(w http.ResponseWriter, r *http.Request) {
 	eventGridPartnerConfigurations.Put(id, cfg)
 	sim.WriteJSON(w, http.StatusOK, cfg)
 }
-
-// ---- Verified partners (tenant-level read-only catalog) ----
 
 // eventGridVerifiedPartners is the Azure-curated catalog of verified Event Grid
 // partners. Auth0 is a real verified partner; its registration immutable id is

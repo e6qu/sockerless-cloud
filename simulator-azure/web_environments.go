@@ -54,9 +54,7 @@ import (
 //     a fabricated network contract. The inbound half IS served, because it is
 //     computed from the environment's own subnet, addresses and feature flags.
 
-// ---------------------------------------------------------------------------
 // wire types
-// ---------------------------------------------------------------------------
 
 // HostingEnvironmentProfile is the App Service Environment reference an App
 // Service plan or a site carries (the swagger's HostingEnvironmentProfile:
@@ -211,9 +209,7 @@ type KubeEnvironmentProperties struct {
 	AksResourceID               string         `json:"aksResourceID,omitempty"`
 }
 
-// ---------------------------------------------------------------------------
 // stores
-// ---------------------------------------------------------------------------
 
 var (
 	webHostingEnvironments sim.Store[AppServiceEnvironmentResource]
@@ -240,9 +236,7 @@ func int32Value(p *int32) int32 {
 	return *p
 }
 
-// ---------------------------------------------------------------------------
 // identifiers and lookups
-// ---------------------------------------------------------------------------
 
 func aseResourceID(r *http.Request) string {
 	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/hostingEnvironments/%s",
@@ -324,9 +318,7 @@ func webResolveHostingEnvironmentProfile(req *HostingEnvironmentProfile) (*Hosti
 	return &HostingEnvironmentProfile{ID: ase.ID, Name: ase.Name, Type: ase.Type}, nil
 }
 
-// ---------------------------------------------------------------------------
 // addresses
-// ---------------------------------------------------------------------------
 
 // aseInternalInboundAddress is the address an internal-load-balancing
 // environment answers on inside its own subnet. Azure reserves the first four
@@ -396,9 +388,7 @@ func aseInboundAddresses(ase AppServiceEnvironmentResource) []string {
 	return net.ExternalInboundIPAddresses
 }
 
-// ---------------------------------------------------------------------------
 // projection
-// ---------------------------------------------------------------------------
 
 // aseDNSSuffix is the domain the apps in the environment are published under.
 // An internal-load-balancing environment gets Microsoft's default internal
@@ -442,9 +432,7 @@ func aseConfigurationChild(aseID, segment, name string, props any) *ASEConfigura
 	}
 }
 
-// ---------------------------------------------------------------------------
 // registration
-// ---------------------------------------------------------------------------
 
 func registerWebEnvironments(srv *sim.Server) {
 	webHostingEnvironments = sim.MakeStore[AppServiceEnvironmentResource](srv.DB(), "web_hosting_environments")
@@ -845,9 +833,7 @@ func aseEnsureMultiRolePool(aseID, kind string) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // networking configuration, custom domain suffix, addresses and dependencies
-// ---------------------------------------------------------------------------
 
 func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)) {
 	// AppServiceEnvironments_GetAseV3NetworkingConfiguration
@@ -1046,9 +1032,7 @@ func aseCustomDNSSuffixChild(aseID string, props ASECustomDNSSuffixProperties) *
 	return child
 }
 
-// ---------------------------------------------------------------------------
 // front-end and worker pools
-// ---------------------------------------------------------------------------
 
 func registerWebEnvironmentPools(ase func(string, string, http.HandlerFunc)) {
 	// multiRolePools — the front-end pool. Its path segment is the literal
@@ -1328,9 +1312,7 @@ func aseStampCapacities(row AppServiceEnvironmentResource) []map[string]any {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // inventory: the plans and apps placed in the environment
-// ---------------------------------------------------------------------------
 
 func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc)) {
 	// AppServiceEnvironments_ListAppServicePlans
@@ -1380,9 +1362,7 @@ func aseSortedSites(aseID string) []Site {
 	return sites
 }
 
-// ---------------------------------------------------------------------------
 // lifecycle
-// ---------------------------------------------------------------------------
 
 func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc)) {
 	// AppServiceEnvironments_Suspend / _Resume — suspending an environment
@@ -1547,9 +1527,7 @@ func aseSetSuspended(suspended bool) http.HandlerFunc {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // private endpoint connections
-// ---------------------------------------------------------------------------
 
 func registerWebEnvironmentPrivateEndpoints(ase func(string, string, http.HandlerFunc)) {
 	// AppServiceEnvironments_GetPrivateEndpointConnectionList
@@ -1650,9 +1628,7 @@ func aseLookupPEC(w http.ResponseWriter, r *http.Request) (WebSitePrivateEndpoin
 	return conn, true
 }
 
-// ---------------------------------------------------------------------------
 // declared gaps
-// ---------------------------------------------------------------------------
 
 // registerWebEnvironmentDeclaredGaps mounts the five documented operations the
 // simulator does not answer, so a client is told what is missing and why
@@ -1685,9 +1661,7 @@ func registerWebEnvironmentDeclaredGaps(ase func(string, string, http.HandlerFun
 		gap("AppServiceEnvironments_GetOutboundNetworkDependenciesEndpoints", outboundReason))
 }
 
-// ---------------------------------------------------------------------------
 // Kubernetes environments
-// ---------------------------------------------------------------------------
 
 func registerWebKubeEnvironments(srv *sim.Server) {
 	kube := func(method, suffix string, h http.HandlerFunc) {

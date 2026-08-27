@@ -382,9 +382,7 @@ var azureMethodFloor = map[string]int{
 	"web-arm-openapi-2025-03-01": 616,
 }
 
-// ---------------------------------------------------------------------------
 // Route table
-// ---------------------------------------------------------------------------
 
 // azureSimRoute is one registered simulator route: the method plus the pattern
 // split into segments exactly as registered (original casing, Go 1.22 mux
@@ -447,9 +445,7 @@ func azureIsGreedyWildcard(s string) bool {
 	return azureIsWildcard(s) && strings.HasSuffix(s[:len(s)-1], "...")
 }
 
-// ---------------------------------------------------------------------------
 // Request synthesis
-// ---------------------------------------------------------------------------
 
 const (
 	azureProbeSubscription  = "00000000-0000-0000-0000-000000000000"
@@ -709,9 +705,7 @@ func azureProbeCandidates(routes []azureSimRoute, sp swaggerPath) []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Probing
-// ---------------------------------------------------------------------------
 
 type azureProber struct {
 	srv   *sim.Server
@@ -1074,9 +1068,7 @@ func azureTruncate(s string) string {
 	return s
 }
 
-// ---------------------------------------------------------------------------
 // Gates
-// ---------------------------------------------------------------------------
 
 // TestServiceConformance_AzureCoverage reports per-Swagger-file coverage
 // (informational — never fails) so the implemented fraction is visible.

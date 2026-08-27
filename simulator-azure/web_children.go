@@ -123,8 +123,6 @@ func registerWebChildResources(srv *sim.Server) {
 	registerWebPushSettings(both)
 }
 
-// ---- publicCertificates -----------------------------------------------------
-
 func registerWebPublicCertificates(both func(string, string, http.HandlerFunc)) {
 	certID := func(r *http.Request) string {
 		return webResourceID(r) + "/publicCertificates/" + sim.PathParam(r, "publicCertificateName")
@@ -192,8 +190,6 @@ func registerWebPublicCertificates(both func(string, string, http.HandlerFunc)) 
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// ---- domainOwnershipIdentifiers ----------------------------------------------
 
 func registerWebDomainOwnershipIdentifiers(both func(string, string, http.HandlerFunc)) {
 	identID := func(r *http.Request) string {
@@ -279,8 +275,6 @@ func registerWebDomainOwnershipIdentifiers(both func(string, string, http.Handle
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// ---- premieraddons -----------------------------------------------------------
 
 func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 	addonID := func(r *http.Request) string {
@@ -391,8 +385,6 @@ func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 		w.WriteHeader(http.StatusOK)
 	})
 }
-
-// ---- config/pushsettings -------------------------------------------------------
 
 func registerWebPushSettings(both func(string, string, http.HandlerFunc)) {
 	// The type spelling matches the other config sub-resources this slice

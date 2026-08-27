@@ -20,8 +20,6 @@ import (
 // "active" / "fulfilled" with a spot price, etc. The read-only price/score/
 // availability/offering ops return real-shaped (small) results.
 
-// -------------------- Models --------------------
-
 // EC2CapacityReservation reserves N instances of a type in an AZ. State settles
 // "active" with AvailableInstanceCount == TotalInstanceCount until instances are
 // launched into it (the sim doesn't bind launches, so available stays at total).
@@ -272,8 +270,6 @@ func registerEC2CapacityFleet(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("PurchaseHostReservation", handlePurchaseHostReservation)
 }
 
-// -------------------- shared helpers --------------------
-
 func ec2NowMilli() string {
 	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 }
@@ -318,8 +314,6 @@ func ec2CapReservationArn(id string) string {
 func ec2CapReservationFleetArn(id string) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:capacity-reservation-fleet/%s", awsRegion(), ec2Owner(), id)
 }
-
-// -------------------- Capacity Reservations --------------------
 
 func handleCreateCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	instanceType := r.FormValue("InstanceType")
@@ -516,8 +510,6 @@ func handleGetGroupsForCapacityReservation(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<GetGroupsForCapacityReservationResponse %s><requestId>%s</requestId><capacityReservationGroupSet/></GetGroupsForCapacityReservationResponse>`,
 		ec2Xmlns(), generateUUID())
 }
-
-// -------------------- Capacity Reservation Fleets --------------------
 
 // ec2ParseFleetCapacityReservations reads the
 // InstanceTypeSpecification.N.{InstanceType,AvailabilityZone,Weight,Priority,...}
@@ -730,8 +722,6 @@ func handleCancelCapacityReservationFleets(w http.ResponseWriter, r *http.Reques
 	fmt.Fprintf(w, `<CancelCapacityReservationFleetsResponse %s><requestId>%s</requestId><successfulFleetCancellationSet>%s</successfulFleetCancellationSet><failedFleetCancellationSet>%s</failedFleetCancellationSet></CancelCapacityReservationFleetsResponse>`,
 		ec2Xmlns(), generateUUID(), success.String(), failed.String())
 }
-
-// -------------------- EC2 Fleets --------------------
 
 func handleCreateFleet(w http.ResponseWriter, r *http.Request) {
 	total := ec2AtoiOr(r.FormValue("TargetCapacitySpecification.TotalTargetCapacity"), 0)
@@ -975,8 +965,6 @@ func handleDeleteFleets(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), success.String(), failed.String())
 }
 
-// -------------------- Spot instance requests --------------------
-
 func handleRequestSpotInstances(w http.ResponseWriter, r *http.Request) {
 	count := ec2AtoiOr(r.FormValue("InstanceCount"), 1)
 	spotPrice := r.FormValue("SpotPrice")
@@ -1132,8 +1120,6 @@ func handleCancelSpotInstanceRequests(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CancelSpotInstanceRequestsResponse %s><requestId>%s</requestId><spotInstanceRequestSet>%s</spotInstanceRequestSet></CancelSpotInstanceRequestsResponse>`,
 		ec2Xmlns(), generateUUID(), items.String())
 }
-
-// -------------------- Spot Fleets --------------------
 
 func handleRequestSpotFleet(w http.ResponseWriter, r *http.Request) {
 	target := ec2AtoiOr(r.FormValue("SpotFleetRequestConfig.TargetCapacity"), 0)
@@ -1317,8 +1303,6 @@ func handleCancelSpotFleetRequests(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), success.String(), failed.String())
 }
 
-// -------------------- Spot datafeed subscription --------------------
-
 func handleCreateSpotDatafeedSubscription(w http.ResponseWriter, r *http.Request) {
 	bucket := r.FormValue("Bucket")
 	if bucket == "" {
@@ -1361,8 +1345,6 @@ func handleDeleteSpotDatafeedSubscription(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteSpotDatafeedSubscriptionResponse %s><requestId>%s</requestId><return>true</return></DeleteSpotDatafeedSubscriptionResponse>`, ec2Xmlns(), generateUUID())
 }
-
-// -------------------- Spot price / placement scores --------------------
 
 func handleDescribeSpotPriceHistory(w http.ResponseWriter, r *http.Request) {
 	instanceTypes := ec2ParamList(r, "InstanceType")
@@ -1408,8 +1390,6 @@ func handleGetSpotPlacementScores(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetSpotPlacementScoresResponse %s><requestId>%s</requestId><spotPlacementScoreSet>%s</spotPlacementScoreSet></GetSpotPlacementScoresResponse>`,
 		ec2Xmlns(), generateUUID(), items.String())
 }
-
-// -------------------- Scheduled instances --------------------
 
 func handleDescribeScheduledInstanceAvailability(w http.ResponseWriter, r *http.Request) {
 	az := awsAvailabilityZone()
@@ -1499,8 +1479,6 @@ func handleRunScheduledInstances(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<RunScheduledInstancesResponse %s><requestId>%s</requestId><instanceIdSet>%s</instanceIdSet></RunScheduledInstancesResponse>`,
 		ec2Xmlns(), generateUUID(), items.String())
 }
-
-// -------------------- Dedicated host reservations --------------------
 
 // ec2HostOfferings is the catalog of Dedicated Host Reservation offerings the
 // sim advertises (a small real-shaped set).

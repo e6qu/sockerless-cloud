@@ -15,8 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- Lambda FaaS tests ---
-
 func TestLambda_InvokeArithmetic(t *testing.T) {
 	lc := lambdaClient()
 	fnName := "arith-basic-fn"
@@ -135,8 +133,6 @@ func TestLambda_InvokeArithmeticLogs(t *testing.T) {
 
 	cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroupName)})
 }
-
-// --- ECS container tests ---
 
 func TestECS_TaskArithmetic(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "arith-ecs", ecstypes.ContainerDefinition{

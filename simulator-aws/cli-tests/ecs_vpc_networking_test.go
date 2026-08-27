@@ -144,8 +144,6 @@ func TestECSManagedEBSAwsvpcReachability(t *testing.T) {
 	t.Fatalf("same-VPC task should reach managed-EBS task at %s: exit=%d out=%q", eniIP, code, body)
 }
 
-// ---- shared helpers (tier-agnostic) ----
-
 func mkVPCSubnet(t *testing.T, q func(...string) string, vpcCidr, snCidr string) (vpcID, subnetID string) {
 	t.Helper()
 	vpcID = q("ec2", "create-vpc", "--cidr-block", vpcCidr, "--query", "Vpc.VpcId", "--output", "text")

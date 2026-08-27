@@ -10,8 +10,7 @@ import (
 	storageapi "google.golang.org/api/storage/v1"
 )
 
-// Soft delete, restore, move, and the per-object access controls — the last
-// five methods of the storage v1 document, driven through the generated Go
+// The last five methods of the storage v1 document, through the generated Go
 // client:
 //
 //	GET /storage/v1/b/{bucket}/o?softDeleted=true
@@ -25,8 +24,7 @@ import (
 //	PATCH /storage/v1/b/{bucket}/o/{object}/acl/{entity}
 //	DELETE /storage/v1/b/{bucket}/o/{object}/acl/{entity}
 
-// mustUploadObject writes an object through the media upload path so the test
-// exercises a real payload rather than metadata alone.
+// Upload through the media path so the test carries a real payload.
 func mustUploadObject(t *testing.T, svc *storageapi.Service, bucket, name, body string) *storageapi.Object {
 	t.Helper()
 	obj, err := svc.Objects.Insert(bucket, &storageapi.Object{Name: name}).
@@ -121,9 +119,7 @@ func TestGCS_BulkRestore(t *testing.T) {
 		"an unfiltered bulkRestore restores every retired object")
 }
 
-// matchGlobs is the selection bulkRestore actually offers, and `**` has to
-// cross "/" — a glob compiled with path.Match semantics would match nothing
-// below the first level and silently restore too little.
+// `**` must cross "/": path.Match semantics would silently restore too little.
 func TestGCS_BulkRestoreHonoursMatchGlobs(t *testing.T) {
 	svc := storageService(t)
 	mustCreateBucket(t, svc, "glob-restore-bucket")
@@ -147,7 +143,6 @@ func TestGCS_BulkRestoreHonoursMatchGlobs(t *testing.T) {
 	assert.Equal(t, []string{"data/c.txt"}, softDeletedNames(retired))
 }
 
-// A single star stops at the separator, so the nested object stays retired.
 func TestGCS_BulkRestoreSingleStarDoesNotCrossSeparators(t *testing.T) {
 	svc := storageService(t)
 	mustCreateBucket(t, svc, "star-restore-bucket")
@@ -238,10 +233,9 @@ func TestGCS_ObjectACL_RoundTrip(t *testing.T) {
 	assert.NotContains(t, defaultACLEntities(list.Items), entity)
 }
 
-// A request for an object's ACLs used to reach objects.get through the
-// `{object...}` catch-all and come back "object \"doc.txt/acl\" not found".
-// That answer is what let five unserved methods count as covered, so the
-// listing is held to naming the object itself.
+// Reaching objects.get through the `{object...}` catch-all answers "object
+// \"doc.txt/acl\" not found", which is what let five unserved methods count
+// as covered.
 func TestGCS_ObjectACLIsNotTheObjectHandler(t *testing.T) {
 	svc := storageService(t)
 	mustCreateBucket(t, svc, "acl-not-object-bucket")
@@ -304,7 +298,6 @@ func TestGCS_ObjectACLRejectedUnderUniformBucketLevelAccess(t *testing.T) {
 	assert.Contains(t, err.Error(), "uniform bucket-level access")
 }
 
-// downloadObject reads an object's payload through the media download path.
 func downloadObject(t *testing.T, svc *storageapi.Service, bucket, object string) string {
 	t.Helper()
 	reader, err := svc.Objects.Get(bucket, object).Download()

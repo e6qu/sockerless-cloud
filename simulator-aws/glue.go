@@ -335,7 +335,6 @@ var (
 	glueMu sync.RWMutex
 )
 
-// glueResourcePolicyKey is the single store key for the catalog resource policy.
 const glueResourcePolicyKey = "catalog"
 
 // glueCatalogSettingsKey is the single store key for catalog-wide settings.
@@ -496,8 +495,6 @@ func glueWriteError(w http.ResponseWriter, code string, msg string) {
 		"message": msg,
 	})
 }
-
-// ---------- Database ----------
 
 func handleGlueCreateDatabase(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -674,8 +671,6 @@ func handleGlueUpdateDatabase(w http.ResponseWriter, r *http.Request) {
 	glueDatabases.Put(req.DatabaseInput.Name, updated)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Table ----------
 
 func glueTableKey(database, table string) string {
 	return database + "/" + table
@@ -930,8 +925,6 @@ func handleGlueBatchDeleteTable(w http.ResponseWriter, r *http.Request) {
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- Partition ----------
 
 // gluePartitionKey is the store key for a partition; partition values are
 // ordered and joined under a key that also scopes them to (database, table).
@@ -1246,8 +1239,6 @@ func handleGlueBatchDeletePartition(w http.ResponseWriter, r *http.Request) {
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- Job ----------
 
 func handleGlueCreateJob(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1704,8 +1695,6 @@ func handleGlueBatchStopJobRun(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- Crawlers ----------
-
 func handleGlueCreateCrawler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name         string            `json:"Name"`
@@ -1973,8 +1962,6 @@ func handleGlueListCrawlers(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// ---------- Triggers ----------
-
 func handleGlueCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name            string            `json:"Name"`
@@ -2152,8 +2139,6 @@ func handleGlueStopTrigger(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Name": req.Name})
 }
 
-// ---------- Connections ----------
-
 func handleGlueCreateConnection(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ConnectionInput struct {
@@ -2288,8 +2273,6 @@ func handleGlueDeleteConnection(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- Partition indexes ----------
-
 // gluePartitionIndexKey is the store key for one (database, table, indexName)
 // partition index.
 func gluePartitionIndexKey(database, table, index string) string {
@@ -2407,8 +2390,6 @@ func handleGlueDeletePartitionIndex(w http.ResponseWriter, r *http.Request) {
 	gluePartIndexes.Delete(idxKey)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Tags ----------
 
 // glueResourceFromARN splits the last colon-segment of a Glue ARN into resource type and name.
 // e.g. arn:aws:glue:us-east-1::database/my-db → ("database", "my-db")
@@ -2595,8 +2576,6 @@ func glueGlueArn(resource string) string {
 	return "arn:aws:glue:us-east-1:123456789012:" + resource
 }
 
-// ---------- Security configuration ----------
-
 func handleGlueCreateSecurityConfiguration(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name                    string         `json:"Name"`
@@ -2685,8 +2664,6 @@ func handleGlueDeleteSecurityConfiguration(w http.ResponseWriter, r *http.Reques
 	glueSecConfigs.Delete(req.Name)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Workflow ----------
 
 func handleGlueCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -2834,8 +2811,6 @@ func handleGlueGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Run": run})
 }
-
-// ---------- Classifier ----------
 
 // glueClassifierName extracts the classifier name from the single set sub-object.
 func glueClassifierName(c GlueClassifier) string {
@@ -3039,8 +3014,6 @@ func handleGlueDeleteClassifier(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- User-defined function ----------
-
 // glueUDFKey keys a UDF by its database + function name.
 func glueUDFKey(db, fn string) string { return db + "\x00" + fn }
 
@@ -3159,8 +3132,6 @@ func handleGlueDeleteUserDefinedFunction(w http.ResponseWriter, r *http.Request)
 	glueUDFs.Delete(key)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Schema registry ----------
 
 func handleGlueCreateRegistry(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -3312,7 +3283,6 @@ func handleGlueDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// glueSchemaKey keys a schema by its registry + schema name.
 func glueSchemaKey(registry, schema string) string { return registry + "\x00" + schema }
 
 func handleGlueCreateSchema(w http.ResponseWriter, r *http.Request) {
@@ -3498,8 +3468,6 @@ func handleGlueDeleteSchema(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- Table versions ----------
-
 // glueResolveTableVersion returns the version id to read for a request: an
 // explicit VersionId if given, otherwise the latest recorded version.
 // Returns ("", false) if the table has no recorded versions.
@@ -3657,8 +3625,6 @@ func handleGlueBatchDeleteTableVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- Column statistics ----------
 
 // glueColumnStatKey is the store key for one column's statistics, scoped to a
 // table (empty values) or a partition.
@@ -3833,8 +3799,6 @@ func handleGlueDeleteColumnStatisticsForPartition(w http.ResponseWriter, r *http
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- Resource policy ----------
-
 func handleGluePutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PolicyInJson string `json:"PolicyInJson"`
@@ -3914,8 +3878,6 @@ func handleGlueDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- Data Catalog encryption settings ----------
-
 func handleGluePutDataCatalogEncryptionSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DataCatalogEncryptionSettings map[string]any `json:"DataCatalogEncryptionSettings"`
@@ -3950,8 +3912,6 @@ func handleGlueGetDataCatalogEncryptionSettings(w http.ResponseWriter, r *http.R
 	glueWriteJSON(w, http.StatusOK, map[string]any{"DataCatalogEncryptionSettings": dcs})
 }
 
-// ---------- Catalog import ----------
-
 func handleGlueImportCatalogToGlue(w http.ResponseWriter, r *http.Request) {
 	glueMu.Lock()
 	defer glueMu.Unlock()
@@ -3979,8 +3939,6 @@ func handleGlueGetCatalogImportStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	glueWriteJSON(w, http.StatusOK, map[string]any{"ImportStatus": status})
 }
-
-// ---------- Schema versions ----------
 
 // glueSchemaVersionsFor returns all versions belonging to a schema ARN, sorted
 // ascending by VersionNumber.

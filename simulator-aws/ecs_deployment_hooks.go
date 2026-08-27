@@ -69,7 +69,6 @@ func ecsLifecycleStageIndex(stage string) int {
 	return -1
 }
 
-// ecsServiceLifecycleHook is one hook as the service configured it.
 type ecsServiceLifecycleHook struct {
 	TargetType      string   `json:"targetType"`
 	HookTargetArn   string   `json:"hookTargetArn"`
