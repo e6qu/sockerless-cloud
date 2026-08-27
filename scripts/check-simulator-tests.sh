@@ -173,14 +173,17 @@ op_referenced_in_tests() {
 # wire path is a lowercase subresource like /policy but the SDK/CLI invokes the
 # named operation) — when that named operation is referenced.
 route_referenced_in_tests() {
-    local route cloud path last_seg
+    # route_path, not `path`: zsh ties `path` to `PATH`, so a local named
+    # `path` here would blank the command search path for this function and
+    # every grep below would stop resolving.
+    local route cloud route_path last_seg
     route="$1"; cloud="$2"
-    path="${route#* }"
-    if grep -qF "$path" "$added_dir/tests-$cloud"; then
+    route_path="${route#* }"
+    if grep -qF "$route_path" "$added_dir/tests-$cloud"; then
         return 0
     fi
     # Trailing CamelCase segment ⇒ SDK op name; accept a call/assertion reference.
-    last_seg="${path##*/}"
+    last_seg="${route_path##*/}"
     if printf '%s' "$last_seg" | grep -qE '^[A-Z][a-zA-Z0-9]+$'; then
         op_referenced_in_tests "$last_seg" "$cloud" && return 0
     fi

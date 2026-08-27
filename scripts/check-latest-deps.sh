@@ -661,20 +661,34 @@ fi
 go_tool_module_error=""
 
 go_tool_module() {
-  local path=$1
-  local err=""
+  # NOT named `path`. In zsh `path` is tied to `PATH` as an array, so a
+  # function-local `path=github.com/mibk/dupl` replaces the command search
+  # path with that string and every command in the function stops resolving.
+  # CI runs this script under bash AND zsh; the bash pass reported nothing
+  # while the zsh pass reported "no module resolves" for all three tools,
+  # because inside this function zsh could no longer find `go` at all. The
+  # modules were fine the whole time.
+  local candidate=$1
+  local errfile
   go_tool_module_error=""
-  while [[ $path == *.*/* ]]; do
-    if err=$(GOFLAGS='' go list -m -versions "$path" 2>&1 >/dev/null); then
-      printf '%s\n' "$path"
+  errfile=$(mktemp)
+  while [[ $candidate == *.*/* ]]; do
+    # stderr to a file rather than `2>&1 >/dev/null`: under zsh's MULTIOS that
+    # idiom does not mean what it means in bash, and it swallowed the very
+    # error this was added to surface.
+    if GOFLAGS='' go list -m -versions "$candidate" >/dev/null 2>"$errfile"; then
+      rm -f "$errfile"
+      printf '%s\n' "$candidate"
       return 0
     fi
-    # Keep the first failure: it is the one for the full package path, which is
-    # the query the operator actually wrote. Later ones are for truncated
-    # parents and say only that a prefix is not a module.
-    [[ -n "$go_tool_module_error" ]] || go_tool_module_error=$err
-    path=${path%/*}
+    # Keep the first failure: it is for the full package path the operator
+    # wrote. Later ones only report that a truncated parent is not a module.
+    if [ -z "$go_tool_module_error" ]; then
+      go_tool_module_error=$(cat "$errfile" 2>/dev/null)
+    fi
+    candidate=${candidate%/*}
   done
+  rm -f "$errfile"
   return 1
 }
 
