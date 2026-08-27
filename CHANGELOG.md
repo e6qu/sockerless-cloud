@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.2](https://github.com/e6qu/sockerless-cloud/compare/v0.23.1...v0.23.2) (2026-08-27)
+
+
+### Bug Fixes
+
+* **sim:** a simulator does not outlive the test that started it ([#88](https://github.com/e6qu/sockerless-cloud/issues/88)) ([2cab18d](https://github.com/e6qu/sockerless-cloud/commit/2cab18dfb633403aaec185569261b7b02f79bded))
+
 ## [0.23.1](https://github.com/e6qu/sockerless-cloud/compare/v0.23.0...v0.23.1) (2026-08-27)
 
 
