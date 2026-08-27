@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/e6qu/sockerless-cloud/compare/v0.23.0...v0.23.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* **gcp:** parse orderBy by splitting the entry, not trimming a suffix ([#87](https://github.com/e6qu/sockerless-cloud/issues/87)) ([d4a266a](https://github.com/e6qu/sockerless-cloud/commit/d4a266aa3bff55fce7661a28e6a619628ee57b69))
+
 ## [0.23.0](https://github.com/e6qu/sockerless-cloud/compare/v0.22.0...v0.23.0) (2026-08-26)
 
 
