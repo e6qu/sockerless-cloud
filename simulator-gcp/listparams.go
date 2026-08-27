@@ -107,15 +107,35 @@ func gcpApplyOrderBy[T any](items []T, r *http.Request) []T {
 }
 
 func gcpParseOrderBy(s string) (field string, desc bool) {
-	// "field desc" / "field asc" / "field"
-	s = strings.TrimSpace(strings.Split(s, ",")[0])
-	if strings.HasSuffix(strings.ToLower(s), " desc") {
-		return strings.TrimSpace(s[:len(s)-5]), true
+	// One orderBy entry is a field path optionally followed by a direction:
+	// "field", "field asc", "field desc". A GCP field path never contains
+	// whitespace, so the entry is split on whitespace rather than by trimming a
+	// suffix off the end.
+	//
+	// Suffix-trimming was wrong in two ways, both found by FuzzParseOrderBy.
+	// It matched the keyword through strings.ToLower, so "a desC desc" returned
+	// the field "a desC", which parsed AGAIN as having a direction -- two reads
+	// disagreeing about which field was asked for. And trimming only one suffix
+	// left "0 asc asc" returning the field "0 asc", still carrying a direction.
+	// A field path that still parses as having a direction is not a field path:
+	// it sorts on a field no resource has, which silently orders the list by
+	// nothing.
+	//
+	// The direction is compared case-sensitively, as API_SPEC.md documents it
+	// ("timestamp asc" / "timestamp desc").
+	parts := strings.Fields(strings.Split(s, ",")[0])
+	switch len(parts) {
+	case 0:
+		return "", false
+	case 1:
+		return parts[0], false
+	case 2:
+		// Anything other than the two documented keywords is not a direction,
+		// and the entry is malformed; the field still parses unambiguously.
+		return parts[0], parts[1] == "desc"
+	default:
+		return parts[0], false
 	}
-	if strings.HasSuffix(strings.ToLower(s), " asc") {
-		return strings.TrimSpace(s[:len(s)-4]), false
-	}
-	return s, false
 }
 
 func gcpFieldString(m map[string]any, path string) string {
