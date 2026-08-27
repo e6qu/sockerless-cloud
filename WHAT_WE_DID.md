@@ -1,5 +1,66 @@
 # WHAT WE DID
 
+## 2026-08-26, twenty-sixth pass — the two doors are crossed
+
+Closing the gRPC gaps left one thing unmeasured, and the previous pass said so:
+several Google Cloud services are reached over two protocols and served here
+from one set of stores, and nothing checked that claim. Every suite drove one
+door and read back through the same door, so a handler that answered plausibly
+while doing nothing passed as long as its sibling behaved. That is how the REST
+`dropRowRange` came to acknowledge deletes it never performed while the gRPC
+spelling deleted for real.
+
+`simulator-gcp/sdk-tests/cross_door_test.go` crosses every mounted gRPC service
+against its REST door — writing through one protocol and observing through the
+other, in both directions — and `simulator-gcp/cross_door_test.go` holds that
+file to the services the server actually mounts, so a two-door service cannot
+arrive uncrossed. Both halves of the gate were negative-controlled: removing a
+service's entry names it, renaming a test breaks the table, and reverting
+`dropRowRange` to its no-op fails the Cloud Bigtable crossing.
+
+**The crossing found a second divergence immediately.** The long-running
+Operations service kept its own in-memory store while the REST operations doors
+read the shared one, and the two minted different name shapes for the same
+resource — so an operation a gRPC call returned was invisible to the REST
+operations door, and the reverse. Both doors now mint the name the
+bigtableadmin document declares (`operations/projects/{project}/operations/…`)
+and read one store, so an operation is one resource whichever protocol returned
+it. The REST listing had also ignored its own `{project}` parameter and
+reported every project's operations; it is scoped now.
+
+**Every Terraform provider is pinned, and an unpinned one is now a failure.**
+`hashicorp/google` 8.0.0 was published at 19:15Z on 2026-08-26 and the Google
+Cloud Terraform job installed it 77 minutes later, breaking `main`: the major
+removes `custom_audiences` from `google_cloud_run_v2_worker_pool`. The
+repository has a 24-hour adoption quarantine for exactly this, and the
+provider walked past it by being unpinned — `terraform init` takes the newest
+release when nothing says otherwise.
+
+The freshness check could not have caught it. Its parser emitted a provider
+entry only when that entry carried a version, so the one provider that could
+not be held was also the one nobody was told about — the failure mode the
+file's own comment warns of, one level down. It fails on an unpinned provider
+now, and that immediately found three more: `azurerm` twice and `azuread`
+once, the same break waiting on the next Azure major.
+
+The Google providers are pinned at 7.46.0 rather than 8.0.0, because a
+two-hour-old major is precisely what the quarantine exists to refuse; the
+check reports the pin as held while it ages. `custom_audiences` is gone from
+the worker pool regardless: the provider deprecates it there as "not
+applicable to WorkerPool" and the major removes it, so the configuration
+validates against both 7.46.0 and 8.0.0 and adopting the major will be a
+no-op. The field stays covered where it belongs — the Cloud Run v2 document
+declares it, the simulator serves it, and the SDK suite sets it and reads it
+back.
+
+A flaky Cloud Run test was fixed with it. `TestCloudRun_ExecutionRunningState`
+holds a container for ten seconds and samples the execution once the
+container's marker reaches Cloud Logging; under the load of the full suite that
+trip outlasted the container, so the execution had already settled and
+`runningCount` was zero. The hold is thirty seconds now — long enough to
+survive a busy machine, short enough that the container still exits on its own,
+which the succeeded-count assertion depends on.
+
 ## 2026-08-26, twenty-fifth pass — the gRPC gaps are closed, 210 of 213
 
 The previous pass measured the Google Cloud gRPC surfaces and found 130 of

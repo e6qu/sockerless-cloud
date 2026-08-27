@@ -281,8 +281,17 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 	// The container announces itself on stdout and then holds, so the running
 	// snapshot below is taken while a workload container is genuinely up
 	// rather than while the execution record merely claims one.
+	//
+	// The hold has to outlast the marker's trip through Cloud Logging, because
+	// that trip is what the snapshot waits on. At ten seconds it did not: under
+	// the load of the full suite the marker arrived after the container had
+	// already exited, the execution had settled, and runningCount was zero — a
+	// failure of the test's timing, not of the state it describes. Thirty
+	// seconds is wide enough to survive a busy machine while still letting the
+	// container exit on its own, which the succeeded-count assertion below
+	// depends on.
 	execName := createAndRunJobWithImageAndCommand(t, jobID, commandImageName,
-		[]string{"log", marker, "10"}, "60s")
+		[]string{"log", marker, "30"}, "120s")
 	waitForJobLogMessage(t, jobID, marker)
 
 	exec := getExecution(t, execName)

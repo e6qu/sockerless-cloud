@@ -194,15 +194,23 @@ func bigtableSplitColonVerb(seg string) (id, verb string) {
 	return id, verb
 }
 
+// newBigtableAdminLRO mints a Cloud Bigtable admin operation under the project,
+// in the "operations/" collection the bigtableadmin document declares. The gRPC
+// door mints the same shape (bigtableOperationName), because an operation
+// returned over one protocol has to be addressable over the other.
 func newBigtableAdminLRO(project string, resource any, typeName string) Operation {
 	op := newLRO(project, "global", resource, typeName)
-	return renameGCPOperation(op, "operations")
+	return renameGCPOperation(op, "operations/projects/"+project+"/operations")
 }
 
 // ----- Operations -----
 
+// handleBigtableListOperations lists the operations under a project. It reads
+// the same store the gRPC Operations service reads, and scopes to the project
+// the caller named — listing every project's operations would report work the
+// caller cannot see.
 func handleBigtableListOperations(w http.ResponseWriter, r *http.Request) {
-	prefix := "operations/"
+	prefix := "operations/projects/" + sim.PathParam(r, "project") + "/operations/"
 	out := []Operation{}
 	for _, op := range crOperations.List() {
 		if strings.HasPrefix(op.Name, prefix) {

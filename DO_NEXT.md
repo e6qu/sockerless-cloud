@@ -24,12 +24,19 @@
    one only if the simulator gains the state it would report; serving it
    before then means inventing that state.
 
-   What this pass exposed is worth carrying to the other two clouds: nothing
-   measures whether an operation served over one protocol is served over the
-   other, and Cloud Bigtable's two doors disagreed in three places —
-   `dropRowRange` deleted rows over gRPC and acknowledged without deleting
-   over REST, backups captured no data on either, and snapshots existed on
-   neither. A door-parity check would have named all three.
+   The door-parity gap this exposed is closed for Google Cloud (2026-08-26).
+   `simulator-gcp/sdk-tests/cross_door_test.go` writes through one protocol and
+   observes through the other for every mounted gRPC service, and
+   `simulator-gcp/cross_door_test.go` holds that file to the services the
+   server mounts. It found the long-running Operations divergence on its first
+   run — two stores and two name shapes for one resource — which is now one
+   store and the name the bigtableadmin document declares.
+
+   Neither of the other two clouds has a second protocol door, so there is
+   nothing to cross there: the AWS and Azure simulators serve one HTTP surface
+   each. The equivalent question for them is a different one — whether the SDK,
+   CLI and Terraform clients that reach the same operation agree — and the
+   shard-coverage gates already hold each of those surfaces to its own tests.
 
 2. The full-store-read class is closed: scripts/check-store-scans.sh holds
    the floor at zero, and its comment now records that every exemption the
