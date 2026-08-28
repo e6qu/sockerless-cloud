@@ -165,6 +165,13 @@ credential (sockerless #927). Nothing is pending on the consumer side.
 
 ## Tooling quirks that are not simulator defects
 
+- `route_coverage_paths_test.go` is a wire-path index whose owning test —
+  `TestRouteCoveragePathsAreServed` — rejects a duplicated line and is not in
+  pre-commit, which only greps the file. Editing the index by anchored
+  insertion duplicates a line whenever a later edit anchors on one an earlier
+  edit added. Run the SDK suite of the simulator whose index changed, not only
+  the tests named after the change.
+
 - This host's Podman drops `buildx` with `rpc error: ... EOF` at the
   `exporting to docker image format` step, which fails the Terraform harness
   before Terraform runs at all. `podman machine stop && podman machine start`

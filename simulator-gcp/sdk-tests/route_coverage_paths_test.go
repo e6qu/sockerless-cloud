@@ -150,13 +150,7 @@ import (
 //   POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/pythonPackages
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/pythonPackages/{pythonPackage}
-//   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts
-//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
-//   POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules
-//   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts
-//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
-//   POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules/{rule}
 //   GET /v1/projects/{project}/locations/{location}/retiredResources
 //   GET /v1/projects/{project}/locations/{location}/retiredResources/{retiredResource}
@@ -214,7 +208,6 @@ import (
 //   POST /dns/v1/projects/{project}/responsePolicies
 //   POST /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules
 //   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/
-//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   POST /v1/projects/{project}/databases
 //   POST /v1/projects/{project}/databases/{database}/backupSchedules
 //   POST /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/indexes
