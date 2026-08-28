@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.1](https://github.com/e6qu/sockerless-cloud/compare/v0.28.0...v0.28.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **aws:** authorize a create against its resource type, and repair the installable build ([#101](https://github.com/e6qu/sockerless-cloud/issues/101)) ([465bf2b](https://github.com/e6qu/sockerless-cloud/commit/465bf2bee57ef566bfbf22cc99af1624d13f54ec))
+
 ## [0.28.0](https://github.com/e6qu/sockerless-cloud/compare/v0.27.0...v0.28.0) (2026-08-28)
 
 
