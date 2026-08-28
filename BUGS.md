@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 78.
+Open: 7. Resolved: 79.
 
 ## Open
 
@@ -56,6 +56,18 @@ Open: 7. Resolved: 78.
 
 
 ## Resolved history
+
+- ~~**BUG-2934 (Shauth could not observe any simulator application):**~~ All
+  three simulator registrations advertised no monitoring coordinate, because
+  their binaries served no authenticated application observation. The shared
+  `ui-auth` boundary owns a fixed-cardinality `e6qu.monitoring/v2` publisher and
+  each simulator supplies its own name, slug, token, session store and process
+  evidence; the observation reports real session, runtime, memory and uptime
+  figures and fabricates no cloud resource or cost. `SIM_MONITORING_TOKEN` is
+  documented beside the other coordinates in each `shared/README.md`. The
+  implementation merged in PR #95 and shipped in `v0.26.0`. Filed as BUG-2933
+  by the change that fixed it, which was already the number of the orphaned-
+  simulator leak below; renumbered here.
 
 - ~~**BUG-2933 (a test binary that died without cleanup leaked its
   simulator):**~~ Every harness starts a simulator as a child and stops it from

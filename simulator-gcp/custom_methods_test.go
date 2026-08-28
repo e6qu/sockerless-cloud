@@ -132,13 +132,6 @@ func TestUnservedCustomMethodsAreMethodNotFound(t *testing.T) {
 			path:   "/v3/projects/no-such-project:getOrgPolicy",
 			body:   `{}`,
 		},
-		{
-			name:   "FirestorePartitionQuery",
-			method: http.MethodPost,
-			host:   "firestore.googleapis.com",
-			path:   "/v1/projects/test-project/databases/(default)/documents/things:partitionQuery",
-			body:   `{}`,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status, body := gcpDo(t, srv, tc.method, tc.host, tc.path, tc.body)

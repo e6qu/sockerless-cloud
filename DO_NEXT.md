@@ -1,5 +1,12 @@
 # DO NEXT
 
+0-monitoring. **Complete release integration for the three application
+   observations.** The publisher merged in feature PR #95 and shipped in
+   `v0.26.0`. This sole follow-up branch documents the deployment coordinate
+   and makes every `ui-auth` JSON response-encoding failure observable. After
+   it merges, advance the owning infrastructure release pin and verify all
+   three authenticated observations through Shauth.
+
 0. **The remaining tails are being served, document by document, on one
    branch.** An earlier revision of this item claimed that what remained
    unserved was "without exception" a family needing invented data or a
@@ -17,12 +24,13 @@
    methods, and the prewarmed-artifact family over real state. **Cloud Build,
    114 of 114** (2026-08-28) — the regional surface, the build and trigger
    colon-verbs, the webhook receivers, and the Bitbucket Server
-   connected-repository pair.
+   connected-repository pair. **Firestore, 108 of 120** (2026-08-28) — the
+   document-parent custom methods, `documents:write`, and the databases
+   clone/restore pair.
 
    Left, largest first, with the per-document floor comment naming each:
    Compute Engine's long tail (1,118 of 2,014 spellings; 559 of 1,007
-   methods), Firestore's streaming verbs and change
-   streams (24, of which about ten are routing), Cloud Run v2's export family
+   methods), Cloud Run v2's export family
    and source upload (17), Memorystore's export/import/reschedule verbs (6),
    BigQuery's media upload path (1); then Azure's 41 non-App-Service
    operations and the implementable part of App Service's 76; then the 230 AWS
@@ -173,6 +181,12 @@ credential (sockerless #927). Nothing is pending on the consumer side.
   insertion duplicates a line whenever a later edit anchors on one an earlier
   edit added. Run the SDK suite of the simulator whose index changed, not only
   the tests named after the change.
+
+- Running two simulator suites at once starves this host's Podman: the SDK
+  suite failed with `Get "http://%2Fvar%2Frun%2Fdocker.sock/_ping": context
+  deadline exceeded` while the CLI suite held the engine, and the isolated
+  simulator it was starting never became healthy. The engine answered normally
+  a minute later and the same suite passed alone. Run them in sequence.
 
 - This host's Podman drops `buildx` with `rpc error: ... EOF` at the
   `exporting to docker image format` step, which fails the Terraform harness

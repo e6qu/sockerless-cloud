@@ -3,7 +3,6 @@ package uiauth
 import (
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"runtime"
@@ -83,7 +82,7 @@ func (a *Auth) monitoringHandler() http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(document)
+		encodeJSON(w, document, "monitoring")
 	})
 }
 

@@ -62,6 +62,7 @@ type Config struct {
 //	SIM_UI_PUBLIC_URL         — externally visible simulator origin
 //	SIM_UI_SESSION_SECRET     — random secret used to sign local sessions
 //	APPLICATION_RELEASE_REVISION — immutable deployed release exposed to Shauth validation
+//	SIM_MONITORING_TOKEN      — deployment bearer for the application observation
 func ConfigFromEnv(provider string) Config {
 	return Config{
 		ListenAddr:                 envOrDefault("SIM_LISTEN_ADDR", ":8443"),

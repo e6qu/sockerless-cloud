@@ -1,7 +1,10 @@
 package uiauth
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,11 +14,35 @@ import (
 
 const monitoringTestToken = "sockerless-monitoring-token-00000000000000000000"
 
+type failingResponseWriter struct {
+	header http.Header
+}
+
+func (w *failingResponseWriter) Header() http.Header { return w.header }
+
+func (*failingResponseWriter) Write([]byte) (int, error) {
+	return 0, errors.New("response connection closed")
+}
+
+func (*failingResponseWriter) WriteHeader(int) {}
+
 func monitoringConfig() Config {
 	config := testConfig()
 	config.ApplicationSlug = "sockerless-test"
 	config.MonitoringToken = monitoringTestToken
 	return config
+}
+
+func TestEncodeJSONReportsWriteFailure(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	encodeJSON(&failingResponseWriter{header: make(http.Header)}, map[string]string{"state": "healthy"}, "monitoring")
+	if got := output.String(); !strings.Contains(got, "sockerless monitoring response failed: response connection closed") {
+		t.Fatalf("write failure log = %q", got)
+	}
 }
 
 func TestMonitoringConfigurationFailsClosed(t *testing.T) {
@@ -43,7 +70,7 @@ func TestMonitoringObservationAuthenticatesAndPublishesApplicationEvidence(t *te
 	auth.RegisterMonitoring(mux)
 
 	for _, authorization := range []string{"", "bearer " + monitoringTestToken, "Bearer wrong-monitoring-token-00000000000000000000"} {
-		request := httptest.NewRequest(http.MethodGet, MonitoringPath, nil)
+		request := httptest.NewRequest(http.MethodGet, MonitoringPath, http.NoBody)
 		request.Header.Set("Authorization", authorization)
 		response := httptest.NewRecorder()
 		mux.ServeHTTP(response, request)
@@ -55,7 +82,7 @@ func TestMonitoringObservationAuthenticatesAndPublishesApplicationEvidence(t *te
 		}
 	}
 
-	request := httptest.NewRequest(http.MethodGet, MonitoringPath, nil)
+	request := httptest.NewRequest(http.MethodGet, MonitoringPath, http.NoBody)
 	request.Header.Set("Authorization", "Bearer "+monitoringTestToken)
 	response := httptest.NewRecorder()
 	mux.ServeHTTP(response, request)
@@ -90,7 +117,7 @@ func TestMonitoringRouteIsAbsentWithoutADeploymentToken(t *testing.T) {
 	mux := http.NewServeMux()
 	auth.RegisterMonitoring(mux)
 	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, MonitoringPath, nil))
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, MonitoringPath, http.NoBody))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("unconfigured monitoring route status = %d, want 404", response.Code)
 	}

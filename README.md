@@ -76,6 +76,7 @@ Environment knobs (per sim — full list in each sub-README):
 | `SIM_UI_SESSION_SECRET` | unset | Independent random value of at least 32 bytes used to sign local browser sessions. |
 | `SIM_UI_INSECURE_COOKIES` | `false` | Explicit loopback-development opt-in for HTTP issuer/public coordinates and non-Secure cookies; non-loopback HTTP coordinates remain invalid. |
 | `APPLICATION_RELEASE_REVISION` | unset | Immutable 12–64 character lowercase hexadecimal revision or `sha256:` image digest; required whenever UI OpenID Connect is enabled. |
+| `SIM_MONITORING_TOKEN` | unset | Independent deployment bearer credential of at least 32 non-whitespace characters for `GET /monitoring/observation`; without it the route is not registered. |
 
 The optional first-party UI authentication layer uses authorization code +
 PKCE, nonce and state validation, signed server-tracked sessions, RP-Initiated
@@ -85,6 +86,12 @@ issuer and `sid`, and signed OIDC Back-Channel Logout correlated by `sid` or
 protects only `/ui/` and the UI identity/logout endpoints;
 all AWS, Google Cloud, and Microsoft Azure API routes retain their native
 authentication and protocol behavior. Partial configuration fails startup.
+
+When configured, the monitoring route sits outside browser OpenID Connect
+protection and accepts only its exact bearer credential. It publishes an
+`e6qu.monitoring/v2` application resource with real session and process
+evidence; it does not change any simulated cloud API route or invent cloud
+resource cost.
 
 Each simulator dashboard registers these relying-party coordinates, replacing
 `<origin>` with that dashboard's `SIM_UI_PUBLIC_URL`:

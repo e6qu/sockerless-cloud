@@ -665,7 +665,13 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	encodeJSON(w, value, "UI authentication")
+}
+
+func encodeJSON(w http.ResponseWriter, value any, responseName string) {
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		log.Printf("sockerless %s response failed: %v", responseName, err)
+	}
 }
 
 type sessionStore struct {

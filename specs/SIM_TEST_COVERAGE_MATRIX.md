@@ -101,6 +101,7 @@ Legend:
 | `gcp-dns` | direct | direct | direct | `simulator-gcp/sdk-tests/dns_test.go`; `simulator-gcp/cli-tests/dns_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-eventarc` | direct | direct | direct | `simulator-gcp/sdk-tests/eventarc_test.go`; `simulator-gcp/cli-tests/eventarc_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-firestore` | direct | direct | direct | `simulator-gcp/sdk-tests/data_saas_test.go`; `simulator-gcp/cli-tests/data_saas_test.go`; `simulator-gcp/terraform-tests/main.tf` |
+| `gcp-firestore_document_verbs` | direct | not applicable | not applicable | `simulator-gcp/sdk-tests/firestore_document_verbs_test.go`; gcloud exposes no command for the document custom methods, documents:write or the databases clone/restore pair, and terraform-provider-google wraps none of them |
 | `gcp-gcs` | direct | direct | direct | `simulator-gcp/sdk-tests/storage_test.go`; `simulator-gcp/cli-tests/storage_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-gcs_object_acls` | direct | direct | direct | `simulator-gcp/sdk-tests/storage_soft_delete_test.go`; `simulator-gcp/cli-tests/storage_test.go`; `simulator-gcp/terraform-tests/main.tf` (`google_storage_object_access_control`) |
 | `gcp-gcs_object_restore` | direct | direct | direct | `simulator-gcp/sdk-tests/storage_soft_delete_test.go`; `simulator-gcp/cli-tests/storage_test.go`; `simulator-gcp/terraform-tests/main.tf` (`soft_delete_policy`) |
