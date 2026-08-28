@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/e6qu/sockerless-cloud/compare/v0.24.0...v0.25.0) (2026-08-28)
+
+
+### Features
+
+* **gcp:** serve Cloud Logging and Artifact Registry whole ([#93](https://github.com/e6qu/sockerless-cloud/issues/93)) ([9403079](https://github.com/e6qu/sockerless-cloud/commit/940307950e18ee5dca5096e94f788688413743b5))
+
 ## [0.24.0](https://github.com/e6qu/sockerless-cloud/compare/v0.23.2...v0.24.0) (2026-08-28)
 
 
