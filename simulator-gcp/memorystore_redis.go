@@ -45,6 +45,9 @@ type MSRedisInstance struct {
 	// must echo them or terraform-provider-google plans a replacement.
 	ConnectMode           string `json:"connectMode,omitempty"`
 	TransitEncryptionMode string `json:"transitEncryptionMode,omitempty"`
+	// MaintenanceSchedule is output-only: the service reports the upcoming
+	// window, and rescheduleMaintenance moves it.
+	MaintenanceSchedule map[string]any `json:"maintenanceSchedule,omitempty"`
 }
 
 var msRedisInstances sim.Store[MSRedisInstance]
@@ -902,6 +905,8 @@ func handleMSRedisAction(w http.ResponseWriter, r *http.Request) {
 		handleMSRedisUpgrade(w, r, id)
 	case "failover":
 		handleMSRedisFailover(w, r, id)
+	case "rescheduleMaintenance":
+		handleMSRedisRescheduleMaintenance(w, r, id)
 	default:
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"unknown action %q on memorystore instance %q", action, id)
@@ -1119,4 +1124,59 @@ func defaultInt(v, def int) int {
 		return def
 	}
 	return v
+}
+
+// handleMSRedisRescheduleMaintenance moves the upcoming maintenance window.
+// SPECIFIC_TIME takes the caller's time; the other modes resolve to one the
+// service picks, which here is the moment the reschedule was asked for.
+//
+// export and import are not served beside this: both move an RDB snapshot of
+// the instance's keyspace, and this slice models the control plane only — there
+// is no Redis behind the instance, so there are no bytes to write out and
+// nothing an import could load. Serving them would fabricate an RDB.
+func handleMSRedisRescheduleMaintenance(w http.ResponseWriter, r *http.Request, id string) {
+	key := msRedisInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), id)
+	inst, ok := msRedisInstances.Get(key)
+	if !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Memorystore instance %q not found", id)
+		return
+	}
+	var req struct {
+		RescheduleType string `json:"rescheduleType"`
+		ScheduleTime   string `json:"scheduleTime"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid reschedule body: %v", err)
+		return
+	}
+	scheduled := req.ScheduleTime
+	switch req.RescheduleType {
+	case "SPECIFIC_TIME":
+		if scheduled == "" {
+			sim.GCPError(w, http.StatusBadRequest,
+				"scheduleTime is required when rescheduleType is SPECIFIC_TIME", "INVALID_ARGUMENT")
+			return
+		}
+	case "IMMEDIATE", "NEXT_AVAILABLE_WINDOW":
+		scheduled = nowTimestamp()
+	default:
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"rescheduleType %q is not one of IMMEDIATE, NEXT_AVAILABLE_WINDOW or SPECIFIC_TIME",
+			req.RescheduleType)
+		return
+	}
+	inst.MaintenanceSchedule = map[string]any{
+		"startTime":            scheduled,
+		"endTime":              scheduled,
+		"canReschedule":        true,
+		"scheduleDeadlineTime": scheduled,
+	}
+	msRedisInstances.Put(key, inst)
+	now := nowTimestamp()
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"name":     "operations/reschedule-maintenance-" + generateUUID(),
+		"done":     true,
+		"metadata": map[string]any{"operationType": "RESCHEDULE_MAINTENANCE", "startTime": now, "endTime": now},
+		"response": inst,
+	})
 }

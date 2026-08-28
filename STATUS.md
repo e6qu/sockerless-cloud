@@ -99,9 +99,8 @@ Current state of the sockerless-cloud repository.
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family);
   `containerregistry-dataplane-containerregistry-2021-07-01` 24 of 29;
-  `keyvault-arm-managedhsm-2023-07-01` 6 of 16 (the Managed HSM pool's own
-  lifecycle and both list scopes). Google Cloud totals **4,480 of 5,426**
-  Discovery method spellings; Azure **2,511 of 2,628** operations; the AWS
+  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **4,489 of 5,426**
+  Discovery method spellings; Azure **2,521 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint
   operations. VPC networks allocate bridge subnets from a host-side pool with

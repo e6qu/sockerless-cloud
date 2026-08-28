@@ -164,11 +164,16 @@ func registerKeyVaultManagedHSM(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "name")
 		id := managedHSMID(sub, rg, name)
-		if _, ok := managedHSMs.Get(id); !ok {
+		hsm, ok := managedHSMs.Get(id)
+		if !ok {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		managedHSMs.Delete(id)
+		// A pool with soft delete on is retired rather than destroyed, and the
+		// deleted collection is what a caller reads to find it and purge it.
+		// Read the pool before the delete: its location addresses the record.
+		mhsmSoftDelete(sub, rg, name, hsm)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -200,4 +205,5 @@ func registerKeyVaultManagedHSM(srv *sim.Server) {
 	}
 	srv.HandleFunc("GET "+armBase, list)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/managedHSMs", list)
+	registerManagedHSMTail(srv, armBase)
 }

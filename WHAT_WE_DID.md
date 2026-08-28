@@ -1,5 +1,54 @@
 # WHAT WE DID
 
+## 2026-08-28, thirty-fourth pass — Azure's Managed HSM tail
+
+Managed HSM reaches 16 of 16, up from 6, taking Azure to 2,521 of 2,628.
+
+Deleting a pool that carries soft delete retires it: the record leaves the live
+collection, joins the deleted one with a scheduled purge date, and answers
+`GetDeleted`. Purging destroys the record, and purge protection refuses the
+purge — which is the whole reason the flag exists. `checkMhsmNameAvailability`
+reads both the live pools and the retired records, so a name held by either is
+unavailable. The private endpoint connections round-trip, and the private-link
+resources and regions listings report the group and location the pool actually
+holds.
+
+The purge answers 202 with a Location the client polls, mirroring the
+deleted-vault purge beside it; that poll URL is a Location target Azure does not
+document, so it takes an allowlist entry with the same justification the vault's
+does.
+
+Two defects found in my own first draft. The delete handler read the pool after
+deleting it, so the retired record was addressed by an empty location and
+`GetDeleted` could never find it — the listing still passed, because it filters
+on subscription alone. And the purge answered a bare 200, which the SDK's poller
+rejects as a response with no terminal state.
+
+## 2026-08-28, thirty-third pass — Cloud Run's build path, BigQuery's upload, Memorystore's maintenance
+
+BigQuery reaches 95 of 95, Cloud Run v2 104 of 119 and Memorystore 90 of 94,
+taking Google Cloud to 4,489 of 5,426.
+
+BigQuery's `jobs.insert` declares a JSON path and a `/upload` media path that
+carries a load job's bytes; the same handler answers both, because the body is
+the same Job either way.
+
+Cloud Run v2's `builds.submit` hands the request to the Cloud Build this
+simulator serves, so the operation it returns names a build that really ran —
+and a submit naming source that was never uploaded is NOT_FOUND rather than a
+build of nothing. Both it and `sourceUploads.upload` ride the `/v2` locations
+segment Cloud Functions also claims, so they dispatch from its fan-in; that
+service's count is unmoved at 42, which is what proves neither shadows the
+other. This is the third such collision after Cloud Logging/Cloud Run and
+Cloud Build/Eventarc.
+
+Memorystore serves `rescheduleMaintenance`, which records the moved window on
+the instance. Its `export` and `import` stay unserved, and not for want of
+routing: both move an RDB snapshot of the instance's keyspace, and the slice
+models the control plane only — no Redis runs behind an instance, so there are
+no bytes to write out and nothing an import could load. Serving them would
+fabricate an RDB, so the floor comment records that instead.
+
 ## 2026-08-28, thirty-second pass — Firestore's document verbs, and a picked-up tail
 
 Firestore reaches 108 of 120 method spellings, taking Google Cloud to 4,480 of
