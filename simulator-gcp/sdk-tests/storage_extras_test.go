@@ -146,12 +146,33 @@ func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "READER", got.Role)
 
+	// A bucket created without a default object ACL of its own carries the
+	// predefined projectPrivate one, so the inserted entry is the fourth
+	// rather than the only one.
 	list, err := svc.DefaultObjectAccessControls.List("defacl-bucket").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#objectAccessControls", list.Kind)
-	require.Len(t, list.Items, 1)
+	require.Len(t, list.Items, 4)
+	assert.Subset(t, defaultACLEntities(list.Items), []string{
+		"project-owners-123456789012",
+		"project-editors-123456789012",
+		"project-viewers-123456789012",
+	})
 
 	require.NoError(t, svc.DefaultObjectAccessControls.Delete("defacl-bucket", entity).Do())
+
+	list, err = svc.DefaultObjectAccessControls.List("defacl-bucket").Do()
+	require.NoError(t, err)
+	assert.Len(t, list.Items, 3, "deleting the inserted entry leaves projectPrivate behind")
+}
+
+// defaultACLEntities names the entities in an access-control listing.
+func defaultACLEntities(items []*storageapi.ObjectAccessControl) []string {
+	entities := make([]string, 0, len(items))
+	for _, item := range items {
+		entities = append(entities, item.Entity)
+	}
+	return entities
 }
 
 func TestGCS_Notifications_RoundTrip(t *testing.T) {

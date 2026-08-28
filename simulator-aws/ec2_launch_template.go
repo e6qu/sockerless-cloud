@@ -348,8 +348,6 @@ func parseLaunchTemplateData(r *http.Request, prefix string) EC2LaunchTemplateDa
 	return d
 }
 
-// ---- Rendering (exact aws-sdk-go-v2 ec2 query locationNames) ----
-
 func ltOptEl(b *strings.Builder, name, val string) {
 	if val != "" {
 		fmt.Fprintf(b, "<%s>%s</%s>", name, xmlEscape(val), name)
@@ -505,8 +503,6 @@ func ltVersionFieldsXML(lt EC2LaunchTemplate, v EC2LaunchTemplateVersion) string
 func ltVersionXML(lt EC2LaunchTemplate, v EC2LaunchTemplateVersion) string {
 	return "<item>" + ltVersionFieldsXML(lt, v) + "</item>"
 }
-
-// ---- Handlers ----
 
 func handleCreateLaunchTemplate(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("LaunchTemplateName")

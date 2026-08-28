@@ -681,8 +681,6 @@ func (t azureFilterTerm) matchesTagValue(row azureResourceRow) bool {
 	return t.operator == "ne"
 }
 
-// --- the list handlers -----------------------------------------------------
-
 // azureExpandMembers are the additional members $expand can ask a resource
 // list to carry. The simulator reports the provisioning state each resource
 // records in its own properties document; it records no creation or change

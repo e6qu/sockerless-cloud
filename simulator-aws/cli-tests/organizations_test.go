@@ -365,7 +365,6 @@ func TestOrganizationsCLI_Tags(t *testing.T) {
 	}
 }
 
-// TestOrganizationsCLI_EnableAllFeatures covers enable-all-features.
 func TestOrganizationsCLI_EnableAllFeatures(t *testing.T) {
 	out := runCLI(t, awsCLI("organizations", "enable-all-features", "--output", "json"))
 	if !strings.Contains(out, "ENABLE_ALL_FEATURES") {

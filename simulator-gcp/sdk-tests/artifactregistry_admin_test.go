@@ -108,7 +108,6 @@ func TestArtifactRegistry_Rules(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestArtifactRegistry_RepositoryIAM covers set/get/test IAM on a repository.
 func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"

@@ -20,8 +20,6 @@ import (
 // asserted against the sim. Real API:
 // https://docs.aws.amazon.com/IAM/latest/APIReference/API_SimulateCustomPolicy.html
 
-// ---------- policy document model ----------
-
 // iamStringOrList unmarshals an IAM field that may be a single string or a
 // JSON array of strings (Action/Resource/condition values all allow both).
 type iamStringOrList []string
@@ -203,8 +201,6 @@ func parseIAMPolicy(s string) (iamPolicyDoc, error) {
 	}
 	return doc, nil
 }
-
-// ---------- matching ----------
 
 // iamGlobMatch matches an IAM pattern (with `*` and `?`) against value.
 func iamGlobMatch(pattern, value string) bool {
@@ -611,8 +607,6 @@ func iamEvalDecisionForPrincipal(docs []iamPolicyDoc, action, resource, callerAr
 	return "implicitDeny", missing
 }
 
-// ---------- request parsing ----------
-
 func iamQueryList(r *http.Request, key string) []string {
 	var out []string
 	for i := 1; ; i++ {
@@ -644,8 +638,6 @@ func iamParseContextEntries(r *http.Request) map[string][]string {
 	}
 	return ctx
 }
-
-// ---------- handlers ----------
 
 func handleIAMSimulateCustomPolicy(w http.ResponseWriter, r *http.Request) {
 	docs := make([]iamPolicyDoc, 0)

@@ -288,8 +288,6 @@ func TestCloudBuild_MissingSecretFails(t *testing.T) {
 	assert.Contains(t, op.Error.Message, "resolve secret")
 }
 
-// ---- helpers (local to this test file) ----
-
 func makeTarGz(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer

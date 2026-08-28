@@ -116,8 +116,6 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 	return nil
 }
 
-// ===== AWS Budgets =====
-
 // iamBudgetsResourceARNs derives the ARNs an AWS Budgets request names. The
 // service is global — its ARN formats carry no region — and it speaks
 // awsJson, so a budget and a budget action are named by the BudgetName and
@@ -131,8 +129,6 @@ func iamBudgetsResourceARNs(r *http.Request, types []string, account string) []s
 	return iamTableDrivenARNs("budgets", types, "", account, nil,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
-
-// ===== AWS Identity and Access Management =====
 
 // iamIAMResourceARNs derives the ARNs an IAM request names. IAM is a global
 // service and its ARNs carry no region — "arn:aws:iam::<account>:role/<name>" —
@@ -284,8 +280,6 @@ func iamHasType(types []string, resourceType string) bool {
 	return false
 }
 
-// ===== AWS Organizations =====
-
 // iamOrganizationsResourceARNs derives the ARNs an AWS Organizations request
 // names.
 //
@@ -394,8 +388,6 @@ func iamOrganizationsResource(id string) ([]string, string) {
 // without a prefix, which the model declares as exactly twelve digits.
 var iamOrganizationsAccountID = regexp.MustCompile(`^\d{12}$`)
 
-// ===== AWS Private Certificate Authority =====
-
 // iamACMPCAResourceARNs derives the ARNs an AWS Private Certificate Authority
 // request names. A certificate authority's ARN carries an identifier AWS
 // assigned, which no request supplies as a part — what a request carries is the
@@ -411,8 +403,6 @@ func iamACMPCAResourceARNs(r *http.Request, types []string) []string {
 	}
 	return nil
 }
-
-// ===== AWS Cloud Map =====
 
 // iamCloudMapResourceARNs derives the ARNs an AWS Cloud Map request names. A
 // namespace and a service are each addressed by an assigned id, which arrives
@@ -493,8 +483,6 @@ func iamCloudMapResourceARNs(r *http.Request, types []string, region, account st
 	return out
 }
 
-// ===== Amazon Simple Notification Service =====
-
 // iamSNSResourceARNs derives the topic ARNs an Amazon SNS request names. A
 // topic is addressed by its ARN on every operation but creation, where it is
 // named — and a topic ARN ends in the name itself, so the one can be built from
@@ -527,8 +515,6 @@ func iamSNSResourceARNs(r *http.Request, types []string, region, account string)
 	}
 	return nil
 }
-
-// ===== Amazon Simple Queue Service =====
 
 // iamSQSResourceARNs derives the queue ARNs an Amazon SQS request names. A
 // queue is addressed by its URL rather than by its ARN or its name, and the
@@ -574,8 +560,6 @@ func iamSQSResourceARNs(r *http.Request, types []string, region, account string)
 	return []string{"arn:aws:sqs:" + region + ":" + account + ":" + name}
 }
 
-// ===== AWS Secrets Manager =====
-
 // iamSecretsManagerResourceARNs derives the secret ARNs an AWS Secrets Manager
 // request names. A secret is addressed by SecretId, which the API accepts as
 // either the secret's name or its full ARN, and named in Name at creation —
@@ -599,8 +583,6 @@ func iamSecretsManagerResourceARNs(r *http.Request, types []string, region, acco
 	}
 	return nil
 }
-
-// ===== Amazon Elastic Container Registry =====
 
 // iamECRResourceARNs derives the repository ARNs an Amazon ECR request names.
 // A repository is addressed by name — repositoryName on the per-repository
@@ -626,8 +608,6 @@ func iamECRResourceARNs(r *http.Request, types []string, region, account string)
 	return iamTableDrivenARNs("ecr", types, region, account, nil,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
-
-// ===== Amazon Kinesis Data Streams =====
 
 // iamKinesisResourceARNs derives the ARNs an Amazon Kinesis request names. A
 // stream is addressed either by name or by its ARN, and a consumer only by ARN:
@@ -666,8 +646,6 @@ func iamKinesisResourceARNs(r *http.Request, types []string, region, account str
 	sort.Strings(out)
 	return out
 }
-
-// ===== AWS Step Functions =====
 
 // iamStatesResourceARNs derives the ARNs an AWS Step Functions request names.
 // Every one of its resources is addressed by its own ARN — a state machine, an
@@ -724,8 +702,6 @@ func iamStatesResourceARNs(r *http.Request, op string, types []string, region, a
 	return out
 }
 
-// ===== AWS Security Token Service =====
-
 // iamSTSResourceARNs derives the ARNs an AWS Security Token Service request
 // names. STS is a global service whose resources are identities, so nothing
 // regional is assembled, and each of its three request shapes names its
@@ -760,8 +736,6 @@ func iamSTSResourceARNs(r *http.Request, types []string, account string) []strin
 	}
 	return nil
 }
-
-// ===== Elastic Load Balancing =====
 
 // iamELBv2ResourceARNs derives the ARNs an Elastic Load Balancing request
 // names. Every one of its resource ARNs carries an identifier AWS assigned —
@@ -834,8 +808,6 @@ func iamELBv2ResourceARNs(r *http.Request, types []string, region, account strin
 	return out
 }
 
-// ===== AWS Certificate Manager =====
-
 // iamACMResourceARNs derives the ARNs an AWS Certificate Manager request names.
 // Its resources are addressed by ARN — a certificate's own, an ACME endpoint's,
 // and the validations and account bindings nested under an endpoint — so the
@@ -866,8 +838,6 @@ func iamACMResourceARNs(r *http.Request, types []string) []string {
 	sort.Strings(out)
 	return out
 }
-
-// ===== Amazon CloudWatch =====
 
 // iamCloudWatchResourceARNs derives the ARNs an Amazon CloudWatch request
 // names. Its resources are addressed by name, and each type's name arrives
@@ -902,8 +872,6 @@ var iamCloudWatchFieldAliases = map[string][]string{
 	"DatasetId":        {"DatasetIdentifier"},
 }
 
-// ===== Application Auto Scaling =====
-
 // iamApplicationAutoScalingResourceARNs derives the scalable-target ARNs an
 // Application Auto Scaling request names. The service declares one resource
 // type and publishes its ARN as "scalable-target/${ResourceId}" — ${ResourceId}
@@ -923,8 +891,6 @@ func iamApplicationAutoScalingResourceARNs(r *http.Request, types []string, regi
 	return iamTableDrivenARNs("application-autoscaling", types, region, account, nil,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
-
-// ===== Amazon EC2 Auto Scaling =====
 
 // iamAutoScalingResourceARNs derives the ARNs an Amazon EC2 Auto Scaling
 // request names. Both of its resource types carry two identifiers: one AWS
@@ -959,8 +925,6 @@ func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 	}
 	return out
 }
-
-// ===== AWS CloudTrail =====
 
 // iamCloudTrailResourceARNs derives the ARNs an AWS CloudTrail request names.
 // CloudTrail publishes three of its four identifiers under names the API does
@@ -1004,8 +968,6 @@ var iamCloudTrailFieldAliases = map[string][]string{
 	"DashboardName":    {"DashboardId"},
 }
 
-// ===== Amazon DynamoDB =====
-
 // iamDynamoDBResourceARNs derives the ARNs an Amazon DynamoDB request names.
 //
 // Three of its resource types nest under a table — an index is
@@ -1033,8 +995,6 @@ func iamDynamoDBResourceARNs(r *http.Request, types []string, region, account st
 	return iamTableDrivenARNs("dynamodb", types, region, account, nil,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
-
-// ===== Amazon Elastic Compute Cloud =====
 
 // iamEC2ResourceARNs derives the ARNs an Amazon EC2 request names. EC2 declares
 // 112 resource types across 515 actions — too many to transcribe, and a
@@ -1312,8 +1272,6 @@ func iamQueryRequestParameters(r *http.Request) map[string][]string {
 	return params
 }
 
-// ===== Deriving an ARN from the format the reference publishes =====
-
 // iamTableDrivenARNs derives the ARNs a request names for a service whose
 // resource types are in the generated table, by filling each type's published
 // ARN format from the identifiers the request supplies. Everything that differs
@@ -1546,8 +1504,6 @@ func iamFillARNFormat(format, region, account string, values []string) string {
 	})
 }
 
-// ===== Amazon EventBridge =====
-
 // iamEventBridgeResourceARNs derives the ARNs an Amazon EventBridge request
 // names. Its identifiers are ordinary — a connection's ${ConnectionName}
 // arrives as Name, which the prefix drop resolves — but two of its resource
@@ -1620,8 +1576,6 @@ var iamEventBridgeFieldAliases = map[string][]string{
 	"ConnectionName":                     {"ConnectionArn"},
 }
 
-// ===== Amazon Data Firehose =====
-
 // iamFirehoseResourceARNs derives the delivery-stream ARNs an Amazon Data
 // Firehose request names. The service declares one resource type, every
 // operation that authorizes against it addresses the stream as
@@ -1633,8 +1587,6 @@ func iamFirehoseResourceARNs(r *http.Request, types []string, region, account st
 	return iamTableDrivenARNs("firehose", types, region, account, nil,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
-
-// ===== AWS Glue =====
 
 // iamGlueResourceARNs derives the ARNs an AWS Glue request names. Glue speaks
 // awsJson, so the identifiers are members of the request body rather than query
@@ -1754,8 +1706,6 @@ func iamJSONStrings(value json.RawMessage) ([]string, bool) {
 	}
 	return nil, false
 }
-
-// ===== Amazon Relational Database Service =====
 
 // iamRDSResourceARNs derives the ARNs an Amazon RDS request names. RDS speaks
 // the awsQuery protocol, so the identifiers are form parameters, and it is the
@@ -1879,8 +1829,6 @@ var iamRDSFieldAliases = map[string][]string{
 	"SnapshotName":              {"DBSnapshotIdentifier"},
 	"SubnetGroupName":           {"DBSubnetGroupName"},
 }
-
-// ===== AWS Systems Manager =====
 
 // iamSSMResourceARNs derives the ARNs an AWS Systems Manager request names.
 // Systems Manager speaks awsJson, so the identifiers are request members, and
@@ -2016,8 +1964,6 @@ func iamEventBridgeEntryBuses(r *http.Request, region, account string) []string 
 	return buses
 }
 
-// ===== Amazon ElastiCache =====
-
 // iamElastiCacheResourceARNs derives the ARNs an Amazon ElastiCache request
 // names. ElastiCache is the service that needed no renamings at all: every one
 // of its twelve resource types is published under the parameter the API sends,
@@ -2061,8 +2007,6 @@ var iamElastiCacheCopySegments = map[string]string{
 	"CopySnapshot":                "snapshot",
 	"CopyServerlessCacheSnapshot": "serverlesscachesnapshot",
 }
-
-// ===== Amazon Elastic Container Service =====
 
 // iamECSResourceARNs derives the ARNs an Amazon ECS request names. ECS resource
 // ARNs below the cluster embed the cluster in their path
@@ -2210,8 +2154,6 @@ func iamECSTaskDefinitionIDs(r *http.Request) []string {
 	return []string{family + ":" + strconv.Itoa(next)}
 }
 
-// ===== AWS Key Management Service =====
-
 // iamKMSResourceARNs derives the ARNs an AWS KMS request names. A key is named
 // by KeyId, which may already be an ARN and is passed through when it is.
 //
@@ -2243,8 +2185,6 @@ func iamKMSResourceARNs(r *http.Request, types []string, region, account string)
 var iamKMSFieldAliases = map[string][]string{
 	"Alias": {"AliasName"},
 }
-
-// ===== Amazon CloudWatch Logs =====
 
 // iamLogsResourceARNs derives the ARNs an Amazon CloudWatch Logs request names.
 // The service defines two nested resource types and the distinction is not
@@ -2378,8 +2318,6 @@ func iamECSAttributeTargets(r *http.Request) []string {
 	return targets
 }
 
-// ===== AWS CodeBuild =====
-
 // iamCodeBuildResourceARNs derives the ARNs an AWS CodeBuild request names.
 // The build-scoped operations authorize against the build's project, and a
 // build id is "<projectName>:<uuid>", so the project comes out of the id.
@@ -2412,8 +2350,6 @@ func iamCodeBuildResourceARNs(r *http.Request, types []string, arn func(svc, res
 	}
 	return out
 }
-
-// ===== AWS WAFv2 =====
 
 // iamWAFv2ResourceARNs derives the ARNs an AWS WAFv2 request names. WAFv2 is
 // the one service here whose resource ARN cannot be assembled from the request

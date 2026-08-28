@@ -251,8 +251,6 @@ func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {
 	assert.Equal(t, http.StatusOK, invokeResp.StatusCode)
 }
 
-// --- SDK-level tests using armappservice ---
-
 func TestSDK_Functions_CreateAndGet(t *testing.T) {
 	rg := "sdk-func-create-rg"
 	ensureRG(t, rg)
@@ -351,8 +349,6 @@ func TestSDK_Functions_Delete(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 }
-
-// --- Error path tests ---
 
 func TestSDK_Functions_GetNonExistentSite(t *testing.T) {
 	rg := "sdk-func-err-rg"

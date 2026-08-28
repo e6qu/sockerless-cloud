@@ -436,8 +436,6 @@ func webStartContinuousWebJob(rec WebJobRecord) {
 	}()
 }
 
-// --- Wire shapes -------------------------------------------------------------
-
 // webJobSiteScopedName spells the ARM resource name of a site child the way
 // Microsoft.Web does: "<site>/<child>" ("<site>/<slot>/<child>" under a slot).
 func webJobSiteScopedName(resID, child string) string {
@@ -576,8 +574,6 @@ func webJobRunsFor(jobID string) []WebJobRunRecord {
 	})
 	return runs
 }
-
-// --- Handlers ----------------------------------------------------------------
 
 func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 	jobID := func(r *http.Request, kind string) string {

@@ -27,8 +27,6 @@ import (
 // the full SDK type tree — Terraform round-trips correctly because
 // the wire bytes are preserved.
 
-// ---------- WebACL ----------
-
 type WAFWebACL struct {
 	Name                         string          `json:"Name"`
 	Id                           string          `json:"Id"`
@@ -189,8 +187,6 @@ var (
 	wafAssociations sim.Store[wafAssociation] = sim.NewStateStore[wafAssociation]()
 )
 
-// ---------- Helpers ----------
-
 func wafRandomID() string {
 	buf := make([]byte, 16)
 	_, _ = rand.Read(buf)
@@ -245,8 +241,6 @@ func wafWriteDuplicate(w http.ResponseWriter, kind, name string) {
 	wafWriteError(w, "WAFDuplicateItemException",
 		fmt.Sprintf("AWS WAF couldn't perform the operation because some resource in your request is a duplicate of an existing one: %s %s", kind, name))
 }
-
-// ---------- Registration ----------
 
 func registerWAFv2(r *sim.AWSRouter, srv *sim.Server) {
 	wafWebACLs = sim.MakeStore[wafStoredWebACL](srv.DB(), "wafv2_webacls")
@@ -338,8 +332,6 @@ func registerWAFv2(r *sim.AWSRouter, srv *sim.Server) {
 	r.Register("AWSWAF_20190729.GetRateBasedStatementManagedKeys", handleWAFGetRateBasedStatementManagedKeys)
 	r.Register("AWSWAF_20190729.GetTopPathStatisticsByTraffic", handleWAFGetTopPathStatisticsByTraffic)
 }
-
-// ---------- WebACL handlers ----------
 
 type wafCreateWebACLReq struct {
 	Name                 string          `json:"Name"`
@@ -586,8 +578,6 @@ func handleWAFListWebACLs(w http.ResponseWriter, r *http.Request) {
 	wafWriteJSON(w, resp)
 }
 
-// ---------- Association handlers ----------
-
 type wafAssocReq struct {
 	WebACLArn   string `json:"WebACLArn"`
 	ResourceArn string `json:"ResourceArn"`
@@ -726,8 +716,6 @@ func handleWAFListResourcesForWebACL(w http.ResponseWriter, r *http.Request) {
 	}
 	wafWriteJSON(w, map[string]any{"ResourceArns": arns})
 }
-
-// ---------- IPSet handlers ----------
 
 type wafCreateIPSetReq struct {
 	Name             string   `json:"Name"`
@@ -875,8 +863,6 @@ func handleWAFListIPSets(w http.ResponseWriter, r *http.Request) {
 	}
 	wafWriteJSON(w, resp)
 }
-
-// ---------- RuleGroup handlers ----------
 
 type wafCreateRuleGroupReq struct {
 	Name                 string          `json:"Name"`
@@ -1046,8 +1032,6 @@ func handleWAFListRuleGroups(w http.ResponseWriter, r *http.Request) {
 	wafWriteJSON(w, resp)
 }
 
-// ---------- RegexPatternSet handlers ----------
-
 type wafCreateRegexReq struct {
 	Name                  string          `json:"Name"`
 	Scope                 string          `json:"Scope"`
@@ -1183,8 +1167,6 @@ func handleWAFListRegexSets(w http.ResponseWriter, r *http.Request) {
 	}
 	wafWriteJSON(w, resp)
 }
-
-// ---------- Tagging handlers ----------
 
 func wafGetTagsByARN(arn string) ([]wafTag, bool) {
 	for _, s := range wafWebACLs.List() {
@@ -1330,8 +1312,6 @@ func handleWAFListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- LoggingConfiguration handlers ----------
-
 // wafScopeFromARN derives the WAFv2 Scope from a web ACL ARN. The path
 // component is "global/" for CLOUDFRONT and "regional/" for REGIONAL.
 func wafScopeFromARN(arn string) string {
@@ -1454,8 +1434,6 @@ func handleWAFListLoggingConfigurations(w http.ResponseWriter, r *http.Request) 
 	}
 	wafWriteJSON(w, resp)
 }
-
-// ---------- Request inspection and GetSampledRequests ----------
 
 type wafVisibilityConfig struct {
 	MetricName             string `json:"MetricName"`
@@ -1780,8 +1758,6 @@ func handleWAFListSettlementRecords(w http.ResponseWriter, r *http.Request) {
 	wafWriteJSON(w, map[string]any{"Settlements": []any{}})
 }
 
-// ---------- API keys ----------
-
 // wafEncodeAPIKey produces a wire-form APIKey token. Real AWS returns an opaque
 // encrypted base64 token whose plaintext is the scope, token domains, and a
 // creation timestamp; GetDecryptedAPIKey reverses it against the key the
@@ -1906,8 +1882,6 @@ func handleWAFGetDecryptedAPIKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- CheckCapacity ----------
-
 // wafComputeCapacity sums the WCU cost of a rule list. Real WAFv2 assigns a Web
 // ACL Capacity Unit (WCU) cost per statement type; the sim applies a faithful,
 // deterministic per-statement cost model over the supplied rules — a base cost
@@ -2018,8 +1992,6 @@ func handleWAFCheckCapacity(w http.ResponseWriter, r *http.Request) {
 	}
 	wafWriteJSON(w, map[string]any{"Capacity": wafComputeCapacity(req.Rules)})
 }
-
-// ---------- Managed rule group / product catalog ----------
 
 // wafManagedRuleGroupEntry is one row in AWS's published managed-rule-group
 // catalog. The sim carries a known, static-but-real subset of the AWS Managed
@@ -2257,8 +2229,6 @@ func handleWAFListAvailableManagedRuleGroupVersions(w http.ResponseWriter, r *ht
 	wafWriteJSON(w, resp)
 }
 
-// ---------- Managed rule sets (publisher CRUD) ----------
-
 // WAFManagedRuleSet mirrors the SDK ManagedRuleSet type; PublishedVersions maps
 // a version name to its version metadata.
 type WAFManagedRuleSet struct {
@@ -2492,8 +2462,6 @@ func wafTimestampToUnix(v any) int64 {
 	}
 }
 
-// ---------- Permission policy ----------
-
 type wafPutPermissionPolicyReq struct {
 	ResourceArn string `json:"ResourceArn"`
 	Policy      string `json:"Policy"`
@@ -2560,8 +2528,6 @@ func handleWAFDeletePermissionPolicy(w http.ResponseWriter, r *http.Request) {
 	wafPermissionPolicies.Delete(req.ResourceArn)
 	wafWriteJSON(w, struct{}{})
 }
-
-// ---------- Mobile SDK releases ----------
 
 // wafMobileSdkRelease is one published WAF mobile SDK release. The sim carries a
 // known, static-but-real set of releases per platform.
@@ -2661,8 +2627,6 @@ func handleWAFListMobileSdkReleases(w http.ResponseWriter, r *http.Request) {
 	wafWriteJSON(w, resp)
 }
 
-// ---------- Firewall Manager managed rule groups ----------
-
 type wafDeleteFMRuleGroupsReq struct {
 	WebACLArn       string `json:"WebACLArn"`
 	WebACLLockToken string `json:"WebACLLockToken"`
@@ -2698,8 +2662,6 @@ func handleWAFDeleteFirewallManagerRuleGroups(w http.ResponseWriter, r *http.Req
 	wafWebACLs.Put(key, *target)
 	wafWriteJSON(w, map[string]any{"NextWebACLLockToken": target.LockToken})
 }
-
-// ---------- Rate-based statement managed keys + traffic statistics ----------
 
 type wafGetRateBasedKeysReq struct {
 	Scope             string `json:"Scope"`

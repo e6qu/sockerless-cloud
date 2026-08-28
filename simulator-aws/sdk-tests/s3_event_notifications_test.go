@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// queueArnAndURL creates an SQS queue and returns its URL and ARN.
 func queueArnAndURL(t *testing.T, sqsClient *sqs.Client, name string) (url, arn string) {
 	t.Helper()
 	create, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(name)})

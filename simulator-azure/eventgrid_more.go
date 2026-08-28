@@ -131,8 +131,6 @@ func registerEventGridNestedSubscription(srv *sim.Server, base string) {
 	registerEventGridSubscriptionExtras(srv, base)
 }
 
-// ---- Resource updates (PATCH) + key regeneration ----
-
 // eventGridMergeUpdate applies a TrackedResource-shaped PATCH (tags +
 // properties) onto an existing resource, preserving fields the request omits.
 func eventGridUpdateARMResource(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, label string) {
@@ -206,8 +204,6 @@ func handleEventGridRegenerateDomainKey(w http.ResponseWriter, r *http.Request) 
 	id := eventGridDomainID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"))
 	eventGridRegenerateKeyResponse(w, r, eventGridDomains, id, "domain")
 }
-
-// ---- Event subscription extensions ----
 
 func handleEventGridUpdateEventSubscription(w http.ResponseWriter, r *http.Request) {
 	scopeID, _, ok := eventGridScopeFromRequest(r)
@@ -285,8 +281,6 @@ func eventGridLookupSubscription(w http.ResponseWriter, r *http.Request) (EventG
 	}
 	return es, true
 }
-
-// ---- Event subscription list views ----
 
 func eventGridListSubsFiltered(w http.ResponseWriter, keep func(EventGridEventSubscription) bool) {
 	out := make([]EventGridEventSubscription, 0)
@@ -394,8 +388,6 @@ func eventGridScopeTopicType(es EventGridEventSubscription) string {
 	}
 	return ""
 }
-
-// ---- Private link resources + private endpoint connections ----
 
 func eventGridParentExists(r *http.Request) (string, bool) {
 	sub := sim.PathParam(r, "subscriptionId")

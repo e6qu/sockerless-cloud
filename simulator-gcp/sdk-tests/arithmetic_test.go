@@ -12,8 +12,6 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-// --- Cloud Run Jobs container tests ---
-
 func TestCloudRun_JobArithmetic(t *testing.T) {
 	execName := createAndRunJobWithImageAndCommand(t, "arith-crj", evalImageName, []string{"(10 + 5) * 2"}, "10s")
 

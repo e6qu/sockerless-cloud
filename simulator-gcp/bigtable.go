@@ -203,8 +203,6 @@ func newBigtableAdminLRO(project string, resource any, typeName string) Operatio
 	return renameGCPOperation(op, "operations/projects/"+project+"/operations")
 }
 
-// ----- Operations -----
-
 // handleBigtableListOperations lists the operations under a project. It reads
 // the same store the gRPC Operations service reads, and scopes to the project
 // the caller named — listing every project's operations would report work the
@@ -220,8 +218,6 @@ func handleBigtableListOperations(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"operations": out})
 }
-
-// ----- Instances -----
 
 func handleBigtableCreateInstance(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
@@ -363,8 +359,6 @@ func handleBigtableDeleteInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ----- Clusters -----
 
 func handleBigtableCreateCluster(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
@@ -578,8 +572,6 @@ func handleBigtableListMemoryLayers(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ----- Backups -----
-
 func handleBigtableCreateBackup(w http.ResponseWriter, r *http.Request) {
 	project, instance, cluster := sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")
 	clusterName := bigtableClusterName(project, instance, cluster)
@@ -717,8 +709,6 @@ func handleBigtableBackupItemAction(w http.ResponseWriter, r *http.Request) {
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableClusterName(project, instance, cluster)+"/backups/"+id, verb)
 }
 
-// ----- App profiles -----
-
 func handleBigtableCreateAppProfile(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
@@ -790,8 +780,6 @@ func handleBigtableDeleteAppProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ----- Tables -----
 
 func handleBigtableCreateTable(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
@@ -1024,8 +1012,6 @@ func handleBigtableDeleteTable(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ----- Authorized views (table-scoped) -----
-
 func bigtableAuthViewName(r *http.Request, view string) string {
 	return bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table")) + "/authorizedViews/" + view
 }
@@ -1105,8 +1091,6 @@ func handleBigtableAuthViewItemAction(w http.ResponseWriter, r *http.Request) {
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableAuthViewName(r, id), verb)
 }
-
-// ----- Schema bundles (table-scoped) -----
 
 func bigtableSchemaBundleName(r *http.Request, bundle string) string {
 	return bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table")) + "/schemaBundles/" + bundle
@@ -1188,8 +1172,6 @@ func handleBigtableSchemaBundleItemAction(w http.ResponseWriter, r *http.Request
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableSchemaBundleName(r, id), verb)
 }
 
-// ----- Logical views (instance-scoped) -----
-
 func bigtableLogicalViewName(r *http.Request, view string) string {
 	return bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance")) + "/logicalViews/" + view
 }
@@ -1270,8 +1252,6 @@ func handleBigtableLogicalViewItemAction(w http.ResponseWriter, r *http.Request)
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableLogicalViewName(r, id), verb)
 }
 
-// ----- Materialized views (instance-scoped) -----
-
 func bigtableMatViewName(r *http.Request, view string) string {
 	return bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance")) + "/materializedViews/" + view
 }
@@ -1351,8 +1331,6 @@ func handleBigtableMatViewItemAction(w http.ResponseWriter, r *http.Request) {
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableMatViewName(r, id), verb)
 }
-
-// ----- shared resource helpers -----
 
 // bigtableReadResourceBody decodes a pass-through resource body, writing an
 // INVALID_ARGUMENT error and returning nil on failure.

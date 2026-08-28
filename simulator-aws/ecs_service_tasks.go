@@ -574,7 +574,6 @@ func ecsUnhealthyServiceTasks(service ECSService, tasks []ECSTask) []ECSTask {
 	return unhealthy
 }
 
-// ecsTasksExcluding returns the tasks that are not in excluded.
 func ecsTasksExcluding(tasks, excluded []ECSTask) []ECSTask {
 	if len(excluded) == 0 {
 		return tasks

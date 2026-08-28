@@ -57,8 +57,6 @@ func registerCloudWatchLogsExtra4(r *sim.AWSRouter, srv *sim.Server) {
 	}
 }
 
-// ===== S3 Table Integration data-source associations =====
-
 func handleCWAssociateSourceToS3TableIntegration(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IntegrationArn string `json:"integrationArn"`
@@ -140,8 +138,6 @@ func handleCWListSourcesForS3TableIntegration(w http.ResponseWriter, r *http.Req
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"sources": sources})
 }
 
-// ===== Data-source field discovery =====
-
 func handleCWGetLogFields(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DataSourceName string `json:"dataSourceName"`
@@ -209,8 +205,6 @@ func cwLogFieldDataType(v any) string {
 	}
 }
 
-// ===== Query log-group enumeration =====
-
 func handleCWListLogGroupsForQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueryId string `json:"queryId"`
@@ -235,8 +229,6 @@ func handleCWListLogGroupsForQuery(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"logGroupIdentifiers": identifiers})
 }
 
-// ===== Account-level bearer-token authentication =====
-
 func handleCWPutBearerTokenAuthentication(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupIdentifier               string `json:"logGroupIdentifier"`
@@ -259,8 +251,6 @@ func handleCWPutBearerTokenAuthentication(w http.ResponseWriter, r *http.Request
 	cwBearerTokenAuth.Put(name, req.BearerTokenAuthenticationEnabled)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ===== Vended-log delivery configuration updates =====
 
 func handleCWUpdateDeliveryConfiguration(w http.ResponseWriter, r *http.Request) {
 	var req struct {

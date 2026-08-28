@@ -363,7 +363,6 @@ func TestDDB_ContributorInsights(t *testing.T) {
 	assert.True(t, found, "ListContributorInsights must report the enabled table")
 }
 
-// TestDDB_DescribeEndpoints returns a regional endpoint.
 func TestDDB_DescribeEndpoints(t *testing.T) {
 	c := ddbClient()
 	out, err := c.DescribeEndpoints(ctx, &dynamodb.DescribeEndpointsInput{})

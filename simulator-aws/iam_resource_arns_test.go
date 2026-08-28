@@ -508,8 +508,6 @@ func TestIAMPassRoleOperationsCarryTheServicePrincipal(t *testing.T) {
 	}
 }
 
-// ===== Amazon Elastic Compute Cloud =====
-
 func iamEC2Request(action string, params map[string]string) *http.Request {
 	form := "Action=" + action + "&Version=2016-11-15"
 	for k, v := range params {
@@ -714,8 +712,6 @@ func TestIAMResourceARNs_EC2DerivesEveryResourceAnActionNames(t *testing.T) {
 		"arn:aws:ec2:us-east-1:123456789012:volume/vol-0abc")
 }
 
-// ===== AWS Glue =====
-
 func iamGlueRequest(operation, body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -821,8 +817,6 @@ func TestIAMEnforce_GlueJobScopedGrant(t *testing.T) {
 		})
 	}
 }
-
-// ===== Amazon Relational Database Service =====
 
 func iamRDSRequest(action string, params map[string]string) *http.Request {
 	form := "Action=" + action + "&Version=2014-10-31"
@@ -1030,8 +1024,6 @@ func TestIAMEnforce_RDSInstanceScopedGrant(t *testing.T) {
 	}
 }
 
-// ===== AWS Systems Manager =====
-
 func iamSSMRequest(operation, body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -1184,8 +1176,6 @@ func TestIAMResourceARNs_RDSARNsTakeTheirPublishedShape(t *testing.T) {
 	}
 }
 
-// ===== Amazon ElastiCache and Amazon DynamoDB =====
-
 func iamElastiCacheRequest(action string, params map[string]string) *http.Request {
 	form := "Action=" + action + "&Version=2015-02-02"
 	for k, v := range params {
@@ -1286,8 +1276,6 @@ func TestIAMResourceARNs_DynamoDBTransactionNamesEveryTableItTouches(t *testing.
 			{"Update":{"TableName":"customers","Key":{}}}]}`),
 		"dynamodb:TransactWriteItems", p+"customers", p+"orders")
 }
-
-// ===== AWS CloudTrail and Amazon EventBridge =====
 
 func iamCloudTrailRequest(operation, body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -1470,8 +1458,6 @@ func slicesContain(haystack []string, want string) bool {
 	return false
 }
 
-// ===== Amazon EC2 Auto Scaling =====
-
 func iamAutoScalingRequest(action string, params map[string]string) *http.Request {
 	form := "Action=" + action + "&Version=2011-01-01"
 	for k, v := range params {
@@ -1538,8 +1524,6 @@ func TestIAMResourceARNs_AutoScalingARNsTakeTheirPublishedShape(t *testing.T) {
 		t.Error("two launch configurations of the same name got the same assigned identifier")
 	}
 }
-
-// ===== AWS Key Management Service =====
 
 func iamKMSRequest(operation, body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))

@@ -251,8 +251,6 @@ func registerGlueMLDataQuality(r *sim.AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.StopColumnStatisticsTaskRun", handleGlueStopColumnStatisticsTaskRun)
 }
 
-// ---------- ML Transforms ----------
-
 func handleGlueCreateMLTransform(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name              string            `json:"Name"`
@@ -456,8 +454,6 @@ func handleGlueDeleteMLTransform(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"TransformId": req.TransformId})
 }
 
-// ---------- Data Quality rulesets ----------
-
 func handleGlueCreateDataQualityRuleset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name                             string            `json:"Name"`
@@ -632,8 +628,6 @@ func handleGlueDeleteDataQualityRuleset(w http.ResponseWriter, r *http.Request) 
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- Data Quality ruleset evaluation runs ----------
-
 func handleGlueStartDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DataSource           map[string]any `json:"DataSource"`
@@ -765,8 +759,6 @@ func handleGlueListDataQualityRulesetEvaluationRuns(w http.ResponseWriter, r *ht
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// ---------- Data Quality rule recommendation runs ----------
-
 func handleGlueStartDataQualityRuleRecommendationRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DataSource                       map[string]any `json:"DataSource"`
@@ -889,8 +881,6 @@ func handleGlueListDataQualityRuleRecommendationRuns(w http.ResponseWriter, r *h
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- Data Quality results + models ----------
 
 // glueDQResultPayload renders a stored result row as a GetDataQualityResult /
 // DataQualityResult response map.
@@ -1030,8 +1020,6 @@ func handleGlueGetDataQualityModelResult(w http.ResponseWriter, r *http.Request)
 		"Model":       []any{},
 	})
 }
-
-// ---------- Column-statistics task settings ----------
 
 func handleGlueCreateColumnStatisticsTaskSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1174,8 +1162,6 @@ func handleGlueDeleteColumnStatisticsTaskSettings(w http.ResponseWriter, r *http
 	glueCSTaskSettgs.Delete(key)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---------- Column-statistics task runs ----------
 
 func handleGlueStartColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1325,7 +1311,6 @@ func handleGlueStopColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Reques
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// derefIntDefault returns *p or def when p is nil.
 func derefIntDefault(p *int, def int) int {
 	if p == nil {
 		return def

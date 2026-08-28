@@ -16,7 +16,6 @@ import (
 func TestRDS_InstanceClusterState(t *testing.T) {
 	c := rdsClient()
 
-	// --- DB instance Start/Stop ---
 	instID := "state-pg-db"
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -48,7 +47,6 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 	require.NotNil(t, startOut.DBInstance)
 	assert.Equal(t, "available", aws.ToString(startOut.DBInstance.DBInstanceStatus))
 
-	// --- PromoteReadReplica ---
 	replicaID := "state-pg-replica"
 	_, err = c.CreateDBInstanceReadReplica(ctx, &rds.CreateDBInstanceReadReplicaInput{
 		DBInstanceIdentifier:       aws.String(replicaID),
@@ -69,7 +67,6 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 	// After promotion the replica has no source.
 	assert.Empty(t, aws.ToString(promOut.DBInstance.ReadReplicaSourceDBInstanceIdentifier))
 
-	// --- DB cluster Start/Stop/Failover ---
 	clusterID := "state-aurora-cluster"
 	_, err = c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID),
@@ -213,7 +210,6 @@ func TestRDS_EventSubscriptionLifecycle(t *testing.T) {
 func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 	c := rdsClient()
 
-	// --- DB parameter group detail ---
 	pgName := "sdk-detail-pg"
 	_, err := c.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
 		DBParameterGroupName:   aws.String(pgName),
@@ -264,7 +260,6 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// --- DB cluster parameter group detail ---
 	cpgName := "sdk-detail-cluster-pg"
 	_, err = c.CreateDBClusterParameterGroup(ctx, &rds.CreateDBClusterParameterGroupInput{
 		DBClusterParameterGroupName: aws.String(cpgName),
@@ -309,7 +304,6 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 	}
 	assert.True(t, found, "expected modified character_set_server in DescribeDBClusterParameters")
 
-	// --- Snapshot attribute sharing ---
 	instID := "sdk-attr-db"
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -425,7 +419,6 @@ func TestRDS_ClusterEndpointAndCopyClusterSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, epID, aws.ToString(delEp.DBClusterEndpointIdentifier))
 
-	// --- CopyDBClusterSnapshot ---
 	srcSnap := "sdk-src-cluster-snap"
 	_, err = c.CreateDBClusterSnapshot(ctx, &rds.CreateDBClusterSnapshotInput{
 		DBClusterSnapshotIdentifier: aws.String(srcSnap),

@@ -277,9 +277,7 @@ func graphEventualConsistency(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("ConsistencyLevel")), "eventual")
 }
 
-// ---------------------------------------------------------------------------
 // Directory object resolution
-// ---------------------------------------------------------------------------
 
 // entraDirectoryObjectDoc renders any directory object by its object ID in the
 // polymorphic shape Graph's directoryObjects collection answers with: the
@@ -324,9 +322,7 @@ func entraGraphNotFound(w http.ResponseWriter, id string) {
 		http.StatusNotFound)
 }
 
-// ---------------------------------------------------------------------------
 // owners
-// ---------------------------------------------------------------------------
 
 // entraDirectoryOwner records one directory object owning another — the
 // `owners` navigation property Graph exposes on applications, service
@@ -439,9 +435,7 @@ func handleGraphRemoveOwnerRef(w http.ResponseWriter, r *http.Request, objectID,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---------------------------------------------------------------------------
 // manager
-// ---------------------------------------------------------------------------
 
 // entraUserManager records a user's manager — the `manager` navigation
 // property on a Graph user.

@@ -21,8 +21,6 @@ import (
 // /2020-05-31/connection-function path. The simulator stores and returns the
 // connection-function code verbatim; it does not interpret the JS.
 
-// ---------- Connection-function types ----------
-
 // CFConnectionFunctionConfig reuses the same Comment/Runtime/KeyValueStore
 // shape CloudFront Functions use (the smithy FunctionConfig shape is shared).
 // It carries no XMLName: the element name is always set by the enclosing field
@@ -121,8 +119,6 @@ type CFExecutionLogs struct {
 	Items []string `xml:"member,omitempty"`
 }
 
-// ---------- Stored connection-function envelope ----------
-
 type cfStoredConnectionFunction struct {
 	Summary CFConnectionFunctionSummary
 	Code    []byte
@@ -151,8 +147,6 @@ func cfDecodeBlob(b []byte) []byte {
 	}
 	return decoded
 }
-
-// ---------- Registration ----------
 
 // registerCloudFrontComplete mounts the connection-function CRUD + lifecycle,
 // the CloudFront Functions TestFunction op, registers the tagging op names that
@@ -203,8 +197,6 @@ func registerCloudFrontComplete(srv *sim.Server) {
 	restRegisterOp(src, "CreateStreamingDistribution")
 	restRegisterOp(src, "CreateStreamingDistributionWithTags")
 }
-
-// ---------- Connection-function handlers ----------
 
 func handleCFCreateConnectionFunction(w http.ResponseWriter, r *http.Request) {
 	var req cfCreateConnectionFunctionRequest
@@ -424,8 +416,6 @@ func handleCFListDistributionsByConnectionFunction(w http.ResponseWriter, r *htt
 	cfWriteXML(w, http.StatusOK, list)
 }
 
-// ---------- CloudFront Functions test ----------
-
 // cfTestFunctionRequest mirrors the SDK body for POST /function/{Name}/test
 // (root TestFunctionRequest).
 type cfTestFunctionRequest struct {
@@ -470,8 +460,6 @@ func handleCFTestFunction(w http.ResponseWriter, r *http.Request) {
 	}
 	cfWriteXML(w, http.StatusOK, result)
 }
-
-// ---------- If-Match helpers (connection functions) ----------
 
 func cfConnectionRequireIfMatch(r *http.Request, current string) string {
 	ifMatch := r.Header.Get("If-Match")

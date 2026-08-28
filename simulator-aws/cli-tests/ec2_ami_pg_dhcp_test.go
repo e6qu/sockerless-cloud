@@ -13,7 +13,6 @@ import (
 func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	// --- AMIs ---
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.150.0.0/16",
 		"--query", "Vpc.VpcId", "--output", "text")
 	subnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.150.1.0/24",
@@ -53,7 +52,6 @@ func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 		t.Fatalf("registered AMI must still be present after deregistering the other, got count %q", n)
 	}
 
-	// --- Placement groups ---
 	runCLI(t, awsCLI("ec2", "create-placement-group", "--group-name", "cli-pg",
 		"--strategy", "spread"))
 	pg := q("ec2", "describe-placement-groups", "--group-names", "cli-pg",
@@ -68,7 +66,6 @@ func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 		t.Fatalf("deleted placement group must be gone, got count %q", gone)
 	}
 
-	// --- DHCP options ---
 	dopt := q("ec2", "create-dhcp-options",
 		"--dhcp-configurations", "Key=domain-name,Values=cli.internal",
 		"Key=domain-name-servers,Values=10.0.0.2,8.8.8.8",

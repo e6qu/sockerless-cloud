@@ -125,9 +125,7 @@ func registerRDSComplete(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(rdsAPIVersion, "DescribeAccountAttributes", handleRDSDescribeAccountAttributes)
 }
 
-// ---------------------------------------------------------------------------
 // Account attributes
-// ---------------------------------------------------------------------------
 
 // rdsAccountQuota is one entry of DescribeAccountAttributes' AccountQuotaList.
 // `Used` is always derived from the simulator's own RDS resources — the same
@@ -261,9 +259,7 @@ func handleRDSDescribeAccountAttributes(w http.ResponseWriter, r *http.Request) 
 	rdsXMLResponse(w, "DescribeAccountAttributes", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Custom DB engine versions
-// ---------------------------------------------------------------------------
 
 // rdsCustomEngineVersionARN builds the ARN AWS publishes for a custom engine
 // version: "cev:<engine>/<version>/<id>". The identifier is the third part and
@@ -370,9 +366,7 @@ func handleRDSDeleteCustomEngineVersion(w http.ResponseWriter, r *http.Request) 
 	rdsXMLResponse(w, "DeleteCustomDBEngineVersion", renderRDSDBEngineVersion(cev), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // DB recommendations
-// ---------------------------------------------------------------------------
 
 // renderRDSRecommendation renders a recommendation wrapped in the given
 // element. DescribeDBRecommendations lists members as <member> (the
@@ -468,9 +462,7 @@ func handleRDSModifyRecommendation(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "ModifyDBRecommendation", renderRDSRecommendation(rec, "DBRecommendation"), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // DB snapshot tenant databases
-// ---------------------------------------------------------------------------
 
 func handleRDSDescribeSnapshotTenantDatabases(w http.ResponseWriter, r *http.Request) {
 	snapID := r.FormValue("DBSnapshotIdentifier")
@@ -540,9 +532,7 @@ func renderRDSDBSnapshotTenantDatabase(s RDSSnapshot, t RDSTenantDatabase) strin
 	return b.String()
 }
 
-// ---------------------------------------------------------------------------
 // Serverless v2 platform versions / valid DB instance modifications
-// ---------------------------------------------------------------------------
 
 func handleRDSDescribeServerlessV2PlatformVersions(w http.ResponseWriter, r *http.Request) {
 	// ServerlessV2PlatformVersionList members carry no xmlName → <member>.
@@ -614,9 +604,7 @@ func rdsRange(from, to, step int) string {
 	return fmt.Sprintf("<Range><From>%d</From><To>%d</To><Step>%d</Step></Range>", from, to, step)
 }
 
-// ---------------------------------------------------------------------------
 // Serverless v1 cluster capacity
-// ---------------------------------------------------------------------------
 
 func handleRDSModifyCurrentDBClusterCapacity(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
@@ -646,9 +634,7 @@ func handleRDSModifyCurrentDBClusterCapacity(w http.ResponseWriter, r *http.Requ
 	rdsXMLResponse(w, "ModifyCurrentDBClusterCapacity", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Option-group option membership
-// ---------------------------------------------------------------------------
 
 func handleRDSModifyOptionGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("OptionGroupName")
@@ -706,9 +692,7 @@ func renderRDSOptionGroupWithOptions(g RDSOptionGroup, options []string) string 
 	return b.String()
 }
 
-// ---------------------------------------------------------------------------
 // Automated-backups cross-region replication
-// ---------------------------------------------------------------------------
 
 // renderRDSAutomatedBackup renders a DBInstanceAutomatedBackup. The
 // Start/Stop output shapes wrap it in a single <DBInstanceAutomatedBackup>
@@ -792,9 +776,7 @@ func handleRDSStopAutomatedBackupsReplication(w http.ResponseWriter, r *http.Req
 	rdsXMLResponse(w, "StopDBInstanceAutomatedBackupsReplication", renderRDSAutomatedBackup(inst, rep), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Switchover (global cluster / read replica)
-// ---------------------------------------------------------------------------
 
 func handleRDSSwitchoverGlobalCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("GlobalClusterIdentifier")
@@ -855,9 +837,7 @@ func handleRDSSwitchoverReadReplica(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "SwitchoverReadReplica", renderRDSInstance(updated), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // small slice helpers
-// ---------------------------------------------------------------------------
 
 func rdsRemoveString(xs []string, v string) []string {
 	out := xs[:0:0]

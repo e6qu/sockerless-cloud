@@ -16,7 +16,6 @@ import (
 func TestEC2_TransitGatewayCore(t *testing.T) {
 	client := ec2Client()
 
-	// --- Transit gateway ---
 	tgwOut, err := client.CreateTransitGateway(ctx, &ec2.CreateTransitGatewayInput{
 		Description: aws.String("sdk tgw"),
 		Options: &types.TransitGatewayRequestOptions{
@@ -56,7 +55,6 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// --- Route table ---
 	rtOut, err := client.CreateTransitGatewayRouteTable(ctx, &ec2.CreateTransitGatewayRouteTableInput{
 		TransitGatewayId: aws.String(tgwID),
 		TagSpecifications: []types.TagSpecification{{
@@ -75,7 +73,6 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rtDesc.TransitGatewayRouteTables, 1)
 
-	// --- VPC attachment ---
 	vpc, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.40.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpc.Vpc.VpcId)
@@ -135,7 +132,6 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	require.NotEmpty(t, allAtt.TransitGatewayAttachments)
 	assert.Equal(t, types.TransitGatewayAttachmentResourceTypeVpc, allAtt.TransitGatewayAttachments[0].ResourceType)
 
-	// --- Associations + propagations ---
 	_, err = client.DisassociateTransitGatewayRouteTable(ctx, &ec2.DisassociateTransitGatewayRouteTableInput{
 		TransitGatewayRouteTableId: aws.String(assocRT),
 		TransitGatewayAttachmentId: aws.String(attID),
@@ -190,7 +186,6 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// --- Routes ---
 	rOut, err := client.CreateTransitGatewayRoute(ctx, &ec2.CreateTransitGatewayRouteInput{
 		TransitGatewayRouteTableId: aws.String(rtID),
 		DestinationCidrBlock:       aws.String("10.99.0.0/16"),
@@ -229,7 +224,6 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(export.S3Location), "s3://my-bucket")
 
-	// --- Cleanup (tolerant) ---
 	_, _ = client.RejectTransitGatewayVpcAttachment(ctx, &ec2.RejectTransitGatewayVpcAttachmentInput{
 		TransitGatewayAttachmentId: aws.String(attID),
 	})
@@ -270,7 +264,6 @@ func TestEC2_TransitGatewayPrefixListPeeringConnectMulticast(t *testing.T) {
 	require.NoError(t, err)
 	attID := aws.ToString(attOut.TransitGatewayVpcAttachment.TransitGatewayAttachmentId)
 
-	// --- Prefix list references ---
 	pl, err := client.CreateManagedPrefixList(ctx, &ec2.CreateManagedPrefixListInput{
 		PrefixListName: aws.String("tgw-pl"),
 		MaxEntries:     aws.Int32(5),
@@ -307,7 +300,6 @@ func TestEC2_TransitGatewayPrefixListPeeringConnectMulticast(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// --- Connect ---
 	connOut, err := client.CreateTransitGatewayConnect(ctx, &ec2.CreateTransitGatewayConnectInput{
 		TransportTransitGatewayAttachmentId: aws.String(attID),
 		Options:                             &types.CreateTransitGatewayConnectRequestOptions{Protocol: types.ProtocolValueGre},
@@ -322,7 +314,6 @@ func TestEC2_TransitGatewayPrefixListPeeringConnectMulticast(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, connDesc.TransitGatewayConnects, 1)
 
-	// --- Multicast domain ---
 	mc, err := client.CreateTransitGatewayMulticastDomain(ctx, &ec2.CreateTransitGatewayMulticastDomainInput{
 		TransitGatewayId: aws.String(tgwID),
 		Options: &types.CreateTransitGatewayMulticastDomainRequestOptions{
@@ -340,7 +331,6 @@ func TestEC2_TransitGatewayPrefixListPeeringConnectMulticast(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mcDesc.TransitGatewayMulticastDomains, 1)
 
-	// --- Peering ---
 	peerTGW, err := client.CreateTransitGateway(ctx, &ec2.CreateTransitGatewayInput{})
 	require.NoError(t, err)
 	peerTGWID := aws.ToString(peerTGW.TransitGateway.TransitGatewayId)
@@ -373,7 +363,6 @@ func TestEC2_TransitGatewayPrefixListPeeringConnectMulticast(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// --- Cleanup (tolerant) ---
 	_, _ = client.DeleteTransitGatewayPeeringAttachment(ctx, &ec2.DeleteTransitGatewayPeeringAttachmentInput{
 		TransitGatewayAttachmentId: aws.String(peerID),
 	})

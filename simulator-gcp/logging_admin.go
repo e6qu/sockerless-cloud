@@ -263,8 +263,6 @@ func loggingLocationParent(r *http.Request) string {
 	return loggingScopeParent(r) + "/locations/" + sim.PathParam(r, "location")
 }
 
-// ---- Sinks (organizations/billingAccounts/folders scopes) ----
-//
 // Real Cloud Logging exposes sinks under every parent scope. The project-scope
 // handlers in logging.go are project-specific; these mirror their behaviour
 // (short name in LogSink.name, full path in resourceName) for the other scopes.
@@ -358,8 +356,6 @@ func handleLoggingScopeDeleteSink(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---- Exclusions ----
-
 func handleLoggingCreateExclusion(w http.ResponseWriter, r *http.Request) {
 	parent := loggingScopeParent(r)
 	var ex LogExclusion
@@ -436,8 +432,6 @@ func handleLoggingDeleteExclusion(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---- Logs ----
-
 func handleLoggingListLogs(w http.ResponseWriter, r *http.Request) {
 	names := loggingListLogsScopes(loggingScopeParent(r), r.URL.Query()["resourceNames"])
 	page, next, ok := paginateList(w, r, names)
@@ -459,8 +453,6 @@ func handleLoggingDeleteLog(w http.ResponseWriter, r *http.Request) {
 	logEntries.Delete(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---- Settings / cmekSettings ----
 
 func handleLoggingGetSettings(w http.ResponseWriter, r *http.Request) {
 	name := loggingScopeParent(r) + "/settings"
@@ -518,8 +510,6 @@ func handleLoggingUpdateCmekSettings(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ---- Locations ----
-
 func handleLoggingListLocations(w http.ResponseWriter, r *http.Request) {
 	parent := loggingScopeParent(r)
 	locs := []map[string]any{
@@ -537,13 +527,9 @@ func handleLoggingGetLocation(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---- Monitored resource descriptors ----
-
 func handleLoggingListMRD(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"resourceDescriptors": loggingMonitoredResourceDescriptors})
 }
-
-// ---- Buckets ----
 
 func handleLoggingCreateBucket(w http.ResponseWriter, r *http.Request) {
 	parent := loggingLocationParent(r)
@@ -697,8 +683,6 @@ func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ---- Views ----
-
 func handleLoggingCreateView(w http.ResponseWriter, r *http.Request) {
 	parent := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	id := r.URL.Query().Get("viewId")
@@ -818,8 +802,6 @@ func handleLoggingViewIAM(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ---- Links ----
-
 func handleLoggingCreateLink(w http.ResponseWriter, r *http.Request) {
 	parent := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	id := r.URL.Query().Get("linkId")
@@ -875,8 +857,6 @@ func handleLoggingDeleteLink(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, nil, "type.googleapis.com/google.protobuf.Empty"))
 }
-
-// ---- SavedQueries ----
 
 func handleLoggingCreateSavedQuery(w http.ResponseWriter, r *http.Request) {
 	parent := loggingLocationParent(r)
@@ -962,15 +942,11 @@ func handleLoggingDeleteSavedQuery(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---- RecentQueries ----
-
 func handleLoggingListRecentQueries(w http.ResponseWriter, r *http.Request) {
 	// Recent queries are a per-user audit list the sim has no source for;
 	// return an empty page (a valid ListRecentQueriesResponse).
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ---- LogScopes ----
 
 func handleLoggingCreateLogScope(w http.ResponseWriter, r *http.Request) {
 	parent := loggingLocationParent(r)
@@ -1050,8 +1026,6 @@ func handleLoggingDeleteLogScope(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---- Operations (non-project scopes) ----
-
 func handleLoggingListOperations(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/operations/"
 	items := logOperations.Filter(func(o Operation) bool { return strings.HasPrefix(o.Name, prefix) })
@@ -1093,8 +1067,6 @@ func handleLoggingOperationCancel(w http.ResponseWriter, r *http.Request) {
 	handleGCPCancelOperation(w, loggingLocationParent(r)+"/operations/"+id)
 }
 
-// ---- Entries copy/tail ----
-
 func handleLoggingEntriesCopy(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name        string `json:"name"`
@@ -1122,8 +1094,6 @@ func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
 	entries, _ := listLogEntries(req.Filter, req.ResourceNames, 0, "", "timestamp desc")
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"entries": entries})
 }
-
-// ---- helpers ----
 
 // loggingNewOperation builds a completed Operation whose response carries the
 // given resource wrapped as a protobuf Any (@type). Real Cloud Logging's async

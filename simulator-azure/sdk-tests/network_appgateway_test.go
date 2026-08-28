@@ -286,7 +286,6 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Equal(t, gatewayID+"/urlPathMaps/site-paths/pathRules/api",
 		*created.Properties.URLPathMaps[0].Properties.PathRules[0].ID)
 
-	// --- data plane -------------------------------------------------------
 	// A request for a path the URL path map does not name goes to the map's
 	// default pool, and the rewrite rule set attached to that default runs.
 	body, resp := gatewayRequest(t, http.MethodGet, frontendAddress, "/", nil)
@@ -317,7 +316,6 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Equal(t, http.StatusMovedPermanently, resp.StatusCode)
 	assert.Equal(t, "https://contoso.example/legacy?page=2", resp.Header.Get("Location"))
 
-	// --- backend health ---------------------------------------------------
 	healthPoller, err := client.BeginBackendHealth(ctx, rg, "site-gw", nil)
 	require.NoError(t, err)
 	health, err := healthPoller.PollUntilDone(ctx, nil)
@@ -356,7 +354,6 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Equal(t, armnetwork.ApplicationGatewayBackendHealthServerHealthDown,
 		*onDemandResult.BackendHealthHTTPSettings.Servers[0].Health)
 
-	// --- lifecycle --------------------------------------------------------
 	stopPoller, err := client.BeginStop(ctx, rg, "site-gw", nil)
 	require.NoError(t, err)
 	_, err = stopPoller.PollUntilDone(ctx, nil)

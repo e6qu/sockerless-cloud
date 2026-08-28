@@ -292,7 +292,6 @@ func handleGetPageRanges(w http.ResponseWriter, r *http.Request, account, contai
 	writeStorageXML(w, http.StatusOK, doc)
 }
 
-// blobClipRanges restricts a range set to [start,end].
 func blobClipRanges(ranges []BlobPageRange, start, end int64) []BlobPageRange {
 	var out []BlobPageRange
 	for _, rg := range ranges {

@@ -37,9 +37,7 @@ func registerNetworkWatcherDiagnostics(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/azureReachabilityReport", handleNetworkWatcherReachabilityReport)
 }
 
-// ---------------------------------------------------------------------------
 // Target resolution
-// ---------------------------------------------------------------------------
 
 // networkWatcherTargetNICs resolves the interfaces a diagnostic runs against.
 // A target is either a network interface or a virtual machine, in which case
@@ -111,9 +109,7 @@ func networkWatcherNICAddress(nic NetworkInterface) string {
 	return ""
 }
 
-// ---------------------------------------------------------------------------
 // Security rule evaluation
-// ---------------------------------------------------------------------------
 
 // azureSecurityFlow is one packet an evaluation is run for, in the direction
 // the rules are written in: source and destination, never local and remote.
@@ -391,9 +387,7 @@ func azureSecurityPortMatches(ranges []string, port string) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
 // Verify IP flow
-// ---------------------------------------------------------------------------
 
 func handleNetworkWatcherVerifyIPFlow(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -450,9 +444,7 @@ func handleNetworkWatcherVerifyIPFlow(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Next hop
-// ---------------------------------------------------------------------------
 
 func handleNetworkWatcherNextHop(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -539,9 +531,7 @@ func azureLongestPrefixRoute(table RouteTable, ip net.IP) (RouteEntry, bool) {
 	return chosen, best >= 0
 }
 
-// ---------------------------------------------------------------------------
 // Security group view
-// ---------------------------------------------------------------------------
 
 func handleNetworkWatcherSecurityGroupView(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -630,9 +620,7 @@ func azureEffectiveSecurityRules(nsg NetworkSecurityGroup) []map[string]any {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Topology
-// ---------------------------------------------------------------------------
 
 func handleNetworkWatcherTopology(w http.ResponseWriter, r *http.Request) {
 	nw, ok := requireNetworkWatcher(w, r)
@@ -768,9 +756,7 @@ func azureResourceLeafName(id string) string {
 	return id[strings.LastIndex(id, "/")+1:]
 }
 
-// ---------------------------------------------------------------------------
 // Connectivity check
-// ---------------------------------------------------------------------------
 
 func handleNetworkWatcherConnectivityCheck(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -943,9 +929,7 @@ func azureProbeConnectivity(address string, port int) (status string, latencyMs 
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Network configuration diagnostic
-// ---------------------------------------------------------------------------
 
 func handleNetworkWatcherConfigurationDiagnostic(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireNetworkWatcher(w, r); !ok {
@@ -1018,9 +1002,7 @@ func handleNetworkWatcherConfigurationDiagnostic(w http.ResponseWriter, r *http.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
-// ---------------------------------------------------------------------------
 // Flow log configuration by target
-// ---------------------------------------------------------------------------
 
 // handleNetworkWatcherConfigureFlowLog writes the flow log configuration of one
 // target resource. It is the target-addressed spelling of the flow log
@@ -1120,9 +1102,7 @@ func networkWatcherFlowLogInformation(flowLog NetworkWatcherFlowLog) map[string]
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Troubleshooting
-// ---------------------------------------------------------------------------
 
 // networkWatcherTroubleshootTarget resolves the resource a troubleshooting
 // request names. Network Watcher troubleshoots virtual network gateways and the
@@ -1169,9 +1149,7 @@ func handleNetworkWatcherQueryTroubleshootResult(w http.ResponseWriter, r *http.
 	networkWatcherTroubleshootTarget(w, req.TargetResourceID)
 }
 
-// ---------------------------------------------------------------------------
 // Internet provider reachability
-// ---------------------------------------------------------------------------
 
 // handleNetworkWatcherAvailableProviders reports the internet service providers
 // Network Watcher holds latency measurements for. Those measurements come from

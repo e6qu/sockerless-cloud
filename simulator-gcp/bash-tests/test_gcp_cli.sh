@@ -241,11 +241,11 @@ echo "=== Service Usage ==="
 # --- enable service via curl (json) ---
 echo "TEST: services enable via curl (json)"
 output=$(sim_curl POST "$BASE_URL/v1/projects/$PROJECT/services/compute.googleapis.com:enable" '{}')
-status=$(sim_curl_status POST "$BASE_URL/v1/projects/$PROJECT/services/storage.googleapis.com:enable" '{}')
-if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+http_status=$(sim_curl_status POST "$BASE_URL/v1/projects/$PROJECT/services/storage.googleapis.com:enable" '{}')
+if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ]; then
     pass
 else
-    fail "enable service returned status $status"
+    fail "enable service returned status $http_status"
 fi
 
 # --- get service state (json) ---
@@ -303,7 +303,7 @@ echo "=== Cloud Logging ==="
 
 # --- write log entries (json) ---
 echo "TEST: logging entries:write via curl (json)"
-status=$(sim_curl_status POST "$BASE_URL/v2/entries:write" "$(cat <<JSONEOF
+http_status=$(sim_curl_status POST "$BASE_URL/v2/entries:write" "$(cat <<JSONEOF
 {
   "logName": "projects/$PROJECT/logs/bash-test-log",
   "resource": {"type": "global"},
@@ -314,10 +314,10 @@ status=$(sim_curl_status POST "$BASE_URL/v2/entries:write" "$(cat <<JSONEOF
 }
 JSONEOF
 )")
-if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ]; then
     pass
 else
-    fail "entries:write returned status $status"
+    fail "entries:write returned status $http_status"
 fi
 
 # --- list log entries (json) ---
@@ -415,11 +415,11 @@ fi
 
 # --- get job (text — raw curl output) ---
 echo "TEST: cloud run jobs get via curl (text)"
-status=$(sim_curl_status GET "$JOBS_BASE/bash-test-job")
-if [ "$status" = "200" ]; then
+http_status=$(sim_curl_status GET "$JOBS_BASE/bash-test-job")
+if [ "$http_status" = "200" ]; then
     pass
 else
-    fail "expected HTTP 200 for get job, got $status"
+    fail "expected HTTP 200 for get job, got $http_status"
 fi
 
 # --- run job (json) ---
@@ -481,20 +481,20 @@ fi
 
 # --- delete job (json) ---
 echo "TEST: cloud run jobs delete via curl (json)"
-status=$(sim_curl_status DELETE "$JOBS_BASE/bash-delete-job")
-if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+http_status=$(sim_curl_status DELETE "$JOBS_BASE/bash-delete-job")
+if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ]; then
     pass
 else
-    fail "delete job returned status $status"
+    fail "delete job returned status $http_status"
 fi
 
 # --- verify deleted job is gone ---
 echo "TEST: cloud run jobs get after delete (expect 404)"
-status=$(sim_curl_status GET "$JOBS_BASE/bash-delete-job")
-if [ "$status" = "404" ]; then
+http_status=$(sim_curl_status GET "$JOBS_BASE/bash-delete-job")
+if [ "$http_status" = "404" ]; then
     pass
 else
-    fail "expected 404 for deleted job, got $status"
+    fail "expected 404 for deleted job, got $http_status"
 fi
 
 # --- cleanup remaining job ---
@@ -540,11 +540,11 @@ fi
 
 # --- get bucket (text — HTTP status check) ---
 echo "TEST: gcs get bucket via curl (text)"
-status=$(sim_curl_status GET "$GCS_BASE/b/bash-test-bucket")
-if [ "$status" = "200" ]; then
+http_status=$(sim_curl_status GET "$GCS_BASE/b/bash-test-bucket")
+if [ "$http_status" = "200" ]; then
     pass
 else
-    fail "expected HTTP 200 for get bucket, got $status"
+    fail "expected HTTP 200 for get bucket, got $http_status"
 fi
 
 # --- list buckets (json) ---
@@ -558,20 +558,20 @@ fi
 
 # --- delete bucket (json) ---
 echo "TEST: gcs delete bucket via curl (json)"
-status=$(sim_curl_status DELETE "$GCS_BASE/b/bash-test-bucket-2")
-if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+http_status=$(sim_curl_status DELETE "$GCS_BASE/b/bash-test-bucket-2")
+if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ]; then
     pass
 else
-    fail "delete bucket returned status $status"
+    fail "delete bucket returned status $http_status"
 fi
 
 # --- verify deleted bucket is gone ---
 echo "TEST: gcs get bucket after delete (expect 404)"
-status=$(sim_curl_status GET "$GCS_BASE/b/bash-test-bucket-2")
-if [ "$status" = "404" ]; then
+http_status=$(sim_curl_status GET "$GCS_BASE/b/bash-test-bucket-2")
+if [ "$http_status" = "404" ]; then
     pass
 else
-    fail "expected 404 for deleted bucket, got $status"
+    fail "expected 404 for deleted bucket, got $http_status"
 fi
 
 # --- cleanup remaining bucket ---

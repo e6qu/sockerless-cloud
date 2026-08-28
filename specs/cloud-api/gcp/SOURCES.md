@@ -6,7 +6,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | Local file | Upstream repo / host | Upstream path | License | Pinned at | Fetched (UTC) |
 |---|---|---|---|---|---|
 | `bigtableadmin-v2.discovery.json.gz` | `bigtableadmin.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision20260808` | 2026-08-13T09:50:29Z |
-| `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260627` | 2026-07-26T18:38:36Z |
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision20260810` | 2026-08-13T09:28:27Z |
 | `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision20260805` | 2026-08-13T09:50:29Z |
 | `cloudresourcemanager-v3.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v3` | Apache-2.0 | `revision20260811` | 2026-08-13T16:17:53Z |
@@ -35,3 +34,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260814` | 2026-08-19T20:45:31Z |
 | `pubsub-v1.discovery.json.gz` | `pubsub.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260813` | 2026-08-19T20:45:32Z |
 | `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260814` | 2026-08-19T20:50:18Z |
+| `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260814` | 2026-08-27T21:16:17Z |

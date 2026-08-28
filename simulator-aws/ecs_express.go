@@ -553,8 +553,6 @@ func handleECSDeleteExpressGatewayService(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"service": expressServiceJSON(resp)})
 }
 
-// ---------- response shaping ----------
-
 func expressServiceJSON(svc ECSExpressService) map[string]any {
 	configs := make([]map[string]any, 0, len(svc.ActiveConfigurations))
 	for _, c := range svc.ActiveConfigurations {
@@ -643,8 +641,6 @@ func expressManagedScalingTarget(in *expressScalingTarget) *expressScalingTarget
 	}
 	return &out
 }
-
-// ---------- faithful assembly helpers (reuse the real sim stores) ----------
 
 // expressRegisterManagedTaskDef registers a Fargate task definition with a
 // single container named `Main` (the Express contract) into ecsTaskDefinitions,

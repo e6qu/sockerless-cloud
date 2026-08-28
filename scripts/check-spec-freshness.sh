@@ -89,21 +89,21 @@ check_repo_pinned() {
   # SOURCES.md rows: | `file` | `repo` | `path` | lic | `sha` | time |
   local sources="$1"
   [ -f "$sources" ] || return 0
-  while IFS='|' read -r _ file repo path _lic pin _; do
+  while IFS='|' read -r _ file repo srcpath _lic pin _; do
     file="$(echo "$file" | tr -d ' \`')"
     repo="$(echo "$repo" | tr -d ' \`')"
-    path="$(echo "$path" | tr -d ' \`')"
+    srcpath="$(echo "$srcpath" | tr -d ' \`')"
     pin="$(echo "$pin" | tr -d ' \`')"
     case "$pin" in revision* | modified*) continue ;; esac
-    latest="$(gh api "repos/$repo/commits?path=$path&per_page=1" --jq '.[0].sha' 2>/dev/null || echo "")"
+    latest="$(gh api "repos/$repo/commits?srcpath=$srcpath&per_page=1" --jq '.[0].sha' 2>/dev/null || echo "")"
     if [ -z "$latest" ]; then
-      echo "?     $file: cannot query upstream ($repo $path)"
+      echo "?     $file: cannot query upstream ($repo $srcpath)"
       fail=1
     elif [ "$latest" = "$pin" ]; then
       echo "ok    $file"
     else
       report_drift "$sources" "$file" "$pin" \
-        "$file: pinned ${pin:0:12}, upstream tip ${latest:0:12} ($repo $path)"
+        "$file: pinned ${pin:0:12}, upstream tip ${latest:0:12} ($repo $srcpath)"
     fi
   done < <(grep '^| `' "$sources")
 }
@@ -125,13 +125,13 @@ check_aws_service_reference() {
     fail=1
     return 0
   fi
-  while IFS='|' read -r _ file _host path _lic pin _; do
+  while IFS='|' read -r _ file _host srcpath _lic pin _; do
     file="$(echo "$file" | tr -d ' \`')"
-    path="$(echo "$path" | tr -d ' \`')"
+    srcpath="$(echo "$srcpath" | tr -d ' \`')"
     pin="$(echo "$pin" | tr -d ' \`')"
     case "$pin" in modified*) ;; *) continue ;; esac
     # path is v1/<service>/<service>.json
-    service="${path#v1/}"
+    service="${srcpath#v1/}"
     service="${service%%/*}"
     latest="$(jq -er --arg s "$service" '.[] | select(.service == $s) | .modified' "$index" 2>/dev/null || echo "")"
     pinned="${pin#modified}"
@@ -175,12 +175,12 @@ check_gcp() {
   if [ -n "$capture_dir" ]; then
     mkdir -p "$capture_dir"
   fi
-  while IFS='|' read -r _ file host path _lic pin _; do
+  while IFS='|' read -r _ file host srcpath _lic pin _; do
     file="$(echo "$file" | tr -d ' \`')"
     host="$(echo "$host" | tr -d ' \`')"
-    path="$(echo "$path" | tr -d ' \`')"
+    srcpath="$(echo "$srcpath" | tr -d ' \`')"
     pin="$(echo "$pin" | tr -d ' \`')"
-    url="https://$host/${path//\\/}"
+    url="https://$host/${srcpath//\\/}"
     revisions=()
     newest_file=""
     newest_revision=""

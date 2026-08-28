@@ -84,9 +84,7 @@ func registerLambdaExtras3(srv *sim.Server) {
 	mux.HandleFunc("POST /2025-12-01/durable-execution-callbacks/{cbid}/heartbeat", cloudTrailRecordedREST("SendDurableExecutionCallbackHeartbeat", "lambda.amazonaws.com", nil, lambdaEnforced("SendDurableExecutionCallbackHeartbeat", nil, handleLambdaSendDurableCallbackHeartbeat)))
 }
 
-// ---------------------------------------------------------------------------
 // GetFunctionConfiguration + UpdateFunctionCode
-// ---------------------------------------------------------------------------
 
 func handleLambdaGetFunctionConfiguration(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
@@ -186,9 +184,7 @@ func handleLambdaUpdateFunctionCode(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, lambdaConfiguration(fn))
 }
 
-// ---------------------------------------------------------------------------
 // Per-function scaling config
-// ---------------------------------------------------------------------------
 
 type lambdaFunctionScalingConfig struct {
 	MinExecutionEnvironments *int32 `json:"MinExecutionEnvironments,omitempty"`
@@ -248,9 +244,7 @@ func handleLambdaPutFunctionScalingConfig(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusAccepted, map[string]any{"FunctionState": "Active"})
 }
 
-// ---------------------------------------------------------------------------
 // ListFunctionsByCodeSigningConfig
-// ---------------------------------------------------------------------------
 
 func handleLambdaListFunctionsByCodeSigningConfig(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
@@ -269,9 +263,7 @@ func handleLambdaListFunctionsByCodeSigningConfig(w http.ResponseWriter, r *http
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"FunctionArns": names})
 }
 
-// ---------------------------------------------------------------------------
 // Capacity providers
-// ---------------------------------------------------------------------------
 
 // LambdaCapacityProvider mirrors the CapacityProvider shape. The members are
 // echoed back exactly as supplied on create; the sim settles a created
@@ -533,9 +525,7 @@ func lambdaCapacityProviderARN(config map[string]any) string {
 	return arn
 }
 
-// ---------------------------------------------------------------------------
 // InvokeAsync (deprecated) + InvokeWithResponseStream
-// ---------------------------------------------------------------------------
 
 func handleLambdaInvokeAsync(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
@@ -638,9 +628,7 @@ func handleLambdaInvokeWithResponseStream(w http.ResponseWriter, r *http.Request
 	}, complete))
 }
 
-// ---------------------------------------------------------------------------
 // Durable executions
-// ---------------------------------------------------------------------------
 
 // lambdaDurableEvent is one history entry. Detail unions are emitted only for
 // the event type that owns them, matching the Lambda durable-execution API.

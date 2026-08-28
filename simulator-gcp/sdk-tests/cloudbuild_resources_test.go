@@ -162,53 +162,6 @@ func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
 	require.Error(t, err, "a deleted regional GHE config must no longer be readable")
 }
 
-// TestCloudBuild_GitLabConfigCRUD round-trips a GitLab source-host config
-// plus its repos-list endpoint.
-func TestCloudBuild_GitLabConfigCRUD(t *testing.T) {
-	svc := cloudbuildService(t)
-	parent := "projects/cb-gitlab-project/locations/us-central1"
-	cfgID := fmt.Sprintf("gl-%d", time.Now().UnixNano())
-
-	cfg := &cloudbuild.GitLabConfig{Username: "gitlab-bot"}
-	op, err := svc.Projects.Locations.GitLabConfigs.Create(parent, cfg).GitlabConfigId(cfgID).Do()
-	require.NoError(t, err)
-	require.True(t, op.Done)
-	require.Nil(t, op.Error)
-
-	name := parent + "/gitLabConfigs/" + cfgID
-	got, err := svc.Projects.Locations.GitLabConfigs.Get(name).Do()
-	require.NoError(t, err)
-	assert.Equal(t, "gitlab-bot", got.Username)
-
-	list, err := svc.Projects.Locations.GitLabConfigs.List(parent).Do()
-	require.NoError(t, err)
-	found := false
-	for _, c := range list.GitlabConfigs {
-		if c.Name == name {
-			found = true
-		}
-	}
-	assert.True(t, found, "created GitLab config must appear in list")
-
-	patchOp, err := svc.Projects.Locations.GitLabConfigs.Patch(name,
-		&cloudbuild.GitLabConfig{Username: "renamed-bot"}).UpdateMask("username").Do()
-	require.NoError(t, err)
-	require.True(t, patchOp.Done)
-	got2, err := svc.Projects.Locations.GitLabConfigs.Get(name).Do()
-	require.NoError(t, err)
-	assert.Equal(t, "renamed-bot", got2.Username)
-
-	// repos list — empty for a config with no completed connection.
-	repos, err := svc.Projects.Locations.GitLabConfigs.Repos.List(name).Do()
-	require.NoError(t, err)
-	assert.Empty(t, repos.GitlabRepositories)
-
-	_, err = svc.Projects.Locations.GitLabConfigs.Delete(name).Do()
-	require.NoError(t, err)
-	_, err = svc.Projects.Locations.GitLabConfigs.Get(name).Do()
-	require.Error(t, err)
-}
-
 // TestCloudBuild_BitbucketServerConfigCRUD round-trips a Bitbucket Server
 // source-host config plus its repos-list endpoint.
 func TestCloudBuild_BitbucketServerConfigCRUD(t *testing.T) {

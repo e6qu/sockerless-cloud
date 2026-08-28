@@ -35,7 +35,6 @@ func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
 		})
 	})
 
-	// --- DB cluster snapshot ---
 	snapID := "ext-cluster-snap"
 	csOut, err := c.CreateDBClusterSnapshot(ctx, &rds.CreateDBClusterSnapshotInput{
 		DBClusterSnapshotIdentifier: aws.String(snapID),
@@ -79,7 +78,6 @@ func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "deleted", aws.ToString(delCS.DBClusterSnapshot.Status))
 
-	// --- DB cluster parameter group ---
 	pgName := "ext-cluster-pg"
 	cpgOut, err := c.CreateDBClusterParameterGroup(ctx, &rds.CreateDBClusterParameterGroupInput{
 		DBClusterParameterGroupName: aws.String(pgName),
@@ -214,7 +212,6 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 	require.Len(t, descSrc.DBInstances, 1)
 	assert.Contains(t, descSrc.DBInstances[0].ReadReplicaDBInstanceIdentifiers, replicaID)
 
-	// --- CopyDBSnapshot ---
 	srcSnap := "ext-copy-src-snap"
 	_, err = c.CreateDBSnapshot(ctx, &rds.CreateDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String(srcSnap),

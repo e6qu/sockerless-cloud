@@ -126,9 +126,27 @@ Create PRs with `gh pr create`. Never run `gh pr merge`. The user handles all me
 
 Before pushing a PR branch, always rebase it on top of `origin/main`; after rebasing and pushing, sync local `main` with `origin/main`. Remote repository state is authoritative.
 
-## No bug IDs in code comments
+## Comment only what the code cannot say, in active voice
 
-Code comments describe intent and behavior — never which bug prompted them. Bug tracking belongs in `BUGS.md`.
+Default to no comment. Write one only when a reader of the code still cannot answer *why* — a wire-format quirk, a constraint the compiler cannot express, a choice whose obvious alternative is wrong. Everything else is noise that goes stale and hides the few comments worth reading.
+
+Delete on sight:
+
+- Restatements. `// RequestID returns the request ID from the context` above `func RequestID(ctx) string` adds nothing.
+- Section banners, `// --- helpers ---`, and headings that repeat the file name.
+- Narration of the next statement: `// loop over the items`, `// return the result`.
+- Justification, apology, and history: how the code got this way belongs in the commit message and `WHAT_WE_DID.md`.
+- Bug IDs. Bug tracking belongs in `BUGS.md`.
+
+Where a comment earns its place, keep it short and cut it to the fact. One line beats five; a clause beats a paragraph.
+
+**Active voice, imperative mood** — in code comments, documentation, tutorials, and READMEs alike:
+
+- "Read the object's payload from the host file", not "the object's payload is read from the host file".
+- "gcloud sends `softDeleted=True`", not "`softDeleted=True` is sent by gcloud".
+- Name the actor. Passive voice hides who does the thing, which is usually the fact worth recording.
+
+Go doc-comment convention still applies where a doc comment exists, and nothing requires one: `staticcheck` runs with ST1020/ST1021/ST1022 off, so an exported symbol whose name says everything gets no comment.
 
 ## Use proper, fully-qualified service and feature names
 

@@ -619,8 +619,6 @@ func TestConformanceWAFv2CreateWebACLDuplicate(t *testing.T) {
 		"CreateWebACL with a duplicate name+scope must raise WAFDuplicateItemException, got %v", err)
 }
 
-// ---- Pagination fidelity ----------------------------------------------------
-//
 // Each list op below honors an explicit page-size param (MaxItems / MaxResults
 // / MaxRecords / Limit): page-size=1 returns exactly one item plus a non-empty
 // continuation token, following that token returns the rest and clears it, and

@@ -244,7 +244,6 @@ func deleteBlobBlock(account, container, blob, blockID string) {
 	blobBlocks.Delete(key)
 }
 
-// blobKeysInContainer returns the store keys of every blob in the container.
 func blobKeysInContainer(account, container string) []string {
 	blobIndexMu.Lock()
 	defer blobIndexMu.Unlock()

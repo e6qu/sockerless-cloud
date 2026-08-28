@@ -150,8 +150,6 @@ func webPublishingCredentials(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Deployment-slot CRUD ----------------------------------------------------
-
 func registerWebSlotCRUD(srv *sim.Server) {
 	base := webProvider + "/sites/{siteName}"
 
@@ -265,8 +263,6 @@ func registerWebSlotCRUD(srv *sim.Server) {
 	})
 }
 
-// --- App Service plan additions ---------------------------------------------
-
 func registerAppServicePlanMore(srv *sim.Server) {
 	planID := func(r *http.Request) string {
 		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s",
@@ -358,8 +354,6 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// --- Subscription-global Microsoft.Web catalogs ------------------------------
 
 func registerWebGlobal(srv *sim.Server) {
 	// GET sites (list by subscription).

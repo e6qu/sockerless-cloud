@@ -9,7 +9,6 @@ import (
 // Access Analyzer families over the aws CLI: path → analysis, and access
 // scope → content → scope analysis → findings, with tolerant teardown.
 func TestEC2CLI_NetworkInsights(t *testing.T) {
-	// --- Reachability Analyzer path + analysis ---
 	pathID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-network-insights-path",
 		"--source", "eni-cli-source", "--destination", "eni-cli-destination",
 		"--protocol", "tcp", "--destination-port", "443",
@@ -42,7 +41,6 @@ func TestEC2CLI_NetworkInsights(t *testing.T) {
 		t.Fatalf("analysis status = %q, want succeeded", anaStatus)
 	}
 
-	// --- Network Access Analyzer access scope ---
 	scopeID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-network-insights-access-scope",
 		"--tag-specifications", "ResourceType=network-insights-access-scope,Tags=[{Key=Name,Value=nis-cli}]",
 		"--query", "NetworkInsightsAccessScope.NetworkInsightsAccessScopeId", "--output", "text")))

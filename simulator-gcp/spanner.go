@@ -204,7 +204,6 @@ func handleSpannerInstanceChild(w http.ResponseWriter, r *http.Request) {
 	gcpMethodNotFound(w)
 }
 
-// spannerRouteInstance routes "{instance}" and "{instance}:verb".
 func spannerRouteInstance(w http.ResponseWriter, r *http.Request, parts []string) bool {
 	instance, verb := spannerColonVerb(parts[0])
 	if verb != "" {

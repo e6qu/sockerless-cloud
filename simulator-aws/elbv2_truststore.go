@@ -72,8 +72,6 @@ func registerELBv2TrustStores(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(elbv2APIVersion, "ModifyIpPools", handleELBv2ModifyIpPools)
 }
 
-// --- Trust stores ---
-
 func handleELBv2CreateTrustStore(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("Name")
 	if name == "" {
@@ -171,8 +169,6 @@ func handleELBv2GetTrustStoreCaCertificatesBundle(w http.ResponseWriter, r *http
 	elbv2XMLResponse(w, "GetTrustStoreCaCertificatesBundle", fmt.Sprintf("<Location>%s</Location>", xmlEscape(loc)), sim.RequestID(r.Context()))
 }
 
-// --- Trust store associations ---
-
 func handleELBv2DescribeTrustStoreAssociations(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("TrustStoreArn")
 	if _, ok := elbv2TrustStores.Get(arn); !ok {
@@ -208,8 +204,6 @@ func handleELBv2DeleteSharedTrustStoreAssociation(w http.ResponseWriter, r *http
 	}
 	elbv2XMLResponse(w, "DeleteSharedTrustStoreAssociation", "", sim.RequestID(r.Context()))
 }
-
-// --- Trust store revocations ---
 
 func handleELBv2AddTrustStoreRevocations(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("TrustStoreArn")
@@ -326,8 +320,6 @@ func handleELBv2GetTrustStoreRevocationContent(w http.ResponseWriter, r *http.Re
 	elbv2ErrorXML(w, "RevocationIdNotFound", fmt.Sprintf("Revocation '%d' not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
 }
 
-// --- SSL policies ---
-
 func handleELBv2DescribeSSLPolicies(w http.ResponseWriter, r *http.Request) {
 	names := queryList(r, "Names")
 	lbType := r.FormValue("LoadBalancerType")
@@ -350,8 +342,6 @@ func handleELBv2DescribeSSLPolicies(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "DescribeSSLPolicies", b.String(), sim.RequestID(r.Context()))
 }
 
-// --- Resource policy (shared trust store) ---
-
 func handleELBv2GetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("ResourceArn")
 	if _, ok := elbv2TrustStores.Get(arn); !ok {
@@ -361,8 +351,6 @@ func handleELBv2GetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::%s:root"},"Action":"elasticloadbalancing:DescribeTrustStoreAssociations","Resource":"%s"}]}`, awsAccountID(), arn)
 	elbv2XMLResponse(w, "GetResourcePolicy", fmt.Sprintf("<Policy>%s</Policy>", xmlEscape(policy)), sim.RequestID(r.Context()))
 }
-
-// --- Capacity reservation / IP pools ---
 
 func handleELBv2ModifyCapacityReservation(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
@@ -421,8 +409,6 @@ func handleELBv2ModifyIpPools(w http.ResponseWriter, r *http.Request) {
 	}
 	elbv2XMLResponse(w, "ModifyIpPools", body, sim.RequestID(r.Context()))
 }
-
-// --- XML / filter helpers ---
 
 func elbv2TrustStoreXML(ts ELBv2TrustStore) string {
 	totalRevoked := 0

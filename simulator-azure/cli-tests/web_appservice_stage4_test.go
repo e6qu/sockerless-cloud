@@ -115,7 +115,6 @@ func TestWebAppStage4_NativeSSLHostnameAndMove(t *testing.T) {
 		`{"location":"eastus","kind":"app,linux","properties":{"serverFarmId":"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/stage4-cli-plan"}}`,
 		subscriptionID, rg), "-o", "json"))
 
-	// --- az webapp config ssl upload / list / show ---------------------------
 	leaf, pfx := stage4CLISelfSignedPFX(t, "cli.stage4.example.com", "s4-cli-pass")
 	pfxPath := filepath.Join(t.TempDir(), "stage4.pfx")
 	require.NoError(t, os.WriteFile(pfxPath, pfx, 0o600))
@@ -154,7 +153,6 @@ func TestWebAppStage4_NativeSSLHostnameAndMove(t *testing.T) {
 	assert.Equal(t, "cli.stage4.example.com", shown.SubjectName)
 	assert.Contains(t, shown.HostNames, "cli.stage4.example.com")
 
-	// --- az webapp config hostname add / list / delete -----------------------
 	host := "cli.stage4.example.com"
 	runCLI(t, env.command("webapp", "config", "hostname", "add",
 		"-g", rg, "--webapp-name", app, "--hostname", host, "-o", "json"))
@@ -173,7 +171,6 @@ func TestWebAppStage4_NativeSSLHostnameAndMove(t *testing.T) {
 	runCLI(t, env.command("webapp", "config", "hostname", "delete",
 		"-g", rg, "--webapp-name", app, "--hostname", host))
 
-	// --- az resource move ----------------------------------------------------
 	dstRG := "stage4-cli-moved-rg"
 	runCLI(t, env.command("group", "create", "-n", dstRG, "-l", "eastus", "-o", "json"))
 	siteID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", subscriptionID, rg, app)
@@ -206,7 +203,6 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 	runCLI(t, azRest("PUT", webMoreURL("sites/cli-s4-site"), siteBody))
 	runCLI(t, azRest("PUT", webMoreURL("sites/cli-s4-site/slots/staging"), `{"location":"eastus","kind":"functionapp"}`))
 
-	// --- site + slot certificates (SiteCertificates_*) -----------------------
 	leaf, pfx := stage4CLISelfSignedPFX(t, "rest.stage4.example.com", "s4-rest-pass")
 	certBody := fmt.Sprintf(`{"location":"eastus","properties":{"pfxBlob":"%s","password":"s4-rest-pass"}}`,
 		base64.StdEncoding.EncodeToString(pfx))
@@ -246,7 +242,6 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 	runCLI(t, azRest("DELETE", webMoreURL("sites/cli-s4-site/slots/staging/certificates/s4-slot-cert"), ""))
 	runCLI(t, azRest("DELETE", webMoreURL("sites/cli-s4-site/certificates/s4-site-cert"), ""))
 
-	// --- top-level certificates through az rest -------------------------------
 	var rgCert struct {
 		ID string `json:"id"`
 	}
@@ -261,7 +256,6 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 		`{"properties":{"hostNames":["patched.stage4.example.com"]}}`))
 	runCLI(t, azRest("DELETE", webMoreURL("certificates/cli-s4-cert"), ""))
 
-	// --- hostname truth --------------------------------------------------------
 	// The ownership proof lives in the simulator's Azure DNS: a CNAME pointing
 	// the custom hostname at the site's default hostname.
 	dnsZoneURL := armURL("Microsoft.Network", "dnsZones/cli-stage4.test", "2018-05-01")
@@ -321,7 +315,6 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 	require.Len(t, assigned.Value, 1)
 	assert.Equal(t, "cli-s4-site", assigned.Value[0].Name)
 
-	// --- config snapshots -------------------------------------------------------
 	runCLI(t, azRest("PUT", webMoreURL("sites/cli-s4-site/config/web"),
 		`{"properties":{"linuxFxVersion":"DOCKER|registry.example/app:v1"}}`))
 	runCLI(t, azRest("PUT", webMoreURL("sites/cli-s4-site/config/web"),
@@ -370,13 +363,11 @@ func TestWebAppStage4_RestSurfaces(t *testing.T) {
 	runCLI(t, azRest("GET", webMoreURL("sites/cli-s4-site/slots/staging/config/web/snapshots/"+slotSnap), ""))
 	runCLI(t, azRest("POST", webMoreURL("sites/cli-s4-site/slots/staging/config/web/snapshots/"+slotSnap+"/recover"), ""))
 
-	// --- container logs (a never-run container answers 204 / empty) -------------
 	assert.Empty(t, strings.TrimSpace(runCLI(t, azRest("POST", webMoreURL("sites/cli-s4-site/containerlogs"), ""))))
 	assert.Empty(t, strings.TrimSpace(runCLI(t, azRest("POST", webMoreURL("sites/cli-s4-site/containerlogs/zip/download"), ""))))
 	assert.Empty(t, strings.TrimSpace(runCLI(t, azRest("POST", webMoreURL("sites/cli-s4-site/slots/staging/containerlogs"), ""))))
 	assert.Empty(t, strings.TrimSpace(runCLI(t, azRest("POST", webMoreURL("sites/cli-s4-site/slots/staging/containerlogs/zip/download"), ""))))
 
-	// --- provider + subscription singletons -------------------------------------
 	runCLI(t, azRest("POST", webMoreURL("sites/cli-s4-site/updatemachinekey"), ""))
 
 	opsURL := fmt.Sprintf("%s/providers/Microsoft.Web/operations?api-version=%s", baseURL, stage4CLIAPIVersion)

@@ -17,15 +17,12 @@ import (
 type contextKey int
 
 const (
-	// RequestIDKey is the context key for the request ID.
 	requestIDKey contextKey = iota
-	// IdentityKey is the context key for the extracted caller identity.
 	identityKey
 )
 
 const loggedErrorBodyLimit = 4096
 
-// RequestID returns the request ID from the context.
 func RequestID(ctx context.Context) string {
 	if v, ok := ctx.Value(requestIDKey).(string); ok {
 		return v
@@ -33,8 +30,6 @@ func RequestID(ctx context.Context) string {
 	return ""
 }
 
-// RequestIDMiddleware generates a unique request ID and stores it in context.
-// It also sets the provider-specific response header.
 func RequestIDMiddleware(provider string) func(http.Handler) http.Handler {
 	headerName := requestIDHeader(provider)
 	return func(next http.Handler) http.Handler {
@@ -47,7 +42,6 @@ func RequestIDMiddleware(provider string) func(http.Handler) http.Handler {
 	}
 }
 
-// LoggingMiddleware logs each request with zerolog.
 func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +57,6 @@ func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler
 				Dur("duration", time.Since(start)).
 				Str("request_id", RequestID(r.Context()))
 
-			// Add provider-specific headers to log
 			switch provider {
 			case "aws":
 				if target := r.Header.Get("X-Amz-Target"); target != "" {
@@ -82,12 +75,9 @@ func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler
 				}
 			}
 
-			// Streaming-envelope sentinels. Surfacing these on the
-			// request log makes the known-bad shape ("handler reads
-			// raw body without consuming the chunked envelope")
-			// greppable in operator output. Fields only appear when
-			// the corresponding header is present, so normal
-			// fixed-Content-Length traffic stays quiet.
+			// Log streaming-envelope sentinels so "handler reads raw
+			// body without consuming the chunked envelope" stays
+			// greppable. Present only when the header is.
 			if ce := r.Header.Get("Content-Encoding"); ce != "" {
 				event.Str("content_encoding", ce)
 			}
@@ -115,9 +105,8 @@ func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler
 	}
 }
 
-// AuthPassthroughMiddleware extracts auth identity from provider-specific
-// headers without validating credentials. The identity is stored in the
-// request context. Requests without auth headers are accepted.
+// Extract the caller identity without validating credentials, and accept a
+// request that carries no auth headers at all.
 func AuthPassthroughMiddleware(provider string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +136,6 @@ func extractIdentity(r *http.Request, provider string) string {
 		}
 		return "aws-user"
 	case "gcp":
-		// Bearer token — extract last segment as hint
 		if strings.HasPrefix(auth, "Bearer ") {
 			return "gcp-user"
 		}
@@ -180,7 +168,6 @@ func generateRequestID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// statusWriter wraps http.ResponseWriter to capture the status code.
 type statusWriter struct {
 	http.ResponseWriter
 	status int
@@ -193,10 +180,8 @@ func (w *statusWriter) WriteHeader(code int) {
 }
 
 func (w *statusWriter) Write(p []byte) (int, error) {
-	// Only buffer the body for error responses (the body is logged on ≥500);
-	// large 2xx OCI/S3 transfers must not pay the extra copy. A handler that
-	// errors sets the status via WriteHeader before writing the body, so the
-	// status is already known here.
+	// Buffer error bodies only; large 2xx OCI/S3 transfers must not pay the
+	// extra copy. WriteHeader has already run, so the status is known.
 	if w.status >= 500 && w.body.Len() < loggedErrorBodyLimit {
 		remaining := loggedErrorBodyLimit - w.body.Len()
 		if len(p) > remaining {
@@ -208,7 +193,7 @@ func (w *statusWriter) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
-// Hijack implements http.Hijacker so WebSocket upgrades work through the middleware.
+// Lets WebSocket upgrades through the middleware chain.
 func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
 		return h.Hijack()

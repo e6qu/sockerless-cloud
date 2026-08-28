@@ -24,8 +24,6 @@ import (
 // network services; sessions (tms-) bind a source ENI to a target through a
 // filter.
 
-// ---- Types ----
-
 type EC2VerifiedAccessTrustProvider struct {
 	VerifiedAccessTrustProviderId string
 	Description                   string
@@ -234,8 +232,6 @@ func registerEC2VerifiedAccess(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteTrafficMirrorSession", handleDeleteTrafficMirrorSession)
 }
 
-// ---- shared helpers ----
-
 func vaArn(resource string) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:%s", awsRegion(), awsAccountID(), resource)
 }
@@ -252,8 +248,6 @@ func ec2FormInt(r *http.Request, key string) (int, bool) {
 	}
 	return n, true
 }
-
-// ---- Verified Access instances ----
 
 func vaInstanceTrustProviderSetXML(inst EC2VerifiedAccessInstance) string {
 	var b strings.Builder
@@ -368,8 +362,6 @@ func handleDeleteVerifiedAccessInstance(w http.ResponseWriter, r *http.Request) 
   <verifiedAccessInstance>%s</verifiedAccessInstance>
 </DeleteVerifiedAccessInstanceResponse>`, ec2Xmlns(), generateUUID(), vaInstanceBodyXML(inst))
 }
-
-// ---- Verified Access trust providers ----
 
 func vaTrustProviderBodyXML(tp EC2VerifiedAccessTrustProvider) string {
 	var b strings.Builder
@@ -530,8 +522,6 @@ func handleDetachVerifiedAccessTrustProvider(w http.ResponseWriter, r *http.Requ
 </DetachVerifiedAccessTrustProviderResponse>`, ec2Xmlns(), generateUUID(), vaTrustProviderBodyXML(tp), vaInstanceBodyXML(inst))
 }
 
-// ---- Verified Access groups ----
-
 func vaGroupBodyXML(g EC2VerifiedAccessGroup) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<verifiedAccessGroupId>%s</verifiedAccessGroupId>", g.VerifiedAccessGroupId)
@@ -684,8 +674,6 @@ func handleModifyVerifiedAccessGroupPolicy(w http.ResponseWriter, r *http.Reques
   %s
 </ModifyVerifiedAccessGroupPolicyResponse>`, ec2Xmlns(), generateUUID(), b.String())
 }
-
-// ---- Verified Access endpoints ----
 
 func vaEndpointBodyXML(e EC2VerifiedAccessEndpoint) string {
 	var b strings.Builder
@@ -910,8 +898,6 @@ func handleGetVerifiedAccessEndpointTargets(w http.ResponseWriter, r *http.Reque
 </GetVerifiedAccessEndpointTargetsResponse>`, ec2Xmlns(), generateUUID(), items.String())
 }
 
-// ---- Verified Access instance logging ----
-
 func vaLoggingBodyXML(lc EC2VerifiedAccessLogging) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<verifiedAccessInstanceId>%s</verifiedAccessInstanceId>", lc.VerifiedAccessInstanceId)
@@ -1029,8 +1015,6 @@ func handleExportVerifiedAccessInstanceClientConfiguration(w http.ResponseWriter
 </ExportVerifiedAccessInstanceClientConfigurationResponse>`, ec2Xmlns(), generateUUID(), instID, awsRegion())
 }
 
-// ---- Traffic Mirror targets ----
-
 func tmTargetBodyXML(t EC2TrafficMirrorTarget) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<trafficMirrorTargetId>%s</trafficMirrorTargetId>", t.TrafficMirrorTargetId)
@@ -1116,8 +1100,6 @@ func handleDeleteTrafficMirrorTarget(w http.ResponseWriter, r *http.Request) {
   <trafficMirrorTargetId>%s</trafficMirrorTargetId>
 </DeleteTrafficMirrorTargetResponse>`, ec2Xmlns(), generateUUID(), id)
 }
-
-// ---- Traffic Mirror filters + rules ----
 
 func tmPortRangeXML(tag string, pr *EC2TrafficMirrorPortRange) string {
 	if pr == nil {
@@ -1388,8 +1370,6 @@ func handleModifyTrafficMirrorFilterNetworkServices(w http.ResponseWriter, r *ht
   <trafficMirrorFilter>%s</trafficMirrorFilter>
 </ModifyTrafficMirrorFilterNetworkServicesResponse>`, ec2Xmlns(), generateUUID(), tmFilterBodyXML(f))
 }
-
-// ---- Traffic Mirror sessions ----
 
 func tmSessionBodyXML(s EC2TrafficMirrorSession) string {
 	var b strings.Builder

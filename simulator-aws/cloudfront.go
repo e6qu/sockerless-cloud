@@ -23,8 +23,6 @@ const (
 	cfNamespace  = "http://cloudfront.amazonaws.com/doc/2020-05-31/"
 )
 
-// ---------- DistributionConfig (request payload) ----------
-
 type CFDistributionConfig struct {
 	XMLName              xml.Name             `xml:"DistributionConfig"`
 	Xmlns                string               `xml:"xmlns,attr,omitempty"`
@@ -276,8 +274,6 @@ type CFGeoRestriction struct {
 	Items           []string `xml:"Items>Location,omitempty"`
 }
 
-// ---------- Distribution (response payload) ----------
-
 type CFDistribution struct {
 	XMLName                       xml.Name                  `xml:"Distribution"`
 	Xmlns                         string                    `xml:"xmlns,attr,omitempty"`
@@ -329,8 +325,6 @@ type CFAliasICPRecordal struct {
 	ICPRecordalStatus string `xml:"ICPRecordalStatus"`
 }
 
-// ---------- List response wrappers ----------
-
 type CFDistributionList struct {
 	XMLName     xml.Name                `xml:"DistributionList"`
 	Xmlns       string                  `xml:"xmlns,attr,omitempty"`
@@ -368,8 +362,6 @@ type CFDistributionSummary struct {
 	AliasICPRecordals    *CFAliasICPRecordals `xml:"AliasICPRecordals,omitempty"`
 }
 
-// ---------- Tags (shared across CF resources) ----------
-
 type CFTags struct {
 	Items []CFTag `xml:"Items>Tag,omitempty"`
 }
@@ -389,8 +381,6 @@ type CFDistributionConfigWithTags struct {
 	DistributionConfig CFDistributionConfig `xml:"DistributionConfig"`
 	Tags               CFTags               `xml:"Tags"`
 }
-
-// ---------- OriginAccessControl ----------
 
 type CFOriginAccessControlConfig struct {
 	XMLName                       xml.Name `xml:"OriginAccessControlConfig"`
@@ -429,8 +419,6 @@ type CFOriginAccessControlSummary struct {
 	OriginAccessControlOriginType string `xml:"OriginAccessControlOriginType"`
 }
 
-// ---------- Error response ----------
-
 type CFErrorResponse struct {
 	XMLName   xml.Name `xml:"ErrorResponse"`
 	Xmlns     string   `xml:"xmlns,attr,omitempty"`
@@ -443,8 +431,6 @@ type CFError struct {
 	Code    string `xml:"Code"`
 	Message string `xml:"Message"`
 }
-
-// ---------- Storage envelope ----------
 
 // cfStoredDistribution holds a Distribution with its current ETag. ETag
 // changes on every Update; If-Match on Update/Delete must match the
@@ -460,8 +446,6 @@ type cfStoredOAC struct {
 	OAC  CFOriginAccessControl
 	ETag string
 }
-
-// ---------- State + helpers ----------
 
 var (
 	cfDistributions        sim.Store[cfStoredDistribution]
@@ -571,8 +555,6 @@ func cfWriteError(w http.ResponseWriter, status int, code, msg string) {
 	})
 }
 
-// ---------- Registration + handlers ----------
-
 func registerCloudFront(srv *sim.Server) {
 	cfDistributions = sim.MakeStore[cfStoredDistribution](srv.DB(), "cloudfront_distributions")
 	cfOriginAccessControls = sim.MakeStore[cfStoredOAC](srv.DB(), "cloudfront_oacs")
@@ -643,8 +625,6 @@ func cfTagOperationName(r *http.Request, _ []byte) string {
 	}
 	return ""
 }
-
-// ----- Distribution handlers -----
 
 // handleCFCreateDistribution dispatches between CreateDistribution and
 // CreateDistributionWithTags based on the `WithTags` query string the
@@ -836,8 +816,6 @@ func handleCFListDistributions(w http.ResponseWriter, r *http.Request) {
 	cfWriteXML(w, http.StatusOK, list)
 }
 
-// ----- OriginAccessControl handlers -----
-
 func handleCFCreateOAC(w http.ResponseWriter, r *http.Request) {
 	var cfg CFOriginAccessControlConfig
 	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
@@ -949,8 +927,6 @@ func handleCFDeleteOAC(w http.ResponseWriter, r *http.Request) {
 	cfOriginAccessControls.Delete(id)
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// ----- Tagging handlers -----
 
 // cfDistributionIDFromARN extracts the distribution ID from an ARN of the
 // form "arn:aws:cloudfront::<acct>:distribution/<id>".

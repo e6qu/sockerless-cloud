@@ -16,7 +16,7 @@ shard_total="${FUZZ_SHARD_TOTAL:-1}"
 artifact_dir=".fuzz-artifacts"
 work_dir="$(mktemp -d)"
 task_file="$work_dir/tasks"
-status=0
+exit_status=0
 
 trap 'rm -rf "$work_dir"' EXIT
 rm -rf "$artifact_dir"
@@ -49,7 +49,7 @@ discover_targets() {
 	for dir in "$@"; do
 		if [[ ! -f "$dir/go.mod" ]]; then
 			echo "required fuzz module has no go.mod: $dir" >&2
-			status=1
+			exit_status=1
 			continue
 		fi
 		while IFS= read -r file; do
@@ -119,7 +119,7 @@ wait_batch() {
 				echo "~~~ fuzztime shutdown race (engine stopped itself at the -fuzztime boundary, no crasher): $label"
 			else
 				echo "!!! FUZZ TARGET FAILED: $label" >&2
-				status=1
+				exit_status=1
 			fi
 		fi
 		cat "$log_file"
@@ -149,7 +149,7 @@ prebuild_packages() {
 		echo "=== building test binary for [$dir] $relative ==="
 		if ! (cd "$dir" && CGO_ENABLED=0 go test -tags=noui -c -o /dev/null "$relative"); then
 			echo "!!! FAILED TO BUILD: $dir $relative" >&2
-			status=1
+			exit_status=1
 		fi
 	done < <(cut -f1,2 "$task_file" | sort -u)
 }
@@ -217,7 +217,7 @@ if ((${#batch_pids[@]} > 0)); then
 	wait_batch
 fi
 
-if ((status != 0)); then
+if ((exit_status != 0)); then
 	collect_new_crashers
 	if [[ -d "$artifact_dir" ]]; then
 		echo "fuzzing found at least one new crasher — minimized inputs are in $artifact_dir" >&2
@@ -225,4 +225,4 @@ if ((status != 0)); then
 		echo "at least one fuzz target failed without producing a new crasher" >&2
 	fi
 fi
-exit "$status"
+exit "$exit_status"

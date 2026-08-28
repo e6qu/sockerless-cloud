@@ -99,7 +99,6 @@ type ContainerOverride struct {
 	ClearArgs bool     `json:"clearArgs,omitempty"`
 }
 
-// ExecutionTemplate holds the template for creating executions.
 type ExecutionTemplate struct {
 	Labels      map[string]string `json:"labels,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
@@ -243,7 +242,6 @@ type ResourceRequirements struct {
 	StartupCPUBoost bool              `json:"startupCpuBoost,omitempty"`
 }
 
-// ContainerPort represents a port on a container.
 type ContainerPort struct {
 	Name          string `json:"name,omitempty"`
 	ContainerPort int32  `json:"containerPort"`

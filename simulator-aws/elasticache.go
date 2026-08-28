@@ -880,9 +880,7 @@ func ecDefaultEngineVersion(engine string) string {
 	return ""
 }
 
-// ---------------------------------------------------------------------------
 // Snapshots
-// ---------------------------------------------------------------------------
 
 func renderECSnapshot(s ECSnapshot) string {
 	var b strings.Builder
@@ -1037,9 +1035,7 @@ func handleECCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "CopySnapshot", renderECSnapshot(s), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Users + User Groups (ElastiCache RBAC)
-// ---------------------------------------------------------------------------
 
 // renderECUserBody emits the User shape's members without any wrapper
 // element. CreateUser / ModifyUser / DeleteUser return the User shape
@@ -1308,9 +1304,7 @@ func handleECDeleteUserGroup(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DeleteUserGroup", renderECUserGroupBody(g), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Parameter detail
-// ---------------------------------------------------------------------------
 
 // ecDefaultParameters returns a representative slice of engine-default
 // parameters keyed by name. Real ElastiCache exposes hundreds; the sim
@@ -1449,9 +1443,7 @@ func handleECDescribeEngineDefaultParameters(w http.ResponseWriter, r *http.Requ
 	ecXMLResponse(w, "DescribeEngineDefaultParameters", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Events
-// ---------------------------------------------------------------------------
 
 func handleECDescribeEvents(w http.ResponseWriter, r *http.Request) {
 	sourceType := r.FormValue("SourceType")
@@ -1490,9 +1482,7 @@ func handleECDescribeEvents(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DescribeEvents", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Cache engine versions
-// ---------------------------------------------------------------------------
 
 func handleECDescribeCacheEngineVersions(w http.ResponseWriter, r *http.Request) {
 	wantEngine := strings.ToLower(r.FormValue("Engine"))
@@ -1522,9 +1512,7 @@ func handleECDescribeCacheEngineVersions(w http.ResponseWriter, r *http.Request)
 	ecXMLResponse(w, "DescribeCacheEngineVersions", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Reserved cache nodes + offerings
-// ---------------------------------------------------------------------------
 
 func handleECDescribeReservedCacheNodes(w http.ResponseWriter, r *http.Request) {
 	// No reservations are purchased in the sim; AWS returns an empty
@@ -1549,9 +1537,7 @@ func handleECDescribeReservedCacheNodesOfferings(w http.ResponseWriter, r *http.
 	ecXMLResponse(w, "DescribeReservedCacheNodesOfferings", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Service updates
-// ---------------------------------------------------------------------------
 
 func handleECDescribeServiceUpdates(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
@@ -1571,9 +1557,7 @@ func handleECDescribeServiceUpdates(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DescribeServiceUpdates", b.String(), sim.RequestID(r.Context()))
 }
 
-// ---------------------------------------------------------------------------
 // Cache security groups (EC2-Classic; empty in a VPC-only sim)
-// ---------------------------------------------------------------------------
 
 func handleECDescribeCacheSecurityGroups(w http.ResponseWriter, r *http.Request) {
 	// CacheSecurityGroups are an EC2-Classic concept. New accounts are

@@ -33,7 +33,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 		return b
 	}
 
-	// ---- service create + Update + actions ----
 	mustStatus("PUT", svc, `{"location":"eastus","sku":{"name":"Developer","capacity":1},"properties":{"publisherEmail":"ops@example.com","publisherName":"Ops"}}`, http.StatusOK)
 
 	upd := mustStatus("PATCH", svc, `{"tags":{"env":"test"},"properties":{"publisherName":"Ops2"}}`, http.StatusOK)
@@ -55,7 +54,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 		assert.NotEmpty(t, resp.Header.Get("Azure-AsyncOperation"), action+" must advertise an async operation")
 	}
 
-	// ---- provider-scoped operations ----
 	ops := mustStatus("GET", "/providers/Microsoft.ApiManagement/operations", "", http.StatusOK)
 	assert.Contains(t, string(ops), `"Microsoft.ApiManagement/service/read"`)
 
@@ -72,7 +70,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	dom := mustStatus("POST", provider+"/getDomainOwnershipIdentifier", "", http.StatusOK)
 	assert.Contains(t, string(dom), `"domainOwnershipIdentifier"`)
 
-	// ---- API + child collections ----
 	api := svc + "/apis/myapi"
 	mustStatus("PUT", api, `{"properties":{"displayName":"My API","path":"v1","apiType":"http"}}`, http.StatusOK)
 	patched := mustStatus("PATCH", api, `{"properties":{"description":"updated"}}`, http.StatusOK)
@@ -125,7 +122,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	mustStatus("PUT", op+"/tags/optag", `{"properties":{"displayName":"optag"}}`, http.StatusOK)
 	mustStatus("GET", op+"/tags", "", http.StatusOK)
 
-	// ---- Product + child collections + associations ----
 	product := svc + "/products/myproduct"
 	mustStatus("PUT", product, `{"properties":{"displayName":"My Product","state":"published"}}`, http.StatusOK)
 	mustStatus("PATCH", product, `{"properties":{"description":"prod desc"}}`, http.StatusOK)
@@ -154,7 +150,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 
 	mustStatus("GET", product+"/subscriptions", "", http.StatusOK)
 
-	// ---- Subscription actions ----
 	apimSub := svc + "/subscriptions/sub1"
 	mustStatus("PUT", apimSub, `{"properties":{"displayName":"Sub 1","scope":"`+product+`"}}`, http.StatusOK)
 	mustStatus("PATCH", apimSub, `{"properties":{"displayName":"Sub 1b"}}`, http.StatusOK)
@@ -186,7 +181,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// ---- Backend actions ----
 	backend := svc + "/backends/backend1"
 	mustStatus("PUT", backend, `{"properties":{"url":"https://example.com","protocol":"http"}}`, http.StatusOK)
 	mustStatus("PATCH", backend, `{"properties":{"title":"My Backend"}}`, http.StatusOK)
@@ -195,7 +189,6 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// ---- deletedServices list (after a delete) ----
 	mustStatus("DELETE", svc, "", http.StatusOK)
 	delList := mustStatus("GET", provider+"/deletedServices", "", http.StatusOK)
 	assert.Contains(t, string(delList), name)

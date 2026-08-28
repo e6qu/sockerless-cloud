@@ -13,7 +13,6 @@ import (
 // end through the aws CLI. Grouped into one round-trip func (the appdata
 // shard is already heavy).
 func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
-	// --- backing instance + cluster ---
 	instID := "cli-px-target-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instID,
@@ -40,7 +39,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 			"--skip-final-snapshot").Run()
 	})
 
-	// --- DB proxy ---
 	proxyName := "cli-test-proxy"
 	out := runCLI(t, awsCLI("rds", "create-db-proxy",
 		"--db-proxy-name", proxyName,
@@ -79,7 +77,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--idle-client-timeout", "600",
 		"--debug-logging"))
 
-	// --- proxy endpoint ---
 	epName := "cli-test-proxy-ep"
 	out = runCLI(t, awsCLI("rds", "create-db-proxy-endpoint",
 		"--db-proxy-name", proxyName,
@@ -106,7 +103,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--db-proxy-endpoint-name", epName,
 		"--new-db-proxy-endpoint-name", epName))
 
-	// --- target group + targets ---
 	out = runCLI(t, awsCLI("rds", "describe-db-proxy-target-groups", "--db-proxy-name", proxyName))
 	var tgList struct {
 		TargetGroups []struct {
@@ -148,7 +144,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--db-proxy-name", proxyName,
 		"--db-instance-identifiers", instID))
 
-	// --- IAM roles ---
 	runCLI(t, awsCLI("rds", "add-role-to-db-cluster",
 		"--db-cluster-identifier", clusterID,
 		"--role-arn", "arn:aws:iam::123456789012:role/AuroraAccessRole",
@@ -166,7 +161,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--role-arn", "arn:aws:iam::123456789012:role/InstanceAccessRole",
 		"--feature-name", "S3_INTEGRATION"))
 
-	// --- DB security groups ---
 	sgName := "cli-test-dbsg"
 	runCLI(t, awsCLI("rds", "create-db-security-group",
 		"--db-security-group-name", sgName,
@@ -192,7 +186,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--cidrip", "10.0.0.0/24"))
 	runCLI(t, awsCLI("rds", "describe-db-security-groups", "--db-security-group-name", sgName))
 
-	// --- certificates ---
 	out = runCLI(t, awsCLI("rds", "describe-certificates"))
 	var certs struct {
 		Certificates []struct {
@@ -208,7 +201,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		_ = awsCLI("rds", "modify-certificates", "--remove-customer-override").Run()
 	})
 
-	// --- automated backups ---
 	out = runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
 		"--db-instance-identifier", instID))
 	var ab struct {
@@ -233,7 +225,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 	runCLI(t, awsCLI("rds", "delete-db-cluster-automated-backup",
 		"--db-cluster-resource-id", cab.DBClusterAutomatedBackups[0].DbClusterResourceId))
 
-	// --- log files ---
 	out = runCLI(t, awsCLI("rds", "describe-db-log-files", "--db-instance-identifier", instID))
 	var logs struct {
 		DescribeDBLogFiles []struct {
@@ -251,7 +242,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 	parseJSON(t, out, &dl)
 	assert.NotEmpty(t, dl.LogFileData)
 
-	// --- copy groups ---
 	srcPG := "cli-copy-src-pg"
 	runCLI(t, awsCLI("rds", "create-db-parameter-group",
 		"--db-parameter-group-name", srcPG,
@@ -313,7 +303,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		_ = awsCLI("rds", "delete-option-group", "--option-group-name", dstOG).Run()
 	})
 
-	// --- event subscription source identifiers ---
 	subName := "cli-src-id-sub"
 	runCLI(t, awsCLI("rds", "create-event-subscription",
 		"--subscription-name", subName,
@@ -336,7 +325,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--subscription-name", subName,
 		"--source-identifier", "my-db-instance"))
 
-	// --- pending maintenance actions ---
 	out = runCLI(t, awsCLI("rds", "describe-pending-maintenance-actions"))
 	var pma struct {
 		PendingMaintenanceActions []struct {

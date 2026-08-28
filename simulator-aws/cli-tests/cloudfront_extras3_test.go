@@ -513,7 +513,6 @@ func cfDistributionSummaryIDsCLI(t *testing.T, args ...string) []string {
 	return ids
 }
 
-// TestCloudFrontUpdateAnycastIpListCLI covers update-anycast-ip-list.
 func TestCloudFrontUpdateAnycastIpListCLI(t *testing.T) {
 	out := runCLI(t, awsCLI("cloudfront", "create-anycast-ip-list",
 		"--name", "cli-aipl-"+time.Now().Format("150405.000"), "--ip-count", "2", "--output", "json"))

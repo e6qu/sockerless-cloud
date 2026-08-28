@@ -38,8 +38,6 @@ import (
 // for SVG/animated/bypass types, and response headers mirror the Next.js
 // image optimizer contract.
 
-// ---------- imageSettings ----------
-
 // amplifyImageSettings mirrors the deployment specification's ImageSettings
 // object (deploy-manifest.json `imageSettings`).
 type amplifyImageSettings struct {
@@ -86,8 +84,6 @@ func amplifyParseImageSettings(raw json.RawMessage) (*amplifyImageSettings, erro
 	}
 	return &settings, nil
 }
-
-// ---------- source URL allow-listing ----------
 
 func (p amplifyRemotePattern) matches(u *url.URL) bool {
 	if p.Protocol != "" && p.Protocol != u.Scheme {
@@ -145,8 +141,6 @@ func (s *amplifyImageSettings) remoteAllowed(u *url.URL) bool {
 	return false
 }
 
-// ---------- format negotiation ----------
-
 // amplifyEncodableImageFormats are the output formats the optimizer can
 // produce. AVIF is a valid imageSettings entry but has no trustworthy pure-Go
 // encoder, so it never wins negotiation — the client is served the next
@@ -200,8 +194,6 @@ func amplifyNegotiateImageFormat(formats []string, accept string) string {
 	}
 	return ""
 }
-
-// ---------- source type detection ----------
 
 // amplifyDetectImageType sniffs the source's real content type from magic
 // bytes (the optimizer's detectContentType), never trusting extensions or
@@ -273,8 +265,6 @@ func amplifyImageIsAnimated(contentType string, data []byte) bool {
 	return false
 }
 
-// ---------- transformed-output cache ----------
-
 // amplifyStoredOptimizedImage is one cached transform, keyed by (deployment,
 // source URL, width, quality, negotiated format) so a new deployment or a
 // different negotiation never serves stale bytes.
@@ -306,8 +296,6 @@ func amplifyPurgeOptimizedImages(appID, branch string) {
 		}
 	}
 }
-
-// ---------- request handling ----------
 
 func amplifyImageOptError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Cache-Control", "public, max-age=0, must-revalidate")

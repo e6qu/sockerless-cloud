@@ -16,7 +16,6 @@ func TestCLI_CompletionSurfaces(t *testing.T) {
 	rgURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=%s", baseURL, subscriptionID, resourceGroup, resourcesAPIVersion)
 	runCLI(t, azRest("PUT", rgURL, `{"location":"eastus"}`))
 
-	// ---- Microsoft.ApiManagement: API resolver + issue ----
 	apimURL := func(p string) string {
 		return armURL("Microsoft.ApiManagement", p, apimAPIVersion)
 	}

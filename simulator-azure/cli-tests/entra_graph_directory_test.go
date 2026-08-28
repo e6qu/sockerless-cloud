@@ -81,7 +81,6 @@ func TestEntraGraphDirectoryCLI(t *testing.T) {
 func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	suffix := "-cli-" + version
 
-	// --- users -------------------------------------------------------------
 	// POST /v1.0/users, POST /beta/users
 	managerUPN := "graph-cli-manager" + suffix + "@example.com"
 	manager := azGraph(t, "POST", "/"+version+"/users", map[string]any{
@@ -133,7 +132,6 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	assert.Contains(t, rejected, "Request_UnsupportedQuery",
 		"$count without ConsistencyLevel:eventual must be rejected")
 
-	// --- manager navigation property ---------------------------------------
 	// PUT /v1.0/users/{userId}/manager/$ref, PUT /beta/users/{userId}/manager/$ref
 	azGraph(t, "PUT", "/"+version+"/users/"+memberID+"/manager/$ref", map[string]any{
 		"@odata.id": baseURL + "/" + version + "/directoryObjects/" + managerID,
@@ -147,7 +145,6 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	directoryObject := azGraph(t, "GET", "/"+version+"/directoryObjects/"+managerID, nil)
 	assert.Equal(t, "#microsoft.graph.user", directoryObject["@odata.type"])
 
-	// --- applications --------------------------------------------------------
 	// POST /v1.0/applications, POST /beta/applications
 	app := azGraph(t, "POST", "/"+version+"/applications", map[string]any{
 		"displayName":    "graph-cli-app" + suffix,
@@ -202,7 +199,6 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	azGraph(t, "POST", "/"+version+"/applications/"+appObjectID+"/removePassword",
 		map[string]any{"keyId": keyID})
 
-	// --- service principals ----------------------------------------------------
 	// POST /v1.0/servicePrincipals, POST /beta/servicePrincipals
 	sp := azGraph(t, "POST", "/"+version+"/servicePrincipals", map[string]any{
 		"appId":                     appClientID,
@@ -246,7 +242,6 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	azGraph(t, "POST", "/"+version+"/servicePrincipals/"+spID+"/removePassword",
 		map[string]any{"keyId": spKeyID})
 
-	// --- groups ------------------------------------------------------------------
 	// POST /v1.0/groups, POST /beta/groups
 	group := azGraph(t, "POST", "/"+version+"/groups", map[string]any{
 		"displayName":     "graph-cli-group" + suffix,
@@ -307,7 +302,6 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	childMemberOf := azGraph(t, "GET", "/"+version+"/groups/"+groupID+"/memberOf", nil)
 	assert.Equal(t, []string{parentID}, azGraphIDs(t, childMemberOf))
 
-	// --- delegated /me reads -------------------------------------------------------
 	memberBearer := graphUserBearer(t, memberUPN)
 	// GET /v1.0/me/memberOf, GET /beta/me/memberOf
 	meMemberOf := azGraph2(t, "GET", "/"+version+"/me/memberOf", memberBearer)
@@ -316,7 +310,6 @@ func runEntraGraphDirectoryCLI(t *testing.T, version string) {
 	meTransitive := azGraph2(t, "GET", "/"+version+"/me/transitiveMemberOf", memberBearer)
 	assert.Contains(t, azGraphIDs(t, meTransitive), groupID)
 
-	// --- teardown ---------------------------------------------------------------------
 	// DELETE /v1.0/groups/{groupId}/members/{memberId}/$ref,
 	// DELETE /beta/groups/{groupId}/members/{memberId}/$ref
 	azGraph(t, "DELETE", "/"+version+"/groups/"+groupID+"/members/"+memberID+"/$ref", nil)

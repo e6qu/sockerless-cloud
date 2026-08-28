@@ -250,6 +250,6 @@ The script builds the simulator, starts it on a random port, runs 33 tests, and 
 
 ## Notes
 
-- Authentication is accepted but not validated. Any Bearer token will work.
+- The simulator accepts authentication without validating it. Any Bearer token works.
 - All state is in-memory and resets when the simulator restarts.
 - `CLOUDSDK_CONFIG` should point to an isolated directory to avoid interfering with your real gcloud configuration.

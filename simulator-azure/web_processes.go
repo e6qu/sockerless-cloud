@@ -244,9 +244,7 @@ func webContainerStats(containerID string) (mobycontainer.StatsResponse, error) 
 	return stats, nil
 }
 
-// ---------------------------------------------------------------------------
 // wire shapes
-// ---------------------------------------------------------------------------
 
 func webProcessResourceID(base string, instanceID string, pid int) string {
 	if instanceID != "" {
@@ -416,9 +414,7 @@ func webInstanceDoc(base, instanceID string, running bool, containers map[string
 	}
 }
 
-// ---------------------------------------------------------------------------
 // handlers
-// ---------------------------------------------------------------------------
 
 // webEngineFailure reports a container-engine read that did not succeed. The
 // operation cannot answer without the engine, and answering with an empty

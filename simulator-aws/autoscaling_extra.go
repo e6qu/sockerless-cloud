@@ -186,8 +186,6 @@ func asxActivityMemberXML(a ScalingActivity) string {
 		a.ActivityId, xmlEscape(a.AutoScalingGroupName), xmlEscape(a.Description), xmlEscape(a.Cause), a.StartTime, a.EndTime, a.StatusCode)
 }
 
-// ---- Instance attach / standby / protection ----
-
 func handleASXAttachInstances(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
 	asg, ok := asxRequireGroup(w, group)
@@ -315,8 +313,6 @@ func asxActivitiesXML(acts []ScalingActivity) string {
 	b.WriteString("</Activities>")
 	return b.String()
 }
-
-// ---- Load balancers ----
 
 func handleASXAttachLoadBalancers(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
@@ -484,8 +480,6 @@ func asxParseTrafficSources(r *http.Request) []ASTrafficSource {
 	return out
 }
 
-// ---- Instance refreshes ----
-
 func handleASXStartInstanceRefresh(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
 	if _, ok := asxRequireGroup(w, group); !ok {
@@ -596,8 +590,6 @@ func asxLatestRefresh(group string) *ASInstanceRefresh {
 	return latest
 }
 
-// ---- Warm pools ----
-
 func handleASXPutWarmPool(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
 	if _, ok := asxRequireGroup(w, group); !ok {
@@ -645,8 +637,6 @@ func handleASXDescribeWarmPool(w http.ResponseWriter, r *http.Request) {
 	body.WriteString("<Instances/>")
 	asResponse(w, "DescribeWarmPool", body.String())
 }
-
-// ---- Notifications ----
 
 func handleASXPutNotificationConfiguration(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
@@ -720,8 +710,6 @@ func handleASXDescribeNotificationConfigurations(w http.ResponseWriter, r *http.
 	asResponse(w, "DescribeNotificationConfigurations", body)
 }
 
-// ---- Metrics collection ----
-
 func handleASXEnableMetricsCollection(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
 	if _, ok := asxRequireGroup(w, group); !ok {
@@ -762,8 +750,6 @@ func handleASXDisableMetricsCollection(w http.ResponseWriter, r *http.Request) {
 	asEmptyResponse(w, "DisableMetricsCollection")
 }
 
-// ---- Process suspension ----
-
 func handleASXSuspendProcesses(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
 	if _, ok := asxRequireGroup(w, group); !ok {
@@ -802,8 +788,6 @@ func handleASXResumeProcesses(w http.ResponseWriter, r *http.Request) {
 	asGroupExtras.Put(group, ex)
 	asEmptyResponse(w, "ResumeProcesses")
 }
-
-// ---- Lifecycle actions ----
 
 func handleASXCompleteLifecycleAction(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
@@ -870,8 +854,6 @@ func asxLifecycleKey(group, hook, token, instanceID string) string {
 	return strings.Join([]string{group, hook, id}, "|")
 }
 
-// ---- Batch scheduled actions ----
-
 func handleASXBatchPutScheduledAction(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
 	if _, ok := asxRequireGroup(w, group); !ok {
@@ -924,8 +906,6 @@ func handleASXBatchDeleteScheduledAction(w http.ResponseWriter, r *http.Request)
 	asResponse(w, "BatchDeleteScheduledAction", "<FailedScheduledActions/>")
 }
 
-// ---- Predictive scaling + launch ----
-
 func handleASXGetPredictiveScalingForecast(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("AutoScalingGroupName")
 	if _, ok := asxRequireGroup(w, group); !ok {
@@ -968,8 +948,6 @@ func handleASXLaunchInstances(w http.ResponseWriter, r *http.Request) {
 		xmlEscape(group), xmlEscape(clientToken), instances)
 	asResponse(w, "LaunchInstances", body)
 }
-
-// ---- Static description / enumeration operations ----
 
 func handleASXDescribeAccountLimits(w http.ResponseWriter, _ *http.Request) {
 	numGroups := len(autoScalingGroups.List())

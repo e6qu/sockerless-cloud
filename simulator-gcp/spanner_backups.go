@@ -87,9 +87,7 @@ type spannerBackupScheduleRun struct {
 	LastRun  string `json:"lastRun"`
 }
 
-// ---------------------------------------------------------------------------
 // real bytes: capture and restore of a database's SQLite image
-// ---------------------------------------------------------------------------
 
 // spannerSQLiteStringLiteral renders a filesystem path as a SQLite string
 // literal for the VACUUM INTO / ATTACH DATABASE statements, which take the path
@@ -220,9 +218,7 @@ func spannerMaterializeFromImage(ctx context.Context, dbName string, image []byt
 	return nil
 }
 
-// ---------------------------------------------------------------------------
 // backups
-// ---------------------------------------------------------------------------
 
 func spannerBackupName(project, instance, backup string) string {
 	return fmt.Sprintf("%s/backups/%s", spannerInstanceName(project, instance), backup)
@@ -476,9 +472,7 @@ func handleSpannerBackupIAM(w http.ResponseWriter, r *http.Request, instance, ba
 	}
 }
 
-// ---------------------------------------------------------------------------
 // RestoreDatabase
-// ---------------------------------------------------------------------------
 
 func handleSpannerRestoreDatabase(w http.ResponseWriter, r *http.Request, instance string) {
 	project := sim.PathParam(r, "project")
@@ -580,9 +574,7 @@ func appendUniqueString(list []string, v string) []string {
 	return append(list, v)
 }
 
-// ---------------------------------------------------------------------------
 // backup schedules
-// ---------------------------------------------------------------------------
 
 func handleSpannerCreateBackupSchedule(w http.ResponseWriter, r *http.Request, instance, database string) {
 	dbName := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
@@ -757,9 +749,7 @@ func handleSpannerBackupScheduleIAM(w http.ResponseWriter, r *http.Request, reso
 	}
 }
 
-// ---------------------------------------------------------------------------
 // the scheduler: crontab occurrences produce real backups
-// ---------------------------------------------------------------------------
 
 // spannerCrontab is a parsed five-field crontab expression (minute, hour,
 // day-of-month, month, day-of-week) in UTC — the form Cloud Spanner's

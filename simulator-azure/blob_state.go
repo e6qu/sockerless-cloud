@@ -247,9 +247,7 @@ func blobContainerSoftDeleteDays(account string) (int32, bool) {
 	return 0, false
 }
 
-// ---------------------------------------------------------------------------
 // Leases
-// ---------------------------------------------------------------------------
 
 const (
 	blobLeaseStateAvailable = "available"
@@ -553,9 +551,7 @@ func applyBlobLeaseAction(w http.ResponseWriter, req blobLeaseActionRequest, cur
 	return cur, 0, nil, false
 }
 
-// ---------------------------------------------------------------------------
 // Write guards
-// ---------------------------------------------------------------------------
 
 // blobWriteAllowed enforces the write protections a stored blob carries: a
 // locked or unlocked-but-named lease, a legal hold, and an unexpired
@@ -605,9 +601,7 @@ func blobContainerWriteAllowed(w http.ResponseWriter, r *http.Request, c BlobCon
 	return blobLeaseAccessOK(w, r, c.Lease, "container")
 }
 
-// ---------------------------------------------------------------------------
 // Blob lookup
-// ---------------------------------------------------------------------------
 
 // lookupBlob resolves the blob a request addresses, honoring the `?snapshot=`
 // query. Soft-deleted blobs are invisible to every operation except Undelete and
@@ -641,9 +635,7 @@ func blobsInContainer(account, container string) []BlobObject {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Shared value helpers
-// ---------------------------------------------------------------------------
 
 func blobNowHTTP() string {
 	return time.Now().UTC().Format(http.TimeFormat)
@@ -689,9 +681,7 @@ func blobTouch(b *BlobObject) {
 	b.ETag = blobETagFor(b.Data, b.LastModified+generateUUID())
 }
 
-// ---------------------------------------------------------------------------
 // List Blobs entry shape
-// ---------------------------------------------------------------------------
 
 // blobListProperties is the <Properties> element of one blob in a List Blobs
 // response. Every element name is the wire name azblob's BlobProperties reads.

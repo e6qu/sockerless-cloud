@@ -30,7 +30,6 @@ func TestEC2CLI_VerifiedAccessLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "modify-verified-access-instance", "--verified-access-instance-id", instID,
 		"--description", "cli-vai-updated"))
 
-	// ---- Trust provider ----
 	tpID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-verified-access-trust-provider",
 		"--trust-provider-type", "user",
 		"--user-trust-provider-type", "iam-identity-center",
@@ -63,7 +62,6 @@ func TestEC2CLI_VerifiedAccessLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "detach-verified-access-trust-provider",
 		"--verified-access-instance-id", instID, "--verified-access-trust-provider-id", tpID))
 
-	// ---- Group ----
 	const groupPolicy = "permit(principal, action, resource);"
 	grpID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-verified-access-group",
 		"--verified-access-instance-id", instID,
@@ -94,7 +92,6 @@ func TestEC2CLI_VerifiedAccessLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "modify-verified-access-group", "--verified-access-group-id", grpID,
 		"--description", "cli-grp-updated"))
 
-	// ---- Endpoint ----
 	epID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-verified-access-endpoint",
 		"--verified-access-group-id", grpID,
 		"--endpoint-type", "load-balancer",
@@ -195,7 +192,6 @@ func TestEC2CLI_TrafficMirrorLifecycle(t *testing.T) {
 		t.Fatalf("describe-traffic-mirror-targets: got %q", strings.TrimSpace(out))
 	}
 
-	// ---- Filter + rule + network services ----
 	fltID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-traffic-mirror-filter",
 		"--description", "cli-tmf",
 		"--query", "TrafficMirrorFilter.TrafficMirrorFilterId", "--output", "text")))
@@ -244,7 +240,6 @@ func TestEC2CLI_TrafficMirrorLifecycle(t *testing.T) {
 		t.Fatalf("describe-traffic-mirror-filters: got %q", strings.TrimSpace(out))
 	}
 
-	// ---- Session ----
 	sessID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-traffic-mirror-session",
 		"--traffic-mirror-target-id", tgtID,
 		"--traffic-mirror-filter-id", fltID,

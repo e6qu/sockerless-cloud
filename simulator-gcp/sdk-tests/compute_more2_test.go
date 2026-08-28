@@ -21,8 +21,6 @@ const (
 	more2Zone    = "us-central1-a"
 )
 
-// --- Global resources -------------------------------------------------
-
 func TestCompute2_BackendBuckets_CRUD_IAM(t *testing.T) {
 	svc := computeService(t)
 	_, err := svc.BackendBuckets.Insert(more2Project, &compute.BackendBucket{Name: "sdk-bb-1", BucketName: "gcs-bucket"}).Do()
@@ -152,8 +150,6 @@ func TestCompute2_ExternalVpnGateways_CRUD(t *testing.T) {
 	_, err = svc.ExternalVpnGateways.Delete(more2Project, "sdk-evpn-1").Do()
 	require.NoError(t, err)
 }
-
-// --- Regional resources ------------------------------------------------
 
 func TestCompute2_ResourcePolicies_CRUD_IAM_Aggregated(t *testing.T) {
 	svc := computeService(t)
@@ -464,8 +460,6 @@ func TestCompute2_RegionSslPolicies_CRUD(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// --- Zonal resources ---------------------------------------------------
-
 func TestCompute2_Autoscalers_CRUD_PatchUpdate(t *testing.T) {
 	svc := computeService(t)
 	_, err := svc.Autoscalers.Insert(more2Project, more2Zone, &compute.Autoscaler{Name: "sdk-as-1"}).Do()
@@ -604,8 +598,6 @@ func TestCompute2_InstantSnapshots_CRUD_SetLabels(t *testing.T) {
 	_, err = svc.InstantSnapshots.Delete(more2Project, more2Zone, "sdk-isnap-1").Do()
 	require.NoError(t, err)
 }
-
-// --- Read-only catalogs ------------------------------------------------
 
 func TestCompute2_NodeTypes_Catalog(t *testing.T) {
 	svc := computeService(t)

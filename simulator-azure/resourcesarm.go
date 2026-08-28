@@ -548,8 +548,6 @@ func handleProviderRegisterAtMG(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// --- legacy predefined tagNames ---
-
 func predefinedTagKey(sub, tagName string) string {
 	return sub + "/" + tagName
 }

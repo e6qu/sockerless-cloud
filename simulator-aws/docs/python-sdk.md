@@ -32,7 +32,7 @@ sd = session.client("servicediscovery", endpoint_url="http://localhost:4566")
 s3 = session.client("s3", endpoint_url="http://localhost:4566/s3")
 ```
 
-Any access key and secret will be accepted. S3 requires the `/s3` path prefix.
+The simulator accepts any access key and secret. S3 requires the `/s3` path prefix.
 
 Alternatively, set environment variables and let boto3 pick them up:
 
@@ -50,7 +50,7 @@ import boto3
 ecs = boto3.client("ecs")
 ```
 
-> Note: `AWS_ENDPOINT_URL` is supported in boto3 1.34+. For older versions, pass `endpoint_url` explicitly.
+> Note: boto3 1.34+ honours `AWS_ENDPOINT_URL`. For older versions, pass `endpoint_url` explicitly.
 
 ## Examples
 
@@ -331,7 +331,7 @@ sd.delete_namespace(Id=ns_id)
 
 ## Notes
 
-- Authentication is accepted but not validated. Any credentials will work.
+- The simulator accepts authentication without validating it. Any credentials work.
 - All state is in-memory and resets when the simulator restarts.
 - S3 requires the `/s3` path prefix in the endpoint URL.
 - The simulator returns the local-test account ID `123456789012` for STS calls.

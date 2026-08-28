@@ -297,6 +297,6 @@ print(resp.json()["name"])
 
 - The simulator's OAuth2 endpoint accepts local-test credentials and returns token responses shaped for Azure SDK clients, including JWT `aud` claims derived from OAuth v2 `scope` or OAuth v1 `resource` requests.
 - All state is in-memory and resets when the simulator restarts.
-- The `api-version` query parameter is required on all ARM requests.
+- Every ARM request must carry the `api-version` query parameter.
 - Management clients that use `base_url` should work. Clients that hardcode `management.azure.com` may require patching or direct HTTP.
 - The `authority` parameter on `ClientSecretCredential` must point to the simulator for the OAuth2 token flow to work.

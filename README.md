@@ -1,6 +1,6 @@
 # Sockerless Cloud — simulators
 
-Local reimplementations of cloud-provider APIs that the Sockerless cloud backends consume. Not mocks — jobs run, functions execute, timeouts fire, logs are produced, all driven by the same configuration knobs (replica timeouts, task timeouts, etc.) that the real cloud services honor. Code that works against the simulators works against the real cloud and vice versa.
+Local reimplementations of cloud-provider APIs that the Sockerless cloud backends consume. Not mocks — jobs run, functions execute, timeouts fire, logs land in the cloud-native sink, all driven by the same configuration knobs (replica timeouts, task timeouts, etc.) that the real cloud services honor. Code that works against the simulators works against the real cloud and vice versa.
 
 This file is the **end-to-end showcase + navigation hub**. The canonical per-cloud documentation lives in the three sub-directories — read those for full per-service detail.
 
@@ -12,7 +12,7 @@ This file is the **end-to-end showcase + navigation hub**. The canonical per-clo
 
 ## Reference adaptors
 
-Every simulator is paired with the same three external tools per cloud — the SDK, the official CLI, and the Terraform provider. **Anything any of these does against the real cloud's endpoint, it must do against the simulator on the same wire.** The per-sim READMEs list the exact versions + spec links.
+Every simulator answers the same three external tools per cloud — the SDK, the official CLI, and the Terraform provider. **Anything any of these does against the real cloud's endpoint, it must do against the simulator on the same wire.** The per-sim READMEs list the exact versions + spec links.
 
 | Cloud | SDK | CLI | Terraform provider |
 |---|---|---|---|
@@ -107,9 +107,9 @@ The development registrations are therefore:
 | Google Cloud | `https://gcp.dev.e6qu.dev/auth/oidc/callback` | `https://gcp.dev.e6qu.dev/auth/signed-out` | `https://gcp.dev.e6qu.dev/auth/oidc/frontchannel-logout` | `https://gcp.dev.e6qu.dev/auth/oidc/backchannel-logout` |
 | Microsoft Azure | `https://azure.dev.e6qu.dev/auth/oidc/callback` | `https://azure.dev.e6qu.dev/auth/signed-out` | `https://azure.dev.e6qu.dev/auth/oidc/frontchannel-logout` | `https://azure.dev.e6qu.dev/auth/oidc/backchannel-logout` |
 
-The browser starts at `/ui/`, is redirected through `/auth/oidc/login` when no
+The browser starts at `/ui/`, redirects through `/auth/oidc/login` when no
 local session is active, obtains its identity from `/auth/session`, and submits
-logout to `/auth/logout`. No authentication proxy is required or supported for
+logout to `/auth/logout`. The simulators need no authentication proxy, and support none, for
 the simulator UI.
 
 Shauth validates each deployed dashboard at `<origin>/auth/validation`.
@@ -131,7 +131,7 @@ reauthenticated after relying-party logout, and proved provider logout against
 a second relying-party witness without exposing validator credentials to any
 Sockerless process.
 
-Docker or Podman is required when simulator calls execute workloads. If the
+Simulator calls that execute workloads require Docker or Podman. If the
 operator intentionally needs only non-execution API surfaces, `SIM_RUNTIME=process`
 starts the simulator without initializing Docker/Podman; execution endpoints still
 require a real workload runtime when used.
@@ -214,7 +214,7 @@ CI runs all four on every PR — see `.github/workflows/ci.yml` `sim (aws)`, `si
 
 ### Spec-based validation
 
-On top of the real-client suites, every simulator is validated against the
+On top of the real-client suites, a spec validator checks every simulator against the
 official machine-readable API specs vendored under
 [`specs/cloud-api/`](specs/cloud-api/README.md) (AWS Smithy models, GCP
 Discovery documents, Azure Swagger):
@@ -226,7 +226,7 @@ Discovery documents, Azure Swagger):
   data planes, LRO polling URLs) live in justified in-test allowlists.
 - **Runtime wire-shape validation** (armed via
   `SOCKERLESS_SPEC_VALIDATE=<report.jsonl>` +
-  `SOCKERLESS_SPEC_DIR=specs/cloud-api/<cloud>`): responses are checked
+  `SOCKERLESS_SPEC_DIR=specs/cloud-api/<cloud>`): it checks responses
   member-by-member against the spec's output shapes while the SDK/CLI
   suites run; `scripts/check-spec-violations.sh` gates the report against
   `simulator-<cloud>/spec-violation-allowlist.txt`. The allowlist only
@@ -234,7 +234,7 @@ Discovery documents, Azure Swagger):
   allowlist at all, and GCP's carries only two permanent, documented
   modeling exemptions (Firestore REST server-streaming responses, which
   are JSON arrays of stream elements on the real wire too). Any new
-  violation fails CI until the simulator is fixed.
+  violation fails CI until the simulator matches.
 
 ### Test counts (approximate)
 
@@ -259,20 +259,20 @@ The `shared/` directory (vendored into each simulator as a Go-module `replace`) 
 
 Simulators are **real implementations**, not fakes. They don't approximate cloud behavior with synthetic timers or hardcoded responses — they reimplement the actual service semantics:
 
-- **Execution lifecycle** is driven by cloud-native configuration. Azure ACA jobs respect `replicaTimeout`. GCP Cloud Run jobs respect the task-template `timeout`. AWS ECS tasks run until the process exits or `StopTask` is called, because ECS has no native execution timeout.
+- **Cloud-native configuration drives the execution lifecycle.** Azure ACA jobs respect `replicaTimeout`. GCP Cloud Run jobs respect the task-template `timeout`. AWS ECS tasks run until the process exits or a caller invokes `StopTask`, because ECS has no native execution timeout.
 - **Log injection** writes entries to the same tables and log groups that the real services would, queryable through the same APIs (KQL for Azure, Cloud Logging filters for GCP, CloudWatch for AWS).
 - **Agent integration** spawns real subprocesses — the same `sockerless-agent` binary used in production — enabling full exec/attach through simulated cloud resources.
-- **SDK + Terraform compatibility** is tested with the real official clients, not custom HTTP calls.
+- **SDK + Terraform compatibility** rides on the real official clients, not custom HTTP calls.
 
-The simulators run locally on a single machine today. The architecture is designed so they can eventually run distributed across multiple machines, with the same API surface.
+The simulators run locally on a single machine today. The architecture allows distributing them across machines later, behind the same API surface.
 
 ## Workload execution — host model
 
-Every execution-service (ECS, Lambda, Cloud Run, Cloud Functions, Cloud Run Jobs, ACA, App Service / AZF) runs the workload on a **Docker host** shaped per cloud-product. Workloads never run as `os/exec` host processes of the simulator binary itself — that distinction is enforced by `simulator-<cloud>/sdk-tests/host_dispatch_test.go`. The workload's `Architecture` field (default `linux/arm64`) flows through `ContainerConfig.Architecture` to Docker's image-pull + container-create `Platform` option.
+Every execution-service (ECS, Lambda, Cloud Run, Cloud Functions, Cloud Run Jobs, ACA, App Service / AZF) runs the workload on a **Docker host** shaped per cloud-product. Workloads never run as `os/exec` host processes of the simulator binary itself — `simulator-<cloud>/sdk-tests/host_dispatch_test.go` enforces that distinction. The workload's `Architecture` field (default `linux/arm64`) flows through `ContainerConfig.Architecture` to Docker's image-pull + container-create `Platform` option.
 
 Full host-model spec: [`specs/CLOUD_RESOURCE_MAPPING.md § Simulator host model`](https://github.com/e6qu/sockerless/blob/main/specs/CLOUD_RESOURCE_MAPPING.md#simulator-host-model-phase-135).
 
-Stdout/stderr is captured in real time and injected into the cloud-native log sink:
+Each workload streams stdout/stderr in real time into the cloud-native log sink:
 
 | Service | Log sink | API for retrieval |
 |---|---|---|
@@ -307,14 +307,14 @@ The ECS simulator supports `ExecuteCommand` with WebSocket-based session bridgin
 
 ## Known issues
 
-Active simulator bugs live in [`BUGS.md`](BUGS.md). Cross-cloud quirks that are not bugs are documented in each per-cloud README and in [`PLAN.md`](PLAN.md).
+Active simulator bugs live in [`BUGS.md`](BUGS.md). Each per-cloud README and [`PLAN.md`](PLAN.md) record the cross-cloud quirks that are not bugs.
 
 ## What's out of scope
 
 - **Cloud-side production deployments.** Simulators are for local dev + CI. For real cloud deployments use the actual cloud APIs through the [Sockerless backends](https://github.com/e6qu/sockerless/tree/main/backends).
 - **Multi-region / cross-region replication.** Each sim is single-region; multi-region routing belongs to real cloud infra.
 - **Billing / pricing / quota surfaces.** Absent except where load-bearing for testing (e.g. `SIM_GCP_CPU_QUOTA_PER_REGION` for Cloud Run quota-rejection tests).
-- **Real authentication.** Bearer tokens / SigV4 / OAuth tokens are accepted but not cryptographically verified.
+- **Real authentication.** The simulators accept bearer tokens / SigV4 / OAuth tokens without verifying them cryptographically.
 - **DNS resolution at the UDP/53 layer.** Sims store records but don't serve DNS queries. Pair with dnsmasq if you need real lookups.
 
 ## Per-cloud guides

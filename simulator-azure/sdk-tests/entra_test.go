@@ -18,8 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- Graph provisioning helpers ---
-
 type graphGroup struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
@@ -122,8 +120,6 @@ func doROPC(t *testing.T, tenant, clientID, username string) map[string]any {
 	require.NotEmpty(t, tokenBody.IDToken, "ROPC must return id_token when scope includes openid")
 	return azureTokenPayload(t, tokenBody.IDToken)
 }
-
-// --- Standard provisioning + ROPC tests ---
 
 func TestEntra_GraphGroupCRUD(t *testing.T) {
 	grp := createGraphGroup(t, "SDK-Test-Group")
@@ -350,8 +346,6 @@ func TestEntra_GraphTransitiveMemberOf(t *testing.T) {
 	assert.Equal(t, grp.ID, body.Value[0].ID)
 }
 
-// --- Application + service principal provisioning ---
-//
 // These tests exercise the Microsoft Graph application + service-principal
 // surface end-to-end. The routes covered (placeholders resolve to runtime
 // object IDs at request time):

@@ -175,8 +175,6 @@ func apigwReadPatches(w http.ResponseWriter, r *http.Request) ([]apigwPatchOp, b
 	return req.PatchOperations, true
 }
 
-// --- Update* ---
-
 func handleAPIGWUpdateRestApi(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "restApiId")
 	api, ok := apigwRestApis.Get(id)
@@ -569,8 +567,6 @@ func apigwUnescapePatchKey(s string) string {
 	return s
 }
 
-// --- tagging ---
-
 func handleAPIGWTagResource(w http.ResponseWriter, r *http.Request) {
 	arn := sim.PathParam(r, "resourceArn")
 	var req struct {
@@ -672,8 +668,6 @@ func apigwApplyTags(arn string, set map[string]string, remove []string) bool {
 	}
 	return false
 }
-
-// --- ImportRestApi / PutRestApi / ImportApiKeys ---
 
 // apigwBuildRestApiFromOpenAPI constructs (or replaces the resource tree of) a
 // REST API from an OpenAPI/Swagger body: the API's name comes from info.title,
@@ -848,8 +842,6 @@ func apigwSplitCSV(line string) []string {
 	return parts
 }
 
-// --- stage cache flushing ---
-
 func handleAPIGWFlushStageCache(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "restApiId")
 	stageName := sim.PathParam(r, "stageName")
@@ -870,8 +862,6 @@ func handleAPIGWFlushStageAuthorizersCache(w http.ResponseWriter, r *http.Reques
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
-
-// --- test invoke ---
 
 func handleAPIGWTestInvokeMethod(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "restApiId")
@@ -920,8 +910,6 @@ func handleAPIGWTestInvokeAuthorizer(w http.ResponseWriter, r *http.Request) {
 		"claims":        map[string]string{},
 	})
 }
-
-// --- domain-name access associations ---
 
 func handleAPIGWCreateDomainNameAccessAssociation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -977,8 +965,6 @@ func handleAPIGWRejectDomainNameAccessAssociation(w http.ResponseWriter, r *http
 	apigwAccessAssocs.Delete(req.DomainNameAccessAssociationArn)
 	w.WriteHeader(http.StatusAccepted)
 }
-
-// --- ARN helpers ---
 
 func apigwDomainNameARN(name string) string {
 	return fmt.Sprintf("arn:aws:apigateway:%s::/domainnames/%s", awsRegion(), name)

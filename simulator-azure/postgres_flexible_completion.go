@@ -147,8 +147,6 @@ func pgRequireServer(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, ok
 }
 
-// --- provider / location scope ---
-
 func handlePGOperationsList(w http.ResponseWriter, _ *http.Request) {
 	op := func(name, resource, operation string) map[string]any {
 		return map[string]any{
@@ -230,8 +228,6 @@ func handlePGVirtualNetworkSubnetUsage(w http.ResponseWriter, r *http.Request) {
 		"delegatedSubnetsUsage": []any{},
 	})
 }
-
-// --- long-term-retention backups ---
 
 // pgLtrCaptureContainers is the numberOfContainers ltrPreBackup reports: the
 // capture writes the server's single data volume into a single backup volume,
@@ -393,8 +389,6 @@ func handlePGLtrPreBackup(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- threat protection ---
-
 func pgThreatProtectionID(serverID, name string) string {
 	return serverID + "/advancedThreatProtectionSettings/" + name
 }
@@ -458,8 +452,6 @@ func handlePGThreatProtectionPut(w http.ResponseWriter, r *http.Request) {
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(id), issueAzureAsyncOperation(nil))
 }
 
-// --- tuning options ---
-
 var pgTuningOptionNames = []string{"index", "config"}
 
 func pgTuningOption(serverID, opt string) map[string]any {
@@ -498,8 +490,6 @@ func handlePGTuningRecommendations(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 }
-
-// --- migrations ---
 
 func pgMigrationID(serverID, name string) string {
 	return serverID + "/migrations/" + name
@@ -632,8 +622,6 @@ func handlePGCheckMigrationNameAvailability(w http.ResponseWriter, r *http.Reque
 	}
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
-
-// --- private endpoint connections + private link resources ---
 
 func pgPrivateEndpointConnectionID(serverID, name string) string {
 	return serverID + "/privateEndpointConnections/" + name

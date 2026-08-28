@@ -78,8 +78,6 @@ func registerWebHybridConnections(srv *sim.Server) {
 		srv.HandleFunc(method+" "+webProvider+"/sites/{siteName}/slots/{slot}"+suffix, h)
 	}
 
-	// --- Service Bus relay ("V2") hybrid connections --------------------------
-
 	relayID := func(r *http.Request) string {
 		return webResourceID(r) + "/hybridConnectionNamespaces/" + sim.PathParam(r, "namespaceName") +
 			"/relays/" + sim.PathParam(r, "relayName")
@@ -173,8 +171,6 @@ func registerWebHybridConnections(srv *sim.Server) {
 			Type: webChildType(r, "hybridConnectionRelays"),
 		})
 	})
-
-	// --- Classic (BizTalk) relay service connections --------------------------
 
 	entityID := func(r *http.Request) string {
 		return webResourceID(r) + "/hybridconnection/" + sim.PathParam(r, "entityName")

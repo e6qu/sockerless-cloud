@@ -102,7 +102,6 @@ func isStoragePathSegment(segment string) bool {
 	return !strings.ContainsAny(segment, `/\`+"\x00")
 }
 
-// StorageAccount represents an Azure Storage Account.
 type StorageAccount struct {
 	ID         string                   `json:"id"`
 	Name       string                   `json:"name"`
@@ -154,7 +153,6 @@ type BlobContainerProps struct {
 	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
 }
 
-// StorageSku holds the SKU for a storage account.
 type StorageSku struct {
 	Name string `json:"name"`
 	Tier string `json:"tier,omitempty"`
@@ -176,7 +174,6 @@ func storageSkuTierFromName(name string) string {
 	}
 }
 
-// StorageAccountProperties holds the properties of a storage account.
 type StorageAccountProperties struct {
 	ProvisioningState        string                   `json:"provisioningState"`
 	PrimaryLocation          string                   `json:"primaryLocation,omitempty"`
@@ -194,7 +191,6 @@ type StorageAccountProperties struct {
 	CreationTime             string                   `json:"creationTime,omitempty"`
 }
 
-// StoragePrimaryEndpoints holds the primary endpoints for a storage account.
 type StoragePrimaryEndpoints struct {
 	File  string `json:"file,omitempty"`
 	Blob  string `json:"blob,omitempty"`
@@ -204,7 +200,6 @@ type StoragePrimaryEndpoints struct {
 	Dfs   string `json:"dfs,omitempty"`
 }
 
-// FileShare represents an Azure File Share.
 type FileShare struct {
 	ID         string              `json:"id"`
 	Name       string              `json:"name"`
@@ -213,7 +208,6 @@ type FileShare struct {
 	Properties FileShareProperties `json:"properties"`
 }
 
-// FileShareProperties holds the properties of a file share.
 type FileShareProperties struct {
 	ShareQuota        int                     `json:"shareQuota,omitempty"`
 	AccessTier        string                  `json:"accessTier,omitempty"`
@@ -871,7 +865,6 @@ func registerAzureFiles(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, blobServiceResponse(resourceID, props))
 	})
 
-	// --- Tables (ARM control plane) ---
 	tableBasePath := armBase + "/storageAccounts/{accountName}/tableServices/default/tables"
 
 	writeStorageTableNotFound := func(w http.ResponseWriter, table, account string) {
@@ -965,7 +958,6 @@ func registerAzureFiles(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": all})
 	})
 
-	// --- Blob Containers (ARM control plane) ---
 	// Sockerless runner artifact / cache flows store blobs in
 	// `Microsoft.Storage/storageAccounts/{a}/blobServices/default/containers/{c}`.
 	// The ARM control plane creates the container entity; the data plane

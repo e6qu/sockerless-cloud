@@ -112,8 +112,6 @@ func registerEC2ImagesFpga(r *sim.AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// -------------------- FPGA images --------------------
-
 // ec2FpgaTagsXML renders an FPGA image's tags. The FpgaImage shape names the
 // element <tags> (not <tagSet>), so it cannot reuse writeTagSetXML.
 func ec2FpgaTagsXML(tags []EC2Tag) string {
@@ -428,8 +426,6 @@ func handleResetFpgaImageAttribute(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ResetFpgaImageAttributeResponse %s><requestId>%s</requestId><return>true</return></ResetFpgaImageAttributeResponse>`, ec2Xmlns(), generateUUID())
 }
 
-// -------------------- Allowed AMIs settings --------------------
-
 func ec2GetAllowedImagesSettings() EC2AllowedImagesSettings {
 	s, ok := ec2AllowedImagesSettings.Get(ec2AllowedImagesSettingsKey)
 	if !ok {
@@ -553,8 +549,6 @@ func handleReplaceImageCriteriaInAllowedImagesSettings(w http.ResponseWriter, r 
 		ec2Xmlns(), generateUUID())
 }
 
-// -------------------- Image block public access --------------------
-
 func ec2GetImageBlockPublicAccessState() string {
 	s, ok := ec2ImageBlockPublicAccess.Get(ec2AllowedImagesSettingsKey)
 	if !ok {
@@ -587,8 +581,6 @@ func handleGetImageBlockPublicAccessState(w http.ResponseWriter, r *http.Request
 	fmt.Fprintf(w, `<GetImageBlockPublicAccessStateResponse %s><requestId>%s</requestId><imageBlockPublicAccessState>%s</imageBlockPublicAccessState><managedBy>account</managedBy></GetImageBlockPublicAccessStateResponse>`,
 		ec2Xmlns(), generateUUID(), ec2GetImageBlockPublicAccessState())
 }
-
-// -------------------- Image deregistration protection --------------------
 
 func handleEnableImageDeregistrationProtection(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("ImageId")
@@ -626,8 +618,6 @@ func handleDisableImageDeregistrationProtection(w http.ResponseWriter, r *http.R
 		ec2Xmlns(), generateUUID())
 }
 
-// -------------------- Bundle / conversion tasks --------------------
-
 // handleDescribeBundleTasks returns an honest-empty list: the sim has no live
 // instance-store bundling backend, so no bundle tasks ever exist.
 func handleDescribeBundleTasks(w http.ResponseWriter, r *http.Request) {
@@ -662,8 +652,6 @@ func handleCancelConversionTask(w http.ResponseWriter, r *http.Request) {
 	}
 	ec2ErrorXML(w, "InvalidConversionTaskId", fmt.Sprintf("The conversion task id %q does not exist", id), http.StatusBadRequest)
 }
-
-// -------------------- Store image tasks --------------------
 
 func handleCreateStoreImageTask(w http.ResponseWriter, r *http.Request) {
 	imageID := r.FormValue("ImageId")

@@ -84,9 +84,7 @@ import (
 // perfanalysis and tcpconnectionsanalysis need the request, performance and
 // TCP-connection telemetry the simulator does not collect.
 
-// ---------------------------------------------------------------------------
 // the site event journal
-// ---------------------------------------------------------------------------
 
 // WebSiteEvent is one lifecycle event a site went through. The journal is what
 // the restart detectors read: it records the operation that ran, when it ran,
@@ -146,9 +144,7 @@ func webSiteEventsFor(siteID string, from, to time.Time) []WebSiteEvent {
 	return events
 }
 
-// ---------------------------------------------------------------------------
 // observation of the site
-// ---------------------------------------------------------------------------
 
 // webSiteObservation is everything a detector run measured about one site. The
 // container reads happen once per run and are shared by every detector in it.
@@ -209,9 +205,7 @@ func (o webSiteObservation) running() bool {
 	return o.inspect != nil && o.inspect.State != nil && o.inspect.State.Running
 }
 
-// ---------------------------------------------------------------------------
 // detector catalog
-// ---------------------------------------------------------------------------
 
 // webDetectorFinding is what one detector measured: the table it renders, the
 // severity it reports, and the events it correlated.
@@ -365,9 +359,7 @@ func webUnservedAnalyses() []webUnservedDetector {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // measurements
-// ---------------------------------------------------------------------------
 
 func webNoContainerFinding(what string) webDetectorFinding {
 	return webDetectorFinding{
@@ -689,9 +681,7 @@ func webParseAnyTime(values ...string) time.Time {
 	return time.Time{}
 }
 
-// ---------------------------------------------------------------------------
 // wire rendering
-// ---------------------------------------------------------------------------
 
 func webDiagnosticChildType(r *http.Request, suffix string) string {
 	base := "Microsoft.Web/sites"
@@ -817,9 +807,7 @@ func webDetectorDefinitionDoc(det webDetector) map[string]any {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // handlers
-// ---------------------------------------------------------------------------
 
 // webDiagnosticWindow is the period the operation reports over: the one the
 // client named, or the last day ending now.
@@ -1110,9 +1098,7 @@ func webAnalysisDefinitionDoc(r *http.Request, analysis webAnalysis) map[string]
 	}
 }
 
-// ---------------------------------------------------------------------------
 // hosting-environment diagnostics
-// ---------------------------------------------------------------------------
 
 // registerWebEnvironmentDiagnostics mounts the four diagnostics operations
 // scoped to an App Service Environment. Every detector the simulator computes

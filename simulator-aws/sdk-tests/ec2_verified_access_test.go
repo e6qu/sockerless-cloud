@@ -19,7 +19,6 @@ import (
 func TestEC2_VerifiedAccessLifecycleSDK(t *testing.T) {
 	c := ec2Client()
 
-	// ---- Instance ----
 	inst, err := c.CreateVerifiedAccessInstance(ctx, &ec2.CreateVerifiedAccessInstanceInput{
 		Description: aws.String("vai-a"),
 		TagSpecifications: []types.TagSpecification{{
@@ -56,7 +55,6 @@ func TestEC2_VerifiedAccessLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "vai-a-updated", aws.ToString(modI.VerifiedAccessInstance.Description))
 
-	// ---- Trust provider ----
 	tp, err := c.CreateVerifiedAccessTrustProvider(ctx, &ec2.CreateVerifiedAccessTrustProviderInput{
 		TrustProviderType:     types.TrustProviderTypeUser,
 		UserTrustProviderType: types.UserTrustProviderTypeIamIdentityCenter,
@@ -100,7 +98,6 @@ func TestEC2_VerifiedAccessLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, det.VerifiedAccessInstance.VerifiedAccessTrustProviders)
 
-	// ---- Group ----
 	const groupPolicy = `permit(principal, action, resource);`
 	grp, err := c.CreateVerifiedAccessGroup(ctx, &ec2.CreateVerifiedAccessGroupInput{
 		VerifiedAccessInstanceId: aws.String(instID),
@@ -145,7 +142,6 @@ func TestEC2_VerifiedAccessLifecycleSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// ---- Endpoint ----
 	const endpointPolicy = `permit(principal, action, resource) when { true };`
 	ep, err := c.CreateVerifiedAccessEndpoint(ctx, &ec2.CreateVerifiedAccessEndpointInput{
 		VerifiedAccessGroupId: aws.String(grpID),
@@ -260,7 +256,6 @@ func TestEC2_VerifiedAccessLoggingSDK(t *testing.T) {
 func TestEC2_TrafficMirrorLifecycleSDK(t *testing.T) {
 	c := ec2Client()
 
-	// ---- Target ----
 	tgt, err := c.CreateTrafficMirrorTarget(ctx, &ec2.CreateTrafficMirrorTargetInput{
 		NetworkInterfaceId: aws.String("eni-1234567890abcdef0"),
 		Description:        aws.String("tmt-a"),
@@ -284,7 +279,6 @@ func TestEC2_TrafficMirrorLifecycleSDK(t *testing.T) {
 	require.Len(t, descT.TrafficMirrorTargets, 1)
 	assert.Equal(t, "eni-1234567890abcdef0", aws.ToString(descT.TrafficMirrorTargets[0].NetworkInterfaceId))
 
-	// ---- Filter + rule + network services ----
 	flt, err := c.CreateTrafficMirrorFilter(ctx, &ec2.CreateTrafficMirrorFilterInput{
 		Description: aws.String("tmf-a"),
 	})
@@ -346,7 +340,6 @@ func TestEC2_TrafficMirrorLifecycleSDK(t *testing.T) {
 	require.Len(t, descF.TrafficMirrorFilters[0].IngressFilterRules, 1)
 	require.Len(t, descF.TrafficMirrorFilters[0].NetworkServices, 1)
 
-	// ---- Session ----
 	sess, err := c.CreateTrafficMirrorSession(ctx, &ec2.CreateTrafficMirrorSessionInput{
 		TrafficMirrorTargetId: aws.String(tgtID),
 		TrafficMirrorFilterId: aws.String(fltID),

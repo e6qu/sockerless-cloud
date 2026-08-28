@@ -68,8 +68,6 @@ func registerIAMRolesPolicies(r *sim.AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ---------- role permissions boundary + description ----------
-
 func handleIAMPutRolePermissionsBoundary(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("RoleName")
 	boundary := r.FormValue("PermissionsBoundary")
@@ -113,8 +111,6 @@ func handleIAMUpdateRoleDescription(w http.ResponseWriter, r *http.Request) {
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </UpdateRoleDescriptionResponse>`, iamXmlns, iamRoleXML(role), generateUUID())
 }
-
-// ---------- instance-profile tags ----------
 
 func handleIAMTagInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("InstanceProfileName")
@@ -171,8 +167,6 @@ func handleIAMListInstanceProfileTags(w http.ResponseWriter, r *http.Request) {
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </ListInstanceProfileTagsResponse>`, iamXmlns, iamTagsXML(set.Tags), generateUUID())
 }
-
-// ---------- managed-policy versions ----------
 
 // iamPolicyVersionList returns every stored version of the policy, including
 // the implicit v1 (whose document lives on IAMPolicy until a later version is
@@ -315,8 +309,6 @@ func handleIAMSetDefaultPolicyVersion(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "SetDefaultPolicyVersion")
 }
 
-// ---------- policy tags ----------
-
 func handleIAMTagPolicy(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("PolicyArn")
 	newTags := iamParseTags(r)
@@ -353,8 +345,6 @@ func handleIAMUntagPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	iamEmptyResultXML(w, "UntagPolicy")
 }
-
-// ---------- policy ↔ entity introspection ----------
 
 func handleIAMListEntitiesForPolicy(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("PolicyArn")
@@ -558,8 +548,6 @@ func iamPolicyGrantsNamespace(doc iamPolicyDoc, namespace string) bool {
 	}
 	return false
 }
-
-// ---------- context keys ----------
 
 func handleIAMGetContextKeysForCustomPolicy(w http.ResponseWriter, r *http.Request) {
 	var docs []iamPolicyDoc

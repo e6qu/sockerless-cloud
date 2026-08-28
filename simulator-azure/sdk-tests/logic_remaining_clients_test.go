@@ -42,7 +42,6 @@ func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = accounts.Delete(ctx, rg, iaName, nil) })
 
-	// ---- partners ----
 	hostPartnerContent := &armlogic.PartnerContent{
 		B2B: &armlogic.B2BPartnerContent{
 			BusinessIdentities: []*armlogic.BusinessIdentity{
@@ -87,7 +86,6 @@ func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, ptrVal(partnerCb.Value))
 
-	// ---- agreements ----
 	_, err = agreements.CreateOrUpdate(ctx, rg, iaName, "agreement1", armlogic.IntegrationAccountAgreement{
 		Properties: &armlogic.IntegrationAccountAgreementProperties{
 			AgreementType: to.Ptr(armlogic.AgreementTypeX12),
@@ -115,7 +113,6 @@ func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, ptrVal(agreementCb.Value))
 
-	// ---- certificates ----
 	_, err = certificates.CreateOrUpdate(ctx, rg, iaName, "cert1", armlogic.IntegrationAccountCertificate{
 		Properties: &armlogic.IntegrationAccountCertificateProperties{
 			PublicCertificate: to.Ptr("MIIB"),
@@ -132,7 +129,6 @@ func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, certPage.Value)
 
-	// ---- deletes ----
 	_, err = certificates.Delete(ctx, rg, iaName, "cert1", nil)
 	require.NoError(t, err)
 	_, err = agreements.Delete(ctx, rg, iaName, "agreement1", nil)

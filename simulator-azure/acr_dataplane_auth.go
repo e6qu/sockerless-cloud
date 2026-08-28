@@ -296,8 +296,6 @@ func acrAccessGrants(granted []acrAccess, res acrResource) bool {
 	return false
 }
 
-// --- registry resolution ---
-
 // acrRegistryForHost resolves the registry a data-plane request addresses from
 // the host it was sent to. A registry's data plane lives on its own login
 // server — the host the control plane advertises in loginServer and the one a
@@ -350,8 +348,6 @@ func acrBareHost(host string) string {
 func acrLoginServer(reg Registry) string {
 	return reg.Properties.LoginServer
 }
-
-// --- responses ---
 
 // acrChallenge answers with the Docker Registry v2 Bearer challenge and the
 // registry's 401 error body. The header names the realm (this registry's token
@@ -413,8 +409,6 @@ func acrOAuthUnauthorized(w http.ResponseWriter, message string) {
 		}},
 	})
 }
-
-// --- tokens ---
 
 // acrTokenClaims is the payload of the JWTs this registry's token service
 // issues. Both token kinds carry the subject, the grant that produced them and
@@ -571,8 +565,6 @@ func acrClaimList(raw any) []any {
 	out, _ := raw.([]any)
 	return out
 }
-
-// --- scopes ---
 
 // acrParseScopes reads the requested token scopes. The scope grammar is the
 // Docker Registry v2 one, "<type>:<name>:<action>[,<action>…]", and a request

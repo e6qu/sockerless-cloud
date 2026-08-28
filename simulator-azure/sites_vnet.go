@@ -117,8 +117,6 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 		srv.HandleFunc(method+" "+webProvider+"/sites/{siteName}/slots/{slot}"+suffix, h)
 	}
 
-	// --- Swift spelling: .../networkConfig/virtualNetwork --------------------
-
 	both("PUT", "/networkConfig/virtualNetwork", handleSwiftVnetPut)
 	both("PATCH", "/networkConfig/virtualNetwork", handleSwiftVnetPut)
 	both("GET", "/networkConfig/virtualNetwork", func(w http.ResponseWriter, r *http.Request) {
@@ -142,8 +140,6 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-
-	// --- Classic spelling: .../virtualNetworkConnections ---------------------
 
 	both("GET", "/virtualNetworkConnections", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
@@ -185,8 +181,6 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 		deleteVnetConnection(r, conn)
 		w.WriteHeader(http.StatusOK)
 	})
-
-	// --- Connection gateways: pure ARM records on the connection -------------
 
 	both("GET", "/virtualNetworkConnections/{vnetName}/gateways/{gatewayName}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {

@@ -166,8 +166,6 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		return WebVnetConnection{}, false
 	}
 
-	// --- Plan VNet connections -------------------------------------------------
-
 	srv.HandleFunc("GET "+webPlanBase+"/virtualNetworkConnections/{vnetName}", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
@@ -180,8 +178,6 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, conn)
 	})
-
-	// --- Plan VNet connection gateways ------------------------------------------
 
 	srv.HandleFunc("GET "+webPlanBase+"/virtualNetworkConnections/{vnetName}/gateways/{gatewayName}", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
@@ -207,8 +203,6 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		writeVnetGateway(w, r, planVnetConnID(r), "Microsoft.Web/serverfarms/virtualNetworkConnections/gateways")
 	})
-
-	// --- Plan VNet routes --------------------------------------------------------
 
 	srv.HandleFunc("GET "+webPlanBase+"/virtualNetworkConnections/{vnetName}/routes", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
@@ -288,8 +282,6 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-
-	// --- Plan hybrid connection views ---------------------------------------------
 
 	planRelay := func(r *http.Request) (WebHybridConnection, bool) {
 		ns, relay := sim.PathParam(r, "namespaceName"), sim.PathParam(r, "relayName")
@@ -406,8 +398,6 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		})
 	})
 
-	// --- Capabilities and SKUs -------------------------------------------------
-
 	srv.HandleFunc("GET "+webPlanBase+"/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		plan, ok := azureAppServicePlans.Get(webPlanID(r))
 		if !ok {
@@ -450,8 +440,6 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			}},
 		})
 	})
-
-	// --- Worker instances --------------------------------------------------------
 
 	// The plan's instance details come from real container state: sites on the
 	// plan run real containers, each one a worker instance. A plan with no

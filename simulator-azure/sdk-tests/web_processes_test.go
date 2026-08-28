@@ -83,7 +83,6 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "invoking the site must start its container: %s", body)
 
-	// --- instances -----------------------------------------------------------
 	instances := listWebInstances(t, client, rg, site)
 	require.Len(t, instances, 1, "one running workload container is one site instance")
 	instanceID := *instances[0].Name
@@ -121,7 +120,6 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 
-	// --- processes -----------------------------------------------------------
 	procs := listWebProcesses(t, client, rg, site)
 	require.NotEmpty(t, procs, "a running container has at least its main process")
 
@@ -159,7 +157,6 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 
-	// --- threads --------------------------------------------------------------
 	threads := listWebProcessThreads(t, client, rg, site, pid)
 	require.NotEmpty(t, threads, "a running process has at least one thread")
 	for _, th := range threads {
@@ -174,7 +171,6 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	assert.LessOrEqual(t, len(threads), int(*main.Properties.ThreadCount)+1,
 		"the thread rows must not outnumber the process table's own thread count")
 
-	// --- the per-instance spellings ---------------------------------------------
 	instProcs := listWebInstanceProcesses(t, client, rg, site, instanceID)
 	require.NotEmpty(t, instProcs)
 	assert.Contains(t, *instProcs[0].ID, "/instances/"+instanceID+"/processes/",
@@ -195,7 +191,6 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	})
 	require.NotEmpty(t, instThreads)
 
-	// --- the slot spellings -------------------------------------------------------
 	// A deployment slot with no running container of its own has no instances
 	// and no processes, and its per-instance reads are 404 — the same answers
 	// the production site gave before its container started.

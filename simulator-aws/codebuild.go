@@ -1199,8 +1199,6 @@ func cbSortBuildIDs(builds []CBBuild, sortOrder string) []string {
 	return ids
 }
 
-// --- Report groups ---
-
 func handleCBCreateReportGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name         string         `json:"name"`
@@ -1357,8 +1355,6 @@ func handleCBBatchGetReportGroups(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Reports ---
-
 func handleCBListReports(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SortOrder  string `json:"sortOrder"`
@@ -1454,8 +1450,6 @@ func handleCBBatchGetReports(w http.ResponseWriter, r *http.Request) {
 		"reportsNotFound": notFound,
 	})
 }
-
-// --- Source credentials ---
 
 func handleCBImportSourceCredentials(w http.ResponseWriter, r *http.Request) {
 	var req struct {

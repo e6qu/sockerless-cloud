@@ -49,14 +49,12 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = workflows.Delete(ctx, rg, wfName, nil) })
 
-	// ---- provider operations ----
 	opPager := operations.NewListPager(nil)
 	require.True(t, opPager.More())
 	opPage, err := opPager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, opPage.Value)
 
-	// ---- versions ----
 	verPager := versions.NewListPager(rg, wfName, nil)
 	require.True(t, verPager.More())
 	verPage, err := verPager.NextPage(ctx)
@@ -67,7 +65,6 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, versionID, ptrVal(gotVersion.Name))
 
-	// ---- triggers ----
 	trgPager := triggers.NewListPager(rg, wfName, nil)
 	require.True(t, trgPager.More())
 	trgPage, err := trgPager.NextPage(ctx)
@@ -88,7 +85,6 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// ---- run a trigger, then read its run actions + trigger history ----
 	_, err = triggers.Run(ctx, rg, wfName, "manual", nil)
 	require.NoError(t, err)
 	runPager := runs.NewListPager(rg, wfName, nil)
@@ -124,7 +120,6 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	_, err = histories.Resubmit(ctx, rg, wfName, "manual", histName, nil)
 	require.NoError(t, err)
 
-	// ---- workflow POST actions ----
 	_, err = workflows.GenerateUpgradedDefinition(ctx, rg, wfName, armlogic.GenerateUpgradedDefinitionParameters{
 		TargetSchemaVersion: to.Ptr("2016-06-01"),
 	}, nil)
@@ -228,7 +223,6 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// ---- map ----
 	_, err = maps.CreateOrUpdate(ctx, rg, iaName, "map1", armlogic.IntegrationAccountMap{
 		Properties: &armlogic.IntegrationAccountMapProperties{
 			MapType:     to.Ptr(armlogic.MapTypeXslt),
@@ -250,7 +244,6 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	_, err = maps.Delete(ctx, rg, iaName, "map1", nil)
 	require.NoError(t, err)
 
-	// ---- schema ----
 	_, err = schemas.CreateOrUpdate(ctx, rg, iaName, "schema1", armlogic.IntegrationAccountSchema{
 		Properties: &armlogic.IntegrationAccountSchemaProperties{
 			SchemaType:  to.Ptr(armlogic.SchemaTypeXML),
@@ -266,7 +259,6 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	_, err = schemaPager.NextPage(ctx)
 	require.NoError(t, err)
 
-	// ---- assembly ----
 	_, err = assemblies.CreateOrUpdate(ctx, rg, iaName, "assembly1", armlogic.AssemblyDefinition{
 		Properties: &armlogic.AssemblyProperties{AssemblyName: to.Ptr("MyAssembly")},
 	}, nil)
@@ -281,7 +273,6 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, ptrVal(asmCb.Value))
 
-	// ---- batch configuration ----
 	_, err = batches.CreateOrUpdate(ctx, rg, iaName, "batch1", armlogic.BatchConfiguration{
 		Properties: &armlogic.BatchConfigurationProperties{
 			BatchGroupName:  to.Ptr("BatchGroup"),
@@ -296,7 +287,6 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	_, err = batchPager.NextPage(ctx)
 	require.NoError(t, err)
 
-	// ---- session ----
 	_, err = sessions.CreateOrUpdate(ctx, rg, iaName, "session1", armlogic.IntegrationAccountSession{
 		Properties: &armlogic.IntegrationAccountSessionProperties{Content: map[string]any{"controlNumber": "1234"}},
 	}, nil)
@@ -368,7 +358,6 @@ func TestLogicApps_ServiceEnvironmentsSDK(t *testing.T) {
 	_, err = envs.Restart(ctx, rg, iseName, nil)
 	require.NoError(t, err)
 
-	// ---- managed API (LRO put/delete + list/get) ----
 	putPoller, err := managed.BeginPut(ctx, rg, iseName, "servicebus", armlogic.IntegrationServiceEnvironmentManagedAPI{}, nil)
 	require.NoError(t, err)
 	_, err = putPoller.PollUntilDone(ctx, nil)

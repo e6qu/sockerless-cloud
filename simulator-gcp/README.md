@@ -130,7 +130,7 @@ export HTTP_PROXY=http://localhost:4567
 gcloud run services list --region=us-central1
 ```
 
-Docker or Podman is required when Cloud Run or Cloud Functions calls execute
+Cloud Run and Cloud Functions calls require Docker or Podman to execute
 workloads. For API-only checks that do not invoke workload execution,
 `SIM_RUNTIME=process` starts the GCP simulator without initializing
 Docker/Podman.
@@ -206,7 +206,7 @@ NAME             STATUS     COMPLETION_TIME
 hello-job-...    Succeeded  2026-...
 ```
 
-More inline examples (Cloud Run Jobs / Cloud Functions / Cloud Logging / Artifact Registry / GCS) live below; the full per-verb wire shape is captured by the `sdk-tests/` package.
+More inline examples (Cloud Run Jobs / Cloud Functions / Cloud Logging / Artifact Registry / GCS) live below; [API_SPEC.md](API_SPEC.md) captures the full per-verb wire shape, captured by the `sdk-tests/` package.
 
 ## Project structure
 
@@ -248,11 +248,11 @@ Each test package's `TestMain` builds the simulator binary, finds a free port, b
 
 ## Execution model
 
-Cloud Run job executions honor the task template `timeout` field (e.g., `"600s"`). When a timeout is configured, the execution auto-completes after that duration. When a command is provided, the simulator executes it as a real process and streams output to Cloud Logging. When no command and no timeout are set, the execution stays running until explicitly cancelled. Cloud Functions invocations are synchronous and return immediately.
+Cloud Run job executions honor the task template `timeout` field (e.g., `"600s"`). Given a timeout, the execution auto-completes after that duration. When a command is provided, the simulator executes it as a real process and streams output to Cloud Logging. When no command and no timeout are set, the execution stays running until explicitly cancelled. Cloud Functions invocations are synchronous and return immediately.
 
 ## Known issues
 
-None open. The Cloud Run `BackingPDEphemeral` rejection (Phase 91d bookmark) is enforced at the [`backends/cloudrun`](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun/README.md) layer, not the simulator — Cloud Run lacks the protobuf field, so no amount of simulator work changes that.
+None open. The Cloud Run `BackingPDEphemeral` rejection (Phase 91d bookmark) lives in the [`backends/cloudrun`](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun/README.md) layer, not the simulator — Cloud Run lacks the protobuf field, so no amount of simulator work changes that.
 
 ## What's out of scope
 

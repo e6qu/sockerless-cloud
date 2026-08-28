@@ -232,8 +232,6 @@ func ec2RequireIpamRegistryAssociation(w http.ResponseWriter, r *http.Request, a
 </%sResponse>`, action, ec2Xmlns(), generateUUID(), setName, setName, action)
 }
 
-// ---- routing policy registrations ----
-
 func ipamRoutingRegistrationXML(registration EC2IpamRoutingPolicyRegistration) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<cidr>%s</cidr><state>%s</state>", registration.Cidr, registration.State)
@@ -498,8 +496,6 @@ func handleGetIpamRoutingPolicyRegistrationDeltas(w http.ResponseWriter, r *http
   <ipamRoutingPolicyRegistrationDeltaSet>%s</ipamRoutingPolicyRegistrationDeltaSet>
 </GetIpamRoutingPolicyRegistrationDeltasResponse>`, ec2Xmlns(), generateUUID(), items.String())
 }
-
-// ---- discovered routes and route protection ----
 
 // handleGetIpamDiscoveredRoutes reports the routes IPAM's resource discovery
 // finds. The account's route tables are this simulator's own state, so the

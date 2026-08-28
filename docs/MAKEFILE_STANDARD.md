@@ -261,7 +261,7 @@ make start-component KIND=backend CLOUD=aws BACKEND=ecs NAME=backend PORT=3375 S
 
 The pre-canned stack names are operator shortcuts for the common one-simulator, one-backend, one-admin workflow. Arbitrary topologies use `start-component` directly or the admin topology API documented in `docs/ADMIN_ORCHESTRATION.md`.
 
-Runtime files are keyed by component name:
+Each runtime file is keyed by component name:
 
 | File | Purpose |
 |---|---|
@@ -283,7 +283,7 @@ The pre-canned stack targets write `.stack-pids/backend.env` only when the selec
 | Cloud Run Functions | `SOCKERLESS_GCF_PROJECT` |
 | Lambda | `SOCKERLESS_LAMBDA_ROLE_ARN`, `SOCKERLESS_CALLBACK_URL` |
 
-These are the same backend env vars an operator would pass by hand. No admin-specific env contract is introduced.
+These are the same backend env vars an operator would pass by hand. The admin surface introduced.
 
 ## Operational checks
 

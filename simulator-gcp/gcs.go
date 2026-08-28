@@ -101,6 +101,12 @@ type gcsObjectResource struct {
 	StorageClass       *string            `json:"storageClass,omitempty"`
 	CustomTime         *string            `json:"customTime,omitempty"`
 	Metadata           *map[string]string `json:"metadata,omitempty"`
+	// Acl is the object's access controls as carried on the object resource
+	// itself. The objectAccessControls collection is one door onto these
+	// entries and objects.patch is the other: `gcloud storage objects update
+	// --add-acl-grant` writes them here, never through the collection, so a
+	// patch that ignored this member acknowledged the grant and dropped it.
+	Acl *[]GCSObjectACL `json:"acl,omitempty"`
 }
 
 // Package-level store: gcsObjects
@@ -393,6 +399,9 @@ func persistGCSObject(objects sim.Store[GCSObject], bucketName, objectName strin
 	obj.data = append([]byte(nil), data...)
 	objects.Put(bucketName+"/"+objectName, obj)
 	gcsIndexAdd(bucketName, objectName)
+	if generation == 1 {
+		gcsSeedObjectACL(bucketName, objectName, obj.Generation)
+	}
 	return obj, nil
 }
 
@@ -619,6 +628,13 @@ func gcsObjectMetadata(r *http.Request, obj GCSObject) map[string]any {
 	if len(obj.Metadata) > 0 {
 		meta["metadata"] = cloneStringMap(obj.Metadata)
 	}
+	// The full projection carries the object's access controls; the default
+	// noAcl projection omits them, which is the difference between the two.
+	if r.URL.Query().Get("projection") == "full" {
+		if entries := gcsObjectACLEntries(obj.Bucket, obj.Name); len(entries) > 0 {
+			meta["acl"] = entries
+		}
+	}
 	return meta
 }
 
@@ -681,8 +697,11 @@ func registerGCS(srv *sim.Server) {
 		if data["storageClass"] == nil {
 			data["storageClass"] = "STANDARD"
 		}
+		gcsApplyDefaultSoftDeletePolicy(data)
 
-		buckets.Put(name, Bucket{Data: data})
+		bucket := Bucket{Data: data}
+		buckets.Put(name, bucket)
+		gcsSeedDefaultObjectACL(name, bucket)
 		sim.WriteJSON(w, http.StatusOK, data)
 	})
 
@@ -813,6 +832,22 @@ func registerGCS(srv *sim.Server) {
 			return
 		}
 
+		// softDeleted=true lists the retired generations instead of the live
+		// objects — the listing a client reads to find what restore can bring
+		// back. The two selections are exclusive, as they are in the service.
+		if gcsQueryBool(r, "softDeleted") {
+			retired := gcsSoftDeletedListing(bucketName, prefix)
+			items := make([]map[string]any, 0, len(retired))
+			for _, entry := range retired {
+				resource := gcsObjectMetadata(r, entry.Object)
+				resource["softDeleteTime"] = entry.SoftDeleteTime
+				resource["hardDeleteTime"] = entry.HardDeleteTime
+				items = append(items, resource)
+			}
+			sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "storage#objects", "items": items})
+			return
+		}
+
 		// Index-scoped: fetch only this bucket's objects, then apply the
 		// prefix filter. Same result as filtering the whole store by
 		// bucket+prefix, without scanning other buckets' objects.
@@ -932,6 +967,9 @@ func registerGCS(srv *sim.Server) {
 			obj.Metageneration = strconv.FormatInt(mg+1, 10)
 		}
 		persistGCSObjectMetadata(objects, key, obj)
+		if res.Acl != nil {
+			gcsReplaceObjectACL(bucketName, objectName, obj.Generation, *res.Acl)
+		}
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, obj))
 	}
 	srv.HandleFunc("PATCH /storage/v1/b/{bucket}/o/{object...}", patchObject)
@@ -943,11 +981,22 @@ func registerGCS(srv *sim.Server) {
 		objectName := sim.PathParam(r, "object")
 		key := bucketName + "/" + objectName
 
-		if !objects.Delete(key) {
+		obj, found := objects.Get(key)
+		if !found {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
 			return
 		}
+		bucket, ok := buckets.Get(bucketName)
+		if !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			return
+		}
+		objects.Delete(key)
 		gcsIndexRemove(bucketName, objectName)
+		// Under a soft-delete policy the object is retired rather than
+		// destroyed, and its payload is retained for objects.restore to bring
+		// back. Without one it is destroyed here, bytes included.
+		gcsRetireObject(bucket, bucketName, obj)
 
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -1598,6 +1647,8 @@ func gcsACLEmailFor(entity string) (email string, team *gcsProjectTeam) {
 func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.Store[GCSObject]) {
 	gcsBucketACLs = sim.MakeStore[GCSBucketACL](srv.DB(), "gcs_bucket_acls")
 	gcsObjectDefACLs = sim.MakeStore[GCSObjectACL](srv.DB(), "gcs_default_object_acls")
+	gcsObjectACLs = sim.MakeStore[GCSObjectACL](srv.DB(), "gcs_object_acls")
+	gcsSoftDeletedObjects = sim.MakeStore[gcsSoftDeleted](srv.DB(), "gcs_soft_deleted_objects")
 	gcsFolders = sim.MakeStore[GCSFolder](srv.DB(), "gcs_folders")
 	gcsManagedFolders = sim.MakeStore[GCSManagedFolder](srv.DB(), "gcs_managed_folders")
 	gcsNotifications = sim.MakeStore[GCSNotification](srv.DB(), "gcs_notifications")
@@ -1613,6 +1664,8 @@ func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.S
 
 	registerGCSBucketACLs(srv, buckets, bucketExists)
 	registerGCSDefaultObjectACLs(srv, buckets, bucketExists)
+	registerGCSObjectACLs(srv, buckets, objects)
+	registerGCSObjectRestore(srv, buckets, objects)
 	registerGCSFolders(srv, buckets, bucketExists)
 	registerGCSManagedFolders(srv, buckets, bucketExists)
 	registerGCSNotifications(srv, buckets, bucketExists)
@@ -1621,8 +1674,6 @@ func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.S
 	registerGCSRapidCaches(srv, buckets, bucketExists)
 	registerGCSBucketLifecycle(srv, buckets, objects, bucketExists)
 }
-
-// --- Bucket access controls (storage#bucketAccessControl) ---
 
 func registerGCSBucketACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, entity string) string { return bucket + "\x00" + entity }
@@ -1715,8 +1766,6 @@ func registerGCSBucketACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExi
 	})
 }
 
-// --- Default object access controls (storage#objectAccessControl) ---
-
 func registerGCSDefaultObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, entity string) string { return bucket + "\x00" + entity }
 	build := func(r *http.Request, bucket, entity, role string) GCSObjectACL {
@@ -1806,8 +1855,6 @@ func registerGCSDefaultObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], bu
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// --- Folders (storage#folder, HNS buckets) ---
 
 func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, name string) string { return bucket + "\x00" + name }
@@ -1927,8 +1974,6 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(f)))
 	})
 }
-
-// --- Managed folders (storage#managedFolder) + their IAM ---
 
 func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, name string) string { return bucket + "\x00" + name }
@@ -2088,8 +2133,6 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	})
 }
 
-// --- Notification configs (storage#notification) ---
-
 func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	key := func(bucket, id string) string { return bucket + "\x00" + id }
 
@@ -2151,8 +2194,6 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// --- HMAC keys (storage#hmacKeyMetadata) + project service account ---
 
 func registerGCSHmacKeys(srv *sim.Server) {
 	srv.HandleFunc("GET /storage/v1/projects/{projectId}/serviceAccount", func(w http.ResponseWriter, r *http.Request) {
@@ -2271,8 +2312,6 @@ func registerGCSHmacKeys(srv *sim.Server) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
-// --- Anywhere caches (storage#anywhereCache) ---
 
 func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	caches := sim.MakeStore[GCSAnywhereCache](srv.DB(), "gcs_anywhere_caches")
@@ -2399,8 +2438,6 @@ type GCSAnywhereCache struct {
 	PendingUpdate   bool   `json:"pendingUpdate,omitempty"`
 	IngestOnWrite   bool   `json:"ingestOnWrite,omitempty"`
 }
-
-// --- Rapid caches (storage#rapidCache) ---
 
 // registerGCSRapidCaches mounts the rapidCaches collection: a rapid cache is
 // bucket-scoped control-plane state (zone, TTL, admission policy, cache

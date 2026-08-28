@@ -86,7 +86,6 @@ func pruneEmptyPrivateVisibilityConfig(pvc map[string]any) map[string]any {
 	return nil
 }
 
-// ResourceRecordSet represents a DNS record set.
 type ResourceRecordSet struct {
 	Name    string   `json:"name"`
 	Type    string   `json:"type"`

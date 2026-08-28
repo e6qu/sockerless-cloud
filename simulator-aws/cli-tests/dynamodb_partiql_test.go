@@ -93,7 +93,6 @@ func TestDynamoDBCLI_PartiQLTransaction(t *testing.T) {
 	assert.Len(t, sel.Items, 1, "transaction committed t1")
 }
 
-// TestDynamoDBCLI_DescribeLimits drives DescribeLimits.
 func TestDynamoDBCLI_DescribeLimits(t *testing.T) {
 	out := runCLI(t, awsCLI("dynamodb", "describe-limits"))
 	var lim struct {

@@ -36,8 +36,6 @@ import (
 // stop it. Persistent simulator restarts reclaim the same running compute
 // container, published port, and extracted deployment bundle.
 
-// ---------- deploy-manifest.json ----------
-
 type amplifyDeployManifest struct {
 	Version          int                           `json:"version"`
 	Framework        *amplifyManifestFramework     `json:"framework,omitempty"`
@@ -125,8 +123,6 @@ func amplifyCompileRoutePattern(pattern string) *regexp.Regexp {
 	b.WriteString("$")
 	return regexp.MustCompile(b.String())
 }
-
-// ---------- compute container lifecycle ----------
 
 // amplifyComputePort is the container-side port the deployment spec requires
 // compute entrypoints to listen on.
@@ -382,8 +378,6 @@ func amplifyWaitForPort(port int, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
-
-// ---------- request routing ----------
 
 // amplifyServeManifestRoutes serves a WEB_COMPUTE request through the deploy
 // manifest's routes[]: first matching route wins; a target that produces a

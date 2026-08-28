@@ -55,10 +55,10 @@ fi
 missing_paths=0
 # shellcheck disable=SC2016
 path_re='`simulator-[^`]+`|`specs/[^`]+`'
-while IFS= read -r path; do
-	[[ "$path" == *'$'* ]] && continue
-	if [[ ! -e "$repo_root/$path" ]]; then
-		echo "[sim-coverage-matrix] evidence path does not exist: $path" >&2
+while IFS= read -r tablefile; do
+	[[ "$tablefile" == *'$'* ]] && continue
+	if [[ ! -e "$repo_root/$tablefile" ]]; then
+		echo "[sim-coverage-matrix] evidence path does not exist: $tablefile" >&2
 		missing_paths=1
 	fi
 done < <(grep -oE "$path_re" "$matrix" | tr -d '`' | sort -u)

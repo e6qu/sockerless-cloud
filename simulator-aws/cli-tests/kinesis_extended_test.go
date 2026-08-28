@@ -238,7 +238,6 @@ func TestKinesisCLI_UpdateMaxRecordSize(t *testing.T) {
 		"--max-record-size-in-ki-b", "99999"))
 }
 
-// TestKinesisCLI_UpdateStreamWarmThroughput sets a warm-throughput target.
 func TestKinesisCLI_UpdateStreamWarmThroughput(t *testing.T) {
 	stream := "cli-kinesis-warm-throughput"
 	streamARN := kinesisStreamARNCLI(t, stream)

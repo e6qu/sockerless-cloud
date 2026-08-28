@@ -16,7 +16,6 @@ type AWSRouter struct {
 	handlers map[string]http.HandlerFunc
 }
 
-// NewAWSRouter creates a new AWS request router.
 func NewAWSRouter() *AWSRouter {
 	return &AWSRouter{
 		handlers: make(map[string]http.HandlerFunc),

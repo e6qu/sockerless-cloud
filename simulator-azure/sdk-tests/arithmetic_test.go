@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- Azure Functions FaaS tests ---
-
 func TestAzureFunctions_InvokeArithmetic(t *testing.T) {
 	rg, name := "arith-func-rg", "arith-basic-app"
 	azureCreateSiteWithImage(t, rg, name, []string{"3 + 4 * 2"}, evalImageName)
@@ -93,8 +91,6 @@ func TestAzureFunctions_InvokeArithmeticLogs(t *testing.T) {
 	assert.Contains(t, allLogs, "Parsing expression:")
 	assert.Contains(t, allLogs, "Result:")
 }
-
-// --- Container Apps Jobs container tests ---
 
 func TestContainerApps_JobArithmetic(t *testing.T) {
 	rg, jobName := "arith-aca-rg", "arith-aca-job"

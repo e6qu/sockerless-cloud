@@ -164,8 +164,6 @@ func apigwv2RouteResponseKey(apiId, routeId, responseId string) string {
 	return apiId + "/" + routeId + "/" + responseId
 }
 
-// ---------- Integration responses ----------
-
 func handleAPIGWv2CreateIntegrationResponse(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	integrationId := sim.PathParam(r, "integrationId")
@@ -287,8 +285,6 @@ func handleAPIGWv2DeleteIntegrationResponse(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---------- Route responses ----------
-
 func handleAPIGWv2CreateRouteResponse(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	routeId := sim.PathParam(r, "routeId")
@@ -403,8 +399,6 @@ func handleAPIGWv2DeleteRouteResponse(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---------- Model template ----------
-
 func handleAPIGWv2GetModelTemplate(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	modelId := sim.PathParam(r, "modelId")
@@ -417,8 +411,6 @@ func handleAPIGWv2GetModelTemplate(w http.ResponseWriter, r *http.Request) {
 	// GetModelTemplate returns the model's schema as a mapping template.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": m.Schema})
 }
-
-// ---------- OpenAPI import / reimport / export ----------
 
 func handleAPIGWv2ImportApi(w http.ResponseWriter, r *http.Request) {
 	api, err := apigwv2APIFromOpenAPI(r, "")
@@ -496,8 +488,6 @@ func handleAPIGWv2ExportApi(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(doc)
 }
 
-// ---------- Resource tags ----------
-
 func handleAPIGWv2GetTags(w http.ResponseWriter, r *http.Request) {
 	arn := sim.PathParam(r, "resourceArn")
 	tags := apigwv2TagsForARN(arn)
@@ -530,8 +520,6 @@ func apigwv2TagsForARN(arn string) map[string]string {
 	}
 	return nil
 }
-
-// ---------- Per-stage / per-api config deletes ----------
 
 func handleAPIGWv2DeleteAccessLogSettings(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")

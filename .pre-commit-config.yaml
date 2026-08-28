@@ -163,6 +163,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: zsh-special-vars
+        name: No script assigns a name zsh reserves
+        entry: bash scripts/check-zsh-special-vars.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: store-scans
         name: No request path reads a whole store to find one row
         entry: bash scripts/check-store-scans.sh

@@ -71,8 +71,6 @@ func registerIAMUsersCreds(r *sim.AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// --- User / group renames ---------------------------------------------------
-
 func handleIAMUpdateUser(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("UserName")
 	user, ok := iamUsers.Get(name)
@@ -160,8 +158,6 @@ func handleIAMUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	iamGroups.Put(g.GroupName, g)
 	iamEmptyResultXML(w, "UpdateGroup")
 }
-
-// --- Login profiles ---------------------------------------------------------
 
 func iamLoginProfileXML(lp IAMLoginProfile) string {
 	return fmt.Sprintf("<LoginProfile><UserName>%s</UserName><CreateDate>%s</CreateDate><PasswordResetRequired>%t</PasswordResetRequired></LoginProfile>",
@@ -310,8 +306,6 @@ func iamValidatePasswordAgainstPolicy(pw string) string {
 	return ""
 }
 
-// --- Access keys ------------------------------------------------------------
-
 func handleIAMUpdateAccessKey(w http.ResponseWriter, r *http.Request) {
 	akid := r.FormValue("AccessKeyId")
 	key, ok := iamAccessKeys.Get(akid)
@@ -343,8 +337,6 @@ func handleIAMGetAccessKeyLastUsed(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetAccessKeyLastUsedResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetAccessKeyLastUsedResult><UserName>%s</UserName><AccessKeyLastUsed><ServiceName>N/A</ServiceName><Region>N/A</Region></AccessKeyLastUsed></GetAccessKeyLastUsedResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetAccessKeyLastUsedResponse>`,
 		xmlEscape(key.UserName), generateUUID())
 }
-
-// --- User tags --------------------------------------------------------------
 
 func handleIAMTagUser(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("UserName")
@@ -407,8 +399,6 @@ func handleIAMListUserTags(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ListUserTagsResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListUserTagsResult>%s<IsTruncated>false</IsTruncated></ListUserTagsResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListUserTagsResponse>`,
 		iamTagsXML(user.Tags), generateUUID())
 }
-
-// --- Account password policy ------------------------------------------------
 
 func iamPasswordPolicyXML(p IAMPasswordPolicy) string {
 	return fmt.Sprintf("<PasswordPolicy><MinimumPasswordLength>%d</MinimumPasswordLength><RequireSymbols>%t</RequireSymbols><RequireNumbers>%t</RequireNumbers><RequireUppercaseCharacters>%t</RequireUppercaseCharacters><RequireLowercaseCharacters>%t</RequireLowercaseCharacters><AllowUsersToChangePassword>%t</AllowUsersToChangePassword><ExpirePasswords>%t</ExpirePasswords><MaxPasswordAge>%d</MaxPasswordAge><PasswordReusePrevention>%d</PasswordReusePrevention><HardExpiry>%t</HardExpiry></PasswordPolicy>",

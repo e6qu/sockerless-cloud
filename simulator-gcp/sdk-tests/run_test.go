@@ -259,7 +259,6 @@ func waitExecutionDone(t *testing.T, execName string) map[string]any {
 	}
 }
 
-// getExecution fetches an execution and returns it as a map.
 func getExecution(t *testing.T, execName string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(ctx, "GET", baseURL+"/v2/"+execName, nil)
@@ -352,12 +351,10 @@ func TestCloudRun_ExecutionCancelledState(t *testing.T) {
 	assert.NotEmpty(t, exec["completionTime"])
 }
 
-// createAndRunJobWithCommand creates a job with a command and runs it.
 func createAndRunJobWithCommand(t *testing.T, jobID string, cmd []string, timeout string) string {
 	return createAndRunJobWithImageAndCommand(t, jobID, "alpine:latest", cmd, timeout)
 }
 
-// createAndRunJobWithImageAndCommand creates a job with a specific image and command and runs it.
 func createAndRunJobWithImageAndCommand(t *testing.T, jobID string, image string, cmd []string, timeout string) string {
 	t.Helper()
 	containers := []map[string]any{

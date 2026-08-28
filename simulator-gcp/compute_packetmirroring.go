@@ -250,7 +250,6 @@ func gcpPacketMirroringCollectors(policy map[string]any) []realexec.MirrorTarget
 	return targets
 }
 
-// gcpInstanceGroupMemberURLs returns the instance URLs in an instance group.
 func gcpInstanceGroupMemberURLs(groupURL string) []string {
 	if gcpInstanceGroups == nil {
 		return nil

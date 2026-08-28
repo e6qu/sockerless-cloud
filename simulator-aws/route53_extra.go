@@ -17,8 +17,6 @@ import (
 // REST + XML on the /2013-04-01/ path, matching the real Route 53 wire shapes
 // the AWS SDK Go v2 + `aws` CLI parse.
 
-// ---------- Stores ----------
-
 type r53StoredHealthCheck struct {
 	HealthCheck R53HealthCheck
 }
@@ -86,8 +84,6 @@ func registerRoute53Extra(mux *sim.Server) {
 	mux.HandleFunc("GET "+v+"/geolocation", cloudTrailRecordedREST("GetGeoLocation", "route53.amazonaws.com", nil, handleR53GetGeoLocation))
 	mux.HandleFunc("GET "+v+"/geolocations", cloudTrailRecordedREST("ListGeoLocations", "route53.amazonaws.com", nil, handleR53ListGeoLocations))
 }
-
-// ---------- Health check types ----------
 
 type R53HealthCheckConfig struct {
 	IPAddress                    string   `xml:"IPAddress,omitempty"`
@@ -189,8 +185,6 @@ type R53GetHealthCheckStatusResponse struct {
 	Xmlns                   string                      `xml:"xmlns,attr,omitempty"`
 	HealthCheckObservations []R53HealthCheckObservation `xml:"HealthCheckObservations>HealthCheckObservation"`
 }
-
-// ---------- Health check handlers ----------
 
 func handleR53CreateHealthCheck(w http.ResponseWriter, r *http.Request) {
 	r53ExtraMu.Lock()
@@ -352,8 +346,6 @@ func handleR53GetHealthCheckStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- Traffic policy types ----------
-
 type R53TrafficPolicy struct {
 	XMLName  xml.Name `xml:"TrafficPolicy"`
 	Xmlns    string   `xml:"xmlns,attr,omitempty"`
@@ -421,8 +413,6 @@ type R53ListTrafficPolicyVersionsResponse struct {
 	TrafficPolicyVersionMarker string             `xml:"TrafficPolicyVersionMarker"`
 	MaxItems                   string             `xml:"MaxItems"`
 }
-
-// ---------- Traffic policy handlers ----------
 
 func handleR53CreateTrafficPolicy(w http.ResponseWriter, r *http.Request) {
 	r53ExtraMu.Lock()
@@ -613,8 +603,6 @@ func r53TrafficPolicyType(document string) string {
 	return "A"
 }
 
-// ---------- VPC association types ----------
-
 type R53VPCRequest struct {
 	XMLName xml.Name `xml:""`
 	VPC     R53VPC   `xml:"VPC"`
@@ -651,8 +639,6 @@ type R53ListHostedZonesByVPCResponse struct {
 	MaxItems            string                    `xml:"MaxItems"`
 	NextToken           string                    `xml:"NextToken,omitempty"`
 }
-
-// ---------- VPC association handlers ----------
 
 func r53ZoneVPCList(zoneID string) []R53VPC {
 	list, _ := r53ZoneVPCs.Get(zoneID)
@@ -747,8 +733,6 @@ func handleR53ListHostedZonesByVPC(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- Query logging types ----------
-
 type R53QueryLoggingConfig struct {
 	XMLName                   xml.Name `xml:"QueryLoggingConfig"`
 	Xmlns                     string   `xml:"xmlns,attr,omitempty"`
@@ -781,8 +765,6 @@ type R53ListQueryLoggingConfigsResponse struct {
 	QueryLoggingConfigs []R53QueryLoggingConfig `xml:"QueryLoggingConfigs>QueryLoggingConfig"`
 	NextToken           string                  `xml:"NextToken,omitempty"`
 }
-
-// ---------- Query logging handlers ----------
 
 func handleR53CreateQueryLoggingConfig(w http.ResponseWriter, r *http.Request) {
 	r53ExtraMu.Lock()
@@ -855,8 +837,6 @@ func handleR53DeleteQueryLoggingConfig(w http.ResponseWriter, r *http.Request) {
 		Xmlns   string   `xml:"xmlns,attr,omitempty"`
 	}{Xmlns: r53Namespace})
 }
-
-// ---------- Misc: counts + geolocation ----------
 
 type R53GetHostedZoneCountResponse struct {
 	XMLName         xml.Name `xml:"GetHostedZoneCountResponse"`

@@ -168,8 +168,6 @@ func amplifyDomainSubdomainHosts(stored amplifyStoredDomain) []string {
 	return hosts
 }
 
-// ---------- active deployment content ----------
-
 // amplifyHostedContent is one branch's unpacked active deployment.
 type amplifyHostedContent struct {
 	JobID string
@@ -331,8 +329,6 @@ func amplifyUnpackJobArtifacts(appID, branch, jobID string) *amplifyHostedConten
 	}
 	return content
 }
-
-// ---------- request serving ----------
 
 func handleAmplifyHosting(w http.ResponseWriter, r *http.Request, appID, branch string) {
 	stored, ok := amplifyApps.Get(appID)

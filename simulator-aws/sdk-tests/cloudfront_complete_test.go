@@ -250,8 +250,6 @@ func TestCloudFront_CreateDistributionVariants(t *testing.T) {
 	}
 }
 
-// ---- helpers ----
-
 func cfMinimalDistributionConfig(caller string) *cftypes.DistributionConfig {
 	return &cftypes.DistributionConfig{
 		CallerReference: aws.String(caller),

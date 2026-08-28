@@ -380,8 +380,6 @@ func cbStampCoverages(coverages []CBCodeCoverage, reportArn string) []CBCodeCove
 	return coverages
 }
 
-// ----- JUnit XML -------------------------------------------------------------
-
 type cbJUnitTestSuites struct {
 	XMLName xml.Name           `xml:"testsuites"`
 	Suites  []cbJUnitTestSuite `xml:"testsuite"`
@@ -476,8 +474,6 @@ func cbSecondsToNanoseconds(seconds string) int64 {
 	return int64(value * 1e9)
 }
 
-// ----- Cucumber JSON ---------------------------------------------------------
-
 type cbCucumberFeature struct {
 	Name     string              `json:"name"`
 	URI      string              `json:"uri"`
@@ -569,8 +565,6 @@ func cbCucumberStepMessage(step cbCucumberStep) string {
 	return strings.TrimSpace(step.Keyword + step.Name)
 }
 
-// ----- JaCoCo XML ------------------------------------------------------------
-
 type cbJaCoCoReport struct {
 	XMLName  xml.Name          `xml:"report"`
 	Packages []cbJaCoCoPackage `xml:"package"`
@@ -622,8 +616,6 @@ func cbParseJaCoCoXML(data []byte) ([]CBCodeCoverage, error) {
 	}
 	return out, nil
 }
-
-// ----- Cobertura XML ---------------------------------------------------------
 
 type cbCoberturaCoverage struct {
 	XMLName  xml.Name             `xml:"coverage"`

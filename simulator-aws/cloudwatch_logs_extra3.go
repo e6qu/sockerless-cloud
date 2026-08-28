@@ -27,8 +27,6 @@ func cwFormatRecordTime(epochMillis int64) string {
 // reads derived from stored log events return honest-empty results when the
 // group has no events.
 
-// ===== Stored shapes (mirror the aws-sdk-go-v2 cloudwatchlogs types) =====
-
 // CWIntegration mirrors the GetIntegrationResponse / IntegrationSummary shape.
 // Keyed by integrationName. resourceConfig is preserved verbatim from the
 // PutIntegration request so GetIntegration can derive faithful details.
@@ -166,8 +164,6 @@ func cwIntegrationArn(name string) string {
 	return "arn:aws:logs:" + awsRegion() + ":" + awsAccountID() + ":integration:" + name
 }
 
-// ===== OpenSearch integrations =====
-
 func handleCWPutIntegration(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IntegrationName string          `json:"integrationName"`
@@ -275,8 +271,6 @@ func handleCWDeleteIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ===== Lookup tables =====
 
 func handleCWCreateLookupTable(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -409,8 +403,6 @@ func handleCWDescribeLookupTables(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"lookupTables": tables})
 }
-
-// ===== Scheduled Insights queries =====
 
 func handleCWCreateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -685,8 +677,6 @@ func handleCWGetScheduledQueryHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ===== Transformers =====
-
 func handleCWPutTransformer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupIdentifier string          `json:"logGroupIdentifier"`
@@ -786,8 +776,6 @@ func handleCWTestTransformer(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"transformedLogs": transformed})
 }
-
-// ===== Import tasks =====
 
 func handleCWCreateImportTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -945,8 +933,6 @@ func handleCWDescribeImportTaskBatches(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ===== Log-structure reads + deletion protection =====
-
 func handleCWGetLogGroupFields(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupName       string `json:"logGroupName"`
@@ -1081,8 +1067,6 @@ func handleCWPutLogGroupDeletionProtection(w http.ResponseWriter, r *http.Reques
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ===== Anomalies (over the existing cwLogAnomalyDetectors store) =====
-
 func handleCWListAnomalies(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AnomalyDetectorArn string `json:"anomalyDetectorArn"`
@@ -1162,8 +1146,6 @@ func handleCWUpdateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ===== Log-group listing surfaces =====
 
 func handleCWListLogGroups(w http.ResponseWriter, r *http.Request) {
 	var req struct {

@@ -243,7 +243,6 @@ func acrCLIDataPlaneGet(rawURL, loginServer, authorization string) (*http.Respon
 	return http.DefaultClient.Do(req)
 }
 
-// readBody reads and returns the body of an HTTP response as a string.
 func readBody(t *testing.T, resp *http.Response) string {
 	t.Helper()
 	var buf bytes.Buffer

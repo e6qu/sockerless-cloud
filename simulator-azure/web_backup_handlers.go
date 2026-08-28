@@ -108,7 +108,6 @@ func sortBackupItems(rows []WebBackupItemRow) {
 
 // registerWebBackups mounts the whole family.
 func registerWebBackups(both func(string, string, http.HandlerFunc)) {
-	// --- Backup configuration ------------------------------------------------
 
 	// WebApps_UpdateBackupConfiguration[Slot] — PUT /config/backup.
 	both("PUT", "/config/backup", func(w http.ResponseWriter, r *http.Request) {
@@ -170,8 +169,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		sim.WriteJSON(w, http.StatusOK, backupConfigWire(r, row))
 	}
 	both("POST", "/config/backup/list", backupConfigList)
-
-	// --- Backups -------------------------------------------------------------
 
 	// WebApps_Backup[Slot] — POST /backup. The archive and its manifest are
 	// written into the storage account before the response is composed, so the
@@ -405,8 +402,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		})
 	})
 
-	// --- Restores -------------------------------------------------------------
-
 	// WebApps_Restore[Slot] — POST /backups/{backupId}/restore.
 	both("POST", "/backups/{backupId}/restore", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
@@ -562,8 +557,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 			return nil
 		})
 	})
-
-	// --- Snapshots -------------------------------------------------------------
 
 	// WebApps_ListSnapshots[Slot] — GET /snapshots (the primary region) and
 	// WebApps_ListSnapshotsFromDRSecondary[Slot] — GET /snapshotsdr (the

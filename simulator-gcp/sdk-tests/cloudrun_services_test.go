@@ -151,8 +151,6 @@ func TestCloudRunServices_ReplaceBumpsGeneration(t *testing.T) {
 	doKnativeDELETE(t, "/apis/serving.knative.dev/v1/namespaces/"+namespace+"/services/svc-rev")
 }
 
-// ---- helpers ----
-
 type CRServiceMetaResp struct {
 	Name       string            `json:"name"`
 	Namespace  string            `json:"namespace"`

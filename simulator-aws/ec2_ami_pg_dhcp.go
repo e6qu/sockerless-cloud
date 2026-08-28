@@ -90,8 +90,6 @@ func registerEC2AmiPlacementDhcp(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteDhcpOptions", handleDeleteDhcpOptions)
 }
 
-// -------------------- AMIs --------------------
-
 // handleCreateImage creates an AMI from a running/stopped instance. It records
 // the instance's root device and a fresh backing snapshot id, mirroring real
 // EC2 (CreateImage snapshots the root volume and returns an AMI referencing it).
@@ -320,8 +318,6 @@ func ec2ImageMatchesFilters(img EC2Image, filters map[string][]string) bool {
 	return true
 }
 
-// -------------------- Placement groups --------------------
-
 func handleCreatePlacementGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("GroupName")
 	if name == "" {
@@ -432,8 +428,6 @@ func handleDeletePlacementGroup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeletePlacementGroupResponse %s><requestId>%s</requestId><return>true</return></DeletePlacementGroupResponse>`, ec2Xmlns(), generateUUID())
 }
-
-// -------------------- DHCP option sets --------------------
 
 // ec2ParseDhcpConfigurations reads the indexed DhcpConfiguration.N.Key /
 // DhcpConfiguration.N.Value.M request params into ordered config entries.

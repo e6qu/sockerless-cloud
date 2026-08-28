@@ -29,8 +29,6 @@ const (
 	r53Namespace  = "https://route53.amazonaws.com/doc/2013-04-01/"
 )
 
-// ---------- HostedZone ----------
-
 type R53HostedZone struct {
 	XMLName                xml.Name             `xml:"HostedZone"`
 	Xmlns                  string               `xml:"xmlns,attr,omitempty"`
@@ -109,8 +107,6 @@ type R53GetHostedZoneResponse struct {
 	DelegationSet R53DelegationSet `xml:"DelegationSet"`
 	VPCs          []R53VPC         `xml:"VPCs>VPC,omitempty"`
 }
-
-// ---------- ResourceRecordSet ----------
 
 type R53ResourceRecordSet struct {
 	Name                    string              `xml:"Name"`
@@ -205,8 +201,6 @@ type R53DeleteHostedZoneResponse struct {
 	ChangeInfo R53ChangeInfo `xml:"ChangeInfo"`
 }
 
-// ---------- Error ----------
-
 type R53ErrorResponse struct {
 	XMLName   xml.Name `xml:"ErrorResponse"`
 	Xmlns     string   `xml:"xmlns,attr,omitempty"`
@@ -219,8 +213,6 @@ type R53Error struct {
 	Code    string `xml:"Code"`
 	Message string `xml:"Message"`
 }
-
-// ---------- Storage ----------
 
 type r53StoredZone struct {
 	Zone    R53HostedZone
@@ -265,8 +257,6 @@ func r53ZonesWithCNAME(name string) []r53StoredZone {
 			return names
 		})
 }
-
-// ---------- Helpers ----------
 
 func r53RandomID() string {
 	buf := make([]byte, 7)
@@ -326,8 +316,6 @@ func r53WriteError(w http.ResponseWriter, status int, code, msg string) {
 	})
 }
 
-// ---------- Registration ----------
-
 func registerRoute53(srv *sim.Server, startDataPlane bool) {
 	r53Zones = sim.MakeStore[r53StoredZone](srv.DB(), "route53_zones")
 	r53Changes = sim.MakeStore[r53StoredChange](srv.DB(), "route53_changes")
@@ -358,8 +346,6 @@ func registerRoute53(srv *sim.Server, startDataPlane bool) {
 		startRoute53DNSServer()
 	}
 }
-
-// ---------- Tag types ----------
 
 type R53Tag struct {
 	Key   string `xml:"Key"`
@@ -434,8 +420,6 @@ func handleR53ChangeTagsForResource(w http.ResponseWriter, r *http.Request) {
 	r53Tags.Put(key, merged)
 	r53WriteXML(w, http.StatusOK, R53ChangeTagsResponse{Xmlns: r53Namespace})
 }
-
-// ---------- HostedZone handlers ----------
 
 func handleR53CreateHostedZone(w http.ResponseWriter, r *http.Request) {
 	var req R53CreateHostedZoneRequest
@@ -690,8 +674,6 @@ func handleR53ListHostedZonesByName(w http.ResponseWriter, r *http.Request) {
 	}
 	r53WriteXML(w, http.StatusOK, resp)
 }
-
-// ---------- ResourceRecordSet handlers ----------
 
 func handleR53ChangeRRSets(w http.ResponseWriter, r *http.Request) {
 	r53Mu.Lock()

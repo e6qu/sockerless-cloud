@@ -484,8 +484,6 @@ func (reg *OCIRegistry) handleTagsList(w http.ResponseWriter, r *http.Request, s
 	WriteJSON(w, http.StatusOK, map[string]any{"name": repo, "tags": tags})
 }
 
-// --- helpers ---
-
 func ociDigest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])

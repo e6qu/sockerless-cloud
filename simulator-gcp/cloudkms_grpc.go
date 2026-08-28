@@ -88,9 +88,7 @@ func registerCloudKMSGRPC(gs *grpc.Server) {
 	kmspb.RegisterKeyManagementServiceServer(gs, &cloudKmsGRPC{})
 }
 
-// ---------------------------------------------------------------------------
 // name helpers
-// ---------------------------------------------------------------------------
 
 // kmsNormalizeName strips a redundant leading "projects/" that callers
 // sometimes prepend to a name that is already a full path, avoiding the
@@ -122,9 +120,7 @@ func kmsInt64Value(v int64) *wrapperspb.Int64Value {
 	return &wrapperspb.Int64Value{Value: v}
 }
 
-// ---------------------------------------------------------------------------
 // proto <-> REST-store converters
-// ---------------------------------------------------------------------------
 
 // kmsProtectionLevelFromString maps the REST slice's string enum to the proto
 // ProtectionLevel. Unrecognized values default to SOFTWARE (the REST slice's
@@ -347,9 +343,7 @@ func kmsCryptoKeyToProto(k kmsStoredCryptoKey) *kmspb.CryptoKey {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // admin RPCs
-// ---------------------------------------------------------------------------
 
 func (s *cloudKmsGRPC) ListKeyRings(ctx context.Context, req *kmspb.ListKeyRingsRequest) (*kmspb.ListKeyRingsResponse, error) {
 	parent := kmsNormalizeName(req.GetParent())
@@ -693,9 +687,7 @@ func (s *cloudKmsGRPC) GetPublicKey(ctx context.Context, req *kmspb.GetPublicKey
 	}, nil
 }
 
-// ---------------------------------------------------------------------------
 // data-plane RPCs — real crypto via the REST slice's helpers
-// ---------------------------------------------------------------------------
 
 func (s *cloudKmsGRPC) Encrypt(ctx context.Context, req *kmspb.EncryptRequest) (*kmspb.EncryptResponse, error) {
 	name := kmsNormalizeName(req.GetName())
@@ -1056,9 +1048,7 @@ func (s *cloudKmsGRPC) GenerateRandomBytes(ctx context.Context, req *kmspb.Gener
 	}, nil
 }
 
-// ---------------------------------------------------------------------------
 // ImportJobs — the wrapping-key lifecycle behind ImportCryptoKeyVersion
-// ---------------------------------------------------------------------------
 
 func (s *cloudKmsGRPC) CreateImportJob(ctx context.Context, req *kmspb.CreateImportJobRequest) (*kmspb.ImportJob, error) {
 	ringName := kmsNormalizeName(req.GetParent())
@@ -1137,9 +1127,7 @@ func (s *cloudKmsGRPC) ListImportJobs(ctx context.Context, req *kmspb.ListImport
 	}, nil
 }
 
-// ---------------------------------------------------------------------------
 // key import and trusted-key-wrapped export
-// ---------------------------------------------------------------------------
 
 // ImportCryptoKeyVersion unwraps the caller's material with the selected
 // ImportJob's private wrapping key and persists exactly that material in the
@@ -1304,9 +1292,7 @@ func (s *cloudKmsGRPC) ExportTrustedKeyWrappedCryptoKeyVersion(ctx context.Conte
 	}, nil
 }
 
-// ---------------------------------------------------------------------------
 // deletes — long-running operations over the same removal the REST DELETE does
-// ---------------------------------------------------------------------------
 
 // DeleteCryptoKey removes the CryptoKey and its IAM policy, once every child
 // version has been deleted — the delete does not cascade. The removal is
@@ -1341,9 +1327,7 @@ func (s *cloudKmsGRPC) DeleteCryptoKeyVersion(ctx context.Context, req *kmspb.De
 	return kmsCompletedOperation(name)
 }
 
-// ---------------------------------------------------------------------------
 // RetiredResources — the records of deleted CryptoKeys
-// ---------------------------------------------------------------------------
 
 func (s *cloudKmsGRPC) ListRetiredResources(ctx context.Context, req *kmspb.ListRetiredResourcesRequest) (*kmspb.ListRetiredResourcesResponse, error) {
 	parent := kmsNormalizeName(req.GetParent())
@@ -1373,9 +1357,7 @@ func (s *cloudKmsGRPC) GetRetiredResource(ctx context.Context, req *kmspb.GetRet
 	return kmsRetiredResourceToProto(rr), nil
 }
 
-// ---------------------------------------------------------------------------
 // key encapsulation
-// ---------------------------------------------------------------------------
 
 // Decapsulate refuses with the reason the refusal exists: post-quantum key
 // encapsulation (ML-KEM / X-Wing) is a primitive Go's standard library does not
@@ -1386,9 +1368,7 @@ func (s *cloudKmsGRPC) Decapsulate(ctx context.Context, req *kmspb.DecapsulateRe
 	return nil, status.Errorf(codes.FailedPrecondition, "decapsulate is not supported for CryptoKeyVersion %s", name)
 }
 
-// ---------------------------------------------------------------------------
 // helpers — resolve version names, format timestamps / durations, paginate
-// ---------------------------------------------------------------------------
 
 // kmsResolveEncryptVersion resolves a CryptoKey or CryptoKeyVersion name to the
 // version used for symmetric Encrypt. When the name is a CryptoKey, its primary

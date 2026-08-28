@@ -142,8 +142,6 @@ func glueMLTaskRunKey(transformID, taskRunID string) string {
 	return transformID + "\x00" + taskRunID
 }
 
-// ---------- ML task runs ----------
-
 // glueStartMLTaskRunHandler returns a handler that starts a task run of the given
 // TaskType against an existing ML transform and settles it to SUCCEEDED.
 func glueStartMLTaskRunHandler(taskType string) http.HandlerFunc {
@@ -277,8 +275,6 @@ func handleGlueCancelMLTaskRun(w http.ResponseWriter, r *http.Request) {
 		"Status":      "STOPPED",
 	})
 }
-
-// ---------- Crawler / column-statistics schedules ----------
 
 func glueColStatsScheduleKey(database, table string) string {
 	return database + "\x00" + table
@@ -500,8 +496,6 @@ func handleGlueListCrawls(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// ---------- Materialized-view refresh task runs ----------
-
 func glueMVRefreshKey(catalogID, runID string) string {
 	return catalogID + "\x00" + runID
 }
@@ -653,8 +647,6 @@ func handleGlueListMaterializedViewRefreshTaskRuns(w http.ResponseWriter, r *htt
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- Workflow runs ----------
 
 // glueWfRunKey mirrors the key scheme used by StartWorkflowRun in glue.go.
 func glueWfRunKey(name, runID string) string {
@@ -841,8 +833,6 @@ func handleGlueUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Name": req.Name})
 }
 
-// ---------- Triggers ----------
-
 func handleGlueListTriggers(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NextToken        string `json:"NextToken"`
@@ -912,8 +902,6 @@ func handleGlueUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Trigger": glueTriggerWire{trigger}})
 }
 
-// ---------- Job bookmarks ----------
-
 func handleGlueGetJobBookmark(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JobName string `json:"JobName"`
@@ -965,8 +953,6 @@ func handleGlueResetJobBookmark(w http.ResponseWriter, r *http.Request) {
 	glueJobBookmarks.Put(req.JobName, bm)
 	glueWriteJSON(w, http.StatusOK, map[string]any{"JobBookmarkEntry": bm})
 }
-
-// ---------- Connection-type registry ----------
 
 func handleGlueRegisterConnectionType(w http.ResponseWriter, r *http.Request) {
 	var req struct {

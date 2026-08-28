@@ -323,9 +323,7 @@ func registerEntra(srv *sim.Server) {
 	srv.HandleFunc("GET /beta/me/transitiveMemberOf", handleGraphMemberOf)
 }
 
-// ---------------------------------------------------------------------------
 // groups
-// ---------------------------------------------------------------------------
 
 // registerEntraGroups mounts the Microsoft Graph group surface — the group
 // itself, its members and owners reference collections, and the groups it
@@ -601,9 +599,7 @@ func handleGraphGroupMemberOf(w http.ResponseWriter, r *http.Request) {
 	graphCollection(w, r, "$metadata#directoryObjects", docs)
 }
 
-// ---------------------------------------------------------------------------
 // users
-// ---------------------------------------------------------------------------
 
 // registerEntraUsers mounts the Microsoft Graph user surface. Real URL base:
 // https://graph.microsoft.com/v1.0/users.
@@ -743,9 +739,7 @@ func handleGraphUserMemberOf(w http.ResponseWriter, r *http.Request) {
 	graphCollection(w, r, "$metadata#directoryObjects", entraMemberOfDocs(r, userID))
 }
 
-// ---------------------------------------------------------------------------
 // applications
-// ---------------------------------------------------------------------------
 
 // registerEntraApplications mounts the Microsoft Graph application-registration
 // surface. Real URL base: https://graph.microsoft.com/v1.0/applications
@@ -932,9 +926,7 @@ func handleGraphRemoveApplicationOwnerRef(w http.ResponseWriter, r *http.Request
 	handleGraphRemoveOwnerRef(w, r, sim.PathParam(r, "appObjectId"), sim.PathParam(r, "ownerId"))
 }
 
-// ---------------------------------------------------------------------------
 // service principals
-// ---------------------------------------------------------------------------
 
 // registerEntraServicePrincipals mounts the Microsoft Graph service-principal
 // surface. Real URL base: https://graph.microsoft.com/v1.0/servicePrincipals
@@ -1134,9 +1126,7 @@ func handleGraphRemoveServicePrincipalOwnerRef(w http.ResponseWriter, r *http.Re
 	handleGraphRemoveOwnerRef(w, r, sim.PathParam(r, "spId"), sim.PathParam(r, "ownerId"))
 }
 
-// ---------------------------------------------------------------------------
 // shared helpers
-// ---------------------------------------------------------------------------
 
 // graphDecodeProps re-encodes the entity's own properties and decodes them into
 // the typed shape a handler models, so a handler reads the members it owns

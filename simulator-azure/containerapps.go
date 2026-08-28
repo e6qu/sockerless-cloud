@@ -79,20 +79,17 @@ type JobConfiguration struct {
 	EventTrigger      *EventTrigger    `json:"eventTriggerConfig,omitempty"`
 }
 
-// ManualTrigger holds manual trigger configuration.
 type ManualTrigger struct {
 	Parallelism            int `json:"parallelism,omitempty"`
 	ReplicaCompletionCount int `json:"replicaCompletionCount,omitempty"`
 }
 
-// ScheduleTrigger holds schedule trigger configuration.
 type ScheduleTrigger struct {
 	CronExpression         string `json:"cronExpression,omitempty"`
 	Parallelism            int    `json:"parallelism,omitempty"`
 	ReplicaCompletionCount int    `json:"replicaCompletionCount,omitempty"`
 }
 
-// EventTrigger holds event trigger configuration.
 type EventTrigger struct {
 	Parallelism            int `json:"parallelism,omitempty"`
 	ReplicaCompletionCount int `json:"replicaCompletionCount,omitempty"`
@@ -175,14 +172,12 @@ type EnvVar struct {
 	SecretRef string `json:"secretRef,omitempty"`
 }
 
-// ResourceRequirements holds resource requirements for a container.
 type ResourceRequirements struct {
 	CPU              float64 `json:"cpu,omitempty"`
 	Memory           string  `json:"memory,omitempty"`
 	EphemeralStorage string  `json:"ephemeralStorage,omitempty"`
 }
 
-// VolumeMount holds a volume mount for a container.
 type VolumeMount struct {
 	VolumeName string `json:"volumeName"`
 	MountPath  string `json:"mountPath"`

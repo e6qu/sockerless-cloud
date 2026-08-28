@@ -146,7 +146,6 @@ func TestSSMCLI_AssociationLifecycle(t *testing.T) {
 	require.NotEmpty(t, statusResult.InstanceAssociationStatusInfos)
 }
 
-// TestSSMCLI_AssociationBatch pins create-association-batch.
 func TestSSMCLI_AssociationBatch(t *testing.T) {
 	docName := "cli-assoc-batch-doc-" + ssmStamp()
 	ssmCLIEnsureDoc(t, docName)

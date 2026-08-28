@@ -19,8 +19,6 @@ import (
 // CloudFront slice: each named resource carries an Id + ARN + an ETag returned
 // in the response header and required as If-Match on Update/Delete.
 
-// ---------- Distribution Tenant ----------
-
 type CFDomainResult struct {
 	Domain string `xml:"Domain"`
 	Status string `xml:"Status,omitempty"`
@@ -105,8 +103,6 @@ type cfStoredTenant struct {
 	Tags   []CFTag
 }
 
-// ---------- Connection Group ----------
-
 type CFConnectionGroup struct {
 	XMLName          xml.Name `xml:"ConnectionGroup"`
 	Xmlns            string   `xml:"xmlns,attr,omitempty"`
@@ -166,8 +162,6 @@ type cfStoredConnectionGroup struct {
 	ETag  string
 	Tags  []CFTag
 }
-
-// ---------- Trust Store ----------
 
 type CFTrustStore struct {
 	XMLName                          xml.Name `xml:"TrustStore"`
@@ -237,8 +231,6 @@ type cfStoredTrustStore struct {
 	Tags  []CFTag
 }
 
-// ---------- Resource Policy ----------
-
 // CFResourcePolicyRequest covers Get/Put/DeleteResourcePolicy bodies. The SDK
 // wraps the input fields under the operation-named request root.
 type CFGetResourcePolicyRequest struct {
@@ -275,8 +267,6 @@ type cfStoredResourcePolicy struct {
 	PolicyDocument string
 }
 
-// ---------- WebACL association results ----------
-
 type CFAssociateDistributionWebACLResult struct {
 	XMLName   xml.Name `xml:"AssociateDistributionWebACLResult"`
 	Xmlns     string   `xml:"xmlns,attr,omitempty"`
@@ -306,8 +296,6 @@ type CFDisassociateDistributionTenantWebACLResult struct {
 type CFAssociateWebACLBody struct {
 	WebACLArn string `xml:"WebACLArn"`
 }
-
-// ---------- Alias / domain conflict queries ----------
 
 type CFConflictingAlias struct {
 	Alias          string `xml:"Alias,omitempty"`
@@ -374,8 +362,6 @@ type CFVerifyDnsConfigurationResult struct {
 	DnsConfigurationList []CFDnsConfiguration `xml:"DnsConfigurationList>DnsConfiguration,omitempty"`
 }
 
-// ---------- ListDistributionsBy* projection shapes ----------
-
 // CFDistributionIdList projects matching distribution IDs (the DistributionIdList
 // output shape — a flat list of <DistributionId> strings).
 type CFDistributionIdList struct {
@@ -405,8 +391,6 @@ type CFDistributionIdOwnerList struct {
 	Items       []CFDistributionIdOwner `xml:"Items>DistributionIdOwner,omitempty"`
 }
 
-// ---------- Managed certificate details ----------
-
 type CFManagedCertificateDetails struct {
 	XMLName             xml.Name `xml:"ManagedCertificateDetails"`
 	Xmlns               string   `xml:"xmlns,attr,omitempty"`
@@ -414,8 +398,6 @@ type CFManagedCertificateDetails struct {
 	CertificateStatus   string   `xml:"CertificateStatus,omitempty"`
 	ValidationTokenHost string   `xml:"ValidationTokenHost,omitempty"`
 }
-
-// ---------- Storage ----------
 
 var (
 	cfTenants          sim.Store[cfStoredTenant]
@@ -537,8 +519,6 @@ func registerCloudFrontExtras3(srv *sim.Server) {
 	mux.HandleFunc("GET /"+v+"/managed-certificate/{Identifier}", cloudTrailRecordedREST("GetManagedCertificateDetails", "cloudfront.amazonaws.com", nil, handleCFGetManagedCertificateDetails))
 }
 
-// ----- Distribution variants -----
-
 func handleCFCopyDistribution(w http.ResponseWriter, r *http.Request) {
 	primaryID := r.PathValue("PrimaryDistributionId")
 	src, ok := cfDistributions.Get(primaryID)
@@ -609,8 +589,6 @@ func handleCFPromoteStagingConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", newETag)
 	cfWriteXML(w, http.StatusOK, stored.Distribution)
 }
-
-// ----- Distribution Tenant handlers -----
 
 func handleCFCreateTenant(w http.ResponseWriter, r *http.Request) {
 	var req CFDistributionTenantCreateRequest
@@ -876,8 +854,6 @@ func handleCFListTenantInvalidations(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ----- Connection Group handlers -----
-
 func handleCFCreateConnectionGroup(w http.ResponseWriter, r *http.Request) {
 	var req CFConnectionGroupCreateRequest
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1011,8 +987,6 @@ func handleCFListConnectionGroups(w http.ResponseWriter, _ *http.Request) {
 	cfWriteXML(w, http.StatusOK, CFListConnectionGroupsResult{Xmlns: cfNamespace, ConnectionGroups: items})
 }
 
-// ----- Trust Store handlers -----
-
 func handleCFCreateTrustStore(w http.ResponseWriter, r *http.Request) {
 	var req CFTrustStoreCreateRequest
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1122,8 +1096,6 @@ func handleCFListDistributionsByTrustStore(w http.ResponseWriter, r *http.Reques
 	cfWriteDistributionList(w, nil)
 }
 
-// ----- Resource Policy handlers -----
-
 func handleCFGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req CFGetResourcePolicyRequest
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1170,8 +1142,6 @@ func handleCFDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// ----- Distribution WebACL associations -----
-
 func handleCFAssociateDistributionWebACL(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	stored, ok := cfDistributions.Get(id)
@@ -1216,8 +1186,6 @@ func handleCFDisassociateDistributionWebACL(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("ETag", newETag)
 	cfWriteXML(w, http.StatusOK, CFDisassociateDistributionWebACLResult{Xmlns: cfNamespace, Id: id})
 }
-
-// ----- Aliases + conflicts -----
 
 func handleCFAssociateAlias(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("TargetDistributionId")
@@ -1323,8 +1291,6 @@ func handleCFVerifyDnsConfiguration(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
-
-// ----- ListDistributionsBy* projections -----
 
 // cfWriteDistributionList renders the full DistributionList shape for the
 // matching distributions.
@@ -1526,8 +1492,6 @@ func handleCFListDistributionsByOwnedResource(w http.ResponseWriter, r *http.Req
 		Items:    []CFDistributionIdOwner{},
 	})
 }
-
-// ----- Anycast IP List update + managed certificate -----
 
 func handleCFUpdateAnycastIpList(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("Id")

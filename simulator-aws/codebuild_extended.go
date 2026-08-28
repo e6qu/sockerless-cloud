@@ -23,8 +23,6 @@ import (
 // (X-Amz-Target: CodeBuild_20161006.<Op>), matching the real wire shapes the
 // AWS SDK Go v2 and the `aws` CLI parse.
 
-// --- Build batches -----------------------------------------------------------
-
 // CBBuildBatch mirrors the CodeBuild BuildBatch shape. A batch settles SUCCEEDED
 // the same way a single build does; the sim tracks its terminal state on a real
 // store rather than fabricating it.
@@ -271,8 +269,6 @@ func cbNextSeq(p *int64) int64 {
 	return *p
 }
 
-// --- BatchDeleteBuilds -------------------------------------------------------
-
 func handleCBBatchDeleteBuilds(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IDs []string `json:"ids"`
@@ -304,8 +300,6 @@ func handleCBBatchDeleteBuilds(w http.ResponseWriter, r *http.Request) {
 		"buildsNotDeleted": notDel,
 	})
 }
-
-// --- Build batches -----------------------------------------------------------
 
 func handleCBStartBuildBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -607,8 +601,6 @@ func cbResolveBuildBatch(idOrARN string) (CBBuildBatch, bool) {
 	return CBBuildBatch{}, false
 }
 
-// --- Fleets ------------------------------------------------------------------
-
 func handleCBCreateFleet(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name                 string         `json:"name"`
@@ -796,8 +788,6 @@ func cbResolveFleet(nameOrARN string) (CBFleet, bool) {
 	}
 	return CBFleet{}, false
 }
-
-// --- Sandboxes ---------------------------------------------------------------
 
 func handleCBStartSandbox(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -989,8 +979,6 @@ func cbResolveSandbox(idOrARN string) (CBSandbox, bool) {
 	return CBSandbox{}, false
 }
 
-// --- Command executions ------------------------------------------------------
-
 func handleCBStartCommandExecution(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SandboxID string `json:"sandboxId"`
@@ -1179,8 +1167,6 @@ func handleCBListCommandExecutionsForSandbox(w http.ResponseWriter, r *http.Requ
 	cbWriteJSON(w, http.StatusOK, resp)
 }
 
-// --- Webhooks ----------------------------------------------------------------
-
 func handleCBCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ProjectName  string             `json:"projectName"`
@@ -1272,8 +1258,6 @@ func handleCBDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	cbWebhooks.Delete(req.ProjectName)
 	cbWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// --- Reports: DeleteReport, test cases, code coverage, trend -----------------
 
 func handleCBDeleteReport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1520,8 +1504,6 @@ func cbReportTrendValue(report CBReport, trendField string) (float64, bool) {
 	return 0, false
 }
 
-// --- Resource policy ---------------------------------------------------------
-
 func handleCBPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Policy      string `json:"policy"`
@@ -1579,8 +1561,6 @@ func handleCBDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	cbWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// --- Project visibility / cache ----------------------------------------------
-
 func handleCBUpdateProjectVisibility(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ProjectArn         string `json:"projectArn"`
@@ -1623,8 +1603,6 @@ func handleCBInvalidateProjectCache(w http.ResponseWriter, r *http.Request) {
 	// cache artifacts, so success with an empty body is the faithful response.
 	cbWriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// --- Curated environment images ----------------------------------------------
 
 // handleCBListCuratedEnvironmentImages returns AWS's real curated image
 // platforms (Amazon Linux / Ubuntu standard images), in the EnvironmentPlatform
@@ -1674,8 +1652,6 @@ func handleCBListCuratedEnvironmentImages(w http.ResponseWriter, r *http.Request
 	}
 	cbWriteJSON(w, http.StatusOK, map[string]any{"platforms": platforms})
 }
-
-// --- Shared resource listings ------------------------------------------------
 
 // handleCBListSharedProjects returns the projects shared with the account via a
 // resource policy. The sim has no cross-account sharing, so it returns the set

@@ -172,8 +172,6 @@ func registerAPIGatewayV2Complete(srv *sim.Server) {
 
 func apigwv2ChildKey(parent, child string) string { return parent + "/" + child }
 
-// ---- Developer portals ----
-
 func handleAPIGWv2CreatePortal(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Authorization             json.RawMessage   `json:"authorization"`
@@ -303,8 +301,6 @@ func handleAPIGWv2DisablePortal(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---- Portal products ----
-
 func handleAPIGWv2CreatePortalProduct(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DisplayName string            `json:"displayName"`
@@ -391,8 +387,6 @@ func handleAPIGWv2DeletePortalProduct(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---- Portal product sharing policy ----
-
 func handleAPIGWv2GetPortalProductSharingPolicy(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
 	p, ok := apigwv2PortalProducts.Get(productID)
@@ -438,8 +432,6 @@ func handleAPIGWv2DeletePortalProductSharingPolicy(w http.ResponseWriter, r *htt
 	apigwv2PortalProducts.Put(productID, p)
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// ---- Product pages ----
 
 func handleAPIGWv2CreateProductPage(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
@@ -552,8 +544,6 @@ func handleAPIGWv2DeleteProductPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// ---- Product REST-endpoint pages ----
 
 func handleAPIGWv2CreateProductRestEndpointPage(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
@@ -707,8 +697,6 @@ func handleAPIGWv2DeleteProductRestEndpointPage(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---- Routing rules ----
-
 func handleAPIGWv2CreateRoutingRule(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
@@ -801,8 +789,6 @@ func handleAPIGWv2DeleteRoutingRule(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ---- API + api-mapping updates ----
-
 func handleAPIGWv2UpdateApi(w http.ResponseWriter, r *http.Request) {
 	apiID := sim.PathParam(r, "apiId")
 	api, ok := apigwv2Apis.Get(apiID)
@@ -863,8 +849,6 @@ func handleAPIGWv2UpdateApiMapping(w http.ResponseWriter, r *http.Request) {
 	apigwv2ApiMappings.Put(domainName+"/"+apiMappingID, m)
 	sim.WriteJSON(w, http.StatusOK, m)
 }
-
-// ---- Reset authorizers cache ----
 
 func handleAPIGWv2ResetAuthorizersCache(w http.ResponseWriter, r *http.Request) {
 	apiID := sim.PathParam(r, "apiId")

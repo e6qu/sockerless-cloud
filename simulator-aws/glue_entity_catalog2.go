@@ -119,8 +119,6 @@ func registerGlueEntityCatalog2(r *sim.AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.CreateScript", handleGlueCreateScript)
 }
 
-// ---------- Custom entity types ----------
-
 func handleGlueCreateCustomEntityType(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name         string            `json:"Name"`
@@ -229,8 +227,6 @@ func handleGlueDeleteCustomEntityType(w http.ResponseWriter, r *http.Request) {
 	glueCustomEntityTypes.Delete(req.Name)
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Name": req.Name})
 }
-
-// ---------- Usage profiles ----------
 
 func handleGlueCreateUsageProfile(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -380,8 +376,6 @@ func handleGlueDeleteUsageProfile(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- Glue Identity Center configuration (singleton) ----------
-
 func handleGlueCreateIdentityCenter(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		InstanceArn                   string   `json:"InstanceArn"`
@@ -516,8 +510,6 @@ func removeScopes(existing, remove []string) []string {
 	return out
 }
 
-// ---------- SearchTables ----------
-
 func handleGlueSearchTables(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SearchText string `json:"SearchText"`
@@ -597,8 +589,6 @@ func glueTableMatchesSearch(t GlueTable, search string, filters []struct {
 	}
 	return true
 }
-
-// ---------- Schema / registry updates ----------
 
 func handleGlueListSchemas(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -778,8 +768,6 @@ func glueValidateSchemaDefinition(dataFormat, def string) (bool, string) {
 		return false, "Unsupported data format: " + dataFormat
 	}
 }
-
-// ---------- Schema version metadata ----------
 
 func handleGluePutSchemaVersionMetadata(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1099,8 +1087,6 @@ func glueAsJSONValue(s string) string {
 	return string(b)
 }
 
-// ---------- Source control sync ----------
-
 func handleGlueUpdateJobFromSourceControl(w http.ResponseWriter, r *http.Request) {
 	glueSourceControlSync(w, r)
 }
@@ -1167,8 +1153,6 @@ func glueSourceControlSync(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"JobName": req.JobName})
 }
 
-// ---------- User-defined function update ----------
-
 func handleGlueUpdateUserDefinedFunction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DatabaseName  string `json:"DatabaseName"`
@@ -1216,8 +1200,6 @@ func handleGlueUpdateUserDefinedFunction(w http.ResponseWriter, r *http.Request)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ---------- Resource policies ----------
-
 func handleGlueGetResourcePolicies(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NextToken  string `json:"NextToken"`
@@ -1253,8 +1235,6 @@ func handleGlueGetResourcePolicies(w http.ResponseWriter, r *http.Request) {
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }
-
-// ---------- Code generation helpers ----------
 
 func handleGlueGetMapping(w http.ResponseWriter, r *http.Request) {
 	var req struct {

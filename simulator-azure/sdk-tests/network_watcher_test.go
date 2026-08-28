@@ -143,7 +143,6 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armnetwork.ProvisioningStateSucceeded, *watcher.Properties.ProvisioningState)
 
-	// --- IP flow verify --------------------------------------------------
 	// The rule that denies SSH has the lower priority number, so it wins over
 	// everything after it and the watcher must name it.
 	denied := verifyIPFlow(t, watcherClient, rg, armnetwork.VerificationIPFlowParameters{
@@ -183,7 +182,6 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.Equal(t, armnetwork.AccessDeny, *fallthroughFlow.Access)
 	assert.Equal(t, "defaultSecurityRules/DenyAllInBound", *fallthroughFlow.RuleName)
 
-	// --- next hop --------------------------------------------------------
 	// The route table covers 203.0.113.0/24 and sends it to a virtual appliance.
 	viaAppliance := nextHop(t, watcherClient, rg, armnetwork.NextHopParameters{
 		TargetResourceID:     nic.ID,
@@ -211,7 +209,6 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	})
 	assert.Equal(t, armnetwork.NextHopTypeInternet, *internet.NextHopType)
 
-	// --- security group view ---------------------------------------------
 	viewPoller, err := watcherClient.BeginGetVMSecurityRules(ctx, rg, "NetworkWatcher_eastus",
 		armnetwork.SecurityGroupViewParameters{TargetResourceID: nic.ID}, nil)
 	require.NoError(t, err)
@@ -226,7 +223,6 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.NotEmpty(t, associations.DefaultSecurityRules)
 	assert.NotEmpty(t, associations.EffectiveSecurityRules)
 
-	// --- topology ---------------------------------------------------------
 	topology, err := watcherClient.GetTopology(ctx, rg, "NetworkWatcher_eastus", armnetwork.TopologyParameters{
 		TargetResourceGroupName: to.Ptr(rg),
 	}, nil)
@@ -245,7 +241,6 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	}
 	assert.True(t, containsNIC, "the subnet must be reported as containing the interface")
 
-	// --- connectivity check ----------------------------------------------
 	// A destination that answers is reachable; the check opens a real
 	// connection and reports the latency it measured.
 	reachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -279,7 +274,6 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.Equal(t, armnetwork.ConnectionStatusDisconnected, *unreachable.ConnectionStatus)
 	assert.Equal(t, int32(3), *unreachable.ProbesFailed)
 
-	// --- network configuration diagnostic --------------------------------
 	diagnosticPoller, err := watcherClient.BeginGetNetworkConfigurationDiagnostic(ctx, rg, "NetworkWatcher_eastus",
 		armnetwork.ConfigurationDiagnosticParameters{
 			TargetResourceID: nic.ID,
@@ -305,7 +299,6 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.Equal(t, "deny-ssh", *evaluated.MatchedRule.RuleName)
 	assert.NotEmpty(t, evaluated.RulesEvaluationResult)
 
-	// --- lifecycle --------------------------------------------------------
 	tagged, err := watcherClient.UpdateTags(ctx, rg, "NetworkWatcher_eastus", armnetwork.TagsObject{
 		Tags: map[string]*string{"team": to.Ptr("network"), "env": to.Ptr("test")},
 	}, nil)
@@ -428,7 +421,6 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	}, nil)
 	require.Error(t, err, "a flow log whose target does not exist must be rejected")
 
-	// --- connection monitors ---------------------------------------------
 	monitorClient, err := armnetwork.NewConnectionMonitorsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	monitorPoller, err := monitorClient.BeginCreateOrUpdate(ctx, rg, "NetworkWatcher_config", "edge-probe",

@@ -827,8 +827,6 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// --- Service Revisions (get/list/delete) ---
-
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/services/{service}/revisions/{revision}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -881,7 +879,6 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// --- Service IAM verbs (setIamPolicy / testIamPermissions) ---
 	// getIamPolicy rides the GET service handler's colon-split above.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/services/{serviceAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -901,7 +898,6 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		}
 	})
 
-	// --- Operations (delete / wait) ---
 	// GET .../operations and GET .../operations/{operation} are served by
 	// registerCloudFunctions / registerOperations respectively.
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {

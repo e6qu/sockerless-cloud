@@ -108,7 +108,6 @@ func (p *parser) expect(typ int) (token, error) {
 	return t, nil
 }
 
-// parseExpr handles + and -
 func (p *parser) parseExpr() (float64, error) {
 	left, err := p.parseTerm()
 	if err != nil {
@@ -129,7 +128,6 @@ func (p *parser) parseExpr() (float64, error) {
 	return left, nil
 }
 
-// parseTerm handles * and /
 func (p *parser) parseTerm() (float64, error) {
 	left, err := p.parseFactor()
 	if err != nil {

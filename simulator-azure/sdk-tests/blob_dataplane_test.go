@@ -124,9 +124,7 @@ func requireBlobErrorCode(t *testing.T, err error, code, what string) {
 	require.Equal(t, code, respErr.ErrorCode, "%s: %v", what, err)
 }
 
-// ---------------------------------------------------------------------------
 // Leases
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_BlobLeaseLifecycleAndEnforcement(t *testing.T) {
 	account, containerName, blobName := "sdkleaseacct", "lease-container", "leased.txt"
@@ -308,9 +306,7 @@ func TestStorageSDK_ContainerLeaseLifecycleAndEnforcement(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
 // Metadata, HTTP headers, tier, expiry, tags
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_BlobSystemPropertiesAndTier(t *testing.T) {
 	account, containerName, blobName := "sdkblobpropsacct", "props-container", "props.txt"
@@ -428,9 +424,7 @@ func TestStorageSDK_BlobSetExpiryAndTags(t *testing.T) {
 	assert.Equal(t, containerName, *serviceFound.Blobs[0].ContainerName)
 }
 
-// ---------------------------------------------------------------------------
 // Snapshots, soft delete, undelete, container restore
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_BlobSnapshotsAreAddressableCopies(t *testing.T) {
 	account, containerName, blobName := "sdksnapacct", "snapshot-container", "versioned.txt"
@@ -623,9 +617,7 @@ func TestStorageSDK_ContainerSoftDeleteAndRestore(t *testing.T) {
 	assert.Equal(t, "kept through the delete", string(got), "restoring a container restores its blobs")
 }
 
-// ---------------------------------------------------------------------------
 // Immutability policy and legal hold
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_BlobImmutabilityPolicyAndLegalHold(t *testing.T) {
 	account, containerName := "sdkimmutableacct", "immutable-container"
@@ -688,9 +680,7 @@ func TestStorageSDK_BlobImmutabilityPolicyAndLegalHold(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
 // Copy
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_BlobCopyFromURLAndAbort(t *testing.T) {
 	account, containerName := "sdkcopyacct", "copy-container"
@@ -801,9 +791,7 @@ func TestStorageSDK_BlockBlobStageBlockFromURL(t *testing.T) {
 		"Put Block From URL must stage the SOURCE bytes, not the empty request body")
 }
 
-// ---------------------------------------------------------------------------
 // Page blob ranges
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_PageBlobRangesAndResize(t *testing.T) {
 	account, containerName, blobName := "sdkpageacct", "page-container", "sparse.vhd"
@@ -940,9 +928,7 @@ func TestStorageSDK_PageBlobUploadPagesFromURL(t *testing.T) {
 	assert.Equal(t, make([]byte, 512), got[0:512])
 }
 
-// ---------------------------------------------------------------------------
 // Append blob
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_AppendBlobBlocksAndSeal(t *testing.T) {
 	account, containerName, blobName := "sdkappendacct", "append-container", "log.txt"
@@ -1004,9 +990,7 @@ func TestStorageSDK_AppendBlobBlocksAndSeal(t *testing.T) {
 	requireBlobErrorCode(t, err, "BlobIsSealed", "append to a sealed blob")
 }
 
-// ---------------------------------------------------------------------------
 // Container administration
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_ContainerMetadataAndAccessPolicy(t *testing.T) {
 	account, containerName := "sdkctradminacct", "admin-container"
@@ -1088,9 +1072,7 @@ func TestStorageSDK_ContainerRename(t *testing.T) {
 	requireBlobErrorCode(t, err, "ContainerNotFound", "read the container under its old name")
 }
 
-// ---------------------------------------------------------------------------
 // Blob batch
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_BlobBatchDeleteAndSetTier(t *testing.T) {
 	account, containerName := "sdkbatchacct", "batch-container"
@@ -1147,9 +1129,7 @@ func TestStorageSDK_BlobBatchDeleteAndSetTier(t *testing.T) {
 	requireBlobErrorCode(t, mixed.Responses[1].Error, "BlobNotFound", "batched delete of an absent blob")
 }
 
-// ---------------------------------------------------------------------------
 // Service-level operations
-// ---------------------------------------------------------------------------
 
 func TestStorageSDK_BlobServiceStatisticsAndAccountInfo(t *testing.T) {
 	account, containerName := "sdksvcacct", "service-container"
@@ -1238,9 +1218,7 @@ func TestStorageSDK_BlobUserDelegationKey(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, unauthorized.StatusCode)
 }
 
-// ---------------------------------------------------------------------------
 // Query Blob Contents
-// ---------------------------------------------------------------------------
 
 // TestStorageSDK_BlobQuery drives Query Blob Contents. The azblob module for Go
 // does not surface the operation on any client — it is exposed in the .NET,
@@ -1306,9 +1284,7 @@ func TestStorageSDK_BlobQuery(t *testing.T) {
 	assert.Equal(t, "ParseError", bad.Header.Get("x-ms-error-code"))
 }
 
-// ---------------------------------------------------------------------------
 // Raw-wire helpers
-// ---------------------------------------------------------------------------
 
 // storageRawRequestWithHeaders issues a request at a storage data-plane
 // coordinate with a body and extra headers, for the operations no Go SDK client

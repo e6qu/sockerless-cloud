@@ -17,7 +17,6 @@ import (
 // GlobalFilters / ApprovalRules / Sources structures verbatim as raw
 // JSON so it never silently drops a member the SDK sent.
 
-// SSMPatchBaseline is a patch baseline definition.
 type SSMPatchBaseline struct {
 	BaselineId                       string          `json:"BaselineId"`
 	Name                             string          `json:"Name"`

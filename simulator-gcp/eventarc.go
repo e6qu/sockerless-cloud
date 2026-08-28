@@ -738,8 +738,6 @@ func eventarcResKey(project, location, id string) string {
 	return project + "/" + location + "/" + id
 }
 
-// --- Enrollments ---
-
 func handleEventarcCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	location := sim.PathParam(r, "location")
@@ -859,8 +857,6 @@ func handleEventarcEnrollmentIAMAction(w http.ResponseWriter, r *http.Request) {
 	eventarcIAMVerb(w, r, sim.PathParam(r, "enrollmentAction"),
 		func(id string) string { return eventarcEnrollmentName(project, location, id) }, "enrollment")
 }
-
-// --- Message buses ---
 
 func handleEventarcCreateMessageBus(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
@@ -1006,8 +1002,6 @@ func handleEventarcMessageBusIAMAction(w http.ResponseWriter, r *http.Request) {
 		func(id string) string { return eventarcMessageBusName(project, location, id) }, "messageBus")
 }
 
-// --- Pipelines ---
-
 func handleEventarcCreatePipeline(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	location := sim.PathParam(r, "location")
@@ -1140,8 +1134,6 @@ func handleEventarcPipelineIAMAction(w http.ResponseWriter, r *http.Request) {
 		func(id string) string { return eventarcPipelineName(project, location, id) }, "pipeline")
 }
 
-// --- Google API sources ---
-
 func handleEventarcCreateGoogleAPISource(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	location := sim.PathParam(r, "location")
@@ -1265,8 +1257,6 @@ func handleEventarcGoogleAPISourceIAMAction(w http.ResponseWriter, r *http.Reque
 		func(id string) string { return eventarcGoogleAPISourceName(project, location, id) }, "googleApiSource")
 }
 
-// --- googleChannelConfig singleton ---
-
 func eventarcGoogleChannelConfigName(project, location string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/googleChannelConfig", project, location)
 }
@@ -1309,8 +1299,6 @@ func handleEventarcUpdateGoogleChannelConfig(w http.ResponseWriter, r *http.Requ
 	// PATCH on the singleton returns the updated resource directly (no LRO).
 	sim.WriteJSON(w, http.StatusOK, cfg)
 }
-
-// --- Locations meta-API + operations list/delete ---
 
 func handleEventarcListLocations(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")

@@ -14,13 +14,13 @@ require (
 	cloud.google.com/go/resourcemanager v1.16.0
 	cloud.google.com/go/run v1.22.0
 	cloud.google.com/go/secretmanager v1.21.0
-	cloud.google.com/go/storage v1.65.0
+	cloud.google.com/go/storage v1.66.0
 	github.com/e6qu/sockerless-cloud/realexec v0.1.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/stretchr/testify v1.12.1
-	google.golang.org/api v0.293.0
+	google.golang.org/api v0.294.0
 	google.golang.org/genproto v0.0.0-20260825221802-da73d73af1c5
 	google.golang.org/genproto/googleapis/api v0.0.0-20260825221802-da73d73af1c5
 	google.golang.org/grpc v1.83.2
@@ -44,7 +44,7 @@ require (
 	cloud.google.com/go/longrunning v1.2.0
 	cloud.google.com/go/monitoring v1.30.0 // indirect
 	cloud.google.com/go/pubsub v1.51.1
-	cloud.google.com/go/pubsub/v2 v2.6.2 // indirect
+	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
 	cloud.google.com/go/spanner v1.95.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.36.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.60.0 // indirect

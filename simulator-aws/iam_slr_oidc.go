@@ -26,8 +26,6 @@ import (
 //     returns SUCCEEDED immediately. Real AWS goes through
 //     IN_PROGRESS → SUCCEEDED over seconds.
 
-// ---------- Types ----------
-
 type IAMServiceLinkedRole struct {
 	RoleName                 string
 	RoleId                   string
@@ -74,8 +72,6 @@ func registerIAMSLRandOIDC(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteOpenIDConnectProvider", handleIAMDeleteOIDCProvider)
 	r.Register("ListOpenIDConnectProviders", handleIAMListOIDCProviders)
 }
-
-// ---------- Service-linked role helpers ----------
 
 func iamSLRName(servicePrincipal, customSuffix string) string {
 	// AWSServiceRoleFor<Service> where <Service> is derived from the
@@ -131,8 +127,6 @@ func iamSLRARN(name, servicePrincipal string) string {
 func iamSLRAssumeDoc(servicePrincipal string) string {
 	return `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"` + servicePrincipal + `"},"Action":"sts:AssumeRole"}]}`
 }
-
-// ---------- SLR handlers ----------
 
 func handleIAMCreateServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
 	sp := r.FormValue("AWSServiceName")
@@ -221,8 +215,6 @@ func handleIAMGetSLRDeletionStatus(w http.ResponseWriter, r *http.Request) {
 </GetServiceLinkedRoleDeletionStatusResponse>`, status, generateUUID())
 }
 
-// ---------- OIDC provider helpers ----------
-
 func iamOIDCArn(providerURL string) string {
 	// Real format: arn:aws:iam::<account>:oidc-provider/<url-without-scheme>
 	u := strings.TrimPrefix(strings.TrimPrefix(providerURL, "https://"), "http://")
@@ -241,8 +233,6 @@ func iamReadList(r *http.Request, key string) []string {
 	}
 	return values
 }
-
-// ---------- OIDC handlers ----------
 
 func handleIAMCreateOIDCProvider(w http.ResponseWriter, r *http.Request) {
 	providerURL := r.FormValue("Url")

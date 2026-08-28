@@ -12,7 +12,6 @@ import (
 func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	// --- Dedicated Hosts ---
 	hostID := q("ec2", "allocate-hosts", "--availability-zone", "us-east-1a",
 		"--instance-family", "m5", "--quantity", "1",
 		"--query", "HostIds[0]", "--output", "text")
@@ -42,7 +41,6 @@ func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 		t.Fatalf("release-hosts: got %q, want %q", v, hostID)
 	}
 
-	// --- Instance Event Windows ---
 	iewID := q("ec2", "create-instance-event-window", "--name", "cli-maint",
 		"--time-range", "StartWeekDay=sunday,StartHour=2,EndWeekDay=sunday,EndHour=4",
 		"--query", "InstanceEventWindow.InstanceEventWindowId", "--output", "text")
@@ -83,7 +81,6 @@ func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 func TestEC2CLI_ImageAndSnapshotAttributes(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	// --- AMI attributes + lifecycle ---
 	ami := q("ec2", "register-image", "--name", "cli-attr-ami", "--architecture", "x86_64",
 		"--root-device-name", "/dev/sda1", "--query", "ImageId", "--output", "text")
 	if ami == "" {
@@ -134,7 +131,6 @@ func TestEC2CLI_ImageAndSnapshotAttributes(t *testing.T) {
 		t.Fatal("create-restore-image-task returned empty ImageId")
 	}
 
-	// --- Snapshot attributes + lifecycle ---
 	vol := q("ec2", "create-volume", "--availability-zone", "us-east-1a", "--size", "8",
 		"--query", "VolumeId", "--output", "text")
 	snap := q("ec2", "create-snapshot", "--volume-id", vol, "--query", "SnapshotId", "--output", "text")
@@ -185,7 +181,6 @@ func TestEC2CLI_VpcClassicLinkAndBpa(t *testing.T) {
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.182.0.0/16",
 		"--query", "Vpc.VpcId", "--output", "text")
 
-	// --- ClassicLink ---
 	if v := q("ec2", "enable-vpc-classic-link", "--vpc-id", vpc,
 		"--query", "Return", "--output", "text"); v != "True" {
 		t.Fatalf("enable-vpc-classic-link: got %q", v)
@@ -205,7 +200,6 @@ func TestEC2CLI_VpcClassicLinkAndBpa(t *testing.T) {
 		t.Fatalf("disable-vpc-classic-link: got %q", v)
 	}
 
-	// --- VPC endpoint connections + notifications ---
 	nfn := q("ec2", "create-vpc-endpoint-connection-notification",
 		"--connection-notification-arn", "arn:aws:sns:us-east-1:123456789012:vpce-events",
 		"--service-id", "vpce-svc-0123456789abcdef0",
@@ -240,7 +234,6 @@ func TestEC2CLI_VpcClassicLinkAndBpa(t *testing.T) {
 		t.Fatalf("reject-vpc-endpoint-connections unsuccessful: got %q", v)
 	}
 
-	// --- VPC Block Public Access ---
 	if v := q("ec2", "modify-vpc-block-public-access-options",
 		"--internet-gateway-block-mode", "block-bidirectional",
 		"--query", "VpcBlockPublicAccessOptions.InternetGatewayBlockMode", "--output", "text"); v != "block-bidirectional" {

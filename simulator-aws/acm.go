@@ -111,8 +111,6 @@ func acmIssueManagedLeaf(commonName string, sans []string, keyAlgorithm string) 
 // sim can't perform real public DNS validation, so record presence is
 // the validation signal (a cert with no record stays PENDING).
 
-// ---------- Types ----------
-
 // AWS-JSON 1.1 encodes timestamps as Unix-epoch JSON numbers (seconds
 // with optional fractional part), not RFC3339 strings. The SDK
 // deserialiser fails with "expected TStamp to be a JSON Number, got
@@ -246,8 +244,6 @@ func acmARNToID(arn string) string {
 	return arn[i+len(prefix):]
 }
 
-// ---------- Registration ----------
-
 func registerACM(r *sim.AWSRouter, srv *sim.Server) {
 	acmCertificates = sim.MakeStore[acmStoredCert](srv.DB(), "acm_certificates")
 	acmAccountConfiguration = sim.MakeStore[acmAccountConfig](srv.DB(), "acm_account_config")
@@ -292,8 +288,6 @@ func acmManagedCertificateAuthority() (acmAcmeCA, error) {
 	return ca, nil
 }
 
-// ---------- Cross-resource tagging API ----------
-//
 // TagResource / UntagResource / ListTagsForResource address certificates and
 // every Amazon Certificate Manager ACME control-plane resource by ARN.
 
@@ -724,8 +718,6 @@ func acmWriteError(w http.ResponseWriter, code, msg string) {
 		"message": msg,
 	})
 }
-
-// ---------- Handlers ----------
 
 type acmRequestCertificateReq struct {
 	DomainName              string                      `json:"DomainName"`
@@ -1462,8 +1454,6 @@ func handleACMRenewCertificate(w http.ResponseWriter, r *http.Request) {
 	}
 	acmWriteJSON(w, http.StatusOK, struct{}{})
 }
-
-// ---------- CloudFront cross-resource enforcement helper ----------
 
 // acmCertExistsInRegion checks whether the given certificate ARN exists
 // AND was issued in the named region. Returns (true, true) only if both

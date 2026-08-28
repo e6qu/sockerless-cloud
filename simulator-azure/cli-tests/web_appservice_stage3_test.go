@@ -143,7 +143,6 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 		"properties": {"siteConfig": {"linuxFxVersion": "DOCKER|%s"}}
 	}`, stage3CLIAlpine), "-o", "json"))
 
-	// --- az functionapp keys -------------------------------------------------
 	var hostKeys struct {
 		MasterKey    string            `json:"masterKey"`
 		FunctionKeys map[string]string `json:"functionKeys"`
@@ -171,7 +170,6 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	parseJSON(t, runCLI(t, env.command("functionapp", "keys", "list", "-g", rg, "-n", app, "-o", "json")), &afterDelete)
 	assert.NotContains(t, afterDelete.FunctionKeys, "deploy")
 
-	// --- az functionapp function keys ---------------------------------------
 	fnURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/functions/hello?api-version=2025-03-01",
 		env.baseURL, subscriptionID, rg, app)
 	runCLI(t, env.command("rest", "--method", "PUT", "--url", fnURL, "--body",
@@ -208,7 +206,6 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 		return status.Properties.ProvisioningState, status.Properties.ProvisioningState == "succeeded"
 	}, "MSDeploy provisioningState")
 
-	// --- az webapp webjob ----------------------------------------------------
 	var triggered []struct {
 		Name string `json:"name"`
 	}
@@ -265,14 +262,12 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	parseJSON(t, runCLI(t, env.command("webapp", "webjob", "triggered", "list", "-g", rg, "-n", app, "-o", "json")), &remaining)
 	assert.Empty(t, remaining)
 
-	// --- az webapp deployment user (provider-global publishing user) --------
 	runCLI(t, env.command("webapp", "deployment", "user", "set",
 		"--user-name", "stage3clideployer", "--password", "St4ge3-Passw0rd!"))
 	userOut := runCLI(t, env.command("webapp", "deployment", "user", "show", "-o", "json"))
 	assert.Contains(t, userOut, "stage3clideployer")
 	assert.NotContains(t, userOut, "St4ge3-Passw0rd!", "the publishing password is write-only")
 
-	// --- publishing password rotation ----------------------------------------
 	// The CLI prints the flattened Python SDK model, so publishingPassword is
 	// a top-level member of its output.
 	var credsBefore, credsAfter struct {

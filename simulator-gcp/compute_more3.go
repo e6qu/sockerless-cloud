@@ -26,8 +26,6 @@ func registerComputeMore3(srv *sim.Server) {
 		return sim.MakeStore[map[string]any](srv.DB(), table)
 	}
 
-	// --- New map-store metadata CRUD families ---------------------------
-	//
 	// Each entry reuses computeMetaResource.register for the standard
 	// insert/get/list/delete/patch/aggregated verbs; the sub-resource
 	// verbs (associations, rules, network endpoints, ...) are wired by

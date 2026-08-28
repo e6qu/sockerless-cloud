@@ -156,9 +156,7 @@ func registerEC2VolumesMisc(r *sim.AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ----------------------------------------------------------------------------
 // CreateSnapshots — multi-volume snapshot set for an instance.
-// ----------------------------------------------------------------------------
 
 // handleCreateSnapshots snapshots every EBS volume attached to the instance
 // named by InstanceSpecification.InstanceId (optionally excluding the boot
@@ -247,9 +245,7 @@ func snapshotInfoItemXML(snap EC2Snapshot) string {
 		snap.VolumeSize, xmlEscape(snap.Description), snap.Encrypted, kms, writeTagSetXML(snap.Tags))
 }
 
-// ----------------------------------------------------------------------------
 // CopyVolumes — duplicate existing volumes into fresh volume ids.
-// ----------------------------------------------------------------------------
 
 func handleCopyVolumes(w http.ResponseWriter, r *http.Request) {
 	// CopyVolumes takes a single SourceVolumeId (scalar wire param).
@@ -299,9 +295,7 @@ func handleCopyVolumes(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// ----------------------------------------------------------------------------
 // DescribeVolumeStatus / EnableVolumeIO.
-// ----------------------------------------------------------------------------
 
 func handleDescribeVolumeStatus(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "VolumeId")
@@ -357,9 +351,7 @@ func handleEnableVolumeIO(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID())
 }
 
-// ----------------------------------------------------------------------------
 // ImportVolume — VM-import conversion task that materializes a new volume.
-// ----------------------------------------------------------------------------
 
 func handleImportVolume(w http.ResponseWriter, r *http.Request) {
 	az := r.FormValue("AvailabilityZone")
@@ -390,9 +382,7 @@ func handleImportVolume(w http.ResponseWriter, r *http.Request) {
 		az, bytes, xmlEscape(desc), bytes, vol.VolumeId, size)
 }
 
-// ----------------------------------------------------------------------------
 // Recycle Bin — volumes, snapshots, locked snapshots, import-snapshot tasks.
-// ----------------------------------------------------------------------------
 
 func handleRestoreVolumeFromRecycleBin(w http.ResponseWriter, r *http.Request) {
 	volID := r.FormValue("VolumeId")
@@ -470,9 +460,7 @@ func handleDescribeImportSnapshotTasks(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID())
 }
 
-// ----------------------------------------------------------------------------
 // Replace-root-volume + Mac-dedicated-host tasks.
-// ----------------------------------------------------------------------------
 
 func handleCreateReplaceRootVolumeTask(w http.ResponseWriter, r *http.Request) {
 	instID := r.FormValue("InstanceId")
@@ -623,9 +611,7 @@ func handleDescribeMacModificationTasks(w http.ResponseWriter, r *http.Request) 
 		ec2Xmlns(), generateUUID(), items.String())
 }
 
-// ----------------------------------------------------------------------------
 // Customer-Owned IP (CoIP) CIDRs on an existing CoIP pool.
-// ----------------------------------------------------------------------------
 
 func handleCreateCoipCidr(w http.ResponseWriter, r *http.Request) {
 	cidr := r.FormValue("Cidr")
@@ -671,9 +657,7 @@ func handleDeleteCoipCidr(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), cidr, poolID, pool.LocalGatewayRouteTableId)
 }
 
-// ----------------------------------------------------------------------------
 // Default VPC / subnet.
-// ----------------------------------------------------------------------------
 
 func handleCreateDefaultVpc(w http.ResponseWriter, r *http.Request) {
 	// A real default VPC is the account's 172.31.0.0/16 VPC with isDefault=true,
@@ -737,9 +721,7 @@ func handleCreateDefaultSubnet(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), subnetItemBodyXML(subnet))
 }
 
-// ----------------------------------------------------------------------------
 // Prefix lists (AWS-managed + customer-managed).
-// ----------------------------------------------------------------------------
 
 // handleDescribePrefixLists returns the (legacy) DescribePrefixLists view:
 // AWS-managed gateway-endpoint prefix lists (S3 / DynamoDB) plus the
@@ -843,9 +825,7 @@ func handleRestoreManagedPrefixListVersion(w http.ResponseWriter, r *http.Reques
 		ec2Xmlns(), generateUUID(), managedPrefixListBodyXML(pl))
 }
 
-// ----------------------------------------------------------------------------
 // Security-group references / stale / for-vpc — derived from the SG store.
-// ----------------------------------------------------------------------------
 
 func handleDescribeSecurityGroupReferences(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "GroupId")
@@ -945,9 +925,7 @@ func handleGetSecurityGroupsForVpc(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// ----------------------------------------------------------------------------
 // Launch-template data derived from an existing instance + version delete.
-// ----------------------------------------------------------------------------
 
 func handleGetLaunchTemplateData(w http.ResponseWriter, r *http.Request) {
 	instID := r.FormValue("InstanceId")
@@ -1041,9 +1019,7 @@ func handleDeleteLaunchTemplateVersions(w http.ResponseWriter, r *http.Request) 
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// ----------------------------------------------------------------------------
 // DNS-name-options + VPC endpoint + route-table association + ENI attribute.
-// ----------------------------------------------------------------------------
 
 func handleModifyPrivateDnsNameOptions(w http.ResponseWriter, r *http.Request) {
 	instID := r.FormValue("InstanceId")
@@ -1219,9 +1195,7 @@ func handleSendDiagnosticInterrupt(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID())
 }
 
-// ----------------------------------------------------------------------------
 // IPv6 address management on an ENI.
-// ----------------------------------------------------------------------------
 
 func handleAssignIpv6Addresses(w http.ResponseWriter, r *http.Request) {
 	eniID := r.FormValue("NetworkInterfaceId")
@@ -1334,9 +1308,7 @@ func handleGetAssociatedIpv6PoolCidrs(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID())
 }
 
-// ----------------------------------------------------------------------------
 // AZ group / default credit specification / VPC tenancy.
-// ----------------------------------------------------------------------------
 
 func handleModifyAvailabilityZoneGroup(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("GroupName")
@@ -1405,9 +1377,7 @@ func handleModifyVpcTenancy(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID())
 }
 
-// ----------------------------------------------------------------------------
 // Interruptible capacity-reservation allocation.
-// ----------------------------------------------------------------------------
 
 func handleCreateInterruptibleCapacityReservationAllocation(w http.ResponseWriter, r *http.Request) {
 	srcID := r.FormValue("CapacityReservationId")
@@ -1433,9 +1403,7 @@ func handleUpdateInterruptibleCapacityReservationAllocation(w http.ResponseWrite
 		ec2Xmlns(), generateUUID(), id, target)
 }
 
-// ----------------------------------------------------------------------------
 // Export / import tasks.
-// ----------------------------------------------------------------------------
 
 func handleCancelExportTask(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("ExportTaskId")
@@ -1468,9 +1436,7 @@ func handleCancelImportTask(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), id)
 }
 
-// ----------------------------------------------------------------------------
 // Small shared helpers.
-// ----------------------------------------------------------------------------
 
 // removeStrings returns src with every element present in remove dropped.
 func removeStrings(src, remove []string) []string {

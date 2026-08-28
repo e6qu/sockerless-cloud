@@ -110,7 +110,6 @@ func TestCodeBuild_Build_CLI(t *testing.T) {
 	require.Contains(t, allBuilds.IDs, startResult.Build.ID)
 }
 
-// TestCodeBuildCLI_StopAndRetryBuild covers stop-build and retry-build.
 func TestCodeBuildCLI_StopAndRetryBuild(t *testing.T) {
 	runCLI(t, awsCLI("codebuild", "create-project",
 		"--name", "cb-cli-stop-proj",

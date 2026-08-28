@@ -193,8 +193,6 @@ func ec2RequireImage(w http.ResponseWriter, r *http.Request) (EC2Image, bool) {
 	return img, true
 }
 
-// -------------------- Watermarks --------------------
-
 func handleAttachImageWatermark(w http.ResponseWriter, r *http.Request) {
 	img, ok := ec2RequireImage(w, r)
 	if !ok {
@@ -236,8 +234,6 @@ func handleDetachImageWatermark(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID())
 }
 
-// -------------------- Launch permission --------------------
-
 // handleCancelImageLaunchPermission resets an AMI's launch permissions to
 // private (the cancel primitive that revokes shared-account access).
 func handleCancelImageLaunchPermission(w http.ResponseWriter, r *http.Request) {
@@ -251,8 +247,6 @@ func handleCancelImageLaunchPermission(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<CancelImageLaunchPermissionResponse %s><requestId>%s</requestId><return>true</return></CancelImageLaunchPermissionResponse>`,
 		ec2Xmlns(), generateUUID())
 }
-
-// -------------------- Image usage reports --------------------
 
 func handleCreateImageUsageReport(w http.ResponseWriter, r *http.Request) {
 	img, ok := ec2RequireImage(w, r)
@@ -444,8 +438,6 @@ func handleDescribeImageUsageReportEntries(w http.ResponseWriter, r *http.Reques
 		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
-// -------------------- Export image tasks --------------------
-//
 // ExportImage / ImportImage themselves are registered by the AMI host file
 // (ec2_hosts_images_vpc.go); this file owns the DescribeExportImageTasks /
 // DescribeImportImageTasks read side over the export/import task stores.
@@ -491,8 +483,6 @@ func handleDescribeExportImageTasks(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeExportImageTasksResponse %s><requestId>%s</requestId><exportImageTaskSet>%s</exportImageTaskSet>%s</DescribeExportImageTasksResponse>`,
 		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
-
-// -------------------- Import image tasks --------------------
 
 func ec2ImportImageFieldsXML(t EC2ImportImageTask) string {
 	var b strings.Builder
@@ -557,8 +547,6 @@ func handleDescribeImportImageTasks(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeImportImageTasksResponse %s><requestId>%s</requestId><importImageTaskSet>%s</importImageTaskSet>%s</DescribeImportImageTasksResponse>`,
 		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
-
-// -------------------- Fast launch (Windows AMIs) --------------------
 
 func handleEnableFastLaunch(w http.ResponseWriter, r *http.Request) {
 	img, ok := ec2RequireImage(w, r)
@@ -651,8 +639,6 @@ func handleDescribeFastLaunchImages(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), items.String(), ec2NextTokenXML(nextToken))
 }
 
-// -------------------- Image references / instance metadata --------------------
-
 // handleDescribeImageReferences returns the EC2 resources that reference each
 // requested AMI. The sim derives instance references from the instance store.
 func handleDescribeImageReferences(w http.ResponseWriter, r *http.Request) {
@@ -695,8 +681,6 @@ func handleDescribeImageReferences(w http.ResponseWriter, r *http.Request) {
 // (ec2_instance_extras.go); this file owns the rest of the image-management
 // family.
 
-// -------------------- Image ancestry --------------------
-
 // handleGetImageAncestry walks an AMI's copy chain (SourceImageId) back to its
 // root, returning one entry per ancestor (newest first).
 func handleGetImageAncestry(w http.ResponseWriter, r *http.Request) {
@@ -733,8 +717,6 @@ func handleGetImageAncestry(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), generateUUID(), items.String())
 }
 
-// -------------------- Image deprecation --------------------
-
 func handleEnableImageDeprecation(w http.ResponseWriter, r *http.Request) {
 	img, ok := ec2RequireImage(w, r)
 	if !ok {
@@ -761,8 +743,6 @@ func handleDisableImageDeprecation(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DisableImageDeprecationResponse %s><requestId>%s</requestId><return>true</return></DisableImageDeprecationResponse>`,
 		ec2Xmlns(), generateUUID())
 }
-
-// -------------------- Recycle bin --------------------
 
 func handleListImagesInRecycleBin(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "ImageId")

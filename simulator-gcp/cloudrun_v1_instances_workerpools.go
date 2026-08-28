@@ -379,7 +379,6 @@ func knativeReplaceAllowed(w http.ResponseWriter, kind, name, namespace, current
 }
 
 func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
-	// --- namespaces.instances ---
 
 	srv.HandleFunc("POST /apis/run.googleapis.com/v1/namespaces/{namespace}/instances", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
@@ -551,8 +550,6 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		instance, _ := crv2Instances.Get(name)
 		writeCloudRunV1Instance(w, instance)
 	})
-
-	// --- namespaces.workerpools ---
 
 	srv.HandleFunc("POST /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")

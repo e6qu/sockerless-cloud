@@ -131,8 +131,6 @@ func moveResourceID(rg, provider, typeName, name string) string {
 		moveTestSubscription, rg, provider, typeName, name)
 }
 
-// --- Microsoft.ApiManagement/service ---------------------------------------
-
 // TestMoveAPIManagementServicePinsSubscriptionKeys drives the
 // Microsoft.ApiManagement hook. An API Management subscription's keys are
 // derived from the subscription's own resource ID, which embeds the service's
@@ -205,8 +203,6 @@ func apimSecrets(t *testing.T, srv *sim.Server, subscriptionID string) map[strin
 	}
 	return keys
 }
-
-// --- Microsoft.Logic/workflows ---------------------------------------------
 
 // TestMoveLogicWorkflowKeepsCallbackURLValid drives the Microsoft.Logic hook.
 // A callback URL an operator handed out before a move has to keep working
@@ -303,8 +299,6 @@ func logicCallback(t *testing.T, srv *sim.Server, workflowID string) logicCallba
 	}
 	return out
 }
-
-// --- Microsoft.DocumentDB/databaseAccounts ---------------------------------
 
 // TestMoveCosmosAccountKeepsKeysAndDocuments drives the Microsoft.DocumentDB
 // hook. A Cosmos DB account's four master keys are derived from its resource
@@ -456,8 +450,6 @@ func cosmosDataPlaneGet(t *testing.T, srv *sim.Server, account, database, contai
 	return doc.ID
 }
 
-// --- Microsoft.EventGrid -----------------------------------------------------
-
 // TestMoveEventGridPartnerNamespacePinsKeys drives the partner-namespace hook.
 // A partner namespace serves the same two access keys a custom topic does, and
 // they are derived from its resource ID, so the move has to pin them: the key a
@@ -599,8 +591,6 @@ func eventGridSystemTopicSource(t *testing.T, srv *sim.Server, topicID string) s
 	return topic.Properties.Source
 }
 
-// --- Microsoft.Network -------------------------------------------------------
-
 // TestMoveVirtualNetworkRepointsEveryReferrer is the reason the repointing pass
 // exists. A virtual network is named by resources that do not move with it — a
 // network interface's ip configuration, a private DNS zone's virtual network
@@ -718,8 +708,6 @@ func redisLinkedCacheID(t *testing.T, srv *sim.Server, linkID string) string {
 	return link.Properties.LinkedRedisCacheID
 }
 
-// --- what real Azure refuses, the simulator refuses ---------------------------
-
 // TestMoveRefusesTheTypesAzureRefuses pins the other half of move fidelity.
 // Every type here is one Azure Resource Manager will not move between resource
 // groups — the move-support table marks it No, or does not list it at all —
@@ -806,8 +794,6 @@ func TestMoveWithoutRepointingLeavesDanglingReferences(t *testing.T) {
 		t.Errorf("the unrepointed referrer names %q, expected the stale source address %q", got, vnetID)
 	}
 }
-
-// --- Microsoft.ContainerRegistry/registries ----------------------------------
 
 // TestMoveContainerRegistryCarriesItsContent covers the interaction between the
 // per-registry content keying and the move. A registry's manifests, blobs and
@@ -970,8 +956,6 @@ func TestMovePrivateEndpointFollowsThePrivateLinkResourceType(t *testing.T) {
 		}
 	}
 }
-
-// --- destination-identifier conflicts ---------------------------------------
 
 // TestMoveRefusesOccupiedDestinationIdentifier drives the check every move
 // runs before it re-homes anything. A resource keeps its name across a move, so

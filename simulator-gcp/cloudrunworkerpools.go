@@ -271,7 +271,6 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// --- Worker Pool Revisions (get/list/delete) ---
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/workerPools/{workerPool}/revisions/{revision}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -324,7 +323,6 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// --- Worker Pool IAM verbs (setIamPolicy / testIamPermissions) ---
 	// getIamPolicy rides the GET handler's colon-split above.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/workerPools/{workerPoolAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -343,7 +341,6 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		}
 	})
 
-	// --- Cloud Run Admin v1 worker-pool IAM verbs ---
 	// The Cloud Run Admin v1 API exposes the same worker pool resource's IAM
 	// policy under a lowercase `workerpools` collection
 	// (run.projects.locations.workerpools.{getIamPolicy,setIamPolicy,

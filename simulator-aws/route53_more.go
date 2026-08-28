@@ -20,8 +20,6 @@ import (
 // All REST + XML on the /2013-04-01/ path, matching the real Route 53 wire
 // shapes the AWS SDK Go v2 + `aws` CLI parse and the smithy model validates.
 
-// ---------- Stores ----------
-
 type r53StoredDelegationSet struct {
 	Set R53ReusableDelegationSet
 }
@@ -132,8 +130,6 @@ func registerRoute53More(srv *sim.Server) {
 func r53DefaultNameServers() []string {
 	return []string{"ns-1.awsdns-00.com", "ns-2.awsdns-01.net", "ns-3.awsdns-02.org", "ns-4.awsdns-03.co.uk"}
 }
-
-// ---------- Reusable delegation sets ----------
 
 // R53ReusableDelegationSet mirrors the smithy DelegationSet shape: Id,
 // CallerReference, and four name servers. (Distinct from R53DelegationSet in
@@ -298,8 +294,6 @@ func handleR53GetReusableDelegationSetLimit(w http.ResponseWriter, r *http.Reque
 		Count: 0,
 	})
 }
-
-// ---------- CIDR collections ----------
 
 type R53CidrCollection struct {
 	XMLName xml.Name `xml:"Collection"`
@@ -567,8 +561,6 @@ func handleR53ListCidrBlocks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- DNSSEC key signing keys + per-zone status ----------
-
 type R53KeySigningKey struct {
 	Name                     string `xml:"Name"`
 	KmsArn                   string `xml:"KmsArn"`
@@ -799,8 +791,6 @@ func handleR53GetDNSSEC(w http.ResponseWriter, r *http.Request) {
 		KeySigningKeys: ksks,
 	})
 }
-
-// ---------- Traffic policy instances ----------
 
 type R53TrafficPolicyInstance struct {
 	XMLName              xml.Name `xml:"TrafficPolicyInstance"`
@@ -1070,8 +1060,6 @@ func handleR53GetTrafficPolicyInstanceCount(w http.ResponseWriter, _ *http.Reque
 	})
 }
 
-// ---------- UpdateTrafficPolicyComment ----------
-
 type R53UpdateTrafficPolicyCommentRequest struct {
 	XMLName xml.Name `xml:"UpdateTrafficPolicyCommentRequest"`
 	Comment string   `xml:"Comment"`
@@ -1113,8 +1101,6 @@ func handleR53UpdateTrafficPolicyComment(w http.ResponseWriter, r *http.Request)
 	r53TrafficPolicies.Put(id, stored)
 	r53WriteXML(w, http.StatusOK, R53UpdateTrafficPolicyCommentResponse{Xmlns: r53Namespace, TrafficPolicy: tp})
 }
-
-// ---------- VPC association authorizations ----------
 
 type R53CreateVPCAssociationAuthorizationRequest struct {
 	XMLName xml.Name `xml:"CreateVPCAssociationAuthorizationRequest"`
@@ -1221,8 +1207,6 @@ func handleR53ListVPCAssociationAuthorizations(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// ---------- Limits ----------
-
 type R53AccountLimit struct {
 	Type  string `xml:"Type"`
 	Value int64  `xml:"Value"`
@@ -1310,8 +1294,6 @@ func handleR53GetHostedZoneLimit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- Checker IP ranges ----------
-
 type R53GetCheckerIpRangesResponse struct {
 	XMLName         xml.Name `xml:"GetCheckerIpRangesResponse"`
 	Xmlns           string   `xml:"xmlns,attr,omitempty"`
@@ -1340,8 +1322,6 @@ func handleR53GetCheckerIpRanges(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// ---------- GetHealthCheckLastFailureReason ----------
-
 func handleR53GetHealthCheckLastFailureReason(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, ok := r53HealthChecks.Get(id); !ok {
@@ -1356,8 +1336,6 @@ func handleR53GetHealthCheckLastFailureReason(w http.ResponseWriter, r *http.Req
 		HealthCheckObservations []R53HealthCheckObservation `xml:"HealthCheckObservations>HealthCheckObservation"`
 	}{Xmlns: r53Namespace, HealthCheckObservations: []R53HealthCheckObservation{}})
 }
-
-// ---------- ListTagsForResources (batched tag read) ----------
 
 type R53ListTagsForResourcesRequest struct {
 	XMLName     xml.Name `xml:"ListTagsForResourcesRequest"`
@@ -1384,8 +1362,6 @@ func handleR53ListTagsForResources(w http.ResponseWriter, r *http.Request) {
 	}
 	r53WriteXML(w, http.StatusOK, R53ListTagsForResourcesResponse{Xmlns: r53Namespace, ResourceTagSets: sets})
 }
-
-// ---------- TestDNSAnswer ----------
 
 type R53TestDNSAnswerResponse struct {
 	XMLName      xml.Name `xml:"TestDNSAnswerResponse"`
@@ -1436,8 +1412,6 @@ func handleR53TestDNSAnswer(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---------- UpdateHostedZoneComment + UpdateHostedZoneFeatures ----------
-
 type R53UpdateHostedZoneCommentRequest struct {
 	XMLName xml.Name `xml:"UpdateHostedZoneCommentRequest"`
 	Comment string   `xml:"Comment"`
@@ -1484,8 +1458,6 @@ func handleR53UpdateHostedZoneFeatures(w http.ResponseWriter, r *http.Request) {
 		Xmlns   string   `xml:"xmlns,attr,omitempty"`
 	}{Xmlns: r53Namespace})
 }
-
-// ---------- Shared helpers ----------
 
 func r53ParseMaxItems(r *http.Request, def int) int {
 	if raw := r.URL.Query().Get("maxitems"); raw != "" {

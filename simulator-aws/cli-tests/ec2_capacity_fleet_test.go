@@ -57,7 +57,6 @@ func TestEC2CLI_CapacityReservations(t *testing.T) {
 		t.Fatalf("after cancel, state: got %q, want cancelled", state)
 	}
 
-	// --- Capacity Reservation Fleet ---
 	fleetID := q("ec2", "create-capacity-reservation-fleet",
 		"--total-target-capacity", "4",
 		"--instance-type-specifications", "InstanceType=t3.micro,InstancePlatform=Linux/UNIX,AvailabilityZone=us-east-1a,Weight=1,Priority=1",
@@ -155,7 +154,6 @@ func TestEC2CLI_Spot(t *testing.T) {
 		t.Fatalf("cancel-spot-instance-requests state: got %q, want cancelled", cstate)
 	}
 
-	// --- Spot fleet ---
 	sfrID := q("ec2", "request-spot-fleet",
 		"--spot-fleet-request-config", "{\"IamFleetRole\":\"arn:aws:iam::123456789012:role/spot-fleet\",\"TargetCapacity\":2,\"SpotPrice\":\"0.0035\",\"LaunchSpecifications\":[{\"ImageId\":\"ami-12345678\",\"InstanceType\":\"t3.micro\"}]}",
 		"--query", "SpotFleetRequestId", "--output", "text")
@@ -184,7 +182,6 @@ func TestEC2CLI_Spot(t *testing.T) {
 		t.Fatalf("cancel-spot-fleet-requests state: got %q, want cancelled*", fcancel)
 	}
 
-	// --- Spot data feed subscription ---
 	bucket := q("ec2", "create-spot-datafeed-subscription", "--bucket", "cli-spot-logs", "--prefix", "feed/",
 		"--query", "SpotDatafeedSubscription.Bucket", "--output", "text")
 	if bucket != "cli-spot-logs" {
@@ -197,7 +194,6 @@ func TestEC2CLI_Spot(t *testing.T) {
 	}
 	runCLI(t, awsCLI("ec2", "delete-spot-datafeed-subscription"))
 
-	// --- Read-only price / placement scores ---
 	price := q("ec2", "describe-spot-price-history", "--instance-types", "t3.micro",
 		"--product-descriptions", "Linux/UNIX",
 		"--query", "SpotPriceHistory[0].InstanceType", "--output", "text")
@@ -243,7 +239,6 @@ func TestEC2CLI_ScheduledAndHostReservations(t *testing.T) {
 		t.Fatalf("run-scheduled-instances instance count: got %q, want 1", nrun)
 	}
 
-	// --- Dedicated host reservations ---
 	offeringID := q("ec2", "describe-host-reservation-offerings",
 		"--query", "OfferingSet[0].OfferingId", "--output", "text")
 	if offeringID == "" {
