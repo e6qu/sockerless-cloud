@@ -146,6 +146,8 @@ import (
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages/{pkg}/versions
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages/{pkg}/versions/{version}
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts
+//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+//   POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/pythonPackages
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/pythonPackages/{pythonPackage}
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules
@@ -206,7 +208,6 @@ import (
 //   POST /dns/v1/projects/{project}/responsePolicies
 //   POST /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules
 //   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/
-//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   POST /v1/projects/{project}/databases
 //   POST /v1/projects/{project}/databases/{database}/backupSchedules
 //   POST /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/indexes

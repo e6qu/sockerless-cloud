@@ -11,18 +11,27 @@
 
    Done: **Cloud Storage, 89 of 89** (2026-08-27) — soft delete and the
    restore surface it exists for, `objects.move`, and the per-object access
-   controls.
+   controls. **Cloud Logging, 508 of 508** and **Artifact Registry, 147 of
+   147** (2026-08-28) — the colon-verb split that let locations.get mount
+   without inflating Cloud Run, the plain `/v1` spellings of the media publish
+   methods, and the prewarmed-artifact family over real state.
 
    Left, largest first, with the per-document floor comment naming each:
    Compute Engine's long tail (1,118 of 2,014 spellings; 559 of 1,007
-   methods), Cloud Build's regional surface and webhook receivers (32),
-   Artifact Registry's package-format publish and prewarm families (22),
-   Firestore's streaming verbs and change streams (24, of which about ten are
-   routing), Cloud Run v2's export family and source upload (17), Cloud
-   Logging's `projects.locations.get` (4, a routing trade recorded beside the
-   route), BigQuery's media upload path (1), Memorystore's export/import/
-   reschedule verbs (6); then Azure's 41 non-App-Service operations and the
-   implementable part of App Service's 76; then the 230 AWS IAM derivations.
+   methods), Cloud Build's regional surface and webhook receivers (28 at
+   Discovery revision 20260814), Firestore's streaming verbs and change
+   streams (24, of which about ten are routing), Cloud Run v2's export family
+   and source upload (17), Memorystore's export/import/reschedule verbs (6),
+   BigQuery's media upload path (1); then Azure's 41 non-App-Service
+   operations and the implementable part of App Service's 76; then the 230 AWS
+   IAM derivations.
+
+   A Discovery document's field descriptions are worth reading before the
+   first implementation, not after: the prewarm family's contract was wrong in
+   five places on the first pass — resource names versus bare ids, an optional
+   member treated as required, the wrong default retention, a resource name
+   where a registry URI belongs, and a `gs://` prefix the member does not
+   carry.
 
    Genuinely blocked, and to be left unserved with the reason recorded rather
    than answered with invented data: Cloud Spanner's Key Visualizer scans,
@@ -155,6 +164,13 @@ exchange (sockerless #926) and the build-context blob client's shared-key
 credential (sockerless #927). Nothing is pending on the consumer side.
 
 ## Tooling quirks that are not simulator defects
+
+- `route_coverage_paths_test.go` is a wire-path index whose owning test —
+  `TestRouteCoveragePathsAreServed` — rejects a duplicated line and is not in
+  pre-commit, which only greps the file. Editing the index by anchored
+  insertion duplicates a line whenever a later edit anchors on one an earlier
+  edit added. Run the SDK suite of the simulator whose index changed, not only
+  the tests named after the change.
 
 - This host's Podman drops `buildx` with `rpc error: ... EOF` at the
   `exporting to docker image format` step, which fails the Terraform harness

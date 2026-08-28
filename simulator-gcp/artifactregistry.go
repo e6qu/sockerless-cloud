@@ -137,6 +137,17 @@ type ARProjectConfig struct {
 // Package-level store for dashboard access.
 var arRepos sim.Store[Repository]
 
+// The repository colon-verb fan-in lives beside the repository routes, while
+// the version and tag stores are created with the package routes further down,
+// so the custom methods that resolve an artifact read them from here.
+var (
+	arVersions sim.Store[ARVersion]
+	arTags     sim.Store[ARTag]
+	// arRegistry backs exportArtifact, which writes the artifact's real blob
+	// bytes into Cloud Storage rather than a stand-in.
+	arRegistry *sim.OCIRegistry
+)
+
 // remoteRepositoryConfigMembers is the RemoteRepositoryConfig member set
 // from the artifactregistry-v1 Discovery document. The sim stores the
 // config as a raw map for verbatim round-trips, so request fields the
@@ -176,6 +187,7 @@ func sanitizeRemoteRepositoryConfig(cfg map[string]any) map[string]any {
 func registerArtifactRegistry(srv *sim.Server) {
 	repos := sim.MakeStore[Repository](srv.DB(), "ar_repos")
 	arRepos = repos
+	initARPrewarmStore(srv)
 	dockerImages := sim.MakeStore[DockerImage](srv.DB(), "ar_docker_images")
 
 	// OCI Distribution data plane (shared registry library). Cloud-specifics:
@@ -200,6 +212,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 			return true
 		},
 	}
+	arRegistry = reg
 
 	// Create repository
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/repositories", func(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +300,9 @@ func registerArtifactRegistry(srv *sim.Server) {
 		}
 
 		resource := fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repo)
+		if arRepoVerbHandled(w, r, resource, action, repos, arVersions, arTags) {
+			return
+		}
 		handleResourceIAM(w, r, gcpResourcePolicies, resource, action)
 	})
 
@@ -401,6 +417,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 	packages := sim.MakeStore[ARPackage](srv.DB(), "ar_packages")
 	versions := sim.MakeStore[ARVersion](srv.DB(), "ar_versions")
 	tags := sim.MakeStore[ARTag](srv.DB(), "ar_tags")
+	arVersions, arTags = versions, tags
 	files := sim.MakeStore[ARFile](srv.DB(), "ar_files")
 	rules := sim.MakeStore[ARRule](srv.DB(), "ar_rules")
 	attachments := sim.MakeStore[ARAttachment](srv.DB(), "ar_attachments")
@@ -811,8 +828,10 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
-	// File upload (media: rides the /upload/v1 prefix).
-	srv.HandleFunc("POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", func(w http.ResponseWriter, r *http.Request) {
+	// File upload. Registered on the plain /v1 path as well as the media
+	// /upload/v1 one, because the document declares both and the service
+	// answers both.
+	uploadFile := func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
 		if !ok {
 			return
@@ -833,7 +852,9 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		files.Put(f.Name, f)
 		lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), f, fileType)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"operation": lro})
-	})
+	}
+	srv.HandleFunc("POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
+	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload", uploadFile)
 
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
@@ -1022,13 +1043,18 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 	// data plane or via the typed package managers; here the admin API records
 	// the long-running import/create operation faithfully.
 	registerARArtifactCreate := func(kind string) {
-		srv.HandleFunc("POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/"+kind+":create", func(w http.ResponseWriter, r *http.Request) {
+		create := func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := repoExists(w, r); !ok {
 				return
 			}
 			lro := newLRO(sim.PathParam(r, "project"), sim.PathParam(r, "location"), nil, importType)
 			sim.WriteJSON(w, http.StatusOK, map[string]any{"operation": lro})
-		})
+		}
+		// The document gives each media method two paths — the /upload/v1
+		// media path that carries the bytes and the plain /v1 one — and the
+		// service answers both.
+		srv.HandleFunc("POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/"+kind+":create", create)
+		srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/repositories/{repo}/"+kind+":create", create)
 	}
 	for _, kind := range []string{"aptArtifacts", "yumArtifacts", "googetArtifacts", "goModules", "genericArtifacts", "kfpArtifacts"} {
 		registerARArtifactCreate(kind)
@@ -1098,10 +1124,15 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "python package %q not found", sim.PathParam(r, "pythonPackage"))
 	})
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := repoExists(w, r); !ok {
+		repo, ok := repoExists(w, r)
+		if !ok {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"prewarmedArtifacts": []any{}})
+		items := arPrewarmedListing(repo)
+		if items == nil {
+			items = []ARPrewarmedArtifact{}
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"prewarmedArtifacts": items})
 	})
 
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/repositories/{repo}", func(w http.ResponseWriter, r *http.Request) {
