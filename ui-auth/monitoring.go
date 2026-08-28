@@ -3,9 +3,7 @@ package uiauth
 import (
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"runtime"
 	"strings"
@@ -84,9 +82,7 @@ func (a *Auth) monitoringHandler() http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		if err := json.NewEncoder(w).Encode(document); err != nil {
-			log.Printf("sockerless monitoring response failed: %v", err)
-		}
+		encodeJSON(w, document, "monitoring")
 	})
 }
 

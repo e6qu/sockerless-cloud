@@ -10,8 +10,11 @@ Connect, and publishes fixed-cardinality real session, runtime, memory, and
 uptime evidence using `e6qu.monitoring/v2`. Missing credentials leave the route
 absent, malformed credentials fail startup, exact bearer checks run in constant
 time, plaintext credentials do not survive construction, and the observation
-  does not fabricate cloud costs. Race-enabled tests passed across `ui-auth`
-  and all three simulator shared packages.
+does not fabricate cloud costs. Feature PR #95 merged and release PR #96
+published the implementation as immutable `v0.26.0`. One shared response
+encoder now reports JSON write failures for both monitoring and the existing UI
+authentication responses. Race-enabled tests passed across `ui-auth` and all
+three simulator shared packages.
 
 ## 2026-08-28, thirty-first pass — Cloud Build is whole
 
