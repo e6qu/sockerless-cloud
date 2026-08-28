@@ -180,6 +180,14 @@ func registerFirestore(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:batchGet", handleFSBatchGet)
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:batchWrite", handleFSBatchWrite)
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:runQuery", handleFSRunRootQuery)
+	// The same custom methods on the documents root, which the catch-all below
+	// cannot reach: it matches only paths that continue past the collection.
+	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:listCollectionIds",
+		func(w http.ResponseWriter, r *http.Request) { fsHandleListCollectionIds(w, r, "") })
+	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:runAggregationQuery",
+		func(w http.ResponseWriter, r *http.Request) { fsHandleRunAggregationQuery(w, r, "") })
+	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:partitionQuery",
+		func(w http.ResponseWriter, r *http.Request) { fsHandlePartitionQuery(w, r, "") })
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents/{postPath...}", handleFSPostDocuments)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/documents/{docPath...}", handleFSGetOrList)
 	srv.HandleFunc("PATCH /v1/projects/{project}/databases/{database}/documents/{docPath...}", handleFSPatchDocument)
@@ -242,12 +250,14 @@ func handleFSPostDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A ":verb" on the last segment names an AIP-136 custom method, not a
-	// collection to create a document in. runQuery above is the one the
-	// simulator serves on a document path; the others Firestore documents
-	// there — listCollectionIds, partitionQuery, runAggregationQuery — are
-	// unrouted, and creating a document in a collection named after the method
-	// would silently invent data.
+	// collection to create a document in — creating one named after the method
+	// would invent data.
 	if last := path[strings.LastIndex(path, "/")+1:]; strings.Contains(last, ":") {
+		verb := last[strings.Index(last, ":")+1:]
+		parent := strings.TrimSuffix(path, ":"+verb)
+		if fsDocumentVerbHandled(w, r, parent, verb) {
+			return
+		}
 		gcpMethodNotFound(w)
 		return
 	}
@@ -1213,6 +1223,11 @@ func registerFirestoreAdmin(srv *sim.Server) {
 	// {dbAction} that captures "{db}:exportDocuments" etc.) fan in on a
 	// single action parameter that also carries the ":verb" suffix.
 	srv.HandleFunc("POST /v1/projects/{project}/databases", handleFSDatabasesCollection)
+	// databases:clone and :restore arrive on the collection path with the verb
+	// on the segment, so they take their own mount rather than a query
+	// parameter the create path would misread as a database id.
+	srv.HandleFunc("POST /v1/projects/{project}/{databasesVerb}", handleFSDatabasesVerb)
+	registerFSDocumentVerbs(srv)
 	srv.HandleFunc("GET /v1/projects/{project}/databases", handleFSListDatabases)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}", handleFSGetDatabase)
 	srv.HandleFunc("PATCH /v1/projects/{project}/databases/{database}", handleFSPatchDatabase)

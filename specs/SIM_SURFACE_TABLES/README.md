@@ -98,6 +98,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-dns`](gcp-dns.md)
 - [`gcp-eventarc`](gcp-eventarc.md)
 - [`gcp-firestore`](gcp-firestore.md)
+- [`gcp-firestore_document_verbs`](gcp-firestore_document_verbs.md)
 - [`gcp-gcs`](gcp-gcs.md)
 - [`gcp-gcs_object_acls`](gcp-gcs_object_acls.md)
 - [`gcp-gcs_object_restore`](gcp-gcs_object_restore.md)

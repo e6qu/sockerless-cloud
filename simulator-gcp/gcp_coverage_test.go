@@ -223,16 +223,18 @@ var gcpMethodFloor = map[string]int{
 	// import and rescheduleMaintenance as unknown verbs.
 	"redis-v1": 88,
 
-	// Firestore: document CRUD, runQuery, batchGet, batchWrite and the
-	// transaction verbs are served. documents.write, documents.listen,
-	// documents.executePipeline, databases.clone, databases.restore and the
-	// document-collection verbs listCollectionIds, partitionQuery and
-	// runAggregationQuery are not — the last three share the URI shape of
-	// CreateDocument, whose handler reports them as unrouted methods — and
-	// neither is the changeStreams collection (create, delete, get, list),
-	// which has no handler at all: a change stream's deliveries would need
-	// the listen plumbing the two streaming verbs above already lack.
-	"firestore-v1": 96,
+	// Firestore: document CRUD, the transaction verbs, and the custom methods
+	// on a document parent — listCollectionIds, runAggregationQuery and
+	// partitionQuery, which share CreateDocument's URI shape and route through
+	// its dispatcher — plus documents:write and the databases clone/restore
+	// pair. Raised from 96.
+	//
+	// Twelve spellings remain, all of them the streaming surface: documents.listen
+	// and documents.executePipeline, and the changeStreams collection (create,
+	// get, list, delete) whose deliveries need that same plumbing. REST cannot
+	// carry a bidirectional stream, and a change stream with no listener to
+	// deliver to would be a record nothing reads.
+	"firestore-v1": 108,
 
 	// Identity and Access Management: every documented method is served —
 	// service accounts, keys (including upload's caller-supplied public key

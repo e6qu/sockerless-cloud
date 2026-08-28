@@ -149,6 +149,10 @@ import (
 //   POST /v1/projects/{project}/locations/{location}/builds
 //   POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate
 //   POST /v1/webhook
+//   POST /v1/projects/{project}/databases/{database}/documents:write
+//   POST /v1/projects/{project}/databases/{database}/documents:listCollectionIds
+//   POST /v1/projects/{project}/databases/{database}/documents:runAggregationQuery
+//   POST /v1/projects/{project}/databases/{database}/documents:partitionQuery
 //   POST /v1/projects/{project}/triggers/{triggerAction}
 //   POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{configAction}
 //   POST /v1/githubDotComWebhook:receive

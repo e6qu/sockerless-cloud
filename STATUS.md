@@ -91,7 +91,7 @@ Current state of the sockerless-cloud repository.
   figures written here had drifted from the tests that produce them): IAM
   resource derivation **1,764 of 1,994** served operations;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
-  catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**;
+  catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` 108 of 120;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
   revision 20260814, whose declared total fell from 130 when Google withdrew
   the `gitLabConfigs` collection; `cloudrun-v1` 152 of 152;
@@ -100,7 +100,7 @@ Current state of the sockerless-cloud repository.
   configuration references, the complete Static Web Apps family);
   `containerregistry-dataplane-containerregistry-2021-07-01` 24 of 29;
   `keyvault-arm-managedhsm-2023-07-01` 6 of 16 (the Managed HSM pool's own
-  lifecycle and both list scopes). Google Cloud totals **4,468 of 5,426**
+  lifecycle and both list scopes). Google Cloud totals **4,480 of 5,426**
   Discovery method spellings; Azure **2,511 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint

@@ -1,5 +1,41 @@
 # WHAT WE DID
 
+## 2026-08-28, thirty-second pass — Firestore's document verbs, and a picked-up tail
+
+Firestore reaches 108 of 120 method spellings, taking Google Cloud to 4,480 of
+5,426. `listCollectionIds`, `runAggregationQuery` and `partitionQuery` are
+served on both the document parent and the documents root; `documents:write`
+applies its writes through the same path a commit uses; and `databases:clone`
+and `:restore` mint a database from an existing source, refusing a destination
+id already taken and a source that does not exist.
+
+The aggregations run over the documents `runQuery` selects, so a filter narrows
+an aggregate exactly as it narrows the query it wraps. COUNT honours `upTo`,
+SUM reports an integral total as an `integerValue` and anything else as a
+`doubleValue`, and AVG over nothing reports null rather than zero.
+
+Three shapes came from the generated client rather than from assumption:
+`runAggregationQuery` returns a single response where `runQuery` streams an
+array, `Value.integerValue` is an `int64` in the client and a string on the
+wire, and a null aggregate is the enum spelling `NULL_VALUE` rather than a JSON
+null. A fourth came from the mux: the same verbs on the documents root need
+their own mounts, because the catch-all that serves the document parent only
+matches paths continuing past the collection.
+
+`TestUnservedCustomMethodsAreMethodNotFound` asserted `partitionQuery` answers
+"Method not found", which was true until this change served it. The case is
+gone and the SDK tests cover the method instead.
+
+Twelve spellings remain unserved, all of them the streaming surface —
+`documents.listen`, `documents.executePipeline`, and the `changeStreams`
+collection whose deliveries need that same plumbing.
+
+This pass also finished an application-observation change left uncommitted in
+the checkout after its feature had merged: the discarded JSON encode error, the
+`nil` request bodies, and the undocumented `SIM_MONITORING_TOKEN`. It had filed
+itself as BUG-2933, which already belonged to the orphaned-simulator leak, so
+the observation is BUG-2934 with a note recording why the number moved.
+
 ## 2026-08-28 — authenticated application observations
 
 Added one deployment-neutral observation implementation to `ui-auth` and
