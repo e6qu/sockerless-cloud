@@ -49,6 +49,29 @@
    the Application Insights query data plane; and the two published catalogs
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
+0-sync. **The vendored specifications are not in sync, and the mechanism that
+   was supposed to keep them so cannot run.** Measured 2026-08-28:
+   **Google Cloud 18, AWS 42, Azure 120** documents behind upstream.
+
+   `.github/workflows/spec-freshness.yml` detects the drift nightly, refreshes
+   it with `scripts/refresh-drifted-specs.sh`, and opens a bump pull request —
+   *but only when no other pull request is open*, because this repository
+   allows exactly one and a second would fail every commit on the branch in
+   flight. Development has kept a pull request open continuously, so the
+   scheduled refresh has landed nothing; its runs have failed every night since
+   at least 2026-08-24.
+
+   The rule that already resolves this for dependencies resolves it here:
+   **bundle the spec refresh into the open pull request**, the way
+   `check-latest-deps.sh` annotates inherited dependency drift onto it. Until
+   that is wired up, a refresh only lands when somebody runs
+   `scripts/refresh-drifted-specs.sh <cloud>` on the branch in flight.
+
+   Re-vendoring is not free: each document's declared total and served floor
+   move together, and the floor comment must say which methods moved and why —
+   Cloud Build is the worked example, where Google withdrew a whole collection.
+   Expect withdrawals, and prove each count drop is one.
+
 0-spec. **Eighteen Google Discovery documents are behind upstream** (measured
    2026-08-27 by `scripts/check-spec-freshness.sh gcp`): Compute Engine,
    Firestore, Cloud Run v1 and v2, Logging, Storage, Cloud KMS, BigQuery,
