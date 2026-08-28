@@ -278,10 +278,11 @@ var allowedNonSpecAzureRoutes = map[string]string{
 	// Azure-AsyncOperation / Location header carries — the URL shape is
 	// service-internal and never appears in a swagger. These are the
 	// sim-emitted polling targets.
-	"GET /subscriptions/{subscriptionId}/providers/Microsoft.App/locations/{location}/operationStatuses/{opId}":                  "sim-emitted LRO polling URL (Azure-AsyncOperation)",
-	"GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/locations/{location}/deletedVaults/{name}/purge/operation": "sim-emitted Azure Key Vault purge LRO polling URL (documented Location header)",
-	"GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationResults/{opId}":                      "sim-emitted LRO polling URL (Location header)",
-	"GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationStatuses/{opId}":                     "sim-emitted LRO polling URL (Azure-AsyncOperation)",
+	"GET /subscriptions/{subscriptionId}/providers/Microsoft.App/locations/{location}/operationStatuses/{opId}":                       "sim-emitted LRO polling URL (Azure-AsyncOperation)",
+	"GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/locations/{location}/deletedVaults/{name}/purge/operation":      "sim-emitted Azure Key Vault purge LRO polling URL (documented Location header)",
+	"GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/locations/{location}/deletedManagedHSMs/{name}/purge/operation": "sim-emitted Azure Managed HSM purge LRO polling URL (documented Location header)",
+	"GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationResults/{opId}":                           "sim-emitted LRO polling URL (Location header)",
+	"GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationStatuses/{opId}":                          "sim-emitted LRO polling URL (Azure-AsyncOperation)",
 
 	// ACR Tasks run log: listLogSasUrl returns an opaque SAS URL to a log
 	// blob (real ACR hands out an Azure Storage SAS); the URL shape is

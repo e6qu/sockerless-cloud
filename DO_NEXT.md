@@ -32,7 +32,7 @@
 
    Left, largest first, with the per-document floor comment naming each:
    Compute Engine's long tail (1,118 of 2,014 spellings; 559 of 1,007
-   methods); then Azure's 41 non-App-Service operations and the implementable part of App Service's 76; then the 230 AWS
+   methods); then Azure's 31 remaining non-App-Service operations and the implementable part of App Service's 76; then the 230 AWS
    IAM derivations.
 
    A Discovery document's field descriptions are worth reading before the

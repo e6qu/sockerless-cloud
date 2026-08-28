@@ -13,7 +13,7 @@ Surface registered in `simulator-azure/keyvault_managedhsm.go` (and related file
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/managedHSMs` | ✓ `simulator-azure/keyvault_managedhsm.go:202::list` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/managedHSMs` | ✓ `simulator-azure/keyvault_managedhsm.go:207::list` | ✓ (direct; see coverage matrix) | ✗ (coverage matrix row missing) | n/a | |
 
 ## Coverage status
 

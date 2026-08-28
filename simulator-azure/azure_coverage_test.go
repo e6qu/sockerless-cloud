@@ -207,16 +207,20 @@ var azureMethodFloor = map[string]int{
 	// extensionTopics/default" mux-misses — no extensionTopics route exists.
 	"eventgrid-arm-eventgrid-2021-12-01": 60,
 	// Lowered from 127, for the same unserved extensionTopics operation.
-	"eventgrid-arm-eventgrid-2022-06-15":               126,
-	"eventgrid-dataplane-eventgrid-2018-01-01":         3,
-	"eventhub-arm-authorizationrules-2024-01-01":       15,
-	"eventhub-arm-consumergroups-2024-01-01":           4,
-	"eventhub-arm-eventhubs-2024-01-01":                4,
-	"eventhub-arm-namespaces-2024-01-01":               14,
-	"eventhub-arm-networkrulessets-2024-01-01":         3,
-	"imds-dataplane-imds-2021-02-01":                   2,
-	"keyvault-arm-keyvault-2023-07-01":                 17,
-	"keyvault-arm-managedhsm-2023-07-01":               6,
+	"eventgrid-arm-eventgrid-2022-06-15":         126,
+	"eventgrid-dataplane-eventgrid-2018-01-01":   3,
+	"eventhub-arm-authorizationrules-2024-01-01": 15,
+	"eventhub-arm-consumergroups-2024-01-01":     4,
+	"eventhub-arm-eventhubs-2024-01-01":          4,
+	"eventhub-arm-namespaces-2024-01-01":         14,
+	"eventhub-arm-networkrulessets-2024-01-01":   3,
+	"imds-dataplane-imds-2021-02-01":             2,
+	"keyvault-arm-keyvault-2023-07-01":           17,
+	// Raised from 6: the deleted-pool collection and purge, name availability,
+	// the private endpoint connections and private-link resources, and the
+	// regions listing. A delete retires a pool that carries soft delete, and
+	// purge protection refuses the purge.
+	"keyvault-arm-managedhsm-2023-07-01":               16,
 	"keyvault-dataplane-certificates-2025-07-01":       27,
 	"keyvault-dataplane-keys-2025-07-01":               25,
 	"keyvault-dataplane-secrets-2025-07-01":            12,
