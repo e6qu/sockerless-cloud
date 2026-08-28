@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/e6qu/sockerless-cloud/compare/v0.23.2...v0.24.0) (2026-08-28)
+
+
+### Features
+
+* **gcp:** serve the remaining tails, document by document ([#91](https://github.com/e6qu/sockerless-cloud/issues/91)) ([cfa5eb9](https://github.com/e6qu/sockerless-cloud/commit/cfa5eb9fe9ca39d5263176fd85af701d9662a097))
+
 ## [0.23.2](https://github.com/e6qu/sockerless-cloud/compare/v0.23.1...v0.23.2) (2026-08-27)
 
 
