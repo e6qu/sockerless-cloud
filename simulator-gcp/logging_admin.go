@@ -176,16 +176,18 @@ func registerCloudLoggingAdmin(srv *sim.Server) {
 		srv.HandleFunc("PATCH "+p+"/cmekSettings", handleLoggingUpdateCmekSettings)
 
 		// Locations. The project-scope locations.list collides with Cloud Run /
-		// Cloud Functions (same /v2 path) and is served there. The project-scope
-		// locations.get is intentionally NOT mounted: a literal
-		// "GET .../locations/{location}" route also fans in to Cloud Run's
-		// "locations/{location}:exportProjectMetadata" colon-verb method, which
-		// would inflate that service's coverage. The other scopes' locations.get
-		// has no such sibling, so it mounts cleanly.
+		// Cloud Functions on the same /v2 path and is served there.
+		//
+		// The project-scope locations.get shares its URI shape with Cloud Run's
+		// "locations/{location}:exportProjectMetadata", because a wildcard
+		// segment matches one carrying a colon. handleLoggingGetLocation splits
+		// on the colon so a real location is answered and a custom method is
+		// still reported unknown — answering both from here would report
+		// exportProjectMetadata as served.
 		if sc.collection != "projects" {
 			srv.HandleFunc("GET "+p+"/locations", handleLoggingListLocations)
-			srv.HandleFunc("GET "+p+"/locations/{location}", handleLoggingGetLocation)
 		}
+		srv.HandleFunc("GET "+p+"/locations/{location}", handleLoggingGetLocation)
 
 		loc := p + "/locations/{location}"
 
@@ -521,6 +523,13 @@ func handleLoggingListLocations(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingGetLocation(w http.ResponseWriter, r *http.Request) {
 	loc := sim.PathParam(r, "location")
+	// A colon in the segment makes this a custom method on the location, not a
+	// location id — Cloud Run spells exportProjectMetadata that way.
+	if name, verb, found := strings.Cut(loc, ":"); found {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			"unknown verb %q on location %q", verb, name)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"name":       loggingScopeParent(r) + "/locations/" + loc,
 		"locationId": loc,

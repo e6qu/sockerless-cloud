@@ -146,9 +146,17 @@ import (
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages/{pkg}/versions
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages/{pkg}/versions/{version}
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts
+//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+//   POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/pythonPackages
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/pythonPackages/{pythonPackage}
+//   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts
+//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+//   POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules
+//   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts
+//   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
+//   POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/rules/{rule}
 //   GET /v1/projects/{project}/locations/{location}/retiredResources
 //   GET /v1/projects/{project}/locations/{location}/retiredResources/{retiredResource}

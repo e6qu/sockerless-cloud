@@ -1,5 +1,43 @@
 # WHAT WE DID
 
+## 2026-08-28, thirtieth pass — Cloud Logging and Artifact Registry are whole
+
+Two more documents are served end to end. Cloud Logging reaches 508 of 508 and
+Artifact Registry 147 of 147, taking Google Cloud to 4,440 of 5,426 method
+spellings.
+
+Cloud Logging's `projects.locations.get` was unmounted to avoid inflating Cloud
+Run's coverage: both services live under `/v2`, and a wildcard segment matches
+one carrying a colon, so a literal route also answers
+`locations/{location}:exportProjectMetadata`. The route is mounted now and the
+handler splits on the colon — a location is answered, a custom method is still
+reported unknown. Cloud Run's count is unmoved by the mount, which is what
+proves the split rather than the absence of a route.
+
+Artifact Registry needed two things. A media method declares two paths, the
+`/upload/v1` one that carries the bytes and the plain `/v1` one, and the
+service answers both; only the upload spelling was registered, which left seven
+publish methods unserved. And the prewarmed-artifact family is now real state:
+`prewarmArtifact` records the artifact against a stream location with an
+expiry, `checkPrewarmedArtifact` and `removePrewarmedArtifact` read and delete
+that record, and the listing reports it — it previously answered a hardcoded
+empty array whatever the repository held. `exportArtifact` writes the artifact
+into the Cloud Storage bucket the request names, taking the bytes from the OCI
+blob the digest addresses; an artifact with no stored blob is NOT_FOUND rather
+than an export of invented content.
+
+Reading the Discovery document's field descriptions before trusting the first
+implementation was what made it faithful. `version` and `tag` are full resource
+names rather than bare ids, `streamLocation` is optional and defaults to the
+repository's own location, retention defaults to three days, the reported `uri`
+is a registry address rather than a resource name, and `gcsPath` starts with a
+bare bucket name rather than a `gs://` URL. The first draft had all five wrong.
+
+The four custom methods share the repository colon-verb fan-in with the IAM
+triple, so they dispatch from inside it and fall through when the verb is not
+theirs. `TestArtifactRegistry_RepositoryIAMStillWorksBesideTheCustomVerbs`
+holds that sharing.
+
 ## 2026-08-28, twenty-ninth pass — pin the tools CI installs, and follow the cloud that withdrew a surface
 
 The freshness gate's new Go-tool section then failed in CI while passing every

@@ -158,12 +158,13 @@ var gcpMethodFloor = map[string]int{
 	"apigateway-v1":     60,
 	"iamcredentials-v1": 14,
 	"vpcaccess-v1":      16,
-	// Cloud Logging: the two locations.get spellings are unmounted for the
-	// reason logging_admin.go records beside its location routes — a literal
-	// GET locations/{location} under projects would also swallow Cloud Run's
-	// exportProjectMetadata colon-verb. A real client's projects.locations.get
-	// gets no answer; the routing constraint is the recorded trade.
-	"logging-v2": 504,
+	// Cloud Logging: every documented method is served. locations.get shares
+	// its URI shape with Cloud Run's locations/{location}:exportProjectMetadata,
+	// because a wildcard segment matches one carrying a colon; the handler
+	// splits on it, so a location is answered and a custom method is still
+	// reported unknown. Cloud Run's count is unmoved by the mount, which is
+	// what proves the split works.
+	"logging-v2": 508,
 
 	// Cloud Billing: every documented method is served. The account
 	// collection, its sub-accounts, the organization-scoped spellings, the
@@ -189,15 +190,18 @@ var gcpMethodFloor = map[string]int{
 	// siblings of any collection sitting under a multi-segment wildcard.
 	"storage-v1": 89,
 
-	// Artifact Registry: the Docker/Maven/npm/Python read surface, repository
-	// and rule CRUD are served, as is operations.cancel. The package-format
-	// publish methods that ride the plain (non-/upload) path —
-	// aptArtifacts.create, genericArtifacts.create, goModules.create,
-	// googetArtifacts.create, kfpArtifacts.create, yumArtifacts.create,
-	// files.upload — and the prewarmed-artifact family (prewarmArtifact,
-	// checkPrewarmedArtifact, removePrewarmedArtifact, exportArtifact) are
-	// mux misses.
-	"artifactregistry-v1": 125,
+	// Artifact Registry: the whole document is served. Raised from 125 by the
+	// prewarmed-artifact family and the plain /v1 spellings of the media
+	// publish methods.
+	//
+	// A media method declares two paths — /upload/v1 for the bytes and /v1 —
+	// and the service answers both, so registering only the upload one left
+	// seven methods unserved. The prewarm family is real state: prewarmArtifact
+	// records the artifact against a stream location with an expiry, check and
+	// remove read and delete that record, list reports it (it previously
+	// answered a hardcoded empty array), and exportArtifact writes the version
+	// into the Cloud Storage bucket the request names.
+	"artifactregistry-v1": 147,
 
 	// Cloud Build: the global builds/triggers/worker-pools surface is served,
 	// as are both operations.cancel spellings and builds.cancel on the regional

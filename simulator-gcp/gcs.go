@@ -115,6 +115,10 @@ type gcsObjectResource struct {
 // closure.
 var (
 	gcsObjects sim.Store[GCSObject]
+	// gcsBuckets is package-level so a slice that exports into Cloud Storage
+	// (Artifact Registry's exportArtifact) can refuse a bucket that does not
+	// exist rather than inventing one.
+	gcsBuckets sim.Store[Bucket]
 )
 
 // gcsBucketObjectIndex maps a bucket name to the set of object names it
@@ -650,6 +654,7 @@ func requestScheme(r *http.Request) string {
 
 func registerGCS(srv *sim.Server) {
 	buckets := sim.MakeStore[Bucket](srv.DB(), "gcs_buckets")
+	gcsBuckets = buckets
 	gcsObjects = sim.MakeStore[GCSObject](srv.DB(), "gcs_objects")
 	gcsResumableSessions = sim.MakeStore[gcsResumableSession](srv.DB(), "gcs_resumable_sessions")
 	objects := gcsObjects
