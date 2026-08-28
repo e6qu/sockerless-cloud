@@ -624,9 +624,17 @@ func eventarcIAMVerb(w http.ResponseWriter, r *http.Request, actionParam string,
 	}
 }
 
+// Cloud Build's regional triggers share this path under /v1, so its verbs are
+// offered this route before Eventarc's IAM ones. Whichever service owns the
+// verb answers; neither shadows the other.
 func handleEventarcTriggerIAMAction(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	location := sim.PathParam(r, "location")
+	if id, action, found := strings.Cut(sim.PathParam(r, "triggerAction"), ":"); found {
+		if cbTriggerActionHandled(w, r, project, location, id, action) {
+			return
+		}
+	}
 	eventarcIAMVerb(w, r, sim.PathParam(r, "triggerAction"),
 		func(id string) string { return eventarcTriggerName(project, location, id) }, "trigger")
 }

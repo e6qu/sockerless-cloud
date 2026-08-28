@@ -1,5 +1,31 @@
 # WHAT WE DID
 
+## 2026-08-28, thirty-first pass — Cloud Build is whole
+
+Cloud Build reaches 114 of 114 method spellings, taking Google Cloud to 4,468
+of 5,426. The regional build create, `builds.retry` and `.approve`,
+`triggers.run` and `.webhook`, the three webhook receivers, and the Bitbucket
+Server connected-repository pair are all served.
+
+Retrying starts a new build from the original's specification rather than
+re-running the record, which is what the service does. Approving records the
+decision on a build that is pending one and refuses a build that is not, so
+`Build` grew the `approval` member the schema declares and the simulator did
+not model. Running a trigger starts the trigger's inline build and stamps the
+started build with the trigger that ran it.
+
+Eventarc owns `projects/{p}/locations/{l}/triggers` under the same `/v1`
+prefix, so Cloud Build's trigger verbs are offered Eventarc's fan-in before its
+IAM ones and fall through when the verb is not theirs. Eventarc's count is
+unmoved at 132 of 132, which is what proves neither shadows the other — the
+same shape as the Cloud Logging colon-verb split.
+
+Three shapes were wrong in the first draft and the generated client caught each
+one: `Build` carries no `approval` field in this simulator, a Bitbucket config's
+`connectedRepositories` holds repository ids while the batchCreate response
+holds connected-repository resources, and a remove request's
+`connectedRepository` is the id itself rather than a wrapper around one.
+
 ## 2026-08-28, thirtieth pass — Cloud Logging and Artifact Registry are whole
 
 Two more documents are served end to end. Cloud Logging reaches 508 of 508 and

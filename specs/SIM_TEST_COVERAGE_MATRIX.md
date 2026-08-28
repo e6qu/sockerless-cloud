@@ -88,6 +88,7 @@ Legend:
 | `gcp-bigquery` | direct | direct | direct | `simulator-gcp/sdk-tests/data_saas_test.go`; `simulator-gcp/cli-tests/data_saas_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-cloudbilling` | direct | direct | direct | `simulator-gcp/sdk-tests/cloudbilling_test.go`; `simulator-gcp/cli-tests/cloudbilling_cli_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-cloudbuild` | direct | direct | direct | `simulator-gcp/sdk-tests/build_test.go`; `simulator-gcp/cli-tests/client_surface_audit_test.go`; `simulator-gcp/terraform-tests/main.tf` |
+| `gcp-cloudbuild_regional` | direct | not applicable | not applicable | `simulator-gcp/sdk-tests/cloudbuild_regional_test.go`; gcloud exposes no command for the regional build verbs or the Bitbucket Server connected-repository pair, and terraform-provider-google wraps neither |
 | `gcp-operations_cancel` | direct | direct | none | `simulator-gcp/sdk-tests/operations_cancel_test.go`; `simulator-gcp/cli-tests/operations_cancel_test.go` (the AIP-151 cancel method across every Google slice that publishes it; no Terraform resource cancels an operation) |
 | `gcp-cloudfunctions` | direct | direct | direct | `simulator-gcp/sdk-tests/functions_sdk_test.go`; `simulator-gcp/cli-tests/functions_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-cloudkms` | direct | direct | direct | `simulator-gcp/sdk-tests/cloudkms_test.go`; `simulator-gcp/cli-tests/cloudkms_test.go`; `simulator-gcp/terraform-tests/fixtures/kms-lifecycle/main.tf` |
