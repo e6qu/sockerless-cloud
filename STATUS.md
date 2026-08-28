@@ -284,6 +284,12 @@ Current state of the sockerless-cloud repository.
   rather than a parameter GitHub ignores — measures each pin against the commit
   that last touched its file rather than the repository's branch tip.
   `scripts/check-gh-api-params.sh` holds that last one.
+- **A served method has to be named by the route that answers it.**
+  `TestServiceConformance_GCPNoPhantomCoverage` reads the mux pattern that
+  matched and holds it to the literal segments of the method's Discovery path,
+  so a collection swallowed by a subtree route can no longer count as covered.
+  `gcpFanInPatterns` lists the twelve routes that dispatch inside the handler,
+  each with its reason.
 
 ## Releases
 

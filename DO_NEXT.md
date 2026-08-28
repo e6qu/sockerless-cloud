@@ -78,16 +78,26 @@
    more withdrawals — a served count that falls after a re-vendor is not
    automatically a regression, but it must be shown to be a withdrawal.
 
-0a. **A served count can hide an unserved method.** The coverage probe reads
-   any handler answer as served, so a sibling collection swallowed by a
-   multi-segment wildcard counts as covered while no handler for it exists.
-   Cloud Storage's five per-object ACL reads and writes were covered that way
-   for as long as the gate has existed; `/o/{object}/acl` reached
-   `objects.get`, which answered `object "doc.txt/acl" not found`. When a
-   document's count moves by one, check whether the collection beneath a
-   `{x...}` route has siblings — the visible gap may be the only member of its
-   family that had no catch-all to fall into. The same sweep has not yet been
-   run over the other documents.
+0a. **A served count can hide an unserved method, and a gate now says so.**
+   The coverage probe reads any handler answer as served, so a sibling
+   collection swallowed by a multi-segment wildcard counted as covered while no
+   handler for it existed. Cloud Storage's five per-object ACL reads and writes
+   were covered that way for as long as the gate had existed; `/o/{object}/acl`
+   reached `objects.get`, which answered `object "doc.txt/acl" not found`.
+
+   `TestServiceConformance_GCPNoPhantomCoverage` closed the class across every
+   document: it asks the mux which pattern actually matched and holds each
+   served method to a route that names its Discovery path's literal segments.
+   The sweep found six more — Compute Engine's `backendServices.listUsable`
+   (global and regional) and `backendBuckets.listUsable`, swallowed by the
+   `{name}` get, and Cloud Storage's object `getIamPolicy`, `setIamPolicy` and
+   `testIamPermissions`, swallowed by the `{object...}` get — and all six are
+   served now. The served counts did not move, because all six already counted.
+
+   `gcpFanInPatterns` lists the routes that legitimately dispatch inside the
+   handler, each with the reason. Add one only with the evidence that the
+   handler reads the tail and rejects what it does not route; an entry that
+   merely silences the gate reinstates the blind spot.
 
 0b. **Judge a route on both clients before believing it.** The generated Go
    client sends `softDeleted=true`; gcloud sends `softDeleted=True`. An

@@ -693,6 +693,7 @@ func registerEC2(r *sim.AWSQueryRouter, srv *sim.Server) {
 	registerEC2VerifiedAccess(r, srv)
 	registerEC2CapacityFleet(r, srv)
 	registerEC2HostsImagesVpc(r, srv)
+	registerEC2ImageInstanceTypeSpec(r, srv)
 	registerEC2NetworkInsights(r, srv)
 	registerEC2EBSSnapshot(r, srv)
 	registerEC2VpcEndpointSvc(r, srv)
@@ -3414,6 +3415,14 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	if instanceType == "" {
 		instanceType = "t3.micro"
+	}
+	// The AMI's instance type specification, when it has one, decides whether
+	// this instance type may launch it.
+	if !ec2ImageAllowsInstanceType(imageID, instanceType) {
+		ec2ErrorXML(w, "InvalidParameterCombination",
+			fmt.Sprintf("The instance type %q is not supported by the image %q", instanceType, imageID),
+			http.StatusBadRequest)
+		return
 	}
 	subnetID := r.FormValue("SubnetId")
 	if subnetID == "" {

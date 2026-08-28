@@ -24,8 +24,40 @@ is accepted, so the script exits cleanly on a result that means nothing.
 
 The four AWS models genuinely behind — Amazon EC2, Amazon ECS, Amazon RDS,
 Amazon CloudWatch Logs — and the Amazon EC2 service reference are re-vendored.
-Every declared total and served floor is unmoved: upstream added operations,
-none of them ones this simulator serves.
+The Amazon EC2 model brought one operation with it,
+`ReplaceImageInstanceTypeSpecification`, which sets or removes the instance type
+specification on an AMI. It is served: the specification is stored against the
+image, `DescribeImages` reports it, and `RunInstances` enforces it in the order
+the API documents — no specification allows everything, an unsupported entry
+excludes its matches, a supported list requires one, and a `t3.*` entry matches
+the family. Storing it without enforcing it would report a restriction the
+simulator does not apply. Amazon EC2 stays fully covered, at 801 of 801.
+
+## 2026-08-29, thirty-eighth pass — a served count now has to name its method
+
+The coverage probe reads any handler answer as served, so a route that owns a
+subtree answers for a sibling collection nobody implemented and the sibling
+counts as covered. Cloud Storage's per-object ACLs were the known case.
+`TestServiceConformance_GCPNoPhantomCoverage` closes the class across every
+Google document: it asks `http.ServeMux.Handler` which pattern actually matched
+the rendering the probe judged served, and holds that pattern to the literal
+segments of the method's Discovery path. Google routes on those segments, so a
+pattern missing one did not route the method.
+
+The sweep found six, all now served. Compute Engine's `backendServices`
+`listUsable` (global and regional) and `backendBuckets.listUsable` were reaching
+the `{name}` get, which answered `backend service "listUsable" not found`; they
+answer their own lists under the response kind the document declares —
+`compute#usableBackendServiceList`, which Google does not derive from the
+resource kind. Cloud Storage's object `getIamPolicy`, `setIamPolicy` and
+`testIamPermissions` were reaching the `{object...}` get; they read and write the
+same shared policy store the bucket and managed-folder policies use. No served
+count moved, because all six already counted — that was the defect.
+
+`gcpFanInPatterns` records the twelve routes that legitimately dispatch inside
+the handler, each with its reason. The bar for adding one is evidence that the
+handler reads the tail and rejects what it does not route; an entry that merely
+silences the gate reinstates the blind spot.
 
 ## 2026-08-28, thirty-sixth pass — the specifications sync again
 

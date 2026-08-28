@@ -271,11 +271,11 @@ func ec2StoredImageXML(img EC2Image) string {
 	if img.SourceImageId != "" {
 		srcImg = fmt.Sprintf("<sourceImageId>%s</sourceImageId>", img.SourceImageId)
 	}
-	return fmt.Sprintf(`<item><imageId>%s</imageId><imageLocation>%s/%s</imageLocation><imageState>%s</imageState><imageOwnerId>%s</imageOwnerId><isPublic>%t</isPublic><architecture>%s</architecture><imageType>%s</imageType><rootDeviceType>%s</rootDeviceType><rootDeviceName>%s</rootDeviceName>%s<virtualizationType>%s</virtualizationType><name>%s</name>%s<creationDate>%s</creationDate><hypervisor>%s</hypervisor>%s%s%s</item>`,
+	return fmt.Sprintf(`<item><imageId>%s</imageId><imageLocation>%s/%s</imageLocation><imageState>%s</imageState><imageOwnerId>%s</imageOwnerId><isPublic>%t</isPublic><architecture>%s</architecture><imageType>%s</imageType><rootDeviceType>%s</rootDeviceType><rootDeviceName>%s</rootDeviceName>%s<virtualizationType>%s</virtualizationType><name>%s</name>%s<creationDate>%s</creationDate><hypervisor>%s</hypervisor>%s%s%s%s</item>`,
 		img.ImageId, img.OwnerId, xmlEscape(img.Name), img.State, img.OwnerId, img.Public,
 		img.Architecture, img.ImageType, img.RootDeviceType, img.RootDeviceName, bdm,
 		img.VirtualizationType, xmlEscape(img.Name), desc, img.CreationDate, img.Hypervisor,
-		srcInst, srcImg, writeTagSetXML(img.Tags))
+		srcInst, srcImg, ec2ImageInstanceTypeSpecXML(img.ImageId), writeTagSetXML(img.Tags))
 }
 
 func ec2ImageMatchesFilters(img EC2Image, filters map[string][]string) bool {
