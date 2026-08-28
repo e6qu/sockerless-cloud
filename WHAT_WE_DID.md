@@ -1,5 +1,32 @@
 # WHAT WE DID
 
+## 2026-08-29, thirty-seventh pass — the freshness check reads the filter it sends
+
+Every vendored specification is in sync with upstream: AWS 41 Smithy models and
+their service references, Azure 120 Swagger documents, Google Cloud 30 Discovery
+documents, all measured at zero drift. AWS and Azure had reported 42 and 120
+documents behind; 5 of the 162 were real.
+
+`scripts/check-spec-freshness.sh` asked GitHub for
+`repos/<repo>/commits?srcpath=<path>`. The REST API names that parameter `path`
+and ignores a key it does not know, so every query dropped its filter and
+answered with the repository's branch tip. Each file then compared its pin
+against a commit that had never touched it — drift for all but the one file the
+tip happened to change. Re-vendoring could not clear it either: the fetcher
+correctly pins the last commit touching the file, so the next run reported the
+same drift against the same tip. Both numbers stood still while the daily run
+refetched 162 documents at the revisions they already held.
+
+`scripts/check-gh-api-params.sh` now refuses a `gh api` query parameter GitHub
+does not define, in pre-commit and in CI. The mistake arrived as a rename that
+reached inside a URL, and its class is worse than a wrong answer: an unknown key
+is accepted, so the script exits cleanly on a result that means nothing.
+
+The four AWS models genuinely behind — Amazon EC2, Amazon ECS, Amazon RDS,
+Amazon CloudWatch Logs — and the Amazon EC2 service reference are re-vendored.
+Every declared total and served floor is unmoved: upstream added operations,
+none of them ones this simulator serves.
+
 ## 2026-08-28, thirty-sixth pass — the specifications sync again
 
 Two defects kept the vendored specifications behind upstream, and both are

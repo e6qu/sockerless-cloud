@@ -49,37 +49,32 @@
    the Application Insights query data plane; and the two published catalogs
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
-0-sync. **Google Cloud is in sync; AWS and Azure are not.** Measured
-   2026-08-28 after the refresh: Google Cloud 1 (oscillating, see below),
-   **AWS 42, Azure 120** documents behind upstream. Run
-   `scripts/refresh-drifted-specs.sh aws` and `... azure` on the branch in
-   flight, then reconcile each declared total and served floor the re-vendor
-   moves.
+0-sync. **All three clouds are in sync.** Measured 2026-08-29: zero drift
+   across AWS's 41 Smithy models plus its service references, Azure's 120
+   Swagger documents, and Google Cloud's 30 Discovery documents.
 
    Google serves several Discovery revisions concurrently, so the last one or
-   two documents oscillate by edge; the scheduled run vendors from what it
+   two documents can oscillate by edge; the scheduled run vendors from what it
    sampled rather than re-fetching, which is what settles them.
 
-   The nightly run now pushes its refresh onto the open pull request rather
-   than giving up when one exists, so this should not recur. Two defects had
-   kept it from landing anything: that gate, and a fetcher that asked
-   www.googleapis.com for `apis/www/v1` when re-vendoring Compute Engine — the
-   404 aborted the whole Google sweep.
+   Three defects had kept the nightly refresh from landing anything, and all
+   three are fixed. The one-PR gate made the run give up whenever a pull
+   request was open; it now pushes onto that request. A fetcher asked
+   www.googleapis.com for `apis/www/v1` when re-vendoring Compute Engine, and
+   the 404 aborted the whole Google sweep. Last, the freshness check compared
+   every pin against `commits?srcpath=` — a parameter the GitHub API does not
+   define, so the query dropped the filter and answered with the repository's
+   branch tip. Every AWS and Azure row therefore reported drift against a
+   commit that never touched it, and no refresh could ever clear it: of the
+   162 reported, 5 were real. `scripts/check-gh-api-params.sh` now refuses a
+   query parameter GitHub does not define, in pre-commit and in CI.
 
-   Re-vendoring is not free: each document's declared total and served floor
-   move together, and the floor comment must say which methods moved and why —
-   Cloud Build is the worked example, where Google withdrew a whole collection.
-   Expect withdrawals, and prove each count drop is one.
-
-0-spec. **Eighteen Google Discovery documents are behind upstream** (measured
-   2026-08-27 by `scripts/check-spec-freshness.sh gcp`): Compute Engine,
-   Firestore, Cloud Run v1 and v2, Logging, Storage, Cloud KMS, BigQuery,
-   Pub/Sub, IAM and the rest. Re-vendor each as its tail is served rather than
-   in one sweep — a re-vendor moves both the declared total and the served
+0-spec. **A re-vendor moves counts, so read them.** No document is behind
+   today, but the next refresh will move both a declared total and a served
    floor, and the floor comment has to say which methods moved and why.
 
-   Cloud Build is done (revision 20260814): Google withdrew the whole
-   `gitLabConfigs` collection, and the simulator no longer serves it. Expect
+   Cloud Build is the worked example (revision 20260814): Google withdrew the
+   whole `gitLabConfigs` collection, and the simulator no longer serves it. Expect
    more withdrawals — a served count that falls after a re-vendor is not
    automatically a regression, but it must be shown to be a withdrawal.
 

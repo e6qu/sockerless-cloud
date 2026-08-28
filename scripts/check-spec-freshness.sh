@@ -95,7 +95,10 @@ check_repo_pinned() {
     srcpath="$(echo "$srcpath" | tr -d ' \`')"
     pin="$(echo "$pin" | tr -d ' \`')"
     case "$pin" in revision* | modified*) continue ;; esac
-    latest="$(gh api "repos/$repo/commits?srcpath=$srcpath&per_page=1" --jq '.[0].sha' 2>/dev/null || echo "")"
+    # `path` is the API's parameter name, and it carries the whole comparison:
+    # the query ignores an unknown key and answers with the branch tip, so every
+    # row drifts against a commit that never touched it and no refresh converges.
+    latest="$(gh api "repos/$repo/commits?path=$srcpath&per_page=1" --jq '.[0].sha' 2>/dev/null || echo "")"
     if [ -z "$latest" ]; then
       echo "?     $file: cannot query upstream ($repo $srcpath)"
       fail=1
