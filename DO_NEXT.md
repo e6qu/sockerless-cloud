@@ -49,6 +49,28 @@
    the Application Insights query data plane; and the two published catalogs
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
+0-sync. **Google Cloud is in sync; AWS and Azure are not.** Measured
+   2026-08-28 after the refresh: Google Cloud 1 (oscillating, see below),
+   **AWS 42, Azure 120** documents behind upstream. Run
+   `scripts/refresh-drifted-specs.sh aws` and `... azure` on the branch in
+   flight, then reconcile each declared total and served floor the re-vendor
+   moves.
+
+   Google serves several Discovery revisions concurrently, so the last one or
+   two documents oscillate by edge; the scheduled run vendors from what it
+   sampled rather than re-fetching, which is what settles them.
+
+   The nightly run now pushes its refresh onto the open pull request rather
+   than giving up when one exists, so this should not recur. Two defects had
+   kept it from landing anything: that gate, and a fetcher that asked
+   www.googleapis.com for `apis/www/v1` when re-vendoring Compute Engine — the
+   404 aborted the whole Google sweep.
+
+   Re-vendoring is not free: each document's declared total and served floor
+   move together, and the floor comment must say which methods moved and why —
+   Cloud Build is the worked example, where Google withdrew a whole collection.
+   Expect withdrawals, and prove each count drop is one.
+
 0-spec. **Eighteen Google Discovery documents are behind upstream** (measured
    2026-08-27 by `scripts/check-spec-freshness.sh gcp`): Compute Engine,
    Firestore, Cloud Run v1 and v2, Logging, Storage, Cloud KMS, BigQuery,

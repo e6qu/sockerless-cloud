@@ -111,10 +111,20 @@ refresh_gcp() {
     version="${srcpath##*version=}"
     ;;
   esac
-  # `run-v2.discovery.json.gz` → local name `run`; the fetcher derives the
-  # filename back from the name and version.
+  # `run-v2.discovery.json.gz` → local name `run`, version `v2`. Both come
+  # from the file rather than the source path: a central-index path names the
+  # service too (`discovery/v1/apis/compute/v1/rest`), and reading the version
+  # from there left the name empty for Compute Engine, so the fetcher fell back
+  # to the host's first label and asked www.googleapis.com for `apis/www/v1`.
+  # That 404 aborted the whole Google sweep, every night.
   name="${file%.discovery.json.gz}"
+  version="${name##*-}"
   name="${name%-"$version"}"
+  if [ -z "$name" ] || [ -z "$version" ]; then
+    echo "cannot read a service name and version out of $file" >&2
+    failed=1
+    return
+  fi
   captured=""
   if [ -n "$CAPTURE_DIR" ] && [ -f "$CAPTURE_DIR/$file" ]; then
     captured="$CAPTURE_DIR/$file"

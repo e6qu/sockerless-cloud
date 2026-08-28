@@ -1,5 +1,74 @@
 # WHAT WE DID
 
+## 2026-08-28, thirty-sixth pass — the specifications sync again
+
+Two defects kept the vendored specifications behind upstream, and both are
+fixed. Google Cloud went from eighteen documents behind to one, and the one
+oscillates because Google serves several Discovery revisions concurrently.
+
+`scripts/fetch-gcp-discovery.sh` derived a central-index fetch's service from
+its host. Compute Engine is the one document the central index alone serves, so
+its host *is* `www.googleapis.com` and the fetch asked for `apis/www/v1`. The
+404 aborted the whole Google sweep, every night, so no Google document was
+refreshed at all. It uses the service name now.
+
+The scheduled run also had nowhere to put a refresh. It opens a bump pull
+request only when nothing else is open, this repository allows exactly one, and
+development has kept one open continuously — so the run failed every night
+since at least 2026-08-24 and landed nothing. It now pushes the refresh onto
+the open pull request instead, the way a dependency bump rides it, skipping a
+release-please branch because a commit there is overwritten by the next release.
+
+The re-vendor moved three declared totals, all upward and none a regression:
+Cloud KMS gained two spellings in the Key Access Justifications family, Compute
+Engine two in its unserved long tail, and Dataflow thirty — a surface Google
+published that this simulator does not serve. The served counts are unchanged.
+
+## 2026-08-28, thirty-fifth pass — a create authorizes against its type, and the installable build is fixed
+
+AWS resource-derivation coverage reaches 1,792 of 1,994 served operations, up
+from 1,764, and Amazon EC2's underived count falls from 56 to 34.
+
+A create names a resource that does not exist yet, so the request carries no
+identifier — but AWS still evaluates the call against the type:
+`ec2:AllocateHosts` authorizes against
+`arn:aws:ec2:<region>:<account>:dedicated-host/*`. Falling back to a literal
+`"*"` is not a smaller answer, it is a different one, because `"*"` matches
+only a policy whose Resource is itself `"*"`. A policy scoped to
+`arn:aws:ec2:*:*:dedicated-host/*` is honoured by AWS and was denied here.
+
+Every segment comes from the ARN format AWS publishes; the only invented part
+is the wildcard the service itself evaluates against. Three rules keep it from
+widening anything: the action must declare exactly one resource type, the
+format must name exactly one identifier variable once the partition, region and
+account are filled, and the operation's own noun must match the declared type —
+`CreateStateMachineAlias` declares `statemachine`, and a wildcard over every
+state machine is not what creating one alias authorizes against. It runs only
+where the service's own reader found no identifier, so `CreateTopic`, which
+carries the topic's name, still derives that name.
+
+The first draft ran before the service readers instead of after and regressed
+four services to wildcards; the second counted `${Partition}`, `${Region}` and
+`${Account}` as identifier variables, so no format ever qualified.
+
+**The freshness gate could not have caught it, and now something can.** A
+module this repository publishes is not an upstream dependency: the support
+modules carry no per-module tag, so a pin is the pseudo-version of a release
+commit, which always sorts below the bootstrap `*/v0.1.0` tags that were
+deleted from the repo but survive in the proxy cache. The gate read every
+correct pin as a downgrade. It now skips self-published modules, and
+`scripts/check-installable-build.sh` replaces that check by building each
+simulator with `GOWORK=off` — the mode `go install` and every SDK harness use.
+Reverting the pin makes it fail, which is how it was proven.
+
+**The installable build was broken and is fixed.** All three simulators
+reference `uiauth.Config.ApplicationSlug`, `MonitoringToken` and
+`RegisterMonitoring`, and all three pinned `ui-auth v0.1.0`, which predates
+them — so every `GOWORK=off` build failed, which is the mode `go install
+github.com/e6qu/sockerless-cloud/simulator-<cloud>@<tag>` uses and the mode
+every SDK harness builds its simulator in. The workspace hid it locally. The
+three modules now pin the pseudo-version of a commit that carries the feature.
+
 ## 2026-08-28, thirty-fourth pass — Azure's Managed HSM tail
 
 Managed HSM reaches 16 of 16, up from 6, taking Azure to 2,521 of 2,628.

@@ -43,8 +43,8 @@ github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkp
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/e6qu/sockerless-cloud/realexec v0.1.0 h1:AgkTtmimyfPXiwM8qTAM5Wn+M5iCkpZ10w9iGja9q7M=
 github.com/e6qu/sockerless-cloud/realexec v0.1.0/go.mod h1:Le0q9MvLaJgVoa6WRL73ZfH8OccO4C1crlvKXGqKwkU=
-github.com/e6qu/sockerless-cloud/ui-auth v0.1.0 h1:8uZvhEA0bwv+f42hxbtbw34eE3WzRqslAipXeSHs694=
-github.com/e6qu/sockerless-cloud/ui-auth v0.1.0/go.mod h1:Xs+zY+sL+X262gWWFCyZf42pmXDc49WBmSU0KJOF88o=
+github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260828135648-2834ff5ae633 h1:WN4PTAwYb12uuG6X04t8BUJxYZ2LLMdP4fXDfOOt+w8=
+github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260828135648-2834ff5ae633/go.mod h1:Xs+zY+sL+X262gWWFCyZf42pmXDc49WBmSU0KJOF88o=
 github.com/elazarl/goproxy v1.7.2 h1:Y2o6urb7Eule09PjlhQRGNsqRfPmYI3KKQLFpCAV3+o=
 github.com/elazarl/goproxy v1.7.2/go.mod h1:82vkLNir0ALaW14Rc399OTTjyNREgmdL2cVoIbS6XaE=
 github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc=

@@ -344,6 +344,17 @@ while IFS= read -r mod_file; do
 
   while IFS=' ' read -r name pinned; do
     [[ -z "$name" ]] && continue
+    # A module this repository publishes is not an upstream dependency, and
+    # the proxy cannot answer what its newest version is: the support modules
+    # carry no per-module tags (release-please cuts one repo-wide vX.Y.Z), so
+    # a pin is the pseudo-version of a release commit — which always sorts
+    # below the bootstrap `*/v0.1.0` tags that were deleted from the repo but
+    # survive in the proxy cache. Comparing the two reports every correct pin
+    # as a downgrade. What is current for these modules is this tree, which
+    # the compiler and the GOWORK=off build already check.
+    if [[ $name == github.com/e6qu/sockerless-cloud/* ]]; then
+      continue
+    fi
     published=$(GOFLAGS='' go list -m -versions "$name" 2>/dev/null \
       | tr ' ' '\n' | tail -n +2 \
       | grep -vE '\-(beta|alpha|rc|dev|preview)' || true)

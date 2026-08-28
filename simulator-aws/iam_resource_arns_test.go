@@ -1622,3 +1622,41 @@ func TestIAMResourceARNs_StepFunctionsCreateNamesTheARNItWillHave(t *testing.T) 
 			"states:StartExecution", p+"stateMachine:order-pipeline")
 	})
 }
+
+// A create authorizes against the type wildcard AWS evaluates it against, not
+// the literal "*" an underived action falls back to. The distinction decides
+// real policies: "*" matches only a policy whose Resource is itself "*", so a
+// policy scoped to `arn:aws:ec2:*:*:dedicated-host/*` is honoured by AWS and
+// would be denied here.
+func TestIAMResourceARNs_CreateAuthorizesAgainstTheTypeWildcard(t *testing.T) {
+	t.Run("a single-type create names its type", func(t *testing.T) {
+		r := iamQueryRequest("AllocateHosts", "2016-11-15", map[string]string{
+			"AvailabilityZone": "us-east-1a", "InstanceType": "m5.large", "Quantity": "1",
+		})
+		assertDerivedARNs(t, r, "ec2:AllocateHosts",
+			"arn:aws:ec2:us-east-1:123456789012:dedicated-host/*")
+	})
+
+	t.Run("a create declaring several types stays undivined", func(t *testing.T) {
+		// CreateVpc declares ipam-pool, ipv6pool-ec2 and vpc. Which one it
+		// creates is not decidable from the declaration, and widening to all
+		// three would authorize against resources the call is not about.
+		r := iamQueryRequest("CreateVpc", "2016-11-15", map[string]string{"CidrBlock": "10.0.0.0/16"})
+		assertDerivedARNs(t, r, "ec2:CreateVpc", "*")
+	})
+
+	t.Run("a read is not a create", func(t *testing.T) {
+		// DescribeHosts names existing hosts; a wildcard would authorize a read
+		// of every host in the account rather than the ones asked for.
+		r := iamQueryRequest("DescribeHosts", "2016-11-15", map[string]string{"HostId.1": "h-0abc"})
+		action, ok := iamActionForRequest(r)
+		if !ok || action != "ec2:DescribeHosts" {
+			t.Fatalf("action = %q, %v; want ec2:DescribeHosts", action, ok)
+		}
+		for _, arn := range iamDerivedResourceARNs(r, "ec2", "DescribeHosts", "us-east-1", "123456789012") {
+			if strings.HasSuffix(arn, "/*") {
+				t.Fatalf("DescribeHosts derived the type wildcard %q; a read must name what it reads", arn)
+			}
+		}
+	})
+}

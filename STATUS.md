@@ -89,7 +89,7 @@ Current state of the sockerless-cloud repository.
   module graphs; govulncheck clean).
 - **Measured floors** (re-read from the ratchets on 2026-08-27, because the
   figures written here had drifted from the tests that produce them): IAM
-  resource derivation **1,764 of 1,994** served operations;
+  resource derivation **1,792 of 1,994** served operations;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
   catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` 108 of 120;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
@@ -99,7 +99,7 @@ Current state of the sockerless-cloud repository.
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family);
   `containerregistry-dataplane-containerregistry-2021-07-01` 24 of 29;
-  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **4,489 of 5,426**
+  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **4,485 of 5,460**
   Discovery method spellings; Azure **2,521 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint

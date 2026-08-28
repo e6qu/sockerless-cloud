@@ -14,7 +14,7 @@ require (
 	cloud.google.com/go/spanner v1.95.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/e6qu/sockerless-cloud/realexec v0.1.0
-	github.com/e6qu/sockerless-cloud/ui-auth v0.1.0
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260828135648-2834ff5ae633
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.1
 	github.com/opencontainers/image-spec v1.1.1
