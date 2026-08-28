@@ -1,5 +1,40 @@
 # WHAT WE DID
 
+## 2026-08-28, thirty-fifth pass — a create authorizes against its type, and the installable build is fixed
+
+AWS resource-derivation coverage reaches 1,792 of 1,994 served operations, up
+from 1,764, and Amazon EC2's underived count falls from 56 to 34.
+
+A create names a resource that does not exist yet, so the request carries no
+identifier — but AWS still evaluates the call against the type:
+`ec2:AllocateHosts` authorizes against
+`arn:aws:ec2:<region>:<account>:dedicated-host/*`. Falling back to a literal
+`"*"` is not a smaller answer, it is a different one, because `"*"` matches
+only a policy whose Resource is itself `"*"`. A policy scoped to
+`arn:aws:ec2:*:*:dedicated-host/*` is honoured by AWS and was denied here.
+
+Every segment comes from the ARN format AWS publishes; the only invented part
+is the wildcard the service itself evaluates against. Three rules keep it from
+widening anything: the action must declare exactly one resource type, the
+format must name exactly one identifier variable once the partition, region and
+account are filled, and the operation's own noun must match the declared type —
+`CreateStateMachineAlias` declares `statemachine`, and a wildcard over every
+state machine is not what creating one alias authorizes against. It runs only
+where the service's own reader found no identifier, so `CreateTopic`, which
+carries the topic's name, still derives that name.
+
+The first draft ran before the service readers instead of after and regressed
+four services to wildcards; the second counted `${Partition}`, `${Region}` and
+`${Account}` as identifier variables, so no format ever qualified.
+
+**The installable build was broken and is fixed.** All three simulators
+reference `uiauth.Config.ApplicationSlug`, `MonitoringToken` and
+`RegisterMonitoring`, and all three pinned `ui-auth v0.1.0`, which predates
+them — so every `GOWORK=off` build failed, which is the mode `go install
+github.com/e6qu/sockerless-cloud/simulator-<cloud>@<tag>` uses and the mode
+every SDK harness builds its simulator in. The workspace hid it locally. The
+three modules now pin the pseudo-version of a commit that carries the feature.
+
 ## 2026-08-28, thirty-fourth pass — Azure's Managed HSM tail
 
 Managed HSM reaches 16 of 16, up from 6, taking Azure to 2,521 of 2,628.

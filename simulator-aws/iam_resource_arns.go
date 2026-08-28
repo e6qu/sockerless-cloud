@@ -49,6 +49,18 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 	if a := iamRequestARNField(r); a != "" {
 		return []string{a}
 	}
+	if arns := iamServiceResourceARNs(r, service, op, types, region, account, arn); arns != nil {
+		return arns
+	}
+	// Only where the service's own reader found no identifier: a create names
+	// a resource that does not exist yet, and the type wildcard is what AWS
+	// evaluates it against. A request that does carry the name — SNS's
+	// CreateTopic carries the topic's — derives that above and never reaches
+	// here.
+	return iamCreateWildcardARNs(service, op, types, region, account)
+}
+
+func iamServiceResourceARNs(r *http.Request, service, op string, types []string, region, account string, arn func(string, string) string) []string {
 	switch service {
 	case "application-autoscaling":
 		return iamApplicationAutoScalingResourceARNs(r, types, region, account)
