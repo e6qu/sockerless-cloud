@@ -27,6 +27,16 @@ The first draft ran before the service readers instead of after and regressed
 four services to wildcards; the second counted `${Partition}`, `${Region}` and
 `${Account}` as identifier variables, so no format ever qualified.
 
+**The freshness gate could not have caught it, and now something can.** A
+module this repository publishes is not an upstream dependency: the support
+modules carry no per-module tag, so a pin is the pseudo-version of a release
+commit, which always sorts below the bootstrap `*/v0.1.0` tags that were
+deleted from the repo but survive in the proxy cache. The gate read every
+correct pin as a downgrade. It now skips self-published modules, and
+`scripts/check-installable-build.sh` replaces that check by building each
+simulator with `GOWORK=off` — the mode `go install` and every SDK harness use.
+Reverting the pin makes it fail, which is how it was proven.
+
 **The installable build was broken and is fixed.** All three simulators
 reference `uiauth.Config.ApplicationSlug`, `MonitoringToken` and
 `RegisterMonitoring`, and all three pinned `ui-auth v0.1.0`, which predates

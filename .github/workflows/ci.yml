@@ -1126,6 +1126,9 @@ jobs:
       - name: No script assigns a name zsh reserves
         run: bash scripts/check-zsh-special-vars.sh
         timeout-minutes: 5
+      - name: Every simulator builds from its pinned modules (go install path)
+        run: bash scripts/check-installable-build.sh
+        timeout-minutes: 10
       - name: Check container publication contract
         run: bash scripts/check-container-publication.sh
         timeout-minutes: 5
