@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/e6qu/sockerless-cloud/compare/v0.26.0...v0.27.0) (2026-08-28)
+
+
+### Features
+
+* **gcp:** serve Firestore's document custom methods, and complete application observation ([#97](https://github.com/e6qu/sockerless-cloud/issues/97)) ([e8473d7](https://github.com/e6qu/sockerless-cloud/commit/e8473d7028fcd4477cb0215090402ecd864f2a02))
+
 ## [0.26.0](https://github.com/e6qu/sockerless-cloud/compare/v0.25.0...v0.26.0) (2026-08-28)
 
 
