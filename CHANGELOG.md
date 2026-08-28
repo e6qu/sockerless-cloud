@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/e6qu/sockerless-cloud/compare/v0.27.0...v0.28.0) (2026-08-28)
+
+
+### Features
+
+* **sim:** serve four more document tails across Google Cloud and Azure ([#99](https://github.com/e6qu/sockerless-cloud/issues/99)) ([2834ff5](https://github.com/e6qu/sockerless-cloud/commit/2834ff5ae6335e12d647e42db02283d420c6c995))
+
 ## [0.27.0](https://github.com/e6qu/sockerless-cloud/compare/v0.26.0...v0.27.0) (2026-08-28)
 
 
