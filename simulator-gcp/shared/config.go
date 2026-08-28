@@ -47,6 +47,7 @@ type Config struct {
 	UISessionSecret            string
 	UIOIDCInsecureCookies      bool
 	ApplicationReleaseRevision string
+	ApplicationMonitoringToken string
 }
 
 // ConfigFromEnv loads configuration from environment variables.
@@ -77,6 +78,7 @@ func ConfigFromEnv(provider string) Config {
 		UISessionSecret:            os.Getenv("SIM_UI_SESSION_SECRET"),
 		UIOIDCInsecureCookies:      os.Getenv("SIM_UI_INSECURE_COOKIES") == "true",
 		ApplicationReleaseRevision: os.Getenv("APPLICATION_RELEASE_REVISION"),
+		ApplicationMonitoringToken: os.Getenv("SIM_MONITORING_TOKEN"),
 	}
 }
 

@@ -52,7 +52,9 @@ type Config struct {
 	SessionSecret   string
 	CookieName      string
 	ApplicationName string
+	ApplicationSlug string
 	ReleaseRevision string
+	MonitoringToken string
 	SessionLifetime time.Duration
 	InsecureCookies bool
 }
@@ -62,6 +64,14 @@ func (c Config) Enabled() bool {
 }
 
 func (c Config) Validate() error {
+	if c.MonitoringToken != "" {
+		if _, err := monitoringTokenDigest(c.MonitoringToken); err != nil {
+			return err
+		}
+		if strings.TrimSpace(c.ApplicationName) == "" || strings.TrimSpace(c.ApplicationSlug) == "" {
+			return errors.New("application name and slug are required when simulator monitoring is enabled")
+		}
+	}
 	if !c.Enabled() {
 		return nil
 	}
@@ -97,8 +107,10 @@ func (c Config) Validate() error {
 }
 
 type Auth struct {
-	config Config
-	store  *sessionStore
+	config                Config
+	store                 *sessionStore
+	monitoringTokenDigest *monitoringTokenDigestValue
+	startedAt             time.Time
 
 	providerMu sync.Mutex
 	provider   *oidc.Provider
@@ -112,7 +124,12 @@ func New(config Config) (*Auth, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return &Auth{config: config, store: newSessionStore()}, nil
+	digest, err := monitoringTokenDigest(config.MonitoringToken)
+	if err != nil {
+		return nil, err
+	}
+	config.MonitoringToken = ""
+	return &Auth{config: config, store: newSessionStore(), monitoringTokenDigest: digest, startedAt: time.Now()}, nil
 }
 
 func (a *Auth) Enabled() bool { return a != nil && a.config.Enabled() }
@@ -153,6 +170,16 @@ func (a *Auth) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+LogoutCompletePath, a.logoutComplete)
 	mux.HandleFunc("GET "+SignedOutPath, a.signedOut)
 	mux.HandleFunc("GET "+ValidationPath, a.validation)
+}
+
+// RegisterMonitoring mounts the bearer-authenticated application observation
+// independently of the browser UI routes. Headless simulator builds still need
+// to publish deployment health when a monitoring token is configured.
+func (a *Auth) RegisterMonitoring(mux *http.ServeMux) {
+	if a == nil || a.monitoringTokenDigest == nil {
+		return
+	}
+	mux.Handle("GET "+MonitoringPath, a.monitoringHandler())
 }
 
 func (a *Auth) Protect(next http.Handler) http.Handler {
@@ -700,4 +727,11 @@ func (s *sessionStore) prune(now time.Time) {
 			delete(s.logoutTokens, id)
 		}
 	}
+}
+
+func (s *sessionStore) count(now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prune(now)
+	return len(s.sessions)
 }

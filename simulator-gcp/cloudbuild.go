@@ -44,6 +44,25 @@ type Build struct {
 	AvailableSecrets *AvailableSecrets `json:"availableSecrets,omitempty"`
 	Substitutions    map[string]string `json:"substitutions,omitempty"`
 	Options          map[string]any    `json:"options,omitempty"`
+	Approval         *BuildApproval    `json:"approval,omitempty"`
+	BuildTriggerID   string            `json:"buildTriggerId,omitempty"`
+}
+
+// BuildApproval mirrors the Cloud Build v1 BuildApproval schema. A build only
+// carries one when its trigger requires approval.
+type BuildApproval struct {
+	State  string               `json:"state,omitempty"`
+	Config map[string]any       `json:"config,omitempty"`
+	Result *BuildApprovalResult `json:"result,omitempty"`
+}
+
+// BuildApprovalResult mirrors the Cloud Build v1 ApprovalResult schema.
+type BuildApprovalResult struct {
+	Decision        string `json:"decision,omitempty"`
+	Comment         string `json:"comment,omitempty"`
+	URL             string `json:"url,omitempty"`
+	ApproverAccount string `json:"approverAccount,omitempty"`
+	ApprovalTime    string `json:"approvalTime,omitempty"`
 }
 
 type BuildSource struct {
@@ -176,6 +195,8 @@ func registerCloudBuild(srv *sim.Server) {
 	cbBitbucketConfigs = sim.MakeStore[BitbucketServerConfig](srv.DB(), "cloudbuild_bitbucket_configs")
 
 	// CreateBuild: POST /v1/projects/{project}/builds
+	registerCloudBuildRegional(srv)
+
 	srv.HandleFunc("POST /v1/projects/{project}/builds", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 
@@ -258,6 +279,9 @@ func registerCloudBuild(srv *sim.Server) {
 	cancelBuild := func(w http.ResponseWriter, r *http.Request) {
 		idAction := sim.PathParam(r, "idAction")
 		id, action, found := strings.Cut(idAction, ":")
+		if found && cbBuildActionHandled(w, r, sim.PathParam(r, "project"), id, action) {
+			return
+		}
 		if !found || action != "cancel" {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown build action %q", idAction)
 			return

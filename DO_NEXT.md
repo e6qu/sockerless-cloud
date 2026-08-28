@@ -14,12 +14,14 @@
    controls. **Cloud Logging, 508 of 508** and **Artifact Registry, 147 of
    147** (2026-08-28) — the colon-verb split that let locations.get mount
    without inflating Cloud Run, the plain `/v1` spellings of the media publish
-   methods, and the prewarmed-artifact family over real state.
+   methods, and the prewarmed-artifact family over real state. **Cloud Build,
+   114 of 114** (2026-08-28) — the regional surface, the build and trigger
+   colon-verbs, the webhook receivers, and the Bitbucket Server
+   connected-repository pair.
 
    Left, largest first, with the per-document floor comment naming each:
    Compute Engine's long tail (1,118 of 2,014 spellings; 559 of 1,007
-   methods), Cloud Build's regional surface and webhook receivers (28 at
-   Discovery revision 20260814), Firestore's streaming verbs and change
+   methods), Firestore's streaming verbs and change
    streams (24, of which about ten are routing), Cloud Run v2's export family
    and source upload (17), Memorystore's export/import/reschedule verbs (6),
    BigQuery's media upload path (1); then Azure's 41 non-App-Service

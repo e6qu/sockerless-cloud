@@ -146,6 +146,13 @@ import (
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages/{pkg}/versions
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages/{pkg}/versions/{version}
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts
+//   POST /v1/projects/{project}/locations/{location}/builds
+//   POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate
+//   POST /v1/webhook
+//   POST /v1/projects/{project}/triggers/{triggerAction}
+//   POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{configAction}
+//   POST /v1/githubDotComWebhook:receive
+//   POST /v1/locations/{location}/regionalWebhook
 //   POST /upload/v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   POST /v1/projects/{project}/locations/{location}/repositories/{repo}/files:upload
 //   GET /v1/projects/{project}/locations/{location}/repositories/{repo}/pythonPackages

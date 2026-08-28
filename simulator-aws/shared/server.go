@@ -77,6 +77,7 @@ func NewServer(cfg Config) (*Server, error) {
 		Issuer: cfg.UIOIDCIssuer, ClientID: cfg.UIOIDCClientID, ClientSecret: cfg.UIOIDCClientSecret,
 		PublicURL: cfg.UIPublicURL, SessionSecret: cfg.UISessionSecret,
 		CookieName: "sockerless_" + cfg.Provider + "_session", ApplicationName: "Sockerless " + strings.ToUpper(cfg.Provider) + " Simulator",
+		ApplicationSlug: "sockerless-" + cfg.Provider, MonitoringToken: cfg.ApplicationMonitoringToken,
 		ReleaseRevision: cfg.ApplicationReleaseRevision,
 		InsecureCookies: cfg.UIOIDCInsecureCookies,
 	})
@@ -103,6 +104,7 @@ func NewServer(cfg Config) (*Server, error) {
 		Logger()
 
 	mux := http.NewServeMux()
+	uiAuth.RegisterMonitoring(mux)
 
 	// The runtime mode decides whether this process holds a container engine
 	// client, so it is resolved once here and carried, never re-read: what the
