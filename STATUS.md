@@ -99,7 +99,7 @@ Current state of the sockerless-cloud repository.
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family);
   `containerregistry-dataplane-containerregistry-2021-07-01` 24 of 29;
-  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **4,489 of 5,426**
+  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **4,485 of 5,460**
   Discovery method spellings; Azure **2,521 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint

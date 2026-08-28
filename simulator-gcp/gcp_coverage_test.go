@@ -71,14 +71,14 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"cloudbilling-v1":         36,
 	"cloudbuild-v1":           114,
 	"cloudfunctions-v2":       42,
-	"cloudkms-v1":             172,
+	"cloudkms-v1":             174,
 	"cloudresourcemanager-v1": 76,
 	"cloudresourcemanager-v2": 24,
 	"cloudresourcemanager-v3": 126,
 	"cloudrun-v1":             152,
 	"cloudrun-v2":             119,
-	"compute-v1":              2014,
-	"dataflow-v1b3":           84,
+	"compute-v1":              2016,
+	"dataflow-v1b3":           114,
 	"dns-v1":                  80,
 	"eventarc-v1":             132,
 	"firestore-v1":            120,
@@ -107,6 +107,8 @@ var gcpMethodFloor = map[string]int{
 	// TPUs and the rest). There is no per-method enumeration: lower this
 	// floor by one and the gate prints the full unserved list on demand,
 	// which is the work list whenever a slice widens.
+	// Grew by two spellings at the 2026-08-21 revision, both in the unserved
+	// long tail below.
 	"compute-v1":              1118,
 	"cloudresourcemanager-v3": 126,
 
@@ -124,6 +126,11 @@ var gcpMethodFloor = map[string]int{
 	// operations poll/delete/wait and the IAM reads complete the surface.
 	"cloudrun-v1": 152,
 
+	// Dataflow: the vendored document grew from 84 spellings to 114 at the
+	// 2026-08-18 revision, and the thirty it gained are unserved. They are a
+	// new surface Google published, not a regression: the served count is
+	// unchanged, and this simulator's Dataflow slice is the job surface its
+	// consumers drive.
 	"dataflow-v1b3": 84,
 
 	// Cloud Run Admin v2: builds.submit hands the request to the Cloud Build
@@ -153,7 +160,8 @@ var gcpMethodFloor = map[string]int{
 	// (showEffectiveKeyAccessJustificationsPolicyConfig and
 	// ...EnrollmentConfig) report an organization-policy product the
 	// simulator does not model; the projects colon-verb fan-in rejects them
-	// as unknown verbs.
+	// as unknown verbs. The document grew by two spellings at the 2026-08-14
+	// revision; both belong to that same Key Access Justifications family.
 	"cloudkms-v1": 168,
 
 	"eventarc-v1":       132,

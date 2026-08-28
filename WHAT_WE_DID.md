@@ -1,5 +1,29 @@
 # WHAT WE DID
 
+## 2026-08-28, thirty-sixth pass — the specifications sync again
+
+Two defects kept the vendored specifications behind upstream, and both are
+fixed. Google Cloud went from eighteen documents behind to one, and the one
+oscillates because Google serves several Discovery revisions concurrently.
+
+`scripts/fetch-gcp-discovery.sh` derived a central-index fetch's service from
+its host. Compute Engine is the one document the central index alone serves, so
+its host *is* `www.googleapis.com` and the fetch asked for `apis/www/v1`. The
+404 aborted the whole Google sweep, every night, so no Google document was
+refreshed at all. It uses the service name now.
+
+The scheduled run also had nowhere to put a refresh. It opens a bump pull
+request only when nothing else is open, this repository allows exactly one, and
+development has kept one open continuously — so the run failed every night
+since at least 2026-08-24 and landed nothing. It now pushes the refresh onto
+the open pull request instead, the way a dependency bump rides it, skipping a
+release-please branch because a commit there is overwritten by the next release.
+
+The re-vendor moved three declared totals, all upward and none a regression:
+Cloud KMS gained two spellings in the Key Access Justifications family, Compute
+Engine two in its unserved long tail, and Dataflow thirty — a surface Google
+published that this simulator does not serve. The served counts are unchanged.
+
 ## 2026-08-28, thirty-fifth pass — a create authorizes against its type, and the installable build is fixed
 
 AWS resource-derivation coverage reaches 1,792 of 1,994 served operations, up

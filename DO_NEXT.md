@@ -49,23 +49,22 @@
    the Application Insights query data plane; and the two published catalogs
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
-0-sync. **The vendored specifications are not in sync, and the mechanism that
-   was supposed to keep them so cannot run.** Measured 2026-08-28:
-   **Google Cloud 18, AWS 42, Azure 120** documents behind upstream.
+0-sync. **Google Cloud is in sync; AWS and Azure are not.** Measured
+   2026-08-28 after the refresh: Google Cloud 1 (oscillating, see below),
+   **AWS 42, Azure 120** documents behind upstream. Run
+   `scripts/refresh-drifted-specs.sh aws` and `... azure` on the branch in
+   flight, then reconcile each declared total and served floor the re-vendor
+   moves.
 
-   `.github/workflows/spec-freshness.yml` detects the drift nightly, refreshes
-   it with `scripts/refresh-drifted-specs.sh`, and opens a bump pull request —
-   *but only when no other pull request is open*, because this repository
-   allows exactly one and a second would fail every commit on the branch in
-   flight. Development has kept a pull request open continuously, so the
-   scheduled refresh has landed nothing; its runs have failed every night since
-   at least 2026-08-24.
+   Google serves several Discovery revisions concurrently, so the last one or
+   two documents oscillate by edge; the scheduled run vendors from what it
+   sampled rather than re-fetching, which is what settles them.
 
-   The rule that already resolves this for dependencies resolves it here:
-   **bundle the spec refresh into the open pull request**, the way
-   `check-latest-deps.sh` annotates inherited dependency drift onto it. Until
-   that is wired up, a refresh only lands when somebody runs
-   `scripts/refresh-drifted-specs.sh <cloud>` on the branch in flight.
+   The nightly run now pushes its refresh onto the open pull request rather
+   than giving up when one exists, so this should not recur. Two defects had
+   kept it from landing anything: that gate, and a fetcher that asked
+   www.googleapis.com for `apis/www/v1` when re-vendoring Compute Engine — the
+   404 aborted the whole Google sweep.
 
    Re-vendoring is not free: each document's declared total and served floor
    move together, and the floor comment must say which methods moved and why —
