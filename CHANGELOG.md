@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/e6qu/sockerless-cloud/compare/v0.25.0...v0.26.0) (2026-08-28)
+
+
+### Features
+
+* **gcp:** serve Cloud Build whole ([#95](https://github.com/e6qu/sockerless-cloud/issues/95)) ([f15a52f](https://github.com/e6qu/sockerless-cloud/commit/f15a52f6e548e0cb5840ca10706e32de567fa9ab))
+
 ## [0.25.0](https://github.com/e6qu/sockerless-cloud/compare/v0.24.0...v0.25.0) (2026-08-28)
 
 
