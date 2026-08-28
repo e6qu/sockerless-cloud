@@ -1,5 +1,18 @@
 # WHAT WE DID
 
+## 2026-08-28 — authenticated application observations
+
+Added one deployment-neutral observation implementation to `ui-auth` and
+wired it into the AWS, Google Cloud, and Microsoft Azure simulator composition
+roots. Each binary reads its own `SIM_MONITORING_TOKEN`, validates and digests
+it at startup, registers `GET /monitoring/observation` outside browser OpenID
+Connect, and publishes fixed-cardinality real session, runtime, memory, and
+uptime evidence using `e6qu.monitoring/v2`. Missing credentials leave the route
+absent, malformed credentials fail startup, exact bearer checks run in constant
+time, plaintext credentials do not survive construction, and the observation
+  does not fabricate cloud costs. Race-enabled tests passed across `ui-auth`
+  and all three simulator shared packages.
+
 ## 2026-08-28, thirty-first pass — Cloud Build is whole
 
 Cloud Build reaches 114 of 114 method spellings, taking Google Cloud to 4,468

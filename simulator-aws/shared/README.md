@@ -65,6 +65,7 @@ Loaded from environment variables via `sim.ConfigFromEnv(provider)`:
 | `SIM_UI_SESSION_SECRET` | — | Independent random session-signing secret of at least 32 bytes |
 | `SIM_UI_INSECURE_COOKIES` | `false` | Allows HTTP only for explicit loopback integration tests |
 | `APPLICATION_RELEASE_REVISION` | — | Immutable 12–64 character lowercase hexadecimal revision or `sha256:` digest; required with dashboard authentication |
+| `SIM_MONITORING_TOKEN` | — | Independent bearer credential of at least 32 non-whitespace characters for `GET /monitoring/observation` |
 
 Authenticated dashboards expose `GET /auth/validation` with Shauth's exact
 username, email, role, and immutable release fields. Anonymous and bearer-only

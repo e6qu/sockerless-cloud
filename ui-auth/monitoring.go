@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"runtime"
 	"strings"
@@ -83,7 +84,9 @@ func (a *Auth) monitoringHandler() http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(document)
+		if err := json.NewEncoder(w).Encode(document); err != nil {
+			log.Printf("sockerless monitoring response failed: %v", err)
+		}
 	})
 }
 

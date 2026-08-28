@@ -1,5 +1,12 @@
 # DO NEXT
 
+0-monitoring. **Deliver the three application observations and restore the
+   single-PR invariant.** The publisher, configuration, tests, and deployment
+   documentation are complete in feature PR #95, but release-please PR #94 is
+   also open. The user must merge #94 first; #95 then becomes the sole open PR.
+   After #95 merges, verify all three authenticated observations through Shauth
+   after the owning infrastructure release pin is deployed.
+
 0. **The remaining tails are being served, document by document, on one
    branch.** An earlier revision of this item claimed that what remained
    unserved was "without exception" a family needing invented data or a

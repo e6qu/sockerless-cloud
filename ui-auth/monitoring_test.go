@@ -43,7 +43,7 @@ func TestMonitoringObservationAuthenticatesAndPublishesApplicationEvidence(t *te
 	auth.RegisterMonitoring(mux)
 
 	for _, authorization := range []string{"", "bearer " + monitoringTestToken, "Bearer wrong-monitoring-token-00000000000000000000"} {
-		request := httptest.NewRequest(http.MethodGet, MonitoringPath, nil)
+		request := httptest.NewRequest(http.MethodGet, MonitoringPath, http.NoBody)
 		request.Header.Set("Authorization", authorization)
 		response := httptest.NewRecorder()
 		mux.ServeHTTP(response, request)
@@ -55,7 +55,7 @@ func TestMonitoringObservationAuthenticatesAndPublishesApplicationEvidence(t *te
 		}
 	}
 
-	request := httptest.NewRequest(http.MethodGet, MonitoringPath, nil)
+	request := httptest.NewRequest(http.MethodGet, MonitoringPath, http.NoBody)
 	request.Header.Set("Authorization", "Bearer "+monitoringTestToken)
 	response := httptest.NewRecorder()
 	mux.ServeHTTP(response, request)
@@ -90,7 +90,7 @@ func TestMonitoringRouteIsAbsentWithoutADeploymentToken(t *testing.T) {
 	mux := http.NewServeMux()
 	auth.RegisterMonitoring(mux)
 	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, MonitoringPath, nil))
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, MonitoringPath, http.NoBody))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("unconfigured monitoring route status = %d, want 404", response.Code)
 	}

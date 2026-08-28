@@ -21,6 +21,11 @@ Current state of the sockerless-cloud repository.
 - **Console SPAs** build from `ui/` (Bun + Turborepo) and the built `dist/`
   is committed under each `simulator-<cloud>/dist/` so installed binaries
   ship the console.
+- **Application monitoring** uses one shared `ui-auth` implementation across
+  all three simulator binaries. A deployment-provided bearer exposes
+  `GET /monitoring/observation` independently of browser OpenID Connect and
+  reports real session and process evidence in `e6qu.monitoring/v2` without
+  altering the simulated cloud API surface.
 - **CI** ports the simulator jobs from the sockerless repo: per-cloud lint +
   unit tests, gcp/azure SDK+CLI suites, AWS SDK (4 shards) + CLI (10 shards),
   Terraform (8 shards), UI vitest/typecheck/build, Playwright browser suites,
