@@ -204,6 +204,11 @@ func registerCloudFunctions(srv *sim.Server) {
 	// CreateFunction to obtain the source-upload target.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/{functionsVerb}", func(w http.ResponseWriter, r *http.Request) {
 		collection, verb, found := strings.Cut(sim.PathParam(r, "functionsVerb"), ":")
+		// Cloud Run v2 shares this /v2 locations path, so its verbs are
+		// offered the fan-in before the Cloud Functions one.
+		if found && cloudRunLocationVerbHandled(w, r, collection, verb) {
+			return
+		}
 		if !found || collection != "functions" || verb != "generateUploadUrl" {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown functions verb %q", sim.PathParam(r, "functionsVerb"))
 			return

@@ -1,5 +1,30 @@
 # WHAT WE DID
 
+## 2026-08-28, thirty-third pass — Cloud Run's build path, BigQuery's upload, Memorystore's maintenance
+
+BigQuery reaches 95 of 95, Cloud Run v2 104 of 119 and Memorystore 90 of 94,
+taking Google Cloud to 4,489 of 5,426.
+
+BigQuery's `jobs.insert` declares a JSON path and a `/upload` media path that
+carries a load job's bytes; the same handler answers both, because the body is
+the same Job either way.
+
+Cloud Run v2's `builds.submit` hands the request to the Cloud Build this
+simulator serves, so the operation it returns names a build that really ran —
+and a submit naming source that was never uploaded is NOT_FOUND rather than a
+build of nothing. Both it and `sourceUploads.upload` ride the `/v2` locations
+segment Cloud Functions also claims, so they dispatch from its fan-in; that
+service's count is unmoved at 42, which is what proves neither shadows the
+other. This is the third such collision after Cloud Logging/Cloud Run and
+Cloud Build/Eventarc.
+
+Memorystore serves `rescheduleMaintenance`, which records the moved window on
+the instance. Its `export` and `import` stay unserved, and not for want of
+routing: both move an RDB snapshot of the instance's keyspace, and the slice
+models the control plane only — no Redis runs behind an instance, so there are
+no bytes to write out and nothing an import could load. Serving them would
+fabricate an RDB, so the floor comment records that instead.
+
 ## 2026-08-28, thirty-second pass — Firestore's document verbs, and a picked-up tail
 
 Firestore reaches 108 of 120 method spellings, taking Google Cloud to 4,480 of

@@ -149,6 +149,7 @@ import (
 //   POST /v1/projects/{project}/locations/{location}/builds
 //   POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate
 //   POST /v1/webhook
+//   POST /upload/bigquery/v2/projects/{project}/jobs
 //   POST /v1/projects/{project}/databases/{database}/documents:write
 //   POST /v1/projects/{project}/databases/{database}/documents:listCollectionIds
 //   POST /v1/projects/{project}/databases/{database}/documents:runAggregationQuery

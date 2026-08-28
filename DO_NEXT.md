@@ -26,14 +26,13 @@
    colon-verbs, the webhook receivers, and the Bitbucket Server
    connected-repository pair. **Firestore, 108 of 120** (2026-08-28) — the
    document-parent custom methods, `documents:write`, and the databases
-   clone/restore pair.
+   clone/restore pair. **BigQuery, 95 of 95**, **Cloud Run v2, 104 of 119** and
+   **Memorystore, 90 of 94** (2026-08-28) — the media upload path, the hosted
+   build path routed to real Cloud Build, and rescheduleMaintenance.
 
    Left, largest first, with the per-document floor comment naming each:
    Compute Engine's long tail (1,118 of 2,014 spellings; 559 of 1,007
-   methods), Cloud Run v2's export family
-   and source upload (17), Memorystore's export/import/reschedule verbs (6),
-   BigQuery's media upload path (1); then Azure's 41 non-App-Service
-   operations and the implementable part of App Service's 76; then the 230 AWS
+   methods); then Azure's 41 non-App-Service operations and the implementable part of App Service's 76; then the 230 AWS
    IAM derivations.
 
    A Discovery document's field descriptions are worth reading before the

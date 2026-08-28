@@ -126,18 +126,22 @@ var gcpMethodFloor = map[string]int{
 
 	"dataflow-v1b3": 84,
 
-	// Cloud Run Admin v2: the export family (exportImage,
-	// exportImageMetadata, exportMetadata, exportProjectMetadata, the two
-	// exportStatus spellings) reports Google's own image-export pipeline,
-	// which the simulator does not run; builds.submit and
-	// sourceUploads.upload are the hosted build path Cloud Build owns here.
-	// Eight methods, seventeen spellings (the upload method declares three).
-	"cloudrun-v2": 102,
+	// Cloud Run Admin v2: builds.submit hands the request to the Cloud Build
+	// this simulator serves, and sourceUploads.upload names the Cloud Storage
+	// location a client uploads to. Both ride the /v2 locations segment Cloud
+	// Functions also claims, so they dispatch from its fan-in; that service's
+	// count is unmoved at 42, which is what proves neither shadows the other.
+	//
+	// Fifteen spellings remain: the export family (exportImage,
+	// exportImageMetadata, exportMetadata, exportProjectMetadata and the two
+	// exportStatus spellings) reports Google's own image-export pipeline, which
+	// this simulator does not run — there is no export whose status to report.
+	"cloudrun-v2": 104,
 
-	// BigQuery v2: every JSON method is served; the one unserved spelling is
-	// jobs.insert's /upload/bigquery media path, which carries a load job's
-	// bytes — the JSON jobs.insert the clients here issue is served.
-	"bigquery-v2": 94,
+	// BigQuery v2: the whole document is served. jobs.insert declares both a
+	// JSON path and the /upload media path that carries a load job's bytes;
+	// the same handler answers both, because the body is the same Job either way.
+	"bigquery-v2": 95,
 
 	// Cloud DNS: every documented method is served. The managed-zone IAM
 	// triple (getIamPolicy, setIamPolicy, testIamPermissions) rides the same
@@ -217,11 +221,16 @@ var gcpMethodFloor = map[string]int{
 	// withdrew the whole gitLabConfigs collection.
 	"cloudbuild-v1": 114,
 
-	// Memorystore for Redis: instance CRUD, upgrade, failover and
-	// operations.cancel are served. ACL policy revision get/list are served
-	// from immutable policy snapshots; the instances fan-in rejects export,
-	// import and rescheduleMaintenance as unknown verbs.
-	"redis-v1": 88,
+	// Memorystore for Redis: instance CRUD, upgrade, failover,
+	// rescheduleMaintenance and operations.cancel are served, and ACL policy
+	// revision get/list read immutable policy snapshots.
+	//
+	// export and import stay unserved, and not for want of routing: both move
+	// an RDB snapshot of the instance's keyspace, and this slice models the
+	// control plane only — no Redis runs behind an instance, so there are no
+	// bytes to write out and nothing an import could load. Serving them would
+	// fabricate an RDB.
+	"redis-v1": 90,
 
 	// Firestore: document CRUD, the transaction verbs, and the custom methods
 	// on a document parent — listCollectionIds, runAggregationQuery and

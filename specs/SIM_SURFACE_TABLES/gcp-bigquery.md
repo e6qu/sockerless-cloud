@@ -50,11 +50,12 @@ Surface registered in `simulator-gcp/bigquery.go` (and related files grouped und
 | `POST /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/rowAccessPolicies/{policyVerb}` | ✓ `simulator-gcp/bigquery.go:273::handleBQRAPVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /bigquery/v2/projects/{project}/queries` | ✓ `simulator-gcp/bigquery.go:275::handleBQQuery` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /bigquery/v2/projects/{project}/jobs` | ✓ `simulator-gcp/bigquery.go:276::handleBQInsertJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /bigquery/v2/projects/{project}/jobs` | ✓ `simulator-gcp/bigquery.go:277::handleBQListJobs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /bigquery/v2/projects/{project}/jobs/{job}` | ✓ `simulator-gcp/bigquery.go:278::handleBQGetJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /bigquery/v2/projects/{project}/jobs/{job}/cancel` | ✓ `simulator-gcp/bigquery.go:279::handleBQCancelJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /bigquery/v2/projects/{project}/jobs/{job}/delete` | ✓ `simulator-gcp/bigquery.go:280::handleBQDeleteJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /bigquery/v2/projects/{project}/queries/{job}` | ✓ `simulator-gcp/bigquery.go:281::handleBQGetQueryResults` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /upload/bigquery/v2/projects/{project}/jobs` | ✓ `simulator-gcp/bigquery.go:279::handleBQInsertJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /bigquery/v2/projects/{project}/jobs` | ✓ `simulator-gcp/bigquery.go:280::handleBQListJobs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /bigquery/v2/projects/{project}/jobs/{job}` | ✓ `simulator-gcp/bigquery.go:281::handleBQGetJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /bigquery/v2/projects/{project}/jobs/{job}/cancel` | ✓ `simulator-gcp/bigquery.go:282::handleBQCancelJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /bigquery/v2/projects/{project}/jobs/{job}/delete` | ✓ `simulator-gcp/bigquery.go:283::handleBQDeleteJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /bigquery/v2/projects/{project}/queries/{job}` | ✓ `simulator-gcp/bigquery.go:284::handleBQGetQueryResults` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
