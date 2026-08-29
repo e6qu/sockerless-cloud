@@ -1,5 +1,27 @@
 # WHAT WE DID
 
+## 2026-08-29, fortieth pass — Google monitoring reaches its own authenticator
+
+Production acceptance reached `GET /monitoring/observation` with the exact
+deployment credential configured in both Shauth and the Google Cloud
+simulator, but received Google's `UNAUTHENTICATED` envelope saying the token
+was not a JWT. The values matched; the authentication boundaries did not.
+
+The Google Cloud simulator wraps its complete published route table with the
+same access-token verifier that protects its cloud data plane. Because the
+monitoring route is published on that table, the verifier tried to parse the
+independent monitoring bearer as a simulator-minted Google JWT and rejected it
+before the monitoring handler could compare its own token digest. AWS and
+Microsoft Azure do not place that verifier in front of the route, which is why
+their observations worked with identical infrastructure wiring.
+
+The Google verifier now exempts the shared canonical monitoring path exactly
+as it exempts the console's independent session boundary. The monitoring
+handler still owns its constant-time bearer check. The final-handler regression
+proves a valid monitoring credential returns `e6qu.monitoring/v2`, a wrong one
+returns the monitoring realm's 401 challenge, and the valid monitoring
+credential remains rejected by a real Cloud Run API route.
+
 ## 2026-08-29, thirty-ninth pass — a deployment cannot complete while it is still failing
 
 An Amazon ECS deployment could report its rollout COMPLETED while none of its

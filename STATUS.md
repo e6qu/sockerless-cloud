@@ -25,9 +25,12 @@ Current state of the sockerless-cloud repository.
   all three simulator binaries. A deployment-provided bearer exposes
   `GET /monitoring/observation` independently of browser OpenID Connect and
   reports real session and process evidence in `e6qu.monitoring/v2` without
-  altering the simulated cloud API surface. Feature PR #95 merged and the
-  implementation shipped in immutable release `v0.26.0`; the owning
-  infrastructure coordinate and live Shauth acceptance remain.
+  altering the simulated cloud API surface. The Google Cloud access-token
+  verifier delegates that canonical path to its dedicated monitoring bearer
+  handler while continuing to reject the same credential on cloud API routes.
+  Feature PR #95 shipped the implementation in immutable release `v0.26.0`;
+  the Google Cloud routing correction awaits its immutable release coordinate
+  and live Shauth acceptance.
 - **CI** ports the simulator jobs from the sockerless repo: per-cloud lint +
   unit tests, gcp/azure SDK+CLI suites, AWS SDK (4 shards) + CLI (10 shards),
   Terraform (8 shards), UI vitest/typecheck/build, Playwright browser suites,

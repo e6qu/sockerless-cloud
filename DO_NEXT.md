@@ -2,10 +2,13 @@
 
 0-monitoring. **Complete release integration for the three application
    observations.** The publisher merged in feature PR #95 and shipped in
-   `v0.26.0`. This sole follow-up branch documents the deployment coordinate
-   and makes every `ui-auth` JSON response-encoding failure observable. After
-   it merges, advance the owning infrastructure release pin and verify all
-   three authenticated observations through Shauth.
+   `v0.26.0`. Live acceptance then proved Google Cloud's global cloud-bearer
+   verifier treated the monitoring credential as a Google JWT before the
+   monitoring handler could authenticate it. The canonical monitoring path is
+   now owned by its dedicated bearer boundary, while the same credential stays
+   invalid on cloud API routes. After this branch merges and publishes, advance
+   the owning infrastructure release pin and verify all three authenticated
+   observations through Shauth.
 
 0. **The remaining tails are being served, document by document, on one
    branch.** An earlier revision of this item claimed that what remained

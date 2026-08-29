@@ -57,6 +57,18 @@ Open: 7. Resolved: 80.
 
 ## Resolved history
 
+- ~~**BUG-2952 (Google Cloud rejected its application-monitoring bearer as an
+  invalid cloud JWT):**~~ The simulator's global cloud access-token verifier
+  wraps its complete published route table. That table also contains
+  `GET /monitoring/observation`, whose deployment bearer is deliberately not a
+  Google access token, so the verifier rejected the exact configured credential
+  before the monitoring handler could authenticate it. The verifier now
+  delegates the shared canonical monitoring path to its dedicated bearer
+  handler. A final-handler integration test proves the valid monitoring token
+  returns `e6qu.monitoring/v2`, an invalid one receives the monitoring realm's
+  challenge, and the valid monitoring token still cannot authenticate a Cloud
+  Run data-plane request.
+
 - ~~**BUG-2951 (an Amazon ECS deployment reported a rollout COMPLETED while no
   task of it ran):**~~ A deployment reached steady state on a task the watcher
   had not yet reconciled: a task whose essential container has already exited
