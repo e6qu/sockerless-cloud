@@ -162,7 +162,7 @@ func ecsRequestServiceReconcileForTask(task ECSTask) {
 	)
 	ecsRequestServiceReconcile(key)
 	if task.LastStatus == ECSTaskStatusRunning && task.StartedAt != nil {
-		delay := time.Until(time.Unix(*task.StartedAt, 0).Add(ecsServiceSteadyStateWindow))
+		delay := time.Until(ecsTaskSteadyStateAt(*task.StartedAt))
 		if delay > 0 {
 			simAfterFunc(delay, func() { ecsRequestServiceReconcile(key) })
 		}
@@ -485,12 +485,42 @@ func ecsCountHealthyServiceTasks(service ECSService, tasks []ECSTask) int {
 	return count
 }
 
+// ecsPrimaryDeploymentID names the service's primary deployment, or "" when it
+// has none, so scheduler state recorded against an earlier one is not read as
+// belonging to this one.
+func ecsPrimaryDeploymentID(service ECSService) string {
+	if len(service.Deployments) == 0 {
+		return ""
+	}
+	return service.Deployments[0].Id
+}
+
+// ecsTaskHeldSteadyState reports whether a task started early enough that it
+// has provably held the steady-state window.
+//
+// startedAt is Unix seconds, as the Amazon ECS wire format carries it, so it
+// truncates: a task that really started at 10.999 records 10. Comparing
+// time.Since against the window alone therefore clears a task that started a
+// millisecond ago whenever the start lands late in its second, and the window
+// is enforced or not depending on the wall clock. A second-resolution stamp
+// only proves W has elapsed once W plus one second has, so that is what this
+// requires — the task's essential container gets the whole window to exit
+// before the scheduler will call the task in service.
+func ecsTaskHeldSteadyState(startedAt int64) bool {
+	return !time.Now().Before(ecsTaskSteadyStateAt(startedAt))
+}
+
+// ecsTaskSteadyStateAt is the instant ecsTaskHeldSteadyState starts reporting
+// true, so a scheduler wake-up lands when the task becomes eligible.
+func ecsTaskSteadyStateAt(startedAt int64) time.Time {
+	return time.Unix(startedAt, 0).Add(ecsServiceSteadyStateWindow + time.Second)
+}
+
 // ecsServiceTaskHealthy reports whether a task is in service. The Amazon ECS
 // service scheduler reads the health Elastic Load Balancing maintains for the
 // task's target rather than checking the target itself.
 func ecsServiceTaskHealthy(service ECSService, task ECSTask) bool {
-	if task.StartedAt == nil ||
-		time.Since(time.Unix(*task.StartedAt, 0)) < ecsServiceSteadyStateWindow {
+	if task.StartedAt == nil || !ecsTaskHeldSteadyState(*task.StartedAt) {
 		return false
 	}
 	states, ok := ecsServiceTaskTargetHealth(service, task)
@@ -686,8 +716,20 @@ func ecsRefreshServiceState(key string) {
 	// exist. The scheduler state is read here rather than inside the closure
 	// so this write does not take a second store's lock while holding one.
 	rollingBack := false
+	// A deployment the scheduler is still counting launch failures for has not
+	// reached steady state, whatever the task list looks like this instant: a
+	// task whose essential container has already exited is reported RUNNING
+	// until the watcher observes the exit, and reading that window as steady
+	// state latches the rollout COMPLETED. Completion is sticky and
+	// ecsRecordServiceTaskFailure ignores a rollout that is not IN_PROGRESS, so
+	// the latch is permanent and silently stops the circuit breaker mid-count —
+	// the deployment then never reaches its threshold and never rolls back.
+	launchFailures := 0
 	if state, ok := ecsServiceSchedulerStates.Get(key); ok {
 		rollingBack = state.RollbackInProgress
+		if state.DeploymentID == ecsPrimaryDeploymentID(service) {
+			launchFailures = state.FailureCount
+		}
 	}
 	ecsServices.Update(key, func(current *ECSService) {
 		current.RunningCount = running
@@ -708,7 +750,8 @@ func ecsRefreshServiceState(key string) {
 			// COMPLETED state." Losing a task, or failing a health check, does
 			// not restart it — the scheduler replaces the task under the same
 			// completed deployment. Only a new deployment starts a new rollout.
-		case currentRunning == targetCount && currentHealthy == targetCount && pending == 0 && !oldActive:
+		case currentRunning == targetCount && currentHealthy == targetCount &&
+			pending == 0 && !oldActive && launchFailures == 0:
 			deployment.RolloutState = "COMPLETED"
 			deployment.RolloutStateReason = ""
 			ecsCompleteServiceDeployments(current.ServiceArn, now)

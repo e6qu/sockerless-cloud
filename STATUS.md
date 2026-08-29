@@ -290,6 +290,11 @@ Current state of the sockerless-cloud repository.
   so a collection swallowed by a subtree route can no longer count as covered.
   `gcpFanInPatterns` lists the twelve routes that dispatch inside the handler,
   each with its reason.
+- **An Amazon ECS deployment cannot complete while it is still failing.** A
+  deployment the scheduler holds launch failures for stays IN_PROGRESS, so the
+  circuit breaker keeps counting to its threshold; and the steady-state window
+  is judged against a Unix-second `startedAt` that truncates, so it requires the
+  window plus one second — the only span that proves it elapsed.
 
 ## Releases
 

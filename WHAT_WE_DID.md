@@ -1,5 +1,34 @@
 # WHAT WE DID
 
+## 2026-08-29, thirty-ninth pass — a deployment cannot complete while it is still failing
+
+An Amazon ECS deployment could report its rollout COMPLETED while none of its
+tasks ran, which silently disarmed the deployment circuit breaker.
+
+A task whose essential container has already exited reads RUNNING until the
+watcher observes the exit. That window satisfied every completion condition, so
+the rollout latched COMPLETED on a task that was about to die. Completion is
+sticky by design — a completed deployment that later loses a task does not
+restart its rollout — and `ecsRecordServiceTaskFailure` ignores a rollout that
+is not IN_PROGRESS. Together those made the latch permanent: the circuit breaker
+stopped counting mid-deployment, never reached its threshold, and never rolled
+back. A deployment the scheduler still holds launch failures for no longer
+completes.
+
+The steady-state window is honoured now whatever the second boundary. It is
+judged against `startedAt`, which the Amazon ECS wire format carries in Unix
+seconds, so it truncates: a task that really started at 10.999 records 10, and
+comparing elapsed time against the window alone cleared a task a millisecond
+after it started whenever the start landed late in its second. A
+second-resolution stamp only proves the window elapsed once the window plus one
+second has, so that is what the scheduler requires, and the wake-up it arms
+lands on the same instant.
+
+`TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK` failed
+about one run in four — on CI and locally — and passes 15 of 15. The truncation
+carries its own unit test, checked against a negative control: the first version
+of that test passed on the unfixed code, which made it worth nothing.
+
 ## 2026-08-29, thirty-seventh pass — the freshness check reads the filter it sends
 
 Every vendored specification is in sync with upstream: AWS 41 Smithy models and
