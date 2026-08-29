@@ -51,6 +51,11 @@ type computeMetaResource struct {
 	patch      bool
 	setLabels  bool
 	aggregated bool
+	// listUsableKind is the `kind` of the listUsable response, set only for the
+	// collections whose Discovery document declares the method. It is spelled
+	// out rather than derived from res.kind because Google does not derive it:
+	// backendServices answers compute#usableBackendServiceList.
+	listUsableKind string
 	// resourceMetadata stamps the standardized ResourceMetadata the Compute
 	// Discovery document declares. It is opt-in per collection because only
 	// three schemas carry the member — a reservation, a future reservation and
@@ -219,6 +224,39 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
+	// listUsable — the subset of the collection the caller may attach to a
+	// load balancer. The caller holds the project, so that is the project's
+	// own resources: the same set list returns, under the response kind the
+	// Discovery document declares. Registered on the literal segment, which
+	// wins over the `{name}` get that would otherwise answer for it.
+	if res.listUsableKind != "" {
+		srv.HandleFunc("GET "+base+"/listUsable", func(w http.ResponseWriter, r *http.Request) {
+			prefix := listPrefix(r)
+			items := res.store.Filter(func(m map[string]any) bool {
+				sl, _ := m["selfLink"].(string)
+				return strings.HasPrefix(sl, prefix)
+			})
+			sort.Slice(items, func(i, j int) bool {
+				ni, _ := items[i]["name"].(string)
+				nj, _ := items[j]["name"].(string)
+				return ni < nj
+			})
+			items = gcpApplyListParams(items, r)
+			page, next, ok := paginateListCompute(w, r, items)
+			if !ok {
+				return
+			}
+			if page == nil {
+				page = []map[string]any{}
+			}
+			resp := map[string]any{"kind": res.listUsableKind, "items": page}
+			if next != "" {
+				resp["nextPageToken"] = next
+			}
+			sim.WriteJSON(w, http.StatusOK, resp)
+		})
+	}
+
 	// Delete
 	if !res.skipDelete {
 		srv.HandleFunc("DELETE "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -365,7 +403,7 @@ func registerComputeMore(srv *sim.Server) {
 		{collection: "routes", kind: "compute#route", scope: cScopeGlobal, store: mk("compute_routes")},
 		// Load-balancing resources.
 		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: mk("compute_target_pools"), aggregated: true},
-		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true},
+		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, listUsableKind: "compute#usableBackendServiceList"},
 		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true},
 		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true},
 		{collection: "httpsHealthChecks", kind: "compute#httpsHealthCheck", scope: cScopeGlobal, store: mk("compute_https_health_checks"), patch: true},

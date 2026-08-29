@@ -43,7 +43,7 @@ func registerComputeMore2(srv *sim.Server) {
 	// method, so no invented /aggregated/<collection> route is registered.
 	families := []computeMetaResource{
 		// Global load-balancing / addressing / policy resources.
-		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: mk("compute_backend_buckets"), patch: true, aggregated: true},
+		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: mk("compute_backend_buckets"), patch: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList"},
 		{collection: "externalVpnGateways", kind: "compute#externalVpnGateway", scope: cScopeGlobal, store: mk("compute_external_vpn_gateways"), setLabels: true},
 		{collection: "targetSslProxies", kind: "compute#targetSslProxy", scope: cScopeGlobal, store: mk("compute_target_ssl_proxies")},
 		{collection: "publicDelegatedPrefixes", kind: "compute#publicDelegatedPrefix", scope: cScopeGlobal, store: mk("compute_public_delegated_prefixes"), patch: true, aggregated: true},

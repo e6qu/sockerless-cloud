@@ -177,6 +177,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: gh-api-params
+        name: Every gh api query parameter is one GitHub defines
+        entry: bash scripts/check-gh-api-params.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: store-scans
         name: No request path reads a whole store to find one row
         entry: bash scripts/check-store-scans.sh

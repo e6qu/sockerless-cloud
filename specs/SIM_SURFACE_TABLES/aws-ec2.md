@@ -240,6 +240,7 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action DeleteVpcBlockPublicAccessExclusion` | ✓ `simulator-aws/ec2_hosts_images_vpc.go:232::handleDeleteVpcBlockPublicAccessExclusion` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyVpcBlockPublicAccessOptions` | ✓ `simulator-aws/ec2_hosts_images_vpc.go:233::handleModifyVpcBlockPublicAccessOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeVpcBlockPublicAccessOptions` | ✓ `simulator-aws/ec2_hosts_images_vpc.go:234::handleDescribeVpcBlockPublicAccessOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ReplaceImageInstanceTypeSpecification` | ✓ `simulator-aws/ec2_image_instance_type_spec.go:28::handleReplaceImageInstanceTypeSpecification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateInstanceConnectEndpoint` | ✓ `simulator-aws/ec2_instance_mgmt.go:82::handleCreateInstanceConnectEndpoint` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeInstanceConnectEndpoints` | ✓ `simulator-aws/ec2_instance_mgmt.go:83::handleDescribeInstanceConnectEndpoints` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyInstanceConnectEndpoint` | ✓ `simulator-aws/ec2_instance_mgmt.go:84::handleModifyInstanceConnectEndpoint` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

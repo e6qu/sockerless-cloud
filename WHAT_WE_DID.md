@@ -1,5 +1,64 @@
 # WHAT WE DID
 
+## 2026-08-29, thirty-seventh pass — the freshness check reads the filter it sends
+
+Every vendored specification is in sync with upstream: AWS 41 Smithy models and
+their service references, Azure 120 Swagger documents, Google Cloud 30 Discovery
+documents, all measured at zero drift. AWS and Azure had reported 42 and 120
+documents behind; 5 of the 162 were real.
+
+`scripts/check-spec-freshness.sh` asked GitHub for
+`repos/<repo>/commits?srcpath=<path>`. The REST API names that parameter `path`
+and ignores a key it does not know, so every query dropped its filter and
+answered with the repository's branch tip. Each file then compared its pin
+against a commit that had never touched it — drift for all but the one file the
+tip happened to change. Re-vendoring could not clear it either: the fetcher
+correctly pins the last commit touching the file, so the next run reported the
+same drift against the same tip. Both numbers stood still while the daily run
+refetched 162 documents at the revisions they already held.
+
+`scripts/check-gh-api-params.sh` now refuses a `gh api` query parameter GitHub
+does not define, in pre-commit and in CI. The mistake arrived as a rename that
+reached inside a URL, and its class is worse than a wrong answer: an unknown key
+is accepted, so the script exits cleanly on a result that means nothing.
+
+The four AWS models genuinely behind — Amazon EC2, Amazon ECS, Amazon RDS,
+Amazon CloudWatch Logs — and the Amazon EC2 service reference are re-vendored.
+The Amazon EC2 model brought one operation with it,
+`ReplaceImageInstanceTypeSpecification`, which sets or removes the instance type
+specification on an AMI. It is served: the specification is stored against the
+image, `DescribeImages` reports it, and `RunInstances` enforces it in the order
+the API documents — no specification allows everything, an unsupported entry
+excludes its matches, a supported list requires one, and a `t3.*` entry matches
+the family. Storing it without enforcing it would report a restriction the
+simulator does not apply. Amazon EC2 stays fully covered, at 801 of 801.
+
+## 2026-08-29, thirty-eighth pass — a served count now has to name its method
+
+The coverage probe reads any handler answer as served, so a route that owns a
+subtree answers for a sibling collection nobody implemented and the sibling
+counts as covered. Cloud Storage's per-object ACLs were the known case.
+`TestServiceConformance_GCPNoPhantomCoverage` closes the class across every
+Google document: it asks `http.ServeMux.Handler` which pattern actually matched
+the rendering the probe judged served, and holds that pattern to the literal
+segments of the method's Discovery path. Google routes on those segments, so a
+pattern missing one did not route the method.
+
+The sweep found six, all now served. Compute Engine's `backendServices`
+`listUsable` (global and regional) and `backendBuckets.listUsable` were reaching
+the `{name}` get, which answered `backend service "listUsable" not found`; they
+answer their own lists under the response kind the document declares —
+`compute#usableBackendServiceList`, which Google does not derive from the
+resource kind. Cloud Storage's object `getIamPolicy`, `setIamPolicy` and
+`testIamPermissions` were reaching the `{object...}` get; they read and write the
+same shared policy store the bucket and managed-folder policies use. No served
+count moved, because all six already counted — that was the defect.
+
+`gcpFanInPatterns` records the twelve routes that legitimately dispatch inside
+the handler, each with its reason. The bar for adding one is evidence that the
+handler reads the tail and rejects what it does not route; an entry that merely
+silences the gate reinstates the blind spot.
+
 ## 2026-08-28, thirty-sixth pass — the specifications sync again
 
 Two defects kept the vendored specifications behind upstream, and both are

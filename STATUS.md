@@ -276,6 +276,20 @@ Current state of the sockerless-cloud repository.
   versions coalesced per architecture onto immutable release tags cannot be
   deleted, and counting them made the limit unsatisfiable. Specification
   freshness holds a branch to what it changed, with an unbaselined daily run.
+- **Vendored specifications track upstream.** All three clouds are in sync as
+  of 2026-08-29: AWS's 41 Smithy models and their service references, Azure's
+  120 Swagger documents, and Google Cloud's Discovery documents but for the one
+  or two that oscillate by edge. The daily refresh reaches a pull request,
+  sweeps Google without aborting, and — comparing against `commits?path=`
+  rather than a parameter GitHub ignores — measures each pin against the commit
+  that last touched its file rather than the repository's branch tip.
+  `scripts/check-gh-api-params.sh` holds that last one.
+- **A served method has to be named by the route that answers it.**
+  `TestServiceConformance_GCPNoPhantomCoverage` reads the mux pattern that
+  matched and holds it to the literal segments of the method's Discovery path,
+  so a collection swallowed by a subtree route can no longer count as covered.
+  `gcpFanInPatterns` lists the twelve routes that dispatch inside the handler,
+  each with its reason.
 
 ## Releases
 

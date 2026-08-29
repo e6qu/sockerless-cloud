@@ -101,6 +101,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-firestore_document_verbs`](gcp-firestore_document_verbs.md)
 - [`gcp-gcs`](gcp-gcs.md)
 - [`gcp-gcs_object_acls`](gcp-gcs_object_acls.md)
+- [`gcp-gcs_object_iam`](gcp-gcs_object_iam.md)
 - [`gcp-gcs_object_restore`](gcp-gcs_object_restore.md)
 - [`gcp-iam`](gcp-iam.md)
 - [`gcp-logging`](gcp-logging.md)

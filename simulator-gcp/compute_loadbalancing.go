@@ -137,6 +137,12 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/backendServices", func(w http.ResponseWriter, r *http.Request) {
 		computeWriteGlobalList(w, r, backendServices, "compute#backendServiceList")
 	})
+	// The subset the caller may attach to a load balancer, which for the
+	// project's holder is the project's own backend services. The literal
+	// segment wins over the `{name}` get that would otherwise answer for it.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/backendServices/listUsable", func(w http.ResponseWriter, r *http.Request) {
+		computeWriteGlobalList(w, r, backendServices, "compute#usableBackendServiceList")
+	})
 	srv.HandleFunc("PATCH /compute/v1/projects/{project}/global/backendServices/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")

@@ -1670,6 +1670,7 @@ func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.S
 	registerGCSBucketACLs(srv, buckets, bucketExists)
 	registerGCSDefaultObjectACLs(srv, buckets, bucketExists)
 	registerGCSObjectACLs(srv, buckets, objects)
+	registerGCSObjectIAM(srv, buckets, objects)
 	registerGCSObjectRestore(srv, buckets, objects)
 	registerGCSFolders(srv, buckets, bucketExists)
 	registerGCSManagedFolders(srv, buckets, bucketExists)
