@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
@@ -22,6 +25,7 @@ func registerComputeMore4(srv *sim.Server) {
 	mk := func(table string) sim.Store[map[string]any] {
 		return sim.MakeStore[map[string]any](srv.DB(), table)
 	}
+	globalVMExtensionPolicies := mk("compute_global_vm_extension_policies")
 
 	families := []computeMetaResource{
 		// Cross-site networking: a network spanning two interconnect sites,
@@ -52,9 +56,13 @@ func registerComputeMore4(srv *sim.Server) {
 		{collection: "networkEdgeSecurityServices", kind: "compute#networkEdgeSecurityService", scope: cScopeRegion,
 			store: mk("compute_network_edge_security_services"), patch: true, aggregated: true, skipList: true},
 
-		// VM extension policies, per zone.
+		// VM extension policies, per zone and for the whole project. The global
+		// collection retires a policy through POST .../{name}/delete rather
+		// than DELETE, so its delete is named separately below.
 		{collection: "vmExtensionPolicies", kind: "compute#vmExtensionPolicy", scope: cScopeZone,
-			store: mk("compute_zone_vm_extension_policies")},
+			store: mk("compute_zone_vm_extension_policies"), patch: true},
+		{collection: "vmExtensionPolicies", kind: "compute#globalVmExtensionPolicy", scope: cScopeGlobal,
+			store: globalVMExtensionPolicies, patch: true, aggregated: true, skipDelete: true},
 
 		// Instant snapshot groups, zonal and regional, each carrying the IAM
 		// triple the document declares on them.
@@ -62,8 +70,49 @@ func registerComputeMore4(srv *sim.Server) {
 			store: mk("compute_zone_instant_snapshot_groups"), iam: true},
 		{collection: "instantSnapshotGroups", kind: "compute#instantSnapshotGroup", scope: cScopeRegion,
 			store: mk("compute_region_instant_snapshot_groups"), iam: true},
+
+		// Regional backend buckets, which carry the same usable-subset read
+		// their global counterpart does.
+		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeRegion,
+			store: mk("compute_region_backend_buckets"), patch: true, iam: true,
+			listUsableKind: "compute#usableBackendBucketList"},
+
+		// Regional snapshots, beside the zonal ones already served.
+		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeRegion,
+			store: mk("compute_region_snapshots"), setLabels: true, iam: true},
+
+		// The health sources and composite health checks a load balancer
+		// aggregates.
+		{collection: "healthSources", kind: "compute#healthSource", scope: cScopeRegion,
+			store: mk("compute_health_sources"), patch: true, aggregated: true, testIamOnly: true},
+		{collection: "compositeHealthChecks", kind: "compute#compositeHealthCheck", scope: cScopeRegion,
+			store: mk("compute_composite_health_checks"), patch: true, aggregated: true, testIamOnly: true},
+
+		// Interconnects and the groups that bundle them. Their physical link
+		// diagnostics and MACsec configuration are hardware telemetry this
+		// simulator has no basis for, and stay unserved rather than answered
+		// with numbers nothing measured.
+		{collection: "interconnects", kind: "compute#interconnect", scope: cScopeGlobal,
+			store: mk("compute_interconnects"), patch: true, setLabels: true},
+		{collection: "interconnectGroups", kind: "compute#InterconnectGroup", scope: cScopeGlobal,
+			store: mk("compute_interconnect_groups"), patch: true, iam: true},
+		{collection: "interconnectAttachmentGroups", kind: "compute#interconnectAttachmentGroup", scope: cScopeGlobal,
+			store: mk("compute_interconnect_attachment_groups"), patch: true, iam: true},
 	}
 	for _, res := range families {
 		res.register(srv)
 	}
+
+	// The global VM extension policy is retired through a POST rather than a
+	// DELETE, which is the one place this collection departs from the standard
+	// lifecycle.
+	srv.HandleFunc("POST /compute/v1/projects/{project}/global/vmExtensionPolicies/{name}/delete",
+		func(w http.ResponseWriter, r *http.Request) {
+			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
+			key := fmt.Sprintf("projects/%s/global/vmExtensionPolicies/%s", project, name)
+			if computeNotFound(w, globalVMExtensionPolicies.Delete(key), "vmExtensionPolicies", name) {
+				return
+			}
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "global", computeSelfLink(key), "delete"))
+		})
 }

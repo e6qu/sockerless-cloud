@@ -110,7 +110,7 @@ var gcpMethodFloor = map[string]int{
 	// Grew by two spellings at the 2026-08-21 revision, both in the unserved
 	// long tail below.
 	//
-	// 1,118 -> 1,224 on 2026-08-30: ten collections whose whole documented
+	// 1,118 -> 1,344 on 2026-08-30: eighteen collections whose whole documented
 	// surface is the standard resource lifecycle were registered through
 	// computeMetaResource rather than written by hand — cross-site networks,
 	// interconnect attachments, rollout plans, the regional health aggregation
@@ -122,6 +122,13 @@ var gcpMethodFloor = map[string]int{
 	// triple where all three are declared and as the permission check alone
 	// where only it is.
 	//
+	// The second batch added the regional backend buckets and snapshots, the
+	// health sources and composite health checks, the interconnects and the two
+	// group collections that bundle them, and the VM extension policies zonal
+	// and global. An interconnect's physical link diagnostics and MACsec
+	// configuration are hardware telemetry nothing here measures, and stay
+	// unserved rather than answered with invented numbers.
+	//
 	// A cross-site network's wire groups are nested under it, which this
 	// registrar cannot express, so they wait for a handler that names the
 	// parent.
@@ -129,7 +136,7 @@ var gcpMethodFloor = map[string]int{
 	// interconnect locations, license codes, preview features, reliability
 	// risks — stay unserved: an empty list is not what they return, and filling
 	// one in means inventing Google's own facility and licence data.
-	"compute-v1":              1224,
+	"compute-v1":              1344,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

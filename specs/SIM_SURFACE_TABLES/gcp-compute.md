@@ -133,6 +133,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /compute/v1/projects/{project}/regions/{region}/routers/{router}/deleteRoutePolicy` | ✓ `simulator-gcp/compute_more3.go:694::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/regions/{region}/routers/{router}/getRoutePolicy` | ✓ `simulator-gcp/compute_more3.go:709::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/regions/{region}/routers/{router}/preview` | ✓ `simulator-gcp/compute_more3.go:766::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/vmExtensionPolicies/{name}/delete` | ✓ `simulator-gcp/compute_more4.go:109::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
