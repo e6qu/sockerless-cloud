@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-gcp/iam.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -26,19 +30,19 @@ Surface registered in `simulator-gcp/iam.go` (and related files grouped under th
 | `DELETE /v1/projects/{project}/serviceAccounts/{email}/keys/{keyId}` | ✓ `simulator-gcp/iam.go:624::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/projects/{project}/serviceAccounts/{emailAction}` | ✓ `simulator-gcp/iam.go:664::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/projects/{project}/serviceAccounts` | ✓ `simulator-gcp/iam.go:833::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/serviceAccounts/{email}/allowedLocations` | ✓ `simulator-gcp/iam.go:856::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/workloadIdentityPools/{pool}/allowedLocations` | ✓ `simulator-gcp/iam.go:863::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/locations/{location}/workforcePools/{pool}/allowedLocations` | ✓ `simulator-gcp/iam.go:870::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/serviceAccounts/{email}/allowedLocations` | ○ `simulator-gcp/iam.go:856::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/workloadIdentityPools/{pool}/allowedLocations` | ○ `simulator-gcp/iam.go:863::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/locations/{location}/workforcePools/{pool}/allowedLocations` | ○ `simulator-gcp/iam.go:870::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/{resource...}` | ✓ `simulator-gcp/iam.go:886::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/permissions:queryTestablePermissions` | ✓ `simulator-gcp/iam.go:910::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/iamPolicies:lintPolicy` | ✓ `simulator-gcp/iam.go:938::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/iamPolicies:queryAuditableServices` | ✓ `simulator-gcp/iam.go:964::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/permissions:queryTestablePermissions` | ○ `simulator-gcp/iam.go:910::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/iamPolicies:lintPolicy` | ○ `simulator-gcp/iam.go:938::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/iamPolicies:queryAuditableServices` | ○ `simulator-gcp/iam.go:964::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/roles:queryGrantableRoles` | ✓ `simulator-gcp/iam.go:991::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/roles` | ✓ `simulator-gcp/iam.go:1089::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/roles/{role...}` | ✓ `simulator-gcp/iam.go:1100::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/roles` | ○ `simulator-gcp/iam.go:1089::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/roles/{role...}` | ○ `simulator-gcp/iam.go:1100::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /storage/v1/b/{bucket}/iam` | ✓ `simulator-gcp/iam.go:1113::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /storage/v1/b/{bucket}/iam` | ✓ `simulator-gcp/iam.go:1134::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v3:fetchResourceSemantics` | ✓ `simulator-gcp/iam.go:1362::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v3:fetchResourceSemantics` | ○ `simulator-gcp/iam.go:1362::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/projects/{project}` | ✓ `simulator-gcp/iam.go:1379::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v3/projects:search` | ✓ `simulator-gcp/iam.go:1397::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v3/projects` | ✓ `simulator-gcp/iam.go:1411::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -81,14 +85,14 @@ Surface registered in `simulator-gcp/iam.go` (and related files grouped under th
 | `POST /v3/tagBindings` | ✓ `simulator-gcp/iam.go:1948::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v3/tagBindings` | ✓ `simulator-gcp/iam.go:1963::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /v3/tagBindings/{binding...}` | ✓ `simulator-gcp/iam.go:1977::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v3/effectiveTags` | ✓ `simulator-gcp/iam.go:1983::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v3/folders/{folder}/capabilities/{capability}` | ✓ `simulator-gcp/iam.go:1990::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v3/effectiveTags` | ○ `simulator-gcp/iam.go:1983::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v3/folders/{folder}/capabilities/{capability}` | ○ `simulator-gcp/iam.go:1990::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /v3/folders/{folder}/capabilities/{capability}` | ✓ `simulator-gcp/iam.go:1996::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v3/locations/{location}/tagBindingCollections/{collection}` | ✓ `simulator-gcp/iam.go:2011::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v3/locations/{location}/tagBindingCollections/{collection}` | ○ `simulator-gcp/iam.go:2011::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /v3/locations/{location}/tagBindingCollections/{collection}` | ✓ `simulator-gcp/iam.go:2019::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v3/locations/{location}/effectiveTagBindingCollections/{collection}` | ✓ `simulator-gcp/iam.go:2033::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /.well-known/openid-configuration` | ✓ `simulator-gcp/token_signing.go:328::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /.well-known/jwks.json` | ✓ `simulator-gcp/token_signing.go:339::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v3/locations/{location}/effectiveTagBindingCollections/{collection}` | ○ `simulator-gcp/iam.go:2033::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /.well-known/openid-configuration` | ○ `simulator-gcp/token_signing.go:328::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /.well-known/jwks.json` | ○ `simulator-gcp/token_signing.go:339::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

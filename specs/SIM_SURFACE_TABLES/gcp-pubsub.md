@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-gcp/pubsub.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -34,7 +38,7 @@ Surface registered in `simulator-gcp/pubsub.go` (and related files grouped under
 | `DELETE /v1/projects/{project}/snapshots/{snap}` | ✓ `simulator-gcp/pubsub.go:174::handlePSDeleteSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/projects/{project}/snapshots/{snapVerb}` | ✓ `simulator-gcp/pubsub.go:175::handlePSSnapshotVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/projects/{project}/schemas` | ✓ `simulator-gcp/pubsub.go:182::handlePSCreateSchema` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/schemas:validate` | ✓ `simulator-gcp/pubsub.go:183::handlePSValidateSchema` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/schemas:validate` | ○ `simulator-gcp/pubsub.go:183::handlePSValidateSchema` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/projects/{project}/schemas:validateMessage` | ✓ `simulator-gcp/pubsub.go:184::handlePSValidateMessage` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/projects/{project}/schemas` | ✓ `simulator-gcp/pubsub.go:185::handlePSListSchemas` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/projects/{project}/schemas/{schemaVerb}` | ✓ `simulator-gcp/pubsub.go:186::handlePSGetSchemaOrVerb` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

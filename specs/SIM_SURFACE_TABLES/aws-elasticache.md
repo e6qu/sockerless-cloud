@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-aws/elasticache.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -47,13 +51,13 @@ Surface registered in `simulator-aws/elasticache.go` (and related files grouped 
 | `Action DescribeCacheParameters` | ✓ `simulator-aws/elasticache.go:178::handleECDescribeParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyCacheParameterGroup` | ✓ `simulator-aws/elasticache.go:179::handleECModifyParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ResetCacheParameterGroup` | ✓ `simulator-aws/elasticache.go:180::handleECResetParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeEngineDefaultParameters` | ✓ `simulator-aws/elasticache.go:181::handleECDescribeEngineDefaultParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeEngineDefaultParameters` | ○ `simulator-aws/elasticache.go:181::handleECDescribeEngineDefaultParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeEvents` | ✓ `simulator-aws/elasticache.go:182::handleECDescribeEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeCacheEngineVersions` | ✓ `simulator-aws/elasticache.go:183::handleECDescribeCacheEngineVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeReservedCacheNodes` | ✓ `simulator-aws/elasticache.go:184::handleECDescribeReservedCacheNodes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeReservedCacheNodesOfferings` | ✓ `simulator-aws/elasticache.go:185::handleECDescribeReservedCacheNodesOfferings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeServiceUpdates` | ✓ `simulator-aws/elasticache.go:186::handleECDescribeServiceUpdates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeCacheSecurityGroups` | ✓ `simulator-aws/elasticache.go:187::handleECDescribeCacheSecurityGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeCacheEngineVersions` | ○ `simulator-aws/elasticache.go:183::handleECDescribeCacheEngineVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeReservedCacheNodes` | ○ `simulator-aws/elasticache.go:184::handleECDescribeReservedCacheNodes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeReservedCacheNodesOfferings` | ○ `simulator-aws/elasticache.go:185::handleECDescribeReservedCacheNodesOfferings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeServiceUpdates` | ○ `simulator-aws/elasticache.go:186::handleECDescribeServiceUpdates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeCacheSecurityGroups` | ○ `simulator-aws/elasticache.go:187::handleECDescribeCacheSecurityGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateServerlessCache` | ✓ `simulator-aws/elasticache_serverless.go:133::handleECCreateServerlessCache` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeServerlessCaches` | ✓ `simulator-aws/elasticache_serverless.go:134::handleECDescribeServerlessCaches` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyServerlessCache` | ✓ `simulator-aws/elasticache_serverless.go:135::handleECModifyServerlessCache` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -83,8 +87,8 @@ Surface registered in `simulator-aws/elasticache.go` (and related files grouped 
 | `Action DecreaseReplicaCount` | ✓ `simulator-aws/elasticache_serverless.go:169::handleECDecreaseReplicaCount` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyReplicationGroupShardConfiguration` | ✓ `simulator-aws/elasticache_serverless.go:170::handleECModifyReplGroupShardConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action TestFailover` | ✓ `simulator-aws/elasticache_serverless.go:171::handleECTestFailover` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListAllowedNodeTypeModifications` | ✓ `simulator-aws/elasticache_serverless.go:174::handleECListAllowedNodeTypeModifications` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action PurchaseReservedCacheNodesOffering` | ✓ `simulator-aws/elasticache_serverless.go:175::handleECPurchaseReservedCacheNodesOffering` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ListAllowedNodeTypeModifications` | ○ `simulator-aws/elasticache_serverless.go:174::handleECListAllowedNodeTypeModifications` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action PurchaseReservedCacheNodesOffering` | ○ `simulator-aws/elasticache_serverless.go:175::handleECPurchaseReservedCacheNodesOffering` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action StartMigration` | ✓ `simulator-aws/elasticache_serverless.go:176::handleECStartMigration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CompleteMigration` | ✓ `simulator-aws/elasticache_serverless.go:177::handleECCompleteMigration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action TestMigration` | ✓ `simulator-aws/elasticache_serverless.go:178::handleECTestMigration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

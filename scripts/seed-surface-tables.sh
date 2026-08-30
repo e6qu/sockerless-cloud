@@ -120,7 +120,15 @@ table_for_file() {
 
 # Pass 1 — collect all (table, source-file, line, method, path, handler) rows.
 tmp_rows="$(mktemp)"
-trap 'rm -f "$tmp_rows"' EXIT
+tmp_class="$(mktemp)"
+trap 'rm -f "$tmp_rows" "$tmp_class"' EXIT
+
+# What each handler does, keyed by the registration's file:line. A route that
+# is mounted and a route that does something are different facts, and a table
+# recording only the first cannot tell an implemented operation from one that
+# answers with nothing behind it.
+(cd "$REPO_ROOT" && go run scripts/classify-sim-handlers.go \
+  simulator-aws simulator-azure simulator-gcp) >"$tmp_class"
 
 for cloud in aws azure gcp; do
   for go_file in "$REPO_ROOT/simulator-$cloud"/*.go; do
@@ -189,11 +197,15 @@ for table_name in "${tables[@]}"; do
     echo
     echo "Surface registered in \`simulator-$first_file\` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by \`scripts/seed-surface-tables.sh\` from \`mux.HandleFunc(...)\` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them."
     echo
+    echo "The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (\`\"GET \"+prefix+\"/…\"\`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from \`scripts/classify-sim-handlers.go\`, which reads what the handler behind each route actually does."
+    echo
     echo "## Status legend"
     echo
-    echo "- ✓ — implemented + tested"
+    echo "- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did"
+    echo "- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it"
+    echo "- ? — the handler is not declared in this package, so the generator cannot say"
     echo "- ✗ — missing (paired with an open BUG or issue; never silent)"
-    echo "- 501 — stubbed NotImplemented (wire-visible gap)"
+    echo "- 501 — NotImplemented on the wire (a declared gap)"
     echo "- n/a — no meaningful client/provider surface for this op"
     echo
     echo "## Implemented ops (extracted from HandleFunc registrations)"
@@ -202,7 +214,17 @@ for table_name in "${tables[@]}"; do
     echo "|---|---|---|---|---|---|"
     sdk_cell="$(matrix_cell "$table_name" sdk)"
     tf_cell="$(matrix_cell "$table_name" tf)"
-    awk -v t="$table_name" -v sdk="$sdk_cell" -v tf="$tf_cell" -F'\t' '$1==t {printf "| `%s` | ✓ `simulator-%s/%s.go:%s::%s` | %s | %s | n/a | |\n", $5, $2, $3, $4, $6, sdk, tf}' "$tmp_rows"
+    awk -v t="$table_name" -v sdk="$sdk_cell" -v tf="$tf_cell" -F'\t' '
+      NR == FNR { class[$1] = $2; next }
+      $1 == t {
+        where = "simulator-" $2 "/" $3 ".go:" $4
+        kind = class[where]
+        mark = "✓"
+        if (kind == "static") mark = "○"
+        else if (kind == "501") mark = "501"
+        else if (kind == "unknown" || kind == "") mark = "?"
+        printf "| `%s` | %s `%s::%s` | %s | %s | n/a | |\n", $5, mark, where, $6, sdk, tf
+      }' "$tmp_class" "$tmp_rows"
     echo
     echo "## Coverage status"
     echo

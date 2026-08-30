@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-azure/containerinstance.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -14,10 +18,10 @@ Surface registered in `simulator-azure/containerinstance.go` (and related files 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
 | `GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/containerGroups` | ✓ `simulator-azure/containerinstance.go:93::handleACIContainerGroupListBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.ContainerInstance/operations` | ✓ `simulator-azure/containerinstance.go:102::handleACIOperationsList` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.ContainerInstance/operations` | ○ `simulator-azure/containerinstance.go:102::handleACIOperationsList` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/locations/{location}/usages` | ✓ `simulator-azure/containerinstance.go:104::handleACILocationUsages` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/locations/{location}/capabilities` | ✓ `simulator-azure/containerinstance.go:105::handleACILocationCapabilities` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/locations/{location}/cachedImages` | ✓ `simulator-azure/containerinstance.go:106::handleACILocationCachedImages` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/locations/{location}/capabilities` | ○ `simulator-azure/containerinstance.go:105::handleACILocationCapabilities` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerInstance/locations/{location}/cachedImages` | ○ `simulator-azure/containerinstance.go:106::handleACILocationCachedImages` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}/providers/Microsoft.ContainerInstance/serviceAssociationLinks/default` | ✓ `simulator-azure/containerinstance.go:113::handleACISubnetServiceAssociationLinkDelete` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
