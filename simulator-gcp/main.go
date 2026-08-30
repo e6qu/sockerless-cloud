@@ -69,8 +69,8 @@ func main() {
 	// carries a valid OAuth2 access token the simulator itself minted, verified
 	// against the simulator's signing key, unless it targets an exempt surface
 	// (token minters, OpenID Connect discovery/JWKS, health, GCE metadata, the
-	// console, or the OCI registry). Applied here so it is the outermost wrap on
-	// the final handler chain.
+	// console, application monitoring, or the OCI registry). Applied here so it
+	// is the outermost wrap on the final handler chain.
 	srv.WrapHandler(bearerAuthMiddleware(srv))
 
 	// Start gRPC server for Cloud Logging

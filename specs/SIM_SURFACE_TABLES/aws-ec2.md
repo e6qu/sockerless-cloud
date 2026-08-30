@@ -2,20 +2,24 @@
 
 Surface registered in `simulator-aws/ec2.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action DescribeAccountAttributes` | ✓ `simulator-aws/ec2.go:576::handleDescribeAccountAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeAvailabilityZones` | ✓ `simulator-aws/ec2.go:577::handleDescribeAvailabilityZones` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeRegions` | ✓ `simulator-aws/ec2.go:578::handleDescribeRegions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAccountAttributes` | ○ `simulator-aws/ec2.go:576::handleDescribeAccountAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAvailabilityZones` | ○ `simulator-aws/ec2.go:577::handleDescribeAvailabilityZones` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeRegions` | ○ `simulator-aws/ec2.go:578::handleDescribeRegions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateVpc` | ✓ `simulator-aws/ec2.go:579::handleCreateVpc` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeVpcs` | ✓ `simulator-aws/ec2.go:580::handleDescribeVpcs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteVpc` | ✓ `simulator-aws/ec2.go:581::handleDeleteVpc` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -34,7 +38,7 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action AssociateAddress` | ✓ `simulator-aws/ec2.go:600::handleAssociateAddress` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DisassociateAddress` | ✓ `simulator-aws/ec2.go:601::handleDisassociateAddress` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeAddresses` | ✓ `simulator-aws/ec2.go:602::handleDescribeAddresses` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeAddressesAttribute` | ✓ `simulator-aws/ec2.go:603::handleDescribeAddressesAttribute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAddressesAttribute` | ○ `simulator-aws/ec2.go:603::handleDescribeAddressesAttribute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ReleaseAddress` | ✓ `simulator-aws/ec2.go:604::handleReleaseAddress` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateNatGateway` | ✓ `simulator-aws/ec2.go:607::handleCreateNatGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeNatGateways` | ✓ `simulator-aws/ec2.go:608::handleDescribeNatGateways` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -84,8 +88,8 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action DescribeSnapshots` | ✓ `simulator-aws/ec2.go:660::handleDescribeSnapshots` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteSnapshot` | ✓ `simulator-aws/ec2.go:661::handleDeleteSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeImages` | ✓ `simulator-aws/ec2.go:662::handleDescribeImages` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeInstanceTypes` | ✓ `simulator-aws/ec2.go:663::handleDescribeInstanceTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeInstanceTypeOfferings` | ✓ `simulator-aws/ec2.go:664::handleDescribeInstanceTypeOfferings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeInstanceTypes` | ○ `simulator-aws/ec2.go:663::handleDescribeInstanceTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeInstanceTypeOfferings` | ○ `simulator-aws/ec2.go:664::handleDescribeInstanceTypeOfferings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeKeyPairs` | ✓ `simulator-aws/ec2.go:665::handleDescribeKeyPairs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateKeyPair` | ✓ `simulator-aws/ec2.go:666::handleCreateKeyPair` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ImportKeyPair` | ✓ `simulator-aws/ec2.go:667::handleImportKeyPair` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -167,15 +171,15 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action CreateSpotDatafeedSubscription` | ✓ `simulator-aws/ec2_capacity_fleet.go:252::handleCreateSpotDatafeedSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeSpotDatafeedSubscription` | ✓ `simulator-aws/ec2_capacity_fleet.go:253::handleDescribeSpotDatafeedSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteSpotDatafeedSubscription` | ✓ `simulator-aws/ec2_capacity_fleet.go:254::handleDeleteSpotDatafeedSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeSpotPriceHistory` | ✓ `simulator-aws/ec2_capacity_fleet.go:257::handleDescribeSpotPriceHistory` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetSpotPlacementScores` | ✓ `simulator-aws/ec2_capacity_fleet.go:258::handleGetSpotPlacementScores` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeSpotPriceHistory` | ○ `simulator-aws/ec2_capacity_fleet.go:257::handleDescribeSpotPriceHistory` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetSpotPlacementScores` | ○ `simulator-aws/ec2_capacity_fleet.go:258::handleGetSpotPlacementScores` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeScheduledInstances` | ✓ `simulator-aws/ec2_capacity_fleet.go:261::handleDescribeScheduledInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeScheduledInstanceAvailability` | ✓ `simulator-aws/ec2_capacity_fleet.go:262::handleDescribeScheduledInstanceAvailability` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeScheduledInstanceAvailability` | ○ `simulator-aws/ec2_capacity_fleet.go:262::handleDescribeScheduledInstanceAvailability` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PurchaseScheduledInstances` | ✓ `simulator-aws/ec2_capacity_fleet.go:263::handlePurchaseScheduledInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action RunScheduledInstances` | ✓ `simulator-aws/ec2_capacity_fleet.go:264::handleRunScheduledInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeHostReservations` | ✓ `simulator-aws/ec2_capacity_fleet.go:267::handleDescribeHostReservations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeHostReservationOfferings` | ✓ `simulator-aws/ec2_capacity_fleet.go:268::handleDescribeHostReservationOfferings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetHostReservationPurchasePreview` | ✓ `simulator-aws/ec2_capacity_fleet.go:269::handleGetHostReservationPurchasePreview` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeHostReservationOfferings` | ○ `simulator-aws/ec2_capacity_fleet.go:268::handleDescribeHostReservationOfferings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetHostReservationPurchasePreview` | ○ `simulator-aws/ec2_capacity_fleet.go:269::handleGetHostReservationPurchasePreview` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PurchaseHostReservation` | ✓ `simulator-aws/ec2_capacity_fleet.go:270::handlePurchaseHostReservation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action EnableEbsEncryptionByDefault` | ✓ `simulator-aws/ec2_ebs_snapshot.go:96::handleEnableEbsEncryptionByDefault` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DisableEbsEncryptionByDefault` | ✓ `simulator-aws/ec2_ebs_snapshot.go:97::handleDisableEbsEncryptionByDefault` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -258,7 +262,7 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action RebootInstances` | ✓ `simulator-aws/ec2_instance_mgmt.go:106::handleRebootInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ReportInstanceStatus` | ✓ `simulator-aws/ec2_instance_mgmt.go:107::handleReportInstanceStatus` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ResetInstanceAttribute` | ✓ `simulator-aws/ec2_instance_mgmt.go:108::handleResetInstanceAttribute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeClassicLinkInstances` | ✓ `simulator-aws/ec2_instance_mgmt.go:111::handleDescribeClassicLinkInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeClassicLinkInstances` | ○ `simulator-aws/ec2_instance_mgmt.go:111::handleDescribeClassicLinkInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateIpam` | ✓ `simulator-aws/ec2_ipam.go:157::handleCreateIpam` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeIpams` | ✓ `simulator-aws/ec2_ipam.go:158::handleDescribeIpams` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyIpam` | ✓ `simulator-aws/ec2_ipam.go:159::handleModifyIpam` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -319,9 +323,9 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action CreateIpamExternalResourceVerificationToken` | ✓ `simulator-aws/ec2_ipam_extras.go:189::handleCreateIpamExternalResourceVerificationToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeIpamExternalResourceVerificationTokens` | ✓ `simulator-aws/ec2_ipam_extras.go:190::handleDescribeIpamExternalResourceVerificationTokens` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteIpamExternalResourceVerificationToken` | ✓ `simulator-aws/ec2_ipam_extras.go:191::handleDeleteIpamExternalResourceVerificationToken` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetIpamDiscoveredAccounts` | ✓ `simulator-aws/ec2_ipam_extras.go:194::handleGetIpamDiscoveredAccounts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetIpamDiscoveredPublicAddresses` | ✓ `simulator-aws/ec2_ipam_extras.go:195::handleGetIpamDiscoveredPublicAddresses` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetIpamDiscoveredResourceCidrs` | ✓ `simulator-aws/ec2_ipam_extras.go:196::handleGetIpamDiscoveredResourceCidrs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetIpamDiscoveredAccounts` | ○ `simulator-aws/ec2_ipam_extras.go:194::handleGetIpamDiscoveredAccounts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetIpamDiscoveredPublicAddresses` | ○ `simulator-aws/ec2_ipam_extras.go:195::handleGetIpamDiscoveredPublicAddresses` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetIpamDiscoveredResourceCidrs` | ○ `simulator-aws/ec2_ipam_extras.go:196::handleGetIpamDiscoveredResourceCidrs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyIpamPoolAllocation` | ✓ `simulator-aws/ec2_ipam_extras.go:199::handleModifyIpamPoolAllocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateIpamInternetRegistryAssociation` | ✓ `simulator-aws/ec2_ipam_registry.go:90::handleCreateIpamInternetRegistryAssociation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeIpamInternetRegistryAssociations` | ✓ `simulator-aws/ec2_ipam_registry.go:91::handleDescribeIpamInternetRegistryAssociations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -336,8 +340,8 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action GetIpamRoutingPolicyRegistrations` | ✓ `simulator-aws/ec2_ipam_registry.go:101::handleGetIpamRoutingPolicyRegistrations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetIpamRoutingPolicyRegistrationDeltas` | ✓ `simulator-aws/ec2_ipam_registry.go:102::handleGetIpamRoutingPolicyRegistrationDeltas` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetIpamDiscoveredRoutes` | ✓ `simulator-aws/ec2_ipam_registry.go:104::handleGetIpamDiscoveredRoutes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetIpamRouteOriginAuthorizations` | ✓ `simulator-aws/ec2_ipam_registry.go:105::handleGetIpamRouteOriginAuthorizations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetIpamRouteProtectionFindings` | ✓ `simulator-aws/ec2_ipam_registry.go:106::handleGetIpamRouteProtectionFindings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetIpamRouteOriginAuthorizations` | ○ `simulator-aws/ec2_ipam_registry.go:105::handleGetIpamRouteOriginAuthorizations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetIpamRouteProtectionFindings` | ○ `simulator-aws/ec2_ipam_registry.go:106::handleGetIpamRouteProtectionFindings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateLaunchTemplate` | ✓ `simulator-aws/ec2_launch_template.go:134::handleCreateLaunchTemplate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeLaunchTemplates` | ✓ `simulator-aws/ec2_launch_template.go:135::handleDescribeLaunchTemplates` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeLaunchTemplateVersions` | ✓ `simulator-aws/ec2_launch_template.go:136::handleDescribeLaunchTemplateVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -470,7 +474,7 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action DeleteTransitGatewayRoute` | ✓ `simulator-aws/ec2_transit_gateway.go:208::handleDeleteTransitGatewayRoute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ReplaceTransitGatewayRoute` | ✓ `simulator-aws/ec2_transit_gateway.go:209::handleReplaceTransitGatewayRoute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action SearchTransitGatewayRoutes` | ✓ `simulator-aws/ec2_transit_gateway.go:210::handleSearchTransitGatewayRoutes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ExportTransitGatewayRoutes` | ✓ `simulator-aws/ec2_transit_gateway.go:211::handleExportTransitGatewayRoutes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ExportTransitGatewayRoutes` | ○ `simulator-aws/ec2_transit_gateway.go:211::handleExportTransitGatewayRoutes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateTransitGatewayPrefixListReference` | ✓ `simulator-aws/ec2_transit_gateway.go:214::handleCreateTransitGatewayPrefixListReference` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetTransitGatewayPrefixListReferences` | ✓ `simulator-aws/ec2_transit_gateway.go:215::handleGetTransitGatewayPrefixListReferences` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyTransitGatewayPrefixListReference` | ✓ `simulator-aws/ec2_transit_gateway.go:216::handleModifyTransitGatewayPrefixListReference` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -574,7 +578,7 @@ Surface registered in `simulator-aws/ec2.go` (and related files grouped under th
 | `Action DeleteVpnConnection` | ✓ `simulator-aws/ec2_vpn.go:190::handleDeleteVpnConnection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateVpnConnectionRoute` | ✓ `simulator-aws/ec2_vpn.go:191::handleCreateVpnConnectionRoute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteVpnConnectionRoute` | ✓ `simulator-aws/ec2_vpn.go:192::handleDeleteVpnConnectionRoute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetVpnConnectionDeviceTypes` | ✓ `simulator-aws/ec2_vpn.go:193::handleGetVpnConnectionDeviceTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetVpnConnectionDeviceTypes` | ○ `simulator-aws/ec2_vpn.go:193::handleGetVpnConnectionDeviceTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetVpnConnectionDeviceSampleConfiguration` | ✓ `simulator-aws/ec2_vpn.go:194::handleGetVpnConnectionDeviceSampleConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyVpnTunnelOptions` | ✓ `simulator-aws/ec2_vpn.go:195::handleModifyVpnTunnelOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetActiveVpnTunnelStatus` | ✓ `simulator-aws/ec2_vpn.go:196::handleGetActiveVpnTunnelStatus` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

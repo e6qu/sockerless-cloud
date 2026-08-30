@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -146,6 +147,55 @@ func TestShauthIsMountedAlongsideCloudAuth(t *testing.T) {
 	srv.ServeHTTP(rec, cloud)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("cloud data plane without a bearer = %d, want 401 — Shauth must not replace cloud authentication", rec.Code)
+	}
+}
+
+func TestApplicationMonitoringOwnsItsBearerAuthentication(t *testing.T) {
+	t.Setenv("SIM_RUNTIME", "process")
+	const monitoringToken = "monitoring-test-token-0123456789abcdef"
+	cfg := shauthTestConfig("gcp")
+	cfg.ApplicationMonitoringToken = monitoringToken
+	srv, err := buildSimulator(cfg)
+	if err != nil {
+		t.Fatalf("buildSimulator with application monitoring configured: %v", err)
+	}
+	srv.WrapHandler(bearerAuthMiddleware(srv))
+
+	request := httptest.NewRequest(http.MethodGet, uiauth.MonitoringPath, nil)
+	request.Header.Set("Authorization", "Bearer "+monitoringToken)
+	response := httptest.NewRecorder()
+	srv.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("monitoring with its bearer = %d %q, want 200", response.Code, response.Body.String())
+	}
+	var observation struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &observation); err != nil {
+		t.Fatalf("decode monitoring observation: %v", err)
+	}
+	if observation.SchemaVersion != "e6qu.monitoring/v2" {
+		t.Fatalf("monitoring schema = %q, want e6qu.monitoring/v2", observation.SchemaVersion)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, uiauth.MonitoringPath, nil)
+	request.Header.Set("Authorization", "Bearer wrong-monitoring-token-0123456789")
+	response = httptest.NewRecorder()
+	srv.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("monitoring with the wrong bearer = %d, want 401", response.Code)
+	}
+	if got := response.Header().Get("WWW-Authenticate"); got != `Bearer realm="sockerless-monitoring"` {
+		t.Fatalf("monitoring challenge = %q, want the monitoring realm", got)
+	}
+
+	cloud := httptest.NewRequest(http.MethodGet, "/v2/projects/test-project/locations/us-central1/services", nil)
+	cloud.Host = "run.googleapis.com"
+	cloud.Header.Set("Authorization", "Bearer "+monitoringToken)
+	response = httptest.NewRecorder()
+	srv.ServeHTTP(response, cloud)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("cloud data plane with monitoring bearer = %d, want 401", response.Code)
 	}
 }
 

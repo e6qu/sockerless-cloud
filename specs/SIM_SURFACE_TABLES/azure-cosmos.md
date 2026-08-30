@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-azure/cosmos.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -16,11 +20,11 @@ Surface registered in `simulator-azure/cosmos.go` (and related files grouped und
 | `GET /{$}` | ✓ `simulator-azure/cosmos.go:157::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /dbs` | ✓ `simulator-azure/cosmos.go:161::handleCosmosDataCreateDB` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dbs` | ✓ `simulator-azure/cosmos.go:162::handleCosmosDataListDBs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dbs/{database}` | ✓ `simulator-azure/cosmos.go:163::handleCosmosDataGetDB` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dbs/{database}` | ○ `simulator-azure/cosmos.go:163::handleCosmosDataGetDB` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /dbs/{database}` | ✓ `simulator-azure/cosmos.go:164::handleCosmosDataDeleteDB` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /dbs/{database}/colls` | ✓ `simulator-azure/cosmos.go:165::handleCosmosDataCreateColl` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dbs/{database}/colls` | ✓ `simulator-azure/cosmos.go:166::handleCosmosDataListColls` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dbs/{database}/colls/{container}` | ✓ `simulator-azure/cosmos.go:167::handleCosmosDataGetColl` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dbs/{database}/colls/{container}` | ○ `simulator-azure/cosmos.go:167::handleCosmosDataGetColl` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /dbs/{database}/colls/{container}` | ✓ `simulator-azure/cosmos.go:168::handleCosmosDataDeleteColl` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /dbs/{database}/colls/{container}/docs` | ✓ `simulator-azure/cosmos.go:169::handleCosmosDataCreateOrQueryDoc` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dbs/{database}/colls/{container}/docs` | ✓ `simulator-azure/cosmos.go:170::handleCosmosDataListDocs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -30,10 +34,10 @@ Surface registered in `simulator-azure/cosmos.go` (and related files grouped und
 | `DELETE /dbs/{database}/colls/{container}/docs/{doc}` | ✓ `simulator-azure/cosmos.go:174::handleCosmosDataDeleteDoc` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/providers/Microsoft.DocumentDB/databaseAccounts` | ✓ `simulator-azure/cosmos_apis.go:62::handleCosmosListAccountsBySubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `HEAD /providers/Microsoft.DocumentDB/databaseAccountNames/{account}` | ✓ `simulator-azure/cosmos_apis.go:66::handleCosmosCheckNameExists` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.DocumentDB/operations` | ✓ `simulator-azure/cosmos_apis.go:69::handleCosmosOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.DocumentDB/locations` | ✓ `simulator-azure/cosmos_apis.go:70::handleCosmosLocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.DocumentDB/locations/{location}` | ✓ `simulator-azure/cosmos_apis.go:71::handleCosmosLocationGet` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dbs/{database}/colls/{container}/conflicts` | ✓ `simulator-azure/cosmos_changefeed.go:33::handleCosmosListConflicts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.DocumentDB/operations` | ○ `simulator-azure/cosmos_apis.go:69::handleCosmosOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.DocumentDB/locations` | ○ `simulator-azure/cosmos_apis.go:70::handleCosmosLocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.DocumentDB/locations/{location}` | ○ `simulator-azure/cosmos_apis.go:71::handleCosmosLocationGet` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dbs/{database}/colls/{container}/conflicts` | ○ `simulator-azure/cosmos_changefeed.go:33::handleCosmosListConflicts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /dbs/{database}/colls/{container}/sprocs` | ✓ `simulator-azure/cosmos_scripts.go:55::handleCosmosCreateScript` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dbs/{database}/colls/{container}/sprocs` | ✓ `simulator-azure/cosmos_scripts.go:56::handleCosmosListScripts` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dbs/{database}/colls/{container}/sprocs/{script}` | ✓ `simulator-azure/cosmos_scripts.go:57::handleCosmosGetScript` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 )
 
 // The simulator issues every data-plane access token — the OAuth2
@@ -471,6 +472,11 @@ func isAuthExempt(r *http.Request) bool {
 	case strings.HasPrefix(p, "/ui/") || strings.HasPrefix(p, "/auth/"):
 		// The console SPA and its own OpenID Connect authentication layer,
 		// which use a server-side session, not a cloud access token.
+		return true
+	case p == uiauth.MonitoringPath:
+		// Application monitoring has its own deployment-provided bearer. Its
+		// handler validates that credential; treating it as a Google access
+		// token prevents the handler from ever seeing a valid request.
 		return true
 	case isOCIRegistryPath(p):
 		// The OCI Distribution data plane authenticates with its own

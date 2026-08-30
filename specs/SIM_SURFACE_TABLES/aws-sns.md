@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-aws/sns.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -42,7 +46,7 @@ Surface registered in `simulator-aws/sns.go` (and related files grouped under th
 | `Action GetEndpointAttributes` | ✓ `simulator-aws/sns_mobile_sms.go:113::handleSNSGetEndpointAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action SetEndpointAttributes` | ✓ `simulator-aws/sns_mobile_sms.go:114::handleSNSSetEndpointAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ListEndpointsByPlatformApplication` | ✓ `simulator-aws/sns_mobile_sms.go:115::handleSNSListEndpointsByPlatformApplication` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CreateSMSSandboxPhoneNumber` | ✓ `simulator-aws/sns_mobile_sms.go:118::handleSNSCreateSMSSandboxPhoneNumber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CreateSMSSandboxPhoneNumber` | ○ `simulator-aws/sns_mobile_sms.go:118::handleSNSCreateSMSSandboxPhoneNumber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteSMSSandboxPhoneNumber` | ✓ `simulator-aws/sns_mobile_sms.go:119::handleSNSDeleteSMSSandboxPhoneNumber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action VerifySMSSandboxPhoneNumber` | ✓ `simulator-aws/sns_mobile_sms.go:120::handleSNSVerifySMSSandboxPhoneNumber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ListSMSSandboxPhoneNumbers` | ✓ `simulator-aws/sns_mobile_sms.go:121::handleSNSListSMSSandboxPhoneNumbers` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

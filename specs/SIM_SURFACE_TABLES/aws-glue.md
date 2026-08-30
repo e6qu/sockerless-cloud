@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-aws/glue.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -165,7 +169,7 @@ Surface registered in `simulator-aws/glue.go` (and related files grouped under t
 | `Action AWSGlue.BatchGetJobs` | ✓ `simulator-aws/glue_catalog_optimizer.go:125::handleGlueBatchGetJobs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.BatchGetTriggers` | ✓ `simulator-aws/glue_catalog_optimizer.go:126::handleGlueBatchGetTriggers` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.BatchGetWorkflows` | ✓ `simulator-aws/glue_catalog_optimizer.go:127::handleGlueBatchGetWorkflows` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.BatchGetCustomEntityTypes` | ✓ `simulator-aws/glue_catalog_optimizer.go:128::handleGlueBatchGetCustomEntityTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.BatchGetCustomEntityTypes` | ○ `simulator-aws/glue_catalog_optimizer.go:128::handleGlueBatchGetCustomEntityTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.BatchDeleteConnection` | ✓ `simulator-aws/glue_catalog_optimizer.go:129::handleGlueBatchDeleteConnection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.BatchUpdatePartition` | ✓ `simulator-aws/glue_catalog_optimizer.go:130::handleGlueBatchUpdatePartition` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.CreateIntegration` | ✓ `simulator-aws/glue_catalog_optimizer.go:133::handleGlueCreateIntegration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -199,7 +203,7 @@ Surface registered in `simulator-aws/glue.go` (and related files grouped under t
 | `Action AWSGlue.ListSchemas` | ✓ `simulator-aws/glue_entity_catalog2.go:101::handleGlueListSchemas` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.UpdateSchema` | ✓ `simulator-aws/glue_entity_catalog2.go:102::handleGlueUpdateSchema` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.UpdateRegistry` | ✓ `simulator-aws/glue_entity_catalog2.go:103::handleGlueUpdateRegistry` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.CheckSchemaVersionValidity` | ✓ `simulator-aws/glue_entity_catalog2.go:104::handleGlueCheckSchemaVersionValidity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.CheckSchemaVersionValidity` | ○ `simulator-aws/glue_entity_catalog2.go:104::handleGlueCheckSchemaVersionValidity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.PutSchemaVersionMetadata` | ✓ `simulator-aws/glue_entity_catalog2.go:105::handleGluePutSchemaVersionMetadata` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.QuerySchemaVersionMetadata` | ✓ `simulator-aws/glue_entity_catalog2.go:106::handleGlueQuerySchemaVersionMetadata` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.RemoveSchemaVersionMetadata` | ✓ `simulator-aws/glue_entity_catalog2.go:107::handleGlueRemoveSchemaVersionMetadata` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -209,10 +213,10 @@ Surface registered in `simulator-aws/glue.go` (and related files grouped under t
 | `Action AWSGlue.UpdateUserDefinedFunction` | ✓ `simulator-aws/glue_entity_catalog2.go:112::handleGlueUpdateUserDefinedFunction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.GetResourcePolicies` | ✓ `simulator-aws/glue_entity_catalog2.go:113::handleGlueGetResourcePolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.GetMapping` | ✓ `simulator-aws/glue_entity_catalog2.go:115::handleGlueGetMapping` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.GetPlan` | ✓ `simulator-aws/glue_entity_catalog2.go:116::handleGlueGetPlan` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.GetDataflowGraph` | ✓ `simulator-aws/glue_entity_catalog2.go:117::handleGlueGetDataflowGraph` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.GetDashboardUrl` | ✓ `simulator-aws/glue_entity_catalog2.go:118::handleGlueGetDashboardUrl` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.CreateScript` | ✓ `simulator-aws/glue_entity_catalog2.go:119::handleGlueCreateScript` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.GetPlan` | ○ `simulator-aws/glue_entity_catalog2.go:116::handleGlueGetPlan` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.GetDataflowGraph` | ○ `simulator-aws/glue_entity_catalog2.go:117::handleGlueGetDataflowGraph` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.GetDashboardUrl` | ○ `simulator-aws/glue_entity_catalog2.go:118::handleGlueGetDashboardUrl` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.CreateScript` | ○ `simulator-aws/glue_entity_catalog2.go:119::handleGlueCreateScript` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.CreateMLTransform` | ✓ `simulator-aws/glue_ml_dataquality.go:206::handleGlueCreateMLTransform` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.GetMLTransform` | ✓ `simulator-aws/glue_ml_dataquality.go:207::handleGlueGetMLTransform` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.GetMLTransforms` | ✓ `simulator-aws/glue_ml_dataquality.go:208::handleGlueGetMLTransforms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -235,9 +239,9 @@ Surface registered in `simulator-aws/glue.go` (and related files grouped under t
 | `Action AWSGlue.GetDataQualityResult` | ✓ `simulator-aws/glue_ml_dataquality.go:233::handleGlueGetDataQualityResult` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.BatchGetDataQualityResult` | ✓ `simulator-aws/glue_ml_dataquality.go:234::handleGlueBatchGetDataQualityResult` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.ListDataQualityResults` | ✓ `simulator-aws/glue_ml_dataquality.go:235::handleGlueListDataQualityResults` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.ListDataQualityStatistics` | ✓ `simulator-aws/glue_ml_dataquality.go:236::handleGlueListDataQualityStatistics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.GetDataQualityModel` | ✓ `simulator-aws/glue_ml_dataquality.go:237::handleGlueGetDataQualityModel` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.GetDataQualityModelResult` | ✓ `simulator-aws/glue_ml_dataquality.go:238::handleGlueGetDataQualityModelResult` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.ListDataQualityStatistics` | ○ `simulator-aws/glue_ml_dataquality.go:236::handleGlueListDataQualityStatistics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.GetDataQualityModel` | ○ `simulator-aws/glue_ml_dataquality.go:237::handleGlueGetDataQualityModel` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.GetDataQualityModelResult` | ○ `simulator-aws/glue_ml_dataquality.go:238::handleGlueGetDataQualityModelResult` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.CreateColumnStatisticsTaskSettings` | ✓ `simulator-aws/glue_ml_dataquality.go:241::handleGlueCreateColumnStatisticsTaskSettings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.GetColumnStatisticsTaskSettings` | ✓ `simulator-aws/glue_ml_dataquality.go:242::handleGlueGetColumnStatisticsTaskSettings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.UpdateColumnStatisticsTaskSettings` | ✓ `simulator-aws/glue_ml_dataquality.go:243::handleGlueUpdateColumnStatisticsTaskSettings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

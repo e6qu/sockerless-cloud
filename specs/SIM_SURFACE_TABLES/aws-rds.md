@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-aws/rds.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -66,9 +70,9 @@ Surface registered in `simulator-aws/rds.go` (and related files grouped under th
 | `Action DescribeOptionGroups` | ✓ `simulator-aws/rds.go:348::handleRDSDescribeOptionGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteOptionGroup` | ✓ `simulator-aws/rds.go:349::handleRDSDeleteOptionGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeEvents` | ✓ `simulator-aws/rds.go:351::handleRDSDescribeEvents` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeEventCategories` | ✓ `simulator-aws/rds.go:352::handleRDSDescribeEventCategories` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeDBEngineVersions` | ✓ `simulator-aws/rds.go:353::handleRDSDescribeEngineVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeOrderableDBInstanceOptions` | ✓ `simulator-aws/rds.go:354::handleRDSDescribeOrderableOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeEventCategories` | ○ `simulator-aws/rds.go:352::handleRDSDescribeEventCategories` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeDBEngineVersions` | ○ `simulator-aws/rds.go:353::handleRDSDescribeEngineVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeOrderableDBInstanceOptions` | ○ `simulator-aws/rds.go:354::handleRDSDescribeOrderableOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateDBSubnetGroup` | ✓ `simulator-aws/rds.go:357::handleRDSCreateSubnetGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeDBSubnetGroups` | ✓ `simulator-aws/rds.go:358::handleRDSDescribeSubnetGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyDBSubnetGroup` | ✓ `simulator-aws/rds.go:359::handleRDSModifySubnetGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -82,7 +86,7 @@ Surface registered in `simulator-aws/rds.go` (and related files grouped under th
 | `Action DescribeDBRecommendations` | ✓ `simulator-aws/rds_complete.go:109::handleRDSDescribeRecommendations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyDBRecommendation` | ✓ `simulator-aws/rds_complete.go:110::handleRDSModifyRecommendation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeDBSnapshotTenantDatabases` | ✓ `simulator-aws/rds_complete.go:112::handleRDSDescribeSnapshotTenantDatabases` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeServerlessV2PlatformVersions` | ✓ `simulator-aws/rds_complete.go:113::handleRDSDescribeServerlessV2PlatformVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeServerlessV2PlatformVersions` | ○ `simulator-aws/rds_complete.go:113::handleRDSDescribeServerlessV2PlatformVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeValidDBInstanceModifications` | ✓ `simulator-aws/rds_complete.go:114::handleRDSDescribeValidDBInstanceModifications` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyCurrentDBClusterCapacity` | ✓ `simulator-aws/rds_complete.go:116::handleRDSModifyCurrentDBClusterCapacity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyOptionGroup` | ✓ `simulator-aws/rds_complete.go:117::handleRDSModifyOptionGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -134,7 +138,7 @@ Surface registered in `simulator-aws/rds.go` (and related files grouped under th
 | `Action RestoreDBClusterFromS3` | ✓ `simulator-aws/rds_restore_extras.go:41::handleRDSRestoreClusterFromS3` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action RestoreDBInstanceFromS3` | ✓ `simulator-aws/rds_restore_extras.go:42::handleRDSRestoreInstanceFromS3` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeReservedDBInstances` | ✓ `simulator-aws/rds_restore_extras.go:45::handleRDSDescribeReservedInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeReservedDBInstancesOfferings` | ✓ `simulator-aws/rds_restore_extras.go:46::handleRDSDescribeReservedInstancesOfferings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeReservedDBInstancesOfferings` | ○ `simulator-aws/rds_restore_extras.go:46::handleRDSDescribeReservedInstancesOfferings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PurchaseReservedDBInstancesOffering` | ✓ `simulator-aws/rds_restore_extras.go:47::handleRDSPurchaseReservedInstancesOffering` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateBlueGreenDeployment` | ✓ `simulator-aws/rds_restore_extras.go:50::handleRDSCreateBlueGreenDeployment` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeBlueGreenDeployments` | ✓ `simulator-aws/rds_restore_extras.go:51::handleRDSDescribeBlueGreenDeployments` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -172,11 +176,11 @@ Surface registered in `simulator-aws/rds.go` (and related files grouped under th
 | `Action ModifyDBClusterSnapshotAttribute` | ✓ `simulator-aws/rds_restore_extras.go:99::handleRDSModifyClusterSnapshotAttribute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeDBClusterSnapshotAttributes` | ✓ `simulator-aws/rds_restore_extras.go:100::handleRDSDescribeClusterSnapshotAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyDBSnapshot` | ✓ `simulator-aws/rds_restore_extras.go:101::handleRDSModifySnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeOptionGroupOptions` | ✓ `simulator-aws/rds_restore_extras.go:104::handleRDSDescribeOptionGroupOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeEngineDefaultParameters` | ✓ `simulator-aws/rds_restore_extras.go:105::handleRDSDescribeEngineDefaultParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeEngineDefaultClusterParameters` | ✓ `simulator-aws/rds_restore_extras.go:106::handleRDSDescribeEngineDefaultClusterParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeSourceRegions` | ✓ `simulator-aws/rds_restore_extras.go:107::handleRDSDescribeSourceRegions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeDBMajorEngineVersions` | ✓ `simulator-aws/rds_restore_extras.go:108::handleRDSDescribeDBMajorEngineVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeOptionGroupOptions` | ○ `simulator-aws/rds_restore_extras.go:104::handleRDSDescribeOptionGroupOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeEngineDefaultParameters` | ○ `simulator-aws/rds_restore_extras.go:105::handleRDSDescribeEngineDefaultParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeEngineDefaultClusterParameters` | ○ `simulator-aws/rds_restore_extras.go:106::handleRDSDescribeEngineDefaultClusterParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeSourceRegions` | ○ `simulator-aws/rds_restore_extras.go:107::handleRDSDescribeSourceRegions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeDBMajorEngineVersions` | ○ `simulator-aws/rds_restore_extras.go:108::handleRDSDescribeDBMajorEngineVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

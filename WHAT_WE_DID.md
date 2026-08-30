@@ -1,5 +1,91 @@
 # WHAT WE DID
 
+## 2026-08-29, fortieth pass — Google monitoring reaches its own authenticator
+
+Production acceptance reached `GET /monitoring/observation` with the exact
+deployment credential configured in both Shauth and the Google Cloud
+simulator, but received Google's `UNAUTHENTICATED` envelope saying the token
+was not a JWT. The values matched; the authentication boundaries did not.
+
+The Google Cloud simulator wraps its complete published route table with the
+same access-token verifier that protects its cloud data plane. Because the
+monitoring route is published on that table, the verifier tried to parse the
+independent monitoring bearer as a simulator-minted Google JWT and rejected it
+before the monitoring handler could compare its own token digest. AWS and
+Microsoft Azure do not place that verifier in front of the route, which is why
+their observations worked with identical infrastructure wiring.
+
+The Google verifier now exempts the shared canonical monitoring path exactly
+as it exempts the console's independent session boundary. The monitoring
+handler still owns its constant-time bearer check. The final-handler regression
+proves a valid monitoring credential returns `e6qu.monitoring/v2`, a wrong one
+returns the monitoring realm's 401 challenge, and the valid monitoring
+credential remains rejected by a real Cloud Run API route.
+
+## 2026-08-29, thirty-ninth pass — a deployment cannot complete while it is still failing
+
+An Amazon ECS deployment could report its rollout COMPLETED while none of its
+tasks ran, which silently disarmed the deployment circuit breaker.
+
+A task whose essential container has already exited reads RUNNING until the
+watcher observes the exit. That window satisfied every completion condition, so
+the rollout latched COMPLETED on a task that was about to die. Completion is
+sticky by design — a completed deployment that later loses a task does not
+restart its rollout — and `ecsRecordServiceTaskFailure` ignores a rollout that
+is not IN_PROGRESS. Together those made the latch permanent: the circuit breaker
+stopped counting mid-deployment, never reached its threshold, and never rolled
+back. A deployment the scheduler still holds launch failures for no longer
+completes.
+
+The steady-state window is honoured now whatever the second boundary. It is
+judged against `startedAt`, which the Amazon ECS wire format carries in Unix
+seconds, so it truncates: a task that really started at 10.999 records 10, and
+comparing elapsed time against the window alone cleared a task a millisecond
+after it started whenever the start landed late in its second. A
+second-resolution stamp only proves the window elapsed once the window plus one
+second has, so that is what the scheduler requires, and the wake-up it arms
+lands on the same instant.
+
+Only a circuit breaker makes the failure count meaningful, so only a breaker
+gates completion on it. The count is what counts to a threshold, and
+`ecsResetServiceFailureCountAfterHealthyTask` clears it only when a breaker is
+enabled — gating on the count unconditionally would hold a breakerless service
+that recovered from one launch failure IN_PROGRESS for good, which
+`TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK` caught.
+
+The same change carries the dependency refresh the freshness gate asked for: 53
+Go modules across the AWS, Azure and Google SDK test suites, and the `azurerm`
+Terraform provider from 5.2.0 to 5.3.0 in both stacks.
+
+Every client the tests drive is the newest published build. The AWS CLI and
+gcloud already fetched theirs unversioned, and `hashicorp/setup-terraform` takes
+the newest Terraform, but the step named "Install Azure CLI" installed nothing —
+its whole body was `az version`, so the Azure suites ran against whatever build
+the runner image baked in, which lags Microsoft's releases. It installs the
+newest now, as the other two do.
+
+Google Cloud also gained Cloud SQL blue-green deployments, which the scheduled
+specification refresh pulled onto this branch: create, get, list, delete and the
+switchover verb, on both the v1 and v1beta4 spellings. All ten are served,
+taking Cloud SQL Admin from 150 to 160 method spellings on each. The green
+instance is a real instance in the store every other Cloud SQL read serves;
+switchover promotes it into the source's name and retires the source under a
+name `deleteOldSource` can delete. The generated Go client carries no
+`BlueGreenDeployment` type yet, so its test drives the same authenticated
+transport directly.
+
+`make upgrade-deps` no longer upgrades this repository's own modules. A release
+pins them by commit, so they are required at a pseudo-version, and `@latest`
+prefers any semver tag over one — including the deleted bootstrap `v0.1.0` tags,
+which the module proxy still serves. The refresh walked `ui-auth` backwards to a
+revision predating the fields the simulators call, and all three simulators
+stopped compiling. The upgrade skips them now and says so per module.
+
+`TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK` failed
+about one run in four — on CI and locally — and passes 12 of 12. The truncation
+carries its own unit test, checked against a negative control: the first version
+of that test passed on the unfixed code, which made it worth nothing.
+
 ## 2026-08-29, thirty-seventh pass — the freshness check reads the filter it sends
 
 Every vendored specification is in sync with upstream: AWS 41 Smithy models and

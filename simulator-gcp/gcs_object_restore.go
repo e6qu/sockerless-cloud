@@ -31,7 +31,7 @@ var gcsSoftDeletedObjects sim.Store[gcsSoftDeleted]
 // The generated Go client sends `softDeleted=true`; gcloud renders Python's
 // bool and sends `softDeleted=True`. Matching one spelling silently ignores
 // the other client.
-func gcsQueryBool(r *http.Request, name string) bool {
+func gcpQueryBool(r *http.Request, name string) bool {
 	value, err := strconv.ParseBool(strings.TrimSpace(r.URL.Query().Get(name)))
 	return err == nil && value
 }

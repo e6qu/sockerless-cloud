@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-aws/elbv2.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -39,7 +43,7 @@ Surface registered in `simulator-aws/elbv2.go` (and related files grouped under 
 | `Action AddTags` | ✓ `simulator-aws/elbv2.go:209::handleELBv2AddTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action RemoveTags` | ✓ `simulator-aws/elbv2.go:210::handleELBv2RemoveTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeTags` | ✓ `simulator-aws/elbv2.go:211::handleELBv2DescribeTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeAccountLimits` | ✓ `simulator-aws/elbv2.go:212::handleELBv2DescribeAccountLimits` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAccountLimits` | ○ `simulator-aws/elbv2.go:212::handleELBv2DescribeAccountLimits` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateRule` | ✓ `simulator-aws/elbv2_rules.go:42::handleELBv2CreateRule` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeRules` | ✓ `simulator-aws/elbv2_rules.go:43::handleELBv2DescribeRules` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyRule` | ✓ `simulator-aws/elbv2_rules.go:44::handleELBv2ModifyRule` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -60,7 +64,7 @@ Surface registered in `simulator-aws/elbv2.go` (and related files grouped under 
 | `Action RemoveTrustStoreRevocations` | ✓ `simulator-aws/elbv2_truststore.go:65::handleELBv2RemoveTrustStoreRevocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeTrustStoreRevocations` | ✓ `simulator-aws/elbv2_truststore.go:66::handleELBv2DescribeTrustStoreRevocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetTrustStoreRevocationContent` | ✓ `simulator-aws/elbv2_truststore.go:67::handleELBv2GetTrustStoreRevocationContent` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeSSLPolicies` | ✓ `simulator-aws/elbv2_truststore.go:69::handleELBv2DescribeSSLPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeSSLPolicies` | ○ `simulator-aws/elbv2_truststore.go:69::handleELBv2DescribeSSLPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetResourcePolicy` | ✓ `simulator-aws/elbv2_truststore.go:70::handleELBv2GetResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyCapacityReservation` | ✓ `simulator-aws/elbv2_truststore.go:71::handleELBv2ModifyCapacityReservation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyIpPools` | ✓ `simulator-aws/elbv2_truststore.go:72::handleELBv2ModifyIpPools` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

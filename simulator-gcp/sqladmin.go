@@ -179,8 +179,12 @@ func registerCloudSQL(srv *sim.Server) {
 	sqlSslCerts = sim.MakeStore[SQLSslCert](srv.DB(), "sql_ssl_certs")
 	sqlBackups = sim.MakeStore[SQLBackup](srv.DB(), "sql_backups")
 
+	sqlBlueGreenDeployments = sim.MakeStore[SQLBlueGreenDeployment](srv.DB(), "sql_blue_green_deployments")
+
 	registerCloudSQLPrefix(srv, "/v1")
 	registerCloudSQLPrefix(srv, "/sql/v1beta4")
+	registerCloudSQLBlueGreenPrefix(srv, "/v1")
+	registerCloudSQLBlueGreenPrefix(srv, "/sql/v1beta4")
 
 	// instances.pointInTimeRestore's v1beta4 spelling. The /v1 spelling's mux
 	// pattern (`POST /v1/projects/{...}`) belongs to Cloud Resource Manager's

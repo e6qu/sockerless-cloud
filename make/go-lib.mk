@@ -33,7 +33,10 @@ test-integration: ## run integration tests against the local simulator
 test-integration-cloud: ## run integration tests against the operator-supplied real cloud (requires SOCKERLESS_ENDPOINT_URL + per-backend env vars)
 	$(GO_ENV) SOCKERLESS_TEST_TARGET=cloud go test -v -timeout 30m ./...
 
-upgrade-deps: ## bump every direct require in go.mod to its latest (in-repo github.com/e6qu/sockerless-cloud modules included — their pins are real published versions)
+# This repository's own modules are excluded, for the reason go-app.mk records:
+# a release pins them by commit, and `@latest` walks that pin backwards to a
+# deleted bootstrap tag the module proxy still serves.
+upgrade-deps: ## bump every direct require in go.mod to its latest (this repository's own modules excluded — a release pins those by commit)
 	@gomod=$$($(GO_ENV) go env GOMOD); \
 	if [ "$$gomod" = "/dev/null" ]; then \
 	  echo "no go.mod found"; \
@@ -41,6 +44,10 @@ upgrade-deps: ## bump every direct require in go.mod to its latest (in-repo gith
 	fi; \
 	deps=$$(awk '/^require \(/{b=1;next} /^\)/&&b{b=0} b&&!/\/\/ indirect/{sub(/^[ \t]+/,"");sub(/[ \t]*\/\/.*$$/,"");if(NF>=2)print $$1}' "$$gomod"); \
 	for d in $$deps; do \
+	  case "$$d" in github.com/e6qu/sockerless-cloud/*) \
+	    printf "▸ skip %s (published here; a release pins it by commit)\n" "$$d"; \
+	    continue;; \
+	  esac; \
 	  printf "▸ go get -u %s@latest\n" "$$d"; \
 	  $(GO_ENV) go get -u "$$d@latest"; \
 	done; \

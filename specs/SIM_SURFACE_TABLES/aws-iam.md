@@ -2,11 +2,15 @@
 
 Surface registered in `simulator-aws/iam.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
+The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
+
 ## Status legend
 
-- ✓ — implemented + tested
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
+- ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
-- 501 — stubbed NotImplemented (wire-visible gap)
+- 501 — NotImplemented on the wire (a declared gap)
 - n/a — no meaningful client/provider surface for this op
 
 ## Implemented ops (extracted from HandleFunc registrations)
@@ -41,8 +45,8 @@ Surface registered in `simulator-aws/iam.go` (and related files grouped under th
 | `Action RemoveRoleFromInstanceProfile` | ✓ `simulator-aws/iam.go:111::handleIAMRemoveRoleFromInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetAccountProperties` | ✓ `simulator-aws/iam_account_properties.go:35::handleIAMGetAccountProperties` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PutAccountProperties` | ✓ `simulator-aws/iam_account_properties.go:36::handleIAMPutAccountProperties` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetRoleTemplateVersion` | ✓ `simulator-aws/iam_account_properties.go:37::handleIAMGetRoleTemplateVersion` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AcquireRole` | ✓ `simulator-aws/iam_account_properties.go:38::handleIAMAcquireRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetRoleTemplateVersion` | ○ `simulator-aws/iam_account_properties.go:37::handleIAMGetRoleTemplateVersion` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AcquireRole` | ○ `simulator-aws/iam_account_properties.go:38::handleIAMAcquireRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PutUserPermissionsBoundary` | ✓ `simulator-aws/iam_groups.go:64::handleIAMPutUserBoundary` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteUserPermissionsBoundary` | ✓ `simulator-aws/iam_groups.go:65::handleIAMDeleteUserBoundary` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateGroup` | ✓ `simulator-aws/iam_groups.go:67::handleIAMCreateGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -64,7 +68,7 @@ Surface registered in `simulator-aws/iam.go` (and related files grouped under th
 | `Action ListRoles` | ✓ `simulator-aws/iam_lists.go:29::handleIAMListRoles` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ListRoleTags` | ✓ `simulator-aws/iam_lists.go:30::handleIAMListRoleTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ListPolicyTags` | ✓ `simulator-aws/iam_lists.go:31::handleIAMListPolicyTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action SimulateCustomPolicy` | ✓ `simulator-aws/iam_policy_sim.go:751::handleIAMSimulateCustomPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action SimulateCustomPolicy` | ○ `simulator-aws/iam_policy_sim.go:751::handleIAMSimulateCustomPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action SimulatePrincipalPolicy` | ✓ `simulator-aws/iam_policy_sim.go:752::handleIAMSimulatePrincipalPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateServiceLinkedRole` | ✓ `simulator-aws/iam_slr_oidc.go:61::handleIAMCreateServiceLinkedRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteServiceLinkedRole` | ✓ `simulator-aws/iam_slr_oidc.go:62::handleIAMDeleteServiceLinkedRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

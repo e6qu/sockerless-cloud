@@ -840,7 +840,7 @@ func registerGCS(srv *sim.Server) {
 		// softDeleted=true lists the retired generations instead of the live
 		// objects — the listing a client reads to find what restore can bring
 		// back. The two selections are exclusive, as they are in the service.
-		if gcsQueryBool(r, "softDeleted") {
+		if gcpQueryBool(r, "softDeleted") {
 			retired := gcsSoftDeletedListing(bucketName, prefix)
 			items := make([]map[string]any, 0, len(retired))
 			for _, entry := range retired {
