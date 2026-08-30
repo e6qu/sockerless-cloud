@@ -189,7 +189,7 @@ var gcpMethodFloor = map[string]int{
 	// interconnect locations, license codes, preview features, reliability
 	// risks — stay unserved: an empty list is not what they return, and filling
 	// one in means inventing Google's own facility and licence data.
-	"compute-v1":              1691,
+	"compute-v1":              1708,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only
@@ -665,6 +665,42 @@ func gcpPatternLiterals(seg string) ([]string, bool) {
 // "projects/sim-project/locations/us-central1/secrets/sim-secret"). Index 0 is
 // the primary rendering; later indices vary the segments that offer
 // alternatives.
+// gcpPatternNamesSegments reports whether a path-parameter pattern names at
+// least one literal collection segment, which makes it a shape other
+// parameters of the same collection can be rendered from.
+func gcpPatternNamesSegments(pattern string) bool {
+	pattern = strings.TrimSuffix(strings.TrimPrefix(pattern, "^"), "$")
+	segs := gcpSplitPatternSegments(pattern)
+	if len(segs) < 2 {
+		return false
+	}
+	for _, seg := range segs {
+		if _, ok := gcpPatternLiterals(seg); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// gcpPatternIsShapeless reports whether a pattern permits a multi-segment value
+// while describing none: a single character class that allows "/"
+// ("[a-z](?:[-a-zA-Z0-9/]{0,255}[a-zA-Z0-9])?"). A client fills such a
+// parameter with a resource path, but the pattern gives no way to render one,
+// so the shape has to come from elsewhere. A pattern that splits into segments
+// already describes its shape, whether or not it names literals.
+func gcpPatternIsShapeless(pattern string) bool {
+	pattern = strings.TrimSuffix(strings.TrimPrefix(pattern, "^"), "$")
+	if len(gcpSplitPatternSegments(pattern)) != 1 {
+		return false
+	}
+	for _, class := range regexp.MustCompile(`\[[^]]*]`).FindAllString(pattern, -1) {
+		if strings.Contains(class, "/") && !strings.HasPrefix(class, "[^") {
+			return true
+		}
+	}
+	return false
+}
+
 func gcpPatternSamples(pattern string) []string {
 	pattern = strings.TrimSuffix(strings.TrimPrefix(pattern, "^"), "$")
 	segs := gcpSplitPatternSegments(pattern)
@@ -896,4 +932,41 @@ func TestServiceConformance_GCPCoverageFloor(t *testing.T) {
 	// total counts spellings, not distinct methods. It is roughly twice the
 	// method count for the documents that declare both.
 	t.Logf("TOTAL: %d/%d GCP Discovery method spellings served", totalServed, totalSpellings)
+}
+
+// The reserved-expansion shape rule, pinned by the three patterns Google
+// writes: one that names its segments, one that constrains a single segment,
+// and one that permits a resource path while describing none of it.
+func TestServiceConformance_GCPShapelessPatternsAreOnlyTheSlashPermittingOnes(t *testing.T) {
+	shapeless := []string{
+		// compute reservationSubBlocks {+parentResource}
+		`[a-z](?:[-a-zA-Z0-9/]{0,255}[a-zA-Z0-9])?`,
+	}
+	shaped := []string{
+		// compute reservationSubBlocks {+parentName}
+		`^reservations/[^/]+/reservationBlocks/[^/]+$`,
+		// bigquery {+tableId}: one segment, no slash
+		`^[^/]+$`,
+		// logging {+parent}: two segments, neither named
+		`^[^/]+/[^/]+$`,
+		"",
+	}
+	for _, pattern := range shapeless {
+		if !gcpPatternIsShapeless(pattern) {
+			t.Errorf("pattern %q describes no shape, but was read as if it did", pattern)
+		}
+	}
+	for _, pattern := range shaped {
+		if gcpPatternIsShapeless(pattern) {
+			t.Errorf("pattern %q describes its own shape, and must not borrow another", pattern)
+		}
+	}
+
+	// Only the one that names literal segments can stand in for another.
+	if !gcpPatternNamesSegments(`^reservations/[^/]+/reservationBlocks/[^/]+$`) {
+		t.Error("a pattern naming its collections is the shape others render from")
+	}
+	if gcpPatternNamesSegments(`^[^/]+/[^/]+$`) {
+		t.Error("a pattern naming no collection cannot stand in for another")
+	}
 }

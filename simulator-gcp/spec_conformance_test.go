@@ -109,14 +109,25 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 		join := func(rel string) string {
 			return "/" + strings.TrimPrefix(strings.TrimSuffix(doc.BasePath, "/")+"/"+strings.TrimPrefix(rel, "/"), "/")
 		}
-		addMethod := func(m rawMethod) {
+		addMethod := func(m rawMethod, parentShape string) {
 			if m.HTTPMethod == "" {
 				return
 			}
 			pathParams := map[string]string{}
 			for name, param := range m.Parameters {
 				if param.Location == "path" {
-					pathParams[name] = param.Pattern
+					pattern := param.Pattern
+					// A reserved-expansion parent whose pattern is a bare
+					// character class ("[a-z](?:[-a-zA-Z0-9/]{0,255}...)")
+					// permits slashes but describes no segments to render.
+					// Its siblings in the same collection denote the same
+					// parent and do name their segments, so the collection's
+					// shape stands in — which is what a client fills the
+					// parameter with.
+					if parentShape != "" && strings.Contains(m.Path, "{+"+name+"}") && gcpPatternIsShapeless(pattern) {
+						pattern = parentShape
+					}
+					pathParams[name] = pattern
 				}
 			}
 			// Both the expanded flatPath and the {+param} template path
@@ -141,15 +152,26 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 		}
 		var walk func(res rawResource)
 		walk = func(res rawResource) {
+			// Every reserved-expansion parent of one collection denotes the
+			// same parent, so the most informative pattern any of its methods
+			// declares is the shape for all of them.
+			parentShape := ""
 			for _, m := range res.Methods {
-				addMethod(m)
+				for _, param := range m.Parameters {
+					if param.Location == "path" && gcpPatternNamesSegments(param.Pattern) {
+						parentShape = param.Pattern
+					}
+				}
+			}
+			for _, m := range res.Methods {
+				addMethod(m, parentShape)
 			}
 			for _, sub := range res.Resources {
 				walk(sub)
 			}
 		}
 		for _, m := range doc.Methods {
-			addMethod(m)
+			addMethod(m, "")
 		}
 		for _, res := range doc.Resources {
 			walk(res)

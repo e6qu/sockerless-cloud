@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -134,6 +135,12 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 	srv.HandleFunc("GET "+base+"/{name}/reservationBlocks/{block}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
 		handleResourceIAM(w, r, gcpResourcePolicies, blockIAM(r), "getIamPolicy")
 	})
+	srv.HandleFunc("POST "+base+"/{name}/reservationBlocks/{block}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
+		handleResourceIAM(w, r, gcpResourcePolicies, blockIAM(r), "setIamPolicy")
+	})
+	srv.HandleFunc("POST "+base+"/{name}/reservationBlocks/{block}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
+		handleResourceIAM(w, r, gcpResourcePolicies, blockIAM(r), "testIamPermissions")
+	})
 
 	subBlocks := func(w http.ResponseWriter, r *http.Request) ([]map[string]any, bool) {
 		_, reservation, ok := load(w, r)
@@ -186,16 +193,7 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"resource": item})
 	})
-	srv.HandleFunc("POST "+subBase+"/{subBlock}/getVersion", func(w http.ResponseWriter, r *http.Request) {
-		item, ok := findSub(w, r)
-		if !ok {
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind": "compute#reservationSubBlocksGetVersionResponse", "resource": item,
-		})
-	})
-	for _, verb := range []string{"performMaintenance", "reportFaulty"} {
+	for _, verb := range []string{"getVersion", "performMaintenance", "reportFaulty"} {
 		verb := verb
 		srv.HandleFunc("POST "+subBase+"/{subBlock}/"+verb, func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := findSub(w, r); !ok {
@@ -217,6 +215,81 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 	srv.HandleFunc("POST "+subBase+"/{subBlock}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
 		handleResourceIAM(w, r, gcpResourcePolicies, subIAM(r), "testIamPermissions")
 	})
+
+	// A slot is one machine of a sub-block, and the level at which a
+	// reservation reports health and takes an update. Slots come from the
+	// sub-block's count for the same reason sub-blocks come from the block's:
+	// a resize has to reach all the way down, and a stored copy would not.
+	slots := func(w http.ResponseWriter, r *http.Request) ([]map[string]any, bool) {
+		sub, ok := findSub(w, r)
+		if !ok {
+			return nil, false
+		}
+		return computeReservationSlots(sub), true
+	}
+	findSlot := func(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
+		items, ok := slots(w, r)
+		if !ok {
+			return nil, false
+		}
+		wanted := sim.PathParam(r, "slot")
+		for _, item := range items {
+			if item["name"] == wanted {
+				return item, true
+			}
+		}
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation slot %q not found", wanted)
+		return nil, false
+	}
+
+	const slotBase = subBase + "/{subBlock}/reservationSlots"
+	srv.HandleFunc("GET "+slotBase, func(w http.ResponseWriter, r *http.Request) {
+		items, ok := slots(w, r)
+		if !ok {
+			return
+		}
+		entries := []any{}
+		for _, item := range items {
+			entries = append(entries, item)
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"kind": "compute#reservationSlotsListResponse", "items": entries,
+		})
+	})
+	srv.HandleFunc("GET "+slotBase+"/{slot}", func(w http.ResponseWriter, r *http.Request) {
+		item, ok := findSlot(w, r)
+		if !ok {
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"resource": item})
+	})
+	// update, getVersion and getHealth all answer with an Operation, which is
+	// what the document declares for each.
+	for suffix, verb := range map[string]string{"": "update", "/getVersion": "getVersion", "/getHealth": "getHealth"} {
+		verb := verb
+		srv.HandleFunc("POST "+slotBase+"/{slot}"+suffix, func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := findSlot(w, r); !ok {
+				return
+			}
+			key := computeScopedKey(r, cScopeZone, "reservations", sim.PathParam(r, "name"))
+			sim.WriteJSON(w, http.StatusOK, operation(r, key, verb))
+		})
+	}
+}
+
+// computeReservationSlots divides a sub-block into the individual machines it
+// holds, which is the level a reservation reports health at.
+func computeReservationSlots(sub map[string]any) []map[string]any {
+	count, _ := sub["count"].(int)
+	name, _ := sub["name"].(string)
+	slots := make([]map[string]any, 0, count)
+	for i := 1; i <= count; i++ {
+		slots = append(slots, map[string]any{
+			"kind": "compute#reservationSlot", "name": fmt.Sprintf("%s-slot-%d", name, i),
+			"state": "ACTIVE", "status": map[string]any{"runningInstances": []any{}},
+		})
+	}
+	return slots
 }
 
 // computeReservationSubBlocks divides a block into the units maintenance is
