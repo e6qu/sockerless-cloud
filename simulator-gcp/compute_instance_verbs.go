@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -472,7 +473,7 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 
 // computeInstanceSelfLink is the URL a zonal instance is addressed by.
 func computeInstanceSelfLink(project, zone, name string) string {
-	return computeSelfLink("projects/" + project + "/zones/" + zone + "/instances/" + name)
+	return fmt.Sprintf("projects/%s/zones/%s/instances/%s", project, zone, name)
 }
 
 // errComputeInvalid reports a request Compute Engine would refuse.

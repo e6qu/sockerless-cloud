@@ -840,7 +840,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 
-		selfLink := fmt.Sprintf("projects/%s/global/networks/%s", project, req.Name)
+		selfLink := computeNetworkSelfLink(project, req.Name)
 		net := ComputeNetwork{
 			Kind:                  "compute#network",
 			Id:                    computeNumericID(),
@@ -874,7 +874,7 @@ func registerCompute(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
-		selfLink := fmt.Sprintf("projects/%s/global/networks/%s", project, name)
+		selfLink := computeNetworkSelfLink(project, name)
 
 		net, ok := networks.Get(selfLink)
 		if !ok {
@@ -908,7 +908,7 @@ func registerCompute(srv *sim.Server) {
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
-		selfLink := fmt.Sprintf("projects/%s/global/networks/%s", project, name)
+		selfLink := computeNetworkSelfLink(project, name)
 
 		if computeNotFound(w, networks.Delete(selfLink), "network", name) {
 			return
@@ -928,7 +928,7 @@ func registerCompute(srv *sim.Server) {
 	srv.HandleFunc("PATCH /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
-		selfLink := fmt.Sprintf("projects/%s/global/networks/%s", project, name)
+		selfLink := computeNetworkSelfLink(project, name)
 
 		var req struct {
 			RoutingConfig struct {
@@ -2008,7 +2008,7 @@ func normalizeComputeGlobalNetworkRef(project, ref string) string {
 	if strings.Contains(ref, "/") {
 		return ref
 	}
-	return fmt.Sprintf("projects/%s/global/networks/%s", project, ref)
+	return computeNetworkSelfLink(project, ref)
 }
 
 func normalizeComputeSubnetworkRef(project, region, ref string) string {
@@ -2262,9 +2262,9 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 	recoverComputeOperations()
 	logger := srv.Logger()
 
-	instanceSelfLink := func(project, zone, name string) string {
-		return fmt.Sprintf("projects/%s/zones/%s/instances/%s", project, zone, name)
-	}
+	// One spelling of the instance key, shared with the verbs registered
+	// alongside these handlers: two spellings would read past each other.
+	instanceSelfLink := computeInstanceSelfLink
 
 	normalizeInstance := func(ctx context.Context, project, zone string, inst *ComputeInstance) error {
 		inst.Kind = "compute#instance"

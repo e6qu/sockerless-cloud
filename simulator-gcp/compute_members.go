@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -234,6 +235,13 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 	})
 }
 
+// computeNetworkSelfLink is the key the networks store is written and read
+// under. One spelling, shared by every handler that touches that store: two
+// would read past each other.
+func computeNetworkSelfLink(project, name string) string {
+	return fmt.Sprintf("projects/%s/global/networks/%s", project, name)
+}
+
 // registerComputeNetworkPeerings serves a network's peerings and the reads
 // derived from them.
 func registerComputeNetworkPeerings(srv *sim.Server) {
@@ -241,7 +249,7 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 
 	load := func(w http.ResponseWriter, r *http.Request) (string, ComputeNetwork, bool) {
 		project, name := sim.PathParam(r, "project"), sim.PathParam(r, "network")
-		key := computeSelfLink("projects/" + project + "/global/networks/" + name)
+		key := computeNetworkSelfLink(project, name)
 		network, ok := gcpComputeNetworks.Get(key)
 		if !ok {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "network %q not found", name)

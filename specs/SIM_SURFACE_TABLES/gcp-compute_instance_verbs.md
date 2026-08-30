@@ -17,11 +17,11 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/referrers` | ✓ `simulator-gcp/compute_instance_verbs.go:376::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/getEffectiveFirewalls` | ✓ `simulator-gcp/compute_instance_verbs.go:407::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_instance_verbs.go:435::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_instance_verbs.go:438::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_instance_verbs.go:441::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/referrers` | ✓ `simulator-gcp/compute_instance_verbs.go:377::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/getEffectiveFirewalls` | ✓ `simulator-gcp/compute_instance_verbs.go:408::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_instance_verbs.go:436::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_instance_verbs.go:439::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_instance_verbs.go:442::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
