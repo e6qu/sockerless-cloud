@@ -79,5 +79,5 @@ simulator suites, they skip when the capability probe fails.
 ## See also
 
 - [`simulator-aws/README.md`](../simulator-aws/README.md), [`simulator-gcp/README.md`](../simulator-gcp/README.md), [`simulator-azure/README.md`](../simulator-azure/README.md) — the consumers.
-- [`specs/CLOUD_RESOURCE_MAPPING.md`](https://github.com/e6qu/sockerless/blob/main/specs/CLOUD_RESOURCE_MAPPING.md) — which cloud resources map onto which substrate primitive.
-- [`docs/RUNNERS.md`](https://github.com/e6qu/sockerless/blob/main/docs/RUNNERS.md) — runner hurdles where real execution (or its absence on a host) shaped the design.
+- `specs/CLOUD_RESOURCE_MAPPING.md` — which cloud resources map onto which substrate primitive.
+- `docs/RUNNERS.md` — runner hurdles where real execution (or its absence on a host) shaped the design.

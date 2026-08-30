@@ -1,5 +1,104 @@
 # WHAT WE DID
 
+## 2026-08-30, forty-second pass — the project describes itself
+
+Sockerless Cloud read as a component of the repository that consumes it: the
+README opened by defining the simulators as what "the Sockerless cloud backends
+consume", a column of the front table named the backends each simulator
+"serves", and the per-cloud READMEs called each simulator the "upstream" for a
+named backend. It is the other way round — the simulators are a general-purpose
+reimplementation of the clouds, and what is built on them is downstream.
+
+The framing is gone, along with every link into the other repository. What
+replaced it is what the project actually is: anything that speaks a cloud's API
+can be pointed at a simulator — the cloud's SDKs, its official CLI, its
+Terraform provider, and the libraries built on those, boto among them — and each
+surface is validated against that cloud's published specification in the format
+the cloud publishes it, Smithy for AWS, Discovery for Google Cloud, OpenAPI for
+Azure. Which services a slice covers is this project's choice; nothing
+downstream defines it.
+
+Three links pointed at another repository's copy of skills this repository owns,
+and now point at its own. Historical issue references keep the fact and drop the
+dead cross-repository URL.
+
+The README carries a copyright and licence notice: copyright retained by Adrian
+Mârza and by each contributor to the extent of their contributions, under
+AGPL-3.0-or-later, with the licence text as distributed, the upstream text and
+the SPDX identifier all linked. Beside it is the vendored material — the Smithy,
+Discovery and OpenAPI snapshots the simulators are validated against — with each
+corpus's own licence and its traceability: every `SOURCES.md` row records the
+local file, the upstream repository or host, the exact upstream path, the
+licence, the pinned revision and the fetch time, so any vendored byte can be
+traced to the published document it came from.
+
+Six dangling links left over from the extraction are repaired, five of them
+documentation of things this repository does not contain: `make/README.md`
+described `components.mk`, `stack.mk` and an `observability-config/` directory
+that came from the other repository, and the Caddyfile row named a stack target
+that does not exist here rather than the Terraform and CLI harnesses that
+actually start the gateway.
+
+## 2026-08-30, forty-first pass — the surface tables show the whole surface
+
+The tables listed only routes whose path was a single string literal. A
+registration that composes its path — `"GET "+prefix+"/projects/{project}/…"`,
+the shape every surface served under two version prefixes uses — produced no
+row at all, so the tables carried 4,044 of 5,041 registered operations and
+fifteen surfaces had no table whatsoever: Azure networking, Azure Service Bus,
+Azure Event Hubs, Azure DNS, Azure App Service plans, the Key Vault managed-HSM
+tail, Amazon CloudFront and its function/key/policy resources among them.
+
+`scripts/classify-sim-handlers.go` resolves the route now, substituting the
+literals a caller passes for a prefix parameter and reading package-level and
+function-local constants, and the seeder builds its rows from that rather than
+from a regular expression over the source. The tables gained 997 rows, a
+quarter more surface, and every status the legend declares now actually
+appears — including the 501 on Azure Resource Manager's generic provider path,
+which had been unreachable because those four registrations name their path
+through a local constant.
+
+Each of the fifteen new tables carries a coverage-matrix row written against
+test files that were checked, not inferred. Three surfaces looked uncovered
+under a filename search and were not: Azure App Service plans are exercised
+through `Microsoft.Web/serverfarms`, public DNS through
+`Microsoft.Network/dnsZones`. Searching by resource type rather than by file
+name found them — the same false-absence the tooling itself was being fixed to
+stop reporting.
+
+The sweep's own findings were then acted on rather than filed. Azure's
+virtual-machine extension surface reached no Terraform client, so the Azure
+stack declares an `azurerm_virtual_machine_extension` and Terraform now reaches
+`virtualMachines/{vm}/extensions/{name}` through PUT, GET and DELETE. The patch
+surface — `assessPatches`, `installPatches` and `capture` — had no test on any
+client, and now has one that asserts on what the guest produced: the package
+counts its own package manager reported, an installation that honoured
+never-reboot, and a capture that names the disk it copied.
+
+A machine's disk now outlives the guest process that runs it. Firecracker builds
+its root filesystem inside a working directory it removes when the guest stops,
+so a stopped machine had no disk — and that made `VirtualMachines_Capture`
+unreachable by any order of calls, because Azure generalizes only a stopped
+machine and captures only a generalized one. Generalizing first destroyed the
+disk the capture needed; capturing first was refused for want of
+generalization. The disk is copied to a path derived from the resource id
+before the guest is stopped, the capture reads it there and quiesces the guest
+only when one is running, and a deleted machine discards it while a deallocated
+one keeps it — which is what deallocation means in Azure.
+
+Three claims in the first draft of those matrix rows were wrong and are
+corrected. `compute_network_request_validation_test.go` was cited for all three
+surfaces and exercises none of them; the extension surface is covered by
+`compute_vm_guest_operations_test.go` and listing by location by
+`compute_vm_operations_test.go`. Reading a guest-gated test's `ok` as a pass is
+what produced the wrong citation — every one of these skips on a host without
+the kernel capability, and `go test` reports a skipped package as `ok`.
+
+`classify-sim-handlers.go` also resolves a constant defined from another
+constant now. `const extPath = armBase + "/virtualMachines/…"` is the shape ARM
+paths are written in, and treating only string literals as constants reported
+the extension surface at one route of five.
+
 ## 2026-08-29, fortieth pass — Google monitoring reaches its own authenticator
 
 Production acceptance reached `GET /monitoring/observation` with the exact

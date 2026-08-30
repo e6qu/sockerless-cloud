@@ -7,8 +7,7 @@ Current state of the sockerless-cloud repository.
 - **Repository born 2026-08-11** by extraction of `simulators/` (plus the sim
   console UI packages, vendored cloud API specs, sim scripts/hooks, and the
   Firecracker/realexec harness) from the
-  [sockerless](https://github.com/e6qu/sockerless) repository, as a fresh
-  snapshot without history.
+  predecessor repository, as a fresh snapshot without history.
 - **Module layout**: `simulator-aws/`, `simulator-gcp/`, `simulator-azure/`
   are separate installable root modules
   (`github.com/e6qu/sockerless-cloud/simulator-<cloud>`); each folds its
@@ -298,6 +297,11 @@ Current state of the sockerless-cloud repository.
   so the breaker keeps counting to its threshold; and the steady-state window is
   judged against a Unix-second `startedAt` that truncates, so it requires the
   window plus one second — the only span that proves it elapsed.
+- **The surface tables show the whole registered surface.** Routes composed from
+  a version prefix or a constant resolve through `scripts/classify-sim-handlers.go`,
+  which also reports what the handler behind each one does, so a table records
+  5,041 operations rather than 4,044 and distinguishes an op that reaches state
+  from one that only answers.
 - **`make upgrade-deps` leaves this repository's own modules alone.** A release
   pins them by commit, so they sit at a pseudo-version, and `@latest` walks that
   backwards to a deleted bootstrap tag the module proxy still serves.

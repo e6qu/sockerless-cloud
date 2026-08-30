@@ -17,6 +17,18 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
+| `POST /v1b3/projects/{project}/locations/{location}/templates` | ✓ `simulator-gcp/dataflow.go:100::handleDataflowCreateJobFromTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1b3/projects/{project}/locations/{location}/templates:get` | ○ `simulator-gcp/dataflow.go:101::handleDataflowGetTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1b3/projects/{project}/locations/{location}/templates:launch` | ✓ `simulator-gcp/dataflow.go:102::handleDataflowLaunchTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1b3/projects/{project}/locations/{location}/flexTemplates:launch` | ✓ `simulator-gcp/dataflow.go:103::handleDataflowLaunchFlexTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1b3/projects/{project}/snapshots` | ✓ `simulator-gcp/dataflow.go:105::handleDataflowListSnapshotsGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `DELETE /v1b3/projects/{project}/snapshots` | ✓ `simulator-gcp/dataflow.go:106::handleDataflowDeleteSnapshotsGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1b3/projects/{project}/snapshots/{snapshot}` | ✓ `simulator-gcp/dataflow.go:107::handleDataflowGetSnapshotGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1b3/projects/{project}/locations/{location}/snapshots` | ✓ `simulator-gcp/dataflow.go:109::handleDataflowListSnapshots` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1b3/projects/{project}/locations/{location}/snapshots/{snapshot}` | ✓ `simulator-gcp/dataflow.go:110::handleDataflowGetSnapshot` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `DELETE /v1b3/projects/{project}/locations/{location}/snapshots/{snapshot}` | ✓ `simulator-gcp/dataflow.go:111::handleDataflowDeleteSnapshot` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1b3/projects/{project}/WorkerMessages` | ○ `simulator-gcp/dataflow.go:113::handleDataflowWorkerMessages` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1b3/projects/{project}/locations/{location}/WorkerMessages` | ○ `simulator-gcp/dataflow.go:114::handleDataflowWorkerMessages` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /v1b3/projects/{project}/jobs` | ✓ `simulator-gcp/dataflow.go:67::handleDataflowCreateJobGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /v1b3/projects/{project}/jobs` | ✓ `simulator-gcp/dataflow.go:68::handleDataflowListJobsGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /v1b3/projects/{project}/jobs:aggregated` | ✓ `simulator-gcp/dataflow.go:69::handleDataflowAggregatedJobs` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
@@ -47,18 +59,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /v1b3/projects/{project}/templates` | ✓ `simulator-gcp/dataflow.go:96::handleDataflowCreateJobFromTemplateGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /v1b3/projects/{project}/templates:get` | ○ `simulator-gcp/dataflow.go:97::handleDataflowGetTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /v1b3/projects/{project}/templates:launch` | ✓ `simulator-gcp/dataflow.go:98::handleDataflowLaunchTemplateGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1b3/projects/{project}/locations/{location}/templates` | ✓ `simulator-gcp/dataflow.go:100::handleDataflowCreateJobFromTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1b3/projects/{project}/locations/{location}/templates:get` | ○ `simulator-gcp/dataflow.go:101::handleDataflowGetTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1b3/projects/{project}/locations/{location}/templates:launch` | ✓ `simulator-gcp/dataflow.go:102::handleDataflowLaunchTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1b3/projects/{project}/locations/{location}/flexTemplates:launch` | ✓ `simulator-gcp/dataflow.go:103::handleDataflowLaunchFlexTemplate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1b3/projects/{project}/snapshots` | ✓ `simulator-gcp/dataflow.go:105::handleDataflowListSnapshotsGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `DELETE /v1b3/projects/{project}/snapshots` | ✓ `simulator-gcp/dataflow.go:106::handleDataflowDeleteSnapshotsGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1b3/projects/{project}/snapshots/{snapshot}` | ✓ `simulator-gcp/dataflow.go:107::handleDataflowGetSnapshotGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1b3/projects/{project}/locations/{location}/snapshots` | ✓ `simulator-gcp/dataflow.go:109::handleDataflowListSnapshots` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1b3/projects/{project}/locations/{location}/snapshots/{snapshot}` | ✓ `simulator-gcp/dataflow.go:110::handleDataflowGetSnapshot` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `DELETE /v1b3/projects/{project}/locations/{location}/snapshots/{snapshot}` | ✓ `simulator-gcp/dataflow.go:111::handleDataflowDeleteSnapshot` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1b3/projects/{project}/WorkerMessages` | ○ `simulator-gcp/dataflow.go:113::handleDataflowWorkerMessages` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1b3/projects/{project}/locations/{location}/WorkerMessages` | ○ `simulator-gcp/dataflow.go:114::handleDataflowWorkerMessages` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

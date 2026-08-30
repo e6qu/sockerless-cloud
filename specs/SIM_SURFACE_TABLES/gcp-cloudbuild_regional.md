@@ -22,6 +22,8 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /v1/webhook` | ? `simulator-gcp/cloudbuild_regional.go:198::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /v1/githubDotComWebhook:receive` | ? `simulator-gcp/cloudbuild_regional.go:199::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /v1/locations/{location}/regionalWebhook` | ? `simulator-gcp/cloudbuild_regional.go:200::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{configAction}` | ✓ `simulator-gcp/cloudbuild_regional.go:202::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate` | ✓ `simulator-gcp/cloudbuild_regional.go:249::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

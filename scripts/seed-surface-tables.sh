@@ -143,30 +143,21 @@ for cloud in aws azure gcp; do
     table_name="$(table_for_file "$cloud" "$base")"
     is_preserved "$table_name" && continue
 
-    # REST-style routes: mux.HandleFunc("METHOD /pattern", handler).
-    { grep -nE '\.HandleFunc\(' "$go_file" || true; } \
-      | { sed -E 's/^([0-9]+):.*HandleFunc\("([A-Z]+) ([^"]+)",[[:space:]]*([a-zA-Z0-9_.]+).*$/\1\t\2 \3\t\4/' || true; } \
-      | { grep -E '^[0-9]+	[A-Z]+ ' || true; } \
-      | while IFS=$'\t' read -r line route handler; do
-          printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$table_name" "$cloud" "$base" "$line" "$route" "$handler"
-        done
-
-    # AWS awsJson1.1 / awsQuery actions:
-    #   r.Register("Service.Action", handler)
-    #   r.RegisterVersioned("YYYY-MM-DD", "Action", handler)
-    { grep -nE '\.Register\("' "$go_file" || true; } \
-      | { sed -E 's/^([0-9]+):.*\.Register\("([^"]+)",[[:space:]]*([a-zA-Z0-9_.]+).*$/\1\t\2\t\3/' || true; } \
-      | { grep -E '^[0-9]+	[A-Za-z]' || true; } \
-      | while IFS=$'\t' read -r line action handler; do
-          printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$table_name" "$cloud" "$base" "$line" "Action $action" "$handler"
-        done
-
-    { grep -nE '\.RegisterVersioned\(' "$go_file" || true; } \
-      | { sed -E 's/^([0-9]+):.*\.RegisterVersioned\([^,]+,[[:space:]]*"([^"]+)",[[:space:]]*([a-zA-Z0-9_.]+).*$/\1\t\2\t\3/' || true; } \
-      | { grep -E '^[0-9]+	[A-Za-z]' || true; } \
-      | while IFS=$'\t' read -r line action handler; do
-          printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$table_name" "$cloud" "$base" "$line" "Action $action" "$handler"
-        done
+    # Rows come from the AST reader, which resolves a route composed from a
+    # version prefix or a constant as well as a plain literal. Reading the
+    # literal alone with a regular expression missed a quarter of the registered
+    # surface — fifteen surfaces had no table at all — so a table's silence
+    # about an op said nothing about whether the op was served.
+    awk -F'\t' -v want="simulator-$cloud/$base.go" -v t="$table_name" -v c="$cloud" -v b="$base" '
+      {
+        split($1, at, ":")
+        if (at[1] != want) next
+        route = $3
+        # An HTTP method prefix marks a REST path; anything else is the action
+        # name an AWS awsJson/awsQuery router dispatches on.
+        if (route !~ /^(GET|PUT|POST|HEAD|PATCH|DELETE|OPTIONS|CONNECT|TRACE) /) route = "Action " route
+        printf "%s\t%s\t%s\t%s\t%s\t%s\n", t, c, b, at[2], route, $4
+      }' "$tmp_class"
   done
 done > "$tmp_rows"
 

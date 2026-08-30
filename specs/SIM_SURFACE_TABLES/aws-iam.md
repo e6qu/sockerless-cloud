@@ -17,6 +17,14 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
+| `Action ListPolicies` | ✓ `simulator-aws/iam.go:100::handleIAMListPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetPolicyVersion` | ✓ `simulator-aws/iam.go:101::handleIAMGetPolicyVersion` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CreateInstanceProfile` | ✓ `simulator-aws/iam.go:106::handleIAMCreateInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetInstanceProfile` | ✓ `simulator-aws/iam.go:107::handleIAMGetInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteInstanceProfile` | ✓ `simulator-aws/iam.go:108::handleIAMDeleteInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ListInstanceProfiles` | ✓ `simulator-aws/iam.go:109::handleIAMListInstanceProfiles` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AddRoleToInstanceProfile` | ✓ `simulator-aws/iam.go:110::handleIAMAddRoleToInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action RemoveRoleFromInstanceProfile` | ✓ `simulator-aws/iam.go:111::handleIAMRemoveRoleFromInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateRole` | ✓ `simulator-aws/iam.go:79::handleIAMCreateRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetRole` | ✓ `simulator-aws/iam.go:80::handleIAMGetRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteRole` | ✓ `simulator-aws/iam.go:81::handleIAMDeleteRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -35,14 +43,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action CreatePolicy` | ✓ `simulator-aws/iam.go:97::handleIAMCreatePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetPolicy` | ✓ `simulator-aws/iam.go:98::handleIAMGetPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeletePolicy` | ✓ `simulator-aws/iam.go:99::handleIAMDeletePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListPolicies` | ✓ `simulator-aws/iam.go:100::handleIAMListPolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetPolicyVersion` | ✓ `simulator-aws/iam.go:101::handleIAMGetPolicyVersion` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CreateInstanceProfile` | ✓ `simulator-aws/iam.go:106::handleIAMCreateInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetInstanceProfile` | ✓ `simulator-aws/iam.go:107::handleIAMGetInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteInstanceProfile` | ✓ `simulator-aws/iam.go:108::handleIAMDeleteInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListInstanceProfiles` | ✓ `simulator-aws/iam.go:109::handleIAMListInstanceProfiles` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AddRoleToInstanceProfile` | ✓ `simulator-aws/iam.go:110::handleIAMAddRoleToInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action RemoveRoleFromInstanceProfile` | ✓ `simulator-aws/iam.go:111::handleIAMRemoveRoleFromInstanceProfile` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetAccountProperties` | ✓ `simulator-aws/iam_account_properties.go:35::handleIAMGetAccountProperties` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PutAccountProperties` | ✓ `simulator-aws/iam_account_properties.go:36::handleIAMPutAccountProperties` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetRoleTemplateVersion` | ○ `simulator-aws/iam_account_properties.go:37::handleIAMGetRoleTemplateVersion` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

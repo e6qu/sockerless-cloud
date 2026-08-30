@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 80.
+Open: 7. Resolved: 82.
 
 ## Open
 
@@ -56,6 +56,34 @@ Open: 7. Resolved: 80.
 
 
 ## Resolved history
+
+- ~~**BUG-2953 (capturing an Azure virtual machine was unreachable, because the
+  machine's disk did not outlive its guest process):**~~ `VirtualMachines_Capture`
+  requires a generalized machine and `VirtualMachines_Generalize` refuses a
+  running one — both faithful to Azure — while the capture read `rootfs.ext4`
+  out of the live guest's working directory, which stopping the machine
+  removed. Generalizing first destroyed the disk the capture needed and
+  capturing first was refused for want of generalization, so no order of calls
+  reached the operation. The machine's disk now has a lifetime of its own: it is
+  copied to a path derived from the resource id before the guest is stopped, the
+  capture reads it there and quiesces the guest only when one is running, and a
+  deleted machine discards it while a deallocated one keeps it — which is what
+  deallocation means in Azure. `TestCompute_VirtualMachinePatchOperations`
+  performs the whole deallocate, generalize, capture sequence.
+
+- ~~**BUG-2952 (Azure virtual-machine extension, operation and patch surfaces
+  had no Terraform coverage):**~~ One of the three was a real gap and is closed:
+  `azurerm_virtual_machine_extension` is in the Azure stack now, so Terraform
+  reaches `virtualMachines/{vm}/extensions/{name}` through PUT, GET and DELETE
+  alongside the SDK and CLI. The other two were misfiled — the entry claimed the
+  provider exposed them without checking which routes they serve. Listing
+  machines by location is a read no configuration performs, and `assessPatches`,
+  `installPatches` and `capture` are imperative verbs the provider (v5.2.0)
+  wraps no resource for; both are recorded as not applicable with that evidence.
+  The surfaces were invisible until the tables began resolving routes composed
+  from a constant, and the extension surface was itself under-reported at one
+  route of five because a constant defined from another constant did not
+  resolve.
 
 - ~~**BUG-2952 (Google Cloud rejected its application-monitoring bearer as an
   invalid cloud JWT):**~~ The simulator's global cloud access-token verifier

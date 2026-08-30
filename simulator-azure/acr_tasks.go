@@ -24,7 +24,7 @@ import (
 // exactly as the GCP Cloud Build slice (simulator-gcp/cloudbuild.go) does
 // — and the resulting image lands in the local daemon tagged with the ACR
 // image name, ready for sim.StartContainerSync to run. There is no
-// sockerless-aware special-casing: any ACR Tasks client (SDK / az acr
+// consumer-aware special-casing: any ACR Tasks client (SDK / az acr
 // build / terraform) issuing a docker-build run reaches the same path.
 //
 // Real API: https://learn.microsoft.com/en-us/rest/api/containerregistry/registries/schedule-run

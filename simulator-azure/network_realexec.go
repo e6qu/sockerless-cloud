@@ -441,12 +441,21 @@ func azureStopRealVM(ctx context.Context, vmID string) error {
 	if vm == nil {
 		return nil
 	}
+	// Stopping the guest removes its working directory, and the machine's root
+	// filesystem lives inside it. Azure's managed disk outlives the machine, so
+	// the disk is copied out first: this is the last moment it exists.
+	if err := azurePreserveVMDisk(vmID, vm.WorkDir); err != nil {
+		return err
+	}
 	return vm.Stop(ctx)
 }
 
 func azureDeleteRealVM(ctx context.Context, vm VirtualMachine) error {
 	var errs []error
 	errs = append(errs, azureStopRealVM(ctx, vm.ID))
+	// A deleted machine's disk goes with it. Only a stopped one keeps its disk,
+	// which is what deallocation means.
+	azureDiscardVMDisk(vm.ID)
 	for _, ref := range vm.Properties.NetworkProfile.NetworkInterfaces {
 		azureRealMu.Lock()
 		tap := azureRealVMNICs[ref.ID]

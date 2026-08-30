@@ -17,13 +17,13 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v2/folders` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:66::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/folders` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:94::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/folders:search` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:106::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:133::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:142::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:175::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/folders/{folderAction}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:188::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/folders` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:66::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/folders` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:94::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

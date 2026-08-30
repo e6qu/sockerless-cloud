@@ -24,7 +24,7 @@ Canonical reference: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_Operat
 
 ## Reopens that produced this table
 
-- Issue [#196](https://github.com/e6qu/sockerless/issues/196) was filed against PR #200 (Phase 176, BUG-1138) and refiled as a reopen because PR #200/#202 covered Initiate / UploadPart / Complete / Abort / ListMultipartUploads but **missed ListParts**. Phase 178 BUG-1148 closes the gap with both the handler and this table; the `surface-table-completeness` skill now keeps every row in lockstep, so the next multipart op the AWS API adds gets a row here before the implementation lands.
+- Issue #196 (predecessor repository) was filed against PR #200 (Phase 176, BUG-1138) and refiled as a reopen because PR #200/#202 covered Initiate / UploadPart / Complete / Abort / ListMultipartUploads but **missed ListParts**. Phase 178 BUG-1148 closes the gap with both the handler and this table; the `surface-table-completeness` skill now keeps every row in lockstep, so the next multipart op the AWS API adds gets a row here before the implementation lands.
 
 ## Postmortem trail
 

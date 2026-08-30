@@ -319,4 +319,4 @@ None open for the services covered here. Selected closed items:
 - **Cost / billing surfaces** — `cur`, `pricing`, `cost-explorer` are absent.
 - **Real authentication** — the simulator accepts sigv4 headers without verifying them cryptographically.
 
-See also: [API_SPEC.md](API_SPEC.md), [docs/POD_MATERIALIZATION.md](https://github.com/e6qu/sockerless/blob/main/docs/POD_MATERIALIZATION.md), [specs/CLOUD_RESOURCE_MAPPING.md](https://github.com/e6qu/sockerless/blob/main/specs/CLOUD_RESOURCE_MAPPING.md), [backends/ecs/README.md](https://github.com/e6qu/sockerless/blob/main/backends/ecs/README.md), [backends/lambda/README.md](https://github.com/e6qu/sockerless/blob/main/backends/lambda/README.md).
+See also: [API_SPEC.md](API_SPEC.md).

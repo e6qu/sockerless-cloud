@@ -22,8 +22,11 @@
 //	         a tick.
 //	501    — the handler answers NotImplemented: a wire-visible gap.
 //
-// Output is one tab-separated `file:line<TAB>class` row per registration, which
-// scripts/seed-surface-tables.sh joins onto the rows it extracts.
+// It also resolves the route each registration mounts, including one composed
+// from a version prefix a caller passes or from a constant, which a regular
+// expression over the source cannot read. Output is one tab-separated
+// `file:line<TAB>class<TAB>route<TAB>handler` row per mounted route, which
+// scripts/seed-surface-tables.sh turns into the table rows.
 package main
 
 import (
@@ -34,6 +37,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -55,6 +59,11 @@ type pkg struct {
 	fset  *token.FileSet
 	funcs map[string]*ast.FuncDecl
 	files []*ast.File
+	// consts holds package-level string constants that routes are built from.
+	consts map[string]string
+	// callSites maps a function name to the argument lists it is called with,
+	// so a route composed from a parameter resolves to what callers pass.
+	callSites map[string][][]ast.Expr
 }
 
 func main() {
@@ -78,11 +87,17 @@ func main() {
 }
 
 func load(root string) (*pkg, error) {
-	p := &pkg{fset: token.NewFileSet(), funcs: map[string]*ast.FuncDecl{}}
+	p := &pkg{
+		fset:      token.NewFileSet(),
+		funcs:     map[string]*ast.FuncDecl{},
+		consts:    map[string]string{},
+		callSites: map[string][][]ast.Expr{},
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
+	packageConsts := map[string]ast.Expr{}
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -94,12 +109,77 @@ func load(root string) (*pkg, error) {
 		}
 		p.files = append(p.files, file)
 		for _, decl := range file.Decls {
-			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Body != nil {
-				p.funcs[fn.Name.Name] = fn
+			switch d := decl.(type) {
+			case *ast.FuncDecl:
+				if d.Recv == nil && d.Body != nil {
+					p.funcs[d.Name.Name] = d
+				}
+			case *ast.GenDecl:
+				if d.Tok == token.CONST {
+					collectConstExprs(d, func(name string, expr ast.Expr) { packageConsts[name] = expr })
+				}
 			}
 		}
 	}
+	p.consts = p.resolveConsts(packageConsts, nil)
+	// Index call sites once the package is parsed, so a registrar called from
+	// another file resolves.
+	for _, file := range p.files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if ident, ok := call.Fun.(*ast.Ident); ok {
+					p.callSites[ident.Name] = append(p.callSites[ident.Name], call.Args)
+				}
+			}
+			return true
+		})
+	}
 	return p, nil
+}
+
+// collectConstExprs reports the expression each constant in a declaration is
+// bound to. A route constant is regularly written in terms of an earlier one —
+// `const extPath = armBase + "/virtualMachines/{vmName}/extensions/{name}"` —
+// so the value cannot be read as a literal and has to be evaluated.
+func collectConstExprs(decl *ast.GenDecl, emit func(name string, expr ast.Expr)) {
+	for _, spec := range decl.Specs {
+		value, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		for i, name := range value.Names {
+			if i < len(value.Values) {
+				emit(name.Name, value.Values[i])
+			}
+		}
+	}
+}
+
+// resolveConsts evaluates constant expressions against each other until no
+// more resolve, so a constant built from an earlier one settles whatever order
+// they were collected in.
+func (p *pkg) resolveConsts(exprs map[string]ast.Expr, seed map[string][]string) map[string]string {
+	bindings := map[string][]string{}
+	for name, values := range seed {
+		bindings[name] = values
+	}
+	out := map[string]string{}
+	for progress := true; progress; {
+		progress = false
+		for name, expr := range exprs {
+			if _, done := out[name]; done {
+				continue
+			}
+			values := p.evalString(expr, bindings)
+			if len(values) != 1 {
+				continue
+			}
+			out[name] = values[0]
+			bindings[name] = values
+			progress = true
+		}
+	}
+	return out
 }
 
 // classify walks every registration and reports the class of its handler.
@@ -117,8 +197,12 @@ func (p *pkg) classify() []string {
 			}
 			handler := call.Args[len(call.Args)-1]
 			position := p.fset.Position(call.Pos())
-			rows = append(rows, fmt.Sprintf("%s:%d\t%s",
-				filepath.ToSlash(position.Filename), position.Line, p.classifyHandler(handler)))
+			class := p.classifyHandler(handler)
+			name := handlerName(handler)
+			for _, route := range p.routes(call, file) {
+				rows = append(rows, fmt.Sprintf("%s:%d\t%s\t%s\t%s",
+					filepath.ToSlash(position.Filename), position.Line, class, route, name))
+			}
 			return true
 		})
 	}
@@ -166,6 +250,166 @@ func (p *pkg) classifyHandler(handler ast.Expr) string {
 	default:
 		return "static"
 	}
+}
+
+// handlerName names the handler a registration mounts, for the table cell that
+// points a reader at it. A decorated registration names the handler it wraps.
+func handlerName(handler ast.Expr) string {
+	switch h := handler.(type) {
+	case *ast.Ident:
+		return h.Name
+	case *ast.CallExpr:
+		for i := len(h.Args) - 1; i >= 0; i-- {
+			if ident, ok := h.Args[i].(*ast.Ident); ok {
+				return ident.Name
+			}
+		}
+		if ident, ok := h.Fun.(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+	return "func"
+}
+
+// routes reports every route string a registration mounts.
+//
+// Most are one literal. A registrar serving a surface under several version
+// prefixes takes the prefix as a parameter and concatenates it —
+// `srv.HandleFunc("GET "+prefix+"/projects/{project}/instances", …)` — and its
+// callers pass literals. Reading only the literal missed a quarter of the
+// registered surface, so a table's silence about an op meant nothing.
+func (p *pkg) routes(call *ast.CallExpr, file *ast.File) []string {
+	// RegisterVersioned("2014-11-13", "Action", handler) names the action
+	// second; every other registrar names the route first.
+	at := 0
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "RegisterVersioned" {
+		at = 1
+	}
+	if at >= len(call.Args) {
+		return nil
+	}
+	enclosing := p.enclosingFunc(call, file)
+	bindings := p.paramLiterals(enclosing)
+	for name, value := range p.localConsts(enclosing, bindings) {
+		if _, taken := bindings[name]; !taken {
+			bindings[name] = []string{value}
+		}
+	}
+	resolved := p.evalString(call.Args[at], bindings)
+	sort.Strings(resolved)
+	return resolved
+}
+
+// evalString evaluates a string expression to every value it can take. An
+// operand it cannot read collapses the expression to nothing, so an
+// unresolvable route is reported as absent rather than as a wrong string.
+func (p *pkg) evalString(expr ast.Expr, bindings map[string][]string) []string {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		if e.Kind != token.STRING {
+			return nil
+		}
+		value, err := strconv.Unquote(e.Value)
+		if err != nil {
+			return nil
+		}
+		return []string{value}
+	case *ast.Ident:
+		if values, ok := bindings[e.Name]; ok {
+			return values
+		}
+		if value, ok := p.consts[e.Name]; ok {
+			return []string{value}
+		}
+		return nil
+	case *ast.ParenExpr:
+		return p.evalString(e.X, bindings)
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return nil
+		}
+		left, right := p.evalString(e.X, bindings), p.evalString(e.Y, bindings)
+		if len(left) == 0 || len(right) == 0 {
+			return nil
+		}
+		var out []string
+		for _, l := range left {
+			for _, r := range right {
+				out = append(out, l+r)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// paramLiterals maps each string parameter of a function to the literal values
+// its callers pass.
+func (p *pkg) paramLiterals(fn *ast.FuncDecl) map[string][]string {
+	bindings := map[string][]string{}
+	if fn == nil || fn.Type.Params == nil {
+		return bindings
+	}
+	index, position := map[string]int{}, 0
+	for _, field := range fn.Type.Params.List {
+		for _, name := range field.Names {
+			if ident, ok := field.Type.(*ast.Ident); ok && ident.Name == "string" {
+				index[name.Name] = position
+			}
+			position++
+		}
+	}
+	for name, at := range index {
+		seen := map[string]bool{}
+		for _, args := range p.callSites[fn.Name.Name] {
+			if at >= len(args) {
+				continue
+			}
+			lit, ok := args[at].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				continue
+			}
+			value, err := strconv.Unquote(lit.Value)
+			if err != nil || seen[value] {
+				continue
+			}
+			seen[value] = true
+			bindings[name] = append(bindings[name], value)
+		}
+	}
+	return bindings
+}
+
+// localConsts resolves the string constants declared inside a function, which
+// a registrar uses to name one long path it mounts under several methods. They
+// are commonly written in terms of each other, so they resolve together.
+func (p *pkg) localConsts(fn *ast.FuncDecl, seed map[string][]string) map[string]string {
+	if fn == nil || fn.Body == nil {
+		return map[string]string{}
+	}
+	exprs := map[string]ast.Expr{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if decl, ok := n.(*ast.GenDecl); ok && decl.Tok == token.CONST {
+			collectConstExprs(decl, func(name string, expr ast.Expr) { exprs[name] = expr })
+		}
+		return true
+	})
+	return p.resolveConsts(exprs, seed)
+}
+
+// enclosingFunc returns the function declaration a node sits inside.
+func (p *pkg) enclosingFunc(target ast.Node, file *ast.File) *ast.FuncDecl {
+	var found *ast.FuncDecl
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		if fn.Pos() <= target.Pos() && target.Pos() <= fn.End() {
+			found = fn
+		}
+	}
+	return found
 }
 
 // classifyWrapped reads a decorated registration: the wrapper's own body plus

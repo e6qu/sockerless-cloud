@@ -56,7 +56,7 @@ Backends: ECS (Fargate), Lambda. Sim: `simulator-aws/`. **33/33 ✓.**
 
 ### AWS simulator cloud-slice inventory
 
-The backend table above answers “can a sockerless backend make every cloud call it needs?” This inventory answers the broader question “which AWS public API slices does the simulator expose, and where is every registered operation tracked?” The linked surface tables currently enumerate **42 AWS surfaces and 2,695 registered operations**. Each operation row names its handler and test status. [`SIM_TEST_COVERAGE_MATRIX.md`](SIM_TEST_COVERAGE_MATRIX.md) supplies the official AWS SDK, AWS CLI, and Terraform AWS Provider evidence for every surface.
+The table above answers “can a client make every cloud call it needs?” This inventory answers the broader question “which AWS public API slices does the simulator expose, and where is every registered operation tracked?” The linked surface tables currently enumerate **42 AWS surfaces and 2,695 registered operations**. Each operation row names its handler and test status. [`SIM_TEST_COVERAGE_MATRIX.md`](SIM_TEST_COVERAGE_MATRIX.md) supplies the official AWS SDK, AWS CLI, and Terraform AWS Provider evidence for every surface.
 
 The inventory is intentionally exhaustive rather than customer-report-driven. It includes AWS Amplify, AWS WAF, AWS Step Functions, Amazon DynamoDB, Amazon Route 53, Amazon Relational Database Service (RDS), AWS Secrets Manager, AWS CodeBuild, Amazon CloudWatch, Amazon EventBridge, AWS CloudTrail, Amazon Simple Notification Service (SNS), Amazon Simple Queue Service (SQS), and every other registered AWS cloud slice.
 
@@ -74,6 +74,8 @@ The inventory is intentionally exhaustive rather than customer-report-driven. It
 | AWS Budgets | [`aws-budgets`](SIM_SURFACE_TABLES/aws-budgets.md) | [`aws-budgets`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS Cloud Map | [`aws-cloudmap`](SIM_SURFACE_TABLES/aws-cloudmap.md) | [`aws-cloudmap`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS CloudTrail | [`aws-cloudtrail`](SIM_SURFACE_TABLES/aws-cloudtrail.md) | [`aws-cloudtrail`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon CloudFront | [`aws-cloudfront`](SIM_SURFACE_TABLES/aws-cloudfront.md) | [`aws-cloudfront`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon CloudFront (functions, keys, policies) | [`aws-cloudfront_extras`](SIM_SURFACE_TABLES/aws-cloudfront_extras.md) | [`aws-cloudfront_extras`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon CloudWatch | [`aws-cloudwatch`](SIM_SURFACE_TABLES/aws-cloudwatch.md) | [`aws-cloudwatch`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS CodeBuild | [`aws-codebuild`](SIM_SURFACE_TABLES/aws-codebuild.md) | [`aws-codebuild`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon DynamoDB | [`aws-dynamodb`](SIM_SURFACE_TABLES/aws-dynamodb.md) | [`aws-dynamodb`](SIM_TEST_COVERAGE_MATRIX.md) |

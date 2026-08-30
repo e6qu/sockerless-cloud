@@ -517,9 +517,9 @@ func TestServiceConformance_Coverage(t *testing.T) {
 // for the coverage number alone — and both would add a whole endpoint family
 // plus its feature semantics to keep faithful forever after.
 //
-// The condition to revisit is a real consumer, not a coverage sweep: a
-// sockerless backend that stores workload state in a directory bucket, or a
-// runner path that reads through an Object Lambda access point. If that
+// The condition to revisit is a real consumer, not a coverage sweep: a client
+// that stores workload state in a directory bucket, or one that reads through
+// an Object Lambda access point. If that
 // happens, implement the *feature* — the endpoint family, the bucket type or
 // the access point, and the authentication — and remove the entry here; do not
 // mount a bare handler on the regional surface, which no real client would

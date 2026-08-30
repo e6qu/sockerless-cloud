@@ -17,13 +17,13 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
+| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/resources` | ✓ `simulator-azure/resourcegroups.go:108::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/resources` | ✓ `simulator-azure/resourcegroups.go:120::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `HEAD /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:125::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:32::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:67::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/resourceGroups` | ✓ `simulator-azure/resourcegroups.go:82::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:96::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/resources` | ✓ `simulator-azure/resourcegroups.go:108::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/resources` | ✓ `simulator-azure/resourcegroups.go:120::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `HEAD /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}` | ✓ `simulator-azure/resourcegroups.go:125::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

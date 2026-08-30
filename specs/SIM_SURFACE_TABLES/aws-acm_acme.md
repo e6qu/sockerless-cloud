@@ -17,11 +17,6 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /acme/{endpoint}/directory` | ✓ `simulator-aws/acm_acme.go:196::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `HEAD /acme/{endpoint}/new-nonce` | ✓ `simulator-aws/acm_acme.go:197::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /acme/{endpoint}/new-nonce` | ✓ `simulator-aws/acm_acme.go:198::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /acme/{endpoint}/{resource}` | ✓ `simulator-aws/acm_acme.go:199::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /acme/{endpoint}/{resource}/{id}` | ✓ `simulator-aws/acm_acme.go:200::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `Action CertificateManager.CreateAcmeEndpoint` | ✓ `simulator-aws/acm_acme.go:176::handleACMCreateAcmeEndpoint` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `Action CertificateManager.DeleteAcmeEndpoint` | ✓ `simulator-aws/acm_acme.go:177::handleACMDeleteAcmeEndpoint` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `Action CertificateManager.DescribeAcmeEndpoint` | ✓ `simulator-aws/acm_acme.go:178::handleACMDescribeAcmeEndpoint` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
@@ -41,6 +36,11 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action CertificateManager.DescribeAcmeAccount` | ✓ `simulator-aws/acm_acme.go:192::handleACMDescribeAcmeAccount` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `Action CertificateManager.ListAcmeAccounts` | ✓ `simulator-aws/acm_acme.go:193::handleACMListAcmeAccounts` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `Action CertificateManager.RevokeAcmeAccount` | ✓ `simulator-aws/acm_acme.go:194::handleACMRevokeAcmeAccount` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /acme/{endpoint}/directory` | ✓ `simulator-aws/acm_acme.go:196::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `HEAD /acme/{endpoint}/new-nonce` | ✓ `simulator-aws/acm_acme.go:197::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /acme/{endpoint}/new-nonce` | ✓ `simulator-aws/acm_acme.go:198::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /acme/{endpoint}/{resource}` | ✓ `simulator-aws/acm_acme.go:199::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /acme/{endpoint}/{resource}/{id}` | ✓ `simulator-aws/acm_acme.go:200::handleACMEDataPlane` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

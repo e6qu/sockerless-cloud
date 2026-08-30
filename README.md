@@ -1,14 +1,16 @@
 # Sockerless Cloud — simulators
 
-Local reimplementations of cloud-provider APIs that the Sockerless cloud backends consume. Not mocks — jobs run, functions execute, timeouts fire, logs land in the cloud-native sink, all driven by the same configuration knobs (replica timeouts, task timeouts, etc.) that the real cloud services honor. Code that works against the simulators works against the real cloud and vice versa.
+Local reimplementations of cloud-provider APIs. Not mocks — jobs run, functions execute, timeouts fire, logs land in the cloud-native sink, all driven by the same configuration knobs (replica timeouts, task timeouts, etc.) that the real cloud services honor. Code that works against the simulators works against the real cloud and vice versa.
+
+They are general-purpose: anything that speaks a cloud's API can be pointed at one and tested against it — the cloud's own SDKs, its official CLI, its Terraform provider, and the libraries built on top of them (boto for AWS, for instance). Each cloud's surface is validated against that cloud's published specification in the format the cloud publishes it: Smithy models for AWS, Discovery documents for Google Cloud, OpenAPI (Swagger) for Azure.
 
 This file is the **end-to-end showcase + navigation hub**. The canonical per-cloud documentation lives in the three sub-directories — read those for full per-service detail.
 
-| Cloud | README | Backends it serves |
+| Cloud | README | Published specification it is validated against |
 |---|---|---|
-| AWS | [`simulator-aws/README.md`](simulator-aws/README.md) | [`backends/ecs`](https://github.com/e6qu/sockerless/blob/main/backends/ecs/README.md), [`backends/lambda`](https://github.com/e6qu/sockerless/blob/main/backends/lambda/README.md) |
-| GCP | [`simulator-gcp/README.md`](simulator-gcp/README.md) | [`backends/cloudrun`](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun/README.md), [`backends/cloudrun-functions`](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun-functions/README.md) |
-| Azure | [`simulator-azure/README.md`](simulator-azure/README.md) | [`backends/aca`](https://github.com/e6qu/sockerless/blob/main/backends/aca/README.md), [`backends/azure-functions`](https://github.com/e6qu/sockerless/blob/main/backends/azure-functions/README.md) |
+| AWS | [`simulator-aws/README.md`](simulator-aws/README.md) | Smithy models ([`specs/cloud-api/aws`](specs/cloud-api/aws)) |
+| GCP | [`simulator-gcp/README.md`](simulator-gcp/README.md) | Discovery documents ([`specs/cloud-api/gcp`](specs/cloud-api/gcp)) |
+| Azure | [`simulator-azure/README.md`](simulator-azure/README.md) | OpenAPI/Swagger ([`specs/cloud-api/azure`](specs/cloud-api/azure)) |
 
 ## Reference adaptors
 
@@ -22,9 +24,9 @@ Every simulator answers the same three external tools per cloud — the SDK, the
 
 Discipline patterns for wire fidelity:
 
-- Capturing wire shape from the SDK serializer source code — [`.claude/skills/sim-handler-checklist`](https://github.com/e6qu/sockerless/blob/main/.claude/skills/sim-handler-checklist/SKILL.md).
-- Cross-resource invariants under one `terraform apply` — [`.claude/skills/cross-resource-stack-test`](https://github.com/e6qu/sockerless/blob/main/.claude/skills/cross-resource-stack-test/SKILL.md).
-- The broader wire-fidelity discipline — [`.claude/skills/adaptor-fidelity-check`](https://github.com/e6qu/sockerless/blob/main/.claude/skills/adaptor-fidelity-check/SKILL.md).
+- Capturing wire shape from the SDK serializer source code — [`.claude/skills/sim-handler-checklist`](.claude/skills/sim-handler-checklist/SKILL.md).
+- Cross-resource invariants under one `terraform apply` — [`.claude/skills/cross-resource-stack-test`](.claude/skills/cross-resource-stack-test/SKILL.md).
+- The broader wire-fidelity discipline — [`.claude/skills/adaptor-fidelity-check`](.claude/skills/adaptor-fidelity-check/SKILL.md).
 
 ## Three governing principles
 
@@ -157,8 +159,8 @@ make stack-https-status
 Default endpoints are `https://aws.sockerless.localhost:8443`,
 `https://gcp.sockerless.localhost:8443`, and
 `https://azure.sockerless.localhost:8443`, plus Azure host-addressed
-data-plane wildcards. Details and CA trust setup live in
-[`docs/LOCAL_HTTPS_GATEWAY.md`](https://github.com/e6qu/sockerless/blob/main/docs/LOCAL_HTTPS_GATEWAY.md).
+data-plane wildcards. Details and CA trust setup live in each simulator's README, under the HTTPS
+gateway section.
 
 ## End-to-end showcase
 
@@ -184,8 +186,6 @@ cd simulator-aws/terraform-tests   && go test -run TestStackProductionShape
 cd ../../simulator-gcp/terraform-tests        && go test ./...
 cd ../../simulator-azure/terraform-tests      && go test ./...
 
-# 4. Or run any sockerless backend against its sim
-DOCKER_HOST=tcp://localhost:3375 docker run --rm alpine echo hello
 ```
 
 Per-sim captured-output samples live in each sub-README. For the most exercised production-shape integration test, see [`simulator-aws/terraform-tests/TestStackProductionShape`](simulator-aws/terraform-tests/apply_test.go) — it provisions CloudFront + ACM + WAFv2 + Route 53 ALIAS + Amplify + IAM SLR/OIDC + ECS + Cloud Map in one `terraform apply` and asserts the cross-resource references resolve correctly.
@@ -277,7 +277,7 @@ The simulators run locally on a single machine today. The architecture allows di
 
 Every execution-service (ECS, Lambda, Cloud Run, Cloud Functions, Cloud Run Jobs, ACA, App Service / AZF) runs the workload on a **Docker host** shaped per cloud-product. Workloads never run as `os/exec` host processes of the simulator binary itself — `simulator-<cloud>/sdk-tests/host_dispatch_test.go` enforces that distinction. The workload's `Architecture` field (default `linux/arm64`) flows through `ContainerConfig.Architecture` to Docker's image-pull + container-create `Platform` option.
 
-Full host-model spec: [`specs/CLOUD_RESOURCE_MAPPING.md § Simulator host model`](https://github.com/e6qu/sockerless/blob/main/specs/CLOUD_RESOURCE_MAPPING.md#simulator-host-model-phase-135).
+The host model is stated in full in each simulator's README, beside the execution services it applies to.
 
 Each workload streams stdout/stderr in real time into the cloud-native log sink:
 
@@ -318,7 +318,7 @@ Active simulator bugs live in [`BUGS.md`](BUGS.md). Each per-cloud README and [`
 
 ## What's out of scope
 
-- **Cloud-side production deployments.** Simulators are for local dev + CI. For real cloud deployments use the actual cloud APIs through the [Sockerless backends](https://github.com/e6qu/sockerless/tree/main/backends).
+- **Cloud-side production deployments.** Simulators are for local development and CI. A production deployment talks to the real cloud endpoints; the point of the simulators is that the same client code reaches both.
 - **Multi-region / cross-region replication.** Each sim is single-region; multi-region routing belongs to real cloud infra.
 - **Billing / pricing / quota surfaces.** Absent except where load-bearing for testing (e.g. `SIM_GCP_CPU_QUOTA_PER_REGION` for Cloud Run quota-rejection tests).
 - **Real authentication.** The simulators accept bearer tokens / SigV4 / OAuth tokens without verifying them cryptographically.
@@ -332,4 +332,52 @@ Active simulator bugs live in [`BUGS.md`](BUGS.md). Each per-cloud README and [`
 | GCP | [gcloud CLI](simulator-gcp/docs/cli.md) | [`hashicorp/google`](simulator-gcp/docs/terraform.md) | [`google-cloud-*`](simulator-gcp/docs/python-sdk.md) |
 | Azure | [az CLI](simulator-azure/docs/cli.md) | [`hashicorp/azurerm`](simulator-azure/docs/terraform.md) | [`azure-mgmt-*`](simulator-azure/docs/python-sdk.md) |
 
-See also: [`backends/*/README.md`](https://github.com/e6qu/sockerless/tree/main/backends) for the consumers of each simulator, [`specs/CLOUD_RESOURCE_MAPPING.md`](https://github.com/e6qu/sockerless/blob/main/specs/CLOUD_RESOURCE_MAPPING.md) for "how does sockerless model X on cloud Y", [`docs/POD_MATERIALIZATION.md`](https://github.com/e6qu/sockerless/blob/main/docs/POD_MATERIALIZATION.md) for the container-to-cloud-resource walkthrough per backend, [`AGENTS.md`](AGENTS.md#simulator-architecture--cloud-slice-principle) for the cloud-slice principle.
+See also: [`specs/SIM_PARITY_MATRIX.md`](specs/SIM_PARITY_MATRIX.md) for the per-service inventory, and [`specs/SIM_TEST_COVERAGE_MATRIX.md`](specs/SIM_TEST_COVERAGE_MATRIX.md) for which client exercises each surface.
+
+## Copyright and licence
+
+Copyright 2026 [Adrian Mârza](https://www.linkedin.com/in/adrian-m%C3%A2rza-52606512a).
+
+Copyright in this project is retained by Adrian Mârza, and by each contributor
+to the extent of their own contributions.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License along
+with this program. If not, see <https://www.gnu.org/licenses/>.
+
+- Licence text as distributed here: [`LICENSE`](LICENSE)
+- Upstream licence text: <https://www.gnu.org/licenses/agpl-3.0.html>
+- SPDX identifier: [`AGPL-3.0-or-later`](https://spdx.org/licenses/AGPL-3.0-or-later.html)
+
+### Vendored material
+
+The simulators are validated against verbatim snapshots of each cloud's own
+published, machine-readable specification. Those snapshots are third-party
+material under their own licences, not under this project's:
+
+| Vendored | Format | Upstream | Licence |
+|---|---|---|---|
+| [`specs/cloud-api/aws/`](specs/cloud-api/aws/SOURCES.md) | Smithy 2.0 models | `aws/aws-sdk-go-v2` | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) |
+| [`specs/cloud-api/gcp/`](specs/cloud-api/gcp/SOURCES.md) | API Discovery documents | per-service Google endpoints | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) |
+| [`specs/cloud-api/azure/`](specs/cloud-api/azure/SOURCES.md) | OpenAPI (Swagger 2.0) | `Azure/azure-rest-api-specs` | [MIT](https://spdx.org/licenses/MIT.html) |
+| [`specs/cloud-api/aws/service-reference/`](specs/cloud-api/aws/SERVICE_REFERENCE_SOURCES.md) | AWS Service Reference | `servicereference.us-east-1.amazonaws.com` | AWS Service Reference (public service authorization data) |
+
+Every snapshot is traceable to its origin. Each row of a `SOURCES.md` records
+the local file, the upstream repository or host, the exact upstream path, the
+licence, the revision it is pinned at, and the time it was fetched — so any
+vendored byte can be traced back to the published document it came from and
+checked against it. [`scripts/check-spec-freshness.sh`](scripts/check-spec-freshness.sh)
+compares each pin against upstream, and
+[`specs/cloud-api/README.md`](specs/cloud-api/README.md) is the index.
+
+Third-party dependencies of the test suites and console UIs carry their own
+licences, recorded in the `go.mod`/`go.sum` and `package.json` files of the
+modules that require them.

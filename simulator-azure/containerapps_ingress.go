@@ -19,7 +19,7 @@ import (
 // data-plane and Functions virtual-host routing — it dispatches by the HTTP
 // Host header: a request whose Host matches an App's ingress FQDN is reverse-
 // proxied to that App's replica container (on its target port 8080), verbatim.
-// A client (sockerless backend, SDK, curl) reaches an App the same way against
+// A client (the SDK, the CLI, curl, anything else) reaches an App the same way against
 // real ACA and the sim, differing only in the endpoint coordinate it points the
 // TCP connection at while carrying the App FQDN as the Host header.
 func registerContainerAppsIngress(srv *sim.Server) {

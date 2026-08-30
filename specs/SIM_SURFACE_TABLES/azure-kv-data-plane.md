@@ -70,4 +70,4 @@ The issue #282 data-plane parity gaps were closed. Secrets, keys, and certificat
 
 ## Reopens that produced this table
 
-- Issue [#193](https://github.com/e6qu/sockerless/issues/193) reopened — PR #200's `WWW-Authenticate` URL had 3 path segments; Azure SDKs panicked at `parts[3]`. PR #200's coverage test used raw `net/http` + `Authorization: Bearer fake-token`, which bypassed the challenge flow entirely and never exercised the SDK's parser. This table makes the gap visible: every KV op that has an SDK client (Secrets / Keys / Certificates) is held to having an SDK-driven sdk-test.
+- Issue #193 (predecessor repository) reopened — PR #200's `WWW-Authenticate` URL had 3 path segments; Azure SDKs panicked at `parts[3]`. PR #200's coverage test used raw `net/http` + `Authorization: Bearer fake-token`, which bypassed the challenge flow entirely and never exercised the SDK's parser. This table makes the gap visible: every KV op that has an SDK client (Secrets / Keys / Certificates) is held to having an SDK-driven sdk-test.

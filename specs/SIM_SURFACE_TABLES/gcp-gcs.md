@@ -17,21 +17,10 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /storage/v1/b` | ✓ `simulator-gcp/gcs.go:668::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /storage/v1/b/{bucket}` | ✓ `simulator-gcp/gcs.go:714::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /storage/v1/b/{bucket}` | ? `simulator-gcp/gcs.go:756::patchBucket` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /storage/v1/b/{bucket}` | ? `simulator-gcp/gcs.go:757::patchBucket` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /storage/v1/b/{bucket}/storageLayout` | ✓ `simulator-gcp/gcs.go:760::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /storage/v1/b/{bucket}` | ✓ `simulator-gcp/gcs.go:788::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /storage/v1/b` | ✓ `simulator-gcp/gcs.go:807::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs.go:830::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs.go:923::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /storage/v1/b/{bucket}/o/{object...}` | ? `simulator-gcp/gcs.go:980::patchObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /storage/v1/b/{bucket}/o/{object...}` | ? `simulator-gcp/gcs.go:981::patchObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs.go:984::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs.go:1012::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs.go:1024::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /storage/v1/b/{bucket}/o/{destObject...}` | ✓ `simulator-gcp/gcs.go:1195::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action /{bucket}/{object...}` | ✓ `simulator-gcp/gcs.go:1288::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /download/storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs.go:1325::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /storage/v1/b/{bucket}/acl` | ✓ `simulator-gcp/gcs.go:1701::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /storage/v1/b/{bucket}/acl/{entity}` | ✓ `simulator-gcp/gcs.go:1714::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -91,6 +80,18 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /storage/v1/b/{bucket}/operations/{operationId}/advanceRelocateBucket` | ✓ `simulator-gcp/gcs.go:2712::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /storage/v1/channels/stop` | ○ `simulator-gcp/gcs.go:2725::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs.go:2732::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b` | ✓ `simulator-gcp/gcs.go:668::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}` | ✓ `simulator-gcp/gcs.go:714::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /storage/v1/b/{bucket}` | ? `simulator-gcp/gcs.go:756::patchBucket` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /storage/v1/b/{bucket}` | ? `simulator-gcp/gcs.go:757::patchBucket` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/storageLayout` | ✓ `simulator-gcp/gcs.go:760::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /storage/v1/b/{bucket}` | ✓ `simulator-gcp/gcs.go:788::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b` | ✓ `simulator-gcp/gcs.go:807::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs.go:830::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs.go:923::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /storage/v1/b/{bucket}/o/{object...}` | ? `simulator-gcp/gcs.go:980::patchObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /storage/v1/b/{bucket}/o/{object...}` | ? `simulator-gcp/gcs.go:981::patchObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs.go:984::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
