@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.3](https://github.com/e6qu/sockerless-cloud/compare/v0.28.2...v0.28.3) (2026-08-30)
+
+
+### Bug Fixes
+
+* preserve Amazon ECS rollout and Google monitoring auth state ([#105](https://github.com/e6qu/sockerless-cloud/issues/105)) ([5090491](https://github.com/e6qu/sockerless-cloud/commit/50904919a1ca26bbc36dca1611a0766953ff8f9a))
+
 ## [0.28.2](https://github.com/e6qu/sockerless-cloud/compare/v0.28.1...v0.28.2) (2026-08-29)
 
 
