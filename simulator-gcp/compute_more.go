@@ -464,8 +464,9 @@ func registerComputeMore(srv *sim.Server) {
 // registerComputeInstanceGroupManagers wires the zonal + regional managed
 // instance group surface. A MIG is metadata: name, instanceTemplate,
 // targetSize, baseInstanceName. resize updates targetSize;
-// setInstanceTemplate swaps the template; listManagedInstances returns the
-// (empty, since this sim provisions no real VMs) managed-instance set.
+// setInstanceTemplate swaps the template; listManagedInstances reports the
+// instances the group actually manages, which the verbs in
+// compute_igm_instances.go create, move between states and remove.
 func registerComputeInstanceGroupManagers(srv *sim.Server) {
 	store := sim.MakeStore[map[string]any](srv.DB(), "compute_instance_group_managers")
 
@@ -519,13 +520,16 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 		})
 
 		srv.HandleFunc("POST "+base+"/{name}/listManagedInstances", func(w http.ResponseWriter, r *http.Request) {
-			if _, ok := store.Get(relPath(r)); !ok {
+			key := relPath(r)
+			if _, ok := store.Get(key); !ok {
 				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
 				return
 			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{"managedInstances": []map[string]any{}})
+			computeListManagedInstances(w, key)
 		})
 	}
+
+	registerComputeInstanceGroupInstances(srv, store)
 }
 
 // registerComputeCatalogMore adds the read-only catalog collections the

@@ -144,6 +144,13 @@ var gcpMethodFloor = map[string]int{
 	// served while nothing implemented them, which is why the number went to
 	// 1,438 rather than 1,442.
 	//
+	// 1,438 -> 1,518: a managed instance group's instances. The group was
+	// metadata alone and listManagedInstances answered empty whatever its
+	// target size, so the verbs beside it had nothing to act on. The group owns
+	// its instances now — createInstances names them, the lifecycle verbs move
+	// them between states, delete and abandon remove them — along with its
+	// per-instance configurations and its resize requests, zonal and regional.
+	//
 	// A cross-site network's wire groups are nested under it, which this
 	// registrar cannot express, so they wait for a handler that names the
 	// parent.
@@ -151,7 +158,7 @@ var gcpMethodFloor = map[string]int{
 	// interconnect locations, license codes, preview features, reliability
 	// risks — stay unserved: an empty list is not what they return, and filling
 	// one in means inventing Google's own facility and licence data.
-	"compute-v1":              1438,
+	"compute-v1":              1518,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only
