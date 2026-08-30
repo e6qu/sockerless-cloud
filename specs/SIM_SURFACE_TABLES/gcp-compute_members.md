@@ -29,7 +29,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/addNodes` | ✓ `simulator-gcp/compute_members.go:481::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/deleteNodes` | ✓ `simulator-gcp/compute_members.go:510::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/listNodes` | ✓ `simulator-gcp/compute_members.go:532::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/setNodeTemplate` | ✓ `simulator-gcp/compute_members.go:551::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/setNodeTemplate` | ✓ `simulator-gcp/compute_members.go:564::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

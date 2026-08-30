@@ -17,12 +17,12 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /compute/v1/projects/{project}/zones/{zone}/instanceSettings` | ? `simulator-gcp/compute_settings.go:100::instanceDefaults` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PATCH /compute/v1/projects/{project}/zones/{zone}/instanceSettings` | ? `simulator-gcp/compute_settings.go:101::instanceDefaults` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/snapshotSettings` | ? `simulator-gcp/compute_settings.go:96::snapshotFallback` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PATCH /compute/v1/projects/{project}/global/snapshotSettings` | ? `simulator-gcp/compute_settings.go:97::snapshotFallback` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/regions/{region}/snapshotSettings` | ? `simulator-gcp/compute_settings.go:98::snapshotFallback` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PATCH /compute/v1/projects/{project}/regions/{region}/snapshotSettings` | ? `simulator-gcp/compute_settings.go:99::snapshotFallback` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/regions/{region}/snapshotSettings` | ? `simulator-gcp/compute_settings.go:100::snapshotFallback` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/instanceSettings` | ? `simulator-gcp/compute_settings.go:101::instanceDefaults` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/zones/{zone}/instanceSettings` | ? `simulator-gcp/compute_settings.go:102::instanceDefaults` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/snapshotSettings` | ? `simulator-gcp/compute_settings.go:97::snapshotFallback` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/global/snapshotSettings` | ? `simulator-gcp/compute_settings.go:98::snapshotFallback` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/regions/{region}/snapshotSettings` | ? `simulator-gcp/compute_settings.go:99::snapshotFallback` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

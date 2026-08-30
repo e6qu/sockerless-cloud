@@ -65,6 +65,11 @@ type computeMetaResource struct {
 	// them would publish routes Google does not.
 	testIamOnly bool
 	patch       bool
+	// scopeless marks a scoped collection whose resource declares no zone or
+	// region member of its own. Most do, so the registrar stamps one by
+	// default; stamping a resource whose schema has no such member puts a
+	// field on the wire the cloud never sends.
+	scopeless bool
 	// update registers the PUT that replaces the resource whole, for the
 	// collections whose document declares one beside patch.
 	update     bool
@@ -196,7 +201,9 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			if res.setLabels {
 				body["labelFingerprint"] = computeFingerprint()
 			}
-			stampComputeScopeURL(body, res.scope, project, r)
+			if !res.scopeless {
+				stampComputeScopeURL(body, res.scope, project, r)
+			}
 			res.store.Put(key, body)
 			if res.reconcile != nil {
 				res.reconcile(key)

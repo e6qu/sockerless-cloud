@@ -62,8 +62,10 @@ func registerComputeMore4(srv *sim.Server) {
 		// VM extension policies, per zone and for the whole project. The global
 		// collection retires a policy through POST .../{name}/delete rather
 		// than DELETE, so its delete is named separately below.
+		// VmExtensionPolicy declares no zone member, so the zonal collection
+		// takes no scope stamp.
 		{collection: "vmExtensionPolicies", kind: "compute#vmExtensionPolicy", scope: cScopeZone,
-			store: mk("compute_zone_vm_extension_policies"), patch: true},
+			store: mk("compute_zone_vm_extension_policies"), patch: true, scopeless: true},
 		{collection: "vmExtensionPolicies", kind: "compute#globalVmExtensionPolicy", scope: cScopeGlobal,
 			store: globalVMExtensionPolicies, patch: true, aggregated: true, skipDelete: true},
 

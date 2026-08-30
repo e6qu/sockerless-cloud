@@ -534,7 +534,20 @@ func registerComputeNodeGroupNodes(srv *sim.Server, groups, nodes sim.Store[map[
 		if !ok {
 			return
 		}
-		items := nodes.Filter(func(n map[string]any) bool { return n["group"] == key })
+		held := nodes.Filter(func(n map[string]any) bool { return n["group"] == key })
+		// The group a node belongs to is how the store finds it, not something
+		// NodeGroupNode carries — the schema has no such member.
+		items := make([]map[string]any, 0, len(held))
+		for _, node := range held {
+			reported := map[string]any{}
+			for field, value := range node {
+				if field == "group" {
+					continue
+				}
+				reported[field] = value
+			}
+			items = append(items, reported)
+		}
 		sort.Slice(items, func(i, j int) bool {
 			a, _ := items[i]["name"].(string)
 			b, _ := items[j]["name"].(string)

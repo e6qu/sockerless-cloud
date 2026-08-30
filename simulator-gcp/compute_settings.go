@@ -22,8 +22,9 @@ func registerComputeSettings(srv *sim.Server) {
 	// A snapshot's default storage location: Compute Engine's own default is
 	// nearest multi-region to the source disk.
 	snapshotDefaults := func() map[string]any {
+		// SnapshotSettings carries no kind: the schema declares only its two
+		// location members.
 		return map[string]any{
-			"kind": "compute#snapshotSettings",
 			"storageLocation": map[string]any{
 				"policy": "NEAREST_MULTI_REGION",
 			},
