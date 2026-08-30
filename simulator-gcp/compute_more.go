@@ -52,6 +52,10 @@ type computeMetaResource struct {
 	// declares only the aggregated one, so the simulator mounts no route
 	// Google does not publish.
 	skipList bool
+	// skipInsert suppresses the create for a collection the service creates
+	// some other way — a rollout is produced by the change it rolls out, and
+	// the document declares no insert for it.
+	skipInsert bool
 	// iam registers the getIamPolicy / setIamPolicy / testIamPermissions
 	// triple Compute Engine mounts beneath the resource itself, backed by
 	// the same policy store every other Google IAM surface reads.
@@ -159,42 +163,44 @@ func (res computeMetaResource) register(srv *sim.Server) {
 	}
 
 	// Insert
-	srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		var body map[string]any
-		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		if body == nil {
-			body = map[string]any{}
-		}
-		name, _ := body["name"].(string)
-		if name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
-			return
-		}
-		key := relPath(r, name)
-		if _, exists := res.store.Get(key); computeConflict(w, exists, res.collection, name) {
-			return
-		}
-		body["kind"] = res.kind
-		if res.resourceMetadata {
-			body["resourceMetadata"] = computeResourceMetadata(res.kind)
-		}
-		body["id"] = computeNumericID()
-		body["selfLink"] = computeSelfLink(key)
-		body["creationTimestamp"] = time.Now().UTC().Format(time.RFC3339)
-		if res.setLabels {
-			body["labelFingerprint"] = computeFingerprint()
-		}
-		stampComputeScopeURL(body, res.scope, project, r)
-		res.store.Put(key, body)
-		if res.reconcile != nil {
-			res.reconcile(key)
-		}
-		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), "insert"))
-	})
+	if !res.skipInsert {
+		srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
+			project := sim.PathParam(r, "project")
+			var body map[string]any
+			if err := sim.ReadJSON(r, &body); err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			if body == nil {
+				body = map[string]any{}
+			}
+			name, _ := body["name"].(string)
+			if name == "" {
+				sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+				return
+			}
+			key := relPath(r, name)
+			if _, exists := res.store.Get(key); computeConflict(w, exists, res.collection, name) {
+				return
+			}
+			body["kind"] = res.kind
+			if res.resourceMetadata {
+				body["resourceMetadata"] = computeResourceMetadata(res.kind)
+			}
+			body["id"] = computeNumericID()
+			body["selfLink"] = computeSelfLink(key)
+			body["creationTimestamp"] = time.Now().UTC().Format(time.RFC3339)
+			if res.setLabels {
+				body["labelFingerprint"] = computeFingerprint()
+			}
+			stampComputeScopeURL(body, res.scope, project, r)
+			res.store.Put(key, body)
+			if res.reconcile != nil {
+				res.reconcile(key)
+			}
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), "insert"))
+		})
+	}
 
 	// Get
 	if !res.skipGet {
@@ -426,6 +432,9 @@ func registerComputeMore(srv *sim.Server) {
 	// backend services to the instances behind it, so the resolver reads them.
 	gcpRegionBackendServices = mk("compute_region_backend_services")
 
+	// Shared so the member verbs in compute_members.go write the same pools.
+	gcpComputeTargetPools = mk("compute_target_pools")
+
 	resources := []computeMetaResource{
 		// Storage resources.
 		{collection: "images", kind: "compute#image", scope: cScopeGlobal, store: gcpComputeImages, skipGet: true, patch: true, setLabels: true},
@@ -436,7 +445,7 @@ func registerComputeMore(srv *sim.Server) {
 		{collection: "addresses", kind: "compute#address", scope: cScopeGlobal, store: mk("compute_global_addresses"), setLabels: true},
 		{collection: "routes", kind: "compute#route", scope: cScopeGlobal, store: mk("compute_routes")},
 		// Load-balancing resources.
-		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: mk("compute_target_pools"), aggregated: true},
+		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: gcpComputeTargetPools, aggregated: true},
 		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, listUsableKind: "compute#usableBackendServiceList"},
 		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true},
 		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true},

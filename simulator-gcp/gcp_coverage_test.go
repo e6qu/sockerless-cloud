@@ -167,6 +167,14 @@ var gcpMethodFloor = map[string]int{
 	// an agent inside the guest, and the diagnostic interrupt is delivered by
 	// the hypervisor.
 	//
+	// 1,582 -> 1,638: the verbs that manage a membership. A target pool's
+	// instances and health checks, its backup pool and the health it reports; a
+	// network's peerings, the routes they exchange, and the switch to custom
+	// subnet mode; a sole-tenant node group's nodes; and a rollout's progress
+	// through pause, resume and advance. The registrar grew skipInsert, for a
+	// collection the service creates some other way — a rollout is produced by
+	// the change it rolls out, and the document declares no insert for it.
+	//
 	// A cross-site network's wire groups are nested under it, which this
 	// registrar cannot express, so they wait for a handler that names the
 	// parent.
@@ -174,7 +182,7 @@ var gcpMethodFloor = map[string]int{
 	// interconnect locations, license codes, preview features, reliability
 	// risks — stay unserved: an empty list is not what they return, and filling
 	// one in means inventing Google's own facility and licence data.
-	"compute-v1":              1582,
+	"compute-v1":              1638,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

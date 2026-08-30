@@ -465,7 +465,10 @@ type ComputeNetwork struct {
 	Name                  string `json:"name"`
 	SelfLink              string `json:"selfLink"`
 	AutoCreateSubnetworks bool   `json:"autoCreateSubnetworks"`
-	RoutingConfig         struct {
+	// Peerings is the network's peerings, which addPeering and its siblings
+	// write and listPeeringRoutes reads the exchanged ranges from.
+	Peerings      []ComputeNetworkPeering `json:"peerings,omitempty"`
+	RoutingConfig struct {
 		RoutingMode string `json:"routingMode"`
 	} `json:"routingConfig"`
 	// NetworkFirewallPolicyEnforcementOrder defaults to AFTER_CLASSIC_FIREWALL.
@@ -473,6 +476,18 @@ type ComputeNetwork struct {
 	// it makes every refresh plan an in-place update.
 	NetworkFirewallPolicyEnforcementOrder string `json:"networkFirewallPolicyEnforcementOrder,omitempty"`
 	CreationTimestamp                     string `json:"creationTimestamp"`
+}
+
+// ComputeNetworkPeering is one side of a peering between two networks.
+type ComputeNetworkPeering struct {
+	Name                 string `json:"name"`
+	Network              string `json:"network,omitempty"`
+	State                string `json:"state,omitempty"`
+	StateDetails         string `json:"stateDetails,omitempty"`
+	AutoCreateRoutes     bool   `json:"autoCreateRoutes,omitempty"`
+	ExchangeSubnetRoutes bool   `json:"exchangeSubnetRoutes,omitempty"`
+	ImportCustomRoutes   bool   `json:"importCustomRoutes,omitempty"`
+	ExportCustomRoutes   bool   `json:"exportCustomRoutes,omitempty"`
 }
 
 type ComputeSubnetwork struct {
@@ -792,6 +807,9 @@ func registerCompute(srv *sim.Server) {
 	computeOpRegistry = sim.MakeStore[ComputeOperationRecord](srv.DB(), "compute_operations")
 	networks := sim.MakeStore[ComputeNetwork](srv.DB(), "compute_networks")
 	subnetworks := sim.MakeStore[ComputeSubnetwork](srv.DB(), "compute_subnetworks")
+	// Shared so the peering verbs can read a network and the ranges its peer
+	// exchanges, as gcpFirewalls is shared for the effective-firewalls reads.
+	gcpComputeNetworks, gcpComputeSubnetworks = networks, subnetworks
 	gcpSubnetworks = subnetworks
 	instanceTemplates := sim.MakeStore[ComputeInstanceTemplate](srv.DB(), "compute_instance_templates")
 
@@ -802,7 +820,10 @@ func registerCompute(srv *sim.Server) {
 		var req struct {
 			Name                  string `json:"name"`
 			AutoCreateSubnetworks bool   `json:"autoCreateSubnetworks"`
-			RoutingConfig         struct {
+			// Peerings is the network's peerings, which addPeering and its siblings
+			// write and listPeeringRoutes reads the exchanged ranges from.
+			Peerings      []ComputeNetworkPeering `json:"peerings,omitempty"`
+			RoutingConfig struct {
 				RoutingMode string `json:"routingMode"`
 			} `json:"routingConfig"`
 		}

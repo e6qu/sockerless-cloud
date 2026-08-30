@@ -152,6 +152,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerComputeMore2(srv)
 	registerComputeMore4(srv)
 	registerComputePolicies(srv)
+	registerComputeMemberVerbs(srv)
 	registerComputeMore3(srv)
 	registerComputePacketMirroring(srv)
 	registerVPCAccess(srv)
