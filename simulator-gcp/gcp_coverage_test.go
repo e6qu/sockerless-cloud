@@ -129,6 +129,21 @@ var gcpMethodFloor = map[string]int{
 	// configuration are hardware telemetry nothing here measures, and stay
 	// unserved rather than answered with invented numbers.
 	//
+	// 1,344 -> 1,438: the policy collections. Security policies and firewall
+	// policies are one surface repeated — a document holding an ordered rule
+	// list and a list of associations — so registerComputePolicies serves the
+	// project-global and regional security policies and the two organization
+	// spellings from one registration, and the project-scoped network firewall
+	// policies keep the registrar they already had.
+	//
+	// listPreconfiguredExpressionSets answers a declared NotImplemented. The
+	// catalogue is Google's own; an empty list is not what the method returns
+	// and a populated one would be invented. It is mounted rather than left
+	// out because the read beside it swallowed the path and reported the
+	// method as a policy that does not exist — four spellings that counted as
+	// served while nothing implemented them, which is why the number went to
+	// 1,438 rather than 1,442.
+	//
 	// A cross-site network's wire groups are nested under it, which this
 	// registrar cannot express, so they wait for a handler that names the
 	// parent.
@@ -136,7 +151,7 @@ var gcpMethodFloor = map[string]int{
 	// interconnect locations, license codes, preview features, reliability
 	// risks — stay unserved: an empty list is not what they return, and filling
 	// one in means inventing Google's own facility and licence data.
-	"compute-v1":              1344,
+	"compute-v1":              1438,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

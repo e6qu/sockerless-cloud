@@ -61,7 +61,8 @@ func registerComputeMore2(srv *sim.Server) {
 		{collection: "vpnTunnels", kind: "compute#vpnTunnel", scope: cScopeRegion, store: mk("compute_vpn_tunnels"), setLabels: true, aggregated: true},
 		{collection: "serviceAttachments", kind: "compute#serviceAttachment", scope: cScopeRegion, store: mk("compute_service_attachments"), patch: true, aggregated: true},
 		{collection: "networkAttachments", kind: "compute#networkAttachment", scope: cScopeRegion, store: mk("compute_network_attachments"), patch: true, aggregated: true},
-		{collection: "securityPolicies", kind: "compute#securityPolicy", scope: cScopeRegion, store: mk("compute_region_security_policies"), patch: true, setLabels: true, aggregated: true},
+		// Regional security policies are registered by registerComputePolicies,
+		// which serves their rule verbs alongside the lifecycle.
 		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeRegion, store: regionAutoscalers, aggregated: true},
 		{collection: "instantSnapshots", kind: "compute#instantSnapshot", scope: cScopeRegion, store: mk("compute_region_instant_snapshots"), setLabels: true},
 		{collection: "sslPolicies", kind: "compute#sslPolicy", scope: cScopeRegion, store: mk("compute_region_ssl_policies"), patch: true},
