@@ -26,15 +26,18 @@ func registerComputeMore4(srv *sim.Server) {
 		return sim.MakeStore[map[string]any](srv.DB(), table)
 	}
 	globalVMExtensionPolicies := mk("compute_global_vm_extension_policies")
+	// Shared with the handlers that address a collection through its parent,
+	// or that carry a verb beyond the lifecycle.
+	gcpComputeCrossSiteNetworks = mk("compute_cross_site_networks")
 
 	families := []computeMetaResource{
 		// Cross-site networking: a network spanning two interconnect sites,
 		// the wire groups inside it, and the attachments that land it.
 		{collection: "crossSiteNetworks", kind: "compute#crossSiteNetwork", scope: cScopeGlobal,
-			store: mk("compute_cross_site_networks"), patch: true},
+			store: gcpComputeCrossSiteNetworks, patch: true},
 		// The wire groups inside a cross-site network are nested under it,
-		// which this registrar does not express; they stay for a handler that
-		// can name the parent.
+		// which this registrar does not express, so they have a handler of
+		// their own that names the parent.
 		{collection: "interconnectAttachments", kind: "compute#interconnectAttachment", scope: cScopeRegion,
 			store: mk("compute_interconnect_attachments"), patch: true, setLabels: true, aggregated: true},
 

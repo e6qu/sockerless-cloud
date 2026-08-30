@@ -56,6 +56,9 @@ var (
 	gcpComputeReservations sim.Store[map[string]any]
 	gcpComputeNetworks     sim.Store[ComputeNetwork]
 	gcpComputeSubnetworks  sim.Store[ComputeSubnetwork]
+
+	gcpComputeCrossSiteNetworks               sim.Store[map[string]any]
+	gcpComputeRegionalPublicDelegatedPrefixes sim.Store[map[string]any]
 )
 
 func registerComputeMemberVerbs(srv *sim.Server) {

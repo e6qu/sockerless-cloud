@@ -45,6 +45,7 @@ func registerComputeMore2(srv *sim.Server) {
 	// and the reservation verbs the same reservations.
 	gcpComputeNodeGroups = mk("compute_node_groups")
 	gcpComputeReservations = mk("compute_reservations")
+	gcpComputeRegionalPublicDelegatedPrefixes = mk("compute_region_public_delegated_prefixes")
 
 	families := []computeMetaResource{
 		// Global load-balancing / addressing / policy resources.
@@ -58,6 +59,9 @@ func registerComputeMore2(srv *sim.Server) {
 		// Regional resources.
 		{collection: "resourcePolicies", kind: "compute#resourcePolicy", scope: cScopeRegion, store: mk("compute_resource_policies"), patch: true, aggregated: true},
 		{collection: "sslCertificates", kind: "compute#sslCertificate", scope: cScopeRegion, store: mk("compute_region_ssl_certificates")},
+		// The regional public delegated prefixes are a separate collection
+		// from the global ones, with announce and withdraw of their own.
+		{collection: "publicDelegatedPrefixes", kind: "compute#publicDelegatedPrefix", scope: cScopeRegion, store: gcpComputeRegionalPublicDelegatedPrefixes, patch: true},
 		{collection: "nodeTemplates", kind: "compute#nodeTemplate", scope: cScopeRegion, store: mk("compute_node_templates"), aggregated: true},
 		{collection: "notificationEndpoints", kind: "compute#notificationEndpoint", scope: cScopeRegion, store: mk("compute_notification_endpoints"), aggregated: true},
 		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeRegion, store: mk("compute_region_target_https_proxies"), patch: true},
