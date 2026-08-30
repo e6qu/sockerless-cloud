@@ -724,10 +724,18 @@ func ecsRefreshServiceState(key string) {
 	// ecsRecordServiceTaskFailure ignores a rollout that is not IN_PROGRESS, so
 	// the latch is permanent and silently stops the circuit breaker mid-count —
 	// the deployment then never reaches its threshold and never rolls back.
+	//
+	// Only a circuit breaker makes the count meaningful. It is what counts to a
+	// threshold, and ecsResetServiceFailureCountAfterHealthyTask clears the
+	// count only when one is enabled — so gating completion on the count
+	// without that condition would hold a breakerless service that recovered
+	// from one launch failure IN_PROGRESS for good.
 	launchFailures := 0
 	if state, ok := ecsServiceSchedulerStates.Get(key); ok {
 		rollingBack = state.RollbackInProgress
-		if state.DeploymentID == ecsPrimaryDeploymentID(service) {
+		breaker := ecsServiceRuntimeDeploymentConfiguration(service).DeploymentCircuitBreaker
+		if breaker != nil && breaker.Enable &&
+			state.DeploymentID == ecsPrimaryDeploymentID(service) {
 			launchFailures = state.FailureCount
 		}
 	}

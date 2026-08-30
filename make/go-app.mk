@@ -120,9 +120,19 @@ endif
 test-integration-cloud: ## run integration tests against the operator-supplied real cloud (requires SOCKERLESS_ENDPOINT_URL + per-backend ARM env vars)
 	$(GO_ENV) SOCKERLESS_TEST_TARGET=cloud go test -tags 'noui integration' -v -timeout 30m ./...
 
-upgrade-deps: ## bump every direct require in go.mod to its latest (in-repo github.com/e6qu/sockerless-cloud modules included — their pins are real published versions)
+# This repository's own modules are excluded. A release pins them by commit, so
+# they are required at a pseudo-version, and `@latest` prefers any semver tag
+# over one — including the deleted bootstrap `v0.1.0` tags, which still resolve
+# from the module proxy cache. Upgrading them here therefore walks the pin
+# backwards to a revision predating the fields the simulators call, and the
+# build stops compiling.
+upgrade-deps: ## bump every direct require in go.mod to its latest (this repository's own modules excluded — a release pins those by commit)
 	@deps=$$(awk '/^require \(/{b=1;next} /^\)/&&b{b=0} b&&!/\/\/ indirect/{sub(/^[ \t]+/,"");sub(/[ \t]*\/\/.*$$/,"");if(NF>=2)print $$1}' go.mod); \
 	for d in $$deps; do \
+	  case "$$d" in github.com/e6qu/sockerless-cloud/*) \
+	    printf "$(COLOR_CYAN)▸ skip %s (published here; a release pins it by commit)$(COLOR_RESET)\n" "$$d"; \
+	    continue;; \
+	  esac; \
 	  printf "$(COLOR_CYAN)▸ go get -u %s@latest$(COLOR_RESET)\n" "$$d"; \
 	  $(GO_ENV) go get -u "$$d@latest"; \
 	done; \

@@ -46,8 +46,26 @@ second-resolution stamp only proves the window elapsed once the window plus one
 second has, so that is what the scheduler requires, and the wake-up it arms
 lands on the same instant.
 
+Only a circuit breaker makes the failure count meaningful, so only a breaker
+gates completion on it. The count is what counts to a threshold, and
+`ecsResetServiceFailureCountAfterHealthyTask` clears it only when a breaker is
+enabled — gating on the count unconditionally would hold a breakerless service
+that recovered from one launch failure IN_PROGRESS for good, which
+`TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK` caught.
+
+The same change carries the dependency refresh the freshness gate asked for: 53
+Go modules across the AWS, Azure and Google SDK test suites, and the `azurerm`
+Terraform provider from 5.2.0 to 5.3.0 in both stacks.
+
+`make upgrade-deps` no longer upgrades this repository's own modules. A release
+pins them by commit, so they are required at a pseudo-version, and `@latest`
+prefers any semver tag over one — including the deleted bootstrap `v0.1.0` tags,
+which the module proxy still serves. The refresh walked `ui-auth` backwards to a
+revision predating the fields the simulators call, and all three simulators
+stopped compiling. The upgrade skips them now and says so per module.
+
 `TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK` failed
-about one run in four — on CI and locally — and passes 15 of 15. The truncation
+about one run in four — on CI and locally — and passes 12 of 12. The truncation
 carries its own unit test, checked against a negative control: the first version
 of that test passed on the unfixed code, which made it worth nothing.
 

@@ -294,10 +294,13 @@ Current state of the sockerless-cloud repository.
   `gcpFanInPatterns` lists the twelve routes that dispatch inside the handler,
   each with its reason.
 - **An Amazon ECS deployment cannot complete while it is still failing.** A
-  deployment the scheduler holds launch failures for stays IN_PROGRESS, so the
-  circuit breaker keeps counting to its threshold; and the steady-state window
-  is judged against a Unix-second `startedAt` that truncates, so it requires the
+  deployment whose circuit breaker still holds launch failures stays IN_PROGRESS,
+  so the breaker keeps counting to its threshold; and the steady-state window is
+  judged against a Unix-second `startedAt` that truncates, so it requires the
   window plus one second — the only span that proves it elapsed.
+- **`make upgrade-deps` leaves this repository's own modules alone.** A release
+  pins them by commit, so they sit at a pseudo-version, and `@latest` walks that
+  backwards to a deleted bootstrap tag the module proxy still serves.
 
 ## Releases
 
