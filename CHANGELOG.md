@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/e6qu/sockerless-cloud/compare/v0.28.3...v0.29.0) (2026-08-30)
+
+
+### Features
+
+* **specs:** resolve composed routes so the surface tables show the whole surface ([#107](https://github.com/e6qu/sockerless-cloud/issues/107)) ([cc5669b](https://github.com/e6qu/sockerless-cloud/commit/cc5669bd01e8d2515e8be39c06ac80f008e67b9d))
+
 ## [0.28.3](https://github.com/e6qu/sockerless-cloud/compare/v0.28.2...v0.28.3) (2026-08-30)
 
 
