@@ -36,8 +36,19 @@ type SQLBlueGreenDeployment struct {
 	location string
 }
 
+// SQLDeploymentTasks is the consolidated task list for the deployment's paired
+// nodes. `task` is an array of DeploymentTask, not a single value.
 type SQLDeploymentTasks struct {
-	Task string `json:"task,omitempty"`
+	Task []SQLDeploymentTask `json:"task,omitempty"`
+}
+
+// SQLDeploymentTask mirrors the Discovery DeploymentTask schema.
+type SQLDeploymentTask struct {
+	Type         string `json:"type,omitempty"`
+	State        string `json:"state,omitempty"`
+	StartTime    string `json:"startTime,omitempty"`
+	EndTime      string `json:"endTime,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
 type SQLBlueGreenReqConfig struct {
@@ -114,13 +125,17 @@ func handleSQLCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 	}
 	sqlInstances.Put(sqlInstanceKey(project, green.Name), green)
 
+	created := nowTimestamp()
 	deployment := SQLBlueGreenDeployment{
-		Name:            sqlBlueGreenName(project, location, id),
-		SourceInstance:  body.SourceInstance,
-		State:           "SWITCHOVER_READY",
-		CreateTime:      nowTimestamp(),
-		Description:     body.Description,
-		DeploymentTasks: &SQLDeploymentTasks{Task: "CREATE_GREEN_INSTANCE"},
+		Name:           sqlBlueGreenName(project, location, id),
+		SourceInstance: body.SourceInstance,
+		State:          "SWITCHOVER_READY",
+		CreateTime:     created,
+		Description:    body.Description,
+		DeploymentTasks: &SQLDeploymentTasks{Task: []SQLDeploymentTask{{
+			Type: "PROVISION", State: "SUCCEEDED",
+			StartTime: created, EndTime: created,
+		}}},
 		RequestedConfig: body.RequestedConfig,
 		project:         project,
 		location:        location,
@@ -228,10 +243,19 @@ func handleSQLBlueGreenDeploymentAction(w http.ResponseWriter, r *http.Request) 
 	sqlInstances.Put(sqlInstanceKey(project, sourceID), green)
 	sqlInstances.Delete(sqlInstanceKey(project, greenID))
 
+	// The task list accumulates: the provision that built the green is still
+	// part of what this deployment did.
+	switchedAt := nowTimestamp()
 	sqlBlueGreenDeployments.Update(key, func(current *SQLBlueGreenDeployment) {
 		current.State = "SWITCHOVER_COMPLETED"
 		current.SwitchoverTargetInstance = retired
-		current.DeploymentTasks = &SQLDeploymentTasks{Task: "SWITCHOVER"}
+		if current.DeploymentTasks == nil {
+			current.DeploymentTasks = &SQLDeploymentTasks{}
+		}
+		current.DeploymentTasks.Task = append(current.DeploymentTasks.Task, SQLDeploymentTask{
+			Type: "SWITCHOVER", State: "SUCCEEDED",
+			StartTime: switchedAt, EndTime: switchedAt,
+		})
 	})
 	sim.WriteJSON(w, http.StatusOK, newSQLOperation(project, "SWITCHOVER", sourceID))
 }
