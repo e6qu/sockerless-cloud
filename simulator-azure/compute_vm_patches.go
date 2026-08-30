@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -362,17 +360,21 @@ func azureCaptureVMImage(
 	vm VirtualMachine,
 	vhdPrefix, container string,
 ) (map[string]any, error) {
-	guest, err := azureGuestFor(ctx, vm.ID)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := guest.Exec(ctx, "/bin/sh", "-c", "sync"); err != nil {
-		return nil, fmt.Errorf("quiesce %q before capturing it: %w", vm.ID, err)
+	// A capture reads the machine's disk, which the machine has whether or not
+	// it is running — and Azure captures a generalized machine, which is a
+	// stopped one. A running guest is quiesced first so the copy is not taken
+	// mid-write; a stopped machine's disk was flushed when it was preserved.
+	liveWorkDir := ""
+	if guest, err := azureGuestFor(ctx, vm.ID); err == nil {
+		if _, err := guest.Exec(ctx, "/bin/sh", "-c", "sync"); err != nil {
+			return nil, fmt.Errorf("quiesce %q before capturing it: %w", vm.ID, err)
+		}
+		liveWorkDir = guest.WorkDir
 	}
 
-	disk, err := os.ReadFile(filepath.Join(guest.WorkDir, "rootfs.ext4"))
+	disk, err := azureReadVMDisk(vm.ID, liveWorkDir)
 	if err != nil {
-		return nil, fmt.Errorf("read the disk of %q to capture it: %w", vm.ID, err)
+		return nil, err
 	}
 
 	account, err := azureBootDiagnosticsAccount(vm)

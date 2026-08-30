@@ -36,6 +36,17 @@ client, and now has one that asserts on what the guest produced: the package
 counts its own package manager reported, an installation that honoured
 never-reboot, and a capture that names the disk it copied.
 
+A machine's disk now outlives the guest process that runs it. Firecracker builds
+its root filesystem inside a working directory it removes when the guest stops,
+so a stopped machine had no disk — and that made `VirtualMachines_Capture`
+unreachable by any order of calls, because Azure generalizes only a stopped
+machine and captures only a generalized one. Generalizing first destroyed the
+disk the capture needed; capturing first was refused for want of
+generalization. The disk is copied to a path derived from the resource id
+before the guest is stopped, the capture reads it there and quiesces the guest
+only when one is running, and a deleted machine discards it while a deallocated
+one keeps it — which is what deallocation means in Azure.
+
 Three claims in the first draft of those matrix rows were wrong and are
 corrected. `compute_network_request_validation_test.go` was cited for all three
 surfaces and exercises none of them; the extension surface is covered by

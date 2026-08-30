@@ -63,16 +63,39 @@ func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
 			derefRebootStatus(result.RebootStatus))
 	})
 
-	// Generalize refuses a running machine, as Azure does. That is the whole of
-	// what can be asserted about the capture path today: the capture itself
-	// reads the disk out of the running guest's working directory, which is
-	// removed when the machine stops, so no order of calls reaches it. BUG-2953
-	// carries the disk-lifetime fix, and the capture assertion belongs with it.
+	// Azure generalizes only a stopped machine, and captures only a generalized
+	// one, so this is the order every capture is performed in. It is reachable
+	// because the machine's disk outlives its guest process — the whole of what
+	// the sequence depends on.
 	t.Run("Generalize refuses a running machine", func(t *testing.T) {
 		_, err := vmClient.Generalize(ctx, rg, vmName, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "OperationNotAllowed")
 		assert.Contains(t, err.Error(), "not in a stopped state")
+	})
+
+	t.Run("Capture copies the disk of the deallocated machine", func(t *testing.T) {
+		deallocate, err := vmClient.BeginDeallocate(ctx, rg, vmName, nil)
+		require.NoError(t, err)
+		_, err = deallocate.PollUntilDone(ctx, nil)
+		require.NoError(t, err)
+
+		_, err = vmClient.Generalize(ctx, rg, vmName, nil)
+		require.NoError(t, err, "a stopped machine must be generalizable")
+
+		poller, err := vmClient.BeginCapture(ctx, rg, vmName,
+			armcompute.VirtualMachineCaptureParameters{
+				DestinationContainerName: to.Ptr("vm-patch-images"),
+				VhdPrefix:                to.Ptr("captured"),
+				OverwriteVhds:            to.Ptr(true),
+			}, nil)
+		require.NoError(t, err)
+		captured, err := poller.PollUntilDone(ctx, nil)
+		require.NoError(t, err)
+
+		// The template names the disk that was copied rather than an empty
+		// shell, which is what distinguishes a capture from a record of one.
+		require.NotEmpty(t, captured.Resources, "capture produced no image resource")
 	})
 }
 
