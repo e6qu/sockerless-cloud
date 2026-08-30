@@ -1,6 +1,6 @@
-# Sim surface — azure-subscription_policy
+# Sim surface — azure-compute_vm_operations
 
-Surface registered in `simulator-azure/subscription_policy.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
+Surface registered in `simulator-azure/compute_vm_operations.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
 The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
 
@@ -17,10 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /providers/Microsoft.Billing/billingAccounts/{billingAccountId}/providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:109::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PUT /providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:62::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:86::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.Subscription/policies` | ✓ `simulator-azure/subscription_policy.go:97::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/virtualMachines` | ✓ `simulator-azure/compute_vm_operations.go:72::func` | ✓ (direct; see coverage matrix) | ✗ (tracked (BUG-2952); see coverage matrix) | n/a | |
 
 ## Coverage status
 

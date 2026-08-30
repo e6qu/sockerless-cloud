@@ -17,14 +17,6 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /v2/operations/projects/{project}/operations` | ✓ `simulator-gcp/bigtable.go:86::handleBigtableListOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/instances` | ✓ `simulator-gcp/bigtable.go:89::handleBigtableCreateInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/instances` | ✓ `simulator-gcp/bigtable.go:90::handleBigtableListInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/instances/{instanceAction}` | ✓ `simulator-gcp/bigtable.go:93::handleBigtableInstanceAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/instances/{instance}` | ✓ `simulator-gcp/bigtable.go:94::handleBigtableGetInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v2/projects/{project}/instances/{instance}` | ✓ `simulator-gcp/bigtable.go:95::handleBigtablePartialUpdateInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v2/projects/{project}/instances/{instance}` | ✓ `simulator-gcp/bigtable.go:96::handleBigtableReplaceInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v2/projects/{project}/instances/{instance}` | ✓ `simulator-gcp/bigtable.go:97::handleBigtableDeleteInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/projects/{project}/instances/{instance}/clusters` | ✓ `simulator-gcp/bigtable.go:100::handleBigtableCreateCluster` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v2/projects/{project}/instances/{instance}/clusters` | ✓ `simulator-gcp/bigtable.go:101::handleBigtableListClusters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v2/projects/{project}/instances/{instance}/clusters/{cluster}` | ✓ `simulator-gcp/bigtable.go:102::handleBigtableGetCluster` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -78,6 +70,14 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /v2/projects/{project}/instances/{instance}/materializedViews/{matView}` | ✓ `simulator-gcp/bigtable.go:173::handleBigtableGetMatView` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /v2/projects/{project}/instances/{instance}/materializedViews/{matView}` | ✓ `simulator-gcp/bigtable.go:174::handleBigtablePatchMatView` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /v2/projects/{project}/instances/{instance}/materializedViews/{matView}` | ✓ `simulator-gcp/bigtable.go:175::handleBigtableDeleteMatView` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/operations/projects/{project}/operations` | ✓ `simulator-gcp/bigtable.go:86::handleBigtableListOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/instances` | ✓ `simulator-gcp/bigtable.go:89::handleBigtableCreateInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/instances` | ✓ `simulator-gcp/bigtable.go:90::handleBigtableListInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/instances/{instanceAction}` | ✓ `simulator-gcp/bigtable.go:93::handleBigtableInstanceAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/instances/{instance}` | ✓ `simulator-gcp/bigtable.go:94::handleBigtableGetInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v2/projects/{project}/instances/{instance}` | ✓ `simulator-gcp/bigtable.go:95::handleBigtablePartialUpdateInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v2/projects/{project}/instances/{instance}` | ✓ `simulator-gcp/bigtable.go:96::handleBigtableReplaceInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v2/projects/{project}/instances/{instance}` | ✓ `simulator-gcp/bigtable.go:97::handleBigtableDeleteInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

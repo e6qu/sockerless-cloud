@@ -132,6 +132,13 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action RemoveSourceIdentifierFromSubscription` | ✓ `simulator-aws/rds_proxies_roles.go:265::handleRDSRemoveSourceIdentifier` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ApplyPendingMaintenanceAction` | ✓ `simulator-aws/rds_proxies_roles.go:268::handleRDSApplyPendingMaintenanceAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribePendingMaintenanceActions` | ✓ `simulator-aws/rds_proxies_roles.go:269::handleRDSDescribePendingMaintenanceActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeDBClusterSnapshotAttributes` | ✓ `simulator-aws/rds_restore_extras.go:100::handleRDSDescribeClusterSnapshotAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ModifyDBSnapshot` | ✓ `simulator-aws/rds_restore_extras.go:101::handleRDSModifySnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeOptionGroupOptions` | ○ `simulator-aws/rds_restore_extras.go:104::handleRDSDescribeOptionGroupOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeEngineDefaultParameters` | ○ `simulator-aws/rds_restore_extras.go:105::handleRDSDescribeEngineDefaultParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeEngineDefaultClusterParameters` | ○ `simulator-aws/rds_restore_extras.go:106::handleRDSDescribeEngineDefaultClusterParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeSourceRegions` | ○ `simulator-aws/rds_restore_extras.go:107::handleRDSDescribeSourceRegions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeDBMajorEngineVersions` | ○ `simulator-aws/rds_restore_extras.go:108::handleRDSDescribeDBMajorEngineVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action RestoreDBClusterFromSnapshot` | ✓ `simulator-aws/rds_restore_extras.go:38::handleRDSRestoreClusterFromSnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action RestoreDBClusterToPointInTime` | ✓ `simulator-aws/rds_restore_extras.go:39::handleRDSRestoreClusterToPointInTime` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action RestoreDBInstanceToPointInTime` | ✓ `simulator-aws/rds_restore_extras.go:40::handleRDSRestoreInstanceToPointInTime` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -174,13 +181,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action EnableHttpEndpoint` | ✓ `simulator-aws/rds_restore_extras.go:95::handleRDSEnableHTTPEndpoint` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DisableHttpEndpoint` | ✓ `simulator-aws/rds_restore_extras.go:96::handleRDSDisableHTTPEndpoint` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ModifyDBClusterSnapshotAttribute` | ✓ `simulator-aws/rds_restore_extras.go:99::handleRDSModifyClusterSnapshotAttribute` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeDBClusterSnapshotAttributes` | ✓ `simulator-aws/rds_restore_extras.go:100::handleRDSDescribeClusterSnapshotAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ModifyDBSnapshot` | ✓ `simulator-aws/rds_restore_extras.go:101::handleRDSModifySnapshot` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeOptionGroupOptions` | ○ `simulator-aws/rds_restore_extras.go:104::handleRDSDescribeOptionGroupOptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeEngineDefaultParameters` | ○ `simulator-aws/rds_restore_extras.go:105::handleRDSDescribeEngineDefaultParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeEngineDefaultClusterParameters` | ○ `simulator-aws/rds_restore_extras.go:106::handleRDSDescribeEngineDefaultClusterParameters` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeSourceRegions` | ○ `simulator-aws/rds_restore_extras.go:107::handleRDSDescribeSourceRegions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeDBMajorEngineVersions` | ○ `simulator-aws/rds_restore_extras.go:108::handleRDSDescribeDBMajorEngineVersions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

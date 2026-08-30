@@ -1,5 +1,38 @@
 # WHAT WE DID
 
+## 2026-08-30, forty-first pass — the surface tables show the whole surface
+
+The tables listed only routes whose path was a single string literal. A
+registration that composes its path — `"GET "+prefix+"/projects/{project}/…"`,
+the shape every surface served under two version prefixes uses — produced no
+row at all, so the tables carried 4,044 of 5,041 registered operations and
+fifteen surfaces had no table whatsoever: Azure networking, Azure Service Bus,
+Azure Event Hubs, Azure DNS, Azure App Service plans, the Key Vault managed-HSM
+tail, Amazon CloudFront and its function/key/policy resources among them.
+
+`scripts/classify-sim-handlers.go` resolves the route now, substituting the
+literals a caller passes for a prefix parameter and reading package-level and
+function-local constants, and the seeder builds its rows from that rather than
+from a regular expression over the source. The tables gained 997 rows, a
+quarter more surface, and every status the legend declares now actually
+appears — including the 501 on Azure Resource Manager's generic provider path,
+which had been unreachable because those four registrations name their path
+through a local constant.
+
+Each of the fifteen new tables carries a coverage-matrix row written against
+test files that were checked, not inferred. Three surfaces looked uncovered
+under a filename search and were not: Azure App Service plans are exercised
+through `Microsoft.Web/serverfarms`, public DNS through
+`Microsoft.Network/dnsZones`. Searching by resource type rather than by file
+name found them — the same false-absence the tooling itself was being fixed to
+stop reporting.
+
+Azure's virtual-machine extension, operation and patch surfaces are the one
+real gap the sweep exposed: served, covered by the SDK and the CLI, and reached
+by no Terraform resource though the provider exposes them. Recorded as
+BUG-2952 and marked tracked in the matrix rather than written off as not
+applicable.
+
 ## 2026-08-29, fortieth pass — Google monitoring reaches its own authenticator
 
 Production acceptance reached `GET /monitoring/observation` with the exact

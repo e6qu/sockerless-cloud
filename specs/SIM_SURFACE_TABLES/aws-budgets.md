@@ -31,6 +31,10 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action AWSBudgetServiceGateway.ListTagsForResource` | ✓ `simulator-aws/budgets.go:90::handleBudgetsListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.TagResource` | ✓ `simulator-aws/budgets.go:91::handleBudgetsTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.UntagResource` | ✓ `simulator-aws/budgets.go:92::handleBudgetsUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.UpdateNotification` | ✓ `simulator-aws/budgets_actions.go:472::handleBudgetsUpdateNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.UpdateSubscriber` | ✓ `simulator-aws/budgets_actions.go:473::handleBudgetsUpdateSubscriber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DescribeBudgetNotificationsForAccount` | ✓ `simulator-aws/budgets_actions.go:474::handleBudgetsDescribeBudgetNotificationsForAccount` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DescribeBudgetPerformanceHistory` | ✓ `simulator-aws/budgets_actions.go:475::handleBudgetsDescribeBudgetPerformanceHistory` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.CreateBudgetAction` | ✓ `simulator-aws/budgets_actions.go:69::handleBudgetsCreateBudgetAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.DescribeBudgetAction` | ✓ `simulator-aws/budgets_actions.go:70::handleBudgetsDescribeBudgetAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.DescribeBudgetActionsForBudget` | ✓ `simulator-aws/budgets_actions.go:71::handleBudgetsDescribeBudgetActionsForBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -39,10 +43,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action AWSBudgetServiceGateway.UpdateBudgetAction` | ✓ `simulator-aws/budgets_actions.go:74::handleBudgetsUpdateBudgetAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.DeleteBudgetAction` | ✓ `simulator-aws/budgets_actions.go:75::handleBudgetsDeleteBudgetAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.ExecuteBudgetAction` | ✓ `simulator-aws/budgets_actions.go:76::handleBudgetsExecuteBudgetAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.UpdateNotification` | ✓ `simulator-aws/budgets_actions.go:472::handleBudgetsUpdateNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.UpdateSubscriber` | ✓ `simulator-aws/budgets_actions.go:473::handleBudgetsUpdateSubscriber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DescribeBudgetNotificationsForAccount` | ✓ `simulator-aws/budgets_actions.go:474::handleBudgetsDescribeBudgetNotificationsForAccount` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DescribeBudgetPerformanceHistory` | ✓ `simulator-aws/budgets_actions.go:475::handleBudgetsDescribeBudgetPerformanceHistory` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

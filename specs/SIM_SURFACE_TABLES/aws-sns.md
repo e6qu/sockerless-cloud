@@ -17,6 +17,9 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
+| `Action TagResource` | ✓ `simulator-aws/sns.go:100::handleSNSTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action UntagResource` | ✓ `simulator-aws/sns.go:101::handleSNSUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ListTagsForResource` | ✓ `simulator-aws/sns.go:102::handleSNSListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateTopic` | ✓ `simulator-aws/sns.go:84::handleSNSCreateTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteTopic` | ✓ `simulator-aws/sns.go:85::handleSNSDeleteTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ListTopics` | ✓ `simulator-aws/sns.go:86::handleSNSListTopics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -33,9 +36,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action RemovePermission` | ✓ `simulator-aws/sns.go:97::handleSNSRemovePermission` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Publish` | ✓ `simulator-aws/sns.go:98::handleSNSPublish` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PublishBatch` | ✓ `simulator-aws/sns.go:99::handleSNSPublishBatch` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action TagResource` | ✓ `simulator-aws/sns.go:100::handleSNSTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action UntagResource` | ✓ `simulator-aws/sns.go:101::handleSNSUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListTagsForResource` | ✓ `simulator-aws/sns.go:102::handleSNSListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreatePlatformApplication` | ✓ `simulator-aws/sns_mobile_sms.go:104::handleSNSCreatePlatformApplication` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeletePlatformApplication` | ✓ `simulator-aws/sns_mobile_sms.go:105::handleSNSDeletePlatformApplication` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetPlatformApplicationAttributes` | ✓ `simulator-aws/sns_mobile_sms.go:106::handleSNSGetPlatformApplicationAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

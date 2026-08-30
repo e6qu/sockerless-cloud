@@ -17,7 +17,6 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action Kinesis_20131202.CreateStream` | ✓ `simulator-aws/kinesis.go:99::handleKinesisCreateStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Kinesis_20131202.DeleteStream` | ✓ `simulator-aws/kinesis.go:100::handleKinesisDeleteStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Kinesis_20131202.DescribeStream` | ✓ `simulator-aws/kinesis.go:101::handleKinesisDescribeStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Kinesis_20131202.DescribeStreamSummary` | ✓ `simulator-aws/kinesis.go:102::handleKinesisDescribeStreamSummary` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -55,6 +54,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action Kinesis_20131202.UpdateAccountSettings` | ✓ `simulator-aws/kinesis.go:134::handleKinesisUpdateAccountSettings` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Kinesis_20131202.UpdateMaxRecordSize` | ✓ `simulator-aws/kinesis.go:135::handleKinesisUpdateMaxRecordSize` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Kinesis_20131202.UpdateStreamWarmThroughput` | ✓ `simulator-aws/kinesis.go:136::handleKinesisUpdateStreamWarmThroughput` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Kinesis_20131202.CreateStream` | ✓ `simulator-aws/kinesis.go:99::handleKinesisCreateStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Kinesis_20131202.SubscribeToShard` | ✓ `simulator-aws/kinesis_streaming.go:21::handleKinesisSubscribeToShard` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status

@@ -17,6 +17,19 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
+| `GET /{resourceId}` | ? `simulator-azure/resourcesarm.go:120::byID` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /{resourceId}` | ? `simulator-azure/resourcesarm.go:121::byID` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /{resourceId}` | ? `simulator-azure/resourcesarm.go:122::byID` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /{resourceId}` | ? `simulator-azure/resourcesarm.go:123::byID` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{parentResourcePath}/{resourceType}/{resourceName}` | 501 `simulator-azure/resourcesarm.go:126::handleGenericProviderResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{parentResourcePath}/{resourceType}/{resourceName}` | 501 `simulator-azure/resourcesarm.go:127::handleGenericProviderResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{parentResourcePath}/{resourceType}/{resourceName}` | 501 `simulator-azure/resourcesarm.go:128::handleGenericProviderResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{parentResourcePath}/{resourceType}/{resourceName}` | 501 `simulator-azure/resourcesarm.go:129::handleGenericProviderResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/tagNames` | ✓ `simulator-azure/resourcesarm.go:132::handleTagNamesList` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /subscriptions/{subscriptionId}/tagNames/{tagName}` | ✓ `simulator-azure/resourcesarm.go:133::handleTagNameCreate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /subscriptions/{subscriptionId}/tagNames/{tagName}` | ✓ `simulator-azure/resourcesarm.go:134::handleTagNameDelete` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /subscriptions/{subscriptionId}/tagNames/{tagName}/tagValues/{tagValue}` | ✓ `simulator-azure/resourcesarm.go:135::handleTagValueCreate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /subscriptions/{subscriptionId}/tagNames/{tagName}/tagValues/{tagValue}` | ✓ `simulator-azure/resourcesarm.go:136::handleTagValueDelete` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /providers/Microsoft.Resources/operations` | ○ `simulator-azure/resourcesarm.go:36::handleResourcesOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /providers` | ○ `simulator-azure/resourcesarm.go:39::handleProvidersListTenant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /providers/{resourceProviderNamespace}` | ○ `simulator-azure/resourcesarm.go:40::handleProviderGetTenant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -30,15 +43,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/moveResources` | ✓ `simulator-azure/resourcesarm.go:52::handleMoveResources` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/validateMoveResources` | ✓ `simulator-azure/resourcesarm.go:53::handleMoveResources` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /providers/Microsoft.Management/managementGroups/{groupId}/providers/{resourceProviderNamespace}/register` | ○ `simulator-azure/resourcesarm.go:56::handleProviderRegisterAtMG` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /{resourceId}` | ? `simulator-azure/resourcesarm.go:120::byID` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /{resourceId}` | ? `simulator-azure/resourcesarm.go:121::byID` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /{resourceId}` | ? `simulator-azure/resourcesarm.go:122::byID` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /{resourceId}` | ? `simulator-azure/resourcesarm.go:123::byID` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/tagNames` | ✓ `simulator-azure/resourcesarm.go:132::handleTagNamesList` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /subscriptions/{subscriptionId}/tagNames/{tagName}` | ✓ `simulator-azure/resourcesarm.go:133::handleTagNameCreate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /subscriptions/{subscriptionId}/tagNames/{tagName}` | ✓ `simulator-azure/resourcesarm.go:134::handleTagNameDelete` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /subscriptions/{subscriptionId}/tagNames/{tagName}/tagValues/{tagValue}` | ✓ `simulator-azure/resourcesarm.go:135::handleTagValueCreate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /subscriptions/{subscriptionId}/tagNames/{tagName}/tagValues/{tagValue}` | ✓ `simulator-azure/resourcesarm.go:136::handleTagValueDelete` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

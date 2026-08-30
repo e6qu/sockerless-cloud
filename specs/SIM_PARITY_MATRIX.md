@@ -74,6 +74,8 @@ The inventory is intentionally exhaustive rather than customer-report-driven. It
 | AWS Budgets | [`aws-budgets`](SIM_SURFACE_TABLES/aws-budgets.md) | [`aws-budgets`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS Cloud Map | [`aws-cloudmap`](SIM_SURFACE_TABLES/aws-cloudmap.md) | [`aws-cloudmap`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS CloudTrail | [`aws-cloudtrail`](SIM_SURFACE_TABLES/aws-cloudtrail.md) | [`aws-cloudtrail`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon CloudFront | [`aws-cloudfront`](SIM_SURFACE_TABLES/aws-cloudfront.md) | [`aws-cloudfront`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon CloudFront (functions, keys, policies) | [`aws-cloudfront_extras`](SIM_SURFACE_TABLES/aws-cloudfront_extras.md) | [`aws-cloudfront_extras`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon CloudWatch | [`aws-cloudwatch`](SIM_SURFACE_TABLES/aws-cloudwatch.md) | [`aws-cloudwatch`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS CodeBuild | [`aws-codebuild`](SIM_SURFACE_TABLES/aws-codebuild.md) | [`aws-codebuild`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon DynamoDB | [`aws-dynamodb`](SIM_SURFACE_TABLES/aws-dynamodb.md) | [`aws-dynamodb`](SIM_TEST_COVERAGE_MATRIX.md) |

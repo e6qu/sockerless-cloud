@@ -17,8 +17,6 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action AWSStepFunctions.CreateStateMachine` | ✓ `simulator-aws/stepfunctions.go:98::handleSFNCreateStateMachine` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSStepFunctions.DescribeStateMachine` | ✓ `simulator-aws/stepfunctions.go:99::handleSFNDescribeStateMachine` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSStepFunctions.ListStateMachines` | ✓ `simulator-aws/stepfunctions.go:100::handleSFNListStateMachines` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSStepFunctions.DeleteStateMachine` | ✓ `simulator-aws/stepfunctions.go:101::handleSFNDeleteStateMachine` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSStepFunctions.UpdateStateMachine` | ✓ `simulator-aws/stepfunctions.go:102::handleSFNUpdateStateMachine` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -54,6 +52,8 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action AWSStepFunctions.UpdateMapRun` | ✓ `simulator-aws/stepfunctions.go:145::handleSFNUpdateMapRun` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSStepFunctions.TestState` | ✓ `simulator-aws/stepfunctions.go:148::handleSFNTestState` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSStepFunctions.StartSyncExecution` | ✓ `simulator-aws/stepfunctions.go:149::handleSFNStartSyncExecution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSStepFunctions.CreateStateMachine` | ✓ `simulator-aws/stepfunctions.go:98::handleSFNCreateStateMachine` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSStepFunctions.DescribeStateMachine` | ✓ `simulator-aws/stepfunctions.go:99::handleSFNDescribeStateMachine` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
