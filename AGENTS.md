@@ -2,13 +2,20 @@
 
 > `CLAUDE.md` is a symlink to this file. Edit `AGENTS.md`.
 
-This repository contains the Sockerless cloud simulators — local, wire-faithful
-reimplementations of the AWS, Google Cloud, and Microsoft Azure API slices that
-sockerless depends on — together with their SDK, CLI, and Terraform test
-suites, their embedded console UIs, and the vendored API specifications they
-are validated against. The sockerless backends live in the
-[sockerless](https://github.com/e6qu/sockerless) repository and consume the
-simulators from here via `go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@version`.
+This repository contains the Sockerless Cloud simulators — local, wire-faithful
+reimplementations of slices of the AWS, Google Cloud, and Microsoft Azure APIs —
+together with their SDK, CLI, and Terraform test suites, their embedded console
+UIs, and the vendored API specifications they are validated against.
+
+They are general-purpose and stand on their own. Anything that speaks a cloud's
+API can be pointed at one: the cloud's SDKs, its official CLI, its Terraform
+provider, and the libraries built on those (boto, for instance). Each surface is
+validated against the cloud's published specification in the format that cloud
+publishes — Smithy for AWS, Discovery for Google Cloud, OpenAPI for Azure. Which
+services a slice covers is this project's choice; nothing downstream defines it.
+
+Consumers install a simulator with
+`go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@version`.
 
 ## Continuity files — read before, update after, write timeless and in past tense
 
@@ -47,7 +54,7 @@ Always ask "How does the real cloud service behave?" and implement that — use 
 **What "cloud-API fidelity" rules out:**
 - Stdout-as-response shortcuts, in-memory TODO placeholders, embedded third-party local emulators (the simulator IS the cloud from the client's perspective).
 - Synthetic disambiguation (custom headers, custom env vars) that real cloud clients wouldn't produce.
-- **Any sockerless-aware or runner-aware special-casing.** The sim must be faithful to the real cloud and provide *no* special functionality on top to make a sockerless backend or a CI-runner harness work. If it can't be done through faithful cloud APIs, find the real cloud primitive that does.
+- **Any consumer-aware or runner-aware special-casing.** The sim must be faithful to the real cloud and provide *no* special functionality on top to make a downstream consumer or a CI-runner harness work. If it can't be done through faithful cloud APIs, find the real cloud primitive that does.
 
 **What it does allow:**
 - Ephemeral sidecar listeners as long as the container-facing contract matches the cloud.

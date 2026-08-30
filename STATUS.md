@@ -7,8 +7,7 @@ Current state of the sockerless-cloud repository.
 - **Repository born 2026-08-11** by extraction of `simulators/` (plus the sim
   console UI packages, vendored cloud API specs, sim scripts/hooks, and the
   Firecracker/realexec harness) from the
-  [sockerless](https://github.com/e6qu/sockerless) repository, as a fresh
-  snapshot without history.
+  predecessor repository, as a fresh snapshot without history.
 - **Module layout**: `simulator-aws/`, `simulator-gcp/`, `simulator-azure/`
   are separate installable root modules
   (`github.com/e6qu/sockerless-cloud/simulator-<cloud>`); each folds its

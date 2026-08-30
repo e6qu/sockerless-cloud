@@ -111,7 +111,7 @@ The four Express Gateway operations are registered in `simulator-aws/ecs_express
 `UpdateExpressGatewayService`, `DeleteExpressGatewayService`). Each composes the real
 backing resources (ECS Fargate service, ELBv2 ALB/target-group/listener, ACM cert, EC2
 security group, Application Auto Scaling target + policy) so they are describable through
-their own service slices. See [`docs/ECS_EXPRESS_MODE.md`](https://github.com/e6qu/sockerless/blob/main/docs/ECS_EXPRESS_MODE.md)
+their own service slices. See `docs/ECS_EXPRESS_MODE.md`
 for the full API, the Express-vs-vanilla-ECS comparison, and the assembly details.
 
 <!-- HAND-WRITTEN END -->

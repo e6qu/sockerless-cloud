@@ -14,7 +14,6 @@ The simulator exposes one HTTP endpoint (default `:4567`) that fronts all GCP se
 
 Anything any of these three tools does against the real GCP endpoint, it must do against this simulator. Gaps from that contract are real bugs (see [BUGS.md](../BUGS.md)).
 
-The simulator is the **upstream** for the [Cloud Run](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun/README.md) and [Cloud Run Functions](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun-functions/README.md) backends during local development and CI.
 
 ## Validation
 
@@ -252,7 +251,7 @@ Cloud Run job executions honor the task template `timeout` field (e.g., `"600s"`
 
 ## Known issues
 
-None open. The Cloud Run `BackingPDEphemeral` rejection (Phase 91d bookmark) lives in the [`backends/cloudrun`](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun/README.md) layer, not the simulator — Cloud Run lacks the protobuf field, so no amount of simulator work changes that.
+None open. The Cloud Run `BackingPDEphemeral` rejection (Phase 91d bookmark) lives in the `backends/cloudrun` layer, not the simulator — Cloud Run lacks the protobuf field, so no amount of simulator work changes that.
 
 ## What's out of scope
 
@@ -422,5 +421,3 @@ curl -s -X POST 'http://localhost:4567/v1/projects/my-project/locations/us-centr
 ```
 
 The simulator also supports OCI Distribution endpoints under `/v2/` for pushing and pulling container images per the [OCI Distribution spec](https://github.com/opencontainers/distribution-spec).
-
-See also: [`backends/cloudrun/README.md`](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun/README.md), [`backends/cloudrun-functions/README.md`](https://github.com/e6qu/sockerless/blob/main/backends/cloudrun-functions/README.md), [`specs/CLOUD_RESOURCE_MAPPING.md § GCP`](https://github.com/e6qu/sockerless/blob/main/specs/CLOUD_RESOURCE_MAPPING.md).

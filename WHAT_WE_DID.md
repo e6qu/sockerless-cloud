@@ -1,5 +1,44 @@
 # WHAT WE DID
 
+## 2026-08-30, forty-second pass — the project describes itself
+
+Sockerless Cloud read as a component of the repository that consumes it: the
+README opened by defining the simulators as what "the Sockerless cloud backends
+consume", a column of the front table named the backends each simulator
+"serves", and the per-cloud READMEs called each simulator the "upstream" for a
+named backend. It is the other way round — the simulators are a general-purpose
+reimplementation of the clouds, and what is built on them is downstream.
+
+The framing is gone, along with every link into the other repository. What
+replaced it is what the project actually is: anything that speaks a cloud's API
+can be pointed at a simulator — the cloud's SDKs, its official CLI, its
+Terraform provider, and the libraries built on those, boto among them — and each
+surface is validated against that cloud's published specification in the format
+the cloud publishes it, Smithy for AWS, Discovery for Google Cloud, OpenAPI for
+Azure. Which services a slice covers is this project's choice; nothing
+downstream defines it.
+
+Three links pointed at another repository's copy of skills this repository owns,
+and now point at its own. Historical issue references keep the fact and drop the
+dead cross-repository URL.
+
+The README carries a copyright and licence notice: copyright retained by Adrian
+Mârza and by each contributor to the extent of their contributions, under
+AGPL-3.0-or-later, with the licence text as distributed, the upstream text and
+the SPDX identifier all linked. Beside it is the vendored material — the Smithy,
+Discovery and OpenAPI snapshots the simulators are validated against — with each
+corpus's own licence and its traceability: every `SOURCES.md` row records the
+local file, the upstream repository or host, the exact upstream path, the
+licence, the pinned revision and the fetch time, so any vendored byte can be
+traced to the published document it came from.
+
+Six dangling links left over from the extraction are repaired, five of them
+documentation of things this repository does not contain: `make/README.md`
+described `components.mk`, `stack.mk` and an `observability-config/` directory
+that came from the other repository, and the Caddyfile row named a stack target
+that does not exist here rather than the Terraform and CLI harnesses that
+actually start the gateway.
+
 ## 2026-08-30, forty-first pass — the surface tables show the whole surface
 
 The tables listed only routes whose path was a single string literal. A

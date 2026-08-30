@@ -91,5 +91,5 @@ Canonical reference: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_Operat
 
 ## Reopens that produced this table
 
-- Issue [#201](https://github.com/e6qu/sockerless/issues/201) — bucket-level PUT subresources routed to CreateBucket → 409 BucketAlreadyOwnedByYou. PR #200's `s3_subresources.go` only covered the object-level PUT/POST surface the user named. This table exists so the next reopen of this shape never repeats.
-- Issue [#285](https://github.com/e6qu/sockerless/issues/285) — remaining bucket-subresource row-level client coverage was completed through official SDK, AWS CLI, and Terraform-provider paths where those surfaces exist.
+- Issue #201 (predecessor repository) — bucket-level PUT subresources routed to CreateBucket → 409 BucketAlreadyOwnedByYou. PR #200's `s3_subresources.go` only covered the object-level PUT/POST surface the user named. This table exists so the next reopen of this shape never repeats.
+- Issue #285 (predecessor repository) — remaining bucket-subresource row-level client coverage was completed through official SDK, AWS CLI, and Terraform-provider paths where those surfaces exist.

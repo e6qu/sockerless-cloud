@@ -14,7 +14,6 @@ The simulator exposes one HTTP endpoint (default `:4568`) that fronts all Azure 
 
 Anything any of these three tools does against the real Azure endpoint, it must do against this simulator. Gaps from that contract are real bugs (see [BUGS.md](../BUGS.md)).
 
-The simulator is the **upstream** for the [Azure Container Apps](https://github.com/e6qu/sockerless/blob/main/backends/aca/README.md) and [Azure Functions](https://github.com/e6qu/sockerless/blob/main/backends/azure-functions/README.md) backends during local development and CI.
 
 The Storage data plane includes Blob container/blob CRUD, block staging,
 and Copy Blob via the public `x-ms-copy-source` REST operation. Copy Blob
@@ -456,5 +455,3 @@ az rest --method PUT \
 az rest --method POST \
   --url ".../providers/Microsoft.Storage/storageAccounts/mystorageacct/listKeys?api-version=2023-05-01"
 ```
-
-See also: [`backends/aca/README.md`](https://github.com/e6qu/sockerless/blob/main/backends/aca/README.md), [`backends/azure-functions/README.md`](https://github.com/e6qu/sockerless/blob/main/backends/azure-functions/README.md), [`specs/CLOUD_RESOURCE_MAPPING.md § Azure`](https://github.com/e6qu/sockerless/blob/main/specs/CLOUD_RESOURCE_MAPPING.md).

@@ -23,7 +23,17 @@ func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
 	const rg = "vm-patch-rg"
 	const vmName = "vm-patch"
 	nicID := vmOperationsFixture(t, rg, "vm-patch", "10.98")
-	vmClient := createOperationsVM(t, rg, vmName, nicID, nil)
+	// A capture writes the image into a storage account, and the machine names
+	// the account through its boot-diagnostics profile — so a machine that is
+	// going to be captured has to have one, exactly as in Azure.
+	vmClient := createOperationsVM(t, rg, vmName, nicID, func(vm *armcompute.VirtualMachine) {
+		vm.Properties.DiagnosticsProfile = &armcompute.DiagnosticsProfile{
+			BootDiagnostics: &armcompute.BootDiagnostics{
+				Enabled:    to.Ptr(true),
+				StorageURI: to.Ptr("https://simbootdiag.blob.core.windows.net/"),
+			},
+		}
+	})
 
 	t.Run("AssessPatches reads the guest's own package manager", func(t *testing.T) {
 		poller, err := vmClient.BeginAssessPatches(ctx, rg, vmName, nil)
