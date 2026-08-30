@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -428,6 +430,147 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 
 // computeListManagedInstances reports the instances a group actually manages,
 // which is what the lifecycle verbs above have left it holding.
+// computeReconcileManagedInstances brings the instances a managed group holds
+// to the size it is set to: growing creates them, shrinking removes the ones
+// added last, and deleting the manager removes them all. Compute Engine's
+// managed group does this itself, so a target size the group does not actually
+// manage is a state the real service never reports — listManagedInstances, the
+// group's size and its members all read the same reconciled set.
+func computeReconcileManagedInstances(managers sim.Store[map[string]any], key string) {
+	held := computeManagedInstances.Filter(func(i ComputeManagedInstance) bool { return i.Group == key })
+	sort.Slice(held, func(i, j int) bool { return held[i].Name < held[j].Name })
+
+	manager, ok := managers.Get(key)
+	if !ok {
+		// The manager is gone, and so are the instances it managed.
+		for _, instance := range held {
+			computeManagedInstances.Delete(computeManagedInstanceKey(key, instance.Name))
+			computePerInstanceConfigs.Delete(computeManagedInstanceKey(key, instance.Name))
+		}
+		return
+	}
+
+	target := computeStoredInt(manager["targetSize"])
+	if target < 0 {
+		target = 0
+	}
+
+	for len(held) > target {
+		last := held[len(held)-1]
+		computeManagedInstances.Delete(computeManagedInstanceKey(key, last.Name))
+		computePerInstanceConfigs.Delete(computeManagedInstanceKey(key, last.Name))
+		held = held[:len(held)-1]
+	}
+	if len(held) >= target {
+		return
+	}
+
+	base, _ := manager["baseInstanceName"].(string)
+	if base == "" {
+		base, _ = manager["name"].(string)
+	}
+	project, scope := computeManagerScope(key)
+	zones := computeManagerZones(manager, scope)
+	taken := map[string]bool{}
+	for _, instance := range held {
+		taken[instance.Name] = true
+	}
+	for i := len(held); i < target; i++ {
+		name := fmt.Sprintf("%s-%s", base, computeInstanceSuffix())
+		for taken[name] {
+			name = fmt.Sprintf("%s-%s", base, computeInstanceSuffix())
+		}
+		taken[name] = true
+		zone := zones[i%len(zones)]
+		computeManagedInstances.Put(computeManagedInstanceKey(key, name), ComputeManagedInstance{
+			Group:          key,
+			Name:           name,
+			Instance:       computeInstanceURL(project, zone, name),
+			CurrentAction:  "NONE",
+			InstanceStatus: "RUNNING",
+			ID:             computeNumericID(),
+		})
+	}
+}
+
+// computeStoredInt reads a number a client sent. A store that round-trips
+// through JSON hands back a float64 and one that holds the value in memory
+// hands back what was parsed, so a reader that knows only one of those shapes
+// silently reads zero.
+func computeStoredInt(value any) int {
+	switch n := value.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case json.Number:
+		parsed, err := n.Int64()
+		if err != nil {
+			return 0
+		}
+		return int(parsed)
+	}
+	return 0
+}
+
+// computeManagerScope splits a manager's key into the project it belongs to and
+// the scope segment it is managed at ("zones/us-central1-a", "regions/us-central1").
+func computeManagerScope(key string) (project, scope string) {
+	parts := strings.Split(key, "/")
+	if len(parts) < 4 {
+		return "", ""
+	}
+	return parts[1], parts[2] + "/" + parts[3]
+}
+
+// computeManagerZones is where a manager places the instances it creates: the
+// zone it is in for a zonal manager, and the zones of its distribution policy
+// for a regional one — which defaults to the region's first zone when the
+// policy names none.
+func computeManagerZones(manager map[string]any, scope string) []string {
+	kind, name, _ := strings.Cut(scope, "/")
+	if kind == "zones" {
+		return []string{name}
+	}
+	var zones []string
+	if policy, ok := manager["distributionPolicy"].(map[string]any); ok {
+		if declared, ok := policy["zones"].([]any); ok {
+			for _, entry := range declared {
+				held, ok := entry.(map[string]any)
+				if !ok {
+					continue
+				}
+				zone, _ := held["zone"].(string)
+				if i := strings.LastIndex(zone, "/"); i >= 0 {
+					zone = zone[i+1:]
+				}
+				if zone != "" {
+					zones = append(zones, zone)
+				}
+			}
+		}
+	}
+	if len(zones) == 0 {
+		zones = []string{name + "-a"}
+	}
+	return zones
+}
+
+// computeInstanceSuffix is the four-character tail Compute Engine appends to a
+// managed group's base instance name.
+func computeInstanceSuffix() string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+	drawn := make([]byte, 4)
+	_, _ = rand.Read(drawn)
+	suffix := make([]byte, len(drawn))
+	for i, b := range drawn {
+		suffix[i] = alphabet[int(b)%len(alphabet)]
+	}
+	return string(suffix)
+}
+
 func computeListManagedInstances(w http.ResponseWriter, group string) {
 	items := computeManagedInstances.Filter(func(i ComputeManagedInstance) bool { return i.Group == group })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })

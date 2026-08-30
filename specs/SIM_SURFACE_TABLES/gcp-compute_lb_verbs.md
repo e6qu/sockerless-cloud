@@ -1,6 +1,6 @@
-# Sim surface — gcp-compute_instance_verbs
+# Sim surface — gcp-compute_lb_verbs
 
-Surface registered in `simulator-gcp/compute_instance_verbs.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
+Surface registered in `simulator-gcp/compute_lb_verbs.go` (and related files grouped under this table). Rows below are the ops the sim currently registers — extracted by `scripts/seed-surface-tables.sh` from `mux.HandleFunc(...)` calls. ✗ rows for ops not handled by the sim are added when a community-filed issue or audit surfaces them.
 
 The extractor reads the route out of a single string literal, so a registration that composes its path from a variable (`"GET "+prefix+"/…"`) produces no row here. Absence from this table is therefore not evidence that an op is unserved — check the source before concluding a gap. The status marker comes from `scripts/classify-sim-handlers.go`, which reads what the handler behind each route actually does.
 
@@ -17,11 +17,9 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/referrers` | ✓ `simulator-gcp/compute_instance_verbs.go:379::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/getEffectiveFirewalls` | ✓ `simulator-gcp/compute_instance_verbs.go:410::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_instance_verbs.go:438::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_instance_verbs.go:441::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_instance_verbs.go:444::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/urlMaps/{urlMap}/validate` | ? `simulator-gcp/compute_lb_verbs.go:108::validate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/urlMaps/{urlMap}/validate` | ? `simulator-gcp/compute_lb_verbs.go:109::validate` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/urlMaps/{urlMap}/invalidateCache` | ✓ `simulator-gcp/compute_lb_verbs.go:111::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

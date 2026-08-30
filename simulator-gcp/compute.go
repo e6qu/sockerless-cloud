@@ -740,7 +740,17 @@ type ComputeURLMap struct {
 	DefaultService    string                     `json:"defaultService,omitempty"`
 	HostRules         []ComputeURLMapHostRule    `json:"hostRules,omitempty"`
 	PathMatchers      []ComputeURLMapPathMatcher `json:"pathMatchers,omitempty"`
+	Tests             []ComputeURLMapTest        `json:"tests,omitempty"`
 	Fingerprint       string                     `json:"fingerprint,omitempty"`
+}
+
+// ComputeURLMapTest is one of the request-to-service expectations a URL map
+// carries, which urlMaps.validate checks against the map's own routing.
+type ComputeURLMapTest struct {
+	Description string `json:"description,omitempty"`
+	Host        string `json:"host,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Service     string `json:"service,omitempty"`
 }
 
 type ComputeURLMapHostRule struct {

@@ -12,9 +12,13 @@ import (
 // Operation, so every assertion reads the instance back: a verb that stored
 // nothing would be indistinguishable from one that worked.
 
+// createVerbInstance brings up an instance and waits for the boot, because
+// insert answers while the machine is still provisioning and several of these
+// verbs are refused on an instance that is not running yet — exactly as
+// Compute Engine refuses them.
 func createVerbInstance(t *testing.T, svc *compute.Service, project, zone, name string) {
 	t.Helper()
-	_, err := svc.Instances.Insert(project, zone, &compute.Instance{
+	op, err := svc.Instances.Insert(project, zone, &compute.Instance{
 		Name:        name,
 		MachineType: "zones/" + zone + "/machineTypes/e2-micro",
 		Disks: []*compute.AttachedDisk{{
@@ -26,6 +30,7 @@ func createVerbInstance(t *testing.T, svc *compute.Service, project, zone, name 
 		NetworkInterfaces: []*compute.NetworkInterface{{Name: "nic0", Network: "global/networks/default"}},
 	}).Do()
 	require.NoError(t, err)
+	awaitZoneOperation(t, svc, project, zone, op.Name)
 }
 
 func TestCompute_InstanceSetVerbsAreRememberedByTheInstance(t *testing.T) {

@@ -65,8 +65,11 @@ type computeMetaResource struct {
 	// them would publish routes Google does not.
 	testIamOnly bool
 	patch       bool
-	setLabels   bool
-	aggregated  bool
+	// update registers the PUT that replaces the resource whole, for the
+	// collections whose document declares one beside patch.
+	update     bool
+	setLabels  bool
+	aggregated bool
 	// listUsableKind is the `kind` of the listUsable response, set only for the
 	// collections whose Discovery document declares the method. It is spelled
 	// out rather than derived from res.kind because Google does not derive it:
@@ -343,6 +346,49 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
+	// Update (PUT: replace the resource, keeping only its identity). Compute
+	// Engine declares this beside patch for the collections whose resource a
+	// client is expected to rewrite whole — a URL map's rules, a health
+	// check's probe — and the difference from patch is exactly that a member
+	// the client left out is gone afterwards.
+	if res.update {
+		srv.HandleFunc("PUT "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
+			project := sim.PathParam(r, "project")
+			name := sim.PathParam(r, "name")
+			key := relPath(r, name)
+			var body map[string]any
+			if err := sim.ReadJSON(r, &body); err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			ok := res.store.Update(key, func(m *map[string]any) {
+				cur := *m
+				replaced := map[string]any{}
+				for _, identity := range []string{"kind", "id", "selfLink", "creationTimestamp", "name", "region", "zone"} {
+					if v, held := cur[identity]; held {
+						replaced[identity] = v
+					}
+				}
+				for k, v := range body {
+					switch k {
+					case "kind", "id", "selfLink", "creationTimestamp", "name":
+						continue
+					}
+					replaced[k] = v
+				}
+				*m = replaced
+			})
+			if !ok {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				return
+			}
+			if res.reconcile != nil {
+				res.reconcile(key)
+			}
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), "update"))
+		})
+	}
+
 	// setLabels
 	if res.setLabels {
 		srv.HandleFunc("POST "+base+"/{name}/setLabels", func(w http.ResponseWriter, r *http.Request) {
@@ -450,10 +496,10 @@ func registerComputeMore(srv *sim.Server) {
 		// Load-balancing resources.
 		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: gcpComputeTargetPools, aggregated: true},
 		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, listUsableKind: "compute#usableBackendServiceList"},
-		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true},
+		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true, update: true},
 		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true},
 		{collection: "httpsHealthChecks", kind: "compute#httpsHealthCheck", scope: cScopeGlobal, store: mk("compute_https_health_checks"), patch: true},
-		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps")},
+		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps"), patch: true, update: true},
 		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies")},
 		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: mk("compute_target_https_proxies"), aggregated: true},
 		{collection: "sslCertificates", kind: "compute#sslCertificate", scope: cScopeGlobal, store: mk("compute_ssl_certificates"), aggregated: true},
@@ -481,11 +527,18 @@ func registerComputeMore(srv *sim.Server) {
 // compute_igm_instances.go create, move between states and remove.
 func registerComputeInstanceGroupManagers(srv *sim.Server) {
 	store := sim.MakeStore[map[string]any](srv.DB(), "compute_instance_group_managers")
+	// A regional instance group is the group a regional manager keeps, so it
+	// is derived from this same store rather than held in one of its own.
+	registerComputeRegionInstanceGroups(srv, store)
 
 	for _, scope := range []computeScopeKind{cScopeZone, cScopeRegion} {
 		scope := scope
 		base := computeScopeMux(scope, "instanceGroupManagers")
-		(computeMetaResource{collection: "instanceGroupManagers", kind: "compute#instanceGroupManager", scope: scope, store: store, patch: true, aggregated: scope == cScopeZone}).register(srv)
+		// The instances the group manages follow its target size, on every
+		// path that can change it — insert, patch, delete, and the resize
+		// below.
+		reconcile := func(key string) { computeReconcileManagedInstances(store, key) }
+		(computeMetaResource{collection: "instanceGroupManagers", kind: "compute#instanceGroupManager", scope: scope, store: store, patch: true, aggregated: scope == cScopeZone, reconcile: reconcile}).register(srv)
 
 		relPath := func(r *http.Request) string {
 			return fmt.Sprintf("projects/%s/%s/instanceGroupManagers/%s", sim.PathParam(r, "project"), computeScopeSegment(scope, r), sim.PathParam(r, "name"))
@@ -506,6 +559,7 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
 				return
 			}
+			reconcile(key)
 			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(scope, r), computeSelfLink(key), "resize"))
 		})
 

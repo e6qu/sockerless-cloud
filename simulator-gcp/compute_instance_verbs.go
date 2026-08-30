@@ -335,11 +335,13 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		return nil
 	})
 
+	// deleteNetworkInterface names its interface networkInterfaceName, where
+	// every other interface verb calls the same thing networkInterface.
 	write("deleteNetworkInterface", func(instance *ComputeInstance, r *http.Request) error {
-		at := findInterface(instance, r.URL.Query().Get("networkInterface"))
+		wanted := r.URL.Query().Get("networkInterfaceName")
+		at := findInterface(instance, wanted)
 		if at < 0 {
-			return errComputeInvalid("the instance has no network interface named " +
-				r.URL.Query().Get("networkInterface"))
+			return errComputeInvalid("the instance has no network interface named " + wanted)
 		}
 		instance.NetworkInterfaces = append(
 			instance.NetworkInterfaces[:at], instance.NetworkInterfaces[at+1:]...)

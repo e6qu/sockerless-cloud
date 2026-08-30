@@ -187,6 +187,15 @@ route_referenced_in_tests() {
     if printf '%s' "$last_seg" | grep -qE '^[A-Z][a-zA-Z0-9]+$'; then
         op_referenced_in_tests "$last_seg" "$cloud" && return 0
     fi
+    # Google spells a verb segment in lowerCamelCase ("validate",
+    # "invalidateCache", "setNamedPorts") and its generated clients export the
+    # same name capitalised, so the segment names the SDK call just as an
+    # UpperCamel one does. Without this the gate can never match a GCP verb
+    # route, and every one of them would have to be exempted despite being
+    # tested — which empties the gate of meaning.
+    if printf '%s' "$last_seg" | grep -qE '^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$|^[a-z]+$'; then
+        op_referenced_in_tests "$(printf '%s' "${last_seg:0:1}" | tr '[:lower:]' '[:upper:]')${last_seg:1}" "$cloud" && return 0
+    fi
     # cloudTrailRecordedREST("Op", …) names the operation at the route mount;
     # accept a call/assertion reference to that named op.
     local esc_route ctop

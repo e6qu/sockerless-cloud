@@ -515,6 +515,14 @@ func gcpURLMapServiceForRequest(urlMap ComputeURLMap, r *http.Request) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
+	return gcpURLMapService(urlMap, host, r.URL.Path)
+}
+
+// gcpURLMapService resolves a host and path through a URL map to the backend
+// service that serves it. The data plane routes with it and urlMaps.validate
+// checks a map's tests with it, so a test passes exactly when the request it
+// describes would reach the service it names.
+func gcpURLMapService(urlMap ComputeURLMap, host, path string) string {
 	for _, hostRule := range urlMap.HostRules {
 		if !gcpURLMapHostMatches(hostRule.Hosts, host) {
 			continue
@@ -524,7 +532,7 @@ func gcpURLMapServiceForRequest(urlMap ComputeURLMap, r *http.Request) string {
 				continue
 			}
 			for _, pathRule := range matcher.PathRules {
-				if gcpURLMapPathMatches(pathRule.Paths, r.URL.Path) && pathRule.Service != "" {
+				if gcpURLMapPathMatches(pathRule.Paths, path) && pathRule.Service != "" {
 					return pathRule.Service
 				}
 			}
