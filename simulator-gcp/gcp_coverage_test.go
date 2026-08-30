@@ -109,7 +109,27 @@ var gcpMethodFloor = map[string]int{
 	// which is the work list whenever a slice widens.
 	// Grew by two spellings at the 2026-08-21 revision, both in the unserved
 	// long tail below.
-	"compute-v1":              1118,
+	//
+	// 1,118 -> 1,224 on 2026-08-30: ten collections whose whole documented
+	// surface is the standard resource lifecycle were registered through
+	// computeMetaResource rather than written by hand — cross-site networks,
+	// interconnect attachments, rollout plans, the regional health aggregation
+	// and health-check services, the network edge security service, zonal VM
+	// extension policies, and instant snapshot groups zonal and regional. The
+	// registrar grew skipList, for a collection whose document declares only
+	// the aggregated list, and the Compute IAM verbs, which Google mounts
+	// beneath the resource rather than as AIP-151 colon verbs — as the full
+	// triple where all three are declared and as the permission check alone
+	// where only it is.
+	//
+	// A cross-site network's wire groups are nested under it, which this
+	// registrar cannot express, so they wait for a handler that names the
+	// parent.
+	// The catalogs Google publishes rather than the caller creating —
+	// interconnect locations, license codes, preview features, reliability
+	// risks — stay unserved: an empty list is not what they return, and filling
+	// one in means inventing Google's own facility and licence data.
+	"compute-v1":              1224,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

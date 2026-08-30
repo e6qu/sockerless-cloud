@@ -48,9 +48,21 @@ type computeMetaResource struct {
 	// corresponding skip flag is set; the rest are opt-in.
 	skipGet    bool // image GET is owned by the catalog handler
 	skipDelete bool // some collections (e.g. commitments) have no Discovery DELETE
-	patch      bool
-	setLabels  bool
-	aggregated bool
+	// skipList suppresses the scoped list for a collection whose document
+	// declares only the aggregated one, so the simulator mounts no route
+	// Google does not publish.
+	skipList bool
+	// iam registers the getIamPolicy / setIamPolicy / testIamPermissions
+	// triple Compute Engine mounts beneath the resource itself, backed by
+	// the same policy store every other Google IAM surface reads.
+	iam bool
+	// testIamOnly registers the permission check alone, for the collections
+	// that declare only that one: mounting the policy reader and writer for
+	// them would publish routes Google does not.
+	testIamOnly bool
+	patch       bool
+	setLabels   bool
+	aggregated  bool
 	// listUsableKind is the `kind` of the listUsable response, set only for the
 	// collections whose Discovery document declares the method. It is spelled
 	// out rather than derived from res.kind because Google does not derive it:
@@ -198,31 +210,33 @@ func (res computeMetaResource) register(srv *sim.Server) {
 	}
 
 	// List
-	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		prefix := listPrefix(r)
-		items := res.store.Filter(func(m map[string]any) bool {
-			sl, _ := m["selfLink"].(string)
-			return strings.HasPrefix(sl, prefix)
+	if !res.skipList {
+		srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+			prefix := listPrefix(r)
+			items := res.store.Filter(func(m map[string]any) bool {
+				sl, _ := m["selfLink"].(string)
+				return strings.HasPrefix(sl, prefix)
+			})
+			sort.Slice(items, func(i, j int) bool {
+				ni, _ := items[i]["name"].(string)
+				nj, _ := items[j]["name"].(string)
+				return ni < nj
+			})
+			items = gcpApplyListParams(items, r)
+			page, next, ok := paginateListCompute(w, r, items)
+			if !ok {
+				return
+			}
+			if page == nil {
+				page = []map[string]any{}
+			}
+			resp := map[string]any{"kind": listKind, "items": page}
+			if next != "" {
+				resp["nextPageToken"] = next
+			}
+			sim.WriteJSON(w, http.StatusOK, resp)
 		})
-		sort.Slice(items, func(i, j int) bool {
-			ni, _ := items[i]["name"].(string)
-			nj, _ := items[j]["name"].(string)
-			return ni < nj
-		})
-		items = gcpApplyListParams(items, r)
-		page, next, ok := paginateListCompute(w, r, items)
-		if !ok {
-			return
-		}
-		if page == nil {
-			page = []map[string]any{}
-		}
-		resp := map[string]any{"kind": listKind, "items": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
-	})
+	}
 
 	// listUsable — the subset of the collection the caller may attach to a
 	// load balancer. The caller holds the project, so that is the project's
@@ -254,6 +268,26 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				resp["nextPageToken"] = next
 			}
 			sim.WriteJSON(w, http.StatusOK, resp)
+		})
+	}
+
+	// IAM, where the document declares it: Compute Engine mounts the triple
+	// under the resource rather than through the AIP-151 colon verbs, so the
+	// routes are named here and the policies live in the shared store.
+	if res.iam || res.testIamOnly {
+		policyName := func(r *http.Request) string {
+			return "compute/" + relPath(r, sim.PathParam(r, "resource"))
+		}
+		if res.iam {
+			srv.HandleFunc("GET "+base+"/{resource}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
+				handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "getIamPolicy")
+			})
+			srv.HandleFunc("POST "+base+"/{resource}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
+				handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "setIamPolicy")
+			})
+		}
+		srv.HandleFunc("POST "+base+"/{resource}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
+			handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "testIamPermissions")
 		})
 	}
 
