@@ -97,6 +97,7 @@ func load(root string) (*pkg, error) {
 	if err != nil {
 		return nil, err
 	}
+	packageConsts := map[string]ast.Expr{}
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -115,11 +116,12 @@ func load(root string) (*pkg, error) {
 				}
 			case *ast.GenDecl:
 				if d.Tok == token.CONST {
-					collectStringConsts(d, func(name, value string) { p.consts[name] = value })
+					collectConstExprs(d, func(name string, expr ast.Expr) { packageConsts[name] = expr })
 				}
 			}
 		}
 	}
+	p.consts = p.resolveConsts(packageConsts, nil)
 	// Index call sites once the package is parsed, so a registrar called from
 	// another file resolves.
 	for _, file := range p.files {
@@ -135,26 +137,49 @@ func load(root string) (*pkg, error) {
 	return p, nil
 }
 
-// collectStringConsts reports each string constant a declaration binds.
-func collectStringConsts(decl *ast.GenDecl, emit func(name, value string)) {
+// collectConstExprs reports the expression each constant in a declaration is
+// bound to. A route constant is regularly written in terms of an earlier one —
+// `const extPath = armBase + "/virtualMachines/{vmName}/extensions/{name}"` —
+// so the value cannot be read as a literal and has to be evaluated.
+func collectConstExprs(decl *ast.GenDecl, emit func(name string, expr ast.Expr)) {
 	for _, spec := range decl.Specs {
 		value, ok := spec.(*ast.ValueSpec)
 		if !ok {
 			continue
 		}
 		for i, name := range value.Names {
-			if i >= len(value.Values) {
-				continue
-			}
-			lit, ok := value.Values[i].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				continue
-			}
-			if unquoted, err := strconv.Unquote(lit.Value); err == nil {
-				emit(name.Name, unquoted)
+			if i < len(value.Values) {
+				emit(name.Name, value.Values[i])
 			}
 		}
 	}
+}
+
+// resolveConsts evaluates constant expressions against each other until no
+// more resolve, so a constant built from an earlier one settles whatever order
+// they were collected in.
+func (p *pkg) resolveConsts(exprs map[string]ast.Expr, seed map[string][]string) map[string]string {
+	bindings := map[string][]string{}
+	for name, values := range seed {
+		bindings[name] = values
+	}
+	out := map[string]string{}
+	for progress := true; progress; {
+		progress = false
+		for name, expr := range exprs {
+			if _, done := out[name]; done {
+				continue
+			}
+			values := p.evalString(expr, bindings)
+			if len(values) != 1 {
+				continue
+			}
+			out[name] = values[0]
+			bindings[name] = values
+			progress = true
+		}
+	}
+	return out
 }
 
 // classify walks every registration and reports the class of its handler.
@@ -265,7 +290,7 @@ func (p *pkg) routes(call *ast.CallExpr, file *ast.File) []string {
 	}
 	enclosing := p.enclosingFunc(call, file)
 	bindings := p.paramLiterals(enclosing)
-	for name, value := range localConsts(enclosing) {
+	for name, value := range p.localConsts(enclosing, bindings) {
 		if _, taken := bindings[name]; !taken {
 			bindings[name] = []string{value}
 		}
@@ -355,20 +380,21 @@ func (p *pkg) paramLiterals(fn *ast.FuncDecl) map[string][]string {
 	return bindings
 }
 
-// localConsts collects the string constants declared inside a function, which
-// a registrar uses to name one long path it mounts under several methods.
-func localConsts(fn *ast.FuncDecl) map[string]string {
-	out := map[string]string{}
+// localConsts resolves the string constants declared inside a function, which
+// a registrar uses to name one long path it mounts under several methods. They
+// are commonly written in terms of each other, so they resolve together.
+func (p *pkg) localConsts(fn *ast.FuncDecl, seed map[string][]string) map[string]string {
 	if fn == nil || fn.Body == nil {
-		return out
+		return map[string]string{}
 	}
+	exprs := map[string]ast.Expr{}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		if decl, ok := n.(*ast.GenDecl); ok && decl.Tok == token.CONST {
-			collectStringConsts(decl, func(name, value string) { out[name] = value })
+			collectConstExprs(decl, func(name string, expr ast.Expr) { exprs[name] = expr })
 		}
 		return true
 	})
-	return out
+	return p.resolveConsts(exprs, seed)
 }
 
 // enclosingFunc returns the function declaration a node sits inside.

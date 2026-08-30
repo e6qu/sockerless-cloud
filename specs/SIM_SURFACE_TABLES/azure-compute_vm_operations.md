@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/virtualMachines` | ✓ `simulator-azure/compute_vm_operations.go:72::func` | ✓ (direct; see coverage matrix) | ✗ (tracked (BUG-2952); see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/virtualMachines` | ✓ `simulator-azure/compute_vm_operations.go:72::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -27,11 +27,27 @@ through `Microsoft.Web/serverfarms`, public DNS through
 name found them — the same false-absence the tooling itself was being fixed to
 stop reporting.
 
-Azure's virtual-machine extension, operation and patch surfaces are the one
-real gap the sweep exposed: served, covered by the SDK and the CLI, and reached
-by no Terraform resource though the provider exposes them. Recorded as
-BUG-2952 and marked tracked in the matrix rather than written off as not
-applicable.
+The sweep's own findings were then acted on rather than filed. Azure's
+virtual-machine extension surface reached no Terraform client, so the Azure
+stack declares an `azurerm_virtual_machine_extension` and Terraform now reaches
+`virtualMachines/{vm}/extensions/{name}` through PUT, GET and DELETE. The patch
+surface — `assessPatches`, `installPatches` and `capture` — had no test on any
+client, and now has one that asserts on what the guest produced: the package
+counts its own package manager reported, an installation that honoured
+never-reboot, and a capture that names the disk it copied.
+
+Three claims in the first draft of those matrix rows were wrong and are
+corrected. `compute_network_request_validation_test.go` was cited for all three
+surfaces and exercises none of them; the extension surface is covered by
+`compute_vm_guest_operations_test.go` and listing by location by
+`compute_vm_operations_test.go`. Reading a guest-gated test's `ok` as a pass is
+what produced the wrong citation — every one of these skips on a host without
+the kernel capability, and `go test` reports a skipped package as `ok`.
+
+`classify-sim-handlers.go` also resolves a constant defined from another
+constant now. `const extPath = armBase + "/virtualMachines/…"` is the shape ARM
+paths are written in, and treating only string literals as constants reported
+the extension surface at one route of five.
 
 ## 2026-08-29, fortieth pass — Google monitoring reaches its own authenticator
 

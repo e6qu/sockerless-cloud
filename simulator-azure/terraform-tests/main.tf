@@ -272,6 +272,27 @@ resource "azurerm_linux_virtual_machine" "az_vm" {
   }
 }
 
+# A virtual-machine extension, the one sub-surface of the machine Terraform can
+# express: it reaches virtualMachines/{vm}/extensions/{name} through PUT, GET
+# and DELETE. The assess/install-patches and capture verbs beside it are
+# imperative actions the provider wraps no resource for, and listing machines by
+# location is a read no configuration performs.
+resource "azurerm_virtual_machine_extension" "az_vm_extension" {
+  name                 = "tf-azrm-vm-extension"
+  virtual_machine_id   = azurerm_linux_virtual_machine.az_vm.id
+  publisher            = "Microsoft.Azure.Extensions"
+  type                 = "CustomScript"
+  type_handler_version = "2.1"
+
+  settings = jsonencode({
+    commandToExecute = "echo sockerless"
+  })
+
+  tags = {
+    environment = "test"
+  }
+}
+
 # Private DNS zone — sockerless's Azure DNS driver creates one of these
 # per cluster to resolve `<service>.internal` to cloud-internal IPs.
 resource "azurerm_private_dns_zone" "az_pdns" {
