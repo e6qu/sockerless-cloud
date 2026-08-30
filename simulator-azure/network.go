@@ -722,8 +722,8 @@ func registerNetwork(srv *sim.Server) {
 	// Real Azure: `Microsoft.Network/natGateways` provides outbound
 	// connectivity for subnets that need explicit egress; route tables
 	// (`Microsoft.Network/routeTables`) override default-route behavior.
-	// Sockerless's serverless egress flows (ACA Apps with VNet integration
-	// reaching the Internet) provision a NAT gateway; without these
+	// Serverless egress — an Azure Container Apps app with VNet integration
+	// reaching the Internet — is provisioned as a NAT gateway; without these
 	// handlers, terraform's `azurerm_nat_gateway` and `azurerm_route_table`
 	// 404. Field set covers what the SDK round-trips on Get/List.
 	natGateways := sim.MakeStore[NatGateway](srv.DB(), "nat_gateways")

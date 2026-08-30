@@ -44,7 +44,11 @@ func startCWAlarmEvaluator(srv *sim.Server) {
 	})
 }
 
-const cwAlarmEvalInterval = 2 * time.Second
+// How often the evaluator re-derives every alarm. CloudWatch evaluates on the
+// alarm's period boundary; the simulator evaluates far more often than that,
+// because the cadence is not part of the API and a reader should not have to
+// wait seconds to see a breach the metric store already holds.
+const cwAlarmEvalInterval = 100 * time.Millisecond
 
 // cwEvaluateAlarmsOnce is one evaluator pass: snapshot every metric alarm,
 // re-derive its state, and on a transition dispatch actions, record history,

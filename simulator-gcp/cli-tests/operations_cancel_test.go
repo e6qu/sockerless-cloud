@@ -315,11 +315,31 @@ func submitCancellableBuild(t *testing.T, bucket, object, image string) string {
 		return false
 	}, 120*time.Second, 500*time.Millisecond, "no build reached WORKING")
 
-	// Well inside the step's own hour, so the cancel below is cancelling work
-	// that is genuinely in flight.
-	time.Sleep(10 * time.Second)
+	// WORKING is recorded before the source is even fetched, so it alone does
+	// not mean a step is executing. The step's own status is what says the RUN
+	// is under way, and it is what makes the cancel below cancel work that is
+	// genuinely in flight.
+	require.Eventually(t, func() bool {
+		return buildFirstStepStatusJSON(t, id) == "WORKING"
+	}, 120*time.Second, 50*time.Millisecond, "the build's first step never started running")
 	require.Equal(t, "WORKING", buildStatusJSON(t, id), "the build is still running when it is cancelled")
 	return id
+}
+
+// buildFirstStepStatusJSON reports the status the build gives its first step,
+// which is how a client sees which part of a running build is executing.
+func buildFirstStepStatusJSON(t *testing.T, id string) string {
+	t.Helper()
+	var build struct {
+		Steps []struct {
+			Status string `json:"status"`
+		} `json:"steps"`
+	}
+	parseJSON(t, runCLI(t, gcloudCLI("builds", "describe", id, "--format=json")), &build)
+	if len(build.Steps) == 0 {
+		return ""
+	}
+	return build.Steps[0].Status
 }
 
 func buildStatusJSON(t *testing.T, id string) string {

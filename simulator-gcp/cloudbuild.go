@@ -20,10 +20,9 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
-// Cloud Build v1 slice. Sockerless's GCP backends (`backends/cloudrun/`
-// and `backends/cloudrun-functions/`) submit docker builds via Cloud
-// Build whenever sockerless handles `docker build`. Without this slice
-// the GCP simulator can't cover the image-build path.
+// Cloud Build v1 slice: a client submits a build, the simulator fetches the
+// source, runs each step and reports the build's progress and result the way
+// Cloud Build does.
 //
 // Real API: https://cloud.google.com/build/docs/api/reference/rest
 
@@ -82,6 +81,18 @@ type BuildStep struct {
 	Dir        string   `json:"dir,omitempty"`
 	Entrypoint string   `json:"entrypoint,omitempty"`
 	ID         string   `json:"id,omitempty"`
+	// Status and Timing are what the build reports about the step as it runs.
+	// Cloud Build fills both in, and they are the only way a client can tell
+	// which step a running build is on — the build's own status says WORKING
+	// from before the source is fetched until the last step finishes.
+	Status string       `json:"status,omitempty"`
+	Timing *BuildTiming `json:"timing,omitempty"`
+}
+
+// BuildTiming is the interval a step occupied.
+type BuildTiming struct {
+	StartTime string `json:"startTime,omitempty"`
+	EndTime   string `json:"endTime,omitempty"`
 }
 
 // AvailableSecrets binds Secret Manager references to environment
@@ -1059,18 +1070,45 @@ func executeBuild(ctx context.Context, b Build) Build {
 	}
 
 	// Execute each build step. Only gcr.io/cloud-builders/docker is
-	// supported — it's the only builder sockerless uses.
+	// implemented.
+	//
+	// A step's status and timing are recorded on the stored build as it runs,
+	// because the build's own status is WORKING from before the source is
+	// fetched until the last step finishes — the step is where a client sees
+	// which part of the build is actually executing.
+	markStep := func(i int, status string, started, finished bool) {
+		stamp := time.Now().UTC().Format(time.RFC3339)
+		cbBuilds.Update(b.ID, func(stored *Build) {
+			if i >= len(stored.Steps) || stored.Steps[i] == nil {
+				return
+			}
+			stored.Steps[i].Status = status
+			if stored.Steps[i].Timing == nil {
+				stored.Steps[i].Timing = &BuildTiming{}
+			}
+			if started {
+				stored.Steps[i].Timing.StartTime = stamp
+			}
+			if finished {
+				stored.Steps[i].Timing.EndTime = stamp
+			}
+		})
+	}
 	for i, step := range b.Steps {
 		if step == nil {
 			continue
 		}
 		if !strings.HasPrefix(step.Name, "gcr.io/cloud-builders/docker") {
+			markStep(i, "FAILURE", false, true)
 			return fail(fmt.Sprintf("step %d: builder %q not supported by this simulator (only gcr.io/cloud-builders/docker)",
 				i, step.Name))
 		}
+		markStep(i, "WORKING", true, false)
 		if err := runDockerStep(ctx, workDir, step, secretValues); err != nil {
+			markStep(i, "FAILURE", false, true)
 			return fail(fmt.Sprintf("step %d (%s %v): %v", i, step.Name, step.Args, err))
 		}
+		markStep(i, "SUCCESS", false, true)
 	}
 
 	b.Status = "SUCCESS"

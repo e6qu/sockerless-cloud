@@ -74,8 +74,7 @@ func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Settle so the subscription is visible to the evaluator before the alarm fires.
-	time.Sleep(3 * time.Second)
+	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
@@ -105,10 +104,7 @@ func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
 
-	time.Sleep(2 * time.Second)
-
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
+	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "SQS subscriber must receive the alarm notification")
 
 	var env map[string]any

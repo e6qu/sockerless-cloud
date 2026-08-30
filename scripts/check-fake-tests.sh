@@ -75,7 +75,7 @@ readonly STATUS_ONLY_FLOOR=9
 # assertion that reads its result. The ones left are sleeps that separate
 # timestamps or hold still to prove nothing further arrives, each paired with a
 # positive control.
-readonly SLEEP_THEN_ASSERT_FLOOR=9
+readonly SLEEP_THEN_ASSERT_FLOOR=6
 
 report=$(mktemp)
 totals=$(mktemp)

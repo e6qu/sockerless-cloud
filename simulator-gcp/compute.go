@@ -381,8 +381,8 @@ type ComputeRouter struct {
 }
 
 // ComputeRouterBgp mirrors `compute#router.bgp` — the Border Gateway
-// Protocol settings for the router. Sockerless's Cloud NAT use case
-// doesn't need real BGP routing, just round-trip storage.
+// Protocol settings for the router. The simulator stores them and reports them
+// back; it speaks no BGP.
 type ComputeRouterBgp struct {
 	Asn               int32  `json:"asn,omitempty"`
 	AdvertiseMode     string `json:"advertiseMode,omitempty"`
@@ -1290,9 +1290,9 @@ func registerCompute(srv *sim.Server) {
 	})
 
 	// Routers + Cloud NAT — `compute#router` is a regional resource;
-	// Cloud NAT configs are embedded in `router.nats[]`. Sockerless's
-	// serverless egress flows (Cloud Run / Cloud Functions reaching
-	// Internet via a VPC connector) provision a Router with a NAT;
+	// Cloud NAT configs are embedded in `router.nats[]`. Serverless egress —
+	// Cloud Run or Cloud Run Functions reaching the Internet through a VPC
+	// connector — is provisioned as a Router carrying a NAT;
 	// without these handlers, terraform's `google_compute_router` and
 	// `google_compute_router_nat` 404.
 	addresses := sim.MakeStore[ComputeAddress](srv.DB(), "compute_addresses")

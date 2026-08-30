@@ -14,10 +14,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// ACR Tasks quick-build slice. Sockerless's Azure backends (backends/aca,
-// backends/azure-functions) build the reverse-agent bootstrap overlay
-// image through the real ACR Tasks API — RegistriesClient.BeginScheduleRun
-// with a DockerBuildRequest, then polling RunsClient.Get. This implements
+// ACR Tasks quick-build slice. A client builds an image through the real ACR
+// Tasks API — RegistriesClient.BeginScheduleRun with a DockerBuildRequest, then
+// polling RunsClient.Get. This implements
 // that slice at cloud-API fidelity: the build context is fetched from the
 // sim's blob storage (where the backend's azblob upload landed), the
 // docker build runs on the host engine — the sim's build infrastructure,

@@ -206,16 +206,13 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Wait for DescribeAlarms to surface ALARM, then sleep past one
-	// evaluator tick so cwAlarmLastState=ALARM is recorded before the
-	// non-breaching datapoint arrives (DescribeAlarms evaluates live; the
-	// dispatch path keys off the evaluator's remembered state).
+	// DescribeAlarms reports the state the evaluator recorded, so seeing ALARM
+	// is seeing the transition the OK below has to follow.
 	require.Eventually(t, func() bool {
 		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
 		require.NoError(t, err)
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM with the breaching datapoint")
-	time.Sleep(3 * time.Second)
 
 	_, err = cw.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String(ns),
@@ -328,11 +325,8 @@ func TestCloudWatch_ActionsDisabledSkipsDispatch(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should still transition to ALARM (state evaluation is independent of ActionsEnabled)")
 
-	// Allow multiple evaluator ticks to elapse, then confirm no notification arrived.
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:        q.QueueUrl,
-		WaitTimeSeconds: 5,
-	})
-	require.NoError(t, err)
-	assert.Empty(t, recv.Messages, "no notification should be delivered when ActionsEnabled is false")
+	// The alarm has transitioned, so the dispatch that must not happen would
+	// have happened by now; this watches for it and fails the moment one shows.
+	requireQueueStaysEmpty(ctx, t, sqsC, q.QueueUrl,
+		"no notification should be delivered when ActionsEnabled is false")
 }
