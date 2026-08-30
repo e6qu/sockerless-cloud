@@ -51,6 +51,14 @@ func TestCompute_ReservationResizeAndBlocks(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 
+	// The sub-blocks a block is divided into, which is the unit maintenance is
+	// performed on and a fault reported against.
+	subs, err := svc.ReservationSubBlocks.List(project, zone,
+		"reservations/"+name+"/reservationBlocks/"+blocks.Items[0].Name).Do()
+	require.NoError(t, err)
+	require.Len(t, subs.Items, 2, "a sixteen-machine block is two sub-blocks")
+	assert.Equal(t, int64(8), subs.Items[0].Count)
+
 	// A resize to nothing is refused.
 	_, err = svc.Reservations.Resize(project, zone, name,
 		&compute.ReservationsResizeRequest{SpecificSkuCount: 0}).Do()

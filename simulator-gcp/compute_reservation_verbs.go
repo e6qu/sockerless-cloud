@@ -121,6 +121,125 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 		}
 		sim.WriteJSON(w, http.StatusOK, operation(r, key, "performMaintenance"))
 	})
+
+	// A block's IAM policy, and the sub-blocks it is divided into. A sub-block
+	// is the unit maintenance is performed on and a fault is reported against,
+	// so it is derived from the block the same way the block is derived from
+	// the reservation: two sub-blocks to a block, which is the shape Compute
+	// Engine reports for the reservations that expose them.
+	blockIAM := func(r *http.Request) string {
+		return "compute/" + computeScopedKey(r, cScopeZone, "reservations", sim.PathParam(r, "name")) +
+			"/reservationBlocks/" + sim.PathParam(r, "block")
+	}
+	srv.HandleFunc("GET "+base+"/{name}/reservationBlocks/{block}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
+		handleResourceIAM(w, r, gcpResourcePolicies, blockIAM(r), "getIamPolicy")
+	})
+
+	subBlocks := func(w http.ResponseWriter, r *http.Request) ([]map[string]any, bool) {
+		_, reservation, ok := load(w, r)
+		if !ok {
+			return nil, false
+		}
+		block := sim.PathParam(r, "block")
+		for _, held := range computeReservationBlocks(reservation, sim.PathParam(r, "name")) {
+			if held["name"] != block {
+				continue
+			}
+			return computeReservationSubBlocks(held), true
+		}
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation block %q not found", block)
+		return nil, false
+	}
+
+	const subBase = base + "/{name}/reservationBlocks/{block}/reservationSubBlocks"
+	srv.HandleFunc("GET "+subBase, func(w http.ResponseWriter, r *http.Request) {
+		items, ok := subBlocks(w, r)
+		if !ok {
+			return
+		}
+		entries := []any{}
+		for _, item := range items {
+			entries = append(entries, item)
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"kind": "compute#reservationSubBlocksListResponse", "items": entries,
+		})
+	})
+	findSub := func(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
+		items, ok := subBlocks(w, r)
+		if !ok {
+			return nil, false
+		}
+		wanted := sim.PathParam(r, "subBlock")
+		for _, item := range items {
+			if item["name"] == wanted {
+				return item, true
+			}
+		}
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation sub-block %q not found", wanted)
+		return nil, false
+	}
+	srv.HandleFunc("GET "+subBase+"/{subBlock}", func(w http.ResponseWriter, r *http.Request) {
+		item, ok := findSub(w, r)
+		if !ok {
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"resource": item})
+	})
+	srv.HandleFunc("POST "+subBase+"/{subBlock}/getVersion", func(w http.ResponseWriter, r *http.Request) {
+		item, ok := findSub(w, r)
+		if !ok {
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"kind": "compute#reservationSubBlocksGetVersionResponse", "resource": item,
+		})
+	})
+	for _, verb := range []string{"performMaintenance", "reportFaulty"} {
+		verb := verb
+		srv.HandleFunc("POST "+subBase+"/{subBlock}/"+verb, func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := findSub(w, r); !ok {
+				return
+			}
+			key := computeScopedKey(r, cScopeZone, "reservations", sim.PathParam(r, "name"))
+			sim.WriteJSON(w, http.StatusOK, operation(r, key, verb))
+		})
+	}
+	subIAM := func(r *http.Request) string {
+		return blockIAM(r) + "/reservationSubBlocks/" + sim.PathParam(r, "subBlock")
+	}
+	srv.HandleFunc("GET "+subBase+"/{subBlock}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
+		handleResourceIAM(w, r, gcpResourcePolicies, subIAM(r), "getIamPolicy")
+	})
+	srv.HandleFunc("POST "+subBase+"/{subBlock}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
+		handleResourceIAM(w, r, gcpResourcePolicies, subIAM(r), "setIamPolicy")
+	})
+	srv.HandleFunc("POST "+subBase+"/{subBlock}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
+		handleResourceIAM(w, r, gcpResourcePolicies, subIAM(r), "testIamPermissions")
+	})
+}
+
+// computeReservationSubBlocks divides a block into the units maintenance is
+// performed on. Two to a block, which is what Compute Engine reports for the
+// reservations that expose them.
+func computeReservationSubBlocks(block map[string]any) []map[string]any {
+	count, _ := block["count"].(int)
+	if count <= 0 {
+		return nil
+	}
+	name, _ := block["name"].(string)
+	half := (count + 1) / 2
+	subs := []map[string]any{{
+		"kind": "compute#reservationSubBlock", "name": name + "-sub-1",
+		"count": half, "inUseCount": 0, "status": "READY",
+	}}
+	if remaining := count - half; remaining > 0 {
+		subs = append(subs, map[string]any{
+			"kind": "compute#reservationSubBlock", "name": name + "-sub-2",
+			"count": remaining, "inUseCount": 0, "status": "READY",
+		})
+	}
+	return subs
 }
 
 // computeReservationBlocks reports the blocks a reservation's capacity is held
