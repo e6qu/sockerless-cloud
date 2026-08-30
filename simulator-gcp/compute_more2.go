@@ -41,8 +41,10 @@ func registerComputeMore2(srv *sim.Server) {
 	// delete / patch / setLabels. The aggregated flag is set only for
 	// collections whose Discovery document defines an aggregatedList
 	// method, so no invented /aggregated/<collection> route is registered.
-	// Shared so the node verbs in compute_members.go address the same groups.
+	// Shared so the node verbs in compute_members.go address the same groups,
+	// and the reservation verbs the same reservations.
 	gcpComputeNodeGroups = mk("compute_node_groups")
+	gcpComputeReservations = mk("compute_reservations")
 
 	families := []computeMetaResource{
 		// Global load-balancing / addressing / policy resources.
@@ -73,7 +75,7 @@ func registerComputeMore2(srv *sim.Server) {
 		// Zonal resources.
 		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeZone, store: zoneAutoscalers},
 		{collection: "nodeGroups", kind: "compute#nodeGroup", scope: cScopeZone, store: gcpComputeNodeGroups, patch: true, aggregated: true},
-		{collection: "reservations", kind: "compute#reservation", scope: cScopeZone, store: mk("compute_reservations"), patch: true, aggregated: true, resourceMetadata: true},
+		{collection: "reservations", kind: "compute#reservation", scope: cScopeZone, store: gcpComputeReservations, patch: true, aggregated: true, resourceMetadata: true},
 		{collection: "storagePools", kind: "compute#storagePool", scope: cScopeZone, store: mk("compute_storage_pools"), patch: true, aggregated: true},
 		{collection: "targetInstances", kind: "compute#targetInstance", scope: cScopeZone, store: mk("compute_target_instances"), aggregated: true},
 		{collection: "futureReservations", kind: "compute#futureReservation", scope: cScopeZone, store: mk("compute_future_reservations"), patch: true, aggregated: true, resourceMetadata: true},

@@ -111,6 +111,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-compute_loadbalancing`](gcp-compute_loadbalancing.md)
 - [`gcp-compute_members`](gcp-compute_members.md)
 - [`gcp-compute_policies`](gcp-compute_policies.md)
+- [`gcp-compute_reservation_verbs`](gcp-compute_reservation_verbs.md)
 - [`gcp-dataflow`](gcp-dataflow.md)
 - [`gcp-dns`](gcp-dns.md)
 - [`gcp-eventarc`](gcp-eventarc.md)

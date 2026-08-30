@@ -50,10 +50,11 @@ func computeReferenceNames(entries []map[string]string, field string) []string {
 
 // The stores the member verbs share with the collections that own them.
 var (
-	gcpComputeTargetPools sim.Store[map[string]any]
-	gcpComputeNodeGroups  sim.Store[map[string]any]
-	gcpComputeNetworks    sim.Store[ComputeNetwork]
-	gcpComputeSubnetworks sim.Store[ComputeSubnetwork]
+	gcpComputeTargetPools  sim.Store[map[string]any]
+	gcpComputeNodeGroups   sim.Store[map[string]any]
+	gcpComputeReservations sim.Store[map[string]any]
+	gcpComputeNetworks     sim.Store[ComputeNetwork]
+	gcpComputeSubnetworks  sim.Store[ComputeSubnetwork]
 )
 
 func registerComputeMemberVerbs(srv *sim.Server) {
