@@ -175,6 +175,13 @@ var gcpMethodFloor = map[string]int{
 	// collection the service creates some other way — a rollout is produced by
 	// the change it rolls out, and the document declares no insert for it.
 	//
+	// 1,638 -> 1,676: a reservation's resize, maintenance and derived blocks,
+	// and the verbs a disk carries — its resource policies, its encryption key,
+	// the snapshot taken from it and the asynchronous replication it takes part
+	// in, zonal and regional. The zonal disks are a typed record and the
+	// regional ones a map, so the verbs are written once over a small accessor
+	// covering both rather than twice.
+	//
 	// A cross-site network's wire groups are nested under it, which this
 	// registrar cannot express, so they wait for a handler that names the
 	// parent.
@@ -182,7 +189,7 @@ var gcpMethodFloor = map[string]int{
 	// interconnect locations, license codes, preview features, reliability
 	// risks — stay unserved: an empty list is not what they return, and filling
 	// one in means inventing Google's own facility and licence data.
-	"compute-v1":              1648,
+	"compute-v1":              1676,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

@@ -432,15 +432,18 @@ func registerComputeMore(srv *sim.Server) {
 	// backend services to the instances behind it, so the resolver reads them.
 	gcpRegionBackendServices = mk("compute_region_backend_services")
 
-	// Shared so the member verbs in compute_members.go write the same pools.
+	// Shared so the verbs in the files beside this one write the same records
+	// the lifecycle here serves.
 	gcpComputeTargetPools = mk("compute_target_pools")
+	gcpComputeSnapshots = mk("compute_snapshots")
+	gcpComputeRegionDisks = mk("compute_region_disks")
 
 	resources := []computeMetaResource{
 		// Storage resources.
 		{collection: "images", kind: "compute#image", scope: cScopeGlobal, store: gcpComputeImages, skipGet: true, patch: true, setLabels: true},
-		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeGlobal, store: mk("compute_snapshots"), setLabels: true},
+		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeGlobal, store: gcpComputeSnapshots, setLabels: true},
 		{collection: "machineImages", kind: "compute#machineImage", scope: cScopeGlobal, store: mk("compute_machine_images"), setLabels: true},
-		{collection: "disks", kind: "compute#disk", scope: cScopeRegion, store: mk("compute_region_disks"), patch: true, setLabels: true},
+		{collection: "disks", kind: "compute#disk", scope: cScopeRegion, store: gcpComputeRegionDisks, patch: true, setLabels: true},
 		// Addressing / routing.
 		{collection: "addresses", kind: "compute#address", scope: cScopeGlobal, store: mk("compute_global_addresses"), setLabels: true},
 		{collection: "routes", kind: "compute#route", scope: cScopeGlobal, store: mk("compute_routes")},

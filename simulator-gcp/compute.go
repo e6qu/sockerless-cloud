@@ -532,6 +532,14 @@ type ComputeDisk struct {
 	Labels            map[string]string `json:"labels,omitempty"`
 	LabelFingerprint  string            `json:"labelFingerprint,omitempty"`
 	PhysicalBlockSize string            `json:"physicalBlockSizeBytes,omitempty"`
+
+	// The members the disk's own verbs write: the schedules attached to it,
+	// the key it is encrypted under, the replication it takes part in and the
+	// state that reports.
+	ResourcePolicies  []string       `json:"resourcePolicies,omitempty"`
+	DiskEncryptionKey map[string]any `json:"diskEncryptionKey,omitempty"`
+	AsyncPrimaryDisk  map[string]any `json:"asyncPrimaryDisk,omitempty"`
+	ResourceStatus    map[string]any `json:"resourceStatus,omitempty"`
 }
 
 // ComputeInstanceStatus is a Compute Engine instance lifecycle status. Using a
@@ -2642,6 +2650,8 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 // aggregated-list, all returning zonal operations the SDK polls.
 func registerComputeDisks(srv *sim.Server) {
 	disks := sim.MakeStore[ComputeDisk](srv.DB(), "compute_disks")
+	// Shared so the disk verbs write the same disks the lifecycle serves.
+	gcpComputeZoneDisks = disks
 
 	// Insert (create disk) — POST .../zones/{zone}/disks
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/disks", func(w http.ResponseWriter, r *http.Request) {
