@@ -90,8 +90,8 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"secretmanager-v1":        72,
 	"serviceusage-v1":         20,
 	"spanner-v1":              198,
-	"sqladmin-v1":             150,
-	"sqladmin-v1beta4":        150,
+	"sqladmin-v1":             160,
+	"sqladmin-v1beta4":        160,
 	"storage-v1":              89,
 	"vpcaccess-v1":            16,
 }
@@ -281,8 +281,15 @@ var gcpMethodFloor = map[string]int{
 	// custom-method pattern; that dispatcher recognizes the verb as Cloud
 	// SQL Admin's and forwards it, while the /sql/v1beta4 spelling is
 	// mounted by the Cloud SQL module itself.
-	"sqladmin-v1":      150,
-	"sqladmin-v1beta4": 150,
+	//
+	// 150 → 160 on the 2026-08-29 re-vendor: Google published the
+	// blueGreenDeployments collection — create, get, list, delete and the
+	// switchover verb, five methods on each spelling. All ten are served. The
+	// green instance is a real instance in the same store every other Cloud SQL
+	// read serves, and switchover promotes it into the source's name while the
+	// source is retired under one `deleteOldSource` can delete.
+	"sqladmin-v1":      160,
+	"sqladmin-v1beta4": 160,
 
 	// Cloud Spanner: instances, instance configs, instance partitions,
 	// databases, backups, backup schedules, database roles, the IAM triple on

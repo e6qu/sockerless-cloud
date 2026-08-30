@@ -13,7 +13,7 @@ Surface registered in `simulator-gcp/sqladmin.go` (and related files grouped und
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /sql/v1beta4/projects/{projectAction}` | ✓ `simulator-gcp/sqladmin.go:190::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /sql/v1beta4/projects/{projectAction}` | ✓ `simulator-gcp/sqladmin.go:194::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

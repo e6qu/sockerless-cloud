@@ -57,6 +57,23 @@ The same change carries the dependency refresh the freshness gate asked for: 53
 Go modules across the AWS, Azure and Google SDK test suites, and the `azurerm`
 Terraform provider from 5.2.0 to 5.3.0 in both stacks.
 
+Every client the tests drive is the newest published build. The AWS CLI and
+gcloud already fetched theirs unversioned, and `hashicorp/setup-terraform` takes
+the newest Terraform, but the step named "Install Azure CLI" installed nothing —
+its whole body was `az version`, so the Azure suites ran against whatever build
+the runner image baked in, which lags Microsoft's releases. It installs the
+newest now, as the other two do.
+
+Google Cloud also gained Cloud SQL blue-green deployments, which the scheduled
+specification refresh pulled onto this branch: create, get, list, delete and the
+switchover verb, on both the v1 and v1beta4 spellings. All ten are served,
+taking Cloud SQL Admin from 150 to 160 method spellings on each. The green
+instance is a real instance in the store every other Cloud SQL read serves;
+switchover promotes it into the source's name and retires the source under a
+name `deleteOldSource` can delete. The generated Go client carries no
+`BlueGreenDeployment` type yet, so its test drives the same authenticated
+transport directly.
+
 `make upgrade-deps` no longer upgrades this repository's own modules. A release
 pins them by commit, so they are required at a pseudo-version, and `@latest`
 prefers any semver tag over one — including the deleted bootstrap `v0.1.0` tags,
