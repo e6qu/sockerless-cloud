@@ -151,6 +151,22 @@ var gcpMethodFloor = map[string]int{
 	// them between states, delete and abandon remove them — along with its
 	// per-instance configurations and its resize requests, zonal and regional.
 	//
+	// 1,518 -> 1,582: the verbs an instance carries beyond its lifecycle.
+	// Deletion protection, the minimum CPU platform, machine resources,
+	// scheduling, service account, shielded-VM configuration and integrity
+	// policy, display device, resource policies, access configurations and
+	// network interfaces, suspend and resume, the maintenance verbs, the
+	// referrers and effective-firewalls reads, and the IAM triple. Four of the
+	// declared PATCH verbs were first mounted as POST and the route gate
+	// refused them.
+	//
+	// Four are declared NotImplemented, because the only way to answer them is
+	// to invent what the hardware or the guest would have said: the console
+	// screenshot is a framebuffer capture, the shielded instance identity is
+	// the machine's vTPM endorsement key, the guest attributes are written by
+	// an agent inside the guest, and the diagnostic interrupt is delivered by
+	// the hypervisor.
+	//
 	// A cross-site network's wire groups are nested under it, which this
 	// registrar cannot express, so they wait for a handler that names the
 	// parent.
@@ -158,7 +174,7 @@ var gcpMethodFloor = map[string]int{
 	// interconnect locations, license codes, preview features, reliability
 	// risks — stay unserved: an empty list is not what they return, and filling
 	// one in means inventing Google's own facility and licence data.
-	"compute-v1":              1518,
+	"compute-v1":              1582,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

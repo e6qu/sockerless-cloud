@@ -552,6 +552,16 @@ type ComputeInstance struct {
 	CanIpForward      bool                      `json:"canIpForward,omitempty"`
 	Scheduling        map[string]any            `json:"scheduling,omitempty"`
 	ServiceAccounts   []map[string]any          `json:"serviceAccounts,omitempty"`
+
+	// The members the instance's own set-verbs write. Each is stored because
+	// the verb that sets it is only meaningful if a later read returns it.
+	DeletionProtection              bool             `json:"deletionProtection,omitempty"`
+	MinCpuPlatform                  string           `json:"minCpuPlatform,omitempty"`
+	GuestAccelerators               []map[string]any `json:"guestAccelerators,omitempty"`
+	ResourcePolicies                []string         `json:"resourcePolicies,omitempty"`
+	ShieldedInstanceConfig          map[string]any   `json:"shieldedInstanceConfig,omitempty"`
+	ShieldedInstanceIntegrityPolicy map[string]any   `json:"shieldedInstanceIntegrityPolicy,omitempty"`
+	DisplayDevice                   map[string]any   `json:"displayDevice,omitempty"`
 }
 
 type ComputeInstanceTags struct {
@@ -1726,6 +1736,9 @@ func computeRegionalAddressLink(project, region, name string) string {
 
 func registerComputeInstanceGroups(srv *sim.Server) {
 	groups := sim.MakeStore[storedComputeInstanceGroup](srv.DB(), "compute_instance_groups")
+	// Shared so the instance verbs can report which groups refer to an
+	// instance, as gcpFirewalls is shared for the same reason.
+	gcpComputeInstanceGroups = groups
 	gcpInstanceGroups = groups
 
 	instanceGroupSelfLink := func(project, zone, name string) string {
@@ -2214,6 +2227,7 @@ func recoverComputeOperations() {
 
 func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork], subnetworks sim.Store[ComputeSubnetwork]) {
 	instances := sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances")
+	registerComputeInstanceVerbs(srv, instances)
 	gcpInstances = instances
 	recoverComputeInstances(instances)
 	recoverComputeOperations()

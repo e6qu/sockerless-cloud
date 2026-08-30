@@ -107,6 +107,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-cloudresourcemanager_folders_v2`](gcp-cloudresourcemanager_folders_v2.md)
 - [`gcp-cloudrun`](gcp-cloudrun.md)
 - [`gcp-compute`](gcp-compute.md)
+- [`gcp-compute_instance_verbs`](gcp-compute_instance_verbs.md)
 - [`gcp-compute_loadbalancing`](gcp-compute_loadbalancing.md)
 - [`gcp-compute_policies`](gcp-compute_policies.md)
 - [`gcp-dataflow`](gcp-dataflow.md)
