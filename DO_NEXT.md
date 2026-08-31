@@ -167,15 +167,26 @@
      engine can signal a container's main process, not an arbitrary process
      inside it. Reopen only if the engine gains a real primitive for it.
 
-   - **`resourceHealthMetadata`** (6), **`metricdefinitions`** (4),
-     **`perfcounters`**, **`phplogging`**, **`recommendations`**, `iscloneable`,
-     `migratemysql/status`, and the declined `Provider_*Stacks` — each answers
-     with a series, catalog or telemetry the simulator has no input for, in the
-     same class as the declined catalogs below.
+   - **`metricdefinitions`** (4) and `outboundNetworkDependenciesEndpoints`,
+     the two rule-detail reads of the recommendations family, and the declined
+     `Provider_*Stacks` (6) — each answers with a series or a catalog only the
+     real platform holds, in the same class as the declined catalogs below.
+     Each already answers a declared 501 naming its reason.
 
-   So the honest split is: nothing in the 76 is implementable from what the
-   simulator can observe today. Each family needs either a primitive the
-   container engine does not expose or data only the real platform holds.
+   The blanket claim this item used to make — that *nothing* in the tail was
+   implementable — was wrong, and **`recommendations`** disproved it: 13 of its
+   15 operations were served on 2026-08-31 from what the simulator does hold.
+   No advisory engine runs here, so the lists and histories are honestly empty;
+   the filters are the client's own decisions and are recorded per scope. Only
+   the two rule-detail reads need Microsoft's published copy.
+
+   So the honest split for the 33 App Service operations still unserved is:
+   17 need a catalog, a metric series or a `/proc` primitive that is not
+   there and say so in a declared 501; the rest — `resourceHealthMetadata`
+   (6), `iscloneable` (2), `perfcounters` and `phplogging` (4), and the
+   `migrate`/`migratemysql` trio — have not been examined against what the
+   site and its workload container already know, and must be before any of
+   them is called blocked.
 
 5. Cloud Spanner admin is **closed**, not pending. Its measured number counts
    Discovery *method spellings*, not methods — the document declares most

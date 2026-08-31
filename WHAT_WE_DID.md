@@ -1,5 +1,39 @@
 # WHAT WE DID
 
+## 2026-08-31, forty-third pass — the declared tails, served
+
+The three slices were carried toward their declared totals one document at a
+time, and the numbers are the record: Google Cloud 5,363 → 5,440 of 5,480
+Discovery method spellings, with `compute-v1` at 1,976 of 2,016 and
+`dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1` and
+`redis-v1` each complete; Azure 2,521 → 2,564 of 2,628 Swagger operations, with
+App Service at 659 of 692.
+
+Two of the pass's own instruments were wrong and were corrected before the work
+they measured. The Google Cloud coverage probe rendered a greedy
+`{+parentResource}` label as a single path segment, reporting whole collections
+unserved that were mounted and answering; it now substitutes a sibling method's
+shape for a shapeless label, and a unit test pins the predicate so the fix
+cannot widen again. The Azure coverage report named only its totals, so the
+next operation to serve could be read off nothing but a deliberately broken
+floor; it now names every unserved operation and the address it was probed at.
+
+App Service recommendations went in at all three scopes — subscription, App
+Service Environment and site — as 13 of their 15 operations. What each answers
+follows from the simulator running no advisory engine: the lists and the
+histories are empty, because nothing has been observed about any site and an
+invented advisory would be worse than none; the filters are the client's own
+decisions and are recorded against the scope until they are reset. The two
+rule-detail reads answer a declared 501, because a `RecommendationRule` is
+Microsoft's published advisory copy — display name, portal message, blade link
+— which this project does not vendor.
+
+That last distinction also retired a claim this repository had been making
+about itself. `DO_NEXT.md` said nothing in the App Service tail was
+implementable from what the simulator can observe; recommendations disproved
+it, and the item now records the corrected split, naming the families that have
+not yet been examined rather than filing them under a blanket refusal.
+
 ## 2026-08-30, forty-second pass — the project describes itself
 
 Sockerless Cloud read as a component of the repository that consumes it: the

@@ -383,7 +383,19 @@ var azureMethodFloor = map[string]int{
 	// Blob data plane of the storage account its SAS URL names; a restore
 	// reads that blob back and replaces the site's file system with it, so
 	// deleting the archive through the Blob API makes the restore fail.
-	"web-arm-openapi-2025-03-01": 646,
+	//
+	// Raised from 646 by the recommendations family (13 of its 15 operations,
+	// across the subscription, App Service Environment and site scopes). The
+	// simulator runs no advisory engine, which decides what each answers: the
+	// lists and the histories are empty because nothing has been observed about
+	// anything, and the filters — disable one rule, disable them all, reset —
+	// are the client's own decisions and are recorded against the scope. The two
+	// remaining operations, GetRuleDetailsByWebApp and
+	// GetRuleDetailsByHostingEnvironment, answer a declared 501: a
+	// RecommendationRule is Microsoft's published advisory copy (its display
+	// name, portal message and blade link), the same class as the declined
+	// Provider_*Stacks catalog.
+	"web-arm-openapi-2025-03-01": 659,
 }
 
 // Route table
@@ -1092,6 +1104,11 @@ func TestServiceConformance_AzureCoverage(t *testing.T) {
 		tt += cov.total[name]
 		if cov.impl[name] > 0 {
 			t.Logf("%-60s %d/%d", name, cov.impl[name], cov.total[name])
+		}
+		// Name what is missing, so the next operation to serve is readable from
+		// an ordinary run rather than only from a floor that has been broken.
+		for _, op := range cov.unserved[name] {
+			t.Logf("%-60s   unserved: %s", name, op)
 		}
 	}
 	t.Logf("TOTAL: %d/%d Azure Swagger operations served by a mounted handler", ti, tt)
