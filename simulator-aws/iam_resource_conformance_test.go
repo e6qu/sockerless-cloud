@@ -724,11 +724,9 @@ func iamELBv2DerivesItsResource(operation string, params map[string]bool) bool {
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
-		value := "probe"
-		if lower := strings.ToLower(name); strings.HasSuffix(lower, "arn") || strings.HasSuffix(lower, "arns") {
-			value = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/probe/0123456789abcdef"
-		}
-		form += "&" + name + "=" + url.QueryEscape(value)
+		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("elasticloadbalancing", name,
+			"arn:aws:elasticloadbalancing:us-east-1:"+iamProbeAccount+
+				":targetgroup/probe/0123456789abcdef"))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -744,12 +742,9 @@ func iamACMDerivesItsResource(operation string, members map[string]bool) bool {
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		if strings.HasSuffix(strings.ToLower(name), "arn") {
-			body[name] = "arn:aws:acm:us-east-1:123456789012:certificate/0123abcd-ef45-6789-abcd-ef0123456789"
-			continue
-		}
 		body[name] = iamProbeMemberValue("acm", name,
-			"arn:aws:acm:us-east-1:"+iamProbeAccount+":probe")
+			"arn:aws:acm:us-east-1:"+iamProbeAccount+
+				":certificate/0123abcd-ef45-6789-abcd-ef0123456789")
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -917,7 +912,8 @@ func iamEventBridgeDerivesItsResource(operation string, members map[string]bool)
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = "probe"
+		body[name] = iamProbeMemberValue("events", name,
+			"arn:aws:events:us-east-1:"+iamProbeAccount+":event-bus/probe")
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -940,7 +936,8 @@ func iamDynamoDBDerivesItsResource(operation string, members map[string]bool) bo
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = "probe"
+		body[name] = iamProbeMemberValue("dynamodb", name,
+			"arn:aws:dynamodb:us-east-1:"+iamProbeAccount+":table/probe")
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -1080,7 +1077,8 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 		// than a placeholder it rejects.
 		return "Parameter"
 	}
-	if strings.HasSuffix(lower, "arn") {
+	// A member holding one ARN or a list of them is spelled either way.
+	if strings.HasSuffix(lower, "arn") || strings.HasSuffix(lower, "arns") {
 		return arnValue
 	}
 	// A member that names an AWS account carries twelve digits and nothing
@@ -1535,7 +1533,19 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // know ResourceArn does — which is the member the three resource-policy
 // operations name their target with. Routed through the single rule, with the
 // CloudTrail-specific members it did know moved into it.
-const iamDerivationCoverageFloor = 1826
+//
+// Raised to 1847 by auditing for the rest rather than finding them one at a
+// time. Five more services kept their own inline fill — AWS Certificate
+// Manager, Elastic Load Balancing v2, Amazon EventBridge, Amazon DynamoDB and
+// the CloudTrail one above — and each knew a little of the rule and not the
+// rest. DynamoDB was the largest: its probe named no table, so seventeen
+// operations measured as underived against a reader that only ever needed the
+// table ARN. The shared rule also learned the plural spelling, since a member
+// holding a list of ARNs is not ELBv2's alone.
+//
+// One inline fill is left, and it belongs there: AWS Organizations keys its
+// values by the shape of the member rather than its name.
+const iamDerivationCoverageFloor = 1847
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
