@@ -286,19 +286,24 @@ func armURL(provider, resourcePath, apiVersion string) string {
 func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 	const perCmdTimeout = 60 * time.Second
-	// az is a Python program; recent versions compile a module that raises a
-	// Python SyntaxWarning ("invalid decimal literal") to stderr, which merges
-	// into the captured stdout below and corrupts the JSON az prints. The
-	// warning is interpreter noise, not part of az's data contract, so silence
-	// Python's own warnings for the subprocess. Set at the interpreter's startup
-	// via the environment so it also covers warnings raised during import.
+	// az is a Python program, and the interpreter writes its own diagnostics to
+	// stderr: recent versions compile a module that raises a SyntaxWarning
+	// ("<unknown>:1: SyntaxWarning: invalid decimal literal"). That is not part
+	// of az's data contract — stdout is — so the two streams are captured
+	// apart. Merging them put the warning in front of the JSON and made a
+	// perfectly good response unparseable, on the runner only, because the
+	// warning depends on the interpreter build there.
+	//
+	// PYTHONWARNINGS is still set, because silencing interpreter noise at the
+	// source is better than reading around it; it is not relied on, because az
+	// configures Python's warning filters itself and can undo it.
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
 	cmd.Env = append(cmd.Env, "PYTHONWARNINGS=ignore")
-	var combined bytes.Buffer
-	cmd.Stdout = &combined
-	cmd.Stderr = &combined
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("CLI command failed to start: %v\nCommand: %s", err, strings.Join(cmd.Args, " "))
 	}
@@ -307,9 +312,12 @@ func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	timer := time.AfterFunc(perCmdTimeout, func() { _ = cmd.Process.Kill() })
 	defer timer.Stop()
 	if err := cmd.Wait(); err != nil {
-		t.Fatalf("CLI command failed: %v\nCommand: %s\nOutput: %s", err, strings.Join(cmd.Args, " "), combined.String())
+		// A failure reports both streams: az writes its error message to
+		// stderr, and dropping it here would leave the reason invisible.
+		t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr: %s",
+			err, strings.Join(cmd.Args, " "), stdout.String(), stderr.String())
 	}
-	return combined.String()
+	return stdout.String()
 }
 
 func parseJSON(t *testing.T, data string, target any) {

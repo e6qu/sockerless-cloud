@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 9. Resolved: 82.
+Open: 8. Resolved: 83.
 
 ## Open
 
@@ -33,23 +33,6 @@ Open: 9. Resolved: 82.
   than keeping two stores in step — a sync would be the same divergence with
   more code. Run the whole storage SDK and CLI suite behind it, since both
   spellings are already asserted in places.
-
-- **BUG-1701 (`TestEntraGraphDirectoryCLI/beta` parsed non-JSON from the Azure
-  CLI):** On run 25fc539 the beta subtest failed at
-  `cli-tests/entra_graph_directory_test.go:307` with "Failed to parse JSON:
-  invalid character '<' looking for beginning of value", reading the output of
-  `GET /beta/me/memberOf`. The simulator answered that request 200, as it did
-  every other Graph request in the run, and the identical `v1.0` subtest passed
-  in the same execution — so the `<` is in what the CLI printed, not in what the
-  simulator served. Not yet attributed: it appeared during a session that
-  touched the Application Insights data plane, the instance metadata service and
-  the Log Analytics resource-scoped query, none of which serve `/beta/`, and the
-  job had been green on the three commits before it. Next step: run the Azure
-  CLI A-M shard against the branch and capture the raw CLI output at that call —
-  an HTML error page from the CLI's own transport would explain it, and would
-  make this a CLI-side flake rather than a simulator defect. Do not assume the
-  latter without that evidence, and do not close it without it either.
-
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
