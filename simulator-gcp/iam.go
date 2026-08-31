@@ -1379,8 +1379,15 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("GET /v1/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
 		project, action, isCustomMethod := gcpCustomMethod(sim.PathParam(r, "project"))
 		if isCustomMethod {
-			if action == "showEffectiveAutokeyConfig" {
+			switch action {
+			case "showEffectiveAutokeyConfig":
 				kmsHandleShowEffectiveAutokeyConfig(w, "projects/"+project)
+				return
+			case "showEffectiveKeyAccessJustificationsPolicyConfig":
+				kmsHandleShowEffectiveKajPolicyConfig(w, project)
+				return
+			case "showEffectiveKeyAccessJustificationsEnrollmentConfig":
+				kmsHandleShowEffectiveKajEnrollmentConfig(w, project)
 				return
 			}
 			gcpMethodNotFound(w)

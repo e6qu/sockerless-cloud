@@ -242,7 +242,7 @@ var gcpMethodFloor = map[string]int{
 	// simulator does not model; the projects colon-verb fan-in rejects them
 	// as unknown verbs. The document grew by two spellings at the 2026-08-14
 	// revision; both belong to that same Key Access Justifications family.
-	"cloudkms-v1": 168,
+	"cloudkms-v1": 174,
 
 	"eventarc-v1":       132,
 	"cloudfunctions-v2": 42,
