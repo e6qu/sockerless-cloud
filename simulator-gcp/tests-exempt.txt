@@ -1,6 +1,28 @@
+# Routes the SDK/CLI/terraform testing contract does not apply to. Every entry
+# carries its reason on the line directly above it, which
+# scripts/check-simulator-tests.sh enforces: an exemption whose reason nobody
+# wrote is indistinguishable from a test nobody wrote.
+#
+# The Compute Engine entries are all one situation: the meta-resource registrar
+# mounts each collection at a path built from the collection's own name, so the
+# contract reader — which resolves literal routes — records the scope prefix
+# they share instead of the concrete routes. Every collection mounted under
+# these prefixes carries its own SDK test; it is the prefix, not the surface,
+# that has no test to point at.
+
+# The aggregated list each collection declares, mounted as
+# "/aggregated/" + collection.
 GET /compute/v1/projects/{project}/aggregated/
+# The global collections, mounted as "/global/" + collection.
 GET /compute/v1/projects/{project}/global/
+# The regional collections, mounted as "/regions/{region}/" + collection.
 GET /compute/v1/projects/{project}/regions/{region}/
+# The zonal collections, mounted as "/zones/{zone}/" + collection.
 GET /compute/v1/projects/{project}/zones/{zone}/
+
+# A Memorystore ACL policy's revision history, which the generated Google client
+# does not wrap — the simulator's own custom-methods test drives both routes
+# over HTTP the way a client would.
 GET /v1/projects/{project}/locations/{location}/aclPolicies/{id}/revisions
+# One revision of that history, addressed by the id the list returns.
 GET /v1/projects/{project}/locations/{location}/aclPolicies/{id}/revisions/{revision}

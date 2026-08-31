@@ -1,11 +1,39 @@
-AWSStepFunctions.ValidateStateMachineDefinition
-AWSGlue.GetPartitionIndexes
+# Routes and operations the SDK/CLI/terraform testing contract does not apply
+# to. Every entry carries its reason on the line directly above it, which
+# scripts/check-simulator-tests.sh enforces: an exemption whose reason nobody
+# wrote is indistinguishable from a test nobody wrote.
+#
+# There are two honest reasons to be here. Either the surface is not reachable
+# from an AWS SDK, the AWS CLI or the terraform provider at all — it is a
+# browser link, a protocol endpoint another client speaks, or a URL the service
+# itself fetches — or the route is assembled from a variable, so the contract
+# reader records the prefix it can see rather than the concrete routes, which
+# their own tests cover.
+
+# The rpc-v2-cbor transport mounts one route per operation as
+# ".../operation/<Op>", so the reader records the prefix; the operations behind
+# it are exercised by the CloudWatch CBOR tests.
 POST /service/GraniteServiceVersion20100801/operation/
-GET /2018-10-31/layers
+
+# The Amazon SNS message-signing certificate, fetched by a subscriber verifying
+# a notification signature — never by an SDK or CLI call. Its route is built
+# from the certificate name, so the reader records the prefix.
 GET /SimpleNotificationService-
+
+# The ACME directory and its endpoints are spoken by an ACME client (certbot,
+# lego) issuing a certificate, which is not one of the three suites. The
+# protocol is exercised end-to-end by the ACME client tests.
 GET /acme/{endpoint}/directory
+# ACME's replay-nonce endpoint, fetched by the same client.
 HEAD /acme/{endpoint}/new-nonce
+# The GET spelling of the same nonce endpoint, which older clients use.
 GET /acme/{endpoint}/new-nonce
+# The ACME resource endpoints — newAccount, newOrder, finalize and the rest —
+# reached only through an ACME client's signed JWS requests.
 POST /acme/{endpoint}/{resource}
+# The per-resource ACME endpoints, addressed by the ids the directory hands out.
 POST /acme/{endpoint}/{resource}/{id}
+
+# The link inside an AWS Certificate Manager domain-validation email, followed
+# by a person approving the request in a browser.
 GET /acm/email-validation/{token}

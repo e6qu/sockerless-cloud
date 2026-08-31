@@ -42,6 +42,32 @@ fi
 # sockerless monorepo — every historical registration would be judged as new,
 # including routes that pre-date the hook. There is no incremental change to
 # gate, so pass explicitly rather than mis-applying the contract.
+# Every exemption has to say why it is one. The allowlists next to these files
+# demand a reason and an owner; this list demanded nothing, so entries
+# accumulated as bare routes and nobody could tell a route that genuinely has no
+# SDK/CLI/terraform surface from one whose test was simply never written. A
+# reason is a comment on the line directly above the entry.
+for exempt_file in simulator-*/tests-exempt.txt; do
+    [[ -f "$exempt_file" ]] || continue
+    previous=""
+    line_no=0
+    while IFS= read -r line; do
+        line_no=$((line_no + 1))
+        if [[ -z "${line// }" || "$line" =~ ^[[:space:]]*# ]]; then
+            previous="$line"
+            continue
+        fi
+        if [[ ! "$previous" =~ ^[[:space:]]*# ]]; then
+            echo "[simulator-tests] FAIL: $exempt_file:$line_no exempts \"$line\" with no reason above it. Put a comment line directly above the entry saying why the route has no SDK/CLI/terraform test — or write the test and delete the entry." >&2
+            exempt_fail=1
+        fi
+        previous="$line"
+    done <"$exempt_file"
+done
+if [[ "${exempt_fail:-0}" == "1" ]]; then
+    exit 1
+fi
+
 if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
     echo "[simulator-tests] root commit (no parent): nothing incremental to gate"
     exit 0
