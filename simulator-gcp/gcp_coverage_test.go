@@ -211,7 +211,7 @@ var gcpMethodFloor = map[string]int{
 	// new surface Google published, not a regression: the served count is
 	// unchanged, and this simulator's Dataflow slice is the job surface its
 	// consumers drive.
-	"dataflow-v1b3": 84,
+	"dataflow-v1b3": 114,
 
 	// Cloud Run Admin v2: builds.submit hands the request to the Cloud Build
 	// this simulator serves, and sourceUploads.upload names the Cloud Storage

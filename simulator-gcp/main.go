@@ -143,6 +143,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerCloudBuild(srv)
 	registerSpanner(srv)
 	registerDataflow(srv)
+	registerDataflowConfigStore(srv)
 	registerBigtable(srv)
 
 	// Infrastructure services
