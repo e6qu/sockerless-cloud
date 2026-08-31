@@ -91,6 +91,36 @@
    rule because there is none to name. Encoding that — rather than inferring it
    from the reader having returned nothing — is the actual work.
 
+   **The probe-fidelity seam is worked out.** Between 1792 and 1814 every gain
+   came from one defect: eight copies of the rule deciding what a probe puts in
+   a request member, so a fix in one reached only the services routed through
+   it. There is one copy now — `iamProbeMemberValueFor`, service-aware, because
+   a member can only be filled correctly if you know whose member it is — and
+   the services behind it (sts, ssm, ec2 tagging, codebuild, rds) all measure
+   what their readers were already doing. No production line changed in any of
+   those five commits.
+
+   What is left is different, and AWS Glue proved it: routing Glue through the
+   same rule moved nothing. Its 25, and IAM's 18, need reader work, and the
+   shapes are these:
+
+   - **A resource named by a sibling identifier.** `iam:GetAccessKeyLastUsed`
+     declares the user type and carries an AccessKeyId; the user is whoever
+     owns that key, which is a lookup against the simulator's own IAM state,
+     not something the request states.
+   - **A resource that is the caller.** `iam:ChangePassword` declares the user
+     type and names nobody: AWS authorizes it against the calling user. The
+     simulator knows who signed the request, so this is derivable — but it is
+     also the shape most likely to over-grant if the signing identity is read
+     loosely, so it wants its own test before its derivation.
+   - **A resource named by a create's input.** `iam:CreateOpenIDConnectProvider`
+     names the provider by the Url it is created from.
+
+   Take these one service at a time and hold each to a test that names the
+   resource it must derive and one it must not. The measurement class was safe
+   to fix in bulk because a wrong probe value shows up as a number that does
+   not move; a wrong reader shows up as a grant nobody notices.
+
    Amazon EC2's 34 — the largest single service gap — are not one shape. Read
    off the model on 2026-08-31, they fall into three:
 
