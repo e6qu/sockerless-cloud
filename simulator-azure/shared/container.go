@@ -540,12 +540,32 @@ func PullImage(ctx context.Context, imageName, platform string) error {
 
 func pullImage(ctx context.Context, cli *client.Client, imageName, platform string) error {
 	pullOpts := client.ImagePullOptions{}
+	var wanted *ocispec.Platform
 	if platform != "" {
 		parsed, err := parsePlatform(platform)
 		if err != nil {
 			return err
 		}
+		wanted = parsed
 		pullOpts.Platforms = []ocispec.Platform{*parsed}
+	}
+	// An image the host already holds needs no registry request. This is what
+	// `docker run` itself does — its default pull policy is "missing" — and it
+	// is what keeps a data cap from turning a workload the host could start
+	// into a failure: a capped registry refuses the manifest check as readily
+	// as the layers, and the backoff below cannot recover from a cap, only
+	// from a moment of throttle.
+	//
+	// A pinned platform is checked against what the host holds rather than
+	// assumed: the simulator's own architecture is routinely not the
+	// workload's, and starting an amd64 image where arm64 was asked for would
+	// be a worse answer than fetching.
+	if held, err := cli.ImageInspect(ctx, imageName); err == nil {
+		if wanted == nil ||
+			((wanted.Architecture == "" || wanted.Architecture == held.Architecture) &&
+				(wanted.OS == "" || wanted.OS == held.Os)) {
+			return nil
+		}
 	}
 	backoff := 2 * time.Second
 	const maxAttempts = 5

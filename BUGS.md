@@ -78,8 +78,26 @@ Open: 9. Resolved: 84.
   the two needs the image list to come from what a test fetches rather than
   from what its package mentions.
 
-  Until they do, any job that pulls a base image can fail for reasons unrelated
-  to the change under test, and a red run has to be read before it is believed.
+  `tf (aws Amazon RDS snapshot)` failed next, and it named the root of the
+  whole class: the simulator itself pulled unconditionally. Capturing an RDS
+  snapshot starts a helper container from `alpine:3.22` to copy the volume, and
+  `pullImage` asked the registry for that image whether or not the host held
+  it, then spent its five backoff attempts on a cap that no amount of waiting
+  clears. The snapshot settled `failed` and Terraform reported "unexpected
+  state 'failed'". `pullImage` now asks `ImageInspect` first in all three
+  simulators, which is what `docker run` itself does — its default pull policy
+  is "missing" — and it checks a pinned platform against what the host holds
+  rather than assuming it, because the simulator's own architecture is
+  routinely not the workload's.
+
+  That failure was also invisible: the simulator's stderr is not in the
+  Terraform job's log, so the reason the snapshot failed had to be read out of
+  the source rather than the run. Surfacing a simulator-side failure in the job
+  that provoked it is worth doing before the next one.
+
+  Until the remaining jobs go through the cache, any job that pulls a base
+  image for the first time can still fail for reasons unrelated to the change
+  under test, and a red run has to be read before it is believed.
 
 
 | ID | Sev | Area | Pattern | One-liner |
