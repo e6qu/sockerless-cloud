@@ -61,11 +61,11 @@ func registerComputeCatalogs(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}", previews)
 	srv.HandleFunc("PATCH /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}", previews)
 
-	// What an interconnect's hardware reports about itself: the diagnostics of
-	// the physical link, and the MACsec state of the equipment either end. Both
-	// come from hardware the simulator does not have.
+	// What an interconnect's hardware reports about itself: link status,
+	// circuit identifiers and LACP state, read off the physical equipment at
+	// both ends, which the simulator does not have. Its MACsec configuration is
+	// a different thing — the caller's own keychain — and is served in
+	// compute_interconnect_macsec.go.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics",
 		catalog("interconnect diagnostics"))
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getMacsecConfig",
-		catalog("interconnect MACsec configuration"))
 }

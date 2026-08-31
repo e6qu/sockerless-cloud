@@ -96,6 +96,46 @@ func TestCompute_InterconnectAndItsGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "DEDICATED", link.InterconnectType)
 
+	// The MACsec configuration is the caller's own keychain read back, with the
+	// key name and key the service generates for each entry. An interconnect
+	// configured with none has an empty keychain rather than no answer.
+	empty, err := svc.Interconnects.GetMacsecConfig(project, "link-1").Do()
+	require.NoError(t, err)
+	require.NotNil(t, empty.Result)
+	assert.Empty(t, empty.Result.PreSharedKeys)
+
+	_, err = svc.Interconnects.Patch(project, "link-1", &compute.Interconnect{
+		Macsec: &compute.InterconnectMacsec{
+			PreSharedKeys: []*compute.InterconnectMacsecPreSharedKey{
+				{Name: "primary", StartTime: "2026-01-01T00:00:00Z"},
+				{Name: "standby", StartTime: "2026-07-01T00:00:00Z"},
+			},
+		},
+	}).Do()
+	require.NoError(t, err)
+
+	configured, err := svc.Interconnects.GetMacsecConfig(project, "link-1").Do()
+	require.NoError(t, err)
+	require.Len(t, configured.Result.PreSharedKeys, 2)
+	assert.Equal(t, "primary", configured.Result.PreSharedKeys[0].Name)
+	assert.Equal(t, "2026-01-01T00:00:00Z", configured.Result.PreSharedKeys[0].StartTime)
+	// A CKN is 32 bytes and a CAK 16, both hex, and the two keys differ.
+	assert.Len(t, configured.Result.PreSharedKeys[0].Ckn, 64)
+	assert.Len(t, configured.Result.PreSharedKeys[0].Cak, 32)
+	assert.NotEqual(t, configured.Result.PreSharedKeys[0].Ckn,
+		configured.Result.PreSharedKeys[1].Ckn, "each key gets its own")
+
+	// Reading it twice returns the same keychain: a caller configuring a router
+	// from it cannot be handed a different key each time.
+	again, err := svc.Interconnects.GetMacsecConfig(project, "link-1").Do()
+	require.NoError(t, err)
+	assert.Equal(t, configured.Result.PreSharedKeys[0].Cak, again.Result.PreSharedKeys[0].Cak)
+
+	// An interconnect that is not there is a 404, not an empty keychain.
+	_, err = svc.Interconnects.GetMacsecConfig(project, "absent-link").Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
 	_, err = svc.InterconnectGroups.Insert(project, &compute.InterconnectGroup{
 		Name: "bundle", Description: "the pair that carries the trunk",
 	}).Do()

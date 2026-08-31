@@ -2,8 +2,8 @@
 
 ## 2026-08-31, forty-fourth pass — the probe was measuring the wrong thing
 
-Three slices moved: Google Cloud 5,440 → 5,446 of 5,480 Discovery method
-spellings with `compute-v1` at 1,982 of 2,016, Azure 2,599 → 2,612 of 2,628
+Three slices moved: Google Cloud 5,440 → 5,448 of 5,480 Discovery method
+spellings with `compute-v1` at 1,984 of 2,016, Azure 2,599 → 2,612 of 2,628
 Swagger operations with App Service at 676 of 692, and AWS resource-scoped
 authorization 1,881 → 1,945 of 1,994 served operations.
 
@@ -47,6 +47,16 @@ definitions' own stated reason was that the simulator publishes no series for a
 pool, which is what an empty collection says. Only the fields that are
 genuinely Microsoft's are withheld — a resource-health category comes from a
 policy file this project does not vendor, so it is absent rather than invented.
+
+Google Cloud also served a Cloud Interconnect's MACsec configuration, which had
+been declined as hardware telemetry beside the link diagnostics. It is not: the
+keychain is the caller's own, written onto the interconnect the simulator
+already holds, and the operation returns it with the key name and key the
+service generates for each entry — which is work the operation does, not a
+dataset Google publishes. They are derived from the interconnect and the key so
+that reading the configuration twice hands back the same keychain. The
+diagnostics beside it stay declined, because link status and LACP state really
+are read off equipment at both ends.
 
 Google Cloud served Compute Engine's three host methods, which had been a mux
 miss: no route matched them at all, the one class of gap that is neither served

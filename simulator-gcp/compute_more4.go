@@ -31,6 +31,7 @@ func registerComputeMore4(srv *sim.Server) {
 	gcpComputeCrossSiteNetworks = mk("compute_cross_site_networks")
 	gcpComputeRegionSnapshots = mk("compute_region_snapshots")
 	gcpComputeInterconnectGroups = mk("compute_interconnect_groups")
+	gcpComputeInterconnects = mk("compute_interconnects")
 	gcpComputeHealthSources = mk("compute_health_sources")
 	gcpComputeCompositeHealthChecks = mk("compute_composite_health_checks")
 
@@ -97,12 +98,12 @@ func registerComputeMore4(srv *sim.Server) {
 		{collection: "compositeHealthChecks", kind: "compute#compositeHealthCheck", scope: cScopeRegion,
 			store: gcpComputeCompositeHealthChecks, patch: true, aggregated: true, testIamOnly: true},
 
-		// Interconnects and the groups that bundle them. Their physical link
-		// diagnostics and MACsec configuration are hardware telemetry this
-		// simulator has no basis for, and stay unserved rather than answered
-		// with numbers nothing measured.
+		// Interconnects and the groups that bundle them. The physical link
+		// diagnostics are hardware telemetry this simulator has no basis for
+		// and stay unserved; the MACsec configuration is the caller's own and
+		// is served beside them.
 		{collection: "interconnects", kind: "compute#interconnect", scope: cScopeGlobal,
-			store: mk("compute_interconnects"), patch: true, setLabels: true},
+			store: gcpComputeInterconnects, patch: true, setLabels: true},
 		// A group's operational status is what its members add up to against
 		// what the group was configured for. The members a group has are the
 		// ones its own resource names, so the status is derived from the group

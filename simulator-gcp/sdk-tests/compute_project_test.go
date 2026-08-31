@@ -181,10 +181,6 @@ func TestCompute_GooglePublishedCatalogsAreDeclaredGaps(t *testing.T) {
 			_, err := svc.Interconnects.GetDiagnostics(project, "link-1").Do()
 			return err
 		}},
-		{"interconnect MACsec configuration", func() error {
-			_, err := svc.Interconnects.GetMacsecConfig(project, "link-1").Do()
-			return err
-		}},
 		{"licence code policy read", func() error {
 			_, err := svc.LicenseCodes.GetIamPolicy(project, "1000205").Do()
 			return err

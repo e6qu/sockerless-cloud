@@ -65,6 +65,7 @@ var (
 	gcpComputeCompositeHealthChecks           sim.Store[map[string]any]
 	gcpComputeHealthSources                   sim.Store[map[string]any]
 	gcpComputeInterconnectGroups              sim.Store[map[string]any]
+	gcpComputeInterconnects                   sim.Store[map[string]any]
 	gcpComputeCrossSiteNetworks               sim.Store[map[string]any]
 	gcpComputeRegionalPublicDelegatedPrefixes sim.Store[map[string]any]
 )

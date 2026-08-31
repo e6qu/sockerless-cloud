@@ -30,8 +30,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /compute/v1/projects/{project}/global/previewFeatures` | ? `simulator-gcp/compute_catalogs.go:60::previews` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}` | ? `simulator-gcp/compute_catalogs.go:61::previews` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `PATCH /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}` | ? `simulator-gcp/compute_catalogs.go:62::previews` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics` | ? `simulator-gcp/compute_catalogs.go:67::catalog` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getMacsecConfig` | ? `simulator-gcp/compute_catalogs.go:69::catalog` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics` | ? `simulator-gcp/compute_catalogs.go:69::catalog` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 
