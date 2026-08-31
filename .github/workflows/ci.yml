@@ -918,7 +918,7 @@ jobs:
       # happens exactly as before, so the worst case is today's behaviour.
       - name: Restore the base images
         id: base-images
-        uses: actions/cache@v4.3.0
+        uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/sockerless/base-images.tar
           key: base-images-${{ runner.os }}-${{ runner.arch }}-alpine-latest-v1
