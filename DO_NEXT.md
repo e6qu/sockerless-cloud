@@ -52,106 +52,66 @@
    the Application Insights query data plane; and the two published catalogs
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
-0-iam. **The AWS IAM derivation gap is mostly one rule, not 202 separate
-   fixes.** Measured 1,792 of 1,994 on 2026-08-31. `IAM_DERIVATION_LIST_MISSING=1
-   go test ./simulator-aws -run IAMResourceDerivationCoverage -v` names every
-   missing operation per service; the nine smallest were read off it and all
-   nine have the same shape:
+0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
+   is not.** 1,936 of 1,994 on 2026-08-31.
+   `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
+   IAMResourceDerivationCoverage -v` names every missing operation per service.
 
-   | operation | declared type | what the request carries |
-   |---|---|---|
-   | `cloudwatch:GetMetricData` / `ListMetrics` / `PutMetricData` | `dataset` | no dataset identifier |
-   | `cloudwatch:ListAlarmMuteRules` | `alarm-mute-rule` | nothing naming a rule |
-   | `organizations:CreatePolicy` | `policy` | the policy does not exist yet |
-   | `budgets:CreateBudgetAction` | `budgetAction` | the action does not exist yet |
-   | `states:CreateStateMachineAlias` | `statemachine` | version ARNs, not the machine |
-   | `organizations:DescribeEffectivePolicy` | `account` | `TargetId` |
-   | `sts:AssumeRoot` | `root-user` | `TargetPrincipal` |
+   Between 1,792 and 1,936 almost every gain came from the coverage probe
+   addressing an operation the way no client does, so a derivation that already
+   worked measured as absent. Four defects, all closed:
 
-   Only the last two need a per-service reader. The rest are one rule:
-   **an action declared against a resource type, whose request names no
-   instance of it, derives that type's wildcard** — `arn:aws:cloudwatch:{region}:{account}:dataset/*`
-   — which is what a policy granting the type is written against.
-   `iamCreateWildcardARNs` already does exactly this, but only for creates
-   (iam_resource_arns.go); a list or an account-wide write reaches
-   `return one("*")` instead and derives nothing.
+   - Eleven copies of the rule deciding what a probe puts in a request member,
+     so a fix in one reached only the services routed through it. There is one
+     copy now, service-aware, because a member can only be filled correctly if
+     you know whose member it is.
+   - Each service's probe filled its ARN members with one ARN chosen for the
+     whole service, so an action about something else was addressed with an ARN
+     naming a resource it is not about. Every probe now builds that ARN from
+     the action's own declared type.
+   - That ARN was rendered by filling only the first variable a format
+     declares, so a WAFv2 web ACL came out `probe/webacl//`. The whole format
+     is rendered now.
+   - The probe could express a scalar, a list of scalars and a structure, and
+     nothing else — so a list of structures and a map both arrived as bare
+     strings. Those are how a service spells a batch, and the identifier sits
+     inside the element or in the key. Both render faithfully now, and Amazon
+     DynamoDB and Amazon EventBridge went through the shared probe rather than
+     their own flat ones.
 
-   Do not simply drop the create restriction. It is deliberate, and the reason
-   is written above the function: a create genuinely has no identifier to
-   derive, so the type wildcard is the whole truth about it. A read or a list
-   might have one the service's reader failed to pick up — and for those,
-   deriving the type wildcard would turn a *derivation bug* into a silently
-   broader grant, authorizing every resource of the type instead of the one the
-   call is about. That is worse than the `*` it replaces, because it looks
-   right.
+   The lesson worth keeping: a wrong probe value shows up as a number that does
+   not move, and a wrong reader shows up as a grant nobody notices. The
+   measurement class was safe to fix in bulk for exactly that reason. What is
+   left is reader work and is not.
 
-   So the widening has to distinguish "this request names no instance" from
-   "this reader did not find the instance". The list operations above are the
-   first kind: `ListMetrics` and `ListAlarmMuteRules` name no dataset and no
-   rule because there is none to name. Encoding that — rather than inferring it
-   from the reader having returned nothing — is the actual work.
+   The 58 that remain are three shapes, and only the first is ordinary work:
 
-   **The probe-fidelity seam is worked out.** Between 1792 and 1814 every gain
-   came from one defect: eight copies of the rule deciding what a probe puts in
-   a request member, so a fix in one reached only the services routed through
-   it. There is one copy now — `iamProbeMemberValueFor`, service-aware, because
-   a member can only be filled correctly if you know whose member it is — and
-   the services behind it (sts, ssm, ec2 tagging, codebuild, rds) all measure
-   what their readers were already doing. No production line changed in any of
-   those five commits.
+   - **A resource named by a create whose type the operation does not name.**
+     `ec2:CreatePublicIpv4Pool` mints an `ipv4pool-ec2`, `PurchaseCapacityBlock`
+     a `capacity-reservation`, `RequestSpotFleet` a `spot-fleet-request`. The
+     create rule reads the created type as the one declared type answering to
+     the operation's own name, which these do not, so they derive nothing
+     rather than guess. Widening the match is the work, and the guard that
+     keeps `CreateStateMachineAlias` off every state machine has to survive it.
+   - **A resource the request does not name at all.** `cloudwatch:ListMetrics`
+     and `PutMetricData` declare a `dataset` and name none; AWS Glue's
+     `ListMLTransforms` and `GetDashboardUrl` are the same. `"*"` is the honest
+     answer for these, and the ratchet counts them as misses. Deriving the type
+     wildcard instead would turn a derivation bug into a silently broader
+     grant — worse than the `"*"` it replaces, because it looks right. So the
+     widening has to distinguish "this request names no instance" from "this
+     reader did not find the instance", and encoding that is the actual work.
+   - **A resource found only by looking it up.** AWS Glue's data-quality
+     family resolves its ruleset through the run record; `iam:GetAccessKeyLastUsed`
+     finds the user who owns a key; Amazon EC2's Disassociate and Detach family
+     resolves an association to its parent. Every one of these is implemented
+     and held by a direct test, and none can move the ratchet: the probe has no
+     simulator state, and seeding it would measure the fixture rather than the
+     derivation. They are the reason 1,994 is not reachable by honest means,
+     and the floor comment beside `iamDerivationCoverageFloor` names them.
 
-   What is left is different, and AWS Glue proved it: routing Glue through the
-   same rule moved nothing. Its 25, and IAM's 18, need reader work, and the
-   shapes are these:
-
-   - **A resource named by a sibling identifier.** `iam:GetAccessKeyLastUsed`
-     declares the user type and carries an AccessKeyId; the user is whoever
-     owns that key, which is a lookup against the simulator's own IAM state,
-     not something the request states.
-   - **A resource that is the caller.** `iam:ChangePassword` declares the user
-     type and names nobody: AWS authorizes it against the calling user. The
-     simulator knows who signed the request, so this is derivable — but it is
-     also the shape most likely to over-grant if the signing identity is read
-     loosely, so it wants its own test before its derivation.
-   - **A resource named by a create's input.** `iam:CreateOpenIDConnectProvider`
-     names the provider by the Url it is created from.
-
-   Take these one service at a time and hold each to a test that names the
-   resource it must derive and one it must not. The measurement class was safe
-   to fix in bulk because a wrong probe value shows up as a number that does
-   not move; a wrong reader shows up as a grant nobody notices.
-
-   Amazon EC2's 34 — the largest single service gap — are not one shape. Read
-   off the model on 2026-08-31, they fall into three:
-
-   - **ResourceId + ResourceType** (`CreateFlowLogs` and its kin): the type
-     names which of the declared types the id fills. This is exactly the shape
-     Systems Manager's tagging family has, and `iamSSMTaggedResourceARNs`
-     already implements it — the EC2 version is the same function against EC2's
-     type list.
-   - **A type-prefixed ResourceId** (`CreateTags`, which declares over a
-     hundred types and carries one `ResourceId`): an EC2 identifier encodes its
-     own type — `vpc-`, `i-`, `subnet-`, `sg-`, `snap-`, `ami-`. The prefix is
-     the discriminator, so the derivation is a prefix-to-type table and no
-     guessing is involved. This is the biggest single win available and the
-     table is the whole of the work.
-   - **Named by something that is not the identifier** (`AcceptAddressTransfer`
-     carries `Address`, an IP, while the elastic-ip ARN is built from an
-     AllocationId): these cannot derive from the request alone and need a
-     lookup against what the simulator holds, or a declared reason.
-
-   Whichever is taken first, the probe has to send a value the service accepts
-   — an EC2 ResourceId is `<prefix>-<hex>`, and "probe" is not. That is the
-   same measurement defect that hid the Systems Manager tagging family, now
-   fixed for it in iamProbeMemberValueFor; the EC2 case needs its own entry
-   there, and the derivation is unmeasurable until it does.
-
-   It is a change to authorization *outcomes* for every service, so it needs
-   the whole AWS SDK suite behind it, not a spot check: today those calls are
-   authorized against `*`, and afterwards against the type wildcard, which a
-   policy written for `*` still matches but one written for another type no
-   longer does. Measure coverage before and after — if the rule is right the
-   number moves by far more than the seven operations above.
+   Take the first shape one service at a time and hold each to a test that
+   names the resource it must derive and one it must not.
 
 0-sync. **All three clouds are in sync.** Measured 2026-08-29: zero drift
    across AWS's 41 Smithy models plus its service references, Azure's 120

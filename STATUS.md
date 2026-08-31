@@ -91,24 +91,26 @@ Current state of the sockerless-cloud repository.
   module graphs; govulncheck clean).
 - **Measured floors** (re-read from the ratchets on 2026-08-31, because the
   figures written here had drifted from the tests that produce them): IAM
-  resource derivation **1,792 of 1,994** served operations;
+  resource derivation **1,936 of 1,994** served operations;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
   catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` **120 of 120**;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
   revision 20260814, whose declared total fell from 130 when Google withdrew
   the `gitLabConfigs` collection; `cloudrun-v1` 152 of 152;
-  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **663 of 692** (App
+  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **676 of 692** (App
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family, App Service
   Environments, diagnostics, backup and restore, processes, network traces and
-  recommendations, whether an app can be cloned, and the site's performance
-  counters — and with no silent gap left in that document, every one of its 29
-  unserved operations declaring what is missing);
+  recommendations, whether an app can be cloned, the site's performance
+  counters, its Resource Health metadata at all four scopes, the migration of
+  its in-app MySQL database, and an environment pool's metric definitions —
+  and with no silent gap left in that document, every one of its 16 unserved
+  operations declaring what is missing);
   `containerregistry-dataplane-containerregistry-2021-07-01` **29 of 29**;
-  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **5,440 of 5,480**
-  Discovery method spellings (`compute-v1` **1,976 of 2,016**, with
+  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **5,446 of 5,480**
+  Discovery method spellings (`compute-v1` **1,982 of 2,016**, with
   `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1`
-  and `redis-v1` each complete); Azure **2,599 of 2,628** operations; the AWS
+  and `redis-v1` each complete); Azure **2,612 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint
   operations. VPC networks allocate bridge subnets from a host-side pool with

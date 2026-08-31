@@ -1,5 +1,69 @@
 # WHAT WE DID
 
+## 2026-08-31, forty-fourth pass — the probe was measuring the wrong thing
+
+Three slices moved: Google Cloud 5,440 → 5,446 of 5,480 Discovery method
+spellings with `compute-v1` at 1,982 of 2,016, Azure 2,599 → 2,612 of 2,628
+Swagger operations with App Service at 676 of 692, and AWS resource-scoped
+authorization 1,881 → 1,936 of 1,994 served operations.
+
+The AWS figure is the one worth explaining, because almost none of it was a
+missing derivation. The coverage probe was addressing operations the way no
+client does, so readers that already worked measured as absent. Each service's
+probe filled its ARN-valued members with one ARN chosen for the whole service —
+an action about something else was therefore addressed with an ARN naming a
+resource it is not about. That ARN was rendered by filling only the first
+variable its format declares, so a WAFv2 web ACL came out `probe/webacl//`. And
+the probe could express a scalar, a list of scalars and a structure and nothing
+else, so a list of structures and a map both arrived as bare strings — which is
+how a service spells a batch, with the identifier inside the element or in the
+key. Every probe now builds its ARN from the action's own declared type,
+renders the whole format, and sends both batch shapes; Amazon DynamoDB and
+Amazon EventBridge go through the shared probe rather than their own flat ones.
+Nine of AWS Glue's operations and four of WAFv2's needed no production change
+at all.
+
+What did change behind it: a create resolves its type when the action declares
+its inputs alongside what it mints, so `ec2:CreateVpc` authorizes against
+`vpc/*` rather than `"*"`; an ARN the request carries names the resource
+wherever the service nests it, accepted only when it matches a format one of
+the action's declared types publishes, so a KMS key beside a web ACL never
+becomes what the call is authorized against; a DynamoDB batch authorizes every
+table it touches; WAFv2 reads the collection its operation's name carries
+wherever in the name it appears; Amazon ECS authorizes a command execution
+against its sandbox; a Systems Manager change calendar is read as the document
+it is; five AWS Identity and Access Management delegation operations and a role
+template read the members that name them; and cancelling an EC2 import picks
+between an image and a snapshot import task from the id's own prefix.
+
+Azure served App Service's Resource Health metadata at all four scopes, the
+migration of a site's in-app MySQL database, and an App Service Environment
+pool's metric definitions. All three had answered a declared 501, and in each
+case the reason given argued for an answer rather than a refusal: the metric
+definitions' own stated reason was that the simulator publishes no series for a
+pool, which is what an empty collection says. Only the fields that are
+genuinely Microsoft's are withheld — a resource-health category comes from a
+policy file this project does not vendor, so it is absent rather than invented.
+
+Google Cloud served Compute Engine's three host methods, which had been a mux
+miss: no route matched them at all, the one class of gap that is neither served
+nor declared. A host is one machine of a reservation's capacity, derived the
+way its blocks, sub-blocks and slots already are. Discovery puts the
+association — a path naming a reservation, one of its blocks, or one of that
+block's sub-blocks — inside a single parameter declared without reserved
+expansion, so a client sends it as one escaped segment and no per-segment
+pattern can name it. The zone subtree is mounted multi-segment and routes its
+own tail, the way the Cloud Spanner instance family already does, answering a
+method not found for every tail it does not own.
+
+CI stopped failing on base images it already had. The race shard warms its
+images from an `actions/cache` tarball through `scripts/warm-base-images.sh`,
+with the image set read out of the package by `scripts/base-images-for.sh`
+rather than restated in the workflow, and the reaper and sweep tests ask
+`ImageInspect` before pulling — a host that has exhausted its anonymous data
+allowance refuses the manifest check as readily as the layers, so a warmed
+cache alone did not help.
+
 ## 2026-08-31, forty-third pass — the declared tails, served
 
 The three slices were carried toward their declared totals one document at a
