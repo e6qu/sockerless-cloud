@@ -73,9 +73,28 @@ func registerComputeReads(srv *sim.Server) {
 				held = append(held, disk)
 			}
 			sort.Slice(held, func(i, j int) bool { return held[i].Name < held[j].Name })
+			// The document declares a StoragePoolDisk here, which is a
+			// narrower thing than a disk: it names the disk and what it is
+			// taking from the pool, and carries none of the disk's own
+			// identity. Answering with the whole disk would put members in the
+			// response the schema does not have.
 			items := make([]any, 0, len(held))
 			for _, disk := range held {
-				items = append(items, disk)
+				item := map[string]any{
+					"disk":              disk.SelfLink,
+					"name":              disk.Name,
+					"status":            disk.Status,
+					"type":              disk.Type,
+					"sizeGb":            disk.SizeGb,
+					"creationTimestamp": disk.CreationTimestamp,
+				}
+				if len(disk.Users) > 0 {
+					item["attachedInstances"] = disk.Users
+				}
+				if len(disk.ResourcePolicies) > 0 {
+					item["resourcePolicies"] = disk.ResourcePolicies
+				}
+				items = append(items, item)
 			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
 				"kind": "compute#storagePoolListDisks", "items": items,

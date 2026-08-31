@@ -245,11 +245,13 @@ func registerComputeLastVerbs(srv *sim.Server) {
 				names = append(names, name)
 			}
 			sort.Strings(names)
-			recommendations := []any{}
-			for _, name := range names {
-				recommendations = append(recommendations, map[string]any{
-					"recommendationId": name,
-				})
+			// One recommendation per specification the caller asked about. The
+			// document declares no identifier on a recommendation, so it
+			// carries none: the caller matches them to its specifications by
+			// the order it sent them in, which is the order they come back.
+			recommendations := make([]any, 0, len(names))
+			for range names {
+				recommendations = append(recommendations, map[string]any{})
 			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
 				"recommendations": recommendations,

@@ -17,14 +17,14 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/global/snapshots/{name}/updateKmsKey` | ? `simulator-gcp/compute_reads.go:141::cScopeGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/snapshots/{name}/updateKmsKey` | ? `simulator-gcp/compute_reads.go:143::cScopeRegion` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/images/{name}/deprecate` | ✓ `simulator-gcp/compute_reads.go:148::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/resize` | ✓ `simulator-gcp/compute_reads.go:171::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/aggregated/subnetworks/listUsable` | ✓ `simulator-gcp/compute_reads.go:107::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/snapshots/{name}/updateKmsKey` | ? `simulator-gcp/compute_reads.go:160::cScopeGlobal` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/snapshots/{name}/updateKmsKey` | ? `simulator-gcp/compute_reads.go:162::cScopeRegion` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/images/{name}/deprecate` | ✓ `simulator-gcp/compute_reads.go:167::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/resize` | ✓ `simulator-gcp/compute_reads.go:190::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/regions/{region}/zones` | ○ `simulator-gcp/compute_reads.go:23::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/zones/{zone}/imageFamilyViews/{family}` | ○ `simulator-gcp/compute_reads.go:46::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/zones/{zone}/storagePools/{storagePool}/listDisks` | ✓ `simulator-gcp/compute_reads.go:61::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/aggregated/subnetworks/listUsable` | ✓ `simulator-gcp/compute_reads.go:88::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

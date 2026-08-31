@@ -53,7 +53,7 @@ func registerComputeRouterNamedSets(srv *sim.Server) {
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "named set %q not found", name)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"resource": held})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"resource": computeNamedSetDoc(held)})
 	})
 
 	srv.HandleFunc("GET "+base+"/{router}/listNamedSets", func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func registerComputeRouterNamedSets(srv *sim.Server) {
 		})
 		result := []any{}
 		for _, item := range items {
-			result = append(result, item)
+			result = append(result, computeNamedSetDoc(item))
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"kind": "compute#routersListNamedSets", "result": result,
@@ -275,4 +275,19 @@ func registerComputeOrganizationOperations(srv *sim.Server) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// computeNamedSetDoc renders a stored named set as the document declares it.
+// The store keeps a selfLink so a list can find the sets of one router; the
+// declared resource has no such member, and answering with it would put a
+// field in the response the schema does not have.
+func computeNamedSetDoc(held map[string]any) map[string]any {
+	doc := make(map[string]any, len(held))
+	for key, value := range held {
+		if key == "selfLink" {
+			continue
+		}
+		doc[key] = value
+	}
+	return doc
 }

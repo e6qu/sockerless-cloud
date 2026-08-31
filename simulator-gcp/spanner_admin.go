@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"time"
 )
 
 // Cloud Spanner instance/database administration beyond the core instance and
@@ -309,7 +310,19 @@ func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name stri
 			"changequorum needs the quorum type to move to")
 		return
 	}
-	if !spannerDatabases.Update(name, func(db *spannerDatabase) { db.QuorumInfo = req.QuorumType }) {
+	// A database's quorum info is the record of the change — who asked for it,
+	// when, and the quorum type moved to — and the type sits inside it. Storing
+	// the type as the info put the type's own members at the top level, where
+	// the schema has none of them.
+	quorum := map[string]any{
+		"quorumType": req.QuorumType,
+		"initiator":  "USER",
+		"startTime":  time.Now().UTC().Format(time.RFC3339),
+	}
+	if req.Etag != "" {
+		quorum["etag"] = req.Etag
+	}
+	if !spannerDatabases.Update(name, func(db *spannerDatabase) { db.QuorumInfo = quorum }) {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
