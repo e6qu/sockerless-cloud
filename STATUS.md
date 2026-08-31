@@ -104,11 +104,11 @@ Current state of the sockerless-cloud repository.
   recommendations, whether an app can be cloned, and the site's performance
   counters — and with no silent gap left in that document, every one of its 29
   unserved operations declaring what is missing);
-  `containerregistry-dataplane-containerregistry-2021-07-01` 24 of 29;
+  `containerregistry-dataplane-containerregistry-2021-07-01` **29 of 29**;
   `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **5,440 of 5,480**
   Discovery method spellings (`compute-v1` **1,976 of 2,016**, with
   `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1`
-  and `redis-v1` each complete); Azure **2,568 of 2,628** operations; the AWS
+  and `redis-v1` each complete); Azure **2,573 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint
   operations. VPC networks allocate bridge subnets from a host-side pool with

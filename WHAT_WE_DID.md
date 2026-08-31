@@ -6,8 +6,9 @@ The three slices were carried toward their declared totals one document at a
 time, and the numbers are the record: Google Cloud 5,363 → 5,440 of 5,480
 Discovery method spellings, with `compute-v1` at 1,976 of 2,016 and
 `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1` and
-`redis-v1` each complete; Azure 2,521 → 2,568 of 2,628 Swagger operations, with
-App Service at 663 of 692 and no silent gap left in that document.
+`redis-v1` each complete; Azure 2,521 → 2,573 of 2,628 Swagger operations, with
+App Service at 663 of 692 and no silent gap left in that document, and the
+Azure Container Registry data plane complete at 29 of 29.
 
 Two of the pass's own instruments were wrong and were corrected before the work
 they measured. The Google Cloud coverage probe rendered a greedy
@@ -37,6 +38,22 @@ own. The six ResourceHealthMetadata spellings beside it declare a 501: the
 operation defines its category as the one the resource matches in Microsoft's
 Resource Health Check policy file, and matching a site against a policy this
 project does not vendor would be fabrication.
+
+The Azure Container Registry data plane's properties APIs describe what a
+registry holds: the manifests it stores, the tags pointing at them, the size of
+each manifest document, the platform its image config declares, and when it was
+pushed — the shared OCI store stamps that now, because a registry knows when it
+received a manifest. The one thing they add is the four changeable attributes a
+client sets, which the data plane then honours: a tag or a repository with
+deletion disabled is refused, and deleting a tag leaves the manifest addressable
+by digest rather than removing it.
+
+Nine operations went in for that, and only five of them had been counted as
+missing. The other four had counted as *served* while answering a bare 404: the
+GET handler on the shared `/acr/v1` path served the tag list and fell through
+for everything else, and the probe reads any answer as an answer. That is the
+phantom coverage the Google Cloud gate was built for, found on the Azure side by
+reading the handler rather than trusting the number.
 
 A site's performance counters went in from the same source the instance
 statistics and the diagnostics samples already read: the container engine's

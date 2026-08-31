@@ -188,7 +188,21 @@ var azureMethodFloor = map[string]int{
 	// (Authentication_GetAcrAccessTokenFromLogin) — the Docker Registry v2
 	// token endpoint that trades a Basic admin credential for the scoped
 	// access token the data plane now requires.
-	"containerregistry-dataplane-containerregistry-2021-07-01": 24,
+	// The registry's properties APIs describe what the registry holds — the
+	// manifests it stores, the tags pointing at them, the size of each manifest
+	// document, the platform its image config declares, and when it was pushed
+	// (which the shared OCI store now stamps, because a registry knows when it
+	// received a manifest). The only state they add is the four changeable
+	// attributes a client sets, which the data plane then honours: a tag or
+	// repository with deletion disabled is refused.
+	//
+	// Raised from 24 by all nine of them. Five were unserved outright; the other
+	// four counted as served while answering a bare 404 — the GET handler on the
+	// shared /acr/v1 path served only the tag list and fell through for
+	// everything else, which the probe reads as an answer. That is the phantom
+	// coverage the Google Cloud gate exists for, found here by reading the
+	// handler rather than the number.
+	"containerregistry-dataplane-containerregistry-2021-07-01": 29,
 	"cosmos-db-arm-cosmos-db-2021-10-15":                       121,
 	"cosmos-db-arm-cosmos-db-2024-08-15":                       124,
 	"cosmos-db-arm-privateendpointconnection-2021-10-15":       4,

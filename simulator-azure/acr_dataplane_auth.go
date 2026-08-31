@@ -66,11 +66,12 @@ var acrAdminPasswordSlots = []string{"password", "password2"}
 // derived from its method exactly as a registry derives its access records:
 // a read pulls, a write pulls and pushes, and a removal deletes.
 const (
-	acrActionPull         = "pull"
-	acrActionPush         = "push"
-	acrActionDelete       = "delete"
-	acrActionMetadataRead = "metadata_read"
-	acrActionAll          = "*"
+	acrActionPull          = "pull"
+	acrActionPush          = "push"
+	acrActionDelete        = "delete"
+	acrActionMetadataRead  = "metadata_read"
+	acrActionMetadataWrite = "metadata_write"
+	acrActionAll           = "*"
 )
 
 // acrAccess is one access record of an ACR access token's `access` claim: the

@@ -450,17 +450,20 @@ func registerACR(srv *sim.Server) {
 	// GET /acr/v1/{name}/_tags - List tags for a repository (ACR data-plane tags API)
 	// {name} can contain slashes (e.g. "myrepo/myimage"), so matched via {path...}.
 	srv.HandleFunc("GET /acr/v1/{path...}", func(w http.ResponseWriter, r *http.Request) {
-		fullPath := sim.PathParam(r, "path")
-		const tagsSuffix = "/_tags"
-		if !strings.HasSuffix(fullPath, tagsSuffix) {
-			http.NotFound(w, r)
+		target, ok := acrParsePropertiesPath(sim.PathParam(r, "path"))
+		if !ok {
+			acrPropertiesNotFound(w, "the path does not address a repository, manifest or tag")
 			return
 		}
-		repoName := fullPath[:len(fullPath)-len(tagsSuffix)]
-		if repoName == "" {
-			http.NotFound(w, r)
+		// Only the tag list is answered here; the repository, manifest and tag
+		// reads that share this path are served beside the writes they belong
+		// with. They used to fall through to a bare 404, which reads as "no
+		// such API" for an API the registry does offer.
+		if target.kind != "tags" {
+			acrReadProperties(w, r, reg, target)
 			return
 		}
+		repoName := target.repo
 		// Listing a repository's tags needs the repository's metadata_read
 		// access — the action ACR names in the challenge for this API.
 		if !acrAuthorize(w, r, acrRepositoryResource(repoName, acrActionMetadataRead, acrActionMetadataRead)) {
@@ -489,6 +492,7 @@ func registerACR(srv *sim.Server) {
 		})
 	})
 
+	registerACRDataPlaneProperties(srv, reg)
 	registerACROAuth2(srv)
 }
 
