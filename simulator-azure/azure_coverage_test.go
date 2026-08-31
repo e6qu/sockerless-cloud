@@ -395,7 +395,21 @@ var azureMethodFloor = map[string]int{
 	// RecommendationRule is Microsoft's published advisory copy (its display
 	// name, portal message and blade link), the same class as the declined
 	// Provider_*Stacks catalog.
-	"web-arm-openapi-2025-03-01": 659,
+	//
+	// Raised from 659 by WebApps_IsCloneable and its slot spelling, which are
+	// computed from the site rather than declared: App Service clones an app
+	// only from a Premium or Isolated plan, so the plan the site is placed on
+	// (read at the time of the question, and inherited from the production site
+	// when a slot is asked) decides the result, and the deployment slots a clone
+	// would leave behind make it partial.
+	//
+	// The six ResourceHealthMetadata spellings answer a declared 501 in the same
+	// pass. The operation defines its category as the one the resource matches
+	// in Microsoft's Resource Health Check policy file; matching a site against
+	// a policy this project does not vendor would be fabrication, and the
+	// spelling that used to reach Azure Resource Manager's generic gap now names
+	// the missing policy instead.
+	"web-arm-openapi-2025-03-01": 661,
 }
 
 // Route table

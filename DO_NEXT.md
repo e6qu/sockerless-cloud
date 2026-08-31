@@ -180,13 +180,19 @@
    the filters are the client's own decisions and are recorded per scope. Only
    the two rule-detail reads need Microsoft's published copy.
 
-   So the honest split for the 33 App Service operations still unserved is:
-   17 need a catalog, a metric series or a `/proc` primitive that is not
-   there and say so in a declared 501; the rest — `resourceHealthMetadata`
-   (6), `iscloneable` (2), `perfcounters` and `phplogging` (4), and the
-   `migrate`/`migratemysql` trio — have not been examined against what the
-   site and its workload container already know, and must be before any of
-   them is called blocked.
+   `iscloneable` (2) was the second: it is computed from the plan the site is
+   placed on and the deployment slots a clone would leave behind, both of
+   which this simulator holds. `resourceHealthMetadata` (6) went the other
+   way on examination — the operation defines its category as the one the
+   resource matches in Microsoft's Resource Health Check policy file — and
+   now answers a declared 501 naming it.
+
+   So the honest split for the 31 App Service operations still unserved is:
+   **`perfcounters`** and **`phplogging`** (4), the `migrate`/`migratemysql`
+   trio and the four process `dump` spellings have not been examined against
+   what the site and its workload container already know, and must be before
+   any of them is called blocked. The rest need a catalog, a metric series or
+   a `/proc` primitive that is not there, and each says so in a declared 501.
 
 5. Cloud Spanner admin is **closed**, not pending. Its measured number counts
    Discovery *method spellings*, not methods — the document declares most

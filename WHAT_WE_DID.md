@@ -6,8 +6,8 @@ The three slices were carried toward their declared totals one document at a
 time, and the numbers are the record: Google Cloud 5,363 → 5,440 of 5,480
 Discovery method spellings, with `compute-v1` at 1,976 of 2,016 and
 `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1` and
-`redis-v1` each complete; Azure 2,521 → 2,564 of 2,628 Swagger operations, with
-App Service at 659 of 692.
+`redis-v1` each complete; Azure 2,521 → 2,566 of 2,628 Swagger operations, with
+App Service at 661 of 692.
 
 Two of the pass's own instruments were wrong and were corrected before the work
 they measured. The Google Cloud coverage probe rendered a greedy
@@ -27,6 +27,16 @@ decisions and are recorded against the scope until they are reset. The two
 rule-detail reads answer a declared 501, because a `RecommendationRule` is
 Microsoft's published advisory copy — display name, portal message, blade link
 — which this project does not vendor.
+
+Whether an app can be cloned went in the same way, computed rather than
+declared: App Service clones an app only from a Premium or Isolated plan, so
+the plan the site is placed on decides the result, and a deployment slot — which
+a clone does not copy — makes the result partial. A slot asked directly is
+answered for by its production site's plan, because a slot carries none of its
+own. The six ResourceHealthMetadata spellings beside it declare a 501: the
+operation defines its category as the one the resource matches in Microsoft's
+Resource Health Check policy file, and matching a site against a policy this
+project does not vendor would be fabrication.
 
 That last distinction also retired a claim this repository had been making
 about itself. `DO_NEXT.md` said nothing in the App Service tail was

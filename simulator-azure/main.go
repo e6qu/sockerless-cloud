@@ -160,6 +160,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// sites reference, so their stores exist before those slices register.
 	registerWebEnvironments(srv)
 	registerWebRecommendations(srv)
+	registerWebCloneability(srv)
 	registerWebHybridConnections(srv)
 	registerWebPrivateAccess(srv)
 	registerWebSitePrivateEndpoints(srv)
