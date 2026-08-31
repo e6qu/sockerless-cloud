@@ -390,12 +390,6 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Simulator did not become healthy: %v", err)
 	}
 
-	// The AWS Glue Python shell interpreter, on the host before any test runs:
-	// a job run is real container work and the wait for it to settle is
-	// bounded, so leaving the download inside that bound makes a slow or
-	// throttled registry look like a job that never succeeded.
-	ensureGluePythonShellImage()
-
 	code := m.Run()
 	shutdownSimulator(simCmd)
 	os.Exit(code)
@@ -643,10 +637,21 @@ func waitForHealth(url string) error {
 // executes in — the image the simulator's job runner starts a container from.
 const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
 
-// ensureGluePythonShellImage puts the interpreter on the host, failing the
-// suite with the reason if it cannot: every Glue job run needs it, so a missing
-// interpreter is a stopped suite rather than a timeout minutes into a test.
-func ensureGluePythonShellImage() {
+// ensureGluePythonShellImage puts the interpreter on the host before a Glue job
+// run is timed, and is called by the tests that start one.
+//
+// It is deliberately not in TestMain. A shard is a -run filter over this one
+// package, so TestMain runs for every shard — putting a gigabyte-scale pull
+// there made the compute, data and services shards download an interpreter
+// none of them uses, and a registry that refused it took all of them down
+// instead of the one test that needs it.
+//
+// Failing here fails the Glue test with the reason, which is what a missing
+// interpreter is: the job cannot run. That is a better answer than the
+// four-minute timeout the same condition produces when the download happens
+// inside the wait for the run to settle.
+func ensureGluePythonShellImage(t *testing.T) {
+	t.Helper()
 	if exec.Command("docker", "image", "inspect", gluePythonShellImage).Run() == nil {
 		return
 	}
@@ -662,6 +667,6 @@ func ensureGluePythonShellImage() {
 		// quadratically spans a throttling window without hammering it.
 		time.Sleep(time.Duration(attempt*attempt) * time.Second)
 	}
-	log.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
+	t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
 		gluePythonShellImage, last)
 }

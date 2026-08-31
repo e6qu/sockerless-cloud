@@ -234,7 +234,6 @@ func TestMain(m *testing.M) {
 			awsCLIVersion, awsPath)
 	}
 	ensureSessionManagerPlugin()
-	ensureGluePythonShellImage()
 
 	// Each suite builds the simulator it runs into a path of its own. The
 	// suites share one working tree, so a single `../simulator-aws` would have
@@ -704,21 +703,23 @@ func findFilesNamed(root, name string) ([]string, error) {
 // executes in — the image the simulator's job runner starts a container from.
 const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
 
-// ensureGluePythonShellImage puts the interpreter on the host before any test
-// runs.
+// ensureGluePythonShellImage puts the interpreter on the host before a Glue job
+// run is timed, and is called by the tests that start one.
 //
-// A Glue job run is real container work, and the wait for it to settle is
-// bounded: without this, that bound covers the image download as well as the
-// run, so a slow or throttled registry expires the budget and the test reports
-// a job that never succeeded when what actually happened is that the pull did
-// not finish. Pulling here takes the download out of the measured window and
-// leaves the budget measuring what it names.
+// A Glue job run is real container work and the wait for it to settle is
+// bounded: with the download inside that bound, a slow or throttled registry
+// expires the budget and the test reports a job that never succeeded when what
+// actually happened is that the pull did not finish. Pulling first takes the
+// download out of the measured window and leaves the budget measuring what it
+// names.
 //
-// It is a hard requirement, not a convenience: a suite that ran without the
-// interpreter would fail every Glue job run, so a pull that cannot be completed
-// stops the suite here with the reason rather than surfacing as a timeout four
-// minutes into a test.
-func ensureGluePythonShellImage() {
+// It is deliberately not in TestMain. A shard is a -run filter over this one
+// package, so TestMain runs for every shard, and a pull placed there makes
+// shards with no Glue test in them download an interpreter they never use —
+// turning a registry refusal into several dead shards instead of one failed
+// test.
+func ensureGluePythonShellImage(t *testing.T) {
+	t.Helper()
 	if exec.Command("docker", "image", "inspect", gluePythonShellImage).Run() == nil {
 		return
 	}
@@ -734,6 +735,6 @@ func ensureGluePythonShellImage() {
 		// quadratically spans a throttling window without hammering it.
 		time.Sleep(time.Duration(attempt*attempt) * time.Second)
 	}
-	log.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
+	t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
 		gluePythonShellImage, last)
 }

@@ -399,6 +399,9 @@ func TestGlue_GetPartitionIndexes_SDK(t *testing.T) {
 const glueJobRunCompletionBudget = 4 * time.Minute
 
 func TestGlue_JobCRUD_SDK(t *testing.T) {
+	// The interpreter this job run executes in, fetched before the clock the
+	// run is timed by starts.
+	ensureGluePythonShellImage(t)
 	c := glueClient()
 	s3c := s3Client()
 	bucket := "glue-sdk-scripts"
