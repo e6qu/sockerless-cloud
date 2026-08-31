@@ -52,7 +52,13 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 	if arns := iamServiceResourceARNs(r, service, op, types, region, account, arn); arns != nil {
 		return arns
 	}
-	// Only where the service's own reader found no identifier: a create names
+	// Still only where the service's own reader found no identifier: the
+	// request may carry the resource's ARN somewhere its own shape nests it,
+	// which names the resource outright.
+	if arns := iamARNsNamingADeclaredType(r, service, types, region, account); len(arns) > 0 {
+		return arns
+	}
+	// Only where nothing above named a resource: a create names
 	// a resource that does not exist yet, and the type wildcard is what AWS
 	// evaluates it against. A request that does carry the name — SNS's
 	// CreateTopic carries the topic's — derives that above and never reaches
@@ -2069,6 +2075,9 @@ var iamSSMFieldAliases = map[string][]string{
 	"servicesetting.ResourceId":                  {"SettingId"},
 	"patchbaseline.PatchBaselineIdResourceId":    {"BaselineId"},
 	"parameter.ParameterNameWithoutLeadingSlash": {"Name", "Path"},
+	// A change calendar is a Systems Manager document, and GetCalendarState
+	// names the ones it reads under CalendarNames — by name or by ARN.
+	"document.DocumentName": {"Name", "DocumentName", "CalendarNames"},
 	// The patch and association reads name the instance they are about, which
 	// is the resource AWS authorizes them against.
 	"managed-instance.InstanceId": {"InstanceId", "InstanceIds", "Target"},
@@ -2521,6 +2530,12 @@ func iamCodeBuildResourceARNs(r *http.Request, types []string, arn func(svc, res
 	}
 	if iamHasType(types, "fleet") {
 		addNamed("fleet/", iamNamesFrom(r, []string{"name"}, []string{"names"}))
+	}
+	// A command execution belongs to a sandbox, and AWS CodeBuild authorizes
+	// the sandbox: both the batch read and the listing name it under
+	// sandboxId, and the sandbox reads name it under id.
+	if iamHasType(types, "sandbox") {
+		addNamed("sandbox/", iamNamesFrom(r, []string{"sandboxId", "id"}, []string{"ids"}))
 	}
 	// A resource the request names by its own ARN needs no assembly, whatever
 	// type it is: CodeBuild spells that member "arn" on the fleet and

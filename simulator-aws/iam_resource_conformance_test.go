@@ -1038,6 +1038,28 @@ func iamProductionProbeDerives(r *http.Request, action string) bool {
 // copy of this decision — three copies — so a rule added to one reached only
 // the services that went through it, and the operations behind the others kept
 // measuring as underived while their production readers worked.
+// iamProbeARNForAction builds the ARN a real client would name an action's
+// resource by: the action's own declared type, filled from the format the
+// service reference publishes for it. A probe that sent one ARN for a whole
+// service would address wafv2:PutLoggingConfiguration with a web ACL where the
+// call names a logging configuration, and a derivation that reads the ARN the
+// caller actually sends would measure as absent while working perfectly.
+//
+// Where the declared type publishes no format there is nothing to build, and
+// the caller's service-wide ARN stands in.
+func iamProbeARNForAction(service, operation string) string {
+	for _, resourceType := range iamActionResourceTypes[service+":"+operation] {
+		format, declared := iamResourceARNFormats[service+":"+resourceType]
+		if !declared {
+			continue
+		}
+		if arn := iamFillARNFormat(format, "us-east-1", iamProbeAccount, []string{"probe"}); arn != "" {
+			return arn
+		}
+	}
+	return ""
+}
+
 func iamProbeMemberValue(service, name, arnValue string) string {
 	lower := strings.ToLower(name)
 	// An Amazon EC2 identifier states its own type in its prefix — i- an
@@ -1103,7 +1125,7 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	// A Systems Manager instance identifier is an Amazon EC2 instance id or a
 	// managed-instance id, and the prefix is what tells the two apart — a
 	// placeholder names neither.
-	if service == "ssm" && (lower == "instanceid" || lower == "instanceids") {
+	if service == "ssm" && (lower == "instanceid" || lower == "instanceids" || lower == "target") {
 		return "i-0123456789abcdef0"
 	}
 	if service == "ssm" && lower == "resourcetype" {
@@ -1665,7 +1687,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1900
+const iamDerivationCoverageFloor = 1909
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1748,6 +1770,16 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 			continue // AWS declares no resource type: "*" is the correct request
 		}
 		_, derived := iamActionResourceTypes[o.service+":"+o.name]
+		// A real client names the resource the action is about, so the probe
+		// does too: the action's own declared type where the reference
+		// publishes a format for it, and the service-wide ARN only where it
+		// does not.
+		probeARN := func(serviceWide string) string {
+			if arn := iamProbeARNForAction(o.service, o.name); arn != "" {
+				return arn
+			}
+			return serviceWide
+		}
 		switch o.service {
 		case "ec2":
 			derived = iamEC2DerivesItsResource(o.name, ec2Parameters[o.name])
@@ -1779,62 +1811,62 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 			derived = iamCloudWatchDerivesItsResource(o.name, cloudWatchMembers[o.name])
 		case "ecr":
 			derived = iamJSONProbeDerives("ecr", o.name, ecrMembers[o.name],
-				"arn:aws:ecr:us-east-1:123456789012:repository/probe")
+				probeARN("arn:aws:ecr:us-east-1:123456789012:repository/probe"))
 		case "kinesis":
 			derived = iamJSONProbeDerives("kinesis", o.name, kinesisMembers[o.name],
-				"arn:aws:kinesis:us-east-1:123456789012:stream/probe")
+				probeARN("arn:aws:kinesis:us-east-1:123456789012:stream/probe"))
 		case "states":
 			derived = iamJSONProbeDerives("states", o.name, statesMembers[o.name],
-				"arn:aws:states:us-east-1:123456789012:stateMachine:probe")
+				probeARN("arn:aws:states:us-east-1:123456789012:stateMachine:probe"))
 		case "secretsmanager":
 			derived = iamJSONProbeDerives("secretsmanager", o.name, secretsMembers[o.name],
-				"arn:aws:secretsmanager:us-east-1:123456789012:secret:probe")
+				probeARN("arn:aws:secretsmanager:us-east-1:123456789012:secret:probe"))
 		case "sns":
 			derived = iamQueryProbeDerives("sns", o.name, "2010-03-31", snsParameters[o.name])
 		case "sqs":
 			derived = iamQueryProbeDerives("sqs", o.name, "2012-11-05", sqsParameters[o.name])
 		case "acm-pca":
 			derived = iamJSONProbeDerives("acm-pca", o.name, acmPCAMembers[o.name],
-				"arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/0123abcd-ef45-6789-abcd-ef0123456789")
+				probeARN("arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/0123abcd-ef45-6789-abcd-ef0123456789"))
 		case "servicediscovery":
 			derived = iamJSONProbeDerives("servicediscovery", o.name, cloudMapMembers[o.name],
-				"arn:aws:servicediscovery:us-east-1:123456789012:namespace/ns-probe")
+				probeARN("arn:aws:servicediscovery:us-east-1:123456789012:namespace/ns-probe"))
 		case "firehose":
 			derived = iamJSONProbeDerives("firehose", o.name, firehoseMembers[o.name],
-				"arn:aws:firehose:us-east-1:123456789012:deliverystream/probe")
+				probeARN("arn:aws:firehose:us-east-1:123456789012:deliverystream/probe"))
 		case "budgets":
 			// A budget ARN carries no region: AWS Budgets is a global service,
 			// and its own reference spells the resource "budget/${BudgetName}".
 			derived = iamJSONProbeDerives("budgets", o.name, budgetsMembers[o.name],
-				"arn:aws:budgets::123456789012:budget/probe")
+				probeARN("arn:aws:budgets::123456789012:budget/probe"))
 		case "sts":
 			derived = iamQueryProbeDerives("sts", o.name, "2011-06-15", stsParameters[o.name])
 		case "application-autoscaling":
 			derived = iamJSONProbeDerives("application-autoscaling", o.name, appAutoScalingMembers[o.name],
-				"arn:aws:application-autoscaling:us-east-1:123456789012:scalable-target/probe")
+				probeARN("arn:aws:application-autoscaling:us-east-1:123456789012:scalable-target/probe"))
 		case "ecs":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"AmazonEC2ContainerServiceV20141113", o.name,
-				"arn:aws:ecs:us-east-1:123456789012:cluster/probe",
+				probeARN("arn:aws:ecs:us-east-1:123456789012:cluster/probe"),
 				ecsMembers[o.name], ecsNested[o.name]), "ecs:"+o.name)
 		case "logs":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"Logs_20140328", o.name,
-				"arn:aws:logs:us-east-1:123456789012:log-group:probe",
+				probeARN("arn:aws:logs:us-east-1:123456789012:log-group:probe"),
 				logsMembers[o.name], logsNested[o.name]), "logs:"+o.name)
 		case "codebuild":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"CodeBuild_20161006", o.name,
-				"arn:aws:codebuild:us-east-1:123456789012:project/probe",
+				probeARN("arn:aws:codebuild:us-east-1:123456789012:project/probe"),
 				codeBuildMembers[o.name], codeBuildNested[o.name]), "codebuild:"+o.name)
 		case "wafv2":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"AWSWAF_20190729", o.name,
-				"arn:aws:wafv2:us-east-1:123456789012:regional/webacl/probe/0123",
+				probeARN("arn:aws:wafv2:us-east-1:123456789012:regional/webacl/probe/0123"),
 				wafv2Members[o.name], wafv2Nested[o.name]), "wafv2:"+o.name)
 		case "iam":
 			derived = iamProductionProbeDerives(iamAWSQueryProbeRequest(
-				"iam", o.name, "2010-05-08", "arn:aws:iam::"+iamProbeAccount+":policy/probe",
+				"iam", o.name, "2010-05-08", probeARN("arn:aws:iam::"+iamProbeAccount+":policy/probe"),
 				iamMembers[o.name]), "iam:"+o.name)
 		}
 		if derived {
