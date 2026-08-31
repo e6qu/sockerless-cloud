@@ -257,3 +257,44 @@ func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, other.Items)
 }
+
+// The policy a project puts on a licence code. The code identifies an image
+// Google publishes and reading it means reading that catalogue, but the binding
+// on it is the caller's own.
+func TestCompute_LicenceCodePolicy(t *testing.T) {
+	svc := computeService(t)
+	const project, code = "licence-project", "1000205"
+
+	// Reading the code itself still means reading Google's catalogue.
+	_, err := svc.LicenseCodes.Get(project, code).Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "catalogue is Google's own")
+
+	set, err := svc.LicenseCodes.SetIamPolicy(project, code, &compute.GlobalSetPolicyRequest{
+		Policy: &compute.Policy{
+			Bindings: []*compute.Binding{
+				{Role: "roles/compute.imageUser", Members: []string{"user:builder@example.com"}},
+			},
+		},
+	}).Do()
+	require.NoError(t, err)
+	require.Len(t, set.Bindings, 1)
+
+	got, err := svc.LicenseCodes.GetIamPolicy(project, code).Do()
+	require.NoError(t, err)
+	require.Len(t, got.Bindings, 1)
+	assert.Equal(t, "roles/compute.imageUser", got.Bindings[0].Role)
+	assert.Equal(t, []string{"user:builder@example.com"}, got.Bindings[0].Members)
+
+	perms, err := svc.LicenseCodes.TestIamPermissions(project, code,
+		&compute.TestPermissionsRequest{
+			Permissions: []string{"compute.licenseCodes.use"},
+		}).Do()
+	require.NoError(t, err)
+	require.NotNil(t, perms)
+
+	// A code nobody has bound has no policy of its own.
+	empty, err := svc.LicenseCodes.GetIamPolicy(project, "1000999").Do()
+	require.NoError(t, err)
+	assert.Empty(t, empty.Bindings)
+}

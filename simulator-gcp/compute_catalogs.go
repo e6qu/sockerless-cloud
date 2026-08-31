@@ -46,13 +46,29 @@ func registerComputeCatalogs(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/reliabilityRisks", risks)
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/reliabilityRisks/{reliabilityRisk}", risks)
 
-	// A licence code identifies an image Google publishes, so the code and the
-	// policy on it are both Google's.
-	licences := catalog("licence codes")
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{licenseCode}", licences)
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{resource}/getIamPolicy", licences)
-	srv.HandleFunc("POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy", licences)
-	srv.HandleFunc("POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions", licences)
+	// A licence code identifies an image Google publishes, and reading the code
+	// itself means reading that catalogue. The policy a project puts on one is
+	// not Google's, though: it is the caller's own binding, written by
+	// setIamPolicy and read back by the other two, and holding it needs no
+	// knowledge of which codes Google has issued.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{licenseCode}",
+		catalog("licence codes"))
+	licenceIAM := func(r *http.Request) string {
+		return "compute/projects/" + sim.PathParam(r, "project") +
+			"/global/licenseCodes/" + sim.PathParam(r, "resource")
+	}
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{resource}/getIamPolicy",
+		func(w http.ResponseWriter, r *http.Request) {
+			handleResourceIAM(w, r, gcpResourcePolicies, licenceIAM(r), "getIamPolicy")
+		})
+	srv.HandleFunc("POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy",
+		func(w http.ResponseWriter, r *http.Request) {
+			handleResourceIAM(w, r, gcpResourcePolicies, licenceIAM(r), "setIamPolicy")
+		})
+	srv.HandleFunc("POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions",
+		func(w http.ResponseWriter, r *http.Request) {
+			handleResourceIAM(w, r, gcpResourcePolicies, licenceIAM(r), "testIamPermissions")
+		})
 
 	// What an interconnect's hardware reports about itself: link status,
 	// circuit identifiers and LACP state, read off the physical equipment at

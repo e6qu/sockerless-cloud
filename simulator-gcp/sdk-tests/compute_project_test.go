@@ -155,16 +155,6 @@ func TestCompute_GooglePublishedCatalogsAreDeclaredGaps(t *testing.T) {
 			_, err := svc.LicenseCodes.Get(project, "1000205").Do()
 			return err
 		}},
-		{"licence code permission check", func() error {
-			_, err := svc.LicenseCodes.TestIamPermissions(project, "1000205",
-				&compute.TestPermissionsRequest{Permissions: []string{"compute.licenseCodes.use"}}).Do()
-			return err
-		}},
-		{"licence code policy write", func() error {
-			_, err := svc.LicenseCodes.SetIamPolicy(project, "1000205",
-				&compute.GlobalSetPolicyRequest{Policy: &compute.Policy{}}).Do()
-			return err
-		}},
 		{"reliability risks", func() error {
 			_, err := svc.ReliabilityRisks.List(project).Do()
 			return err
@@ -175,10 +165,6 @@ func TestCompute_GooglePublishedCatalogsAreDeclaredGaps(t *testing.T) {
 		}},
 		{"interconnect diagnostics", func() error {
 			_, err := svc.Interconnects.GetDiagnostics(project, "link-1").Do()
-			return err
-		}},
-		{"licence code policy read", func() error {
-			_, err := svc.LicenseCodes.GetIamPolicy(project, "1000205").Do()
 			return err
 		}},
 	} {
