@@ -123,7 +123,7 @@ var gcpMethodFloor = map[string]int{
 	//
 	// Lower this floor by one and the gate prints the unserved list, which is
 	// the work list whenever either situation changes.
-	"compute-v1":              1976,
+	"compute-v1":              1982,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only
@@ -511,6 +511,19 @@ func gcpParamSamples(name string) []string {
 		return []string{"us-central1-a"}
 	case "billingaccount":
 		return []string{"012345-678901-ABCDEF"}
+	case "association":
+		// Compute Engine's host methods take the association as a path, not a
+		// name: the document spells it "reservations/reservation_name", or that
+		// followed by a block and a sub-block. Discovery declares it without
+		// reserved expansion, so a generated client percent-encodes the
+		// separators and sends the whole path as one segment — which is the
+		// coordinate the simulator must be reachable at, and so the one the
+		// probe sends. A single bare token is a coordinate no client sends.
+		return []string{
+			"reservations%2Fsim-reservation",
+			"reservations%2Fsim-reservation%2FreservationBlocks%2Fsim-block",
+			"reservations%2Fsim-reservation%2FreservationBlocks%2Fsim-block%2FreservationSubBlocks%2Fsim-sub-block",
+		}
 	}
 	return []string{"sim-" + gcpSampleToken(name)}
 }
