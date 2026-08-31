@@ -2033,3 +2033,41 @@ func TestIAMResourceARNs_RDSCustomEngineVersionScopesToItsEngine(t *testing.T) {
 			"rds:DeleteCustomDBEngineVersion", "*")
 	})
 }
+
+// TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule that lets an
+// Amazon RDS request name its resource by ARN, and the limit that keeps the
+// rule safe.
+//
+// RDS sends ARNs under members like SourceDBInstanceArn, and such an ARN names
+// the resource outright. But a request also carries ARNs for things it is not
+// about — a KMS key most often — and authorizing against those would grant far
+// past what was asked. So an ARN is taken only when its own resource segment is
+// one of the types the action declares.
+func TestIAMResourceARNs_RDSARNMustMatchADeclaredType(t *testing.T) {
+	const rds = "arn:aws:rds:us-east-1:123456789012:"
+
+	t.Run("an ARN whose segment is a declared type names the resource", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("StartDBInstanceAutomatedBackupsReplication", "2014-10-31",
+				map[string]string{"SourceDBInstanceArn": rds + "db:orders"}),
+			"rds:StartDBInstanceAutomatedBackupsReplication", rds+"db:orders")
+	})
+
+	t.Run("a KMS key ARN in the same request is not the resource", func(t *testing.T) {
+		// The action declares auto-backup and db; a key is neither, so the key
+		// must not become what the call is authorized against.
+		assertDerivedARNs(t,
+			iamQueryRequest("StartDBInstanceAutomatedBackupsReplication", "2014-10-31",
+				map[string]string{"KmsKeyId": "arn%3Aaws%3Akms%3Aus-east-1%3A123456789012%3Akey%2Fabcd"}),
+			"rds:StartDBInstanceAutomatedBackupsReplication", "*")
+	})
+
+	t.Run("an RDS ARN of an undeclared type is not the resource either", func(t *testing.T) {
+		// A proxy ARN in a request about backups names nothing the action
+		// declares, so it is ignored rather than authorized against.
+		assertDerivedARNs(t,
+			iamQueryRequest("DeleteDBInstanceAutomatedBackup", "2014-10-31",
+				map[string]string{"SomeProxyArn": "arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb-proxy%3Ap1"}),
+			"rds:DeleteDBInstanceAutomatedBackup", "*")
+	})
+}

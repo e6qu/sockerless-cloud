@@ -1656,7 +1656,16 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // The negative control that pins "a request naming no version derives
 // nothing" also found a crash: the state lookup dereferenced the custom
 // engine version store without checking it was there. It is guarded now.
-const iamDerivationCoverageFloor = 1878
+//
+// Raised to 1881 by letting an Amazon RDS request name its resource with the
+// ARN it carries — SourceDBInstanceArn and DBInstanceAutomatedBackupsArn among
+// them — under the limit that keeps the rule safe: the ARN is taken only when
+// its own resource segment is one of the types the action declares. A request
+// carries ARNs for things it is not about, a KMS key most often, and
+// authorizing against those would grant far past what was asked.
+// TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
+// halves of the limit.
+const iamDerivationCoverageFloor = 1881
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

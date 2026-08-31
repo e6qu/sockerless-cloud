@@ -1829,6 +1829,22 @@ func iamRDSResourceARNs(r *http.Request, op string, types []string, region, acco
 	params := iamQueryRequestParameters(r)
 	lookup := func(field string) []string { return params[strings.ToLower(field)] }
 
+	// An ARN the request carries names its resource outright — Amazon RDS sends
+	// one under members like SourceDBInstanceArn and
+	// DBInstanceAutomatedBackupsArn. It is accepted only when its own resource
+	// segment is a type the action declares: a request also carries ARNs for
+	// things it is not about, a KMS key among them, and authorizing against
+	// those would grant far past what was asked.
+	for field, values := range params {
+		if !strings.HasSuffix(field, "arn") && !strings.HasSuffix(field, "arns") {
+			continue
+		}
+		for _, value := range values {
+			if segment, ok := iamRDSARNResourceSegment(value); ok && iamHasType(types, segment) {
+				return []string{value}
+			}
+		}
+	}
 	// A copy authorizes both of its ends. The table-driven builder names one
 	// field per format, so the pairs are read here: a bare name fills the
 	// type's published format — the target's ARN is fully determined before
@@ -2709,4 +2725,18 @@ func iamELBv2CreatedResourceARNs(params map[string][]string, region, account str
 		return arn("loadbalancer/" + kind + "/" + name + "/*")
 	}
 	return nil
+}
+
+// iamRDSARNResourceSegment is the resource type an Amazon RDS ARN names —
+// "db", "cluster", "auto-backup" — read from the segment after the account.
+// A value that is not an RDS ARN names no type.
+func iamRDSARNResourceSegment(value string) (string, bool) {
+	if !strings.HasPrefix(value, "arn:") {
+		return "", false
+	}
+	parts := strings.SplitN(value, ":", 7)
+	if len(parts) < 7 || parts[2] != "rds" {
+		return "", false
+	}
+	return parts[5], true
 }
