@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# check-azure-cli-shard-coverage.sh
+# check-azure-sdk-shard-coverage.sh
 #
-# The Azure CLI suite runs as two shards in .github/workflows/ci.yml, selected
+# The Azure SDK suite runs as two shards in .github/workflows/ci.yml, selected
 # by `run: '^Test[A-M]'` and `run: '^Test[N-Z]'`. A test whose name matches
 # neither silently never runs in CI, and one matching both runs twice — and the
 # partition is by first letter, so a test named in any other shape (a lower-case
@@ -16,13 +16,13 @@ set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
 ci="$repo_root/.github/workflows/ci.yml"
-cli_dir="$repo_root/simulator-azure/cli-tests"
+sdk_dir="$repo_root/simulator-azure/sdk-tests"
 
 regex_file=$(mktemp)
 test_file=$(mktemp)
 trap 'rm -f "$regex_file" "$test_file"' EXIT
 
-# Only the shared `sim` job's Azure CLI shards. Two suites in that job are
+# Only the shared `sim` job's Azure SDK shards. Two suites in that job are
 # sharded now, so selecting on the regex shape alone would pull in the SDK
 # suite's — the awk below tracks which matrix entry each `run:` belongs to and
 # keeps only the ones under `cloud: azure` + `suite: cli`.
@@ -31,15 +31,15 @@ awk '
   /^ *steps:/   { exit }
   /^ *- cloud:/ { cloud=$3; suite=""; next }
   /^ *suite:/   { suite=$2; next }
-  /^ *run:/     { if (cloud == "azure" && suite == "cli") { sub(/^ *run: /, ""); print } }
+  /^ *run:/     { if (cloud == "azure" && suite == "sdk") { sub(/^ *run: /, ""); print } }
 ' <<<"$job_block" | sed -E "s/^'//; s/'\$//" > "$regex_file"
 if [ ! -s "$regex_file" ]; then
-  echo "FAIL: no Azure CLI shard regexes (run: '^Test[...]') found in the sim job of $ci" >&2
+  echo "FAIL: no Azure SDK shard regexes (run: '^Test[...]') found in the sim job of $ci" >&2
   exit 1
 fi
 
-# Every Azure CLI test function (TestMain is the harness entrypoint, not a test).
-grep -hoE '^func Test[A-Za-z0-9_]+\(' "$cli_dir"/*.go \
+# Every Azure SDK test function (TestMain is the harness entrypoint, not a test).
+grep -hoE '^func Test[A-Za-z0-9_]+\(' "$sdk_dir"/*.go \
   | sed -E 's/^func //; s/\($//' | sort -u | grep -v '^TestMain$' > "$test_file"
 
 orphans=0
@@ -56,19 +56,19 @@ while IFS= read -r t; do
     fi
   done < "$regex_file"
   if [ "$matches" -eq 0 ]; then
-    echo "FAIL: Azure CLI test $t matches NO shard regex — it never runs in CI" >&2
+    echo "FAIL: Azure SDK test $t matches NO shard regex — it never runs in CI" >&2
     orphans=$((orphans + 1))
   elif [ "$matches" -gt 1 ]; then
-    echo "FAIL: Azure CLI test $t matches $matches shard regexes — runs more than once" >&2
+    echo "FAIL: Azure SDK test $t matches $matches shard regexes — runs more than once" >&2
     doubles=$((doubles + 1))
   fi
 done < "$test_file"
 
 n_shards=$(grep -c . "$regex_file")
 if [ "$orphans" -ne 0 ] || [ "$doubles" -ne 0 ]; then
-  echo "azure-cli-shard-coverage: $orphans orphan(s), $doubles double(s) across $n_tests tests / $n_shards shards." >&2
+  echo "azure-sdk-shard-coverage: $orphans orphan(s), $doubles double(s) across $n_tests tests / $n_shards shards." >&2
   echo "Fix the shard 'run' regexes in $ci so each test matches exactly one shard." >&2
   exit 1
 fi
 
-echo "azure-cli-shard-coverage: ok ($n_tests tests across $n_shards shards, each covered once)"
+echo "azure-sdk-shard-coverage: ok ($n_tests tests across $n_shards shards, each covered once)"

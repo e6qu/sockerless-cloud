@@ -107,6 +107,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: azure-sdk-shard-coverage
+        name: Azure SDK shard coverage (every SDK test runs in exactly one CI shard)
+        entry: bash scripts/check-azure-sdk-shard-coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: tf-shard-coverage
         name: AWS Terraform shard coverage (every stack runs in exactly one CI shard)
         entry: bash scripts/check-tf-shard-coverage.sh

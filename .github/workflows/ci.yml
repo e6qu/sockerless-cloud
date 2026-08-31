@@ -304,8 +304,23 @@ jobs:
             suite: sdk
           - cloud: gcp
             suite: cli
+          # The Azure SDK suite is split the same way, and for the same reason:
+          # at 681 seconds of test time across 537 tests it reached a
+          # fourteen-minute step allowance whose inner deadline is already at
+          # thirteen minutes, and a run that overshoots is cancelled rather
+          # than reported. The split is by cost rather than by count, because
+          # the cost is not spread evenly over the alphabet: the names
+          # beginning with A — the resource-move family and the PostgreSQL
+          # flexible-server tests — are 346 seconds on their own, and every
+          # other letter together is 335.
           - cloud: azure
             suite: sdk
+            shard: A
+            run: '^TestA'
+          - cloud: azure
+            suite: sdk
+            shard: B-Z
+            run: '^Test[B-Z]'
           - cloud: azure
             suite: cli
             shard: A-M
@@ -440,10 +455,10 @@ jobs:
           sudo env "PATH=$PATH" "HOME=$HOME" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
-            make sdk-test
-        # Now the SDK suite owns the whole job: give the step headroom over the
-        # inner go-test deadline (SDK_TEST_TIMEOUT, 13m) so the Cosmos-heavy
-        # Azure suite fails with a named Go stack rather than an opaque step kill.
+            make sdk-test ${{ matrix.run && format('SDK_TEST_ARGS="-run ''{0}'' ./..."', matrix.run) || '' }}
+        # Headroom over the inner go-test deadline (SDK_TEST_TIMEOUT, 13m) so a
+        # suite that overruns fails with a named Go stack rather than an opaque
+        # step kill.
         timeout-minutes: 14
       - name: Run CLI tests
         if: matrix.suite == 'cli'
@@ -1105,6 +1120,9 @@ jobs:
         timeout-minutes: 5
       - name: Check Azure CLI shard coverage
         run: bash scripts/check-azure-cli-shard-coverage.sh
+        timeout-minutes: 5
+      - name: Check Azure SDK shard coverage
+        run: bash scripts/check-azure-sdk-shard-coverage.sh
         timeout-minutes: 5
       - name: Check AWS Terraform shard coverage
         run: bash scripts/check-tf-shard-coverage.sh

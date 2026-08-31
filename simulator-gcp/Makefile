@@ -49,11 +49,18 @@ race-test: ## go test the simulator module's own tests under the race detector
 shared-test: ## go test the shared/ helper module
 	cd shared && $(GO_ENV) go test -v -count=1 ./...
 
+# What each suite runs. A sharded CI job narrows its shard with `-run`; the
+# default runs everything. Without these the arguments a shard passes are
+# accepted by make and dropped on the floor, so every shard runs the whole
+# suite.
+SDK_TEST_ARGS ?= ./...
+CLI_TEST_ARGS ?= ./...
+
 sdk-test: build ## go test the SDK-driven sim tests
-	cd sdk-tests && $(GO_ENV) go test -v -count=1 ./...
+	cd sdk-tests && $(GO_ENV) go test -v -count=1 $(SDK_TEST_ARGS)
 
 cli-test: build ## go test the CLI-driven sim tests
-	cd cli-tests && $(GO_ENV) go test -v -count=1 -timeout 900s ./...
+	cd cli-tests && $(GO_ENV) go test -v -count=1 -timeout 900s $(CLI_TEST_ARGS)
 
 terraform-test: ## go test the terraform-driven sim tests
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
