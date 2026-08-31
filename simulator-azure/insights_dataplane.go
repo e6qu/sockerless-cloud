@@ -68,7 +68,7 @@ func registerInsightsDataPlane(srv *sim.Server) {
 	// Metadata_Get and Metadata_Post — the schema the application's telemetry
 	// can be queried against.
 	metadata := func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, logAnalyticsMetadata(sim.PathParam(r, "appId")))
+		sim.WriteJSON(w, http.StatusOK, insightsMetadataDoc(sim.PathParam(r, "appId")))
 	}
 	srv.HandleFunc("GET /v1/apps/{appId}/metadata", metadata)
 	srv.HandleFunc("POST /v1/apps/{appId}/metadata", metadata)
@@ -134,7 +134,11 @@ func insightsEventDoc(eventType string, columns []Column, row []any) map[string]
 		"type":  eventType,
 		"count": 1,
 	}
-	dimensions := map[string]any{}
+	// Only the members the row actually identifies. A table's columns are not
+	// the application's custom dimensions — customDimensions is the property
+	// bag a caller attached to its own telemetry — so putting the columns there
+	// would both misname them and, since the document types each dimension as
+	// an object, put strings where objects belong.
 	for i, column := range columns {
 		if i >= len(row) || row[i] == nil {
 			continue
@@ -144,12 +148,7 @@ func insightsEventDoc(eventType string, columns []Column, row []any) map[string]
 			doc["timestamp"] = row[i]
 		case "_ItemId", "Id":
 			doc["id"] = row[i]
-		default:
-			dimensions[column.Name] = row[i]
 		}
-	}
-	if len(dimensions) > 0 {
-		doc["customDimensions"] = dimensions
 	}
 	if _, ok := doc["id"]; !ok {
 		// Application Insights identifies an event by an id the ingestion
@@ -345,4 +344,35 @@ func insightsGetMetrics(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sim.WriteJSON(w, http.StatusOK, results)
+}
+
+// insightsMetadataDoc describes what an application's telemetry can be queried
+// against. Application Insights declares its own metadata shape — applications,
+// tables, table groups and functions — which is not the Log Analytics one: that
+// carries a workspaces member this document has no room for.
+func insightsMetadataDoc(appID string) map[string]any {
+	names := make([]string, 0, len(insightsEventTables))
+	for _, table := range insightsEventTables {
+		names = append(names, table)
+	}
+	sort.Strings(names)
+
+	tables := make([]any, 0, len(names))
+	for _, name := range names {
+		columns := []any{}
+		for _, column := range kqlTableSchemas[name] {
+			columns = append(columns, map[string]any{
+				"name": column.Name, "type": strings.ToLower(column.Type),
+			})
+		}
+		tables = append(tables, map[string]any{
+			"id": name, "name": name, "columns": columns,
+		})
+	}
+	return map[string]any{
+		"applications": []any{map[string]any{"id": appID, "name": appID}},
+		"tables":       tables,
+		"tableGroups":  []any{},
+		"functions":    []any{},
+	}
 }

@@ -285,6 +285,20 @@ func armURL(provider, resourcePath, apiVersion string) string {
 
 func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
+	stdout, _ := runCLIStreams(t, cmd)
+	return stdout
+}
+
+// runCLIStreams runs an Azure CLI command and returns its two streams apart.
+//
+// Callers that parse az's data want stdout alone, which is what runCLI hands
+// them. The few that want az's diagnostics — the `--debug` log is where a
+// response header like Location can be read, and az writes it to stderr — take
+// both from here. Merging the two into one buffer served neither: it put
+// interpreter warnings in front of JSON, and hiding stderr entirely would lose
+// the only place a header is printed.
+func runCLIStreams(t *testing.T, cmd *exec.Cmd) (string, string) {
+	t.Helper()
 	const perCmdTimeout = 60 * time.Second
 	// az is a Python program, and the interpreter writes its own diagnostics to
 	// stderr: recent versions compile a module that raises a SyntaxWarning
@@ -317,7 +331,7 @@ func runCLI(t *testing.T, cmd *exec.Cmd) string {
 		t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr: %s",
 			err, strings.Join(cmd.Args, " "), stdout.String(), stderr.String())
 	}
-	return stdout.String()
+	return stdout.String(), stderr.String()
 }
 
 func parseJSON(t *testing.T, data string, target any) {

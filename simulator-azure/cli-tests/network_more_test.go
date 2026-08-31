@@ -172,7 +172,11 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 // Azure CLI shows them only in its debug log.
 func azRestResponseHeader(t *testing.T, cmd *exec.Cmd, header string) string {
 	t.Helper()
-	out := runCLI(t, cmd)
+	// az prints response headers only in its --debug log, which it writes to
+	// stderr; stdout carries the response body. Both are searched, because
+	// which stream a given az version logs to is not part of its contract.
+	stdout, stderr := runCLIStreams(t, cmd)
+	out := stderr + "\n" + stdout
 	match := regexp.MustCompile(`'` + regexp.QuoteMeta(header) + `':\s*'([^']+)'`).FindStringSubmatch(out)
 	if match == nil {
 		t.Fatalf("the response carried no %s header:\n%s", header, out)

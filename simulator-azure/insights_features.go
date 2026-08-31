@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
@@ -84,9 +85,12 @@ func registerInsightsFeatures(srv *sim.Server, armBase string,
 						map[string]any{
 							"Name":        "DailyCap",
 							"Description": "The daily volume this plan caps ingestion at.",
-							"Value":       held.DataVolumeCap.Cap,
-							"Unit":        "GB",
-							"MeterId":     plan,
+							// The document types a capability's value as a
+							// string whatever it describes, so the cap is
+							// rendered rather than sent as the number it is.
+							"Value":   strconv.FormatFloat(held.DataVolumeCap.Cap, 'f', -1, 64),
+							"Unit":    "GB",
+							"MeterId": plan,
 						},
 						map[string]any{
 							"Name":        "SupportExportData",
