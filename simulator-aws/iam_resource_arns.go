@@ -1844,12 +1844,29 @@ func iamJSONRequestFields(r *http.Request) map[string][]string {
 		// SchemaId{SchemaName, RegistryName} — and the member inside is the
 		// resource's name however it is wrapped.
 		var inner map[string]json.RawMessage
-		if json.Unmarshal(value, &inner) != nil {
+		if json.Unmarshal(value, &inner) == nil {
+			for innerName, innerValue := range inner {
+				if values, ok := iamJSONStrings(innerValue); ok {
+					nested[strings.ToLower(innerName)] = values
+				}
+			}
 			continue
 		}
-		for innerName, innerValue := range inner {
-			if values, ok := iamJSONStrings(innerValue); ok {
-				nested[strings.ToLower(innerName)] = values
+		// A batch spells the same thing as a list of those structures, and an
+		// identifier inside one entry is as much the identifier as one at the
+		// top level: AWS Systems Manager's CreateAssociationBatch names each
+		// document and each machine inside its own entry. Every entry
+		// contributes, because a batch over two documents is about both.
+		var entries []map[string]json.RawMessage
+		if json.Unmarshal(value, &entries) != nil {
+			continue
+		}
+		for _, entry := range entries {
+			for innerName, innerValue := range entry {
+				if values, ok := iamJSONStrings(innerValue); ok {
+					key := strings.ToLower(innerName)
+					nested[key] = append(nested[key], values...)
+				}
 			}
 		}
 	}

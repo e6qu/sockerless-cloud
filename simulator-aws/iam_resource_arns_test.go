@@ -2195,3 +2195,32 @@ func TestIAMResourceARNs_HostReservationNamesItsHosts(t *testing.T) {
 			"ec2:PurchaseHostReservation", "*")
 	})
 }
+
+// An identifier inside a batch entry is as much the identifier as one at the
+// top level, so a batch is authorized against every resource its entries name.
+func TestIAMResourceARNs_ABatchEntryNamesItsResource(t *testing.T) {
+	const p = "arn:aws:ssm:us-east-1:123456789012:document/"
+
+	t.Run("every document the batch names is authorized", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.CreateAssociationBatch",
+				`{"Entries":[{"Name":"patch-baseline"},{"Name":"inventory"}]}`),
+			"ssm:CreateAssociationBatch", p+"patch-baseline", p+"inventory")
+	})
+
+	t.Run("an entry naming nothing of the declared type derives nothing", func(t *testing.T) {
+		// A batch of entries carrying only a schedule names no document, and
+		// authorizing every document would grant far past what was asked.
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.CreateAssociationBatch",
+				`{"Entries":[{"ScheduleExpression":"rate(1 day)"}]}`),
+			"ssm:CreateAssociationBatch", "*")
+	})
+
+	t.Run("a top-level member still wins over a batch entry", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.CreateAssociationBatch",
+				`{"Name":"top-level","Entries":[{"Name":"in-entry"}]}`),
+			"ssm:CreateAssociationBatch", p+"top-level")
+	})
+}

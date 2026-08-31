@@ -137,6 +137,17 @@
    Take the first shape one service at a time and hold each to a test that
    names the resource it must derive and one it must not.
 
+   One measurement seam is left open and its cost is known. AWS Systems Manager
+   still has its own flat probe, and CreateAssociationBatch names each document
+   and machine inside a batch entry — a shape only the shared probe renders.
+   The derivation reads it (a batch entry's identifier is read like a top-level
+   one, held by `TestIAMResourceARNs_ABatchEntryNamesItsResource`), so the
+   reader is not what is missing. Routing Systems Manager through the shared
+   probe as it stands *loses* eight operations, measured: something about how
+   that probe addresses the service differs from the flat one — the target
+   header and the cased member names are the two candidates. Find which before
+   moving it, because the eight it loses are derivations that work.
+
 0-sync. **All three clouds are in sync.** Measured 2026-08-29: zero drift
    across AWS's 41 Smithy models plus its service references, Azure's 120
    Swagger documents, and Google Cloud's 30 Discovery documents.
