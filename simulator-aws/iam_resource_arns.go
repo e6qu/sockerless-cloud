@@ -161,8 +161,10 @@ func iamIAMResourceARNs(r *http.Request, types []string) []string {
 		return "arn:aws:iam::" + account + ":" + resourceType + "/" + path + name
 	}
 	// The operations that act on a policy, an OIDC provider or a SAML provider
-	// name it by ARN outright.
-	for _, field := range []string{"PolicyArn", "OpenIDConnectProviderArn", "SAMLProviderArn", "PolicySourceArn"} {
+	// name it by ARN outright — and so do the access-advisor reads, which take
+	// the entity's own ARN under the bare member "Arn" and declare every entity
+	// type it could be. The ARN says which one, so there is nothing to choose.
+	for _, field := range []string{"Arn", "PolicyArn", "OpenIDConnectProviderArn", "SAMLProviderArn", "PolicySourceArn"} {
 		if v := r.FormValue(field); strings.HasPrefix(v, "arn:") {
 			return []string{v}
 		}
@@ -189,6 +191,13 @@ func iamIAMResourceARNs(r *http.Request, types []string) []string {
 	if iamHasType(types, "mfa") {
 		if serial := r.FormValue("SerialNumber"); strings.HasPrefix(serial, "arn:") {
 			return []string{serial}
+		}
+	}
+	// An organizations access report is named by the entity it covers, which
+	// the request carries as the path of that entity in the organization.
+	if iamHasType(types, "access-report") {
+		if entity := r.FormValue("EntityPath"); entity != "" {
+			return []string{"arn:aws:iam::" + account + ":access-report/" + entity}
 		}
 	}
 	// An OpenID Connect provider is named by the issuer it is created for: the

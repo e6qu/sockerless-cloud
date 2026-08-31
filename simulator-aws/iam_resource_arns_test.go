@@ -1660,3 +1660,54 @@ func TestIAMResourceARNs_CreateAuthorizesAgainstTheTypeWildcard(t *testing.T) {
 		}
 	})
 }
+
+// TestIAMResourceARNs_NamedOutrightByTheRequest pins the two IAM shapes whose
+// resource the request states rather than implies.
+//
+// The access-advisor reads declare every entity type their subject could be —
+// group, policy, role, user — and take that subject's own ARN under the bare
+// member "Arn". The ARN says which type it is, so the derivation returns it and
+// chooses nothing. An organizations access report is named by the path of the
+// entity it covers, which is the only thing that identifies it.
+//
+// Both are pinned in the negative too: without the member there is no resource
+// to name, and deriving one anyway would authorize against something the
+// request never mentioned.
+func TestIAMResourceARNs_NamedOutrightByTheRequest(t *testing.T) {
+	const iamARN = "arn:aws:iam::123456789012:"
+
+	t.Run("an access-advisor read names its subject by ARN", func(t *testing.T) {
+		for _, subject := range []string{"role/deploy", "user/ana", "group/admins", "policy/ReadOnly"} {
+			assertDerivedARNs(t,
+				iamQueryRequest("GenerateServiceLastAccessedDetails", "2010-05-08",
+					map[string]string{"Arn": iamARN + subject}),
+				"iam:GenerateServiceLastAccessedDetails", iamARN+subject)
+		}
+	})
+
+	t.Run("the policies-granting read names its subject the same way", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("ListPoliciesGrantingServiceAccess", "2010-05-08",
+				map[string]string{"Arn": iamARN + "role/deploy"}),
+			"iam:ListPoliciesGrantingServiceAccess", iamARN+"role/deploy")
+	})
+
+	t.Run("an organizations access report is named by the entity it covers", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GenerateOrganizationsAccessReport", "2010-05-08",
+				map[string]string{"EntityPath": "o-abc123/r-xyz/ou-1/123456789012"}),
+			"iam:GenerateOrganizationsAccessReport",
+			iamARN+"access-report/o-abc123/r-xyz/ou-1/123456789012")
+	})
+
+	t.Run("a request naming no subject derives no subject", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GenerateServiceLastAccessedDetails", "2010-05-08",
+				map[string]string{"Granularity": "SERVICE_LEVEL"}),
+			"iam:GenerateServiceLastAccessedDetails", "*")
+		assertDerivedARNs(t,
+			iamQueryRequest("GenerateOrganizationsAccessReport", "2010-05-08",
+				map[string]string{}),
+			"iam:GenerateOrganizationsAccessReport", "*")
+	})
+}

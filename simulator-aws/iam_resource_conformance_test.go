@@ -1515,7 +1515,15 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // OpenID Connect provider is named by the issuer URL it is created for, which
 // is the only thing the create carries that names it. The provider derivation
 // is new; the MFA one was already there and was being asked with a placeholder.
-const iamDerivationCoverageFloor = 1819
+//
+// Raised to 1822 by two IAM shapes the request names outright. The
+// access-advisor reads declare every entity type their subject could be and
+// take that subject's own ARN under the bare member "Arn" — the ARN says
+// which type, so the derivation returns it and chooses nothing. An
+// organizations access report is named by the path of the entity it covers.
+// TestIAMResourceARNs_NamedOutrightByTheRequest pins both, and pins that a
+// request naming no subject derives none.
+const iamDerivationCoverageFloor = 1822
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
