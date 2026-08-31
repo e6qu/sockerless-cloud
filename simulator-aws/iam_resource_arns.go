@@ -216,6 +216,25 @@ func iamIAMResourceARNs(r *http.Request, types []string) []string {
 			return []string{"arn:aws:iam::" + account + ":role/" + name}
 		}
 	}
+	// A delegation request is named by its own identifier, which every
+	// operation over one carries.
+	if iamHasType(types, "delegation-request") {
+		if id := r.FormValue("DelegationRequestId"); id != "" {
+			return []string{"arn:aws:iam::" + account + ":delegation-request/" + id}
+		}
+	}
+	// A role template belongs to AWS rather than to the account, which is why
+	// its ARN says "aws" where an account would be. It is named by the service
+	// principal it is for, its own name, and the major version — all three, or
+	// the ARN names a different template.
+	if iamHasType(types, "role-template") {
+		principal := r.FormValue("AWSServicePrincipal")
+		name := r.FormValue("RoleTemplateName")
+		major := r.FormValue("RoleTemplateMajorVersion")
+		if principal != "" && name != "" && major != "" {
+			return []string{"arn:aws:iam::aws:role-template/" + principal + "/" + name + ":" + major}
+		}
+	}
 	// An organizations access report is named by the entity it covers, which
 	// the request carries as the path of that entity in the organization.
 	if iamHasType(types, "access-report") {

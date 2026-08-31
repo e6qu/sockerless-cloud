@@ -634,14 +634,14 @@ func TestIAMResourceARNs_EC2IgnoresNestedStructureMembers(t *testing.T) {
 		"ec2:DescribeVolumes", "*")
 }
 
-// An operation that creates its resource carries no identifier for it, so there
-// is nothing to derive and the request falls back to "*". This is the honest
-// answer rather than a guessed ARN — but it is also why a policy scoping
-// CreateVpc to a resource is not yet evaluated against one.
-func TestIAMResourceARNs_EC2CreateNamesNoResourceYet(t *testing.T) {
+// An operation that creates its resource carries no identifier for it — the
+// service assigns that. What it does carry is the type, and that is what AWS
+// evaluates the call against, so a policy scoping CreateVpc to
+// arn:aws:ec2:*:*:vpc/* is honoured here as it is there.
+func TestIAMResourceARNs_EC2CreateScopesToTheTypeItMints(t *testing.T) {
 	assertDerivedARNs(t,
 		iamEC2Request("CreateVpc", map[string]string{"CidrBlock": "10.0.0.0/16"}),
-		"ec2:CreateVpc", "*")
+		"ec2:CreateVpc", "arn:aws:ec2:us-east-1:123456789012:vpc/*")
 }
 
 // The whole point of deriving the resource: a policy scoped to one volume
@@ -1637,12 +1637,13 @@ func TestIAMResourceARNs_CreateAuthorizesAgainstTheTypeWildcard(t *testing.T) {
 			"arn:aws:ec2:us-east-1:123456789012:dedicated-host/*")
 	})
 
-	t.Run("a create declaring several types stays undivined", func(t *testing.T) {
-		// CreateVpc declares ipam-pool, ipv6pool-ec2 and vpc. Which one it
-		// creates is not decidable from the declaration, and widening to all
-		// three would authorize against resources the call is not about.
+	t.Run("a create declaring its inputs still names what it mints", func(t *testing.T) {
+		// CreateVpc declares ipam-pool and ipv6pool-ec2 — the pools it may
+		// draw a CIDR from — besides the vpc it creates. Only the VPC answers
+		// to the operation's name, so widening to all three, which would
+		// authorize against resources the call is not about, never arises.
 		r := iamQueryRequest("CreateVpc", "2016-11-15", map[string]string{"CidrBlock": "10.0.0.0/16"})
-		assertDerivedARNs(t, r, "ec2:CreateVpc", "*")
+		assertDerivedARNs(t, r, "ec2:CreateVpc", "arn:aws:ec2:us-east-1:123456789012:vpc/*")
 	})
 
 	t.Run("a read is not a create", func(t *testing.T) {
@@ -1981,11 +1982,15 @@ func TestIAMResourceARNs_ELBv2CreateScopesToItsName(t *testing.T) {
 		}
 	})
 
-	t.Run("a kind the service does not define names no balancer", func(t *testing.T) {
+	t.Run("a kind the service does not define names no particular balancer", func(t *testing.T) {
+		// Without a kind the ARN's own segment cannot be written, so the named
+		// scope is unavailable — but the call still creates a load balancer,
+		// and the type it mints is what remains true of it.
 		assertDerivedARNs(t,
 			iamQueryRequest("CreateLoadBalancer", "2015-12-01",
 				map[string]string{"Name": "front", "Type": "hovercraft"}),
-			"elasticloadbalancing:CreateLoadBalancer", "*")
+			"elasticloadbalancing:CreateLoadBalancer",
+			"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/*")
 	})
 
 	t.Run("a create naming nothing derives nothing", func(t *testing.T) {

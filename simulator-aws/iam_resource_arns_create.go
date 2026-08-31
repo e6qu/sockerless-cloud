@@ -16,22 +16,35 @@ import (
 // from the ARN format AWS publishes, and the identifier is the wildcard the
 // service itself evaluates against.
 //
-// This applies only where the action declares exactly one resource type. An
-// action declaring several is ambiguous about which one it creates, and
-// widening to all of them would authorize against resources the call is not
-// about.
+// Widening to every declared type would authorize against resources the call
+// is not about: an action that creates one resource routinely declares the
+// inputs it reads too, and ec2:CreateVpc declares the IPAM pool it draws a
+// CIDR from alongside the VPC it mints. So exactly one declared type may
+// answer to the operation's own name. Where none does the created type is
+// unnamed, and where several do the call is genuinely ambiguous; both derive
+// nothing rather than guess.
 func iamCreateWildcardARNs(service, op string, types []string, region, account string) []string {
-	if len(types) != 1 || !iamOperationCreatesItsResource(op) {
+	if !iamOperationCreatesItsResource(op) {
 		return nil
 	}
 	// The declared type must be the thing the operation creates, not its
-	// parent: CreateStateMachineAlias declares "statemachine", and a wildcard
-	// over every state machine is not what creating one alias authorizes
-	// against.
-	if !iamCreatedTypeMatchesOperation(op, types[0]) {
+	// parent and not one of its inputs: CreateStateMachineAlias declares
+	// "statemachine", and a wildcard over every state machine is not what
+	// creating one alias authorizes against.
+	var created string
+	for _, candidate := range types {
+		if !iamCreatedTypeMatchesOperation(op, candidate) {
+			continue
+		}
+		if created != "" {
+			return nil
+		}
+		created = candidate
+	}
+	if created == "" {
 		return nil
 	}
-	format, declared := iamResourceARNFormats[service+":"+types[0]]
+	format, declared := iamResourceARNFormats[service+":"+created]
 	if !declared {
 		return nil
 	}
@@ -58,8 +71,9 @@ var iamCreateVerbs = []string{"Create", "Allocate", "Import", "Copy", "Register"
 
 // iamOperationCreatesItsResource reports whether the operation brings the
 // resource it authorizes against into existence. AWS spells these consistently
-// enough to read from the name, and the caller's single-type rule keeps a
-// misread from widening the authorization: "Create" and "Allocate" mint a
+// enough to read from the name, and the caller's rule that exactly one
+// declared type answer to the operation's name keeps a misread from widening
+// the authorization: "Create" and "Allocate" mint a
 // resource, "Import", "Copy" and "Register" mint one from something else, and
 // "Request" and "Purchase" mint one the service fulfils.
 func iamOperationCreatesItsResource(op string) bool {
