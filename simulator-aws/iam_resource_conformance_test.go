@@ -384,7 +384,7 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 func iamProbeBody(members map[string]bool, nested map[string][]string) map[string]any {
 	body := make(map[string]any, len(members))
 	for name := range members {
-		body[name] = "probe"
+		body[name] = iamProbeMemberValue(name, "probe")
 	}
 	for member, inner := range nested {
 		object := make(map[string]any, len(inner))
@@ -545,7 +545,8 @@ func iamKMSDerivesItsResource(operation string, members map[string]bool) bool {
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = "probe"
+		body[name] = iamProbeMemberValueFor("kms", name,
+			"arn:aws:kms:us-east-1:"+iamProbeAccount+":probe")
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -743,7 +744,8 @@ func iamACMDerivesItsResource(operation string, members map[string]bool) bool {
 			body[name] = "arn:aws:acm:us-east-1:123456789012:certificate/0123abcd-ef45-6789-abcd-ef0123456789"
 			continue
 		}
-		body[name] = "probe"
+		body[name] = iamProbeMemberValueFor("acm", name,
+			"arn:aws:acm:us-east-1:"+iamProbeAccount+":probe")
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -764,11 +766,8 @@ func iamCloudWatchDerivesItsResource(operation string, members map[string]bool) 
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		if strings.HasSuffix(strings.ToLower(name), "arn") {
-			body[name] = "arn:aws:cloudwatch:us-east-1:123456789012:alarm:probe"
-			continue
-		}
-		body[name] = "probe"
+		body[name] = iamProbeMemberValueFor("cloudwatch", name,
+			"arn:aws:cloudwatch:us-east-1:"+iamProbeAccount+":alarm:probe")
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -827,7 +826,8 @@ func iamQueryProbeDerives(service, operation, version string, params map[string]
 		// own copy of that decision, so a rule added to iamProbeMemberValue —
 		// an account identifier is twelve digits — did not reach the query
 		// services at all, and sts:AssumeRoot stayed undecidable.
-		value := iamProbeMemberValue(name, "arn:aws:"+service+":us-east-1:"+iamProbeAccount+":probe")
+		value := iamProbeMemberValueFor(service, name,
+			"arn:aws:"+service+":us-east-1:"+iamProbeAccount+":probe")
 		form += "&" + name + "=" + url.QueryEscape(value)
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
@@ -845,11 +845,7 @@ func iamJSONProbeDerives(service, operation string, members map[string]bool, arn
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		if strings.HasSuffix(strings.ToLower(name), "arn") {
-			body[name] = arnValue
-			continue
-		}
-		body[name] = "probe"
+		body[name] = iamProbeMemberValueFor(service, name, arnValue)
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -981,7 +977,8 @@ func iamSSMDerivesItsResource(operation string, members map[string]bool) bool {
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = "probe"
+		body[name] = iamProbeMemberValueFor("ssm", name,
+			"arn:aws:ssm:us-east-1:"+iamProbeAccount+":probe")
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -1031,7 +1028,28 @@ func iamProductionProbeDerives(r *http.Request, action string) bool {
 // where the member is an ARN by definition — which is what a real caller
 // sends — and a bare identifier otherwise.
 func iamProbeMemberValue(name, arnValue string) string {
+	return iamProbeMemberValueFor("", name, arnValue)
+}
+
+// iamProbeMemberValueFor is what a client puts in one request member.
+//
+// It takes the service because some members only accept a value that service
+// defines: Systems Manager's ResourceType is a ResourceTypeForTagging, and the
+// type is what selects the ARN format its ResourceId fills, so a placeholder
+// there leaves the derivation nothing to select with.
+//
+// There is one of these. Each probe path used to fill members from its own
+// copy of this decision — three copies — so a rule added to one reached only
+// the services that went through it, and the operations behind the others kept
+// measuring as underived while their production readers worked.
+func iamProbeMemberValueFor(service, name, arnValue string) string {
 	lower := strings.ToLower(name)
+	if service == "ssm" && lower == "resourcetype" {
+		// Any real member of the enum will do: the test pins all ten, and what
+		// matters here is that the probe names one the service declares rather
+		// than a placeholder it rejects.
+		return "Parameter"
+	}
 	if strings.HasSuffix(lower, "arn") {
 		return arnValue
 	}
@@ -1420,7 +1438,16 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // copy of the rule deciding what a member carries, so the account rule added
 // to iamProbeMemberValue did not reach the query services at all. There is one
 // copy now, which is why the Amazon SQS queue-URL case moved with it.
-const iamDerivationCoverageFloor = 1793
+//
+// Raised again, from 1793 to 1797, by collapsing five copies of the rule that
+// decides what a probe puts in a request member into one. Each probe path had
+// its own copy, so the account rule above reached only the services that went
+// through one of them — and Systems Manager kept filling ResourceType with a
+// placeholder no ResourceTypeForTagging accepts, which is the gap the previous
+// paragraph describes. Naming a real type there took ssm from 15 underived to
+// 11. The single rule is service-aware because that is what the case needs: a
+// member can only be filled correctly if you know whose member it is.
+const iamDerivationCoverageFloor = 1797
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
