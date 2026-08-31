@@ -823,13 +823,11 @@ func iamQueryProbeDerives(service, operation, version string, params map[string]
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
-		value := "probe"
-		switch lower := strings.ToLower(name); {
-		case strings.HasSuffix(lower, "arn"):
-			value = "arn:aws:" + service + ":us-east-1:123456789012:probe"
-		case lower == "queueurl":
-			value = "http://localhost:4566/123456789012/probe"
-		}
+		// One place decides what a member carries. This path used to keep its
+		// own copy of that decision, so a rule added to iamProbeMemberValue —
+		// an account identifier is twelve digits — did not reach the query
+		// services at all, and sts:AssumeRoot stayed undecidable.
+		value := iamProbeMemberValue(name, "arn:aws:"+service+":us-east-1:"+iamProbeAccount+":probe")
 		form += "&" + name + "=" + url.QueryEscape(value)
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
@@ -1033,10 +1031,38 @@ func iamProductionProbeDerives(r *http.Request, action string) bool {
 // where the member is an ARN by definition — which is what a real caller
 // sends — and a bare identifier otherwise.
 func iamProbeMemberValue(name, arnValue string) string {
-	if strings.HasSuffix(strings.ToLower(name), "arn") {
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, "arn") {
 		return arnValue
 	}
+	// A member that names an AWS account carries twelve digits and nothing
+	// else: the service rejects any other shape before authorization runs, so
+	// "probe" is a value no client ever sends. Probing with it addresses the
+	// operation at an input the service would refuse, and the derivation that
+	// reads the account — sts:AssumeRoot's TargetPrincipal is the one this was
+	// found through — correctly declines to build an ARN from it, which the
+	// gate then reads as an operation that derives nothing.
+	if iamProbeAccountMembers[lower] {
+		return iamProbeAccount
+	}
+	// A queue is named by its URL, which is the only spelling Amazon SQS
+	// accepts and therefore the only one a client sends.
+	if lower == "queueurl" {
+		return "http://localhost:4566/" + iamProbeAccount + "/probe"
+	}
 	return "probe"
+}
+
+// iamProbeAccount is the twelve-digit account the probe names, the same one the
+// derived ARNs are built against.
+const iamProbeAccount = "123456789012"
+
+// iamProbeAccountMembers are the request members whose value is an AWS account
+// identifier, under the lower-cased spelling the probe compares.
+var iamProbeAccountMembers = map[string]bool{
+	"targetprincipal": true,
+	"accountid":       true,
+	"awsaccountid":    true,
 }
 
 // iamAWSJSONProbeRequest is the awsJson request an SDK sends for an operation:
@@ -1382,7 +1408,19 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // and pins that a type the service does not declare derives nothing. This is
 // the same measurement gap as the Amazon ECS attribute operations and the
 // Amazon RDS tagging family: real callers derive, the probe cannot say so.
-const iamDerivationCoverageFloor = 1792
+//
+// Raised from 1792 by closing one instance of exactly that gap. A member
+// naming an AWS account carries twelve digits and nothing else — the service
+// refuses any other shape before authorization runs — so filling it with
+// "probe" addressed sts:AssumeRoot at an input no client sends, and the
+// derivation that reads TargetPrincipal correctly declined to build an ARN
+// from it. The probe sends an account id there now.
+//
+// Finding it took removing a duplicate: the query-protocol probe kept its own
+// copy of the rule deciding what a member carries, so the account rule added
+// to iamProbeMemberValue did not reach the query services at all. There is one
+// copy now, which is why the Amazon SQS queue-URL case moved with it.
+const iamDerivationCoverageFloor = 1793
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
