@@ -384,10 +384,16 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 	})
 
 	// Suspend and resume move the machine between states the same way stop and
-	// start do, and report the same statuses Compute Engine does.
+	// start do, and report the same statuses Compute Engine does. Each moves
+	// the real virtual machine: a suspended machine is not running, so leaving
+	// it up while reporting SUSPENDED would be contradicted by the first read
+	// on a host that can actually run one.
 	write("suspend", func(instance *ComputeInstance, r *http.Request) error {
 		if instance.Status != ComputeInstanceRunning {
 			return errComputeInvalid("only a running instance can be suspended")
+		}
+		if err := gcpStopRealVM(r.Context(), instance.SelfLink); err != nil {
+			return fmt.Errorf("failed to suspend real Compute Engine instance: %w", err)
 		}
 		instance.Status = "SUSPENDED"
 		return nil
@@ -395,6 +401,9 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 	write("resume", func(instance *ComputeInstance, r *http.Request) error {
 		if instance.Status != "SUSPENDED" {
 			return errComputeInvalid("only a suspended instance can be resumed")
+		}
+		if err := gcpStartRealVM(r.Context(), instance); err != nil {
+			return fmt.Errorf("failed to resume real Compute Engine instance: %w", err)
 		}
 		instance.Status = ComputeInstanceRunning
 		return nil

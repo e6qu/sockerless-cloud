@@ -60,11 +60,24 @@ func registerComputeLastVerbs(srv *sim.Server) {
 				return
 			}
 			key := computeInstanceSelfLink(project, zone, name)
-			if !gcpInstances.Update(key, func(i *ComputeInstance) { i.Status = ComputeInstanceRunning }) {
+			inst, ok := gcpInstances.Get(key)
+			if !ok {
 				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"instance %q not found in zone %q", name, zone)
 				return
 			}
+			// An instance started with its disk keys runs exactly as one
+			// started any other way, so this boots the same virtual machine the
+			// plain start boots. Recording RUNNING without starting it would
+			// report a machine that nothing is running, which a host that can
+			// actually run one immediately contradicts.
+			if err := gcpStartRealVM(r.Context(), &inst); err != nil {
+				sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
+					"failed to start real Compute Engine instance: %v", err)
+				return
+			}
+			inst.Status = ComputeInstanceRunning
+			gcpInstances.Put(key, inst)
 			sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, key, "startWithEncryptionKey"))
 		})
 

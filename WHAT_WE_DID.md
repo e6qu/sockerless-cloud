@@ -38,6 +38,16 @@ operation defines its category as the one the resource matches in Microsoft's
 Resource Health Check policy file, and matching a site against a policy this
 project does not vendor would be fabrication.
 
+Three Compute Engine verbs recorded a machine state without moving the
+machine. `instances.startWithEncryptionKey` set `RUNNING` in the store and
+booted nothing, and `suspend` and `resume` did the same in both directions; all
+three now drive the real virtual machine the plain `start` and `stop` drive.
+Linux CI caught the first — it reads an instance's status back from the machine
+— and macOS never could, because those tests are capability-skipped there. The
+fourth of the class, `instances.bulkInsert`, writes instances with no network
+interface and no boot at all and is filed as BUG-74; it is invisible today only
+because its own test is not capability-gated.
+
 That last distinction also retired a claim this repository had been making
 about itself. `DO_NEXT.md` said nothing in the App Service tail was
 implementable from what the simulator can observe; recommendations disproved

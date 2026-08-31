@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 82.
+Open: 8. Resolved: 82.
 
 ## Open
 
@@ -15,6 +15,29 @@ Open: 7. Resolved: 82.
   shape: vendor `s3control`, implement Object Lambda access points, and then
   this callback, in one slice. Until then the S3 model is 111 of 112 served,
   and every other gap the model-drift sweep found on 2026-08-24 was closed.
+
+- **BUG-74 (Compute Engine `instances.bulkInsert` records instances no machine
+  backs):** A bulk insert writes each instance straight to the store with
+  `status: RUNNING`, no network interface and no disks, and never boots a
+  virtual machine — while `instances.insert` builds the instance from the
+  request, marks it `PROVISIONING`, boots a real Firecracker machine on a
+  detached context, and only then records `RUNNING` (deleting the instance and
+  failing the operation when the boot fails). A bulk-inserted instance
+  therefore reports itself running with nothing behind it, and cannot be
+  started, stopped, suspended or reached: `gcpStartRealVM` refuses it outright
+  because it declares no network interface. Found while fixing the same class
+  in `startWithEncryptionKey`, `suspend` and `resume`, which flipped the stored
+  status without moving the machine — `TestCompute_InstanceStartWithEncryptionKeyAndUpdate`
+  caught that on Linux CI, where the status is read back from the machine, and
+  never on macOS, where the test is capability-skipped. `bulkInsert` is not red
+  today only because its own test is not capability-gated and so never runs
+  against a real-execution host. Fix shape: build each instance from
+  `instanceProperties` the way the insert handler builds one from the request
+  body (network interface and disks included), record the operation with
+  `newComputeOpRecord`/`recordComputeOp`, boot each machine on a detached
+  context, and finish the operation when the run is up — deleting the instances
+  whose boot failed. Then gate the SDK test with `requireNetworkHost` so a real
+  host exercises it.
 
 
 | ID | Sev | Area | Pattern | One-liner |
