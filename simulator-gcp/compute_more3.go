@@ -81,7 +81,8 @@ func registerComputeMore3(srv *sim.Server) {
 		}
 		(computeMetaResource{
 			collection: "networkEndpointGroups", kind: "compute#networkEndpointGroup",
-			scope: sc, store: store,
+			// Only the zonal groups declare the permission check.
+			scope: sc, store: store, testIamOnly: sc == cScopeZone,
 		}).register(srv)
 		registerComputeNetworkEndpointGroupMembers(srv, sc, store)
 	}

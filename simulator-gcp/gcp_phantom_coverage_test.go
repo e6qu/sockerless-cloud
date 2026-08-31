@@ -63,6 +63,11 @@ func gcpPatternHasLiteral(pattern, literal string) bool {
 // unserved, so the method count stays honest. An entry that merely silences the
 // gate reinstates the blind spot the gate exists to close.
 var gcpFanInPatterns = map[string]string{
+	// The two Compute Engine image methods a path router cannot separate. The
+	// handler routes the family lookup on its literal segment and the IAM read
+	// on its verb, and answers not-found for any other tail — so a method it
+	// does not route still reads as unserved.
+	"GET /compute/v1/projects/{project}/global/images/{first}/{second}": "image family lookup and image IAM policy read",
 	// Cloud Spanner's paths all hang off one instance, and the collections
 	// nest deeper than the mux can name without registering the whole
 	// document. The handler routes on the tail and answers a method-not-found

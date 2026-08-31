@@ -26,3 +26,9 @@ GET /compute/v1/projects/{project}/zones/{zone}/
 GET /v1/projects/{project}/locations/{location}/aclPolicies/{id}/revisions
 # One revision of that history, addressed by the id the list returns.
 GET /v1/projects/{project}/locations/{location}/aclPolicies/{id}/revisions/{revision}
+
+# The one route serving both an image's family lookup and its IAM policy read,
+# which a path router cannot separate. Its tail is a parameter, so the contract
+# reader has no method name to match on; both documented methods behind it are
+# exercised by TestCompute_ImageFamilyAndIamShareARouteWithoutShadowingEachOther.
+GET /compute/v1/projects/{project}/global/images/{first}/{second}

@@ -50,8 +50,8 @@ func registerComputeMore2(srv *sim.Server) {
 	families := []computeMetaResource{
 		// Global load-balancing / addressing / policy resources.
 		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: mk("compute_backend_buckets"), patch: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList"},
-		{collection: "externalVpnGateways", kind: "compute#externalVpnGateway", scope: cScopeGlobal, store: mk("compute_external_vpn_gateways"), setLabels: true},
-		{collection: "targetSslProxies", kind: "compute#targetSslProxy", scope: cScopeGlobal, store: mk("compute_target_ssl_proxies")},
+		{collection: "externalVpnGateways", kind: "compute#externalVpnGateway", scope: cScopeGlobal, store: mk("compute_external_vpn_gateways"), setLabels: true, testIamOnly: true},
+		{collection: "targetSslProxies", kind: "compute#targetSslProxy", scope: cScopeGlobal, store: mk("compute_target_ssl_proxies"), testIamOnly: true},
 		{collection: "publicDelegatedPrefixes", kind: "compute#publicDelegatedPrefix", scope: cScopeGlobal, store: mk("compute_public_delegated_prefixes"), patch: true, aggregated: true},
 		{collection: "publicAdvertisedPrefixes", kind: "compute#publicAdvertisedPrefix", scope: cScopeGlobal, store: mk("compute_public_advertised_prefixes"), patch: true},
 		{collection: "sslPolicies", kind: "compute#sslPolicy", scope: cScopeGlobal, store: mk("compute_ssl_policies"), patch: true, aggregated: true},
@@ -62,26 +62,26 @@ func registerComputeMore2(srv *sim.Server) {
 		// The regional public delegated prefixes are a separate collection
 		// from the global ones, with announce and withdraw of their own.
 		{collection: "publicDelegatedPrefixes", kind: "compute#publicDelegatedPrefix", scope: cScopeRegion, store: gcpComputeRegionalPublicDelegatedPrefixes, patch: true},
-		{collection: "nodeTemplates", kind: "compute#nodeTemplate", scope: cScopeRegion, store: mk("compute_node_templates"), aggregated: true},
-		{collection: "notificationEndpoints", kind: "compute#notificationEndpoint", scope: cScopeRegion, store: mk("compute_notification_endpoints"), aggregated: true},
+		{collection: "nodeTemplates", kind: "compute#nodeTemplate", scope: cScopeRegion, store: mk("compute_node_templates"), aggregated: true, iam: true},
+		{collection: "notificationEndpoints", kind: "compute#notificationEndpoint", scope: cScopeRegion, store: mk("compute_notification_endpoints"), aggregated: true, testIamOnly: true},
 		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeRegion, store: mk("compute_region_target_https_proxies"), patch: true},
 		{collection: "targetVpnGateways", kind: "compute#targetVpnGateway", scope: cScopeRegion, store: mk("compute_target_vpn_gateways"), setLabels: true, aggregated: true},
-		{collection: "vpnGateways", kind: "compute#vpnGateway", scope: cScopeRegion, store: mk("compute_vpn_gateways"), setLabels: true, aggregated: true},
+		{collection: "vpnGateways", kind: "compute#vpnGateway", scope: cScopeRegion, store: mk("compute_vpn_gateways"), setLabels: true, aggregated: true, testIamOnly: true},
 		{collection: "vpnTunnels", kind: "compute#vpnTunnel", scope: cScopeRegion, store: mk("compute_vpn_tunnels"), setLabels: true, aggregated: true},
 		{collection: "serviceAttachments", kind: "compute#serviceAttachment", scope: cScopeRegion, store: mk("compute_service_attachments"), patch: true, aggregated: true},
 		{collection: "networkAttachments", kind: "compute#networkAttachment", scope: cScopeRegion, store: mk("compute_network_attachments"), patch: true, aggregated: true},
 		// Regional security policies are registered by registerComputePolicies,
 		// which serves their rule verbs alongside the lifecycle.
-		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeRegion, store: regionAutoscalers, aggregated: true},
+		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeRegion, store: regionAutoscalers, aggregated: true, testIamOnly: true},
 		{collection: "instantSnapshots", kind: "compute#instantSnapshot", scope: cScopeRegion, store: mk("compute_region_instant_snapshots"), setLabels: true},
 		{collection: "sslPolicies", kind: "compute#sslPolicy", scope: cScopeRegion, store: mk("compute_region_ssl_policies"), patch: true},
 
 		// Zonal resources.
-		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeZone, store: zoneAutoscalers},
+		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeZone, store: zoneAutoscalers, testIamOnly: true},
 		{collection: "nodeGroups", kind: "compute#nodeGroup", scope: cScopeZone, store: gcpComputeNodeGroups, patch: true, aggregated: true},
 		{collection: "reservations", kind: "compute#reservation", scope: cScopeZone, store: gcpComputeReservations, patch: true, aggregated: true, resourceMetadata: true},
 		{collection: "storagePools", kind: "compute#storagePool", scope: cScopeZone, store: mk("compute_storage_pools"), patch: true, aggregated: true},
-		{collection: "targetInstances", kind: "compute#targetInstance", scope: cScopeZone, store: mk("compute_target_instances"), aggregated: true},
+		{collection: "targetInstances", kind: "compute#targetInstance", scope: cScopeZone, store: mk("compute_target_instances"), aggregated: true, testIamOnly: true},
 		{collection: "futureReservations", kind: "compute#futureReservation", scope: cScopeZone, store: mk("compute_future_reservations"), patch: true, aggregated: true, resourceMetadata: true},
 		{collection: "instantSnapshots", kind: "compute#instantSnapshot", scope: cScopeZone, store: mk("compute_zone_instant_snapshots"), setLabels: true, aggregated: true},
 	}

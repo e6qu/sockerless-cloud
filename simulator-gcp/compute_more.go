@@ -493,6 +493,11 @@ func registerComputeMore(srv *sim.Server) {
 
 	resources := []computeMetaResource{
 		// Storage resources.
+		// The image IAM verbs are mounted in compute.go beside the family
+		// lookup: "images/{resource}/getIamPolicy" and
+		// "images/family/{family}" are the same shape to a path router, so
+		// one handler has to serve both and resolve them the way Compute
+		// Engine does.
 		{collection: "images", kind: "compute#image", scope: cScopeGlobal, store: gcpComputeImages, skipGet: true, patch: true, setLabels: true},
 		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeGlobal, store: gcpComputeSnapshots, setLabels: true},
 		{collection: "machineImages", kind: "compute#machineImage", scope: cScopeGlobal, store: mk("compute_machine_images"), setLabels: true},
@@ -504,8 +509,8 @@ func registerComputeMore(srv *sim.Server) {
 		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: gcpComputeTargetPools, aggregated: true},
 		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, listUsableKind: "compute#usableBackendServiceList"},
 		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true, update: true},
-		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true},
-		{collection: "httpsHealthChecks", kind: "compute#httpsHealthCheck", scope: cScopeGlobal, store: mk("compute_https_health_checks"), patch: true},
+		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true, testIamOnly: true},
+		{collection: "httpsHealthChecks", kind: "compute#httpsHealthCheck", scope: cScopeGlobal, store: mk("compute_https_health_checks"), patch: true, testIamOnly: true},
 		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps"), patch: true, update: true},
 		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies")},
 		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: mk("compute_target_https_proxies"), aggregated: true},

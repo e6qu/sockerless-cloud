@@ -221,6 +221,13 @@ var gcpMountPrefixes = map[string]string{
 // document, plus the simulator's own control surface. Each entry MUST be
 // justified — never a place to hide an invented Google path.
 var allowedNonSpecGCPRoutes = map[string]string{
+	// Compute Engine describes an image's family lookup and its IAM policy
+	// read as two methods — "images/family/{family}" and
+	// "images/{resource}/getIamPolicy" — that are one shape to a path router,
+	// so a single route serves both and resolves them the way Compute Engine's
+	// own templates do: the literal family segment first. Both documented
+	// spellings are served through it; neither is invented.
+	"GET /compute/v1/projects/{project}/global/images/{first}/{second}": "image family lookup and image IAM policy read, which a path router cannot separate",
 	// OAuth2 token endpoints — real Google auth surface
 	// (oauth2.googleapis.com /token; legacy www.googleapis.com/oauth2/v4/token),
 	// not part of any service Discovery document.

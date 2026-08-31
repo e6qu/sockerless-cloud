@@ -2202,15 +2202,37 @@ func registerComputeCatalog(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, imageJSON(project, name))
 	})
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/family/{family}", func(w http.ResponseWriter, r *http.Request) {
+	// An image's family lookup and its IAM policy read are the same shape to a
+	// path router — "images/family/{family}" against
+	// "images/{resource}/getIamPolicy" — so one handler serves both. Compute
+	// Engine resolves the overlap by its templates' literal segments, and the
+	// family segment comes first, so a request for the family named
+	// "getIamPolicy" is a family lookup.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/{first}/{second}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
-		family := sim.PathParam(r, "family")
-		name := family
-		if !strings.HasSuffix(name, "-12") {
-			name += "-12"
+		first, second := sim.PathParam(r, "first"), sim.PathParam(r, "second")
+		if first == "family" {
+			name := second
+			if !strings.HasSuffix(name, "-12") {
+				name += "-12"
+			}
+			sim.WriteJSON(w, http.StatusOK, imageJSON(project, name))
+			return
 		}
-		sim.WriteJSON(w, http.StatusOK, imageJSON(project, name))
+		if second != "getIamPolicy" {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no such image method %q", second)
+			return
+		}
+		handleResourceIAM(w, r, gcpResourcePolicies,
+			"compute/"+computeGlobalLink(project, "images", first), "getIamPolicy")
 	})
+	for verb, method := range map[string]string{"setIamPolicy": "POST", "testIamPermissions": "POST"} {
+		verb := verb
+		srv.HandleFunc(method+" /compute/v1/projects/{project}/global/images/{resource}/"+verb, func(w http.ResponseWriter, r *http.Request) {
+			handleResourceIAM(w, r, gcpResourcePolicies,
+				"compute/"+computeGlobalLink(sim.PathParam(r, "project"), "images", sim.PathParam(r, "resource")), verb)
+		})
+	}
 }
 
 // computeZoneOp records and renders a zonal operation whose work is already
