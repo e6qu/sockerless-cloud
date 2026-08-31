@@ -1093,9 +1093,55 @@ func iamDynamoDBResourceARNs(r *http.Request, types []string, region, account st
 			return []string{a}
 		}
 	}
+	// A batch names its tables as the keys of RequestItems rather than as a
+	// value anywhere, so nothing that reads member values finds them and a
+	// batch over two tables authorized against "*". Amazon DynamoDB authorizes
+	// each table the batch touches, the same way it authorizes each item of a
+	// transaction against the table that item names.
+	if iamHasType(types, "table") {
+		if tables := iamJSONObjectKeys(r, "RequestItems"); len(tables) > 0 {
+			out := make([]string, 0, len(tables))
+			for _, table := range tables {
+				out = append(out, "arn:aws:dynamodb:"+region+":"+account+":table/"+table)
+			}
+			sort.Strings(out)
+			return out
+		}
+	}
+
 	fields := iamJSONRequestFields(r)
 	return iamTableDrivenARNs("dynamodb", types, region, account, nil,
 		func(field string) []string { return fields[strings.ToLower(field)] })
+}
+
+// iamJSONObjectKeys reads the keys of a top-level object member. A service that
+// keys a map by the resource — DynamoDB's RequestItems by table name — puts the
+// identifier there and nowhere else.
+func iamJSONObjectKeys(r *http.Request, field string) []string {
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(body, &envelope) != nil {
+		return nil
+	}
+	raw, present := envelope[field]
+	if !present {
+		return nil
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // iamEC2ResourceARNs derives the ARNs an Amazon EC2 request names. EC2 declares

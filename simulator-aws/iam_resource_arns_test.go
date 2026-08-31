@@ -2115,3 +2115,36 @@ func TestIAMResourceARNs_WAFv2ReadsTheCollectionItsNameCarries(t *testing.T) {
 			"wafv2:UpdateManagedRuleSetVersionExpiryDate", "*")
 	})
 }
+
+// A batch names its tables as the keys of RequestItems, so a grant scoped to
+// one table must allow a batch over that table and deny one that also reaches
+// another.
+func TestIAMResourceARNs_DynamoDBBatchNamesEveryTableItTouches(t *testing.T) {
+	const p = "arn:aws:dynamodb:us-east-1:123456789012:table/"
+
+	t.Run("every table in the batch is authorized", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("DynamoDB_20120810.BatchGetItem",
+				`{"RequestItems":{"orders":{"Keys":[]},"customers":{"Keys":[]}}}`),
+			"dynamodb:BatchGetItem", p+"customers", p+"orders")
+	})
+
+	t.Run("a write batch reads the same keys", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("DynamoDB_20120810.BatchWriteItem",
+				`{"RequestItems":{"orders":[]}}`),
+			"dynamodb:BatchWriteItem", p+"orders")
+	})
+
+	t.Run("an empty batch names no table", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("DynamoDB_20120810.BatchGetItem", `{"RequestItems":{}}`),
+			"dynamodb:BatchGetItem", "*")
+	})
+
+	t.Run("a single-table read still names it the ordinary way", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("DynamoDB_20120810.GetItem", `{"TableName":"orders","Key":{}}`),
+			"dynamodb:GetItem", p+"orders")
+	})
+}

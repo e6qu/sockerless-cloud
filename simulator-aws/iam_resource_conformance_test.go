@@ -333,6 +333,8 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 			Type    string                  `json:"type"`
 			Input   struct{ Target string } `json:"input"`
 			Members map[string]member       `json:"members"`
+			Member  member                  `json:"member"`
+			Value   member                  `json:"value"`
 		} `json:"shapes"`
 	}
 	if err := json.NewDecoder(gz).Decode(&doc); err != nil {
@@ -362,9 +364,20 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 			// derives for every real caller was measured as deriving nothing.
 			wire := wireName(name, traits)
 			named[wire] = true
-			if target, ok := doc.Shapes[m.Target]; ok && target.Type == "structure" {
-				for innerName := range target.Members {
-					inner[wire] = append(inner[wire], innerName)
+			// The members a probe fills inside this one: a structure's own, and
+			// for a list or a map, those of the element it holds.
+			if target, ok := doc.Shapes[m.Target]; ok {
+				element := target
+				switch target.Type {
+				case "list":
+					element = doc.Shapes[target.Member.Target]
+				case "map":
+					element = doc.Shapes[target.Value.Target]
+				}
+				if element.Type == "structure" {
+					for innerName := range element.Members {
+						inner[wire] = append(inner[wire], innerName)
+					}
 				}
 			}
 		}
@@ -434,10 +447,6 @@ func loadSSMRequestMembers(t *testing.T) map[string]map[string]bool {
 
 func loadElastiCacheRequestParameters(t *testing.T) map[string]map[string]bool {
 	return loadRequestFields(t, "elasticache", memberWireName)
-}
-
-func loadDynamoDBRequestMembers(t *testing.T) map[string]map[string]bool {
-	return loadRequestFields(t, "dynamodb", memberWireName)
 }
 
 func loadCloudTrailRequestMembers(t *testing.T) map[string]map[string]bool {
@@ -930,26 +939,6 @@ func TestIAMSSMFieldAliasesAreRealRequestMembers(t *testing.T) {
 	assertAliasesAreRealFields(t, "ssm", iamSSMFieldAliases, loadSSMRequestMembers(t))
 }
 
-// iamDynamoDBDerivesItsResource runs the production derivation against a request
-// carrying every member the model declares for the operation.
-func iamDynamoDBDerivesItsResource(operation string, members map[string]bool) bool {
-	if len(iamActionResourceTypes["dynamodb:"+operation]) == 0 {
-		return false
-	}
-	body := make(map[string]string, len(members))
-	for name := range members {
-		body[name] = iamProbeMemberValue("dynamodb", name,
-			"arn:aws:dynamodb:us-east-1:"+iamProbeAccount+":table/probe")
-	}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return false
-	}
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(encoded)))
-	r.Header.Set("Content-Type", "application/x-amz-json-1.0")
-	return len(iamDerivedResourceARNs(r, "dynamodb", operation, "us-east-1", "123456789012")) > 0
-}
-
 // iamElastiCacheDerivesItsResource runs the production derivation against a
 // request carrying every parameter the model declares for the operation.
 func iamElastiCacheDerivesItsResource(operation string, params map[string]bool) bool {
@@ -1226,17 +1215,29 @@ func iamAWSJSONProbeRequestFor(
 	service, target, operation, arnValue string, members map[string]string, nested map[string][]string,
 ) *http.Request {
 	body := make(map[string]any, len(members))
+	element := func(name string) map[string]any {
+		object := make(map[string]any, len(nested[name]))
+		for _, inner := range nested[name] {
+			object[inner] = iamProbeMemberValue(service, inner, arnValue)
+		}
+		return object
+	}
 	for name, kind := range members {
 		value := iamProbeMemberValue(service, name, arnValue)
 		switch kind {
 		case "list":
 			body[name] = []string{value}
 		case "structure":
-			object := make(map[string]any, len(nested[name]))
-			for _, inner := range nested[name] {
-				object[inner] = iamProbeMemberValue(service, inner, arnValue)
-			}
-			body[name] = object
+			body[name] = element(name)
+		case "list-structure":
+			// One element, filled the way a client fills it: the identifier a
+			// batch is about sits inside the element, not beside it.
+			body[name] = []any{element(name)}
+		case "map":
+			// The key is the identifier — DynamoDB's RequestItems is keyed by
+			// table name — so it is filled the way any other member is, and
+			// the value carries the element's own members.
+			body[name] = map[string]any{value: element(name)}
 		default:
 			body[name] = value
 		}
@@ -1307,6 +1308,9 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 			Member struct {
 				Target string `json:"target"`
 			} `json:"member"`
+			Value struct {
+				Target string `json:"target"`
+			} `json:"value"`
 		} `json:"shapes"`
 	}
 	if err := json.NewDecoder(gz).Decode(&doc); err != nil {
@@ -1323,13 +1327,30 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 			if target, ok := doc.Shapes[member.Target]; ok {
 				switch target.Type {
 				case "list":
-					// Only a list of strings can carry an identifier a flat
-					// probe is able to supply.
-					if inner, ok := doc.Shapes[target.Member.Target]; ok && inner.Type == "string" {
-						kind = "list"
+					if inner, ok := doc.Shapes[target.Member.Target]; ok {
+						switch inner.Type {
+						case "string":
+							kind = "list"
+						case "structure":
+							// A list of structures is how a service spells a
+							// batch, and the identifier sits inside each
+							// element: Amazon ECS names the machine an
+							// attribute is set on under attributes[].targetId,
+							// and EventBridge names the bus each event goes to
+							// under entries[].EventBusName. A probe that sent a
+							// bare string there sent a body no client sends,
+							// and a derivation reading the real element
+							// measured as absent.
+							kind = "list-structure"
+						}
 					}
 				case "structure":
 					kind = "structure"
+				case "map":
+					// A map keyed by the resource: DynamoDB's RequestItems is
+					// keyed by table name, so the identifier is the key rather
+					// than anything under it.
+					kind = "map"
 				}
 			}
 			named[name] = kind
@@ -1727,7 +1748,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1916
+const iamDerivationCoverageFloor = 1920
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1764,7 +1785,12 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	rdsParameters := loadRDSRequestParameters(t)
 	ssmMembers := loadSSMRequestMembers(t)
 	elastiCacheParameters := loadElastiCacheRequestParameters(t)
-	dynamoDBMembers := loadDynamoDBRequestMembers(t)
+	// Amazon DynamoDB goes through the shared probe like every other awsJson
+	// service: its own flat one sent every member as a string, so RequestItems
+	// — a map keyed by table name — arrived as a bare string and the tables a
+	// batch names were nowhere in the body.
+	_, dynamoDBNested := loadRequestShapes(t, "dynamodb", memberWireName)
+	dynamoDBMembers := loadCasedRequestMembers(t, "dynamodb")
 	cloudTrailMembers := loadCloudTrailRequestMembers(t)
 	autoScalingParameters := loadRequestFields(t, "auto-scaling", memberWireName)
 	kmsMembers := loadKMSRequestMembers(t)
@@ -1832,7 +1858,10 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "elasticache":
 			derived = iamElastiCacheDerivesItsResource(o.name, elastiCacheParameters[o.name])
 		case "dynamodb":
-			derived = iamDynamoDBDerivesItsResource(o.name, dynamoDBMembers[o.name])
+			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
+				"DynamoDB_20120810", o.name,
+				probeARN("arn:aws:dynamodb:us-east-1:"+iamProbeAccount+":table/probe"),
+				dynamoDBMembers[o.name], dynamoDBNested[o.name]), "dynamodb:"+o.name)
 		case "cloudtrail":
 			derived = iamCloudTrailDerivesItsResource(o.name, cloudTrailMembers[o.name])
 		case "autoscaling":
