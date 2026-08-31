@@ -54,9 +54,17 @@ Open: 9. Resolved: 83.
   repository's own package registry is authenticated by the job's token and
   not subject to an anonymous cap.
 
-  Until one of those lands, any job that pulls a base image can fail for
-  reasons unrelated to the change under test, and a red run has to be read
-  before it is believed.
+  First half landed for the job that exposed it: `scripts/warm-base-images.sh`
+  loads the set from an `actions/cache` tarball and only fetches what the
+  tarball does not hold, and the Azure terraform suite's own puller now asks
+  `docker image inspect` before reaching for the network — without that, a
+  cached image still would not have helped it. The remaining work is the other
+  jobs: the AWS SDK shards pull the DynamoDB oracle and an alpine workload, the
+  Glue shard pulls `python:3.9`, and the ECS suites pull `busybox` for the pause
+  image. Each should go through the same script and cache key.
+
+  Until they do, any job that pulls a base image can fail for reasons unrelated
+  to the change under test, and a red run has to be read before it is believed.
 
 
 | ID | Sev | Area | Pattern | One-liner |
