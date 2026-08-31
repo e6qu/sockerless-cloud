@@ -915,26 +915,6 @@ func iamCloudTrailDerivesItsResource(operation string, members map[string]bool) 
 	return len(iamDerivedResourceARNs(r, "cloudtrail", operation, "us-east-1", "123456789012")) > 0
 }
 
-// iamEventBridgeDerivesItsResource runs the production derivation against a
-// request carrying every member the model declares for the operation.
-func iamEventBridgeDerivesItsResource(operation string, members map[string]bool) bool {
-	if len(iamActionResourceTypes["events:"+operation]) == 0 {
-		return false
-	}
-	body := make(map[string]string, len(members))
-	for name := range members {
-		body[name] = iamProbeMemberValue("events", name,
-			"arn:aws:events:us-east-1:"+iamProbeAccount+":event-bus/probe")
-	}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return false
-	}
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(encoded)))
-	r.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	return len(iamDerivedResourceARNs(r, "events", operation, "us-east-1", "123456789012")) > 0
-}
-
 func TestIAMSSMFieldAliasesAreRealRequestMembers(t *testing.T) {
 	assertAliasesAreRealFields(t, "ssm", iamSSMFieldAliases, loadSSMRequestMembers(t))
 }
@@ -1748,7 +1728,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1920
+const iamDerivationCoverageFloor = 1921
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1794,7 +1774,12 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	cloudTrailMembers := loadCloudTrailRequestMembers(t)
 	autoScalingParameters := loadRequestFields(t, "auto-scaling", memberWireName)
 	kmsMembers := loadKMSRequestMembers(t)
-	eventBridgeMembers := loadEventBridgeRequestMembers(t)
+	// Amazon EventBridge goes through the shared probe for the same reason
+	// Amazon DynamoDB does: PutEvents names the bus each event goes to under
+	// entries[].EventBusName, and a flat probe sending every member as a string
+	// put no bus in the body at all.
+	_, eventBridgeNested := loadRequestShapes(t, "eventbridge", memberWireName)
+	eventBridgeMembers := loadCasedRequestMembers(t, "eventbridge")
 	organizationsMembers := loadOrganizationsRequestShapes(t)
 	elbParameters := loadRequestFields(t, "elastic-load-balancing-v2", memberWireName)
 	acmMembers := loadRequestFields(t, "acm", memberWireName)
@@ -1869,7 +1854,10 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "kms":
 			derived = iamKMSDerivesItsResource(o.name, kmsMembers[o.name])
 		case "events":
-			derived = iamEventBridgeDerivesItsResource(o.name, eventBridgeMembers[o.name])
+			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
+				"AWSEvents", o.name,
+				probeARN("arn:aws:events:us-east-1:"+iamProbeAccount+":event-bus/probe"),
+				eventBridgeMembers[o.name], eventBridgeNested[o.name]), "events:"+o.name)
 		case "organizations":
 			derived = iamOrganizationsDerivesItsResource(o.name, organizationsMembers[o.name], organizationsIDs)
 		case "elasticloadbalancing":
