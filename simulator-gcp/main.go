@@ -121,6 +121,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerCloudRunJobs(srv)
 	registerCloudRunV1Jobs(srv)
 	registerCloudRun(srv)
+	registerCloudRunExport(srv)
 	registerCloudRunServicesV2(srv)
 	registerCloudRunWorkerPoolsV2(srv)
 	registerCloudRunInstancesV2(srv)

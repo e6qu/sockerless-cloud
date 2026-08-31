@@ -221,6 +221,12 @@ var gcpMountPrefixes = map[string]string{
 // document, plus the simulator's own control surface. Each entry MUST be
 // justified — never a place to hide an invented Google path.
 var allowedNonSpecGCPRoutes = map[string]string{
+	// Cloud Run's uploadSource has a media-upload spelling on its own absolute
+	// path, which the document declares as "/upload/v2/{+parent}:uploadSource".
+	// The colon sits on the parent's last segment, so the route that receives
+	// it ends at that segment and the declared path — colon and all — is what
+	// a client sends to it.
+	"POST /upload/v2/projects/{project}/locations/{location}": "Cloud Run uploadSource, media-upload spelling",
 	// Compute Engine describes an image's family lookup and its IAM policy
 	// read as two methods — "images/family/{family}" and
 	// "images/{resource}/getIamPolicy" — that are one shape to a path router,

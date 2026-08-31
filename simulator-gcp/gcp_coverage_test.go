@@ -223,7 +223,7 @@ var gcpMethodFloor = map[string]int{
 	// exportImageMetadata, exportMetadata, exportProjectMetadata and the two
 	// exportStatus spellings) reports Google's own image-export pipeline, which
 	// this simulator does not run — there is no export whose status to report.
-	"cloudrun-v2": 104,
+	"cloudrun-v2": 119,
 
 	// BigQuery v2: the whole document is served. jobs.insert declares both a
 	// JSON path and the /upload media path that carries a load job's bytes;

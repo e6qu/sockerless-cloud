@@ -526,6 +526,11 @@ func handleLoggingGetLocation(w http.ResponseWriter, r *http.Request) {
 	// A colon in the segment makes this a custom method on the location, not a
 	// location id — Cloud Run spells exportProjectMetadata that way.
 	if name, verb, found := strings.Cut(loc, ":"); found {
+		// Cloud Run's location-level exports share this URI shape, so they are
+		// offered the fan-in before the verb is called unknown.
+		if cloudRunLocationExportHandled(w, r, loggingScopeParent(r)+"/locations/"+name, verb) {
+			return
+		}
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"unknown verb %q on location %q", verb, name)
 		return

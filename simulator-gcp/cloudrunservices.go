@@ -683,6 +683,10 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 					fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, id), action)
 				return
 			}
+			if cloudRunLocationExportHandled(w, r,
+				fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, id), action) {
+				return
+			}
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on service %q", action, id)
 			return
 		}
@@ -893,6 +897,9 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		case "setIamPolicy", "testIamPermissions":
 			handleResourceIAM(w, r, gcpResourceIAMStore(),
 				fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, id), action)
+		case "exportImage":
+			cloudRunExportImage(w, r,
+				fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, id))
 		default:
 			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on service %q", action, id)
 		}
