@@ -6,8 +6,8 @@ The three slices were carried toward their declared totals one document at a
 time, and the numbers are the record: Google Cloud 5,363 → 5,440 of 5,480
 Discovery method spellings, with `compute-v1` at 1,976 of 2,016 and
 `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1` and
-`redis-v1` each complete; Azure 2,521 → 2,566 of 2,628 Swagger operations, with
-App Service at 661 of 692.
+`redis-v1` each complete; Azure 2,521 → 2,568 of 2,628 Swagger operations, with
+App Service at 663 of 692 and no silent gap left in that document.
 
 Two of the pass's own instruments were wrong and were corrected before the work
 they measured. The Google Cloud coverage probe rendered a greedy
@@ -37,6 +37,25 @@ own. The six ResourceHealthMetadata spellings beside it declare a 501: the
 operation defines its category as the one the resource matches in Microsoft's
 Resource Health Check policy file, and matching a site against a policy this
 project does not vendor would be fabrication.
+
+A site's performance counters went in from the same source the instance
+statistics and the diagnostics samples already read: the container engine's
+own resource-usage reading for the workload behind the site. A site with
+nothing running is measuring nothing and reports no counters, rather than a set
+of zeroes that would claim a measurement was taken. The generated client caught
+the shape on the first run — a `PerfMonResponse` carries a single `PerfMonSet`,
+not a list of them.
+
+That closed the last silent gap in App Service. All 29 operations the document
+still declares unserved now answer a 501 naming what is missing: Microsoft's
+runtime-stack catalogue and its Resource Health Check policy file, the App
+Service Environment metric series and outbound-endpoint catalogue, the
+recommendation rule details, the effective php.ini of a PHP worker that does
+not run here, the in-app MySQL and content-share migrations there is nothing to
+migrate for, and the process dumps that would have to come from `/proc` inside
+the container. Ten of them used to miss the router outright and answer a bare
+404, which reads as "no such API" rather than "this API exists and its data is
+not vendored".
 
 Four Compute Engine verbs recorded a machine state without moving the machine,
 and all four now move it. `instances.startWithEncryptionKey` set `RUNNING` in

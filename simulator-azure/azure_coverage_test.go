@@ -409,7 +409,27 @@ var azureMethodFloor = map[string]int{
 	// a policy this project does not vendor would be fabrication, and the
 	// spelling that used to reach Azure Resource Manager's generic gap now names
 	// the missing policy instead.
-	"web-arm-openapi-2025-03-01": 661,
+	//
+	// Raised from 661 by WebApps_ListPerfMonCounters and its slot spelling. A
+	// site's counters are what the site is using, and the site's workload
+	// container is what is using it, so each counter carries the container
+	// engine's own reading — the same source the instance statistics and the
+	// diagnostics samples come from. A site with nothing running is measuring
+	// nothing and reports no counters, rather than a set of zeroes that would
+	// claim a measurement was taken.
+	//
+	// With that, no App Service operation is a silent gap any more: all 29 that
+	// remain answer a declared 501 naming what is missing. Beside the catalogs
+	// and metric series already listed, those are phplogging (the effective
+	// php.ini of a PHP worker that does not run here, whose master values are
+	// the platform image's own defaults), migrate and migratemysql (there is no
+	// in-app MySQL database and no content share to move), and the four process
+	// dump spellings (written from /proc inside the container, which the
+	// engine's HTTP API does not expose — the limit that already stops the
+	// module reads). The six Provider_*Stacks spellings used to miss the router
+	// outright and answer a bare 404, which reads as "no such API" rather than
+	// "this API exists and its data is not vendored"; they declare it now.
+	"web-arm-openapi-2025-03-01": 663,
 }
 
 // Route table

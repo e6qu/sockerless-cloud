@@ -71,6 +71,13 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	require.Empty(t, listWebProcesses(t, client, rg, site),
 		"a site with no running container must report no processes")
 
+	// The performance counters are the same reading, so a site using nothing
+	// reports no counters rather than a set of zeroes that would claim a
+	// measurement was taken.
+	idle, err := client.NewListPerfMonCountersPager(rg, site, nil).NextPage(ctx)
+	require.NoError(t, err)
+	require.Empty(t, idle.Value, "a site with no running container is measuring nothing")
+
 	// Start the site container by invoking the app, exactly as a request to
 	// the site does.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/function", strings.NewReader("{}"))
@@ -82,6 +89,25 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "invoking the site must start its container: %s", body)
+
+	// The counters now report the container engine's own reading for the
+	// workload, named after the container producing it — the same source the
+	// instance statistics come from, so the memory limit is a real cgroup
+	// limit rather than a figure this simulator chose.
+	counters, err := client.NewListPerfMonCountersPager(rg, site, nil).NextPage(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, counters.Value, "a running workload produces counters")
+	byName := map[string]float64{}
+	for _, response := range counters.Value {
+		require.NotNil(t, response.Data)
+		set := response.Data
+		require.NotEmpty(t, set.Values, "%s carries the sample it was read from", *set.Name)
+		require.NotEmpty(t, *set.Values[0].InstanceName, "the sample names the container it came from")
+		byName[*set.Name] = *set.Values[0].Value
+	}
+	require.Contains(t, byName, "memoryLimit")
+	assert.Positive(t, byName["memoryLimit"], "the memory limit is the container's real cgroup limit")
+	require.Contains(t, byName, "cpuUsage")
 
 	instances := listWebInstances(t, client, rg, site)
 	require.Len(t, instances, 1, "one running workload container is one site instance")

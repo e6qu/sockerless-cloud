@@ -142,3 +142,73 @@ func TestSDK_ResourceHealthMetadata_DeclaresTheMissingPolicy(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Resource Health Check policy file")
 }
+
+// The platform reads App Service offers that this simulator has no primitive
+// behind each declare what is missing, rather than missing the router and
+// answering a bare 404 that reads as "no such API".
+func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
+	rg, name := "sdk-webgap-rg", "sdk-webgap-app"
+	ensureRG(t, rg)
+
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	_, err = client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
+		Location: to.Ptr("eastus"),
+	}, nil)
+	require.NoError(t, err)
+
+	// PHP error logging reads the worker's effective php.ini, and no PHP worker
+	// runs here.
+	_, err = client.GetSitePhpErrorLogFlag(ctx, rg, name, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no PHP worker runs here")
+
+	// The migrations move an in-app MySQL database and a content share the
+	// simulator does not host.
+	_, err = client.GetMigrateMySQLStatus(ctx, rg, name, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no in-app MySQL database")
+
+	// A dump is written from /proc inside the container, which the engine's
+	// HTTP API does not expose.
+	_, err = client.GetProcessDump(ctx, rg, name, "1", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inside the container, which the container engine")
+
+	// The runtime-stack catalogue is Microsoft's published list of platform
+	// images and their support lifecycle. Every spelling of it says so — the
+	// tenant-wide reads, the per-location reads, and the subscription-scoped
+	// one — so none of them is left answering a bare routing 404.
+	provider, err := armappservice.NewProviderClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+
+	// GET /providers/Microsoft.Web/availableStacks
+	_, err = provider.NewGetAvailableStacksPager(nil).NextPage(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "App Service platform images")
+
+	// GET /providers/Microsoft.Web/webAppStacks
+	_, err = provider.NewGetWebAppStacksPager(nil).NextPage(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "App Service platform images")
+
+	// GET /providers/Microsoft.Web/functionAppStacks
+	_, err = provider.NewGetFunctionAppStacksPager(nil).NextPage(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "App Service platform images")
+
+	// GET /providers/Microsoft.Web/locations/{location}/webAppStacks
+	_, err = provider.NewGetWebAppStacksForLocationPager("eastus", nil).NextPage(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "App Service platform images")
+
+	// GET /providers/Microsoft.Web/locations/{location}/functionAppStacks
+	_, err = provider.NewGetFunctionAppStacksForLocationPager("eastus", nil).NextPage(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "App Service platform images")
+
+	// GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/availableStacks
+	_, err = provider.NewGetAvailableStacksOnPremPager(nil).NextPage(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "App Service platform images")
+}

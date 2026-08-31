@@ -161,6 +161,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	registerWebEnvironments(srv)
 	registerWebRecommendations(srv)
 	registerWebCloneability(srv)
+	registerWebStackCatalogs(srv)
 	registerWebHybridConnections(srv)
 	registerWebPrivateAccess(srv)
 	registerWebSitePrivateEndpoints(srv)

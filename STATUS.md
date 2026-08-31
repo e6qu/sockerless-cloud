@@ -97,16 +97,18 @@ Current state of the sockerless-cloud repository.
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
   revision 20260814, whose declared total fell from 130 when Google withdrew
   the `gitLabConfigs` collection; `cloudrun-v1` 152 of 152;
-  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **661 of 692** (App
+  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **663 of 692** (App
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family, App Service
   Environments, diagnostics, backup and restore, processes, network traces and
-  recommendations, and whether an app can be cloned);
+  recommendations, whether an app can be cloned, and the site's performance
+  counters — and with no silent gap left in that document, every one of its 29
+  unserved operations declaring what is missing);
   `containerregistry-dataplane-containerregistry-2021-07-01` 24 of 29;
   `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **5,440 of 5,480**
   Discovery method spellings (`compute-v1` **1,976 of 2,016**, with
   `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1`
-  and `redis-v1` each complete); Azure **2,566 of 2,628** operations; the AWS
+  and `redis-v1` each complete); Azure **2,568 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint
   operations. VPC networks allocate bridge subnets from a host-side pool with
