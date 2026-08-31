@@ -1072,6 +1072,13 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	if service == "iam" && lower == "url" {
 		return "https://oidc.probe.example/provider"
 	}
+	// A CodeBuild report is named by its own ARN, and the group it belongs to
+	// is the segment inside it — so a project-shaped ARN there would name no
+	// group, and the probe sends a report-shaped one.
+	if service == "codebuild" && (lower == "reportarn" || lower == "reportarns") {
+		return "arn:aws:codebuild:us-east-1:" + iamProbeAccount +
+			":report/probe:11111111-2222-3333-4444-555555555555"
+	}
 	if service == "codebuild" && (lower == "id" || lower == "ids") {
 		return "probe:11111111-2222-3333-4444-555555555555"
 	}
@@ -1567,7 +1574,16 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // ARN under members that do not end in "arn" — ResourceName for the tagging
 // operations, ResourceIdentifier for the maintenance ones. The reader takes
 // both as the ARN they are; the probe was sending neither.
-const iamDerivationCoverageFloor = 1852
+//
+// Raised to 1861 by AWS CodeBuild, in two shapes. A resource named by its own
+// ARN needs no assembly, and CodeBuild spells that member "arn" on the fleet
+// and report-group deletes and "projectArn" where a project is meant — the
+// reader knew neither. A report is different: it belongs to a group and
+// CodeBuild authorizes the group, so the group is read out of the report
+// identifier, which ends "report/<groupName>:<reportId>".
+// TestIAMResourceARNs_CodeBuildNamesItsParent pins both, and pins that a
+// reference in neither shape names no group.
+const iamDerivationCoverageFloor = 1861
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

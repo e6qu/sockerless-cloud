@@ -1796,3 +1796,42 @@ func TestIAMResourceARNs_DataQualityRunNamesItsRuleset(t *testing.T) {
 			"glue:GetDataQualityRulesetEvaluationRun", "*")
 	})
 }
+
+// TestIAMResourceARNs_CodeBuildNamesItsParent pins the two ways an AWS
+// CodeBuild request identifies what it is about.
+//
+// A resource named by its own ARN needs no assembly, and CodeBuild spells that
+// member "arn" on the fleet and report-group deletes and "projectArn" where a
+// project is meant. A report is different: it belongs to a group, and CodeBuild
+// authorizes the group, so the group is read out of the report's identifier.
+func TestIAMResourceARNs_CodeBuildNamesItsParent(t *testing.T) {
+	const cb = "arn:aws:codebuild:us-east-1:123456789012:"
+
+	t.Run("a fleet delete names the fleet by ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CodeBuild_20161006.DeleteFleet",
+				`{"arn":"`+cb+`fleet/builders:0123"}`),
+			"codebuild:DeleteFleet", cb+"fleet/builders:0123")
+	})
+
+	t.Run("a report group delete names the group by ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CodeBuild_20161006.DeleteReportGroup",
+				`{"arn":"`+cb+`report-group/nightly"}`),
+			"codebuild:DeleteReportGroup", cb+"report-group/nightly")
+	})
+
+	t.Run("a report names the group it belongs to, not itself", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CodeBuild_20161006.DescribeTestCases",
+				`{"reportArn":"`+cb+`report/nightly:abcd-1234"}`),
+			"codebuild:DescribeTestCases", cb+"report-group/nightly")
+	})
+
+	t.Run("a reference in neither shape names no group", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CodeBuild_20161006.DescribeTestCases",
+				`{"reportArn":"not-a-report-reference"}`),
+			"codebuild:DescribeTestCases", "*")
+	})
+}

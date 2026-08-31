@@ -2415,11 +2415,47 @@ func iamCodeBuildResourceARNs(r *http.Request, types []string, arn func(svc, res
 	if iamHasType(types, "report-group") {
 		addNamed("report-group/",
 			iamNamesFrom(r, []string{"reportGroupArn", "name"}, []string{"reportGroupArns"}))
+		// A report belongs to a group, and AWS CodeBuild authorizes the group:
+		// a report ARN ends "report/<groupName>:<reportId>", so the group is
+		// the segment the report id follows.
+		for _, ref := range iamNamesFrom(r, []string{"reportArn"}, []string{"reportArns"}) {
+			if group := iamCodeBuildReportGroupName(ref); group != "" {
+				addNamed("report-group/", []string{group})
+			}
+		}
 	}
 	if iamHasType(types, "fleet") {
 		addNamed("fleet/", iamNamesFrom(r, []string{"name"}, []string{"names"}))
 	}
+	// A resource the request names by its own ARN needs no assembly, whatever
+	// type it is: CodeBuild spells that member "arn" on the fleet and
+	// report-group deletes, and "projectArn" where a project is meant.
+	for _, named := range iamNamesFrom(r, []string{"arn", "projectArn"}, []string{"arns"}) {
+		if strings.HasPrefix(named, "arn:") {
+			out = append(out, named)
+		}
+	}
 	return out
+}
+
+// iamCodeBuildReportGroupName is the report group a report belongs to, read off
+// the report's own identifier. AWS CodeBuild spells a report
+// "<groupName>:<reportId>", and its ARN puts that under "report/", so both
+// spellings name the same group. A reference in neither shape names no group,
+// and guessing one would authorize against a group the request never mentioned.
+func iamCodeBuildReportGroupName(ref string) string {
+	if strings.HasPrefix(ref, "arn:") {
+		_, tail, found := strings.Cut(ref, ":report/")
+		if !found {
+			return ""
+		}
+		ref = tail
+	}
+	group, _, found := strings.Cut(ref, ":")
+	if !found {
+		return ""
+	}
+	return group
 }
 
 // iamWAFv2ResourceARNs derives the ARNs an AWS WAFv2 request names. WAFv2 is
