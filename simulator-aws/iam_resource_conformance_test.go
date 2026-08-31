@@ -1085,6 +1085,12 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	if service == "ec2" && lower == "resourceid" {
 		return "i-0123456789abcdef0"
 	}
+	// A Systems Manager instance identifier is an Amazon EC2 instance id or a
+	// managed-instance id, and the prefix is what tells the two apart — a
+	// placeholder names neither.
+	if service == "ssm" && (lower == "instanceid" || lower == "instanceids") {
+		return "i-0123456789abcdef0"
+	}
 	if service == "ssm" && lower == "resourcetype" {
 		// Any real member of the enum will do: the test pins all ten, and what
 		// matters here is that the probe names one the service declares rather
@@ -1583,7 +1589,15 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // identifier, which ends "report/<groupName>:<reportId>".
 // TestIAMResourceARNs_CodeBuildNamesItsParent pins both, and pins that a
 // reference in neither shape names no group.
-const iamDerivationCoverageFloor = 1861
+//
+// Raised to 1865 by the instance-scoped Systems Manager reads, which declare
+// both instance types and let the identifier say which: Amazon EC2 assigns
+// "i-", Systems Manager assigns "mi-" to a machine registered with it, and
+// the two live in different services' ARNs.
+// TestIAMResourceARNs_SSMInstanceIdPicksItsService pins each prefix and pins
+// that an identifier with neither names no machine — filling both types would
+// authorize against a machine the request never mentioned.
+const iamDerivationCoverageFloor = 1865
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

@@ -1835,3 +1835,36 @@ func TestIAMResourceARNs_CodeBuildNamesItsParent(t *testing.T) {
 			"codebuild:DescribeTestCases", "*")
 	})
 }
+
+// TestIAMResourceARNs_SSMInstanceIdPicksItsService pins how an instance-scoped
+// Systems Manager read decides which of the two instance types it is about.
+//
+// The identifier says it. Amazon EC2 assigns "i-", Systems Manager assigns
+// "mi-" to a machine registered with it, and the two live in different
+// services' ARNs — an EC2 instance is arn:aws:ec2:...:instance/i-…, a managed
+// instance is arn:aws:ssm:...:managed-instance/mi-…. Deriving both would
+// authorize against a machine the request never named.
+func TestIAMResourceARNs_SSMInstanceIdPicksItsService(t *testing.T) {
+	t.Run("an EC2 instance id names an EC2 instance", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.DescribeInstancePatches",
+				`{"InstanceId":"i-0123456789abcdef0"}`),
+			"ssm:DescribeInstancePatches",
+			"arn:aws:ec2:us-east-1:123456789012:instance/i-0123456789abcdef0")
+	})
+
+	t.Run("a managed instance id names a managed instance", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.DescribeInstancePatches",
+				`{"InstanceId":"mi-0123456789abcdef0"}`),
+			"ssm:DescribeInstancePatches",
+			"arn:aws:ssm:us-east-1:123456789012:managed-instance/mi-0123456789abcdef0")
+	})
+
+	t.Run("an identifier with neither prefix names no machine", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.DescribeInstancePatches",
+				`{"InstanceId":"whatever"}`),
+			"ssm:DescribeInstancePatches", "*")
+	})
+}

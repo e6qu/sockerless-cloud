@@ -1917,6 +1917,16 @@ func iamSSMResourceARNs(r *http.Request, types []string, region, account string)
 	if arns := iamSSMTaggedResourceARNs(fields, region, account); len(arns) > 0 {
 		return arns
 	}
+	// An instance-scoped read declares both instance types, and the identifier
+	// says which: Amazon EC2 assigns "i-", Systems Manager assigns "mi-" to a
+	// machine registered with it, and their ARNs are in different services.
+	// Filling both would authorize against a managed instance the request never
+	// mentioned, and filling neither leaves the read unscoped.
+	if iamHasType(types, "instance") || iamHasType(types, "managed-instance") {
+		if arns := iamSSMInstanceARNs(fields, region, account); len(arns) > 0 {
+			return arns
+		}
+	}
 	return iamTableDrivenARNs("ssm", types, region, account, iamSSMFieldAliases,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
@@ -2546,6 +2556,32 @@ func iamGlueDataQualityRulesetARNs(fields map[string][]string, region, account s
 		if glueDQResults != nil {
 			if result, ok := glueDQResults.Get(id); ok {
 				add(result.RulesetName)
+			}
+		}
+	}
+	return out
+}
+
+// iamSSMInstanceARNs derives the machines an instance-scoped Systems Manager
+// read is about, from the identifiers it names. An identifier with neither
+// prefix names no machine this can build an ARN for.
+func iamSSMInstanceARNs(fields map[string][]string, region, account string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	add := func(arn string) {
+		if _, dup := seen[arn]; dup {
+			return
+		}
+		seen[arn] = struct{}{}
+		out = append(out, arn)
+	}
+	for _, member := range []string{"instanceid", "instanceids", "target"} {
+		for _, id := range fields[member] {
+			switch {
+			case strings.HasPrefix(id, "i-"):
+				add("arn:aws:ec2:" + region + ":" + account + ":instance/" + id)
+			case strings.HasPrefix(id, "mi-"):
+				add("arn:aws:ssm:" + region + ":" + account + ":managed-instance/" + id)
 			}
 		}
 	}
