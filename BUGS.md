@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 8. Resolved: 83.
+Open: 9. Resolved: 83.
 
 ## Open
 
@@ -33,6 +33,31 @@ Open: 8. Resolved: 83.
   than keeping two stores in step — a sync would be the same divergence with
   more code. Run the whole storage SDK and CLI suite behind it, since both
   spellings are already asserted in places.
+- **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
+  Three jobs failed on 2026-08-31 for the same reason, across two registries:
+  `tf (aws)` could not pull `public.ecr.aws/docker/library/busybox` for the
+  Amazon ECS pause image, `sim (aws cli glue-iam)` timed out downloading
+  `public.ecr.aws/docker/library/python:3.9` inside a job-run budget, and
+  `tf (azure subscription)` exhausted four retries on `alpine` with
+  "toomanyrequests: Data limit exceeded". Retry-with-backoff is already in
+  place in the Azure terraform suite and did not help — the limit is a data
+  cap on the runner's anonymous pulls, not a transient blip, so waiting inside
+  one job does not recover it and neither does moving between Docker Hub and
+  the ECR Public Gallery, which are both throttling the same runners.
+
+  The affected images are few and stable: `alpine`, `busybox`,
+  `python:3.9`, and the Lambda runtime images. Fix shape: stop fetching them
+  per job. Either cache a `docker save` tarball of the set with `actions/cache`
+  keyed on the image list, restoring it before any suite runs, or mirror the
+  set into this repository's own GHCR namespace on a schedule and pull from
+  there. The second is more work and more robust — a GHCR pull from the
+  repository's own package registry is authenticated by the job's token and
+  not subject to an anonymous cap.
+
+  Until one of those lands, any job that pulls a base image can fail for
+  reasons unrelated to the change under test, and a red run has to be read
+  before it is believed.
+
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
