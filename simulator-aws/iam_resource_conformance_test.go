@@ -897,12 +897,8 @@ func iamCloudTrailDerivesItsResource(operation string, members map[string]bool) 
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		switch strings.ToLower(name) {
-		case "resourceid", "resourceidlist":
-			body[name] = "arn:aws:cloudtrail:us-east-1:123456789012:trail/probe"
-		default:
-			body[name] = "probe"
-		}
+		body[name] = iamProbeMemberValue("cloudtrail", name,
+			"arn:aws:cloudtrail:us-east-1:"+iamProbeAccount+":trail/probe")
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -1057,6 +1053,11 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	// it, because that is the resource CodeBuild authorizes against. An id with
 	// no colon names no parent, so a placeholder leaves the whole batch family
 	// measuring as underived while the reader resolves every one of them.
+	// AWS CloudTrail names a trail by its ARN under members that do not end in
+	// "arn": ResourceId and ResourceIdList carry one.
+	if service == "cloudtrail" && (lower == "resourceid" || lower == "resourceidlist") {
+		return arnValue
+	}
 	// A virtual MFA device's serial number is its ARN — that is the identifier
 	// IAM assigns and the only one a client has to send — so a placeholder
 	// there leaves the derivation nothing to name the device with.
@@ -1528,7 +1529,13 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // yet — but does name the cluster and service the set will belong to, and
 // those bound the wildcard. TestIAMResourceARNs_CreateTaskSetScopesToItsService
 // pins that another service's task sets stay out of scope.
-const iamDerivationCoverageFloor = 1823
+//
+// Raised to 1826 by a ninth copy of the fill rule, this one AWS CloudTrail's,
+// with its own inline switch that knew ResourceId carries an ARN and did not
+// know ResourceArn does — which is the member the three resource-policy
+// operations name their target with. Routed through the single rule, with the
+// CloudTrail-specific members it did know moved into it.
+const iamDerivationCoverageFloor = 1826
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
