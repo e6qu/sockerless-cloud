@@ -31,6 +31,17 @@ func iamCreateWildcardARNs(service, op string, types []string, region, account s
 	// parent and not one of its inputs: CreateStateMachineAlias declares
 	// "statemachine", and a wildcard over every state machine is not what
 	// creating one alias authorizes against.
+	// A handful of creates mint a type whose name their own name never says.
+	// Each is listed rather than inferred: a rule loose enough to pair
+	// "PurchaseCapacityBlock" with "capacity-reservation" pairs plenty of
+	// things that are not the same, and the guard against widening a create to
+	// its parent is the one thing here that must not be weakened. Every entry
+	// declares exactly one resource type, and that type is what the operation
+	// brings into existence.
+	if len(types) == 1 && iamCreatesItsOnlyDeclaredType[op] {
+		return iamTypeWildcardARN(service, types[0], region, account)
+	}
+
 	var created string
 	for _, candidate := range types {
 		if !iamCreatedTypeMatchesOperation(op, candidate) {
@@ -44,7 +55,27 @@ func iamCreateWildcardARNs(service, op string, types []string, region, account s
 	if created == "" {
 		return nil
 	}
-	format, declared := iamResourceARNFormats[service+":"+created]
+	return iamTypeWildcardARN(service, created, region, account)
+}
+
+// iamCreatesItsOnlyDeclaredType are the creates whose single declared resource
+// type is the thing they mint, where nothing in the operation's own name says
+// so. Reviewed one at a time against the service's documentation.
+var iamCreatesItsOnlyDeclaredType = map[string]bool{
+	// Mints the public IPv4 pool that "ipv4pool-ec2" names.
+	"CreatePublicIpv4Pool": true,
+	// Restores an AMI from an S3 object; the image is what comes into being.
+	"CreateRestoreImageTask": true,
+	// A Connect is one kind of transit gateway attachment, which is the type.
+	"CreateTransitGatewayConnect": true,
+	// Buying a capacity block creates the capacity reservation that holds it.
+	"PurchaseCapacityBlock": true,
+}
+
+// iamTypeWildcardARN builds the ARN AWS evaluates a create against: the type,
+// with the identifier the service has not assigned yet left as the wildcard.
+func iamTypeWildcardARN(service, resourceType, region, account string) []string {
+	format, declared := iamResourceARNFormats[service+":"+resourceType]
 	if !declared {
 		return nil
 	}

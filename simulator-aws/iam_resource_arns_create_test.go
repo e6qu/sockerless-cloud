@@ -29,9 +29,11 @@ func TestIAMCreateWildcard_OneMatchingTypeResolvesTheRest(t *testing.T) {
 	}
 
 	// An input the request names is never the created resource, so a create
-	// whose own type is undeclared derives nothing rather than seize one.
-	if got := iamCreateWildcardARNs("ec2", "CreateTransitGatewayConnect",
-		[]string{"transit-gateway-attachment"}, region, account); got != nil {
+	// whose own type its name never says derives nothing rather than seize
+	// one — unless it has been reviewed onto the list that says which type it
+	// mints, which CreateVpcEndpointServiceConfiguration has not.
+	if got := iamCreateWildcardARNs("ec2", "CreateVpcEndpointServiceConfiguration",
+		[]string{"vpc-endpoint-service"}, region, account); got != nil {
 		t.Errorf("a create naming no declared type of its own derived %v, want nothing", got)
 	}
 
@@ -105,5 +107,37 @@ func TestIAMCamelWords_KeepsAnAcronymWhole(t *testing.T) {
 		if got := iamCamelWords(tc.op); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("iamCamelWords(%q) = %v, want %v", tc.op, got, tc.want)
 		}
+	}
+}
+
+// A few creates mint a type whose name their own name never says, and each is
+// listed rather than inferred.
+func TestIAMCreateWildcard_AReviewedCreateNamesWhatItMints(t *testing.T) {
+	const region, account = "us-east-1", "123456789012"
+
+	for op, want := range map[string]string{
+		"CreatePublicIpv4Pool":        "arn:aws:ec2:us-east-1:123456789012:ipv4pool-ec2/*",
+		"CreateTransitGatewayConnect": "arn:aws:ec2:us-east-1:123456789012:transit-gateway-attachment/*",
+		"PurchaseCapacityBlock":       "arn:aws:ec2:us-east-1:123456789012:capacity-reservation/*",
+	} {
+		types := iamActionResourceTypes["ec2:"+op]
+		if len(types) != 1 {
+			t.Fatalf("%s declares %v; the reviewed list is only sound for a single declared type", op, types)
+		}
+		got := iamCreateWildcardARNs("ec2", op, types, region, account)
+		if !reflect.DeepEqual(got, []string{want}) {
+			t.Errorf("%s derived %v, want [%s]", op, got, want)
+		}
+	}
+
+	// The list does not license a create to widen to its parent, and does not
+	// reach an operation that is not on it.
+	if got := iamCreateWildcardARNs("states", "CreateStateMachineAlias",
+		[]string{"statemachine"}, region, account); got != nil {
+		t.Errorf("a create widening to its parent derived %v, want nothing", got)
+	}
+	if got := iamCreateWildcardARNs("ec2", "CreateVpcEndpointServiceConfiguration",
+		[]string{"vpc-endpoint-service"}, region, account); got != nil {
+		t.Errorf("an unreviewed create derived %v, want nothing", got)
 	}
 }

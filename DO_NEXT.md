@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,940 of 1,994 on 2026-09-01.
+   is not.** 1,944 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -84,7 +84,7 @@
    measurement class was safe to fix in bulk for exactly that reason. What is
    left is reader work and is not.
 
-   The 54 that remain are three shapes, and only the first is ordinary work:
+   The 50 that remain are three shapes, and only the first is ordinary work:
 
    - **A resource named by a create whose type the operation does not name.**
      `ec2:CreatePublicIpv4Pool` mints an `ipv4pool-ec2` and
@@ -105,26 +105,33 @@
      widening has to distinguish "this request names no instance" from "this
      reader did not find the instance".
 
-     That distinction is decidable, not a judgement call: an action names no
-     instance when its request declares no member that could fill any
-     identifier variable of any declared type's published ARN format. All three
-     inputs are already here — the Smithy model's request members, the format
-     strings in `iamResourceARNFormats`, and the per-service alias tables that
-     say `HostIdSet` fills `DedicatedHostId`. What is missing is somewhere to
-     put the answer: the simulator does not read Smithy models at runtime, so
-     it has to arrive as a generated table, and the generator has to see the
-     alias tables, which are Go. So it wants a `go:generate` program in the
-     package rather than another shell script beside
-     `gen-aws-iam-resource-types.sh`, with a test that recomputes the set and
-     fails on drift — the ratchet `TestIAMResourceTypesTableMatchesTheVendoredReference`
-     already uses for the types table.
+     Do not try to decide it by inspecting member names. That was built and
+     measured on 2026-09-01: read the request members out of the Smithy models
+     and call an action "names no instance" when none of them shares a word
+     with the type or with an identifier its ARN format declares. Tightened
+     three times — a bare `Name` always counts, a word inside a run-together
+     type name counts, any member ending in an identifier suffix counts — it
+     still produced dangerous false positives of four distinct kinds, each of
+     which would have widened a real grant:
 
-     Build it that way and the safety property holds by construction: an action
-     whose model *does* declare such a member is never widened, so a reader
-     that failed to find the identifier still derives `"*"` and shows up as a
-     miss rather than as a grant. It is a change to authorization outcomes
-     across services, so run the whole AWS SDK suite behind it and measure
-     coverage before and after.
+     - a resource named indirectly by a value whose member name says nothing
+       about it (`ec2:AcceptAddressTransfer` carries an `Address`,
+       `iam:ListMFADeviceTags` a `SerialNumber`);
+     - the caller as the resource (`iam:ChangePassword` — widening it would
+       have authorized changing any user's password);
+     - an identifier in a map's keys (`dynamodb:BatchWriteItem` names its
+       tables there, which a member-name check cannot see);
+     - an identifier that resolves to the resource through the simulator's own
+       state (`ec2:DisassociateSubnetCidrBlock`'s `AssociationId`).
+
+     Against two operations it would legitimately have gained, that is a bad
+     trade, and the heuristic was discarded rather than shipped. The class
+     needs per-action review, not inference — which is what
+     `iamCreatesItsOnlyDeclaredType` is: four creates, each read against the
+     service's documentation, safe because a create has no instance to
+     over-grant against. Extend the same way, an entry at a time, and only
+     where the reviewer can say what the operation is about.
+
    - **A resource found only by looking it up.** AWS Glue's data-quality
      family resolves its ruleset through the run record; `iam:GetAccessKeyLastUsed`
      finds the user who owns a key; Amazon EC2's Disassociate and Detach family
