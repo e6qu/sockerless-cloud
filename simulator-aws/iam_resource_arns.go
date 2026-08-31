@@ -2067,6 +2067,15 @@ func iamElastiCacheResourceARNs(r *http.Request, op string, types []string, regi
 	params := iamQueryRequestParameters(r)
 	lookup := func(field string) []string { return params[strings.ToLower(field)] }
 
+	// The tagging operations name their target by ARN, spelled ResourceName the
+	// way every query-protocol database service spells it. The ARN says which
+	// of the fourteen types the action declares it is, so there is nothing to
+	// assemble and nothing to choose.
+	for _, value := range lookup("ResourceName") {
+		if strings.HasPrefix(value, "arn:") {
+			return []string{value}
+		}
+	}
 	// A copy authorizes both of its ends, and the target's ARN is fully
 	// determined by the name the request supplies before the snapshot
 	// exists — the same argument that derives the Amazon RDS copies.

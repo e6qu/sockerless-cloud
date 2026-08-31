@@ -875,7 +875,9 @@ func iamAutoScalingDerivesItsResource(operation string, params map[string]bool) 
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
-		form += "&" + name + "=probe"
+		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("autoscaling", name,
+			"arn:aws:autoscaling:us-east-1:"+iamProbeAccount+
+				":autoScalingGroup:0123:autoScalingGroupName/probe"))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -959,7 +961,8 @@ func iamElastiCacheDerivesItsResource(operation string, params map[string]bool) 
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
-		form += "&" + name + "=probe"
+		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("elasticache", name,
+			"arn:aws:elasticache:us-east-1:"+iamProbeAccount+":cluster:probe"))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1050,11 +1053,12 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	// it, because that is the resource CodeBuild authorizes against. An id with
 	// no colon names no parent, so a placeholder leaves the whole batch family
 	// measuring as underived while the reader resolves every one of them.
-	// Amazon RDS names the resource an action is about by ARN under members
-	// that do not end in "arn": the tagging operations send ResourceName and
-	// the maintenance ones send ResourceIdentifier, both of which the reader
-	// takes as the ARN they are.
-	if service == "rds" && (lower == "resourcename" || lower == "resourceidentifier") {
+	// The query-protocol database services name the resource an action is about
+	// by ARN under members that do not end in "arn": the tagging operations
+	// send ResourceName and Amazon RDS' maintenance ones send
+	// ResourceIdentifier, both of which their readers take as the ARN they are.
+	if (service == "rds" || service == "elasticache") &&
+		(lower == "resourcename" || lower == "resourceidentifier") {
 		return arnValue
 	}
 	// AWS CloudTrail names a trail by its ARN under members that do not end in
@@ -1613,7 +1617,14 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // key was created for, which the probe names none of. Same measurement gap as
 // the AWS Glue data-quality family.
 // TestIAMResourceARNs_IAMNamesItsResourceIndirectly holds both.
-const iamDerivationCoverageFloor = 1866
+//
+// Raised to 1869 by the tenth and eleventh copies — Amazon ElastiCache's and
+// Auto Scaling's. The earlier audit missed both because it grepped for one
+// spelling of the defect, '= "probe"', and these write it as '=probe'
+// inside a string concatenation. ElastiCache also needed its reader to read
+// ResourceName, the ARN member every query-protocol database service names its
+// tagging target with.
+const iamDerivationCoverageFloor = 1869
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
