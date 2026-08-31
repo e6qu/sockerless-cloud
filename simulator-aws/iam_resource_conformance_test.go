@@ -396,15 +396,15 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 // than counted as absent.
 // It takes the service because a member only that service defines can only be
 // filled with a value it accepts.
-func iamProbeBody(service string, members map[string]bool, nested map[string][]string) map[string]any {
+func iamProbeBody(service, arnValue string, members map[string]bool, nested map[string][]string) map[string]any {
 	body := make(map[string]any, len(members))
 	for name := range members {
-		body[name] = iamProbeMemberValue(service, name, "probe")
+		body[name] = iamProbeMemberValue(service, name, arnValue)
 	}
 	for member, inner := range nested {
 		object := make(map[string]any, len(inner))
 		for _, name := range inner {
-			object[name] = iamProbeMemberValue(service, name, "probe")
+			object[name] = iamProbeMemberValue(service, name, arnValue)
 		}
 		if len(object) > 0 {
 			body[member] = object
@@ -499,7 +499,10 @@ func iamGlueDerivesItsResource(operation string, members map[string]bool, nested
 	if len(types) == 0 {
 		return false
 	}
-	encoded, err := json.Marshal(iamProbeBody("glue", members, nested))
+	// An ARN member gets an ARN of a type the action declares, which is what a
+	// client sends: AWS Glue's tagging operations name the resource by its ARN
+	// and nothing else, so a literal "probe" there measured them as underived.
+	encoded, err := json.Marshal(iamProbeBody("glue", iamProbeARNForAction("glue", operation), members, nested))
 	if err != nil {
 		return false
 	}
@@ -1728,7 +1731,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1921
+const iamDerivationCoverageFloor = 1930
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
