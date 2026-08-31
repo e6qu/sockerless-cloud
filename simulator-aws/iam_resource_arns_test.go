@@ -1743,3 +1743,56 @@ func TestIAMResourceARNs_CreateTaskSetScopesToItsService(t *testing.T) {
 			"ecs:CreateTaskSet", "*")
 	})
 }
+
+// TestIAMResourceARNs_DataQualityRunNamesItsRuleset pins the AWS Glue
+// data-quality derivation, which the coverage probe cannot express.
+//
+// These operations declare the dataQualityRuleset type and name a run or a
+// result — the ruleset they are about is the one that run evaluated, which only
+// the simulator's own state records. The probe fills RunId with a placeholder,
+// no run answers to it, and the derivation correctly declines; so the
+// derivation is real and measures as absent, the same way the Systems Manager
+// tagging family did before its type was named. This test is where it is
+// actually held.
+func TestIAMResourceARNs_DataQualityRunNamesItsRuleset(t *testing.T) {
+	const glue = "arn:aws:glue:us-east-1:123456789012:dataQualityRuleset/"
+
+	glueDQEvalRuns = sim.MakeStore[GlueDQRulesetEvaluationRun](nil, "test_dq_eval_runs")
+	glueDQRecRuns = sim.MakeStore[GlueDQRuleRecommendationRun](nil, "test_dq_rec_runs")
+	glueDQResults = sim.MakeStore[GlueDataQualityResult](nil, "test_dq_results")
+	t.Cleanup(func() { glueDQEvalRuns, glueDQRecRuns, glueDQResults = nil, nil, nil })
+
+	glueDQEvalRuns.Put("run-eval", GlueDQRulesetEvaluationRun{
+		RunId: "run-eval", RulesetNames: []string{"nightly", "hourly"},
+	})
+	glueDQRecRuns.Put("run-rec", GlueDQRuleRecommendationRun{
+		RunId: "run-rec", CreatedRulesetName: "recommended",
+	})
+	glueDQResults.Put("result-1", GlueDataQualityResult{
+		ResultId: "result-1", RulesetName: "nightly",
+	})
+
+	t.Run("an evaluation run names every ruleset it evaluated", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDataQualityRulesetEvaluationRun", `{"RunId":"run-eval"}`),
+			"glue:GetDataQualityRulesetEvaluationRun", glue+"nightly", glue+"hourly")
+	})
+
+	t.Run("a recommendation run names the ruleset it created", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDataQualityRuleRecommendationRun", `{"RunId":"run-rec"}`),
+			"glue:GetDataQualityRuleRecommendationRun", glue+"recommended")
+	})
+
+	t.Run("a result names the ruleset that produced it", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDataQualityResult", `{"ResultId":"result-1"}`),
+			"glue:GetDataQualityResult", glue+"nightly")
+	})
+
+	t.Run("a run the simulator does not hold names no ruleset", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDataQualityRulesetEvaluationRun", `{"RunId":"no-such-run"}`),
+			"glue:GetDataQualityRulesetEvaluationRun", "*")
+	})
+}

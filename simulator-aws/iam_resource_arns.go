@@ -1657,6 +1657,16 @@ func iamFirehoseResourceARNs(r *http.Request, types []string, region, account st
 // of whichever spelling it uses.
 func iamGlueResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
+	// A data-quality read names a run or a result, not the ruleset the action
+	// declares — AWS Glue authorizes the ruleset the run evaluated, and the run
+	// is what records which one that was. So the ruleset is resolved through
+	// the simulator's own state: the derived ARN is the ruleset the run
+	// actually used, not one inferred from the request.
+	if iamHasType(types, "dataQualityRuleset") {
+		if arns := iamGlueDataQualityRulesetARNs(fields, region, account); len(arns) > 0 {
+			return arns
+		}
+	}
 	// The tagging operations name their target by ResourceArn outright, which
 	// needs no assembly — the ARN the caller sent is the ARN to authorize
 	// against.
@@ -2448,4 +2458,60 @@ func iamWAFv2ResourceARNs(r *http.Request, op string, types []string) []string {
 		return nil
 	}
 	return []string{wafARN(iamJSONBodyField(r, "Scope"), resourceType, name, id)}
+}
+
+// iamGlueDataQualityRulesetARNs resolves the rulesets a data-quality request is
+// about, from the run or result it names.
+//
+// A run that the simulator does not hold names no ruleset, and deriving one
+// anyway would authorize against a ruleset the request never touched.
+func iamGlueDataQualityRulesetARNs(fields map[string][]string, region, account string) []string {
+	arn := func(name string) string {
+		return "arn:aws:glue:" + region + ":" + account + ":dataQualityRuleset/" + name
+	}
+	var out []string
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, dup := seen[name]; dup {
+			return
+		}
+		seen[name] = struct{}{}
+		out = append(out, arn(name))
+	}
+
+	// A ruleset the request names outright.
+	for _, name := range fields["rulesetname"] {
+		add(name)
+	}
+	for _, name := range fields["rulesetnames"] {
+		add(name)
+	}
+
+	for _, id := range fields["runid"] {
+		if glueDQEvalRuns != nil {
+			if run, ok := glueDQEvalRuns.Get(id); ok {
+				for _, name := range run.RulesetNames {
+					add(name)
+				}
+			}
+		}
+		// A rule-recommendation run creates a ruleset rather than evaluating
+		// one, and the ruleset it created is what a read of the run is about.
+		if glueDQRecRuns != nil {
+			if run, ok := glueDQRecRuns.Get(id); ok {
+				add(run.CreatedRulesetName)
+			}
+		}
+	}
+	for _, id := range fields["resultid"] {
+		if glueDQResults != nil {
+			if result, ok := glueDQResults.Get(id); ok {
+				add(result.RulesetName)
+			}
+		}
+	}
+	return out
 }

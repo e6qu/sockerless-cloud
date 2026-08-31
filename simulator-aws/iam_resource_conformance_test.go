@@ -1545,6 +1545,16 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 //
 // One inline fill is left, and it belongs there: AWS Organizations keys its
 // values by the shape of the member rather than its name.
+//
+// The floor does not move for the AWS Glue data-quality family, and that is
+// the measurement gap this comment already describes rather than an absence.
+// Those operations declare the dataQualityRuleset type and name a run or a
+// result; the ruleset is the one that run evaluated, which only the simulator's
+// own state records. The probe fills RunId with a placeholder, no run answers
+// to it, and the derivation correctly declines — so a real caller derives and
+// the probe cannot say so. TestIAMResourceARNs_DataQualityRunNamesItsRuleset
+// holds it instead, including that a run the simulator does not hold names no
+// ruleset.
 const iamDerivationCoverageFloor = 1847
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
