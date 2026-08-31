@@ -155,6 +155,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerComputeMore2(srv)
 	registerComputeMore4(srv)
 	registerComputeInterconnectMacsec(srv)
+	registerComputePreviewFeatures(srv)
 	registerComputeWireGroups(srv)
 	registerComputeURLMapVerbs(srv)
 	registerComputeSettings(srv)

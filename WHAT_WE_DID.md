@@ -2,8 +2,8 @@
 
 ## 2026-08-31, forty-fourth pass — the probe was measuring the wrong thing
 
-Three slices moved: Google Cloud 5,440 → 5,448 of 5,480 Discovery method
-spellings with `compute-v1` at 1,984 of 2,016, Azure 2,599 → 2,613 of 2,628
+Three slices moved: Google Cloud 5,440 → 5,454 of 5,480 Discovery method
+spellings with `compute-v1` at 1,990 of 2,016, Azure 2,599 → 2,613 of 2,628
 Swagger operations with App Service at 677 of 692, and AWS resource-scoped
 authorization 1,881 → 1,945 of 1,994 served operations.
 
@@ -53,6 +53,13 @@ The content migration's reason was of a different kind again: these sites are
 served out of a container image rather than out of a share, which is a
 primitive the simulator lacks rather than data it would have to invent, and
 what a caller can observe of the operation is the one thing it does hold.
+
+Google Cloud also served a project's enrolment in Compute Engine's preview
+features. Which features exist is Google's to say and is not vendored here, so
+a feature's description — which the document marks output only — is left out;
+what a project has done about a feature is the caller's own, written by the
+update and handed back by the read, and the listing is the features this
+project has spoken for rather than a catalogue the simulator does not have.
 
 Google Cloud also served a Cloud Interconnect's MACsec configuration, which had
 been declined as hardware telemetry beside the link diagnostics. It is not: the

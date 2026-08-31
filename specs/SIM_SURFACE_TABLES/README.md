@@ -122,6 +122,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-compute_members`](gcp-compute_members.md)
 - [`gcp-compute_nested_prefixes`](gcp-compute_nested_prefixes.md)
 - [`gcp-compute_policies`](gcp-compute_policies.md)
+- [`gcp-compute_preview_features`](gcp-compute_preview_features.md)
 - [`gcp-compute_project`](gcp-compute_project.md)
 - [`gcp-compute_reads`](gcp-compute_reads.md)
 - [`gcp-compute_region_instance_groups`](gcp-compute_region_instance_groups.md)

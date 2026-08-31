@@ -209,3 +209,51 @@ func TestCompute_VmExtensionPolicyZonalAndGlobal(t *testing.T) {
 	_, err = svc.GlobalVmExtensionPolicies.Get(project, "global-policy").Do()
 	require.Error(t, err, "the policy was retired, so reading it must fail")
 }
+
+// A project's enrolment in a Compute Engine preview feature. Which features
+// exist is Google's to say and is not vendored here; what this project has done
+// about one is the caller's own.
+func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
+	svc := computeService(t)
+	const project = "preview-project"
+
+	// Nothing has been said about any feature yet.
+	empty, err := svc.PreviewFeatures.List(project).Do()
+	require.NoError(t, err)
+	assert.Empty(t, empty.Items)
+
+	_, err = svc.PreviewFeatures.Get(project, "unspoken-for").Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	op, err := svc.PreviewFeatures.Update(project, "beta-networking",
+		&compute.PreviewFeature{ActivationStatus: "ENABLED"}).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "update", op.OperationType)
+
+	got, err := svc.PreviewFeatures.Get(project, "beta-networking").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "ENABLED", got.ActivationStatus)
+	assert.Equal(t, "beta-networking", got.Name)
+	// The description is Google's account of the feature, and this simulator
+	// does not vendor the catalogue it comes from.
+	assert.Empty(t, got.Description)
+
+	// Turning it off is the same write, and the read follows it.
+	_, err = svc.PreviewFeatures.Update(project, "beta-networking",
+		&compute.PreviewFeature{ActivationStatus: "DISABLED"}).Do()
+	require.NoError(t, err)
+	off, err := svc.PreviewFeatures.Get(project, "beta-networking").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "DISABLED", off.ActivationStatus)
+
+	listed, err := svc.PreviewFeatures.List(project).Do()
+	require.NoError(t, err)
+	require.Len(t, listed.Items, 1, "the features this project has spoken for")
+	assert.Equal(t, "beta-networking", listed.Items[0].Name)
+
+	// Another project's enrolment is its own.
+	other, err := svc.PreviewFeatures.List("preview-other-project").Do()
+	require.NoError(t, err)
+	assert.Empty(t, other.Items)
+}

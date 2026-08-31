@@ -54,13 +54,6 @@ func registerComputeCatalogs(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy", licences)
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions", licences)
 
-	// A preview feature is one Google has opened for a project; the set of them
-	// is Google's, though a project's enrolment in one would be the caller's.
-	previews := catalog("preview features")
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/previewFeatures", previews)
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}", previews)
-	srv.HandleFunc("PATCH /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}", previews)
-
 	// What an interconnect's hardware reports about itself: link status,
 	// circuit identifiers and LACP state, read off the physical equipment at
 	// both ends, which the simulator does not have. Its MACsec configuration is

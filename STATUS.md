@@ -107,8 +107,8 @@ Current state of the sockerless-cloud repository.
   and with no silent gap left in that document, every one of its 15 unserved
   operations declaring what is missing);
   `containerregistry-dataplane-containerregistry-2021-07-01` **29 of 29**;
-  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **5,448 of 5,480**
-  Discovery method spellings (`compute-v1` **1,984 of 2,016**, with
+  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **5,454 of 5,480**
+  Discovery method spellings (`compute-v1` **1,990 of 2,016**, with
   `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1`
   and `redis-v1` each complete); Azure **2,613 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
@@ -122,9 +122,9 @@ Current state of the sockerless-cloud repository.
   routing 404, and none answers with invented data. What remains unserved in
   both is a published catalog or a proprietary dataset: Microsoft's runtime
   stacks, its Resource Health Check policy, its advisory copy and platform
-  php.ini; Google's licence codes, preview features, reliability risks,
-  interconnect locations, its physical link diagnostics, and preconfigured
-  WAF expression sets. VPC networks allocate bridge subnets from a host-side pool with
+  php.ini; Google's licence codes, reliability risks, interconnect
+  locations, its physical link diagnostics, and preconfigured WAF expression
+  sets. VPC networks allocate bridge subnets from a host-side pool with
   ENI addresses as real secondary interface addresses, so same-CIDR VPCs
   coexist.
 - **A served count is not proof a handler exists.** The Google Cloud coverage
