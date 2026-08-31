@@ -63,6 +63,18 @@ Open: 9. Resolved: 83.
   Glue shard pulls `python:3.9`, and the ECS suites pull `busybox` for the pause
   image. Each should go through the same script and cache key.
 
+  `race (simulator-aws shared)` was the next to fail, on `alpine:3.22` for the
+  memory tests and `busybox` for the reaper and sweep, and it now warms through
+  the same script. Its image list is read out of the package by
+  `scripts/base-images-for.sh` rather than restated in the workflow, and the
+  cache key follows that list, so a test that starts pulling something new is
+  warmed on its first run instead of missing a stale cache. The `module` shard
+  of the same matrix keeps the exposure: its package names the whole Lambda
+  runtime table, some thirty images that only an invocation fetches, so the
+  same package scan would cache far more than the shard pulls. Distinguishing
+  the two needs the image list to come from what a test fetches rather than
+  from what its package mentions.
+
   Until they do, any job that pulls a base image can fail for reasons unrelated
   to the change under test, and a red run has to be read before it is believed.
 
