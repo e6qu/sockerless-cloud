@@ -1867,9 +1867,24 @@ func iamRDSResourceARNs(r *http.Request, op string, types []string, region, acco
 	for _, resourceType := range types {
 		switch resourceType {
 		case "cev":
-			if cev, ok := rdsCustomEngineVersions.Get(
-				rdsCEVKey(iamFirstValue(lookup, "Engine"), iamFirstValue(lookup, "EngineVersion"))); ok {
-				stateful = append(stateful, cev.ARN)
+			engine := iamFirstValue(lookup, "Engine")
+			version := iamFirstValue(lookup, "EngineVersion")
+			// A version the simulator holds has an ARN of its own, which is the
+			// exact resource the call is about.
+			if rdsCustomEngineVersions != nil {
+				if cev, ok := rdsCustomEngineVersions.Get(rdsCEVKey(engine, version)); ok {
+					stateful = append(stateful, cev.ARN)
+					continue
+				}
+			}
+			// A create names a version that does not exist yet, and the
+			// identifier Amazon RDS will assign is the only part of the ARN the
+			// request cannot state. The engine and the version it names are not
+			// the wildcard, so a grant written for one engine's versions still
+			// does not reach another's.
+			if engine != "" && version != "" {
+				stateful = append(stateful, "arn:aws:rds:"+region+":"+account+
+					":cev:"+engine+"/"+version+"/*")
 			}
 		case "target-group":
 			group := iamFirstValue(lookup, "TargetGroupName")

@@ -1645,7 +1645,18 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // well, which the request states and a placeholder does not.
 // TestIAMResourceARNs_ELBv2CreateScopesToItsName pins all three kinds, and pins
 // that an undefined kind and a create naming nothing both derive nothing.
-const iamDerivationCoverageFloor = 1875
+//
+// Raised to 1878 by the Amazon RDS custom engine versions. A version the
+// simulator holds already resolved to its own ARN; one that does not exist yet
+// — which is every create, and every modify or delete of a version this
+// simulator never made — resolved to nothing. The identifier RDS assigns is
+// the only part of the ARN such a request cannot state, so it is the wildcard
+// and the engine and version are not.
+//
+// The negative control that pins "a request naming no version derives
+// nothing" also found a crash: the state lookup dereferenced the custom
+// engine version store without checking it was there. It is guarded now.
+const iamDerivationCoverageFloor = 1878
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

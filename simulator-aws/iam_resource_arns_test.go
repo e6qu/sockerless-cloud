@@ -1995,3 +1995,41 @@ func TestIAMResourceARNs_ELBv2CreateScopesToItsName(t *testing.T) {
 			"elasticloadbalancing:CreateTargetGroup", "*")
 	})
 }
+
+// TestIAMResourceARNs_RDSCustomEngineVersionScopesToItsEngine pins what the
+// custom-engine-version operations authorize against.
+//
+// A custom engine version is identified by the engine and the version it is
+// for, plus an identifier Amazon RDS assigns. The request states the first two
+// and never the third — not on the create, which has none yet, and not on the
+// modify or delete, which address the version by engine and number. So the
+// identifier is the wildcard and the engine and version are not, which keeps a
+// grant written for one engine's versions off another's.
+func TestIAMResourceARNs_RDSCustomEngineVersionScopesToItsEngine(t *testing.T) {
+	const rds = "arn:aws:rds:us-east-1:123456789012:"
+
+	for _, op := range []string{
+		"CreateCustomDBEngineVersion", "ModifyCustomDBEngineVersion", "DeleteCustomDBEngineVersion",
+	} {
+		t.Run(op+" is scoped to its engine and version", func(t *testing.T) {
+			assertDerivedARNs(t,
+				iamQueryRequest(op, "2014-10-31",
+					map[string]string{"Engine": "custom-oracle-ee", "EngineVersion": "19.cdb_1"}),
+				"rds:"+op, rds+"cev:custom-oracle-ee/19.cdb_1/*")
+		})
+	}
+
+	t.Run("another engine's versions are a different ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("DeleteCustomDBEngineVersion", "2014-10-31",
+				map[string]string{"Engine": "custom-sqlserver-ee", "EngineVersion": "15.00"}),
+			"rds:DeleteCustomDBEngineVersion", rds+"cev:custom-sqlserver-ee/15.00/*")
+	})
+
+	t.Run("a request naming no version derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("DeleteCustomDBEngineVersion", "2014-10-31",
+				map[string]string{"Engine": "custom-oracle-ee"}),
+			"rds:DeleteCustomDBEngineVersion", "*")
+	})
+}
