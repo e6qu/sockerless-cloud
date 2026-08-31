@@ -396,6 +396,18 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 // than counted as absent.
 // It takes the service because a member only that service defines can only be
 // filled with a value it accepts.
+// iamProbeARN is the ARN a probe puts in an ARN-valued member: the action's own
+// declared type where the reference publishes a format for it, and the
+// service-wide ARN the caller offers only where it does not. A probe that
+// addressed every action in a service with one type's ARN measured a derivation
+// reading the ARN a client actually sends as absent.
+func iamProbeARN(service, operation, serviceWide string) string {
+	if arn := iamProbeARNForAction(service, operation); arn != "" {
+		return arn
+	}
+	return serviceWide
+}
+
 func iamProbeBody(service, arnValue string, members map[string]bool, nested map[string][]string) map[string]any {
 	body := make(map[string]any, len(members))
 	for name := range members {
@@ -483,8 +495,8 @@ func iamEC2DerivesItsResource(operation string, params map[string]bool) bool {
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue // the request already carries these
 		}
-		values[name] = iamProbeMemberValue("ec2", name,
-			"arn:aws:ec2:us-east-1:"+iamProbeAccount+":instance/i-0123456789abcdef0")
+		values[name] = iamProbeMemberValue("ec2", name, iamProbeARN("ec2", operation,
+			"arn:aws:ec2:us-east-1:"+iamProbeAccount+":instance/i-0123456789abcdef0"))
 	}
 	return len(iamDerivedResourceARNs(iamEC2Request(operation, values), "ec2", operation,
 		"us-east-1", "123456789012")) > 0
@@ -524,7 +536,7 @@ func iamRDSDerivesItsResource(operation string, params map[string]bool) bool {
 			continue
 		}
 		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("rds", name,
-			"arn:aws:rds:us-east-1:"+iamProbeAccount+":db:probe"))
+			iamProbeARN("rds", operation, "arn:aws:rds:us-east-1:"+iamProbeAccount+":db:probe")))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -562,7 +574,7 @@ func iamKMSDerivesItsResource(operation string, members map[string]bool) bool {
 	body := make(map[string]string, len(members))
 	for name := range members {
 		body[name] = iamProbeMemberValue("kms", name,
-			"arn:aws:kms:us-east-1:"+iamProbeAccount+":probe")
+			iamProbeARN("kms", operation, "arn:aws:kms:us-east-1:"+iamProbeAccount+":probe"))
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -737,8 +749,9 @@ func iamELBv2DerivesItsResource(operation string, params map[string]bool) bool {
 			continue
 		}
 		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("elasticloadbalancing", name,
-			"arn:aws:elasticloadbalancing:us-east-1:"+iamProbeAccount+
-				":targetgroup/probe/0123456789abcdef"))
+			iamProbeARN("elasticloadbalancing", operation,
+				"arn:aws:elasticloadbalancing:us-east-1:"+iamProbeAccount+
+					":targetgroup/probe/0123456789abcdef")))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -755,8 +768,8 @@ func iamACMDerivesItsResource(operation string, members map[string]bool) bool {
 	body := make(map[string]string, len(members))
 	for name := range members {
 		body[name] = iamProbeMemberValue("acm", name,
-			"arn:aws:acm:us-east-1:"+iamProbeAccount+
-				":certificate/0123abcd-ef45-6789-abcd-ef0123456789")
+			iamProbeARN("acm", operation, "arn:aws:acm:us-east-1:"+iamProbeAccount+
+				":certificate/0123abcd-ef45-6789-abcd-ef0123456789"))
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -778,7 +791,7 @@ func iamCloudWatchDerivesItsResource(operation string, members map[string]bool) 
 	body := make(map[string]string, len(members))
 	for name := range members {
 		body[name] = iamProbeMemberValue("cloudwatch", name,
-			"arn:aws:cloudwatch:us-east-1:"+iamProbeAccount+":alarm:probe")
+			iamProbeARN("cloudwatch", operation, "arn:aws:cloudwatch:us-east-1:"+iamProbeAccount+":alarm:probe"))
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -907,7 +920,7 @@ func iamCloudTrailDerivesItsResource(operation string, members map[string]bool) 
 	body := make(map[string]string, len(members))
 	for name := range members {
 		body[name] = iamProbeMemberValue("cloudtrail", name,
-			"arn:aws:cloudtrail:us-east-1:"+iamProbeAccount+":trail/probe")
+			iamProbeARN("cloudtrail", operation, "arn:aws:cloudtrail:us-east-1:"+iamProbeAccount+":trail/probe"))
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -934,7 +947,7 @@ func iamElastiCacheDerivesItsResource(operation string, params map[string]bool) 
 			continue
 		}
 		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("elasticache", name,
-			"arn:aws:elasticache:us-east-1:"+iamProbeAccount+":cluster:probe"))
+			iamProbeARN("elasticache", operation, "arn:aws:elasticache:us-east-1:"+iamProbeAccount+":cluster:probe")))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -950,7 +963,7 @@ func iamSSMDerivesItsResource(operation string, members map[string]bool) bool {
 	body := make(map[string]string, len(members))
 	for name := range members {
 		body[name] = iamProbeMemberValue("ssm", name,
-			"arn:aws:ssm:us-east-1:"+iamProbeAccount+":probe")
+			iamProbeARN("ssm", operation, "arn:aws:ssm:us-east-1:"+iamProbeAccount+":probe"))
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -1731,7 +1744,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1930
+const iamDerivationCoverageFloor = 1935
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
