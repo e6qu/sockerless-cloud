@@ -11,7 +11,9 @@ App Service at 663 of 692 and no silent gap left in that document, and the
 Azure Container Registry data plane complete at 29 of 29, Azure Storage at 49
 of 49, both Event Grid documents, Microsoft.Compute's provider surface, the Log
 Analytics shared keys, the Application Insights data plane, the instance
-metadata service and the resource-scoped log query.
+metadata service, the resource-scoped log query and Application Insights'
+features and pricing — leaving App Service the only Azure document with
+anything unserved, and every one of those declaring its reason.
 
 Two of the pass's own instruments were wrong and were corrected before the work
 they measured. The Google Cloud coverage probe rendered a greedy
@@ -41,6 +43,14 @@ own. The six ResourceHealthMetadata spellings beside it declare a 501: the
 operation defines its category as the one the resource matches in Microsoft's
 Resource Health Check policy file, and matching a site against a policy this
 project does not vendor would be fabrication.
+
+A component's billing plan now decides what it is entitled to. The Enterprise
+plan carries continuous export and the higher burst and the Basic one does not,
+so the capabilities are a read of the plan rather than a fixed answer; the
+available features are the plans the component could move to with the one it is
+on marked, a choice rather than a published price list; and the quota status
+compares the telemetry the application actually wrote against the cap the
+component set.
 
 The Application Insights data plane went in whole. An application's telemetry
 is the log store its workload writes into — the same store Log Analytics

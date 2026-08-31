@@ -307,6 +307,8 @@ func registerApplicationInsights(srv *sim.Server) {
 		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s",
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "componentName"))
 	}
+	registerInsightsFeatures(srv, armBase, billing, defaultBilling, billingKey)
+
 	srv.HandleFunc("GET "+armBase+"/components/{componentName}/currentbillingfeatures", func(w http.ResponseWriter, r *http.Request) {
 		b, ok := billing.Get(billingKey(r))
 		if !ok {

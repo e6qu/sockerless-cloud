@@ -152,19 +152,28 @@ var azureDeclaredOperationTotals = map[string]int{
 }
 
 var azureMethodFloor = map[string]int{
-	"apimanagement-arm-apimapis-2022-08-01":                 91,
-	"apimanagement-arm-apimbackends-2022-08-01":             7,
-	"apimanagement-arm-apimdeletedservices-2022-08-01":      3,
-	"apimanagement-arm-apimdeployment-2022-08-01":           15,
-	"apimanagement-arm-apimnamedvalues-2022-08-01":          8,
-	"apimanagement-arm-apimproducts-2022-08-01":             31,
-	"apimanagement-arm-apimsubscriptions-2022-08-01":        9,
-	"app-arm-containerapps-2025-01-01":                      11,
-	"app-arm-jobs-2025-01-01":                               12,
-	"app-arm-managedenvironments-2025-01-01":                19,
-	"app-arm-managedenvironmentsstorages-2025-01-01":        4,
-	"applicationinsights-arm-components_api-2020-02-02":     8,
-	"applicationinsights-arm-featuresandpricing-2015-05-01": 2,
+	"apimanagement-arm-apimapis-2022-08-01":             91,
+	"apimanagement-arm-apimbackends-2022-08-01":         7,
+	"apimanagement-arm-apimdeletedservices-2022-08-01":  3,
+	"apimanagement-arm-apimdeployment-2022-08-01":       15,
+	"apimanagement-arm-apimnamedvalues-2022-08-01":      8,
+	"apimanagement-arm-apimproducts-2022-08-01":         31,
+	"apimanagement-arm-apimsubscriptions-2022-08-01":    9,
+	"app-arm-containerapps-2025-01-01":                  11,
+	"app-arm-jobs-2025-01-01":                           12,
+	"app-arm-managedenvironments-2025-01-01":            19,
+	"app-arm-managedenvironmentsstorages-2025-01-01":    4,
+	"applicationinsights-arm-components_api-2020-02-02": 8,
+	// A component's billing plan decides what it is entitled to: the Enterprise
+	// plan carries continuous export and the higher burst, the Basic one does
+	// not, so the capabilities are a read of the plan rather than a fixed
+	// answer. The available features are the plans the component could be on
+	// with the one it is on marked — a choice, not a published price list. The
+	// quota status compares the telemetry the application actually wrote
+	// against the cap the component set.
+	//
+	// Raised from 2 by those three, completing the document.
+	"applicationinsights-arm-featuresandpricing-2015-05-01": 5,
 	// An application's telemetry is the log store its workload writes into, and
 	// Application Insights is a view onto the same store Log Analytics queries,
 	// addressed by app id instead of workspace id. So the query, the events and

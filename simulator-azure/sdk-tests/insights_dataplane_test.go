@@ -242,3 +242,59 @@ func TestSDK_InstanceMetadata_AttestationAndIdentity(t *testing.T) {
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
+
+// A component's billing plan decides what it is entitled to, and its quota
+// status compares the telemetry it actually wrote against the cap it set.
+//
+//	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/featurecapabilities
+//	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/getavailablebillingfeatures
+//	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/quotastatus
+func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
+	const rg, component = "insights-features-rg", "insights-features-component"
+	ensureRG(t, rg)
+
+	base := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
+		"/providers/Microsoft.Insights/components/" + component
+
+	// The Basic plan the component starts on does not carry continuous export.
+	basic := insightsRead(t, http.MethodGet, base+"/featurecapabilities?api-version=2015-05-01", "")
+	assert.Equal(t, false, basic["SupportExportData"])
+	assert.Equal(t, "Standard", basic["BurstThrottlePolicy"])
+
+	// Moving the component to the Enterprise plan changes what it is entitled
+	// to, which is what makes the capabilities a read of the plan rather than a
+	// fixed answer.
+	put := insightsRead(t, http.MethodPut, base+"/currentbillingfeatures?api-version=2015-05-01",
+		`{"CurrentBillingFeatures":["Application Insights Enterprise"],
+		  "DataVolumeCap":{"Cap":0.5,"ResetTime":4,"WarningThreshold":90}}`)
+	require.NotNil(t, put)
+
+	enterprise := insightsRead(t, http.MethodGet, base+"/featurecapabilities?api-version=2015-05-01", "")
+	assert.Equal(t, true, enterprise["SupportExportData"])
+	assert.Equal(t, "Burst", enterprise["BurstThrottlePolicy"])
+	assert.EqualValues(t, 0.5, enterprise["DailyCap"], "the cap the component set is the cap it reports")
+	assert.EqualValues(t, 4, enterprise["DailyCapResetTime"])
+
+	// The available features are the plans it could be on, with the one it is
+	// on marked — a choice, not a price list.
+	available := insightsRead(t, http.MethodGet,
+		base+"/getavailablebillingfeatures?api-version=2015-05-01", "")
+	plans, _ := available["Result"].([]any)
+	require.NotEmpty(t, plans)
+	main := ""
+	for _, entry := range plans {
+		plan, _ := entry.(map[string]any)
+		if isMain, _ := plan["IsMainFeature"].(bool); isMain {
+			main, _ = plan["FeatureName"].(string)
+		}
+	}
+	assert.Equal(t, "Application Insights Enterprise", main,
+		"the plan the component is on is the one marked")
+
+	// A component under its cap is not throttled.
+	status := insightsRead(t, http.MethodGet, base+"/quotastatus?api-version=2015-05-01", "")
+	assert.Equal(t, component, status["AppId"])
+	assert.Equal(t, false, status["ShouldBeThrottled"])
+	assert.NotContains(t, status, "ExpirationTime",
+		"a component that is not throttled has no throttle to expire")
+}
