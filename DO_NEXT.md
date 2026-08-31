@@ -76,13 +76,27 @@
    (iam_resource_arns.go); a list or an account-wide write reaches
    `return one("*")` instead and derives nothing.
 
-   Widening it is a change to authorization *outcomes* for every service, so it
-   needs the whole AWS SDK suite behind it, not a spot check: today those calls
-   are authorized against `*`, and after the change they are authorized against
-   the type wildcard, which a policy written for `*` still matches but a policy
-   written for a different type no longer does. Measure the coverage before and
-   after — if the rule is right, the number should move by far more than the
-   seven operations above.
+   Do not simply drop the create restriction. It is deliberate, and the reason
+   is written above the function: a create genuinely has no identifier to
+   derive, so the type wildcard is the whole truth about it. A read or a list
+   might have one the service's reader failed to pick up — and for those,
+   deriving the type wildcard would turn a *derivation bug* into a silently
+   broader grant, authorizing every resource of the type instead of the one the
+   call is about. That is worse than the `*` it replaces, because it looks
+   right.
+
+   So the widening has to distinguish "this request names no instance" from
+   "this reader did not find the instance". The list operations above are the
+   first kind: `ListMetrics` and `ListAlarmMuteRules` name no dataset and no
+   rule because there is none to name. Encoding that — rather than inferring it
+   from the reader having returned nothing — is the actual work.
+
+   It is a change to authorization *outcomes* for every service, so it needs
+   the whole AWS SDK suite behind it, not a spot check: today those calls are
+   authorized against `*`, and afterwards against the type wildcard, which a
+   policy written for `*` still matches but one written for another type no
+   longer does. Measure coverage before and after — if the rule is right the
+   number moves by far more than the seven operations above.
 
 0-sync. **All three clouds are in sync.** Measured 2026-08-29: zero drift
    across AWS's 41 Smithy models plus its service references, Azure's 120
