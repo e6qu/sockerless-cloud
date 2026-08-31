@@ -1523,7 +1523,12 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // organizations access report is named by the path of the entity it covers.
 // TestIAMResourceARNs_NamedOutrightByTheRequest pins both, and pins that a
 // request naming no subject derives none.
-const iamDerivationCoverageFloor = 1822
+//
+// Raised to 1823 by ecs:CreateTaskSet, which names no task set — none exists
+// yet — but does name the cluster and service the set will belong to, and
+// those bound the wildcard. TestIAMResourceARNs_CreateTaskSetScopesToItsService
+// pins that another service's task sets stay out of scope.
+const iamDerivationCoverageFloor = 1823
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

@@ -2129,8 +2129,18 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 		addNamed("daemon-task-definition/", iamNamesFrom(r, []string{"daemonTaskDefinition"}, nil))
 	}
 	if iamHasType(types, "task-set") {
-		addNamed("task-set/"+cluster+"/"+iamFirstJSONField(r, "service")+"/",
+		service := iamFirstJSONField(r, "service")
+		addNamed("task-set/"+cluster+"/"+service+"/",
 			iamNamesFrom(r, []string{"taskSet"}, []string{"taskSets"}))
+		// Creating a task set names no task set — it does not exist yet — but
+		// it does name the service the set will belong to, and Amazon ECS
+		// authorizes the create against the task sets of that service. The id
+		// is the wildcard, exactly as it is for every other create whose
+		// resource the request cannot name; the cluster and service are not,
+		// so a grant scoped to one service's task sets still denies another's.
+		if op == "CreateTaskSet" && service != "" {
+			out = append(out, arn("ecs", "task-set/"+cluster+"/"+service+"/*"))
+		}
 	}
 	if iamHasType(types, "task") {
 		addNamed("task/"+cluster+"/", iamNamesFrom(r, []string{"task"}, []string{"tasks"}))

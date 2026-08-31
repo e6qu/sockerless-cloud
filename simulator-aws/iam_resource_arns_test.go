@@ -1711,3 +1711,35 @@ func TestIAMResourceARNs_NamedOutrightByTheRequest(t *testing.T) {
 			"iam:GenerateOrganizationsAccessReport", "*")
 	})
 }
+
+// TestIAMResourceARNs_CreateTaskSetScopesToItsService pins what creating an
+// Amazon ECS task set authorizes against.
+//
+// The create names no task set, because none exists yet, but it does name the
+// cluster and the service the set will belong to — and those are what keep the
+// grant narrow. The id is the wildcard; the cluster and service are not, so a
+// policy written for one service's task sets does not reach another's.
+func TestIAMResourceARNs_CreateTaskSetScopesToItsService(t *testing.T) {
+	const ecs = "arn:aws:ecs:us-east-1:123456789012:"
+
+	t.Run("the service the set will belong to bounds the wildcard", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.CreateTaskSet",
+				`{"cluster":"prod","service":"web","taskDefinition":"web:3"}`),
+			"ecs:CreateTaskSet", ecs+"task-set/prod/web/*")
+	})
+
+	t.Run("another service's task sets are not in scope", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.CreateTaskSet",
+				`{"cluster":"prod","service":"api","taskDefinition":"api:1"}`),
+			"ecs:CreateTaskSet", ecs+"task-set/prod/api/*")
+	})
+
+	t.Run("a create naming no service derives no task set", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.CreateTaskSet",
+				`{"cluster":"prod","taskDefinition":"web:3"}`),
+			"ecs:CreateTaskSet", "*")
+	})
+}
