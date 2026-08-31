@@ -337,6 +337,37 @@ jobs:
           go-version: '1.25'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # These suites run real containers, and the ECR Public Gallery caps
+      # anonymous requests by data volume — a cap no retry recovers from.
+      # Caching the images means the common case makes no registry request at
+      # all, and the simulator's own puller asks the engine before the registry,
+      # so a warmed image costs nothing even when a test starts it repeatedly.
+      - name: Resolve the base images these suites pull
+        id: base-images-list
+        run: |
+          # AWS's module names the whole Lambda runtime table — some thirty
+          # images that only an invocation fetches — so its scan is limited to
+          # the package whose images every suite touches. The other two modules
+          # name a handful between them.
+          dirs="simulator-${{ matrix.cloud }} simulator-${{ matrix.cloud }}/shared"
+          if [ "${{ matrix.cloud }}" = "aws" ]; then
+            dirs="simulator-aws/shared"
+          fi
+          # shellcheck disable=SC2086
+          images="$(bash scripts/base-images-for.sh $dirs | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/sim-base-images.tar
+          key: sim-base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/sim-base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       # Simulator runs mutate the restored guest rootfs as root. Restore the
       # immutable seed produced by the dedicated Firecracker job, but never
       # archive the test-mutated tree from a matrix job.

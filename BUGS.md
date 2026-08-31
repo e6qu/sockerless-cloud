@@ -95,9 +95,15 @@ Open: 9. Resolved: 84.
   the source rather than the run. Surfacing a simulator-side failure in the job
   that provoked it is worth doing before the next one.
 
-  Until the remaining jobs go through the cache, any job that pulls a base
-  image for the first time can still fail for reasons unrelated to the change
-  under test, and a red run has to be read before it is believed.
+  The `sim` suites warm through the same script too, scanning their module and
+  its shared package — except AWS's, whose module names the whole Lambda
+  runtime table, some thirty images that only an invocation fetches, so its
+  scan is limited to the package whose images every suite touches. Caching
+  those thirty, and the Terraform jobs' engine images, is what is left.
+
+  Until those go through the cache, a job that pulls one of them for the first
+  time can still fail for reasons unrelated to the change under test, and a red
+  run has to be read before it is believed.
 
 
 | ID | Sev | Area | Pattern | One-liner |
