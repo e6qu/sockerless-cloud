@@ -530,6 +530,9 @@ type ComputeDisk struct {
 	Labels            map[string]string `json:"labels,omitempty"`
 	LabelFingerprint  string            `json:"labelFingerprint,omitempty"`
 	PhysicalBlockSize string            `json:"physicalBlockSizeBytes,omitempty"`
+	// StoragePool is the pool the disk draws its capacity from, which is what
+	// storagePools.listDisks reads to find a pool's disks.
+	StoragePool string `json:"storagePool,omitempty"`
 
 	// The members the disk's own verbs write: the schedules attached to it,
 	// the key it is encrypted under, the replication it takes part in and the
@@ -2209,20 +2212,7 @@ func registerComputeCatalog(srv *sim.Server) {
 			"selfLink": fmt.Sprintf("projects/%s/zones/%s/diskTypes/%s", project, zone, name),
 		})
 	})
-	imageJSON := func(project, name string) map[string]any {
-		return map[string]any{
-			"kind":              "compute#image",
-			"id":                computeNumericID(),
-			"name":              name,
-			"selfLink":          fmt.Sprintf("projects/%s/global/images/%s", project, name),
-			"status":            "READY",
-			"family":            strings.TrimSuffix(name, "-12"),
-			"archiveSizeBytes":  "1073741824",
-			"diskSizeGb":        "10",
-			"sourceType":        "RAW",
-			"creationTimestamp": time.Now().UTC().Format(time.RFC3339),
-		}
-	}
+	imageJSON := computeImageJSON
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/{image}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "image")
@@ -2893,4 +2883,22 @@ func registerComputeDisks(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/operations/{name}/wait", func(w http.ResponseWriter, r *http.Request) {
 		computeWaitOperation(w, r, sim.PathParam(r, "name"))
 	})
+}
+
+// computeImageJSON renders the public-image catalogue entry for a name. Both
+// the image read and the family view answer from it, so a family and the image
+// it resolves to cannot describe the same image differently.
+func computeImageJSON(project, name string) map[string]any {
+	return map[string]any{
+		"kind":              "compute#image",
+		"id":                computeNumericID(),
+		"name":              name,
+		"selfLink":          fmt.Sprintf("projects/%s/global/images/%s", project, name),
+		"status":            "READY",
+		"family":            strings.TrimSuffix(name, "-12"),
+		"archiveSizeBytes":  "1073741824",
+		"diskSizeGb":        "10",
+		"sourceType":        "RAW",
+		"creationTimestamp": time.Now().UTC().Format(time.RFC3339),
+	}
 }

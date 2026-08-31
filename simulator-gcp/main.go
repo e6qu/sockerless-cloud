@@ -161,6 +161,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	computeSignedURLKeys(srv, "backendBuckets", gcpComputeBackendBuckets)
 	registerComputeGlobalLBVerbs(srv)
 	registerComputeBulkVerbs(srv)
+	registerComputeReads(srv)
 	registerComputeTypedWriteVerbs(srv, "urlMaps", gcpURLMaps, map[string]string{"PATCH": "patch", "PUT": "update"})
 	registerComputeTypedWriteVerbs(srv, "healthChecks", gcpHealthChecks, map[string]string{"PATCH": "patch", "PUT": "update"})
 	registerComputeRegionalPublicDelegatedPrefixes(srv)

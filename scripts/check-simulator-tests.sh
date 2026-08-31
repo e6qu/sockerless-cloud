@@ -264,21 +264,25 @@ route_referenced_in_tests() {
         else
             op_referenced_in_tests "$capitalised" "$cloud" && return 0
         fi
-        # Google's generated clients prefix the global variant of a collection
-        # that also exists regionally — the routes under /global/forwardingRules
-        # are reached through GlobalForwardingRules, and the same holds for
-        # addresses and operations. Without this the global spelling of every
-        # such collection is unmatchable.
+        # Google's generated clients prefix the scoped variant of a collection
+        # that exists at more than one scope — /global/forwardingRules is
+        # reached through GlobalForwardingRules and /regions/{region}/zones
+        # through RegionZones. Without this the scoped spelling of every such
+        # collection is unmatchable.
+        local scoped=""
         case "$route_path" in
-            */global/*)
-                if [ -n "$wants_verb" ]; then
-                    grep -qE "\.Global$(regex_escape "$capitalised")\.$(regex_escape "$wants_verb")\(" \
-                        "$added_dir/tests-$cloud" && return 0
-                else
-                    op_referenced_in_tests "Global$capitalised" "$cloud" && return 0
-                fi
-                ;;
+            */global/*) scoped=Global ;;
+            */regions/*) scoped=Region ;;
+            */zones/*) scoped=Zone ;;
         esac
+        if [ -n "$scoped" ]; then
+            if [ -n "$wants_verb" ]; then
+                grep -qE "\.${scoped}$(regex_escape "$capitalised")\.$(regex_escape "$wants_verb")\(" \
+                    "$added_dir/tests-$cloud" && return 0
+            else
+                op_referenced_in_tests "${scoped}$capitalised" "$cloud" && return 0
+            fi
+        fi
     fi
     # cloudTrailRecordedREST("Op", …) names the operation at the route mount;
     # accept a call/assertion reference to that named op.

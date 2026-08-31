@@ -29,6 +29,7 @@ func registerComputeMore4(srv *sim.Server) {
 	// Shared with the handlers that address a collection through its parent,
 	// or that carry a verb beyond the lifecycle.
 	gcpComputeCrossSiteNetworks = mk("compute_cross_site_networks")
+	gcpComputeRegionSnapshots = mk("compute_region_snapshots")
 
 	families := []computeMetaResource{
 		// Cross-site networking: a network spanning two interconnect sites,
@@ -84,7 +85,7 @@ func registerComputeMore4(srv *sim.Server) {
 
 		// Regional snapshots, beside the zonal ones already served.
 		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeRegion,
-			store: mk("compute_region_snapshots"), setLabels: true, iam: true},
+			store: gcpComputeRegionSnapshots, setLabels: true, iam: true},
 
 		// The health sources and composite health checks a load balancer
 		// aggregates.

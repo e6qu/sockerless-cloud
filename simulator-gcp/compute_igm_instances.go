@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
@@ -493,10 +494,13 @@ func computeReconcileManagedInstances(managers sim.Store[map[string]any], key st
 	}
 }
 
-// computeStoredInt reads a number a client sent. A store that round-trips
-// through JSON hands back a float64 and one that holds the value in memory
-// hands back what was parsed, so a reader that knows only one of those shapes
-// silently reads zero.
+// computeStoredInt reads a number a client sent. It arrives in more shapes than
+// one: a store that round-trips through JSON hands back a float64 and one that
+// holds the value in memory hands back what was parsed, and Compute Engine puts
+// every int64 member on the wire as a string — a disk's size, a reservation's
+// count — so a resource stored as the client sent it holds those as text. A
+// reader that knows only one shape silently reads zero, and a size compared
+// against zero admits a shrink that should have been refused.
 func computeStoredInt(value any) int {
 	switch n := value.(type) {
 	case int:
@@ -507,6 +511,12 @@ func computeStoredInt(value any) int {
 		return int(n)
 	case json.Number:
 		parsed, err := n.Int64()
+		if err != nil {
+			return 0
+		}
+		return int(parsed)
+	case string:
+		parsed, err := strconv.ParseInt(n, 10, 64)
 		if err != nil {
 			return 0
 		}
