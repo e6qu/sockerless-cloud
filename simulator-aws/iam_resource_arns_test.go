@@ -1951,3 +1951,47 @@ func TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName(t *testing.T) {
 			"wafv2:GetWebACL", acl)
 	})
 }
+
+// TestIAMResourceARNs_ELBv2CreateScopesToItsName pins what an Elastic Load
+// Balancing v2 create authorizes against.
+//
+// Every ARN in the service ends in a name and an identifier the service
+// assigns, and a create names the first and cannot name the second. So the
+// identifier is the wildcard and the name is not — a grant written for one
+// target group does not reach another. A load balancer's ARN carries its kind
+// too, and the request states it.
+func TestIAMResourceARNs_ELBv2CreateScopesToItsName(t *testing.T) {
+	const elb = "arn:aws:elasticloadbalancing:us-east-1:123456789012:"
+
+	t.Run("a target group create is scoped to its name", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("CreateTargetGroup", "2015-12-01",
+				map[string]string{"Name": "web", "Port": "80"}),
+			"elasticloadbalancing:CreateTargetGroup", elb+"targetgroup/web/*")
+	})
+
+	t.Run("a load balancer create carries its kind", func(t *testing.T) {
+		for kind, segment := range map[string]string{
+			"application": "app", "network": "net", "gateway": "gwy",
+		} {
+			assertDerivedARNs(t,
+				iamQueryRequest("CreateLoadBalancer", "2015-12-01",
+					map[string]string{"Name": "front", "Type": kind}),
+				"elasticloadbalancing:CreateLoadBalancer", elb+"loadbalancer/"+segment+"/front/*")
+		}
+	})
+
+	t.Run("a kind the service does not define names no balancer", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("CreateLoadBalancer", "2015-12-01",
+				map[string]string{"Name": "front", "Type": "hovercraft"}),
+			"elasticloadbalancing:CreateLoadBalancer", "*")
+	})
+
+	t.Run("a create naming nothing derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("CreateTargetGroup", "2015-12-01",
+				map[string]string{"Port": "80"}),
+			"elasticloadbalancing:CreateTargetGroup", "*")
+	})
+}

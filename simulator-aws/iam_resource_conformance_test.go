@@ -1082,6 +1082,11 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	if service == "iam" && lower == "url" {
 		return "https://oidc.probe.example/provider"
 	}
+	// A load balancer's kind is one of three the service defines, and its ARN
+	// carries the kind — so a placeholder names no balancer at all.
+	if service == "elasticloadbalancing" && lower == "type" {
+		return "application"
+	}
 	// A CodeBuild report is named by its own ARN, and the group it belongs to
 	// is the segment inside it — so a project-shaped ARN there would name no
 	// group, and the probe sends a report-shaped one.
@@ -1632,7 +1637,15 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // DeleteFirewallManagerRuleGroups derived nothing from the web ACL ARN in
 // front of them. TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName pins that,
 // and pins that the name-and-scope path still works.
-const iamDerivationCoverageFloor = 1872
+//
+// Raised to 1875 by the Elastic Load Balancing v2 creates. Every ARN in that
+// service ends in a name and an identifier the service assigns, and a create
+// names the first and cannot name the second — so the identifier is the
+// wildcard and the name is not. A load balancer's ARN carries its kind as
+// well, which the request states and a placeholder does not.
+// TestIAMResourceARNs_ELBv2CreateScopesToItsName pins all three kinds, and pins
+// that an undefined kind and a create naming nothing both derive nothing.
+const iamDerivationCoverageFloor = 1875
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

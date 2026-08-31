@@ -823,6 +823,9 @@ func iamSTSResourceARNs(r *http.Request, types []string, account string) []strin
 // previous generation, addressed by name alone.
 func iamELBv2ResourceARNs(r *http.Request, types []string, region, account string) []string {
 	params := iamQueryRequestParameters(r)
+	if arns := iamELBv2CreatedResourceARNs(params, region, account); len(arns) > 0 {
+		return arns
+	}
 	var out []string
 	seen := map[string]struct{}{}
 	add := func(arn string) {
@@ -2646,4 +2649,49 @@ func iamServiceLinkedRoleFromTask(task string) string {
 	// Everything between "aws-service-role" and the trailing task identifier is
 	// the role's own path and name.
 	return strings.Join(parts[:len(parts)-1], "/")
+}
+
+// iamELBv2CreatedResourceARNs derives what a create is about.
+//
+// Every Elastic Load Balancing v2 ARN ends in a name and an identifier the
+// service assigns — "targetgroup/${TargetGroupName}/${TargetGroupId}" — and a
+// create names the first and cannot name the second. So the identifier is the
+// wildcard and the name is not, which is what keeps a grant written for one
+// target group from reaching another.
+//
+// A load balancer's ARN carries its kind as well, and the request states it:
+// an application balancer is "loadbalancer/app/…", a network one "net", a
+// gateway one "gwy". A kind the service does not define derives nothing.
+func iamELBv2CreatedResourceARNs(params map[string][]string, region, account string) []string {
+	first := func(field string) string {
+		if values := params[field]; len(values) > 0 {
+			return values[0]
+		}
+		return ""
+	}
+	name := first("name")
+	if name == "" {
+		return nil
+	}
+	arn := func(resource string) []string {
+		return []string{"arn:aws:elasticloadbalancing:" + region + ":" + account + ":" + resource}
+	}
+	switch first("action") {
+	case "CreateTargetGroup":
+		return arn("targetgroup/" + name + "/*")
+	case "CreateTrustStore":
+		return arn("truststore/" + name + "/*")
+	case "CreateLoadBalancer":
+		kind := map[string]string{
+			"":            "app", // the API defaults an unstated type to application
+			"application": "app",
+			"network":     "net",
+			"gateway":     "gwy",
+		}[first("type")]
+		if kind == "" {
+			return nil
+		}
+		return arn("loadbalancer/" + kind + "/" + name + "/*")
+	}
+	return nil
 }
