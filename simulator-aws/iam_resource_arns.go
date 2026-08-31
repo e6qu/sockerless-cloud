@@ -193,6 +193,29 @@ func iamIAMResourceARNs(r *http.Request, types []string) []string {
 			return []string{serial}
 		}
 	}
+	// An access key belongs to a user, and IAM authorizes the user — the key is
+	// the only thing the request names, so the user is resolved through the
+	// simulator's own record of who the key was created for. A key it does not
+	// hold names no user, and guessing one would authorize against a user the
+	// request never mentioned.
+	if iamHasType(types, "user") {
+		for _, id := range []string{r.FormValue("AccessKeyId")} {
+			if id == "" || iamAccessKeys == nil {
+				continue
+			}
+			if key, ok := iamAccessKeys.Get(id); ok && key.UserName != "" {
+				return []string{build("user", "", key.UserName)}
+			}
+		}
+	}
+	// A service-linked role deletion is tracked by a task whose id spells the
+	// role it is deleting: "task/aws-service-role/<service>/<roleName>/<uuid>".
+	// The role is what the deletion authorizes against, and the id states it.
+	if iamHasType(types, "role") {
+		if name := iamServiceLinkedRoleFromTask(r.FormValue("DeletionTaskId")); name != "" {
+			return []string{"arn:aws:iam::" + account + ":role/" + name}
+		}
+	}
 	// An organizations access report is named by the entity it covers, which
 	// the request carries as the path of that entity in the organization.
 	if iamHasType(types, "access-report") {
@@ -2586,4 +2609,26 @@ func iamSSMInstanceARNs(fields map[string][]string, region, account string) []st
 		}
 	}
 	return out
+}
+
+// iamServiceLinkedRoleFromTask is the role a service-linked-role deletion task
+// is deleting, read off the task id. IAM spells it
+// "task/aws-service-role/<service>/<roleName>/<uuid>", so the role is the
+// path between the service and the task's own identifier — and the ARN keeps
+// that path, because a service-linked role lives under /aws-service-role/.
+//
+// A task id in any other shape names no role; building one from a partial
+// match would authorize against a role the request never mentioned.
+func iamServiceLinkedRoleFromTask(task string) string {
+	rest, found := strings.CutPrefix(task, "task/")
+	if !found {
+		return ""
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) < 4 || parts[0] != "aws-service-role" {
+		return ""
+	}
+	// Everything between "aws-service-role" and the trailing task identifier is
+	// the role's own path and name.
+	return strings.Join(parts[:len(parts)-1], "/")
 }

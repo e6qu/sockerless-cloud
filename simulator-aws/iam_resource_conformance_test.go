@@ -1062,6 +1062,12 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	if service == "cloudtrail" && (lower == "resourceid" || lower == "resourceidlist") {
 		return arnValue
 	}
+	// A service-linked-role deletion task spells the role it is deleting, so a
+	// placeholder there names none.
+	if service == "iam" && lower == "deletiontaskid" {
+		return "task/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS/" +
+			"11111111-2222-3333-4444-555555555555"
+	}
 	// A virtual MFA device's serial number is its ARN — that is the identifier
 	// IAM assigns and the only one a client has to send — so a placeholder
 	// there leaves the derivation nothing to name the device with.
@@ -1597,7 +1603,17 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // TestIAMResourceARNs_SSMInstanceIdPicksItsService pins each prefix and pins
 // that an identifier with neither names no machine — filling both types would
 // authorize against a machine the request never mentioned.
-const iamDerivationCoverageFloor = 1865
+//
+// Raised to 1866 by iam:GetServiceLinkedRoleDeletionStatus, whose task id
+// spells the role being deleted and needs no lookup.
+//
+// iam:GetAccessKeyLastUsed derives too and the floor does not show it: an
+// access key belongs to a user, IAM authorizes the user, and the key is all the
+// request carries — so the user comes from the simulator's record of who the
+// key was created for, which the probe names none of. Same measurement gap as
+// the AWS Glue data-quality family.
+// TestIAMResourceARNs_IAMNamesItsResourceIndirectly holds both.
+const iamDerivationCoverageFloor = 1866
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

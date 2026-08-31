@@ -1868,3 +1868,52 @@ func TestIAMResourceARNs_SSMInstanceIdPicksItsService(t *testing.T) {
 			"ssm:DescribeInstancePatches", "*")
 	})
 }
+
+// TestIAMResourceARNs_IAMNamesItsResourceIndirectly pins the two IAM shapes
+// where the request names something that points at the resource rather than
+// the resource itself.
+//
+// An access key belongs to a user and IAM authorizes the user; the key is all
+// the request carries, so the user comes from the simulator's own record of who
+// the key was created for. The coverage probe cannot express that — it names a
+// key nothing holds, and the derivation correctly declines — so this test is
+// where it is held.
+//
+// A service-linked-role deletion is tracked by a task whose id spells the role
+// being deleted, which needs no lookup at all.
+func TestIAMResourceARNs_IAMNamesItsResourceIndirectly(t *testing.T) {
+	iamAccessKeys = sim.MakeStore[IAMAccessKey](nil, "test_iam_access_keys")
+	t.Cleanup(func() { iamAccessKeys = nil })
+	iamAccessKeys.Put("AKIAEXAMPLE", IAMAccessKey{
+		AccessKeyId: "AKIAEXAMPLE", UserName: "ana", Status: "Active",
+	})
+
+	t.Run("an access key names the user it belongs to", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GetAccessKeyLastUsed", "2010-05-08",
+				map[string]string{"AccessKeyId": "AKIAEXAMPLE"}),
+			"iam:GetAccessKeyLastUsed", "arn:aws:iam::123456789012:user/ana")
+	})
+
+	t.Run("a key the simulator does not hold names no user", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GetAccessKeyLastUsed", "2010-05-08",
+				map[string]string{"AccessKeyId": "AKIANOSUCHKEY"}),
+			"iam:GetAccessKeyLastUsed", "*")
+	})
+
+	t.Run("a deletion task spells the role it is deleting", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GetServiceLinkedRoleDeletionStatus", "2010-05-08",
+				map[string]string{"DeletionTaskId": "task%2Faws-service-role%2Fecs.amazonaws.com%2FAWSServiceRoleForECS%2Fabcd"}),
+			"iam:GetServiceLinkedRoleDeletionStatus",
+			"arn:aws:iam::123456789012:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS")
+	})
+
+	t.Run("a task id in another shape names no role", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GetServiceLinkedRoleDeletionStatus", "2010-05-08",
+				map[string]string{"DeletionTaskId": "not-a-task"}),
+			"iam:GetServiceLinkedRoleDeletionStatus", "*")
+	})
+}
