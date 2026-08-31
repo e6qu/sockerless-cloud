@@ -91,6 +91,31 @@
    rule because there is none to name. Encoding that — rather than inferring it
    from the reader having returned nothing — is the actual work.
 
+   Amazon EC2's 34 — the largest single service gap — are not one shape. Read
+   off the model on 2026-08-31, they fall into three:
+
+   - **ResourceId + ResourceType** (`CreateFlowLogs` and its kin): the type
+     names which of the declared types the id fills. This is exactly the shape
+     Systems Manager's tagging family has, and `iamSSMTaggedResourceARNs`
+     already implements it — the EC2 version is the same function against EC2's
+     type list.
+   - **A type-prefixed ResourceId** (`CreateTags`, which declares over a
+     hundred types and carries one `ResourceId`): an EC2 identifier encodes its
+     own type — `vpc-`, `i-`, `subnet-`, `sg-`, `snap-`, `ami-`. The prefix is
+     the discriminator, so the derivation is a prefix-to-type table and no
+     guessing is involved. This is the biggest single win available and the
+     table is the whole of the work.
+   - **Named by something that is not the identifier** (`AcceptAddressTransfer`
+     carries `Address`, an IP, while the elastic-ip ARN is built from an
+     AllocationId): these cannot derive from the request alone and need a
+     lookup against what the simulator holds, or a declared reason.
+
+   Whichever is taken first, the probe has to send a value the service accepts
+   — an EC2 ResourceId is `<prefix>-<hex>`, and "probe" is not. That is the
+   same measurement defect that hid the Systems Manager tagging family, now
+   fixed for it in iamProbeMemberValueFor; the EC2 case needs its own entry
+   there, and the derivation is unmeasurable until it does.
+
    It is a change to authorization *outcomes* for every service, so it needs
    the whole AWS SDK suite behind it, not a spot check: today those calls are
    authorized against `*`, and afterwards against the type wildcard, which a
