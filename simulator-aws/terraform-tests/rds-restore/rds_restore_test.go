@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/simulator-aws/terraform-tests/internal/tfsim"
 	"github.com/stretchr/testify/require"
@@ -51,6 +52,13 @@ func seedSnapshot(t *testing.T, env *tfsim.Env) {
 		"DBInstanceIdentifier": {"tf-rds-restore-source"},
 		"DBSnapshotIdentifier": {"tf-rds-snapshot-source"},
 	})
+	// A snapshot is not restorable while it is still being taken, and Amazon
+	// RDS refuses a restore from one that is: "DBSnapshot ... is creating; it
+	// must be available to restore from". The Terraform provider waits for its
+	// own aws_db_snapshot resource to settle; this snapshot is seeded outside
+	// Terraform, so the seeding waits for it here. Without that the apply below
+	// races the snapshot and fails whenever it loses.
+	awaitSnapshotAvailable(t, env, "tf-rds-snapshot-source")
 	t.Cleanup(func() {
 		env.AWSQuery(t, "rds", url.Values{
 			"Action":               {"DeleteDBSnapshot"},
@@ -85,4 +93,26 @@ func readOutputs(t *testing.T, env *tfsim.Env) tfOutputs {
 	var outputs tfOutputs
 	require.NoError(t, json.Unmarshal(env.Terraform(t, "output", "-json"), &outputs))
 	return outputs
+}
+
+// awaitSnapshotAvailable blocks until the seeded snapshot is restorable.
+func awaitSnapshotAvailable(t *testing.T, env *tfsim.Env, snapshot string) {
+	t.Helper()
+	// A snapshot of an empty instance settles in well under a second; the
+	// budget is for a loaded host, not for a snapshot that is going to fail.
+	deadline := time.Now().Add(2 * time.Minute)
+	var last string
+	for time.Now().Before(deadline) {
+		last = env.AWSQueryBody(t, "rds", url.Values{
+			"Action":               {"DescribeDBSnapshots"},
+			"Version":              {"2014-10-31"},
+			"DBSnapshotIdentifier": {snapshot},
+		})
+		if strings.Contains(last, "<Status>available</Status>") {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("snapshot %s never became available to restore from; last DescribeDBSnapshots answer:\n%s",
+		snapshot, last)
 }

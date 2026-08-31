@@ -290,6 +290,14 @@ func (e *Env) AWSJSON(t *testing.T, service, target string, in, out any) {
 
 func (e *Env) AWSQuery(t *testing.T, service string, values url.Values) {
 	t.Helper()
+	e.AWSQueryBody(t, service, values)
+}
+
+// AWSQueryBody is AWSQuery with the response returned, for the setup calls that
+// have to read what the service answered — waiting for a resource to reach the
+// state a later step requires means reading its state, not assuming it.
+func (e *Env) AWSQueryBody(t *testing.T, service string, values url.Values) string {
+	t.Helper()
 	body := []byte(values.Encode())
 	req, err := http.NewRequest(http.MethodPost, e.Endpoint+"/", bytes.NewReader(body))
 	if err != nil {
@@ -307,6 +315,11 @@ func (e *Env) AWSQuery(t *testing.T, service string, values url.Values) {
 		_, _ = b.ReadFrom(resp.Body)
 		t.Fatalf("query action %s status=%d body=%s", values.Get("Action"), resp.StatusCode, b.String())
 	}
+	var answered bytes.Buffer
+	if _, err := answered.ReadFrom(resp.Body); err != nil {
+		t.Fatalf("read query action %s response: %v", values.Get("Action"), err)
+	}
+	return answered.String()
 }
 
 // signSimSigV4 signs a request to the simulator with Signature Version 4 using
