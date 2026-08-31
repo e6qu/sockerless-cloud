@@ -408,6 +408,42 @@ func iamProbeARN(service, operation, serviceWide string) string {
 	return serviceWide
 }
 
+// iamQueryProbeForm renders a query-protocol request body the way a client
+// does. The query protocol boxes a list in ".member.N" and puts a structure's
+// members after a dot, so an operation naming its resource inside a list entry
+// — Elastic Load Balancing's SetRulePriorities carries each rule's ARN as
+// RulePriorities.member.1.RuleArn — is reachable only when the probe spells it
+// that way. A flat member of the same name is a body no client sends.
+func iamQueryProbeForm(service, operation, version, arnValue string,
+	members map[string]string, nested map[string][]string,
+) string {
+	form := "Action=" + operation + "&Version=" + version
+	add := func(key, value string) {
+		form += "&" + key + "=" + url.QueryEscape(value)
+	}
+	for name, kind := range members {
+		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
+			continue
+		}
+		value := iamProbeMemberValue(service, name, arnValue)
+		switch kind {
+		case "list":
+			add(name+".member.1", value)
+		case "structure":
+			for _, inner := range nested[name] {
+				add(name+"."+inner, iamProbeMemberValue(service, inner, arnValue))
+			}
+		case "list-structure":
+			for _, inner := range nested[name] {
+				add(name+".member.1."+inner, iamProbeMemberValue(service, inner, arnValue))
+			}
+		default:
+			add(name, value)
+		}
+	}
+	return form
+}
+
 func iamProbeBody(service, arnValue string, members map[string]bool, nested map[string][]string) map[string]any {
 	body := make(map[string]any, len(members))
 	for name := range members {
@@ -739,20 +775,15 @@ func loadOrganizationsRequestShapes(t *testing.T) map[string]map[string]string {
 // carrying every parameter the model declares, with the ARN-bearing ones
 // carrying an ARN — which is what a real caller sends, since Elastic Load
 // Balancing resources are addressed by ARN and not by parts.
-func iamELBv2DerivesItsResource(operation string, params map[string]bool) bool {
+func iamELBv2DerivesItsResource(operation string, params map[string]string, nested map[string][]string) bool {
 	if len(iamActionResourceTypes["elasticloadbalancing:"+operation]) == 0 {
 		return false
 	}
-	form := "Action=" + operation + "&Version=2015-12-01"
-	for name := range params {
-		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
-			continue
-		}
-		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("elasticloadbalancing", name,
-			iamProbeARN("elasticloadbalancing", operation,
-				"arn:aws:elasticloadbalancing:us-east-1:"+iamProbeAccount+
-					":targetgroup/probe/0123456789abcdef")))
-	}
+	form := iamQueryProbeForm("elasticloadbalancing", operation, "2015-12-01",
+		iamProbeARN("elasticloadbalancing", operation,
+			"arn:aws:elasticloadbalancing:us-east-1:"+iamProbeAccount+
+				":targetgroup/probe/0123456789abcdef"),
+		params, nested)
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return len(iamDerivedResourceARNs(r, "elasticloadbalancing", operation, "us-east-1", "123456789012")) > 0
@@ -1749,7 +1780,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1938
+const iamDerivationCoverageFloor = 1939
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1802,7 +1833,10 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	_, eventBridgeNested := loadRequestShapes(t, "eventbridge", memberWireName)
 	eventBridgeMembers := loadCasedRequestMembers(t, "eventbridge")
 	organizationsMembers := loadOrganizationsRequestShapes(t)
-	elbParameters := loadRequestFields(t, "elastic-load-balancing-v2", memberWireName)
+	// Elastic Load Balancing needs the member kinds and the element members
+	// beside them: SetRulePriorities names each rule inside a list entry.
+	_, elbNested := loadRequestShapes(t, "elastic-load-balancing-v2", memberWireName)
+	elbParameters := loadCasedRequestMembers(t, "elastic-load-balancing-v2")
 	acmMembers := loadRequestFields(t, "acm", memberWireName)
 	cloudWatchMembers := loadRequestFields(t, "cloudwatch", memberWireName)
 	ecrMembers := loadRequestFields(t, "ecr", memberWireName)
@@ -1882,7 +1916,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "organizations":
 			derived = iamOrganizationsDerivesItsResource(o.name, organizationsMembers[o.name], organizationsIDs)
 		case "elasticloadbalancing":
-			derived = iamELBv2DerivesItsResource(o.name, elbParameters[o.name])
+			derived = iamELBv2DerivesItsResource(o.name, elbParameters[o.name], elbNested[o.name])
 		case "acm":
 			derived = iamACMDerivesItsResource(o.name, acmMembers[o.name])
 		case "cloudwatch":
