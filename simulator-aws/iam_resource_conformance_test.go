@@ -381,15 +381,17 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 // every field the operation declares, and an object for a member the model says
 // is a structure, so a derivation that reads inside one is exercised rather
 // than counted as absent.
-func iamProbeBody(members map[string]bool, nested map[string][]string) map[string]any {
+// It takes the service because a member only that service defines can only be
+// filled with a value it accepts.
+func iamProbeBody(service string, members map[string]bool, nested map[string][]string) map[string]any {
 	body := make(map[string]any, len(members))
 	for name := range members {
-		body[name] = iamProbeMemberValue(name, "probe")
+		body[name] = iamProbeMemberValueFor(service, name, "probe")
 	}
 	for member, inner := range nested {
 		object := make(map[string]any, len(inner))
 		for _, name := range inner {
-			object[name] = "probe"
+			object[name] = iamProbeMemberValueFor(service, name, "probe")
 		}
 		if len(object) > 0 {
 			body[member] = object
@@ -488,7 +490,7 @@ func iamGlueDerivesItsResource(operation string, members map[string]bool, nested
 	if len(types) == 0 {
 		return false
 	}
-	encoded, err := json.Marshal(iamProbeBody(members, nested))
+	encoded, err := json.Marshal(iamProbeBody("glue", members, nested))
 	if err != nil {
 		return false
 	}
@@ -509,7 +511,8 @@ func iamRDSDerivesItsResource(operation string, params map[string]bool) bool {
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
-		form += "&" + name + "=probe"
+		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValueFor("rds", name,
+			"arn:aws:rds:us-east-1:"+iamProbeAccount+":db:probe"))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1494,7 +1497,12 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // parent off it — so a placeholder with no colon left 23 operations measuring as
 // underived against a reader that resolved all of them. Ten came back with the
 // service, and the services beside it gained the rest.
-const iamDerivationCoverageFloor = 1809
+//
+// Raised to 1814 by the seventh and eighth copies: Amazon RDS built its query
+// form with a hardcoded placeholder, and the shared body builder had no service
+// to key on. RDS names its tagging target by ARN, so a placeholder there left
+// that family underived against a reader that only ever needed the ARN.
+const iamDerivationCoverageFloor = 1814
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
