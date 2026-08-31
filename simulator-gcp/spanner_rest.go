@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -206,9 +207,49 @@ func handleSpannerSessionActionREST(w http.ResponseWriter, r *http.Request) {
 		spannerWriteRESTProto(w, resp)
 	case "batchWrite":
 		handleSpannerBatchWriteREST(w, r, session)
+	case "adaptMessage":
+		handleSpannerAdaptMessage(w, r, session)
 	default:
 		gcpMethodNotFound(w)
 	}
+}
+
+// handleSpannerAdaptMessage carries one message of a PostgreSQL wire session
+// through the adapter. The reply reports the session state after the message,
+// and the payload it carries back is the adapter's — there is no PostgreSQL
+// backend behind this session to answer for, so it says the message was taken
+// and the session is at its end rather than inventing a result set.
+func handleSpannerAdaptMessage(w http.ResponseWriter, r *http.Request, session string) {
+	var req struct {
+		Protocol string `json:"protocol"`
+		Payload  string `json:"payload"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	if req.Protocol == "" {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"adaptMessage needs the protocol the message is in")
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"stateUpdates": map[string]any{"session": session},
+		"last":         true,
+	})
+}
+
+// handleSpannerCreateAdapterSession opens a session a wire-protocol adapter
+// drives. It is a session like any other — the adapter is how it is spoken to,
+// not what it is — so it is created in the same store, and a database that does
+// not exist cannot hold one.
+func handleSpannerCreateAdapterSession(w http.ResponseWriter, r *http.Request, database string) {
+	if _, ok := spannerDatabases.Get(database); !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
+		return
+	}
+	name := fmt.Sprintf("%s/sessions/adapter-%s", database, generateUUID()[:8])
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"name": name})
 }
 
 func handleSpannerBatchWriteREST(w http.ResponseWriter, r *http.Request, session string) {

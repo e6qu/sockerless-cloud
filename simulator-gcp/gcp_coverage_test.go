@@ -392,7 +392,7 @@ var gcpMethodFloor = map[string]int{
 	// The "instances/{rest...}" mount that routes this surface has the shape of
 	// every path in the document, so only its answer — a method-not-found for
 	// each tail it does not route — distinguishes the two.
-	"spanner-v1": 188,
+	"spanner-v1": 198,
 }
 
 // gcpProbePrincipal is the subject of the access token every probe presents.

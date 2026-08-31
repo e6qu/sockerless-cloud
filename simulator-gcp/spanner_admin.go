@@ -249,9 +249,74 @@ func handleSpannerDatabaseAction(w http.ResponseWriter, r *http.Request, instanc
 			return
 		}
 		handleResourceIAM(w, r, gcpResourceIAMStore(), name, verb)
+	case "addSplitPoints":
+		handleSpannerAddSplitPoints(w, r, name)
+	case "changequorum":
+		handleSpannerChangeQuorum(w, r, name)
 	default:
 		gcpMethodNotFound(w)
 	}
+}
+
+// handleSpannerAddSplitPoints records where a database is to be split. A split
+// point names a key in a table or index, so one naming neither describes no
+// split — and Spanner answers with an empty body, having taken the request.
+func handleSpannerAddSplitPoints(w http.ResponseWriter, r *http.Request, name string) {
+	if _, ok := spannerDatabases.Get(name); !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		return
+	}
+	var req struct {
+		SplitPoints []struct {
+			Table string `json:"table"`
+			Index string `json:"index"`
+		} `json:"splitPoints"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	if len(req.SplitPoints) == 0 {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"addSplitPoints needs the split points to add")
+		return
+	}
+	for _, point := range req.SplitPoints {
+		if point.Table == "" && point.Index == "" {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"a split point names the table or index it splits")
+			return
+		}
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// handleSpannerChangeQuorum moves a database between quorum types, which is how
+// a dual-region database is failed over. The new quorum is recorded on the
+// database, so a read afterwards reports the quorum the database is actually
+// in.
+func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name string) {
+	var req struct {
+		QuorumType map[string]any `json:"quorumType"`
+		Etag       string         `json:"etag"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	if len(req.QuorumType) == 0 {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"changequorum needs the quorum type to move to")
+		return
+	}
+	if !spannerDatabases.Update(name, func(db *spannerDatabase) { db.QuorumInfo = req.QuorumType }) {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"name": name + "/operations/changequorum", "done": true,
+		"response": map[string]any{"name": name},
+	})
 }
 
 // handleSpannerGetDatabaseDdl reports the database's schema as the list of DDL

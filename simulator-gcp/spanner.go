@@ -31,6 +31,9 @@ type spannerDatabase struct {
 	EnableDropProtection   bool                `json:"enableDropProtection,omitempty"`
 	Reconciling            bool                `json:"reconciling,omitempty"`
 	RestoreInfo            *spannerRestoreInfo `json:"restoreInfo,omitempty"`
+	// QuorumInfo is the quorum the database is in, which changequorum moves and
+	// a read reports.
+	QuorumInfo map[string]any `json:"quorumInfo,omitempty"`
 }
 
 // spannerRestoreInfo mirrors the Discovery RestoreInfo schema: how a database
@@ -375,6 +378,11 @@ func spannerRouteDatabaseCollection(w http.ResponseWriter, r *http.Request, part
 			handleSpannerBatchCreateSessionsREST(w, r)
 			return true
 		}
+		if child == "sessions" && verb == "adapter" && r.Method == http.MethodPost {
+			handleSpannerCreateAdapterSession(w, r,
+				spannerDatabaseName(project, instance, id))
+			return true
+		}
 		return false
 	}
 	switch child {
@@ -409,6 +417,20 @@ func spannerRouteDatabaseCollection(w http.ResponseWriter, r *http.Request, part
 		default:
 			return false
 		}
+	case "scans":
+		// A database's key-visualizer scan. Spanner builds one from observed
+		// traffic, so a database nothing has queried has a scan resource with
+		// no data in it — inventing scanData would describe access patterns
+		// that never happened.
+		if r.Method != http.MethodGet {
+			return false
+		}
+		database := spannerDatabaseName(project, instance, id)
+		if _, ok := spannerDatabases.Get(database); !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
+			return true
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"name": database + "/scans"})
 	default:
 		return false
 	}
