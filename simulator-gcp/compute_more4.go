@@ -30,6 +30,9 @@ func registerComputeMore4(srv *sim.Server) {
 	// or that carry a verb beyond the lifecycle.
 	gcpComputeCrossSiteNetworks = mk("compute_cross_site_networks")
 	gcpComputeRegionSnapshots = mk("compute_region_snapshots")
+	gcpComputeInterconnectGroups = mk("compute_interconnect_groups")
+	gcpComputeHealthSources = mk("compute_health_sources")
+	gcpComputeCompositeHealthChecks = mk("compute_composite_health_checks")
 
 	families := []computeMetaResource{
 		// Cross-site networking: a network spanning two interconnect sites,
@@ -90,9 +93,9 @@ func registerComputeMore4(srv *sim.Server) {
 		// The health sources and composite health checks a load balancer
 		// aggregates.
 		{collection: "healthSources", kind: "compute#healthSource", scope: cScopeRegion,
-			store: mk("compute_health_sources"), patch: true, aggregated: true, testIamOnly: true},
+			store: gcpComputeHealthSources, patch: true, aggregated: true, testIamOnly: true},
 		{collection: "compositeHealthChecks", kind: "compute#compositeHealthCheck", scope: cScopeRegion,
-			store: mk("compute_composite_health_checks"), patch: true, aggregated: true, testIamOnly: true},
+			store: gcpComputeCompositeHealthChecks, patch: true, aggregated: true, testIamOnly: true},
 
 		// Interconnects and the groups that bundle them. Their physical link
 		// diagnostics and MACsec configuration are hardware telemetry this
@@ -106,7 +109,7 @@ func registerComputeMore4(srv *sim.Server) {
 		// rather than kept beside it, and a group naming none is degraded
 		// rather than healthy — which is what the topology actually is.
 		{collection: "interconnectGroups", kind: "compute#InterconnectGroup", scope: cScopeGlobal,
-			store: mk("compute_interconnect_groups"), patch: true, iam: true,
+			store: gcpComputeInterconnectGroups, patch: true, iam: true,
 			statusReads: []computeStatusRead{{
 				verb: "getOperationalStatus", wrap: "result", etag: true,
 				status: func(group map[string]any) map[string]any {

@@ -60,6 +60,11 @@ var (
 	gcpComputeBackendBuckets                  sim.Store[map[string]any]
 	gcpComputeTargetHTTPSProxies              sim.Store[map[string]any]
 	gcpComputeRegionSnapshots                 sim.Store[map[string]any]
+	gcpComputeGlobalAddresses                 sim.Store[map[string]any]
+	gcpComputeRegionAddresses                 sim.Store[ComputeAddress]
+	gcpComputeCompositeHealthChecks           sim.Store[map[string]any]
+	gcpComputeHealthSources                   sim.Store[map[string]any]
+	gcpComputeInterconnectGroups              sim.Store[map[string]any]
 	gcpComputeCrossSiteNetworks               sim.Store[map[string]any]
 	gcpComputeRegionalPublicDelegatedPrefixes sim.Store[map[string]any]
 )

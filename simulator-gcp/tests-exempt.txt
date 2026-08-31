@@ -44,3 +44,11 @@ PATCH /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}
 # test can reach it — the CLI and the terraform provider go through update and
 # resize instead.
 PATCH /compute/v1/projects/{project}/zones/{zone}/disks/{name}
+
+# What a composite health check has observed. Compute Engine declares the read
+# and the simulator serves it, but google-api-go-client wraps no
+# CompositeHealthChecks, so no SDK test can reach it.
+GET /compute/v1/projects/{project}/regions/{region}/compositeHealthChecks/{name}/getHealth
+# The same for a health source, whose collection the generated client also does
+# not wrap.
+GET /compute/v1/projects/{project}/regions/{region}/healthSources/{name}/getHealth

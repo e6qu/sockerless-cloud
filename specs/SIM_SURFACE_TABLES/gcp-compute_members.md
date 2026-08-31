@@ -17,19 +17,19 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/setBackup` | ✓ `simulator-gcp/compute_members.go:174::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/setSecurityPolicy` | ✓ `simulator-gcp/compute_members.go:194::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/getHealth` | ○ `simulator-gcp/compute_members.go:218::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/networks/{network}/addPeering` | ✓ `simulator-gcp/compute_members.go:278::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/networks/{network}/removePeering` | ✓ `simulator-gcp/compute_members.go:323::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /compute/v1/projects/{project}/global/networks/{network}/updatePeering` | ✓ `simulator-gcp/compute_members.go:346::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/networks/{network}/switchToCustomMode` | ✓ `simulator-gcp/compute_members.go:402::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/networks/{network}/listPeeringRoutes` | ✓ `simulator-gcp/compute_members.go:417::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/networks/{network}/getEffectiveFirewalls` | ✓ `simulator-gcp/compute_members.go:449::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/addNodes` | ✓ `simulator-gcp/compute_members.go:484::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/deleteNodes` | ✓ `simulator-gcp/compute_members.go:513::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/listNodes` | ✓ `simulator-gcp/compute_members.go:535::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/setNodeTemplate` | ✓ `simulator-gcp/compute_members.go:567::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/setBackup` | ✓ `simulator-gcp/compute_members.go:179::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/setSecurityPolicy` | ✓ `simulator-gcp/compute_members.go:199::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/getHealth` | ○ `simulator-gcp/compute_members.go:223::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/networks/{network}/addPeering` | ✓ `simulator-gcp/compute_members.go:283::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/networks/{network}/removePeering` | ✓ `simulator-gcp/compute_members.go:328::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/global/networks/{network}/updatePeering` | ✓ `simulator-gcp/compute_members.go:351::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/networks/{network}/switchToCustomMode` | ✓ `simulator-gcp/compute_members.go:407::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/networks/{network}/listPeeringRoutes` | ✓ `simulator-gcp/compute_members.go:422::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/networks/{network}/getEffectiveFirewalls` | ✓ `simulator-gcp/compute_members.go:454::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/addNodes` | ✓ `simulator-gcp/compute_members.go:489::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/deleteNodes` | ✓ `simulator-gcp/compute_members.go:518::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/listNodes` | ✓ `simulator-gcp/compute_members.go:540::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/nodeGroups/{nodeGroup}/setNodeTemplate` | ✓ `simulator-gcp/compute_members.go:572::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

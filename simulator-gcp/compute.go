@@ -1145,6 +1145,65 @@ func registerCompute(srv *sim.Server) {
 	})
 
 	// Delete subnetwork
+	// A subnetwork's range only grows: shrinking it would strand the addresses
+	// already handed out of it, so Compute Engine refuses that and so does
+	// this. The comparison is on the prefix length, where a smaller number is
+	// a larger range.
+	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}/expandIpCidrRange", func(w http.ResponseWriter, r *http.Request) {
+		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
+		var req struct {
+			IpCidrRange string `json:"ipCidrRange"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil || req.IpCidrRange == "" {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"expandIpCidrRange needs the range to expand to")
+			return
+		}
+		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
+		held, ok := subnetworks.Get(selfLink)
+		if !ok {
+			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			return
+		}
+		wider, err := computeRangeIsWider(held.IpCidrRange, req.IpCidrRange)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			return
+		}
+		if !wider {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"a subnetwork range can only expand: %s is not wider than %s", req.IpCidrRange, held.IpCidrRange)
+			return
+		}
+		held.IpCidrRange = req.IpCidrRange
+		subnetworks.Put(selfLink, held)
+		sim.WriteJSON(w, http.StatusOK,
+			newComputeOpWithType(project, "regions/"+region, selfLink, "expandIpCidrRange"))
+	})
+
+	// A subnetwork's patch, which edits the members that can change without
+	// the subnetwork being recreated.
+	srv.HandleFunc("PATCH /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}", func(w http.ResponseWriter, r *http.Request) {
+		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
+		var body map[string]any
+		if err := sim.ReadJSON(r, &body); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
+		found, err := computeTypedWrite(subnetworks, selfLink, body, false)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid subnetwork: %v", err)
+			return
+		}
+		if !found {
+			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK,
+			newComputeOpWithType(project, "regions/"+region, selfLink, "patch"))
+	})
+
 	// Private Google Access is a member of the subnetwork, and the verb that
 	// turns it on is how a client changes it without rewriting the resource.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}/setPrivateIpGoogleAccess", func(w http.ResponseWriter, r *http.Request) {
@@ -1331,6 +1390,7 @@ func registerCompute(srv *sim.Server) {
 	// without these handlers, terraform's `google_compute_router` and
 	// `google_compute_router_nat` 404.
 	addresses := sim.MakeStore[ComputeAddress](srv.DB(), "compute_addresses")
+	gcpComputeRegionAddresses = addresses
 	routers := sim.MakeStore[ComputeRouter](srv.DB(), "compute_routers")
 	gcpAddresses = addresses
 	gcpRouters = routers
@@ -2901,4 +2961,27 @@ func computeImageJSON(project, name string) map[string]any {
 		"sourceType":        "RAW",
 		"creationTimestamp": time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+// computeRangeIsWider reports whether one CIDR range covers more addresses than
+// another. A subnetwork's range only ever grows, and a range grows by taking a
+// shorter prefix — /20 is wider than /24.
+func computeRangeIsWider(current, proposed string) (bool, error) {
+	prefixLength := func(cidr string) (int, error) {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return 0, fmt.Errorf("%q is not a CIDR range", cidr)
+		}
+		ones, _ := network.Mask.Size()
+		return ones, nil
+	}
+	held, err := prefixLength(current)
+	if err != nil {
+		return false, err
+	}
+	wanted, err := prefixLength(proposed)
+	if err != nil {
+		return false, err
+	}
+	return wanted < held, nil
 }

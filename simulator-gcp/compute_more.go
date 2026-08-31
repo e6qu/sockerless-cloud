@@ -651,6 +651,7 @@ func registerComputeMore(srv *sim.Server) {
 
 	gcpComputeImages = mk("compute_images")
 	gcpComputeTargetHTTPSProxies = mk("compute_target_https_proxies")
+	gcpComputeGlobalAddresses = mk("compute_global_addresses")
 	// A packet mirroring policy's collectorIlb resolves through the regional
 	// backend services to the instances behind it, so the resolver reads them.
 	gcpRegionBackendServices = mk("compute_region_backend_services")
@@ -673,7 +674,7 @@ func registerComputeMore(srv *sim.Server) {
 		{collection: "machineImages", kind: "compute#machineImage", scope: cScopeGlobal, store: mk("compute_machine_images"), setLabels: true},
 		{collection: "disks", kind: "compute#disk", scope: cScopeRegion, store: gcpComputeRegionDisks, patch: true, setLabels: true},
 		// Addressing / routing.
-		{collection: "addresses", kind: "compute#address", scope: cScopeGlobal, store: mk("compute_global_addresses"), setLabels: true},
+		{collection: "addresses", kind: "compute#address", scope: cScopeGlobal, store: gcpComputeGlobalAddresses, setLabels: true},
 		{collection: "routes", kind: "compute#route", scope: cScopeGlobal, store: mk("compute_routes")},
 		// Load-balancing resources.
 		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: gcpComputeTargetPools, aggregated: true},
@@ -685,7 +686,7 @@ func registerComputeMore(srv *sim.Server) {
 		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps"), patch: true, update: true},
 		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies"),
 			setVerbs: []computeSetVerb{{verb: "setUrlMap", member: "urlMap"}}},
-		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: gcpComputeTargetHTTPSProxies, aggregated: true,
+		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: gcpComputeTargetHTTPSProxies, patch: true, aggregated: true,
 			setVerbs: []computeSetVerb{
 				{verb: "setSslPolicy", member: "sslPolicy"},
 				{verb: "setQuicOverride", member: "quicOverride"},
