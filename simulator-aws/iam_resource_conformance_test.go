@@ -472,7 +472,8 @@ func iamEC2DerivesItsResource(operation string, params map[string]bool) bool {
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue // the request already carries these
 		}
-		values[name] = "probe"
+		values[name] = iamProbeMemberValueFor("ec2", name,
+			"arn:aws:ec2:us-east-1:"+iamProbeAccount+":instance/i-0123456789abcdef0")
 	}
 	return len(iamDerivedResourceARNs(iamEC2Request(operation, values), "ec2", operation,
 		"us-east-1", "123456789012")) > 0
@@ -1044,6 +1045,16 @@ func iamProbeMemberValue(name, arnValue string) string {
 // measuring as underived while their production readers worked.
 func iamProbeMemberValueFor(service, name, arnValue string) string {
 	lower := strings.ToLower(name)
+	// An Amazon EC2 identifier states its own type in its prefix — i- an
+	// instance, vol- a volume — and the derivation reads that prefix to decide
+	// which of the declared types the id names. CreateTags declares over a
+	// hundred of them and carries one ResourceId, so a value with no prefix
+	// leaves the derivation nothing to discriminate on and the whole tagging
+	// family measures as underived while the production reader resolves every
+	// one of them.
+	if service == "ec2" && lower == "resourceid" {
+		return "i-0123456789abcdef0"
+	}
 	if service == "ssm" && lower == "resourcetype" {
 		// Any real member of the enum will do: the test pins all ten, and what
 		// matters here is that the probe names one the service declares rather
@@ -1447,7 +1458,14 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // paragraph describes. Naming a real type there took ssm from 15 underived to
 // 11. The single rule is service-aware because that is what the case needs: a
 // member can only be filled correctly if you know whose member it is.
-const iamDerivationCoverageFloor = 1797
+//
+// Raised to 1799 by a sixth copy of the same defect: the Amazon EC2 probe
+// filled ResourceId with a placeholder. An EC2 identifier states its type in
+// its prefix, and the production reader has read that prefix all along —
+// longest prefix wins, an unknown one derives nothing — so CreateTags resolves
+// every one of the hundred-odd types it declares from the id it is given. The
+// probe was giving it an id with no prefix.
+const iamDerivationCoverageFloor = 1799
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
