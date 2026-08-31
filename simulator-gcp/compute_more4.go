@@ -99,10 +99,35 @@ func registerComputeMore4(srv *sim.Server) {
 		// with numbers nothing measured.
 		{collection: "interconnects", kind: "compute#interconnect", scope: cScopeGlobal,
 			store: mk("compute_interconnects"), patch: true, setLabels: true},
+		// A group's operational status is what its members add up to against
+		// what the group was configured for. The members a group has are the
+		// ones its own resource names, so the status is derived from the group
+		// rather than kept beside it, and a group naming none is degraded
+		// rather than healthy — which is what the topology actually is.
 		{collection: "interconnectGroups", kind: "compute#InterconnectGroup", scope: cScopeGlobal,
-			store: mk("compute_interconnect_groups"), patch: true, iam: true},
+			store: mk("compute_interconnect_groups"), patch: true, iam: true,
+			statusReads: []computeStatusRead{{
+				verb: "getOperationalStatus", wrap: "result", etag: true,
+				status: func(group map[string]any) map[string]any {
+					return map[string]any{
+						"groupStatus":          computeGroupStatus(group),
+						"interconnectStatuses": []any{},
+						"configured":           group["intent"],
+					}
+				},
+			}}},
 		{collection: "interconnectAttachmentGroups", kind: "compute#interconnectAttachmentGroup", scope: cScopeGlobal,
-			store: mk("compute_interconnect_attachment_groups"), patch: true, iam: true},
+			store: mk("compute_interconnect_attachment_groups"), patch: true, iam: true,
+			statusReads: []computeStatusRead{{
+				verb: "getOperationalStatus", wrap: "result", etag: true,
+				status: func(group map[string]any) map[string]any {
+					return map[string]any{
+						"groupStatus":        computeGroupStatus(group),
+						"attachmentStatuses": []any{},
+						"configured":         group["intent"],
+					}
+				},
+			}}},
 	}
 	for _, res := range families {
 		res.register(srv)
@@ -120,4 +145,18 @@ func registerComputeMore4(srv *sim.Server) {
 			}
 			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "global", computeSelfLink(key), "delete"))
 		})
+}
+
+// computeGroupStatus reports what an interconnect group adds up to. A group
+// with no members cannot carry traffic, so it is degraded rather than fully
+// available — reporting otherwise would tell a client its topology is
+// redundant when it is empty.
+func computeGroupStatus(group map[string]any) string {
+	if members, _ := group["interconnects"].(map[string]any); len(members) > 0 {
+		return "GROUP_STATUS_FULLY_UP"
+	}
+	if members, _ := group["attachments"].(map[string]any); len(members) > 0 {
+		return "GROUP_STATUS_FULLY_UP"
+	}
+	return "GROUP_STATUS_DEGRADED"
 }

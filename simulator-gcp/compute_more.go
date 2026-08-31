@@ -70,6 +70,13 @@ type computeMetaResource struct {
 	// the resource and answers with an Operation, which is the whole of what
 	// Compute Engine's set-verbs do.
 	setVerbs []computeSetVerb
+	// stateVerbs are the verbs that move a resource between the states of its
+	// lifecycle — announcing a prefix, cancelling a reservation. Each refuses
+	// the transition it cannot make, because a no-op would hide the mistake.
+	stateVerbs []computeStateVerb
+	// statusReads are the GET verbs that report what a resource's parts are
+	// doing, derived from the resource rather than stored beside it.
+	statusReads []computeStatusRead
 	// scopeless marks a scoped collection whose resource declares no zone or
 	// region member of its own. Most do, so the registrar stamps one by
 	// default; stamping a resource whose schema has no such member puts a
@@ -158,6 +165,74 @@ func (v computeSetVerb) target() string {
 		return v.into
 	}
 	return v.member
+}
+
+// computeStateVerb is a verb that moves a resource's status from one state to
+// another, refusing any other starting state.
+type computeStateVerb struct {
+	verb string
+	from string
+	to   string
+	// done names the transition in the refusal, in the past tense a person
+	// would use: "announced", "withdrawn", "cancelled".
+	done string
+	// initial is the status a resource that has never been moved is in.
+	initial string
+	// at is where the status lives on the resource. Most collections keep it
+	// in a "status" member of their own; a future reservation's is nested
+	// inside its status object, at status.procurementStatus. Empty means
+	// "status".
+	at []string
+}
+
+// read returns the status a resource is currently in, and where it is kept.
+func (v computeStateVerb) read(held map[string]any) string {
+	at := v.at
+	if len(at) == 0 {
+		at = []string{"status"}
+	}
+	node := held
+	for _, step := range at[:len(at)-1] {
+		next, ok := node[step].(map[string]any)
+		if !ok {
+			return ""
+		}
+		node = next
+	}
+	status, _ := node[at[len(at)-1]].(string)
+	return status
+}
+
+// write records the status the verb moves the resource to, creating the
+// intermediate members if the resource has never carried one.
+func (v computeStateVerb) write(held map[string]any, status string) {
+	at := v.at
+	if len(at) == 0 {
+		at = []string{"status"}
+	}
+	node := held
+	for _, step := range at[:len(at)-1] {
+		next, ok := node[step].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			node[step] = next
+		}
+		node = next
+	}
+	node[at[len(at)-1]] = status
+}
+
+// computeStatusRead is a GET verb reporting what a resource's parts are doing.
+// The status is derived from the resource each time rather than stored, so it
+// cannot drift from what the resource says.
+type computeStatusRead struct {
+	verb string
+	// wrap is the member the status sits under in the response.
+	wrap string
+	// status builds it from the stored resource.
+	status func(map[string]any) map[string]any
+	// etag marks the responses whose schema carries one beside the result.
+	etag bool
 }
 
 // register wires the configured verbs onto the mux.
@@ -445,6 +520,48 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				res.reconcile(key)
 			}
 			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), verb.verb))
+		})
+	}
+
+	for _, verb := range res.stateVerbs {
+		verb := verb
+		srv.HandleFunc("POST "+base+"/{name}/"+verb.verb, func(w http.ResponseWriter, r *http.Request) {
+			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
+			key := relPath(r, name)
+			held, ok := res.store.Get(key)
+			if !ok {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				return
+			}
+			status := verb.read(held)
+			if status == "" {
+				status = verb.initial
+			}
+			if status != verb.from {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					"a %s in %s cannot be %s", res.collection, status, verb.done)
+				return
+			}
+			verb.write(held, verb.to)
+			res.store.Put(key, held)
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), verb.verb))
+		})
+	}
+
+	for _, read := range res.statusReads {
+		read := read
+		srv.HandleFunc("GET "+base+"/{name}/"+read.verb, func(w http.ResponseWriter, r *http.Request) {
+			name := sim.PathParam(r, "name")
+			held, ok := res.store.Get(relPath(r, name))
+			if !ok {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				return
+			}
+			body := map[string]any{read.wrap: read.status(held)}
+			if read.etag {
+				body["etag"] = computeFingerprint()
+			}
+			sim.WriteJSON(w, http.StatusOK, body)
 		})
 	}
 

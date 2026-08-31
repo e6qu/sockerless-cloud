@@ -58,7 +58,13 @@ func registerComputeMore2(srv *sim.Server) {
 		{collection: "externalVpnGateways", kind: "compute#externalVpnGateway", scope: cScopeGlobal, store: mk("compute_external_vpn_gateways"), setLabels: true, testIamOnly: true},
 		{collection: "targetSslProxies", kind: "compute#targetSslProxy", scope: cScopeGlobal, store: mk("compute_target_ssl_proxies"), testIamOnly: true},
 		{collection: "publicDelegatedPrefixes", kind: "compute#publicDelegatedPrefix", scope: cScopeGlobal, store: mk("compute_public_delegated_prefixes"), patch: true, aggregated: true},
-		{collection: "publicAdvertisedPrefixes", kind: "compute#publicAdvertisedPrefix", scope: cScopeGlobal, store: mk("compute_public_advertised_prefixes"), patch: true},
+		{collection: "publicAdvertisedPrefixes", kind: "compute#publicAdvertisedPrefix", scope: cScopeGlobal, store: mk("compute_public_advertised_prefixes"), patch: true,
+			// A prefix is validated before it goes on the wire, and can be
+			// taken back off it.
+			stateVerbs: []computeStateVerb{
+				{verb: "announce", from: "INITIAL", to: "ANNOUNCED_TO_INTERNET", done: "announced", initial: "INITIAL"},
+				{verb: "withdraw", from: "ANNOUNCED_TO_INTERNET", to: "INITIAL", done: "withdrawn", initial: "INITIAL"},
+			}},
 		{collection: "sslPolicies", kind: "compute#sslPolicy", scope: cScopeGlobal, store: mk("compute_ssl_policies"), patch: true, aggregated: true},
 
 		// Regional resources.
@@ -71,7 +77,16 @@ func registerComputeMore2(srv *sim.Server) {
 		{collection: "notificationEndpoints", kind: "compute#notificationEndpoint", scope: cScopeRegion, store: mk("compute_notification_endpoints"), aggregated: true, testIamOnly: true},
 		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeRegion, store: mk("compute_region_target_https_proxies"), patch: true},
 		{collection: "targetVpnGateways", kind: "compute#targetVpnGateway", scope: cScopeRegion, store: mk("compute_target_vpn_gateways"), setLabels: true, aggregated: true},
-		{collection: "vpnGateways", kind: "compute#vpnGateway", scope: cScopeRegion, store: mk("compute_vpn_gateways"), setLabels: true, aggregated: true, testIamOnly: true},
+		{collection: "vpnGateways", kind: "compute#vpnGateway", scope: cScopeRegion, store: mk("compute_vpn_gateways"), setLabels: true, aggregated: true, testIamOnly: true,
+			// What the gateway's tunnels are doing. A gateway with none
+			// reports none, which is the truthful answer rather than an
+			// invented connection.
+			statusReads: []computeStatusRead{{
+				verb: "getStatus", wrap: "result",
+				status: func(map[string]any) map[string]any {
+					return map[string]any{"vpnConnections": []any{}}
+				},
+			}}},
 		{collection: "vpnTunnels", kind: "compute#vpnTunnel", scope: cScopeRegion, store: mk("compute_vpn_tunnels"), setLabels: true, aggregated: true},
 		{collection: "serviceAttachments", kind: "compute#serviceAttachment", scope: cScopeRegion, store: mk("compute_service_attachments"), patch: true, aggregated: true},
 		{collection: "networkAttachments", kind: "compute#networkAttachment", scope: cScopeRegion, store: mk("compute_network_attachments"), patch: true, aggregated: true},
@@ -88,7 +103,13 @@ func registerComputeMore2(srv *sim.Server) {
 		{collection: "storagePools", kind: "compute#storagePool", scope: cScopeZone, store: mk("compute_storage_pools"), patch: true, aggregated: true},
 		{collection: "targetInstances", kind: "compute#targetInstance", scope: cScopeZone, store: mk("compute_target_instances"), aggregated: true, testIamOnly: true,
 			setVerbs: []computeSetVerb{{verb: "setSecurityPolicy", member: "securityPolicy"}}},
-		{collection: "futureReservations", kind: "compute#futureReservation", scope: cScopeZone, store: mk("compute_future_reservations"), patch: true, aggregated: true, resourceMetadata: true},
+		{collection: "futureReservations", kind: "compute#futureReservation", scope: cScopeZone, store: mk("compute_future_reservations"), patch: true, aggregated: true, resourceMetadata: true,
+			// A future reservation can be cancelled before it starts, and only
+			// once.
+			stateVerbs: []computeStateVerb{
+				{verb: "cancel", from: "DRAFTING", to: "CANCELLED", done: "cancelled", initial: "DRAFTING",
+					at: []string{"status", "procurementStatus"}},
+			}},
 		{collection: "instantSnapshots", kind: "compute#instantSnapshot", scope: cScopeZone, store: mk("compute_zone_instant_snapshots"), setLabels: true, aggregated: true},
 	}
 	for _, res := range families {
