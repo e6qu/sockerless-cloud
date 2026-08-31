@@ -101,48 +101,6 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 }
 
-// A resource's health category is the one it matches in Microsoft's Resource
-// Health Check policy file, which this project does not vendor. All six
-// spellings say so rather than matching a site against a policy nobody has.
-func TestSDK_ResourceHealthMetadata_DeclaresTheMissingPolicy(t *testing.T) {
-	rg, name := "sdk-rhm-rg", "sdk-rhm-app"
-	ensureRG(t, rg)
-
-	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
-	require.NoError(t, err)
-	_, err = sites.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
-		Location: to.Ptr("eastus"),
-	}, nil)
-	require.NoError(t, err)
-
-	client, err := armappservice.NewResourceHealthMetadataClient(subscriptionID, &fakeCredential{}, clientOpts())
-	require.NoError(t, err)
-
-	_, err = client.NewListPager(nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Resource Health Check policy file")
-
-	_, err = client.NewListByResourceGroupPager(rg, nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Resource Health Check policy file")
-
-	_, err = client.NewListBySitePager(rg, name, nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Resource Health Check policy file")
-
-	_, err = client.GetBySite(ctx, rg, name, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Resource Health Check policy file")
-
-	_, err = client.NewListBySiteSlotPager(rg, name, "staging", nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Resource Health Check policy file")
-
-	_, err = client.GetBySiteSlot(ctx, rg, name, "staging", nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Resource Health Check policy file")
-}
-
 // The platform reads App Service offers that this simulator has no primitive
 // behind each declare what is missing, rather than missing the router and
 // answering a bare 404 that reads as "no such API".

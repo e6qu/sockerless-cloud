@@ -9,20 +9,13 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
-// Whether a site can be cloned, and the resource-health metadata that cannot
-// be derived beside it.
+// Whether a site can be cloned.
 //
 // WebApps_IsCloneable answers from the site itself. App Service clones an app
 // only from a Premium or Isolated App Service plan, so the plan the site is
 // placed on decides the result, and the deployment slots a clone would leave
 // behind decide whether the result is partial. Both are facts this simulator
 // already holds, so the answer is computed from them rather than declared.
-//
-// ResourceHealthMetadata is not derivable in the same way. Its category is
-// defined by the operation as "the category that the resource matches in the
-// RHC Policy File" — Microsoft's own Resource Health Check policy, which this
-// project does not vendor and cannot infer from a site. Its six spellings
-// declare that instead of matching a site against a policy nobody here has.
 
 // webCloneablePlanTiers are the App Service plan tiers a site can be cloned
 // from. Cloning copies an app's content and configuration onto a new app, and
@@ -37,25 +30,6 @@ func registerWebCloneability(srv *sim.Server) {
 	srv.HandleFunc("POST "+webProvider+"/sites/{siteName}/iscloneable", webIsCloneable)
 	srv.HandleFunc("POST "+webProvider+"/sites/{siteName}/slots/{slot}/iscloneable", webIsCloneable)
 
-	const rhcReason = "a resource's health category is the one it matches in Microsoft's Resource Health Check policy file, which this simulator does not vendor and cannot infer from a site"
-	gap := func(operation string) http.HandlerFunc {
-		return func(w http.ResponseWriter, _ *http.Request) {
-			sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
-				"%s is not implemented by the simulator: %s.", operation, rhcReason)
-		}
-	}
-	srv.HandleFunc("GET "+webSubscriptionProvider+"/resourceHealthMetadata",
-		gap("ResourceHealthMetadata_List"))
-	srv.HandleFunc("GET "+webProvider+"/resourceHealthMetadata",
-		gap("ResourceHealthMetadata_ListByResourceGroup"))
-	srv.HandleFunc("GET "+webProvider+"/sites/{siteName}/resourceHealthMetadata",
-		gap("ResourceHealthMetadata_ListBySite"))
-	srv.HandleFunc("GET "+webProvider+"/sites/{siteName}/resourceHealthMetadata/default",
-		gap("ResourceHealthMetadata_GetBySite"))
-	srv.HandleFunc("GET "+webProvider+"/sites/{siteName}/slots/{slot}/resourceHealthMetadata",
-		gap("ResourceHealthMetadata_ListBySiteSlot"))
-	srv.HandleFunc("GET "+webProvider+"/sites/{siteName}/slots/{slot}/resourceHealthMetadata/default",
-		gap("ResourceHealthMetadata_GetBySiteSlot"))
 }
 
 // webIsCloneable reports whether the addressed site or slot can be cloned.

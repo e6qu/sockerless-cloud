@@ -487,12 +487,15 @@ var azureMethodFloor = map[string]int{
 	// when a slot is asked) decides the result, and the deployment slots a clone
 	// would leave behind make it partial.
 	//
-	// The six ResourceHealthMetadata spellings answer a declared 501 in the same
-	// pass. The operation defines its category as the one the resource matches
-	// in Microsoft's Resource Health Check policy file; matching a site against
-	// a policy this project does not vendor would be fabrication, and the
-	// spelling that used to reach Azure Resource Manager's generic gap now names
-	// the missing policy instead.
+	// Raised by the six ResourceHealthMetadata spellings, which are read from
+	// the sites the scope holds. Only one of the resource's two properties
+	// belongs to Microsoft: the category is the one the site matches in the
+	// Resource Health Check policy file, which this project does not vendor, so
+	// it is left absent — the document does not require it. signalAvailability
+	// is a fact about the site, and a site with a workload running is producing
+	// the signal Resource Health reads while a site with nothing running is
+	// producing none. Declining the whole read over the one field that is
+	// Microsoft's would have withheld an answer the simulator has.
 	//
 	// Raised from 661 by WebApps_ListPerfMonCounters and its slot spelling. A
 	// site's counters are what the site is using, and the site's workload
@@ -513,7 +516,7 @@ var azureMethodFloor = map[string]int{
 	// module reads). The six Provider_*Stacks spellings used to miss the router
 	// outright and answer a bare 404, which reads as "no such API" rather than
 	// "this API exists and its data is not vendored"; they declare it now.
-	"web-arm-openapi-2025-03-01": 663,
+	"web-arm-openapi-2025-03-01": 669,
 }
 
 // Route table
