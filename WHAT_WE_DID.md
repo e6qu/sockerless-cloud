@@ -5,7 +5,7 @@
 Three slices moved: Google Cloud 5,440 → 5,446 of 5,480 Discovery method
 spellings with `compute-v1` at 1,982 of 2,016, Azure 2,599 → 2,612 of 2,628
 Swagger operations with App Service at 676 of 692, and AWS resource-scoped
-authorization 1,881 → 1,936 of 1,994 served operations.
+authorization 1,881 → 1,938 of 1,994 served operations.
 
 The AWS figure is the one worth explaining, because almost none of it was a
 missing derivation. The coverage probe was addressing operations the way no
@@ -33,8 +33,10 @@ table it touches; WAFv2 reads the collection its operation's name carries
 wherever in the name it appears; Amazon ECS authorizes a command execution
 against its sandbox; a Systems Manager change calendar is read as the document
 it is; five AWS Identity and Access Management delegation operations and a role
-template read the members that name them; and cancelling an EC2 import picks
-between an image and a snapshot import task from the id's own prefix.
+template read the members that name them; cancelling an EC2 import picks
+between an image and a snapshot import task from the id's own prefix; and a
+create whose type says the same words in another order is recognised as the
+thing it mints, which is how `RequestSpotFleet` reaches its spot-fleet-request.
 
 Azure served App Service's Resource Health metadata at all four scopes, the
 migration of a site's in-app MySQL database, and an App Service Environment

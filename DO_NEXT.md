@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,936 of 1,994 on 2026-08-31.
+   is not.** 1,938 of 1,994 on 2026-08-31.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -84,15 +84,18 @@
    measurement class was safe to fix in bulk for exactly that reason. What is
    left is reader work and is not.
 
-   The 58 that remain are three shapes, and only the first is ordinary work:
+   The 56 that remain are three shapes, and only the first is ordinary work:
 
    - **A resource named by a create whose type the operation does not name.**
-     `ec2:CreatePublicIpv4Pool` mints an `ipv4pool-ec2`, `PurchaseCapacityBlock`
-     a `capacity-reservation`, `RequestSpotFleet` a `spot-fleet-request`. The
-     create rule reads the created type as the one declared type answering to
-     the operation's own name, which these do not, so they derive nothing
-     rather than guess. Widening the match is the work, and the guard that
-     keeps `CreateStateMachineAlias` off every state machine has to survive it.
+     `ec2:CreatePublicIpv4Pool` mints an `ipv4pool-ec2` and
+     `PurchaseCapacityBlock` a `capacity-reservation`. The create rule reads the
+     created type as the one declared type answering to the operation's own
+     name, and answering now includes saying the same words in another order —
+     which took `RequestSpotFleet` and `RequestSpotInstances`, whose verb sits
+     where the type puts its last word. These two say no shared words at all,
+     so widening further means deciding from something other than the name, and
+     the guard that keeps `CreateStateMachineAlias` off every state machine has
+     to survive whatever that is.
    - **A resource the request does not name at all.** `cloudwatch:ListMetrics`
      and `PutMetricData` declare a `dataset` and name none; AWS Glue's
      `ListMLTransforms` and `GetDashboardUrl` are the same. `"*"` is the honest

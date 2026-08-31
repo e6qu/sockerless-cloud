@@ -103,5 +103,67 @@ func iamCreatedTypeMatchesOperation(op, resourceType string) bool {
 	if noun == "" || bare == "" {
 		return false
 	}
-	return noun == bare || strings.HasSuffix(bare, noun) || strings.HasSuffix(noun, bare)
+	if noun == bare || strings.HasSuffix(bare, noun) || strings.HasSuffix(noun, bare) {
+		return true
+	}
+	// A type that says the same words in another order names the same thing:
+	// ec2:RequestSpotFleet mints a spot-fleet-request, and ec2:RequestSpotInstances
+	// a spot-instances-request. Both put the verb where the type puts its last
+	// word, so neither is a suffix of the other while the two are plainly the
+	// same noun. Equality of the whole word set is what says so — a shared word
+	// or two would not, and "create" against "statemachine" must keep deriving
+	// nothing.
+	return iamSameWords(op, resourceType)
+}
+
+// iamSameWords reports whether an operation name and a resource type are built
+// from the same words. The operation is split where its capitals fall and the
+// type where its separators do, and each word is reduced to its singular so a
+// collection and its member read alike.
+func iamSameWords(op, resourceType string) bool {
+	words := func(parts []string) map[string]struct{} {
+		out := map[string]struct{}{}
+		for _, part := range parts {
+			if part = strings.TrimSuffix(strings.ToLower(part), "s"); part != "" {
+				out[part] = struct{}{}
+			}
+		}
+		return out
+	}
+	left := words(iamCamelWords(op))
+	right := words(strings.FieldsFunc(resourceType, func(r rune) bool {
+		return r == '-' || r == '_' || r == '/'
+	}))
+	if len(left) == 0 || len(left) != len(right) {
+		return false
+	}
+	for word := range left {
+		if _, shared := right[word]; !shared {
+			return false
+		}
+	}
+	return true
+}
+
+// iamCamelWords splits an operation name where its capitals fall, keeping a run
+// of them together so "ACL" and "IPSet" stay one word.
+func iamCamelWords(op string) []string {
+	var out []string
+	start := 0
+	for i := 1; i < len(op); i++ {
+		upper := op[i] >= 'A' && op[i] <= 'Z'
+		if !upper {
+			continue
+		}
+		// A capital after a lower-case letter starts a word; a capital after
+		// another capital continues one unless a lower-case letter follows.
+		prevUpper := op[i-1] >= 'A' && op[i-1] <= 'Z'
+		nextLower := i+1 < len(op) && op[i+1] >= 'a' && op[i+1] <= 'z'
+		if prevUpper && !nextLower {
+			continue
+		}
+		out = append(out, op[start:i])
+		start = i
+	}
+	return append(out, op[start:])
 }
