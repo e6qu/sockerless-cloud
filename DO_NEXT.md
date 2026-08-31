@@ -84,18 +84,26 @@
    measurement class was safe to fix in bulk for exactly that reason. What is
    left is reader work and is not.
 
-   The 49 that remain are three shapes, and only the first is ordinary work:
+   The creates are done. Every one of them now names what it mints: by the
+   type answering to the operation's name, by saying the same words in another
+   order (`RequestSpotFleet`), by being the noun outright where another type is
+   only what the noun ends with (`CreateGlobalReplicationGroup`), or by a
+   reviewed entry in `iamCreatesItsOnlyDeclaredType` where the name says
+   nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
+   an entry at a time when a new create needs it.
 
-   - **A resource named by a create whose type the operation does not name.**
-     `ec2:CreatePublicIpv4Pool` mints an `ipv4pool-ec2` and
-     `PurchaseCapacityBlock` a `capacity-reservation`. The create rule reads the
-     created type as the one declared type answering to the operation's own
-     name, and answering now includes saying the same words in another order —
-     which took `RequestSpotFleet` and `RequestSpotInstances`, whose verb sits
-     where the type puts its last word. These two say no shared words at all,
-     so widening further means deciding from something other than the name, and
-     the guard that keeps `CreateStateMachineAlias` off every state machine has
-     to survive whatever that is.
+   The 49 that remain are three shapes, and none of them is ordinary work:
+
+   - **A resource named inside a nested query member.** `ec2:ModifyInstanceCreditSpecification`
+     names its instances at `InstanceCreditSpecification.1.InstanceId`, and
+     AWS Auto Scaling names its group at `Tags.member.1.ResourceId`. The query
+     parameter reader drops any key with a dot left in it after the index, so
+     neither is visible. Exposing them is a four-line change and it is a trap:
+     Amazon EC2's filters are nested the same way, `Filter.1.Name` would then
+     read as a member called Name, and a request would derive from whatever it
+     was searching on rather than what it was about —
+     `TestIAMResourceARNs_EC2IgnoresNestedStructureMembers` exists to stop
+     exactly that. Anything here has to tell a filter from an argument first.
    - **A resource the request does not name at all.** `cloudwatch:ListMetrics`
      and `PutMetricData` declare a `dataset` and name none; AWS Glue's
      `ListMLTransforms` and `GetDashboardUrl` are the same. `"*"` is the honest
