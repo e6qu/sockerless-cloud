@@ -13,35 +13,56 @@ import (
 // resources back rather than the operation.
 
 func TestCompute_InstancesBulkInsert(t *testing.T) {
+	// Every member of the run is a real virtual machine on a real network
+	// interface, so the run needs the host that can boot one — the same
+	// requirement a single instances.insert has.
+	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, zone = "bulk-project", "us-central1-a"
 
-	_, err := svc.Instances.BulkInsert(project, zone, &compute.BulkInsertInstanceResource{
+	properties := func() *compute.InstanceProperties {
+		return &compute.InstanceProperties{
+			MachineType:       "e2-micro",
+			NetworkInterfaces: []*compute.NetworkInterface{{Name: "nic0", Network: "global/networks/default"}},
+		}
+	}
+
+	op, err := svc.Instances.BulkInsert(project, zone, &compute.BulkInsertInstanceResource{
 		Count: 3, MinCount: 3, NamePattern: "worker-###",
-		InstanceProperties: &compute.InstanceProperties{
-			MachineType: "e2-micro",
-		},
+		InstanceProperties: properties(),
 	}).Do()
 	require.NoError(t, err)
 
-	// The run is three real instances, numbered from the pattern.
+	// The run comes up behind the operation, exactly as a single insert does,
+	// so the caller waits on it before reading the instances back.
+	_, err = svc.ZoneOperations.Wait(project, zone, op.Name).Do()
+	require.NoError(t, err)
+
+	// The run is three real instances, numbered from the pattern, each on the
+	// machine type the run's properties named and each attached to a real
+	// network interface — which is what makes them instances rather than
+	// records shaped like instances.
 	for _, name := range []string{"worker-001", "worker-002", "worker-003"} {
 		got, err := svc.Instances.Get(project, zone, name).Do()
 		require.NoError(t, err, "the bulk insert created %s", name)
 		assert.Contains(t, got.MachineType, "e2-micro")
+		assert.Equal(t, "RUNNING", got.Status, "%s is running", name)
+		require.Len(t, got.NetworkInterfaces, 1, "%s is attached to a network", name)
+		assert.NotEmpty(t, got.NetworkInterfaces[0].NetworkIP,
+			"%s holds a real address, not a placeholder", name)
 	}
 
 	// A pattern with nothing to number by would give every instance in the run
 	// the same name.
 	_, err = svc.Instances.BulkInsert(project, zone, &compute.BulkInsertInstanceResource{
-		Count: 2, NamePattern: "worker",
+		Count: 2, NamePattern: "worker", InstanceProperties: properties(),
 	}).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no # to number")
 
 	// A run of nothing is not a run.
 	_, err = svc.Instances.BulkInsert(project, zone, &compute.BulkInsertInstanceResource{
-		NamePattern: "worker-###",
+		NamePattern: "worker-###", InstanceProperties: properties(),
 	}).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "count greater than zero")
@@ -49,7 +70,7 @@ func TestCompute_InstancesBulkInsert(t *testing.T) {
 	// And a run that would overwrite an instance is refused before it writes
 	// anything, rather than clobbering half of them.
 	_, err = svc.Instances.BulkInsert(project, zone, &compute.BulkInsertInstanceResource{
-		Count: 2, NamePattern: "worker-###",
+		Count: 2, NamePattern: "worker-###", InstanceProperties: properties(),
 	}).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "would overwrite")

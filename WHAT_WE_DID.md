@@ -38,15 +38,19 @@ operation defines its category as the one the resource matches in Microsoft's
 Resource Health Check policy file, and matching a site against a policy this
 project does not vendor would be fabrication.
 
-Three Compute Engine verbs recorded a machine state without moving the
-machine. `instances.startWithEncryptionKey` set `RUNNING` in the store and
-booted nothing, and `suspend` and `resume` did the same in both directions; all
-three now drive the real virtual machine the plain `start` and `stop` drive.
-Linux CI caught the first — it reads an instance's status back from the machine
-— and macOS never could, because those tests are capability-skipped there. The
-fourth of the class, `instances.bulkInsert`, writes instances with no network
-interface and no boot at all and is filed as BUG-74; it is invisible today only
-because its own test is not capability-gated.
+Four Compute Engine verbs recorded a machine state without moving the machine,
+and all four now move it. `instances.startWithEncryptionKey` set `RUNNING` in
+the store and booted nothing; `suspend` and `resume` did the same in both
+directions; and `instances.bulkInsert` wrote a whole run of instances with no
+network interface, no disks and no boot, then called them running. Linux CI
+caught the first — it reads an instance's status back from the machine — and
+macOS never could, because those tests are capability-skipped there.
+`bulkInsert` was invisible even on Linux, because its own test was the one in
+the family that was not capability-gated; it now builds every member of the run
+through the same function `instances.insert` builds one with, boots each machine
+behind the operation the caller polls, and its test is gated like the rest, so
+a real host proves the run is three attached, running machines rather than three
+records shaped like them.
 
 That last distinction also retired a claim this repository had been making
 about itself. `DO_NEXT.md` said nothing in the App Service tail was

@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
@@ -49,10 +50,10 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 			// count and minCount are int64, which Compute Engine puts on the
 			// wire as strings — the generated client sends them that way.
 			var req struct {
-				Count              int64          `json:"count,string"`
-				MinCount           int64          `json:"minCount,string"`
-				NamePattern        string         `json:"namePattern"`
-				InstanceProperties map[string]any `json:"instanceProperties"`
+				Count              int64           `json:"count,string"`
+				MinCount           int64           `json:"minCount,string"`
+				NamePattern        string          `json:"namePattern"`
+				InstanceProperties json.RawMessage `json:"instanceProperties"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
 				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -83,25 +84,70 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 					return
 				}
 			}
-			for _, name := range names {
-				instance := ComputeInstance{
-					Kind:              "compute#instance",
-					Id:                computeNumericID(),
-					Name:              name,
-					SelfLink:          computeInstanceSelfLink(project, zone, name),
-					Zone:              fmt.Sprintf("projects/%s/zones/%s", project, zone),
-					Status:            ComputeInstanceRunning,
-					CreationTimestamp: time.Now().UTC().Format(time.RFC3339),
-				}
-				if machineType, _ := req.InstanceProperties["machineType"].(string); machineType != "" {
-					instance.MachineType = machineType
-				}
-				gcpInstances.Put(instance.SelfLink, instance)
+
+			// Every member of the run is a real machine, so the run needs the
+			// host that can boot one, exactly as a single insert does.
+			if !gcpRequireNetworkHost(w) {
+				return
 			}
-			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project,
-				computeScopeSegment(scope, r),
+
+			// Each member is built from the run's instanceProperties through
+			// the same function instances.insert builds one with, so a
+			// bulk-created instance is attached to a real network interface and
+			// carries the same identity a singly-created one does.
+			run := make([]ComputeInstance, 0, len(names))
+			for _, name := range names {
+				var instance ComputeInstance
+				if len(req.InstanceProperties) > 0 {
+					if err := json.Unmarshal(req.InstanceProperties, &instance); err != nil {
+						sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+							"invalid instanceProperties: %v", err)
+						return
+					}
+				}
+				instance.Name = name
+				if err := gcpNormalizeInstance(r.Context(), project, zone, &instance); err != nil {
+					// A member that cannot be attached takes the run with it:
+					// a partially attached run would leave instances behind
+					// that the caller never learns are unusable.
+					for _, created := range run {
+						gcpInstances.Delete(created.SelfLink)
+					}
+					sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
+						"failed to attach real instance network interface for %q: %v", name, err)
+					return
+				}
+				instance.Status = ComputeInstanceProvisioning
+				gcpInstances.Put(instance.SelfLink, instance)
+				run = append(run, instance)
+			}
+
+			// Compute Engine answers a bulk insert before the run is up, and
+			// brings the machines up behind the operation the caller polls —
+			// the same contract a single insert honours, on a context of its
+			// own so a client that stops waiting does not take the run down.
+			op := newComputeOpRecord(project, computeScopeSegment(scope, r),
 				fmt.Sprintf("projects/%s/%s/instances", project, computeScopeSegment(scope, r)),
-				"bulkInsert"))
+				"bulkInsert")
+			recordComputeOp(op)
+			booting := run
+			go func() {
+				ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), computeInstanceBootBudget)
+				defer cancel()
+				for i := range booting {
+					if err := gcpStartRealVM(ctx, &booting[i]); err != nil {
+						// The run's failed member leaves nothing behind, and
+						// the verdict lives on the operation the caller polls.
+						gcpInstances.Delete(booting[i].SelfLink)
+						computeOpFinish(op.Name, err)
+						return
+					}
+					booting[i].Status = ComputeInstanceRunning
+					gcpInstances.Put(booting[i].SelfLink, booting[i])
+				}
+				computeOpFinish(op.Name, gcpReapplyRealFirewalls(ctx))
+			}()
+			sim.WriteJSON(w, http.StatusOK, computeOpJSON(op))
 		}
 	}
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances/bulkInsert",

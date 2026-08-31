@@ -823,10 +823,16 @@ type ComputeInstanceTemplate struct {
 }
 
 var (
-	gcpSubnetworks       sim.Store[ComputeSubnetwork]
-	gcpAddresses         sim.Store[ComputeAddress]
-	gcpFirewalls         sim.Store[ComputeFirewall]
-	gcpInstances         sim.Store[ComputeInstance]
+	gcpSubnetworks sim.Store[ComputeSubnetwork]
+	gcpAddresses   sim.Store[ComputeAddress]
+	gcpFirewalls   sim.Store[ComputeFirewall]
+	gcpInstances   sim.Store[ComputeInstance]
+	// gcpNormalizeInstance fills an instance the way instances.insert fills
+	// one — identity, zone, disks, and the real network interface it is
+	// attached to. instances.bulkInsert builds its run through the same
+	// function so a bulk-created instance is the same object a singly-created
+	// one is, rather than a record shaped like it.
+	gcpNormalizeInstance func(ctx context.Context, project, zone string, inst *ComputeInstance) error
 	gcpInstanceGroups    sim.Store[storedComputeInstanceGroup]
 	gcpHealthChecks      sim.Store[ComputeHealthCheck]
 	gcpBackendServices   sim.Store[ComputeBackendService]
@@ -2496,6 +2502,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		}
 		return nil
 	}
+	gcpNormalizeInstance = normalizeInstance
 
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")

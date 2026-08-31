@@ -17,12 +17,12 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/zones/{zone}/instances/bulkInsert` | ? `simulator-gcp/compute_bulk_verbs.go:107::cScopeZone` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/instances/bulkInsert` | ? `simulator-gcp/compute_bulk_verbs.go:109::cScopeRegion` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/disks/bulkInsert` | ? `simulator-gcp/compute_bulk_verbs.go:141::cScopeZone` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/disks/bulkInsert` | ? `simulator-gcp/compute_bulk_verbs.go:143::cScopeRegion` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/disks/bulkSetLabels` | ✓ `simulator-gcp/compute_bulk_verbs.go:148::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PATCH /compute/v1/projects/{project}/zones/{zone}/disks/{name}` | ✓ `simulator-gcp/compute_bulk_verbs.go:196::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/instances/bulkInsert` | ? `simulator-gcp/compute_bulk_verbs.go:153::cScopeZone` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/instances/bulkInsert` | ? `simulator-gcp/compute_bulk_verbs.go:155::cScopeRegion` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/disks/bulkInsert` | ? `simulator-gcp/compute_bulk_verbs.go:187::cScopeZone` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/disks/bulkInsert` | ? `simulator-gcp/compute_bulk_verbs.go:189::cScopeRegion` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/disks/bulkSetLabels` | ✓ `simulator-gcp/compute_bulk_verbs.go:194::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/zones/{zone}/disks/{name}` | ✓ `simulator-gcp/compute_bulk_verbs.go:242::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 
