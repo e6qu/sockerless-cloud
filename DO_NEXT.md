@@ -140,14 +140,29 @@
      over-grant against. Extend the same way, an entry at a time, and only
      where the reviewer can say what the operation is about.
 
-   - **A resource found only by looking it up.** AWS Glue's data-quality
-     family resolves its ruleset through the run record; `iam:GetAccessKeyLastUsed`
-     finds the user who owns a key; Amazon EC2's Disassociate and Detach family
-     resolves an association to its parent. Every one of these is implemented
-     and held by a direct test, and none can move the ratchet: the probe has no
-     simulator state, and seeding it would measure the fixture rather than the
-     derivation. They are the reason 1,994 is not reachable by honest means,
-     and the floor comment beside `iamDerivationCoverageFloor` names them.
+   - **A resource found only by looking it up.** This is most of what is left.
+     AWS Glue's data-quality family resolves its ruleset through the run
+     record; `iam:GetAccessKeyLastUsed` finds the user who owns a key; Amazon
+     EC2's Disassociate and Detach family resolves an association to its
+     parent. Every one is implemented and held by a direct test, and none can
+     move the ratchet as the probe stands, because the probe sends a synthetic
+     request against an empty simulator.
+
+     There is an honest way to move them, and it is the same probe-fidelity
+     argument that carried the rest of this work: a real client operates
+     against resources that exist. Writing rows into a store to make a number
+     move would measure the fixture — but *creating the resource through the
+     simulator's own API and then probing the derivation against it* measures
+     the reader, which is exactly what every SDK test here already does. The
+     probe would gain a per-service setup that inserts what the family resolves
+     through: a Glue data-quality run, an IAM access key, an EC2 route-table
+     association.
+
+     That is the last measurement seam and it is a large one — roughly
+     thirty-five operations across a dozen services, each needing its resource
+     created the way a client creates it. Until it is built, the ratchet
+     understates the derivation by about that many, and the floor comment
+     beside `iamDerivationCoverageFloor` names which.
 
    Take the first shape one service at a time and hold each to a test that
    names the resource it must derive and one it must not.
