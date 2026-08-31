@@ -1053,11 +1053,51 @@ func iamProbeARNForAction(service, operation string) string {
 		if !declared {
 			continue
 		}
-		if arn := iamFillARNFormat(format, "us-east-1", iamProbeAccount, []string{"probe"}); arn != "" {
+		if arn := iamRenderProbeARN(format); arn != "" {
 			return arn
 		}
 	}
 	return ""
+}
+
+// iamRenderProbeARN fills every variable a format declares, not only the first:
+// a WAFv2 web ACL is spelled ${Scope}/webacl/${Name}/${Id}, and an ARN with two
+// of those left empty is one no client sends and no reader recognises.
+func iamRenderProbeARN(format string) string {
+	if !strings.HasPrefix(format, "arn:") {
+		return ""
+	}
+	var out strings.Builder
+	rest := format
+	for {
+		open := strings.Index(rest, "${")
+		if open < 0 {
+			out.WriteString(rest)
+			break
+		}
+		closing := strings.Index(rest[open:], "}")
+		if closing < 0 {
+			out.WriteString(rest)
+			break
+		}
+		out.WriteString(rest[:open])
+		switch name := rest[open+2 : open+closing]; name {
+		case "Partition":
+			out.WriteString("aws")
+		case "Region":
+			out.WriteString("us-east-1")
+		case "Account":
+			out.WriteString(iamProbeAccount)
+		case "Scope":
+			// WAFv2's scope is one of two words the service defines, and a
+			// client sends one of them.
+			out.WriteString("regional")
+		default:
+			out.WriteString("probe")
+		}
+		rest = rest[open+closing+1:]
+	}
+	return out.String()
 }
 
 func iamProbeMemberValue(service, name, arnValue string) string {
@@ -1687,7 +1727,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1909
+const iamDerivationCoverageFloor = 1916
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

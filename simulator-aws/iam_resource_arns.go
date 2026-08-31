@@ -2589,23 +2589,50 @@ func iamWAFv2ResourceARNs(r *http.Request, op string, types []string) []string {
 	if a := iamFirstJSONField(r, "ARN", "WebACLArn", "WebAclArn"); strings.HasPrefix(a, "arn:") {
 		return []string{a}
 	}
-	resourceType := ""
-	for _, candidate := range []struct{ suffix, resource string }{
+	// The collection an operation is about is named inside its own name, not
+	// only at the end of it: PutManagedRuleSetVersions and
+	// UpdateManagedRuleSetVersionExpiryDate are both about a managed rule set
+	// and neither ends in one. Exactly one collection may be named, so an
+	// operation mentioning two — there is none today, but the rule must not
+	// invent an answer if one appears — derives nothing rather than pick.
+	collections := []struct{ named, resource string }{
 		{"WebACL", "webacl"},
 		{"IPSet", "ipset"},
 		{"RuleGroup", "rulegroup"},
 		{"RegexPatternSet", "regexpatternset"},
 		{"ManagedRuleSet", "managedruleset"},
-	} {
-		if strings.HasSuffix(op, candidate.suffix) && iamHasType(types, candidate.resource) {
-			resourceType = candidate.resource
-			break
-		}
 	}
-	if resourceType == "" {
+	resourceType, named, matches := "", "", 0
+	for _, candidate := range collections {
+		if !strings.Contains(op, candidate.named) || !iamHasType(types, candidate.resource) {
+			continue
+		}
+		resourceType, named = candidate.resource, candidate.named
+		matches++
+	}
+	if matches > 1 {
 		return nil
 	}
-	name, id := iamJSONBodyField(r, "Name"), iamJSONBodyField(r, "Id")
+	if resourceType == "" {
+		// An operation whose name says nothing about the collection is still
+		// not ambiguous when the action declares a single type — that type is
+		// what it is about.
+		if len(types) != 1 {
+			return nil
+		}
+		resourceType = types[0]
+		for _, candidate := range collections {
+			if candidate.resource == resourceType {
+				named = candidate.named
+			}
+		}
+	}
+	// WAFv2 spells the members plainly where the operation is about one
+	// resource, and qualifies them where the request also names another —
+	// GetRateBasedStatementManagedKeys carries WebACLName and WebACLId beside
+	// the rule key it is asking for.
+	name := iamFirstJSONField(r, "Name", named+"Name")
+	id := iamFirstJSONField(r, "Id", named+"Id")
 	if name == "" {
 		return nil
 	}

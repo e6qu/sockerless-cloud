@@ -2076,3 +2076,42 @@ func TestIAMResourceARNs_RDSARNMustMatchADeclaredType(t *testing.T) {
 			"rds:DeleteDBInstanceAutomatedBackup", "*")
 	})
 }
+
+// WAFv2 names the collection an operation is about inside the operation's own
+// name, not only at the end of it.
+func TestIAMResourceARNs_WAFv2ReadsTheCollectionItsNameCarries(t *testing.T) {
+	const scope = "arn:aws:wafv2:us-east-1:123456789012:regional/"
+
+	t.Run("a name that continues past the collection still names it", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.UpdateManagedRuleSetVersionExpiryDate",
+				`{"Name":"vendor-set","Scope":"REGIONAL","Id":"0123","VersionToExpire":"1.0"}`),
+			"wafv2:UpdateManagedRuleSetVersionExpiryDate", scope+"managedruleset/vendor-set/0123")
+	})
+
+	t.Run("a qualified member names the resource the call is about", func(t *testing.T) {
+		// The rule keys are what is being read; the web ACL is what the read is
+		// authorized against, and it is named WebACLName rather than Name
+		// because the request also names the rule inside it.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.GetRateBasedStatementManagedKeys",
+				`{"Scope":"REGIONAL","WebACLName":"front","WebACLId":"0123","RuleName":"throttle"}`),
+			"wafv2:GetRateBasedStatementManagedKeys", scope+"webacl/front/0123")
+	})
+
+	t.Run("an ARN the request carries beats the operation's name", func(t *testing.T) {
+		// A rule group ARN is what AssociateWebACL's sibling carries, and the
+		// ARN is the resource however the operation is spelled.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.PutLoggingConfiguration",
+				`{"ARN":"`+scope+`webacl/other/9999"}`),
+			"wafv2:PutLoggingConfiguration", scope+"webacl/other/9999")
+	})
+
+	t.Run("a request naming no resource derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.UpdateManagedRuleSetVersionExpiryDate",
+				`{"Scope":"REGIONAL","VersionToExpire":"1.0"}`),
+			"wafv2:UpdateManagedRuleSetVersionExpiryDate", "*")
+	})
+}
