@@ -2,6 +2,7 @@ package aws_cli_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -233,6 +234,7 @@ func TestMain(m *testing.M) {
 			awsCLIVersion, awsPath)
 	}
 	ensureSessionManagerPlugin()
+	ensureGluePythonShellImage()
 
 	// Each suite builds the simulator it runs into a path of its own. The
 	// suites share one working tree, so a single `../simulator-aws` would have
@@ -696,4 +698,42 @@ func findFilesNamed(root, name string) ([]string, error) {
 		return nil
 	})
 	return matches, err
+}
+
+// gluePythonShellImage is the interpreter an AWS Glue Python shell job run
+// executes in — the image the simulator's job runner starts a container from.
+const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
+
+// ensureGluePythonShellImage puts the interpreter on the host before any test
+// runs.
+//
+// A Glue job run is real container work, and the wait for it to settle is
+// bounded: without this, that bound covers the image download as well as the
+// run, so a slow or throttled registry expires the budget and the test reports
+// a job that never succeeded when what actually happened is that the pull did
+// not finish. Pulling here takes the download out of the measured window and
+// leaves the budget measuring what it names.
+//
+// It is a hard requirement, not a convenience: a suite that ran without the
+// interpreter would fail every Glue job run, so a pull that cannot be completed
+// stops the suite here with the reason rather than surfacing as a timeout four
+// minutes into a test.
+func ensureGluePythonShellImage() {
+	if exec.Command("docker", "image", "inspect", gluePythonShellImage).Run() == nil {
+		return
+	}
+	var last error
+	for attempt := 1; attempt <= 5; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		last = exec.CommandContext(ctx, "docker", "pull", gluePythonShellImage).Run()
+		cancel()
+		if last == nil {
+			return
+		}
+		// A registry that is rate-limiting answers again shortly; backing off
+		// quadratically spans a throttling window without hammering it.
+		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	}
+	log.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
+		gluePythonShellImage, last)
 }

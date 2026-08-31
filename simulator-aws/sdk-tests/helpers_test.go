@@ -390,6 +390,12 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Simulator did not become healthy: %v", err)
 	}
 
+	// The AWS Glue Python shell interpreter, on the host before any test runs:
+	// a job run is real container work and the wait for it to settle is
+	// bounded, so leaving the download inside that bound makes a slow or
+	// throttled registry look like a job that never succeeded.
+	ensureGluePythonShellImage()
+
 	code := m.Run()
 	shutdownSimulator(simCmd)
 	os.Exit(code)
@@ -631,4 +637,31 @@ func waitForHealth(url string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("timeout waiting for %s: %v", url, lastErr)
+}
+
+// gluePythonShellImage is the interpreter an AWS Glue Python shell job run
+// executes in — the image the simulator's job runner starts a container from.
+const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
+
+// ensureGluePythonShellImage puts the interpreter on the host, failing the
+// suite with the reason if it cannot: every Glue job run needs it, so a missing
+// interpreter is a stopped suite rather than a timeout minutes into a test.
+func ensureGluePythonShellImage() {
+	if exec.Command("docker", "image", "inspect", gluePythonShellImage).Run() == nil {
+		return
+	}
+	var last error
+	for attempt := 1; attempt <= 5; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		last = exec.CommandContext(ctx, "docker", "pull", gluePythonShellImage).Run()
+		cancel()
+		if last == nil {
+			return
+		}
+		// A registry that is rate-limiting answers again shortly; backing off
+		// quadratically spans a throttling window without hammering it.
+		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	}
+	log.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
+		gluePythonShellImage, last)
 }
