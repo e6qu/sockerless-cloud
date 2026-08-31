@@ -128,3 +128,117 @@ func TestCompute_OrganizationOperations(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
+
+// The verbs the global load-balancing collections carry beyond their lifecycle.
+func TestCompute_GlobalBackendServiceSecurityAndSigning(t *testing.T) {
+	svc := computeService(t)
+	const project, name = "lb-verbs", "origin"
+
+	_, err := svc.BackendServices.Insert(project, &compute.BackendService{
+		Name: name, Protocol: "HTTP", EnableCDN: true,
+	}).Do()
+	require.NoError(t, err)
+
+	// A service sits behind a policy at the origin and, for cached content,
+	// one at the edge. Both arrive as a SecurityPolicyReference, so the same
+	// body member has to land on two different resource members.
+	_, err = svc.BackendServices.SetSecurityPolicy(project, name,
+		&compute.SecurityPolicyReference{SecurityPolicy: "global/securityPolicies/origin-armour"}).Do()
+	require.NoError(t, err)
+	_, err = svc.BackendServices.SetEdgeSecurityPolicy(project, name,
+		&compute.SecurityPolicyReference{SecurityPolicy: "global/securityPolicies/edge-armour"}).Do()
+	require.NoError(t, err)
+
+	got, err := svc.BackendServices.Get(project, name).Do()
+	require.NoError(t, err)
+	assert.Contains(t, got.SecurityPolicy, "origin-armour")
+	assert.Contains(t, got.EdgeSecurityPolicy, "edge-armour")
+	assert.Equal(t, "HTTP", got.Protocol, "a set-verb leaves the rest of the service alone")
+
+	// The effective-policies read answers for a service that exists. Compute
+	// Engine declares no response for it, so there is nothing to assert but
+	// that it succeeds — and that it refuses a service that is not there.
+	require.NoError(t, svc.BackendServices.GetEffectiveSecurityPolicies(project, name).Do())
+	require.Error(t, svc.BackendServices.GetEffectiveSecurityPolicies(project, "absent").Do())
+
+	_, err = svc.BackendServices.AddSignedUrlKey(project, name, &compute.SignedUrlKey{
+		KeyName: "primary", KeyValue: "cccccccccccccccccccccc==",
+	}).Do()
+	require.NoError(t, err)
+	got, err = svc.BackendServices.Get(project, name).Do()
+	require.NoError(t, err)
+	require.NotNil(t, got.CdnPolicy)
+	require.Len(t, got.CdnPolicy.SignedUrlKeyNames, 1)
+
+	_, err = svc.BackendServices.DeleteSignedUrlKey(project, name, "primary").Do()
+	require.NoError(t, err)
+	got, err = svc.BackendServices.Get(project, name).Do()
+	require.NoError(t, err)
+	assert.Empty(t, got.CdnPolicy.SignedUrlKeyNames)
+}
+
+func TestCompute_ForwardingRuleTargetLabelsAndProxyUrlMap(t *testing.T) {
+	svc := computeService(t)
+	const project = "lb-more"
+
+	_, err := svc.GlobalForwardingRules.Insert(project, &compute.ForwardingRule{
+		Name: "front", IPProtocol: "TCP", PortRange: "443",
+	}).Do()
+	require.NoError(t, err)
+
+	_, err = svc.GlobalForwardingRules.SetTarget(project, "front",
+		&compute.TargetReference{Target: "global/targetHttpsProxies/secure"}).Do()
+	require.NoError(t, err)
+	_, err = svc.GlobalForwardingRules.SetLabels(project, "front",
+		&compute.GlobalSetLabelsRequest{Labels: map[string]string{"team": "edge"}}).Do()
+	require.NoError(t, err)
+	_, err = svc.GlobalForwardingRules.Patch(project, "front",
+		&compute.ForwardingRule{Description: "the front door"}).Do()
+	require.NoError(t, err)
+
+	rule, err := svc.GlobalForwardingRules.Get(project, "front").Do()
+	require.NoError(t, err)
+	assert.Contains(t, rule.Target, "secure")
+	assert.Equal(t, "edge", rule.Labels["team"])
+	assert.Equal(t, "the front door", rule.Description)
+	assert.Equal(t, "443", rule.PortRange, "a patch keeps what it did not mention")
+
+	// A proxy's URL map is set through the spelling Compute Engine declares
+	// for it, which carries no scope segment.
+	_, err = svc.TargetHttpProxies.Insert(project, &compute.TargetHttpProxy{
+		Name: "plain", UrlMap: "global/urlMaps/first",
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.TargetHttpProxies.SetUrlMap(project, "plain",
+		&compute.UrlMapReference{UrlMap: "global/urlMaps/second"}).Do()
+	require.NoError(t, err)
+	proxy, err := svc.TargetHttpProxies.Get(project, "plain").Do()
+	require.NoError(t, err)
+	assert.Contains(t, proxy.UrlMap, "second")
+
+	// A HTTPS proxy takes the same two verbs at the unscoped spelling the
+	// document declares for them.
+	_, err = svc.TargetHttpsProxies.Insert(project, &compute.TargetHttpsProxy{
+		Name: "secure", UrlMap: "global/urlMaps/first",
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.TargetHttpsProxies.SetUrlMap(project, "secure",
+		&compute.UrlMapReference{UrlMap: "global/urlMaps/second"}).Do()
+	require.NoError(t, err)
+	_, err = svc.TargetHttpsProxies.SetSslCertificates(project, "secure",
+		&compute.TargetHttpsProxiesSetSslCertificatesRequest{
+			SslCertificates: []string{"global/sslCertificates/star"},
+		}).Do()
+	require.NoError(t, err)
+	secure, err := svc.TargetHttpsProxies.Get(project, "secure").Do()
+	require.NoError(t, err)
+	assert.Contains(t, secure.UrlMap, "second")
+	require.Len(t, secure.SslCertificates, 1)
+
+	_, err = svc.TargetHttpProxies.Patch(project, "plain",
+		&compute.TargetHttpProxy{Description: "plain http"}).Do()
+	require.NoError(t, err)
+	proxy, err = svc.TargetHttpProxies.Get(project, "plain").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "plain http", proxy.Description)
+}

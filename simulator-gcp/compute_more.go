@@ -533,6 +533,7 @@ func registerComputeMore(srv *sim.Server) {
 	}
 
 	gcpComputeImages = mk("compute_images")
+	gcpComputeTargetHTTPSProxies = mk("compute_target_https_proxies")
 	// A packet mirroring policy's collectorIlb resolves through the regional
 	// backend services to the instances behind it, so the resolver reads them.
 	gcpRegionBackendServices = mk("compute_region_backend_services")
@@ -567,7 +568,7 @@ func registerComputeMore(srv *sim.Server) {
 		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps"), patch: true, update: true},
 		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies"),
 			setVerbs: []computeSetVerb{{verb: "setUrlMap", member: "urlMap"}}},
-		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: mk("compute_target_https_proxies"), aggregated: true,
+		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: gcpComputeTargetHTTPSProxies, aggregated: true,
 			setVerbs: []computeSetVerb{
 				{verb: "setSslPolicy", member: "sslPolicy"},
 				{verb: "setQuicOverride", member: "quicOverride"},

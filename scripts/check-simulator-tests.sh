@@ -207,9 +207,10 @@ route_referenced_in_tests() {
     # route_path, not `path`: zsh ties `path` to `PATH`, so a local named
     # `path` here would blank the command search path for this function and
     # every grep below would stop resolving.
-    local route cloud route_path last_seg
+    local route cloud route_path last_seg method
     route="$1"; cloud="$2"
     route_path="${route#* }"
+    method="${route%% *}"
     if grep -qF "$route_path" "$added_dir/tests-$cloud"; then
         return 0
     fi
@@ -237,7 +238,47 @@ route_referenced_in_tests() {
         }
     }')
     if [ -n "$segment" ] && printf '%s' "$segment" | grep -qE '^[a-zA-Z][a-zA-Z0-9]*$'; then
-        op_referenced_in_tests "$(printf '%s' "$segment" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$segment" | cut -c2-)" "$cloud" && return 0
+        local capitalised
+        capitalised="$(printf '%s' "$segment" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$segment" | cut -c2-)"
+        # A route whose tail is a parameter is a verb on a resource, and the
+        # named segment is only its collection — so matching the collection
+        # alone would accept any test that touched the collection at all. Ask
+        # for the call the HTTP method names as well, which is what the
+        # generated client spells it: PATCH is Patch, PUT is Update, DELETE is
+        # Delete. A route whose tail names the verb itself needs no such help.
+        local wants_verb=""
+        case "$last_seg" in
+            '{'*)
+                case "$method" in
+                    PATCH) wants_verb=Patch ;;
+                    PUT) wants_verb=Update ;;
+                    DELETE) wants_verb=Delete ;;
+                esac
+                ;;
+        esac
+        if [ -n "$wants_verb" ]; then
+            # As one expression, not two lookups: a collection referenced in
+            # one test and the verb in another says nothing about this route.
+            grep -qE "\.$(regex_escape "$capitalised")\.$(regex_escape "$wants_verb")\(" \
+                "$added_dir/tests-$cloud" && return 0
+        else
+            op_referenced_in_tests "$capitalised" "$cloud" && return 0
+        fi
+        # Google's generated clients prefix the global variant of a collection
+        # that also exists regionally — the routes under /global/forwardingRules
+        # are reached through GlobalForwardingRules, and the same holds for
+        # addresses and operations. Without this the global spelling of every
+        # such collection is unmatchable.
+        case "$route_path" in
+            */global/*)
+                if [ -n "$wants_verb" ]; then
+                    grep -qE "\.Global$(regex_escape "$capitalised")\.$(regex_escape "$wants_verb")\(" \
+                        "$added_dir/tests-$cloud" && return 0
+                else
+                    op_referenced_in_tests "Global$capitalised" "$cloud" && return 0
+                fi
+                ;;
+        esac
     fi
     # cloudTrailRecordedREST("Op", …) names the operation at the route mount;
     # accept a call/assertion reference to that named op.

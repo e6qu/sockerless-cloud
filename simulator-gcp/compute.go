@@ -667,14 +667,20 @@ type ComputeTCPHealthCheck struct {
 }
 
 type ComputeBackendService struct {
-	Kind                string                         `json:"kind,omitempty"`
-	Id                  string                         `json:"id,omitempty"`
-	Name                string                         `json:"name"`
-	SelfLink            string                         `json:"selfLink,omitempty"`
-	CreationTimestamp   string                         `json:"creationTimestamp,omitempty"`
-	Description         string                         `json:"description,omitempty"`
-	Protocol            string                         `json:"protocol,omitempty"`
-	PortName            string                         `json:"portName,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	Id                string `json:"id,omitempty"`
+	Name              string `json:"name"`
+	SelfLink          string `json:"selfLink,omitempty"`
+	CreationTimestamp string `json:"creationTimestamp,omitempty"`
+	Description       string `json:"description,omitempty"`
+	Protocol          string `json:"protocol,omitempty"`
+	PortName          string `json:"portName,omitempty"`
+	// The Cloud Armor policies attached to the service, and the CDN policy the
+	// signed-URL key names live in. setSecurityPolicy, setEdgeSecurityPolicy
+	// and the signing-key verbs each write one of these.
+	SecurityPolicy      string                         `json:"securityPolicy,omitempty"`
+	EdgeSecurityPolicy  string                         `json:"edgeSecurityPolicy,omitempty"`
+	CdnPolicy           map[string]any                 `json:"cdnPolicy,omitempty"`
 	TimeoutSec          int64                          `json:"timeoutSec,omitempty"`
 	LoadBalancingScheme string                         `json:"loadBalancingScheme,omitempty"`
 	HealthChecks        []string                       `json:"healthChecks,omitempty"`
@@ -783,18 +789,21 @@ type ComputeTargetHTTPProxy struct {
 }
 
 type ComputeForwardingRule struct {
-	Kind                string `json:"kind,omitempty"`
-	Id                  string `json:"id,omitempty"`
-	Name                string `json:"name"`
-	SelfLink            string `json:"selfLink,omitempty"`
-	CreationTimestamp   string `json:"creationTimestamp,omitempty"`
-	Description         string `json:"description,omitempty"`
-	IPAddress           string `json:"IPAddress,omitempty"`
-	IPProtocol          string `json:"IPProtocol,omitempty"`
-	PortRange           string `json:"portRange,omitempty"`
-	Target              string `json:"target,omitempty"`
-	LoadBalancingScheme string `json:"loadBalancingScheme,omitempty"`
-	NetworkTier         string `json:"networkTier,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	Id                string `json:"id,omitempty"`
+	Name              string `json:"name"`
+	SelfLink          string `json:"selfLink,omitempty"`
+	CreationTimestamp string `json:"creationTimestamp,omitempty"`
+	Description       string `json:"description,omitempty"`
+	IPAddress         string `json:"IPAddress,omitempty"`
+	IPProtocol        string `json:"IPProtocol,omitempty"`
+	PortRange         string `json:"portRange,omitempty"`
+	// The labels setLabels writes, with the fingerprint that guards them.
+	Labels              map[string]string `json:"labels,omitempty"`
+	LabelFingerprint    string            `json:"labelFingerprint,omitempty"`
+	Target              string            `json:"target,omitempty"`
+	LoadBalancingScheme string            `json:"loadBalancingScheme,omitempty"`
+	NetworkTier         string            `json:"networkTier,omitempty"`
 }
 
 // ComputeInstanceTemplate mirrors `compute#instanceTemplate`. Field set covers
