@@ -8,8 +8,9 @@ Discovery method spellings, with `compute-v1` at 1,976 of 2,016 and
 `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1` and
 `redis-v1` each complete; Azure 2,521 → 2,573 of 2,628 Swagger operations, with
 App Service at 663 of 692 and no silent gap left in that document, and the
-Azure Container Registry data plane complete at 29 of 29 and Azure Storage at
-49 of 49.
+Azure Container Registry data plane complete at 29 of 29, Azure Storage at 49
+of 49, both Event Grid documents, Microsoft.Compute's provider surface and the
+Log Analytics shared keys.
 
 Two of the pass's own instruments were wrong and were corrected before the work
 they measured. The Google Cloud coverage probe rendered a greedy
@@ -39,6 +40,25 @@ own. The six ResourceHealthMetadata spellings beside it declare a 501: the
 operation defines its category as the one the resource matches in Microsoft's
 Resource Health Check policy file, and matching a site against a policy this
 project does not vendor would be fabrication.
+
+Four more documents closed on provider-level reads. Microsoft.Compute's action
+catalog is the provider's own surface derived from the vendored documents and
+held to that derivation by a test, so a re-vendor that adds an operation fails
+until the catalog names the action it needs; its per-location usage is counted
+from the machines and cores the subscription actually holds there. A Log
+Analytics workspace's shared keys became the workspace's own pair, minted on
+first use — they had been a constant, which made the regeneration that was
+being added unobservable. And an extension topic is derived from the scope
+asked about, naming the system topic whose source is that resource.
+
+That last one needed the coverage probe corrected first. An Azure Resource
+Manager scope is normally marked `x-ms-skip-url-encoding`, because it is a
+resource ID whose slashes must survive; Event Grid's `extensionTopics` declares
+a bare `scope` without it, so the probe addressed a whole resource ID as one
+synthetic segment and reported an operation that answers as unserved. A leading
+parameter named `scope` followed by the literal `providers` is a scope by
+construction, and the predicate says so now — pinned by a unit test, because the
+wider rule would have treated ordinary leading parameters as resource IDs.
 
 A storage account's migrations and its point-in-time blob restore each change
 the account or its blobs rather than reporting that they would. A

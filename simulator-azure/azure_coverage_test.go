@@ -174,13 +174,22 @@ var azureMethodFloor = map[string]int{
 	// Lowered from 5. GET "/{roleId}" and the two ".../Microsoft.Authorization/
 	// permissions" list operations mux-miss; nothing is registered for either.
 	"authorization-arm-authorization-roledefinitionscalls-2022-04-01": 7,
-	"compute-arm-computerpcommon-2022-03-01":                          1,
-	"compute-arm-skus-2021-07-01":                                     1,
-	"compute-arm-virtualmachine-2022-03-01":                           29,
-	"containerinstance-arm-containerinstance-2021-10-01":              18,
-	"containerregistry-arm-containerregistry-2023-07-01":              52,
-	"containerregistry-arm-containerregistry-2025-11-01":              58,
-	"containerregistry-arm-registrytasks-2019-06-01-preview":          25,
+	// Microsoft.Compute's operation catalog is the provider's own surface
+	// expressed as role-assignable actions, derived from the vendored documents
+	// and held to that derivation by TestComputeOperationCatalogCoversSpec — a
+	// re-vendor that adds an operation fails until the catalog names the action
+	// it needs. The per-location usage is counted rather than declared: the
+	// figures are the machines and cores the subscription is actually holding
+	// there, against the subscription's own quotas.
+	//
+	// Raised from 1 by those two, completing the document.
+	"compute-arm-computerpcommon-2022-03-01":                 3,
+	"compute-arm-skus-2021-07-01":                            1,
+	"compute-arm-virtualmachine-2022-03-01":                  29,
+	"containerinstance-arm-containerinstance-2021-10-01":     18,
+	"containerregistry-arm-containerregistry-2023-07-01":     52,
+	"containerregistry-arm-containerregistry-2025-11-01":     58,
+	"containerregistry-arm-registrytasks-2019-06-01-preview": 25,
 	// Raised from 13: the "/acr/v1/{path...}" registry routes do serve these,
 	// which shape matching missed where a route parameter sat under a spec
 	// literal. Raised again from 19 by the registry's token service growing
@@ -219,9 +228,18 @@ var azureMethodFloor = map[string]int{
 	"dns-arm-dns-2018-05-01":               14,
 	// Lowered from 61. GET "/{scope}/providers/Microsoft.EventGrid/
 	// extensionTopics/default" mux-misses — no extensionTopics route exists.
-	"eventgrid-arm-eventgrid-2021-12-01": 60,
+	// An extension topic is not a resource a client creates: it is the name
+	// Event Grid gives the events a resource already emits, so it is derived
+	// from the scope addressed and names the system topic whose source is that
+	// resource, when the subscription holds one.
+	//
+	// Raised from 60 by ExtensionTopics_Get, completing the document.
+	"eventgrid-arm-eventgrid-2021-12-01": 61,
 	// Lowered from 127, for the same unserved extensionTopics operation.
-	"eventgrid-arm-eventgrid-2022-06-15":         126,
+	// The same extension topic, in this document's api-version.
+	//
+	// Raised from 126 by ExtensionTopics_Get, completing the document.
+	"eventgrid-arm-eventgrid-2022-06-15":         127,
 	"eventgrid-dataplane-eventgrid-2018-01-01":   3,
 	"eventhub-arm-authorizationrules-2024-01-01": 15,
 	"eventhub-arm-consumergroups-2024-01-01":     4,
@@ -259,16 +277,22 @@ var azureMethodFloor = map[string]int{
 	// packet socket on the target machine's interface and writes the frames it
 	// records into the storage account it names, through the same Blob data
 	// plane a client reads them back from.
-	"network-arm-networkwatcher-2025-03-01":         35,
-	"network-arm-privateendpoint-2025-03-01":        11,
-	"network-arm-privatelinkservice-2025-03-01":     13,
-	"network-arm-publicipaddress-2025-03-01":        9,
-	"network-arm-publicipprefix-2025-03-01":         6,
-	"network-arm-routetable-2025-03-01":             10,
-	"network-arm-serviceendpointpolicy-2025-03-01":  10,
-	"network-arm-virtualnetwork-2025-03-01":         21,
-	"network-arm-virtualnetworktap-2025-03-01":      6,
-	"operationalinsights-arm-sharedkeys-2020-08-01": 1,
+	"network-arm-networkwatcher-2025-03-01":        35,
+	"network-arm-privateendpoint-2025-03-01":       11,
+	"network-arm-privatelinkservice-2025-03-01":    13,
+	"network-arm-publicipaddress-2025-03-01":       9,
+	"network-arm-publicipprefix-2025-03-01":        6,
+	"network-arm-routetable-2025-03-01":            10,
+	"network-arm-serviceendpointpolicy-2025-03-01": 10,
+	"network-arm-virtualnetwork-2025-03-01":        21,
+	"network-arm-virtualnetworktap-2025-03-01":     6,
+	// A workspace's shared keys are its own pair, minted on first use and
+	// replaced by a regeneration, so the keys read back after one are not the
+	// keys read back before. They used to be a constant, which made a
+	// regeneration unobservable.
+	//
+	// Raised from 1 by SharedKeys_Regenerate, completing the document.
+	"operationalinsights-arm-sharedkeys-2020-08-01": 2,
 	"operationalinsights-arm-workspaces-2020-08-01": 8,
 	"postgresql-arm-openapi-2025-08-01":             66,
 	"privatedns-arm-privatedns-2024-06-01":          17,
@@ -682,7 +706,16 @@ func azureHasScopeLead(sp swaggerPath) bool {
 	if len(sp.Raw) < 2 || !azureIsWildcard(sp.Raw[0]) {
 		return false
 	}
-	if !sp.PathScopes[strings.Trim(sp.Raw[0], "{}")] {
+	// The marker Azure Resource Manager scopes usually carry is
+	// x-ms-skip-url-encoding, because a scope is a resource ID whose slashes
+	// must survive. Some documents forget it — Event Grid's extensionTopics
+	// declares a bare `scope` — but a leading parameter named `scope` followed
+	// by the literal `providers` is an Azure Resource Manager scope by
+	// construction, and probing it as one synthetic segment would address the
+	// operation at a path no client uses.
+	name := strings.Trim(sp.Raw[0], "{}")
+	bareARMScope := name == "scope" && len(sp.Raw) > 1 && sp.Raw[1] == "providers"
+	if !sp.PathScopes[name] && !bareARMScope {
 		return false
 	}
 	for _, s := range sp.Raw[1:] {

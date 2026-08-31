@@ -150,9 +150,11 @@ func injectAppTrace(appRoleName, message string) {
 func registerAzureMonitor(srv *sim.Server) {
 	monitorLogs = sim.MakeStore[[]monitorLogRow](srv.DB(), "monitor_logs")
 	workspaces := sim.MakeStore[Workspace](srv.DB(), "monitor_workspaces")
+	monitorWorkspaces = workspaces
 	azureMonitorWorkspaces = workspaces
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights"
+	registerMonitorSharedKeys(srv, armBase)
 
 	// Subscription-scoped list of soft-deleted workspaces. Real Azure
 	// keeps deleted workspaces recoverable for 14 days; terraform-
@@ -302,9 +304,13 @@ func registerAzureMonitor(srv *sim.Server) {
 			return
 		}
 
+		// The keys are the workspace's own pair, minted on first use and
+		// replaced only by a regeneration — a constant here would make a
+		// regeneration unobservable and an agent's signature meaningless.
+		keys := monitorKeysFor(resourceID)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"primarySharedKey":   "dGVzdHByaW1hcnlrZXkK",
-			"secondarySharedKey": "dGVzdHNlY29uZGFyeWtleQo=",
+			"primarySharedKey":   keys.Primary,
+			"secondarySharedKey": keys.Secondary,
 		})
 	})
 

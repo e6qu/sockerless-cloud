@@ -204,6 +204,7 @@ func registerCompute(srv *sim.Server) {
 	azureLBs = sim.MakeStore[LoadBalancer](srv.DB(), "network_load_balancers")
 	azureNICs = sim.MakeStore[NetworkInterface](srv.DB(), "network_interfaces")
 	azureVMs = sim.MakeStore[VirtualMachine](srv.DB(), "compute_virtual_machines")
+	registerComputeOperations(srv)
 	azureVMStates = sim.MakeStore[string](srv.DB(), "compute_virtual_machine_states")
 	azureVMGeneralized = sim.MakeStore[bool](srv.DB(), "compute_virtual_machine_generalized")
 

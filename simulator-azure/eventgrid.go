@@ -52,6 +52,7 @@ func registerEventGrid(srv *sim.Server) {
 	eventGridDomains = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_domains")
 	eventGridDomainTopics = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_domain_topics")
 	eventGridSystemTopics = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_system_topics")
+	registerEventGridExtensionTopics(srv)
 	eventGridPartnerTopics = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_partner_topics")
 	eventGridSubscriptions = sim.MakeStore[EventGridEventSubscription](srv.DB(), "eventgrid_subscriptions")
 

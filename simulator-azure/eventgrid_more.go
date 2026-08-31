@@ -530,3 +530,52 @@ func handleEventGridDeletePrivateEndpointConnection(w http.ResponseWriter, r *ht
 	}
 	w.WriteHeader(http.StatusOK)
 }
+
+// ExtensionTopics_Get — the extension topic of an arbitrary Azure resource.
+//
+// An extension topic is not a resource a client creates: it is the addressable
+// name Event Grid gives the events a resource already emits, and it points at
+// the system topic carrying them. So the answer is derived from the scope in
+// the path — the resource being asked about — and names the system topic whose
+// source is that resource, when the subscription holds one.
+func registerEventGridExtensionTopics(srv *sim.Server) {
+	// Go's router cannot spell a wildcard that is not last, so the scopes an
+	// extension topic is addressed at are enumerated the way every other
+	// scope-rooted Event Grid route in this simulator is: the subscription, the
+	// resource group, and a resource under a provider.
+	const suffix = "/providers/Microsoft.EventGrid/extensionTopics/default"
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		scope := strings.TrimSuffix(r.URL.Path, suffix)
+
+		// The system topic mapped to the source, if the subscription has
+		// one. A resource nobody created a system topic for still has an
+		// extension topic — the events exist either way — and it names no
+		// system topic, because there is none to name.
+		systemTopic := ""
+		if eventGridSystemTopics != nil {
+			for _, held := range eventGridSystemTopics.List() {
+				source, _ := held.Properties["source"].(string)
+				if source != "" && strings.EqualFold(source, scope) {
+					systemTopic = held.ID
+					break
+				}
+			}
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"id":   scope + "/providers/Microsoft.EventGrid/extensionTopics/default",
+			"name": "default",
+			"type": "Microsoft.EventGrid/extensionTopics",
+			"properties": map[string]any{
+				"description": "Extension topic for " + scope + ".",
+				"systemTopic": systemTopic,
+			},
+		})
+	}
+	for _, scope := range []string{
+		"/subscriptions/{subscriptionId}",
+		"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}",
+		"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{resourceType}/{resourceName}",
+	} {
+		srv.HandleFunc("GET "+scope+suffix, handler)
+	}
+}
