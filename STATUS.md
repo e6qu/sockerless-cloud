@@ -91,7 +91,7 @@ Current state of the sockerless-cloud repository.
   module graphs; govulncheck clean).
 - **Measured floors** (re-read from the ratchets on 2026-08-31, because the
   figures written here had drifted from the tests that produce them): IAM
-  resource derivation **1,944 of 1,994** served operations;
+  resource derivation **1,945 of 1,994** served operations;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
   catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` **120 of 120**;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery

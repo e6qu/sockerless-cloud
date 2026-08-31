@@ -141,3 +141,29 @@ func TestIAMCreateWildcard_AReviewedCreateNamesWhatItMints(t *testing.T) {
 		t.Errorf("an unreviewed create derived %v, want nothing", got)
 	}
 }
+
+// A type that is the operation's noun outright beats one the noun merely ends
+// with, which is otherwise read as an ambiguity and derives nothing.
+func TestIAMCreateWildcard_TheNounItselfBeatsWhatTheNounEndsWith(t *testing.T) {
+	const region, account = "us-east-1", "123456789012"
+
+	got := iamCreateWildcardARNs("elasticache", "CreateGlobalReplicationGroup",
+		[]string{"globalreplicationgroup", "replicationgroup"}, region, account)
+	want := []string{"arn:aws:elasticache::" + account + ":globalreplicationgroup:*"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("derived %v, want %v", got, want)
+	}
+
+	// Two types that are both the noun outright is a real ambiguity again.
+	if got := iamCreateWildcardARNs("elasticache", "CreateGlobalReplicationGroup",
+		[]string{"globalreplicationgroup", "global-replication-group"}, region, account); got != nil {
+		t.Errorf("two exact matches derived %v, want nothing", got)
+	}
+
+	// The parent guard is untouched: an alias's parent is neither the noun nor
+	// something the noun ends with.
+	if got := iamCreateWildcardARNs("states", "CreateStateMachineAlias",
+		[]string{"statemachine"}, region, account); got != nil {
+		t.Errorf("a create widening to its parent derived %v, want nothing", got)
+	}
+}

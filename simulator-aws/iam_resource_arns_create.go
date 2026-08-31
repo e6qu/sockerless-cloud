@@ -42,15 +42,27 @@ func iamCreateWildcardARNs(service, op string, types []string, region, account s
 		return iamTypeWildcardARN(service, types[0], region, account)
 	}
 
-	var created string
+	// A type that is the noun outright beats one the noun merely ends with:
+	// elasticache:CreateGlobalReplicationGroup declares both
+	// "globalreplicationgroup", which is what it mints, and "replicationgroup",
+	// which the first happens to end with. Without that preference the two
+	// read as an ambiguity and the create derives nothing.
+	var created, exact string
+	matches, exacts := 0, 0
 	for _, candidate := range types {
 		if !iamCreatedTypeMatchesOperation(op, candidate) {
 			continue
 		}
-		if created != "" {
-			return nil
+		created, matches = candidate, matches+1
+		if iamCreatedTypeIsTheOperationsNoun(op, candidate) {
+			exact, exacts = candidate, exacts+1
 		}
-		created = candidate
+	}
+	switch {
+	case exacts == 1:
+		created = exact
+	case matches != 1:
+		return nil
 	}
 	if created == "" {
 		return nil
@@ -120,8 +132,17 @@ func iamOperationCreatesItsResource(op string) bool {
 // the declared type. AllocateHosts declares "dedicated-host" and matches;
 // CreateStateMachineAlias declares "statemachine" and does not, because the
 // alias is what it creates and the state machine is only where it lives.
-func iamCreatedTypeMatchesOperation(op, resourceType string) bool {
-	noun := op
+// iamCreatedTypeIsTheOperationsNoun reports whether the type is the operation's
+// noun rather than something the noun contains.
+func iamCreatedTypeIsTheOperationsNoun(op, resourceType string) bool {
+	noun, bare := iamCreatedNounAndType(op, resourceType)
+	return noun != "" && noun == bare
+}
+
+// iamCreatedNounAndType reduces an operation name to the noun it creates and a
+// resource type to its bare form, so the two can be compared as words.
+func iamCreatedNounAndType(op, resourceType string) (noun, bare string) {
+	noun = op
 	for _, prefix := range iamCreateVerbs {
 		if trimmed, found := strings.CutPrefix(op, prefix); found {
 			noun = trimmed
@@ -129,8 +150,12 @@ func iamCreatedTypeMatchesOperation(op, resourceType string) bool {
 		}
 	}
 	noun = strings.TrimSuffix(strings.ToLower(noun), "s")
-	bare := strings.NewReplacer("-", "", "_", "", "/", "").Replace(strings.ToLower(resourceType))
-	bare = strings.TrimSuffix(bare, "s")
+	bare = strings.NewReplacer("-", "", "_", "", "/", "").Replace(strings.ToLower(resourceType))
+	return noun, strings.TrimSuffix(bare, "s")
+}
+
+func iamCreatedTypeMatchesOperation(op, resourceType string) bool {
+	noun, bare := iamCreatedNounAndType(op, resourceType)
 	if noun == "" || bare == "" {
 		return false
 	}
