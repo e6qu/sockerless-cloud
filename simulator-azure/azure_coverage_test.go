@@ -487,6 +487,16 @@ var azureMethodFloor = map[string]int{
 	// when a slot is asked) decides the result, and the deployment slots a clone
 	// would leave behind make it partial.
 	//
+	// Raised by the four App Service Environment pool metric-definition reads.
+	// A pool's definitions are the metric series Microsoft.Insights publishes
+	// about it, and this simulator publishes none — which is an answer, not a
+	// refusal, and the document spells it as an empty collection. The reason
+	// the declared 501 gave was already "it has no metric definitions to
+	// declare", which is what the empty collection says; withholding it was
+	// keeping back something the simulator knows. The outbound dependency
+	// catalog beside them stays declared: Microsoft's own list of platform
+	// endpoints and address ranges is not something to invent.
+	//
 	// Raised by the MySQL migration and the two status reads. Moving a site's
 	// in-app database out is a request the platform records and then reports
 	// on, and both halves are the simulator's: whether the site has in-app
@@ -525,7 +535,7 @@ var azureMethodFloor = map[string]int{
 	// module reads). The six Provider_*Stacks spellings used to miss the router
 	// outright and answer a bare 404, which reads as "no such API" rather than
 	// "this API exists and its data is not vendored"; they declare it now.
-	"web-arm-openapi-2025-03-01": 672,
+	"web-arm-openapi-2025-03-01": 676,
 }
 
 // Route table
