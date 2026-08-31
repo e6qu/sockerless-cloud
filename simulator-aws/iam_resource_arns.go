@@ -1216,6 +1216,25 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 		}
 	}
 
+	// Cancelling an import names the task by an id whose prefix says which of
+	// the two kinds it is — import-ami- an image import, import-snap- a
+	// snapshot import — so the same convention the tag operations read picks
+	// between the two types the action declares.
+	if op == "CancelImportTask" {
+		var out []string
+		for _, id := range lookup("ImportTaskId") {
+			resourceType, known := iamEC2TypeForIDPrefix(id)
+			if !known || !iamHasType(types, resourceType) {
+				continue
+			}
+			out = append(out, "arn:aws:ec2:"+region+":"+account+":"+resourceType+"/"+id)
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
+
 	if op == "CreateTags" || op == "DeleteTags" {
 		var out []string
 		for _, id := range lookup("ResourceId") {

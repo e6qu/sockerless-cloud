@@ -2148,3 +2148,29 @@ func TestIAMResourceARNs_DynamoDBBatchNamesEveryTableItTouches(t *testing.T) {
 			"dynamodb:GetItem", p+"orders")
 	})
 }
+
+// An import task id says which kind of import it is, so cancelling one picks
+// between the two types the action declares rather than authorizing both.
+func TestIAMResourceARNs_CancelImportReadsTheTaskKind(t *testing.T) {
+	const p = "arn:aws:ec2:us-east-1:123456789012:"
+
+	t.Run("an image import is an image import task", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("CancelImportTask", map[string]string{"ImportTaskId": "import-ami-0abc"}),
+			"ec2:CancelImportTask", p+"import-image-task/import-ami-0abc")
+	})
+
+	t.Run("a snapshot import is a snapshot import task", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("CancelImportTask", map[string]string{"ImportTaskId": "import-snap-0abc"}),
+			"ec2:CancelImportTask", p+"import-snapshot-task/import-snap-0abc")
+	})
+
+	t.Run("an id with no known prefix names no task", func(t *testing.T) {
+		// Authorizing both types would grant the cancellation of an import the
+		// caller did not name.
+		assertDerivedARNs(t,
+			iamEC2Request("CancelImportTask", map[string]string{"ImportTaskId": "0abc"}),
+			"ec2:CancelImportTask", "*")
+	})
+}

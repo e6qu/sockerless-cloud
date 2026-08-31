@@ -1144,6 +1144,11 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	if service == "codebuild" && (lower == "id" || lower == "ids") {
 		return "probe:11111111-2222-3333-4444-555555555555"
 	}
+	if service == "ec2" && lower == "importtaskid" {
+		// An import task id says which kind of import it is, and a client
+		// cancelling one sends the id the import returned.
+		return "import-ami-0123456789abcdef0"
+	}
 	if service == "ec2" && lower == "resourceid" {
 		return "i-0123456789abcdef0"
 	}
@@ -1744,7 +1749,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1935
+const iamDerivationCoverageFloor = 1936
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
