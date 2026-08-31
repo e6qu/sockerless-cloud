@@ -318,7 +318,7 @@ var gcpMethodFloor = map[string]int{
 	// control plane only — no Redis runs behind an instance, so there are no
 	// bytes to write out and nothing an import could load. Serving them would
 	// fabricate an RDB.
-	"redis-v1": 90,
+	"redis-v1": 94,
 
 	// Firestore: document CRUD, the transaction verbs, and the custom methods
 	// on a document parent — listCollectionIds, runAggregationQuery and

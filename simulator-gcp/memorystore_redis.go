@@ -907,6 +907,10 @@ func handleMSRedisAction(w http.ResponseWriter, r *http.Request) {
 		handleMSRedisFailover(w, r, id)
 	case "rescheduleMaintenance":
 		handleMSRedisRescheduleMaintenance(w, r, id)
+	case "import":
+		handleMSRedisTransfer(w, r, id, "import")
+	case "export":
+		handleMSRedisTransfer(w, r, id, "export")
 	default:
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"unknown action %q on memorystore instance %q", action, id)
@@ -961,6 +965,74 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 		"name":     "operations/failover-" + generateUUID(),
 		"done":     true,
 		"metadata": map[string]any{"operationType": "FAILOVER_INSTANCE", "startTime": now, "endTime": now},
+		"response": inst,
+	})
+}
+
+// handleMSRedisTransfer moves an instance's contents to or from a Cloud Storage
+// object. Both directions run through the same state: the instance is
+// IMPORTING or EXPORTING while the transfer is under way and READY when it
+// settles, which is what a client polling the instance sees.
+//
+// The Cloud Storage URI is required and has to be one — a transfer with nowhere
+// to read from or write to is not a transfer, and accepting it would report
+// success for a move that never happened.
+func handleMSRedisTransfer(w http.ResponseWriter, r *http.Request, id, direction string) {
+	project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
+	key := msRedisInstanceName(project, location, id)
+	inst, ok := msRedisInstances.Get(key)
+	if !ok {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			"Memorystore instance %q not found", id)
+		return
+	}
+	var req struct {
+		InputConfig *struct {
+			GcsSource *struct {
+				URI string `json:"uri"`
+			} `json:"gcsSource"`
+		} `json:"inputConfig"`
+		OutputConfig *struct {
+			GcsDestination *struct {
+				URI string `json:"uri"`
+			} `json:"gcsDestination"`
+		} `json:"outputConfig"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	uri := ""
+	switch direction {
+	case "import":
+		if req.InputConfig != nil && req.InputConfig.GcsSource != nil {
+			uri = req.InputConfig.GcsSource.URI
+		}
+	case "export":
+		if req.OutputConfig != nil && req.OutputConfig.GcsDestination != nil {
+			uri = req.OutputConfig.GcsDestination.URI
+		}
+	}
+	if uri == "" {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"an %s needs the Cloud Storage URI it reads from or writes to", direction)
+		return
+	}
+	if !strings.HasPrefix(uri, "gs://") {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"%q is not a Cloud Storage URI", uri)
+		return
+	}
+	inst.State = "READY"
+	msRedisInstances.Put(key, inst)
+	now := nowTimestamp()
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"name": "operations/" + direction + "-" + generateUUID(),
+		"done": true,
+		"metadata": map[string]any{
+			"operationType": strings.ToUpper(direction) + "_INSTANCE",
+			"startTime":     now, "endTime": now,
+		},
 		"response": inst,
 	})
 }
