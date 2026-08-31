@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
@@ -93,11 +95,21 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 			Status:      "Succeeded",
 		}
 		webMySQLMigrations.Put(id, migration)
+
+		// The document answers this with an Operation — the operation itself,
+		// not a resource with properties — and names the header a client polls
+		// it through.
+		started := time.Now().UTC().Format(time.RFC3339)
+		// Absolute, as the header is defined and as a client's poller requires:
+		// it is a URL to fetch, not a path within this response.
+		w.Header().Set("Location", fmt.Sprintf("%s://%s%s/migratemysql/status?api-version=%s",
+			azureRequestScheme(r), r.Host, id, r.URL.Query().Get("api-version")))
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"id":         id + "/operationresults/" + migration.OperationID,
-			"name":       migration.OperationID,
-			"status":     migration.Status,
-			"properties": map[string]any{},
+			"id":           migration.OperationID,
+			"name":         migration.OperationID,
+			"status":       migration.Status,
+			"createdTime":  started,
+			"modifiedTime": started,
 		})
 	})
 

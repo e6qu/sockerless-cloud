@@ -39,8 +39,9 @@ create whose type says the same words in another order is recognised as the
 thing it mints, which is how `RequestSpotFleet` reaches its spot-fleet-request.
 
 Azure served App Service's Resource Health metadata at all four scopes, the
-migration of a site's in-app MySQL database, and an App Service Environment
-pool's metric definitions. All three had answered a declared 501, and in each
+migration of a site's in-app MySQL database — answered with the Operation the
+document declares and the absolute Location header a client polls it through —
+and an App Service Environment pool's metric definitions. All three had answered a declared 501, and in each
 case the reason given argued for an answer rather than a refusal: the metric
 definitions' own stated reason was that the simulator publishes no series for a
 pool, which is what an empty collection says. Only the fields that are
