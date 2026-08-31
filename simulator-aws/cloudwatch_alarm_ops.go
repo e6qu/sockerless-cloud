@@ -367,22 +367,21 @@ func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmAct
 	cwRecordAlarmHistory(name, "CompositeAlarm", "ConfigurationUpdate", "Composite alarm updated", "")
 }
 
-// cwAlarmEffectiveState returns a metric alarm's state as CloudWatch reports
-// it: the state the service has evaluated and recorded, with a manual
-// SetAlarmState override winning over it. Deriving the state afresh at read
-// time instead would give the alarm two states — the one a reader sees and the
-// one the evaluator dispatches from — so DescribeAlarms could report ALARM for
-// an alarm that has notified nobody, which is a state real CloudWatch never
-// shows. The evaluator is the only writer, and it runs often enough that a
-// reader sees a breach promptly.
+// cwAlarmEffectiveState returns a metric alarm's state, preferring a manual
+// SetAlarmState override over the metric-derived evaluation.
+//
+// The read derives the state rather than reporting the one the evaluator
+// recorded, and both go through cwEvaluateAlarmState, so the two never disagree
+// about what the metric data means. What the evaluator's recorded state adds is
+// transition detection: it is the previous state a dispatch is decided against,
+// which is why it is written only there. Evaluating from the read path instead
+// would put action dispatch — and the ECS reconciliation that follows it — on
+// every DescribeAlarms, which is work a read has no business doing.
 func cwAlarmEffectiveState(a CWAlarm) (state, reason string) {
 	if a.ManualState != "" {
 		return a.ManualState, a.ManualStateReason
 	}
-	if a.StateValue == "" {
-		return "INSUFFICIENT_DATA", a.StateReason
-	}
-	return a.StateValue, a.StateReason
+	return cwEvaluateAlarmState(a)
 }
 
 // ── rpc-v2-cbor surface (Go SDK) ────────────────────────────────────────────

@@ -5,22 +5,9 @@
 # here. Every entry carries a BUG ID and the list only shrinks — a new
 # divergence is a failure, never an addition.
 #
-# The entries below are all one situation, tracked as BUG-2932: the vendored
-# Smithy pattern is stricter than the service it describes, so emitting a value
-# the pattern admits would mean emitting a value AWS never returns. Matching the
-# model here would make the simulator less faithful, not more. Each closes when
-# a model revision widens the pattern, not when the simulator changes.
-
-# BUG-2932: Amazon EventBridge names the managed secret backing a connection
-# "events!connection/<name>/<uuid>", and SecretsManagerSecretArn admits no "!".
-AWSEvents.DescribeConnection	pattern-mismatch	$.SecretArn
-
-# BUG-2932: AWS Certificate Manager reports the issuing authority as an AWS
-# Private Certificate Authority ARN ("arn:aws:acm-pca:..."), while the generic
-# Arn shape it is typed with requires the service segment to be "acm".
-CertificateManager.DescribeCertificate	pattern-mismatch	$.Certificate.CertificateAuthorityArn
-
-# BUG-2932: Amazon CloudWatch Logs reports a configuration template's
-# resourceType in CloudFormation spelling ("AWS::WAFv2::WebACL"), and
-# ResourceType admits no ":".
-Logs_20140328.DescribeConfigurationTemplates	pattern-mismatch	$.configurationTemplates[].resourceType
+# The list is empty, and an entry is close to always the wrong answer for a
+# shape whose declared pattern is stricter than the service it describes:
+# allowlisting the field stops the value being checked at all. Such a shape
+# takes a correction in specs/cloud-api/aws/<model>.supplement.json, which
+# records the evidence, pins the upstream text it replaces, and keeps the member
+# validated against what AWS really returns.

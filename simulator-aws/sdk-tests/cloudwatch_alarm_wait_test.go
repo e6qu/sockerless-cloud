@@ -2,10 +2,14 @@ package aws_sdk_test
 
 import (
 	"context"
+	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/stretchr/testify/require"
@@ -17,6 +21,12 @@ import (
 // it can still elapse before the thing it waits for has happened, which is a
 // flake that looks like a delivery bug. Each helper below waits for the state
 // the test actually depends on and returns the moment it holds.
+
+// cloudWatchProbeID hands each alarm probe a namespace and alarm name nothing
+// else uses, so metric data left behind by one cannot stand in for another's.
+var cloudWatchProbeID atomic.Int64
+
+func nextCloudWatchProbeID() int64 { return cloudWatchProbeID.Add(1) }
 
 const (
 	// How long a condition is given to become true before the test calls it a
@@ -67,6 +77,40 @@ func awaitQueueMessages(ctx context.Context, t *testing.T, sqsC *sqs.Client, que
 		return true
 	}, alarmWaitTimeout, alarmWaitPoll, "the queue never received %d message(s)", want)
 	return received
+}
+
+// awaitRecordedTransition waits until the alarm's history shows CloudWatch
+// having moved it into the wanted state.
+//
+// DescribeAlarms reports the state derived from the metric data, which is the
+// answer as soon as the data is there; the transition — and the action dispatch
+// that rides it — is the service's own, and the history is where a client can
+// see it has happened. A test that puts its next datapoint before the previous
+// transition is recorded gets a notification for a transition that skipped a
+// state, which looks like a dispatch bug and is not one.
+func awaitRecordedTransition(ctx context.Context, t *testing.T, cw *cloudwatch.Client, alarmName, want string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		history, err := cw.DescribeAlarmHistory(ctx, &cloudwatch.DescribeAlarmHistoryInput{
+			AlarmName:       aws.String(alarmName),
+			HistoryItemType: cwtypes.HistoryItemTypeStateUpdate,
+		})
+		if err != nil {
+			return false
+		}
+		for _, item := range history.AlarmHistoryItems {
+			var recorded struct {
+				NewState string `json:"newState"`
+			}
+			if json.Unmarshal([]byte(aws.ToString(item.HistoryData)), &recorded) != nil {
+				continue
+			}
+			if recorded.NewState == want {
+				return true
+			}
+		}
+		return false
+	}, alarmWaitTimeout, alarmWaitPoll, "the alarm never recorded a transition into %s", want)
 }
 
 // requireQueueStaysEmpty confirms an alarm delivered nothing. The evaluator has

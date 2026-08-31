@@ -135,6 +135,73 @@ type uriQueryLiteral struct {
 	hasValue bool
 }
 
+// applySmithySupplement corrects a model's shapes from the supplement beside
+// it, if it has one.
+//
+// A correction exists where a shape's declared pattern is stricter than the
+// service it describes, so no value AWS returns for a member of that shape can
+// match it. Correcting the pattern keeps the member validated against what the
+// service really returns; the alternative — listing the field as an accepted
+// violation — stops checking the value at all, and would let the simulator
+// return anything there.
+//
+// Each correction pins the exact upstream pattern it replaces. A re-vendor that
+// changes that text fails here rather than silently applying a correction
+// written against something else — which is how a correction that upstream has
+// already made gets noticed and deleted.
+func applySmithySupplement(modelPath string, shapes map[string]smithyShapeDef) error {
+	path := strings.TrimSuffix(modelPath, ".smithy.json.gz") + ".supplement.json"
+	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	var supplement struct {
+		Shapes map[string]struct {
+			Pattern *struct {
+				Replaces string `json:"replaces"`
+				With     string `json:"with"`
+			} `json:"pattern"`
+		} `json:"shapes"`
+	}
+	if err := json.Unmarshal(body, &supplement); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	for id, correction := range supplement.Shapes {
+		shape, ok := shapes[id]
+		if !ok {
+			return fmt.Errorf("%s: corrects shape %q, which the model does not define", path, id)
+		}
+		if correction.Pattern == nil {
+			continue
+		}
+		raw, ok := shape.Traits["smithy.api#pattern"]
+		if !ok {
+			return fmt.Errorf("%s: corrects the pattern of %s, which declares none", path, id)
+		}
+		var declared string
+		if err := json.Unmarshal(raw, &declared); err != nil {
+			return fmt.Errorf("%s: %s declares an unreadable pattern: %w", path, id, err)
+		}
+		if declared != correction.Pattern.Replaces {
+			return fmt.Errorf("%s: corrects the pattern of %s, but the model now declares %q rather than the %q the correction was written against — recheck whether it is still needed and update or delete it",
+				path, id, declared, correction.Pattern.Replaces)
+		}
+		if _, err := regexp.Compile(correction.Pattern.With); err != nil {
+			return fmt.Errorf("%s: the corrected pattern for %s does not compile: %w", path, id, err)
+		}
+		corrected, err := json.Marshal(correction.Pattern.With)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		shape.Traits["smithy.api#pattern"] = corrected
+		shapes[id] = shape
+	}
+	return nil
+}
+
 func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.smithy.json.gz"))
 	if err != nil || len(paths) == 0 {
@@ -163,6 +230,9 @@ func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 		_ = f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		if err := applySmithySupplement(p, doc.Shapes); err != nil {
+			return nil, err
 		}
 		idx := &smithyModelIndex{
 			shapes:    doc.Shapes,

@@ -1,0 +1,49 @@
+{
+  "_about": [
+    "Members the Cloud Run v2 API serves that its published Discovery document",
+    "does not declare. A supplement is not a licence to invent: each entry",
+    "records a member an official Google client sends and reads, names the",
+    "evidence for it, and declares its type — so the simulator's responses are",
+    "validated against the contract clients actually speak rather than merely",
+    "tolerated. The alternative, listing the member as an accepted violation,",
+    "would let the simulator emit any value at all for it.",
+    "",
+    "Each entry goes away when Google publishes the member, at which point the",
+    "document declares it and the supplement becomes redundant — which the",
+    "loader enforces by refusing to supplement a member the document already",
+    "declares."
+  ],
+  "schemas": {
+    "GoogleCloudRunV2WorkerPoolScaling": {
+      "_evidence": [
+        "GoogleCloudRunV2ServiceScaling declares scalingMode, minInstanceCount",
+        "and maxInstanceCount; the WorkerPool equivalent declares only",
+        "manualInstanceCount, through Discovery revision 20260822. The three",
+        "are nonetheless served: gcloud's generated Cloud Run v2 client and the",
+        "Google Terraform provider both send and read them on a worker pool,",
+        "and manualInstanceCount sits at proto field 6 with fields 1-5",
+        "unpublished. Types are taken from the Service equivalent, which is the",
+        "same message shape."
+      ],
+      "properties": {
+        "scalingMode": {
+          "type": "string",
+          "enumDescriptions": [
+            "Unspecified.",
+            "Scale based on traffic.",
+            "Scale to a fixed instance count."
+          ],
+          "enum": ["SCALING_MODE_UNSPECIFIED", "AUTOMATIC", "MANUAL"]
+        },
+        "minInstanceCount": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "maxInstanceCount": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    }
+  }
+}
