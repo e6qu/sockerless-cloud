@@ -331,7 +331,7 @@ var gcpMethodFloor = map[string]int{
 	// get, list, delete) whose deliveries need that same plumbing. REST cannot
 	// carry a bidirectional stream, and a change stream with no listener to
 	// deliver to would be a record nothing reads.
-	"firestore-v1": 108,
+	"firestore-v1": 120,
 
 	// Identity and Access Management: every documented method is served —
 	// service accounts, keys (including upload's caller-supplied public key

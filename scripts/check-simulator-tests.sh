@@ -231,6 +231,22 @@ route_referenced_in_tests() {
     # (/global/interconnectLocations/{interconnectLocation}), and so is a
     # resource read (/projects/{project}). Walk back to the nearest segment
     # that names something and try that.
+    # A route mounted at a literal colon verb ends in "collection:verb", and it
+    # is the verb that names the SDK method — .Documents.ExecutePipeline for
+    # documents:executePipeline. Without this the whole colon-verb shape is
+    # unmatchable and every one of them would need exempting.
+    case "$last_seg" in
+        *:*)
+            local colon_verb
+            colon_verb="${last_seg#*:}"
+            if printf '%s' "$colon_verb" | grep -qE '^[a-zA-Z][a-zA-Z0-9]*$'; then
+                op_referenced_in_tests \
+                    "$(printf '%s' "$colon_verb" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$colon_verb" | cut -c2-)" \
+                    "$cloud" && return 0
+            fi
+            ;;
+    esac
+
     local segment
     segment=$(printf '%s' "$route_path" | awk -F/ '{
         for (i = NF; i > 0; i--) {

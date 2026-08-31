@@ -115,6 +115,7 @@ Legend:
 | `gcp-dataflow` | direct | direct | not applicable | `simulator-gcp/sdk-tests/spanner_dataflow_bigtable_test.go`; `simulator-gcp/cli-tests/spanner_dataflow_bigtable_test.go` |
 | `gcp-dns` | direct | direct | direct | `simulator-gcp/sdk-tests/dns_test.go`; `simulator-gcp/cli-tests/dns_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-eventarc` | direct | direct | direct | `simulator-gcp/sdk-tests/eventarc_test.go`; `simulator-gcp/cli-tests/eventarc_test.go`; `simulator-gcp/terraform-tests/main.tf` |
+| `gcp-firestore_change_streams` | direct | not applicable | not applicable | `simulator-gcp/sdk-tests/firestore_change_streams_test.go`; neither `gcloud` nor the Google provider wraps a change stream, a listen or a pipeline execution |
 | `gcp-firestore` | direct | direct | direct | `simulator-gcp/sdk-tests/data_saas_test.go`; `simulator-gcp/cli-tests/data_saas_test.go`; `simulator-gcp/terraform-tests/main.tf` |
 | `gcp-firestore_document_verbs` | direct | not applicable | not applicable | `simulator-gcp/sdk-tests/firestore_document_verbs_test.go`; gcloud exposes no command for the document custom methods, documents:write or the databases clone/restore pair, and terraform-provider-google wraps none of them |
 | `gcp-gcs` | direct | direct | direct | `simulator-gcp/sdk-tests/storage_test.go`; `simulator-gcp/cli-tests/storage_test.go`; `simulator-gcp/terraform-tests/main.tf` |

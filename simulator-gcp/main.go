@@ -141,6 +141,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerCloudSQL(srv)
 	registerBigQuery(srv)
 	registerFirestore(srv)
+	registerFirestoreChangeStreams(srv)
 	registerCloudBuild(srv)
 	registerSpanner(srv)
 	registerDataflow(srv)

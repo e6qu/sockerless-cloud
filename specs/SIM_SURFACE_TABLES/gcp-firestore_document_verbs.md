@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v1/projects/{project}/databases/{database}/documents:write` | ? `simulator-gcp/firestore_document_verbs.go:301::write` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/databases/{database}/documents:write` | ? `simulator-gcp/firestore_document_verbs.go:305::write` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 
