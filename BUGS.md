@@ -101,6 +101,13 @@ Open: 9. Resolved: 84.
   scan is limited to the package whose images every suite touches. Caching
   those thirty, and the Terraform jobs' engine images, is what is left.
 
+  Warming is a step that primes a cache, not one that checks a dependency, so
+  all three are `continue-on-error`. Without that the first run of the sim
+  suites failed outright when the cap refused one image while warming, denying
+  the run everything else those jobs would have reported; now the job carries
+  on and whatever actually needs the image fails at the point of use, naming
+  it.
+
   Until those go through the cache, a job that pulls one of them for the first
   time can still fail for reasons unrelated to the change under test, and a red
   run has to be read before it is believed.

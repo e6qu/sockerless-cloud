@@ -364,6 +364,12 @@ jobs:
           path: ~/.cache/sockerless/sim-base-images.tar
           key: sim-base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
       - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry
+        # refuses an image here, the job carries on and whatever
+        # actually needs it fails at the point of use, naming it. A cap
+        # hit while warming must not deny the run everything else the
+        # job would have told us.
+        continue-on-error: true
         run: |
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/sim-base-images.tar \
@@ -954,6 +960,12 @@ jobs:
           path: ~/.cache/sockerless/base-images.tar
           key: base-images-${{ runner.os }}-${{ runner.arch }}-alpine-latest-v1
       - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry
+        # refuses an image here, the job carries on and whatever
+        # actually needs it fails at the point of use, naming it. A cap
+        # hit while warming must not deny the run everything else the
+        # job would have told us.
+        continue-on-error: true
         run: bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar public.ecr.aws/docker/library/alpine:latest
       - name: Run terraform tests
         run: |
@@ -1117,6 +1129,12 @@ jobs:
           path: ~/.cache/sockerless/race-base-images.tar
           key: race-base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
       - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry
+        # refuses an image here, the job carries on and whatever
+        # actually needs it fails at the point of use, naming it. A cap
+        # hit while warming must not deny the run everything else the
+        # job would have told us.
+        continue-on-error: true
         if: matrix.pkg == 'shared'
         run: |
           # shellcheck disable=SC2086
