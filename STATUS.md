@@ -113,7 +113,17 @@ Current state of the sockerless-cloud repository.
   and `redis-v1` each complete); Azure **2,612 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint
-  operations. VPC networks allocate bridge subnets from a host-side pool with
+  operations.
+- **No silent gap in either declared surface.** Every one of Google Cloud's
+  5,480 Discovery method spellings reaches a handler: the probe reports **zero
+  mux misses** across all thirty documents, the last of them closed when
+  Compute Engine's host methods were served. Every one of Azure's 16 unserved
+  operations answers a declared 501 naming what is missing — none answers a
+  routing 404, and none answers with invented data. What remains unserved in
+  both is a published catalog or a proprietary dataset: Microsoft's runtime
+  stacks, its Resource Health Check policy, its advisory copy and platform
+  php.ini; Google's licence codes, preview features, reliability risks,
+  interconnect locations and preconfigured WAF expression sets. VPC networks allocate bridge subnets from a host-side pool with
   ENI addresses as real secondary interface addresses, so same-CIDR VPCs
   coexist.
 - **A served count is not proof a handler exists.** The Google Cloud coverage
