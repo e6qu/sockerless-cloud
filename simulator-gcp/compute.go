@@ -503,13 +503,11 @@ type ComputeSubnetwork struct {
 	CreationTimestamp     string `json:"creationTimestamp"`
 }
 
-// ComputeDisk mirrors `compute#disk` — the zonal persistent-disk
-// resource. 's `pd-ephemeral` storage driver provisions one
-// disk per runner-task and attaches it to the runner's compute
-// instance for the duration of the task. Field set covers what the Go
-// SDK's `compute.NewDisksRESTClient` round-trips for create / get /
-// list / delete / resize / setLabels — the subset terraform's
-// `google_compute_disk` exercises.
+// ComputeDisk mirrors `compute#disk` — the zonal persistent-disk resource a
+// client creates and attaches to an instance. Field set covers what the Go
+// SDK's `compute.NewDisksRESTClient` round-trips for create / get / list /
+// delete / resize / setLabels — the subset terraform's `google_compute_disk`
+// exercises.
 type ComputeDisk struct {
 	Kind              string `json:"kind,omitempty"`
 	Id                string `json:"id,omitempty"`
@@ -634,6 +632,11 @@ type ComputeAccessConfig struct {
 	Type        string `json:"type,omitempty"`
 	NatIP       string `json:"natIP,omitempty"`
 	NetworkTier string `json:"networkTier,omitempty"`
+	// SecurityPolicy is where an instance records the Cloud Armor policy
+	// applied to its external address. instances.setSecurityPolicy names the
+	// interfaces to apply it to, and this is the member the instance reports it
+	// back on — the Instance schema itself declares no such field.
+	SecurityPolicy string `json:"securityPolicy,omitempty"`
 }
 
 type ComputeHealthCheck struct {
@@ -1130,6 +1133,26 @@ func registerCompute(srv *sim.Server) {
 	})
 
 	// Delete subnetwork
+	// Private Google Access is a member of the subnetwork, and the verb that
+	// turns it on is how a client changes it without rewriting the resource.
+	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}/setPrivateIpGoogleAccess", func(w http.ResponseWriter, r *http.Request) {
+		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
+		var req struct {
+			PrivateIpGoogleAccess bool `json:"privateIpGoogleAccess"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
+		if !subnetworks.Update(selfLink, func(s *ComputeSubnetwork) { s.PrivateIpGoogleAccess = req.PrivateIpGoogleAccess }) {
+			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK,
+			newComputeOpWithType(project, "regions/"+region, selfLink, "setPrivateIpGoogleAccess"))
+	})
+
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		region := sim.PathParam(r, "region")
@@ -2673,8 +2696,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 	})
 }
 
-// registerComputeDisks wires the zonal Compute Disks REST surface that
-// 's `pd-ephemeral` storage driver provisions against. Real
+// registerComputeDisks wires the zonal Compute Disks REST surface. Real
 // GCP exposes Disks via `compute#disk` at
 // `/compute/v1/projects/{p}/zones/{z}/disks` plus an aggregated list
 // across zones at `/compute/v1/projects/{p}/aggregated/disks`. The

@@ -65,6 +65,11 @@ type computeMetaResource struct {
 	// them would publish routes Google does not.
 	testIamOnly bool
 	patch       bool
+	// setVerbs are the "set<Thing>" verbs a collection declares beside its
+	// lifecycle. Each reads one member from its request body, writes it onto
+	// the resource and answers with an Operation, which is the whole of what
+	// Compute Engine's set-verbs do.
+	setVerbs []computeSetVerb
 	// scopeless marks a scoped collection whose resource declares no zone or
 	// region member of its own. Most do, so the registrar stamps one by
 	// default; stamping a resource whose schema has no such member puts a
@@ -134,6 +139,25 @@ func stampComputeScopeURL(m map[string]any, scope computeScopeKind, project stri
 	case cScopeZone:
 		m["zone"] = computeSelfLink(fmt.Sprintf("projects/%s/zones/%s", project, sim.PathParam(r, "zone")))
 	}
+}
+
+// computeSetVerb describes one "set<Thing>" verb: the member its request body
+// carries, and the member that writes on the resource. The two are the same
+// name almost everywhere — setUrlMap sends urlMap and stores urlMap — and
+// differ only where Compute Engine reuses a request shape, as
+// setEdgeSecurityPolicy does by sending a SecurityPolicyReference.
+type computeSetVerb struct {
+	verb   string
+	member string
+	into   string
+}
+
+// target is the resource member the verb writes.
+func (v computeSetVerb) target() string {
+	if v.into != "" {
+		return v.into
+	}
+	return v.member
 }
 
 // register wires the configured verbs onto the mux.
@@ -396,6 +420,34 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
+	for _, verb := range res.setVerbs {
+		verb := verb
+		srv.HandleFunc("POST "+base+"/{name}/"+verb.verb, func(w http.ResponseWriter, r *http.Request) {
+			project := sim.PathParam(r, "project")
+			name := sim.PathParam(r, "name")
+			key := relPath(r, name)
+			var body map[string]any
+			if err := sim.ReadJSON(r, &body); err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			value, sent := body[verb.member]
+			if !sent {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					"%s needs %s in its request body", verb.verb, verb.member)
+				return
+			}
+			if !res.store.Update(key, func(m *map[string]any) { (*m)[verb.target()] = value }) {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				return
+			}
+			if res.reconcile != nil {
+				res.reconcile(key)
+			}
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), verb.verb))
+		})
+	}
+
 	// setLabels
 	if res.setLabels {
 		srv.HandleFunc("POST "+base+"/{name}/setLabels", func(w http.ResponseWriter, r *http.Request) {
@@ -507,15 +559,26 @@ func registerComputeMore(srv *sim.Server) {
 		{collection: "routes", kind: "compute#route", scope: cScopeGlobal, store: mk("compute_routes")},
 		// Load-balancing resources.
 		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: gcpComputeTargetPools, aggregated: true},
-		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, listUsableKind: "compute#usableBackendServiceList"},
+		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, listUsableKind: "compute#usableBackendServiceList",
+			setVerbs: []computeSetVerb{{verb: "setSecurityPolicy", member: "securityPolicy"}}},
 		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true, update: true},
 		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true, testIamOnly: true},
 		{collection: "httpsHealthChecks", kind: "compute#httpsHealthCheck", scope: cScopeGlobal, store: mk("compute_https_health_checks"), patch: true, testIamOnly: true},
 		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps"), patch: true, update: true},
-		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies")},
-		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: mk("compute_target_https_proxies"), aggregated: true},
+		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies"),
+			setVerbs: []computeSetVerb{{verb: "setUrlMap", member: "urlMap"}}},
+		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: mk("compute_target_https_proxies"), aggregated: true,
+			setVerbs: []computeSetVerb{
+				{verb: "setSslPolicy", member: "sslPolicy"},
+				{verb: "setQuicOverride", member: "quicOverride"},
+				{verb: "setCertificateMap", member: "certificateMap"},
+			}},
 		{collection: "sslCertificates", kind: "compute#sslCertificate", scope: cScopeGlobal, store: mk("compute_ssl_certificates"), aggregated: true},
-		{collection: "targetTcpProxies", kind: "compute#targetTcpProxy", scope: cScopeGlobal, store: mk("compute_target_tcp_proxies")},
+		{collection: "targetTcpProxies", kind: "compute#targetTcpProxy", scope: cScopeGlobal, store: mk("compute_target_tcp_proxies"),
+			setVerbs: []computeSetVerb{
+				{verb: "setBackendService", member: "service"},
+				{verb: "setProxyHeader", member: "proxyHeader"},
+			}},
 		{collection: "targetGrpcProxies", kind: "compute#targetGrpcProxy", scope: cScopeGlobal, store: mk("compute_target_grpc_proxies"), patch: true},
 		// Instance templates (regional).
 		{collection: "instanceTemplates", kind: "compute#instanceTemplate", scope: cScopeRegion, store: mk("compute_region_instance_templates")},

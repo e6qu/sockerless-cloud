@@ -348,6 +348,41 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		return nil
 	})
 
+	// A Cloud Armor policy applies to an instance through the access configs of
+	// the interfaces named in the request — that is where the Instance schema
+	// carries it, so that is where a client reads it back. Naming no interface
+	// applies it to all of them, which is what the request's optional member
+	// means.
+	write("setSecurityPolicy", func(instance *ComputeInstance, r *http.Request) error {
+		var req struct {
+			NetworkInterfaces []string `json:"networkInterfaces"`
+			SecurityPolicy    string   `json:"securityPolicy"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil {
+			return err
+		}
+		wanted := map[string]bool{}
+		for _, name := range req.NetworkInterfaces {
+			wanted[name] = true
+		}
+		applied := false
+		for i := range instance.NetworkInterfaces {
+			iface := &instance.NetworkInterfaces[i]
+			if len(wanted) > 0 && !wanted[iface.Name] {
+				continue
+			}
+			for j := range iface.AccessConfigs {
+				iface.AccessConfigs[j].SecurityPolicy = req.SecurityPolicy
+				applied = true
+			}
+		}
+		if !applied {
+			return errComputeInvalid(
+				"the instance has no external address on the named interfaces to apply a security policy to")
+		}
+		return nil
+	})
+
 	// Suspend and resume move the machine between states the same way stop and
 	// start do, and report the same statuses Compute Engine does.
 	write("suspend", func(instance *ComputeInstance, r *http.Request) error {

@@ -49,7 +49,11 @@ func registerComputeMore2(srv *sim.Server) {
 
 	families := []computeMetaResource{
 		// Global load-balancing / addressing / policy resources.
-		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: mk("compute_backend_buckets"), patch: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList"},
+		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: mk("compute_backend_buckets"), patch: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList",
+			// setEdgeSecurityPolicy sends a SecurityPolicyReference, so its
+			// body member is securityPolicy while the bucket stores it as
+			// edgeSecurityPolicy.
+			setVerbs: []computeSetVerb{{verb: "setEdgeSecurityPolicy", member: "securityPolicy", into: "edgeSecurityPolicy"}}},
 		{collection: "externalVpnGateways", kind: "compute#externalVpnGateway", scope: cScopeGlobal, store: mk("compute_external_vpn_gateways"), setLabels: true, testIamOnly: true},
 		{collection: "targetSslProxies", kind: "compute#targetSslProxy", scope: cScopeGlobal, store: mk("compute_target_ssl_proxies"), testIamOnly: true},
 		{collection: "publicDelegatedPrefixes", kind: "compute#publicDelegatedPrefix", scope: cScopeGlobal, store: mk("compute_public_delegated_prefixes"), patch: true, aggregated: true},
@@ -81,7 +85,8 @@ func registerComputeMore2(srv *sim.Server) {
 		{collection: "nodeGroups", kind: "compute#nodeGroup", scope: cScopeZone, store: gcpComputeNodeGroups, patch: true, aggregated: true},
 		{collection: "reservations", kind: "compute#reservation", scope: cScopeZone, store: gcpComputeReservations, patch: true, aggregated: true, resourceMetadata: true},
 		{collection: "storagePools", kind: "compute#storagePool", scope: cScopeZone, store: mk("compute_storage_pools"), patch: true, aggregated: true},
-		{collection: "targetInstances", kind: "compute#targetInstance", scope: cScopeZone, store: mk("compute_target_instances"), aggregated: true, testIamOnly: true},
+		{collection: "targetInstances", kind: "compute#targetInstance", scope: cScopeZone, store: mk("compute_target_instances"), aggregated: true, testIamOnly: true,
+			setVerbs: []computeSetVerb{{verb: "setSecurityPolicy", member: "securityPolicy"}}},
 		{collection: "futureReservations", kind: "compute#futureReservation", scope: cScopeZone, store: mk("compute_future_reservations"), patch: true, aggregated: true, resourceMetadata: true},
 		{collection: "instantSnapshots", kind: "compute#instantSnapshot", scope: cScopeZone, store: mk("compute_zone_instant_snapshots"), setLabels: true, aggregated: true},
 	}
