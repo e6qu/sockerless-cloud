@@ -8,7 +8,8 @@ Discovery method spellings, with `compute-v1` at 1,976 of 2,016 and
 `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1` and
 `redis-v1` each complete; Azure 2,521 → 2,573 of 2,628 Swagger operations, with
 App Service at 663 of 692 and no silent gap left in that document, and the
-Azure Container Registry data plane complete at 29 of 29.
+Azure Container Registry data plane complete at 29 of 29 and Azure Storage at
+49 of 49.
 
 Two of the pass's own instruments were wrong and were corrected before the work
 they measured. The Google Cloud coverage probe rendered a greedy
@@ -38,6 +39,23 @@ own. The six ResourceHealthMetadata spellings beside it declare a 501: the
 operation defines its category as the one the resource matches in Microsoft's
 Resource Health Check policy file, and matching a site against a policy this
 project does not vendor would be fabrication.
+
+A storage account's migrations and its point-in-time blob restore each change
+the account or its blobs rather than reporting that they would. A
+customer-initiated migration moves the account to the SKU it names, so the
+account reports that SKU afterwards; the hierarchical-namespace migration turns
+the namespace on, and its validation request deliberately does not; and a
+blob-range restore takes the blobs in the ranges it covers back to the instant
+it names — one deleted after that instant comes back, one written after it goes
+away, because neither had happened yet. A blob records those times to the
+second, which is the precision of the header they ride in, so the restore point
+is compared at the same precision; a nanosecond comparison placed every deletion
+in the current second before the restore point and restored nothing.
+
+Testing that turned up a divergence filed as BUG-1700: blob soft delete is one
+setting in Azure with two APIs onto it, and two independent stores here, so a
+client that enables it through Azure Resource Manager gets container soft delete
+and permanent blob deletions.
 
 The Azure Container Registry data plane's properties APIs describe what a
 registry holds: the manifests it stores, the tags pointing at them, the size of

@@ -122,6 +122,8 @@ func registerStorageAccounts(srv *sim.Server) {
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Storage/locations/{location}/deletedAccounts/{deletedAccountName}", handleStorageDeletedAccountGet)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts", handleStorageAccountsListByRG)
 
+	registerStorageMigrations(srv, acct)
+
 	srv.HandleFunc("POST "+acct+"/regenerateKey", handleStorageRegenerateKey)
 	srv.HandleFunc("POST "+acct+"/ListAccountSas", handleStorageListAccountSAS)
 	srv.HandleFunc("POST "+acct+"/ListServiceSas", handleStorageListServiceSAS)

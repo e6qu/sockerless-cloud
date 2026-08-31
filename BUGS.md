@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 82.
+Open: 8. Resolved: 82.
 
 ## Open
 
@@ -15,6 +15,25 @@ Open: 7. Resolved: 82.
   shape: vendor `s3control`, implement Object Lambda access points, and then
   this callback, in one slice. Until then the S3 model is 111 of 112 served,
   and every other gap the model-drift sweep found on 2026-08-24 was closed.
+- **BUG-1700 (blob soft delete is two settings in the simulator and one in
+  Azure):** `Microsoft.Storage/storageAccounts/{a}/blobServices/default`
+  `properties.deleteRetentionPolicy` and the data-plane Set Blob Service
+  Properties `DeleteRetentionPolicy` are the same setting in Azure — two APIs
+  onto one configuration. Here they are independent stores: `blobSoftDeleteDays`
+  (blob_state.go) reads the data-plane `blobServicePropsStore`, while
+  `blobContainerSoftDeleteDays` reads the ARM `blobARMServiceProps` map. A client
+  that enables blob soft delete through ARM — which is what
+  `azurerm_storage_account`'s `blob_properties.delete_retention_policy` and
+  `armstorage.BlobServicesClient.SetServiceProperties` do — gets container soft
+  delete and no blob soft delete, so its blob deletions are permanent and a
+  point-in-time restore has nothing to bring back. Found while testing
+  StorageAccounts_RestoreBlobRanges: the ARM policy was set, the delete was hard,
+  and the restore correctly reported restoring nothing. Fix shape: make one of
+  the two the single source and have the other API read and write it, rather
+  than keeping two stores in step — a sync would be the same divergence with
+  more code. Run the whole storage SDK and CLI suite behind it, since both
+  spellings are already asserted in places.
+
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|

@@ -292,8 +292,20 @@ var azureMethodFloor = map[string]int{
 	"storage-arm-blob-2024-01-01":                       17,
 	"storage-arm-file-2024-01-01":                       12,
 	"storage-arm-queue-2024-01-01":                      8,
-	"storage-arm-storage-2024-01-01":                    44,
-	"storage-arm-table-2024-01-01":                      8,
+	// A storage account's migrations and its point-in-time blob restore each
+	// change the account or its blobs rather than reporting that they would: a
+	// customer-initiated migration moves the account to the SKU it names, the
+	// hierarchical-namespace migration turns the namespace on (and its
+	// validation request deliberately does not), and a blob-range restore takes
+	// the blobs in the ranges it covers back to the instant it names — one
+	// deleted after that instant comes back, one written after it goes away.
+	// The deletion and modification times a blob records carry seconds, because
+	// that is the precision of the header they ride in, so the restore point is
+	// compared at the same precision.
+	//
+	// Raised from 44 by those five, completing the document.
+	"storage-arm-storage-2024-01-01": 49,
+	"storage-arm-table-2024-01-01":   8,
 	// The three storage data-plane counts are measurements now that each
 	// dispatcher answers an unrecognized "comp"/"restype" with a declared gap
 	// instead of falling through to whichever sibling handler sits under the
