@@ -1050,6 +1050,13 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	// it, because that is the resource CodeBuild authorizes against. An id with
 	// no colon names no parent, so a placeholder leaves the whole batch family
 	// measuring as underived while the reader resolves every one of them.
+	// Amazon RDS names the resource an action is about by ARN under members
+	// that do not end in "arn": the tagging operations send ResourceName and
+	// the maintenance ones send ResourceIdentifier, both of which the reader
+	// takes as the ARN they are.
+	if service == "rds" && (lower == "resourcename" || lower == "resourceidentifier") {
+		return arnValue
+	}
 	// AWS CloudTrail names a trail by its ARN under members that do not end in
 	// "arn": ResourceId and ResourceIdList carry one.
 	if service == "cloudtrail" && (lower == "resourceid" || lower == "resourceidlist") {
@@ -1555,7 +1562,12 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // the probe cannot say so. TestIAMResourceARNs_DataQualityRunNamesItsRuleset
 // holds it instead, including that a run the simulator does not hold names no
 // ruleset.
-const iamDerivationCoverageFloor = 1847
+//
+// Raised to 1852 by Amazon RDS, which names the resource an action is about by
+// ARN under members that do not end in "arn" — ResourceName for the tagging
+// operations, ResourceIdentifier for the maintenance ones. The reader takes
+// both as the ARN they are; the probe was sending neither.
+const iamDerivationCoverageFloor = 1852
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
