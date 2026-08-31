@@ -312,12 +312,12 @@ func registerApplicationInsights(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/components/{componentName}/currentbillingfeatures", func(w http.ResponseWriter, r *http.Request) {
 		b, ok := billing.Get(billingKey(r))
 		if !ok {
-			b = defaultBilling
+			b = insightsDefaultBilling(defaultBilling)
 		}
 		sim.WriteJSON(w, http.StatusOK, b)
 	})
 	srv.HandleFunc("PUT "+armBase+"/components/{componentName}/currentbillingfeatures", func(w http.ResponseWriter, r *http.Request) {
-		b := defaultBilling
+		b := insightsDefaultBilling(defaultBilling)
 		if err := sim.ReadJSON(r, &b); err != nil {
 			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
@@ -331,4 +331,17 @@ func registerApplicationInsights(srv *sim.Server) {
 	// The data plane — the application's telemetry, read through the same query
 	// engine Log Analytics uses.
 	registerInsightsDataPlane(srv)
+}
+
+// insightsDefaultBilling copies the plan a component starts on, slice and all.
+// Assigning the default gives away its backing array, and decoding a request
+// body into the copy writes through it: a PUT naming the Enterprise plan
+// overwrote "Basic" inside the default, so every component created afterwards
+// started on Enterprise without anyone asking. A default is read by every
+// request that has no record of its own, which makes it exactly the value a
+// request must never be able to write to.
+func insightsDefaultBilling(from AppInsightsBillingFeatures) AppInsightsBillingFeatures {
+	out := from
+	out.CurrentBillingFeatures = append([]string(nil), from.CurrentBillingFeatures...)
+	return out
 }

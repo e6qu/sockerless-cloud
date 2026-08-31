@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 9. Resolved: 83.
+Open: 9. Resolved: 84.
 
 ## Open
 
@@ -121,6 +121,19 @@ Open: 9. Resolved: 83.
 
 
 ## Resolved history
+
+- ~~**BUG-2954 (one Application Insights component's billing plan became every
+  later component's default):**~~ The billing PUT started from the shared
+  default value and decoded the request body into it. Copying the struct gives
+  away the backing array of its `CurrentBillingFeatures` slice, and
+  `encoding/json` decodes an array into an existing slice in place — so a PUT
+  naming the Enterprise plan overwrote `"Basic"` inside the default itself, and
+  every component created afterwards started on Enterprise without anyone
+  asking. The default is now copied slice and all before any request can reach
+  it, on the read path as well as the write. It surfaced as
+  `TestAppInsights_BillingFeatures` failing only when the whole suite ran and
+  passing alone, which is what cross-request corruption through a shared value
+  looks like from the outside.
 
 - ~~**BUG-2953 (capturing an Azure virtual machine was unreachable, because the
   machine's disk did not outlive its guest process):**~~ `VirtualMachines_Capture`

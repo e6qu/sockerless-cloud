@@ -28,7 +28,9 @@ func registerInsightsFeatures(srv *sim.Server, armBase string,
 	features := func(r *http.Request) AppInsightsBillingFeatures {
 		held, ok := billing.Get(billingKey(r))
 		if !ok {
-			return defaultBilling
+			// A copy, because the default is shared by every component that
+			// has no record of its own.
+			return insightsDefaultBilling(defaultBilling)
 		}
 		return held
 	}
