@@ -135,16 +135,22 @@ func runContainerReaperTestChild(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	pull, err := dockerClient.ImagePull(ctx, containerReaperTestImage, client.ImagePullOptions{})
-	if err != nil {
-		t.Fatalf("pull reaper test image: %v", err)
-	}
-	if _, err := io.Copy(io.Discard, pull); err != nil {
-		_ = pull.Close()
-		t.Fatalf("read reaper test image pull: %v", err)
-	}
-	if err := pull.Close(); err != nil {
-		t.Fatalf("close reaper test image pull: %v", err)
+	// An image already on the host needs no registry request at all. Asking
+	// for one anyway is what turns a warmed cache into a failure: the
+	// registries these images come from cap anonymous requests by data volume,
+	// and a capped host refuses the manifest check as readily as the layers.
+	if _, err := dockerClient.ImageInspect(ctx, containerReaperTestImage); err != nil {
+		pull, err := dockerClient.ImagePull(ctx, containerReaperTestImage, client.ImagePullOptions{})
+		if err != nil {
+			t.Fatalf("pull reaper test image: %v", err)
+		}
+		if _, err := io.Copy(io.Discard, pull); err != nil {
+			_ = pull.Close()
+			t.Fatalf("read reaper test image pull: %v", err)
+		}
+		if err := pull.Close(); err != nil {
+			t.Fatalf("close reaper test image pull: %v", err)
+		}
 	}
 	labels := simulatorLabels(map[string]string{"sockerless-reaper-test": "true"})
 	createdNetwork, err := dockerClient.NetworkCreate(ctx, "sockerless-reaper-test-"+simulatorRunID, client.NetworkCreateOptions{

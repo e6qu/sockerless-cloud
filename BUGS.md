@@ -65,7 +65,10 @@ Open: 9. Resolved: 83.
 
   `race (simulator-aws shared)` was the next to fail, on `alpine:3.22` for the
   memory tests and `busybox` for the reaper and sweep, and it now warms through
-  the same script. Its image list is read out of the package by
+  the same script. Warming alone did not fix it: the reaper and sweep asked
+  `ImagePull` for an image the host already held, and a capped host refuses the
+  manifest check as readily as the layers, so both now ask `ImageInspect` first
+  — the same correction the Azure terraform suite's puller needed. Its image list is read out of the package by
   `scripts/base-images-for.sh` rather than restated in the workflow, and the
   cache key follows that list, so a test that starts pulling something new is
   warmed on its first run instead of missing a stale cache. The `module` shard

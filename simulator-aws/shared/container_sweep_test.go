@@ -194,16 +194,22 @@ func runContainerSweepTestChild(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	pull, err := engine.ImagePull(ctx, containerSweepTestImage, client.ImagePullOptions{})
-	if err != nil {
-		t.Fatalf("pull the sweep test image: %v", err)
-	}
-	if _, err := io.Copy(io.Discard, pull); err != nil {
-		_ = pull.Close()
-		t.Fatalf("read the sweep test image pull: %v", err)
-	}
-	if err := pull.Close(); err != nil {
-		t.Fatalf("close the sweep test image pull: %v", err)
+	// An image already on the host needs no registry request at all. Asking
+	// for one anyway is what turns a warmed cache into a failure: the
+	// registries these images come from cap anonymous requests by data volume,
+	// and a capped host refuses the manifest check as readily as the layers.
+	if _, err := engine.ImageInspect(ctx, containerSweepTestImage); err != nil {
+		pull, err := engine.ImagePull(ctx, containerSweepTestImage, client.ImagePullOptions{})
+		if err != nil {
+			t.Fatalf("pull the sweep test image: %v", err)
+		}
+		if _, err := io.Copy(io.Discard, pull); err != nil {
+			_ = pull.Close()
+			t.Fatalf("read the sweep test image pull: %v", err)
+		}
+		if err := pull.Close(); err != nil {
+			t.Fatalf("close the sweep test image pull: %v", err)
+		}
 	}
 
 	labels := simulatorLabels(map[string]string{"sockerless-sweep-test": "true"})
