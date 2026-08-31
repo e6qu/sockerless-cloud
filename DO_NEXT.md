@@ -143,10 +143,16 @@
    The derivation reads it (a batch entry's identifier is read like a top-level
    one, held by `TestIAMResourceARNs_ABatchEntryNamesItsResource`), so the
    reader is not what is missing. Routing Systems Manager through the shared
-   probe as it stands *loses* eight operations, measured: something about how
-   that probe addresses the service differs from the flat one — the target
-   header and the cased member names are the two candidates. Find which before
-   moving it, because the eight it loses are derivations that work.
+   probe as it stands *loses* eight operations, measured. Two explanations are
+   already ruled out: the target header is right (`AmazonSSM`, as the handler
+   table spells it), and the wire names are the model's own — `memberWireName`
+   is the identity for this service. What is left is the shapes. The flat probe
+   sent every member as a string; the shared one sends a member the model
+   declares as a list or a structure as one, and Systems Manager's `Target` is
+   a string on `GetConnectionStatus` and a `{Key, Values}` structure elsewhere,
+   so rendering it faithfully stops handing the instance-id reader a bare id.
+   The eight are derivations that work, so find which members changed shape
+   before moving the service.
 
 0-sync. **All three clouds are in sync.** Measured 2026-08-29: zero drift
    across AWS's 41 Smithy models plus its service references, Azure's 120
