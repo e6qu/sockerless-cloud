@@ -1917,3 +1917,37 @@ func TestIAMResourceARNs_IAMNamesItsResourceIndirectly(t *testing.T) {
 			"iam:GetServiceLinkedRoleDeletionStatus", "*")
 	})
 }
+
+// TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName pins that an AWS WAFv2
+// request naming its web ACL by ARN derives it whatever the operation is
+// called.
+//
+// The reader picks a resource type from the operation's name suffix — GetWebACL
+// gives webacl — which is what lets a request carrying only a name and a scope
+// be assembled into an ARN. It is not a precondition for reading an ARN the
+// request already carries, and treating it as one left GetSampledRequests and
+// DeleteFirewallManagerRuleGroups deriving nothing at all.
+func TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName(t *testing.T) {
+	const acl = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/front/0123"
+
+	t.Run("an operation whose name ends in neither type still reads the ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.GetSampledRequests",
+				`{"WebAclArn":"`+acl+`","RuleMetricName":"m","Scope":"REGIONAL"}`),
+			"wafv2:GetSampledRequests", acl)
+	})
+
+	t.Run("the plural spelling reads it too", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.DeleteFirewallManagerRuleGroups",
+				`{"WebACLArn":"`+acl+`","WebACLLockToken":"tok"}`),
+			"wafv2:DeleteFirewallManagerRuleGroups", acl)
+	})
+
+	t.Run("a request carrying no ARN still assembles from name and scope", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.GetWebACL",
+				`{"Name":"front","Id":"0123","Scope":"REGIONAL"}`),
+			"wafv2:GetWebACL", acl)
+	})
+}

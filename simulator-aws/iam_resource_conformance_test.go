@@ -1624,7 +1624,15 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // inside a string concatenation. ElastiCache also needed its reader to read
 // ResourceName, the ARN member every query-protocol database service names its
 // tagging target with.
-const iamDerivationCoverageFloor = 1869
+//
+// Raised to 1872 by AWS WAFv2, where the reader picked a resource type from the
+// operation's name suffix and would not read an ARN until it had. The suffix
+// exists to assemble an ARN from a name and a scope; it is not a precondition
+// for reading one the request already carries, so GetSampledRequests and
+// DeleteFirewallManagerRuleGroups derived nothing from the web ACL ARN in
+// front of them. TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName pins that,
+// and pins that the name-and-scope path still works.
+const iamDerivationCoverageFloor = 1872
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

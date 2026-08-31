@@ -2512,6 +2512,15 @@ func iamCodeBuildReportGroupName(ref string) string {
 // the request creates or reads; the referenced entities are not derived, and
 // the gate never widens beyond what the request names.
 func iamWAFv2ResourceARNs(r *http.Request, op string, types []string) []string {
+	// An ARN names the resource outright, whatever the operation is called. The
+	// suffix matching below exists to pick a type when only a name and scope
+	// are given; it is not a precondition for reading an ARN, and treating it
+	// as one left the operations whose names end in something else —
+	// GetSampledRequests, DeleteFirewallManagerRuleGroups — deriving nothing
+	// from the web ACL ARN they carry.
+	if a := iamFirstJSONField(r, "ARN", "WebACLArn", "WebAclArn"); strings.HasPrefix(a, "arn:") {
+		return []string{a}
+	}
 	resourceType := ""
 	for _, candidate := range []struct{ suffix, resource string }{
 		{"WebACL", "webacl"},
@@ -2527,9 +2536,6 @@ func iamWAFv2ResourceARNs(r *http.Request, op string, types []string) []string {
 	}
 	if resourceType == "" {
 		return nil
-	}
-	if a := iamFirstJSONField(r, "ARN", "WebACLArn"); strings.HasPrefix(a, "arn:") {
-		return []string{a}
 	}
 	name, id := iamJSONBodyField(r, "Name"), iamJSONBodyField(r, "Id")
 	if name == "" {
