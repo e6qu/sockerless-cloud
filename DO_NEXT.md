@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,945 of 1,994 on 2026-09-01.
+   is not.** 1,948 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 49 that remain are three shapes, and none of them is ordinary work:
+   The 46 that remain are three shapes, and none of them is ordinary work:
 
    - **A resource named inside a nested query member.** `ec2:ModifyInstanceCreditSpecification`
      names its instances at `InstanceCreditSpecification.1.InstanceId`, and
@@ -148,21 +148,22 @@
      move the ratchet as the probe stands, because the probe sends a synthetic
      request against an empty simulator.
 
-     There is an honest way to move them, and it is the same probe-fidelity
-     argument that carried the rest of this work: a real client operates
-     against resources that exist. Writing rows into a store to make a number
-     move would measure the fixture — but *creating the resource through the
-     simulator's own API and then probing the derivation against it* measures
-     the reader, which is exactly what every SDK test here already does. The
-     probe would gain a per-service setup that inserts what the family resolves
-     through: a Glue data-quality run, an IAM access key, an EC2 route-table
-     association.
+     The seam is open and the mechanism is built.
+     `iamSeedDerivationFixtures` creates what a family resolves through by
+     calling the service's own creation handler, and the probe then names the
+     resource by the identifier the service assigned — which measures the
+     reader rather than a fixture, the distinction being that nothing writes
+     into a store. Amazon EC2's three association derivations went through it
+     first: a route table associated to a subnet, an elastic IP associated to
+     an interface, an interface attached to a machine.
 
-     That is the last measurement seam and it is a large one — roughly
-     thirty-five operations across a dozen services, each needing its resource
-     created the way a client creates it. Until it is built, the ratchet
-     understates the derivation by about that many, and the floor comment
-     beside `iamDerivationCoverageFloor` names which.
+     Extending it is mechanical and is where the remaining thirty-odd live. Add
+     the creation calls a family needs and key the result
+     "<service>:<operation>:<member>" — per operation, because two calls can
+     name different things through the same member. AWS Glue's data-quality
+     runs and `iam:GetAccessKeyLastUsed` are the next two clusters; the Glue
+     and IAM probes reach their handlers through the awsJson router rather than
+     the query one, which is the only new part.
 
    Take the first shape one service at a time and hold each to a test that
    names the resource it must derive and one it must not.

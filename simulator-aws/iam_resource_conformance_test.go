@@ -521,7 +521,7 @@ func loadEventBridgeRequestMembers(t *testing.T) map[string]map[string]bool {
 //
 // An operation that creates its resource (CreateInternetGateway) carries no
 // identifier for it and correctly derives nothing.
-func iamEC2DerivesItsResource(operation string, params map[string]bool) bool {
+func iamEC2DerivesItsResource(operation string, params map[string]bool, fixtures map[string]string) bool {
 	types := iamActionResourceTypes["ec2:"+operation]
 	if len(types) == 0 {
 		return false
@@ -530,6 +530,12 @@ func iamEC2DerivesItsResource(operation string, params map[string]bool) bool {
 	for name := range params {
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue // the request already carries these
+		}
+		if created, seeded := fixtures["ec2:"+operation+":"+name]; seeded {
+			// A resource the simulator holds, named the way its own API named
+			// it — which is what the derivation resolves through.
+			values[name] = created
+			continue
 		}
 		values[name] = iamProbeMemberValue("ec2", name, iamProbeARN("ec2", operation,
 			"arn:aws:ec2:us-east-1:"+iamProbeAccount+":instance/i-0123456789abcdef0"))
@@ -1780,7 +1786,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1945
+const iamDerivationCoverageFloor = 1948
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1790,6 +1796,9 @@ const iamDerivationCoverageFloor = 1945
 func TestIAMResourceDerivationCoverage(t *testing.T) {
 	refs := loadServiceReferences(t)
 	_, jsonRouter, queryRouter := buildConformanceSimulator(t)
+	// The resources the state-resolving derivations look up, created the way a
+	// client creates them so the probe addresses something that exists.
+	fixtures := iamSeedDerivationFixtures(t, queryRouter)
 
 	type op struct{ service, name string }
 	served := map[op]bool{}
@@ -1888,7 +1897,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		}
 		switch o.service {
 		case "ec2":
-			derived = iamEC2DerivesItsResource(o.name, ec2Parameters[o.name])
+			derived = iamEC2DerivesItsResource(o.name, ec2Parameters[o.name], fixtures)
 		case "glue":
 			derived = iamGlueDerivesItsResource(o.name, glueMembers[o.name], glueNested[o.name])
 		case "rds":
