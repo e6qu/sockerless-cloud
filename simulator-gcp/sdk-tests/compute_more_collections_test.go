@@ -298,3 +298,20 @@ func TestCompute_LicenceCodePolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, empty.Bindings)
 }
+
+// A reliability risk is something Google's analysis detected about a project,
+// not a set it publishes. This simulator runs no such analysis, so it has
+// detected none — which is an answer, not a refusal.
+func TestCompute_ReliabilityRisksAreObservedNotPublished(t *testing.T) {
+	svc := computeService(t)
+	const project = "risk-project"
+
+	risks, err := svc.ReliabilityRisks.List(project).Do()
+	require.NoError(t, err)
+	assert.Empty(t, risks.Items, "nothing analysed this project, so nothing was detected")
+
+	// A named risk is not found, because none was detected to name.
+	_, err = svc.ReliabilityRisks.Get(project, "global-dns-risk").Do()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}

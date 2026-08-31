@@ -41,10 +41,27 @@ func registerComputeCatalogs(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectRemoteLocations", remote)
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectRemoteLocations/{interconnectRemoteLocation}", remote)
 
-	// Google's own assessment of what a project is exposed to.
-	risks := catalog("reliability risks")
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/reliabilityRisks", risks)
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/reliabilityRisks/{reliabilityRisk}", risks)
+	// A reliability risk is something Google's analysis detected about a
+	// project, not a set it publishes: the resource carries the type of risk
+	// and how long it has been running, and nothing about it is written by the
+	// caller. So this is the observational case rather than the catalogue one —
+	// the simulator runs no such analysis and has therefore detected nothing,
+	// which an empty collection says exactly, the way an App Service site's
+	// recommendations already do. A named risk is not found, because none was.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/reliabilityRisks",
+		func(w http.ResponseWriter, r *http.Request) {
+			project := sim.PathParam(r, "project")
+			sim.WriteJSON(w, http.StatusOK, map[string]any{
+				"id":       "projects/" + project + "/global/reliabilityRisks",
+				"selfLink": computeSelfLink("projects/" + project + "/global/reliabilityRisks"),
+				"items":    []any{},
+			})
+		})
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/reliabilityRisks/{reliabilityRisk}",
+		func(w http.ResponseWriter, r *http.Request) {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				"reliability risk %q not found", sim.PathParam(r, "reliabilityRisk"))
+		})
 
 	// A licence code identifies an image Google publishes, and reading the code
 	// itself means reading that catalogue. The policy a project puts on one is

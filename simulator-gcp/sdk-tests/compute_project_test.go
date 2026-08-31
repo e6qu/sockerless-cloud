@@ -155,14 +155,6 @@ func TestCompute_GooglePublishedCatalogsAreDeclaredGaps(t *testing.T) {
 			_, err := svc.LicenseCodes.Get(project, "1000205").Do()
 			return err
 		}},
-		{"reliability risks", func() error {
-			_, err := svc.ReliabilityRisks.List(project).Do()
-			return err
-		}},
-		{"one reliability risk", func() error {
-			_, err := svc.ReliabilityRisks.Get(project, "risk-1").Do()
-			return err
-		}},
 		{"interconnect diagnostics", func() error {
 			_, err := svc.Interconnects.GetDiagnostics(project, "link-1").Do()
 			return err

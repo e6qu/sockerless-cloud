@@ -2,8 +2,8 @@
 
 ## 2026-08-31, forty-fourth pass — the probe was measuring the wrong thing
 
-Three slices moved: Google Cloud 5,440 → 5,460 of 5,480 Discovery method
-spellings with `compute-v1` at 1,996 of 2,016, Azure 2,599 → 2,613 of 2,628
+Three slices moved: Google Cloud 5,440 → 5,464 of 5,480 Discovery method
+spellings with `compute-v1` at 2,000 of 2,016, Azure 2,599 → 2,613 of 2,628
 Swagger operations with App Service at 677 of 692, and AWS resource-scoped
 authorization 1,881 → 1,945 of 1,994 served operations.
 
@@ -53,6 +53,15 @@ The content migration's reason was of a different kind again: these sites are
 served out of a container image rather than out of a share, which is a
 primitive the simulator lacks rather than data it would have to invent, and
 what a caller can observe of the operation is the one thing it does hold.
+
+Google Cloud also served a project's reliability risks, on the distinction the
+declinations had been eliding. A catalogue is a published set that exists
+whether or not anyone asks — interconnect locations, licence codes,
+preconfigured WAF expression sets — and answering one emptily would be a false
+statement. A risk is something an analysis detected about this project, so an
+empty collection says none was detected, which is true of a simulator that runs
+no analysis. It is the same reading that already lets an App Service site's
+recommendations answer empty.
 
 Google Cloud also served the policy a project puts on a licence code. The code
 identifies an image Google publishes and reading the code still means reading
