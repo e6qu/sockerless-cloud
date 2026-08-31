@@ -386,12 +386,12 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 func iamProbeBody(service string, members map[string]bool, nested map[string][]string) map[string]any {
 	body := make(map[string]any, len(members))
 	for name := range members {
-		body[name] = iamProbeMemberValueFor(service, name, "probe")
+		body[name] = iamProbeMemberValue(service, name, "probe")
 	}
 	for member, inner := range nested {
 		object := make(map[string]any, len(inner))
 		for _, name := range inner {
-			object[name] = iamProbeMemberValueFor(service, name, "probe")
+			object[name] = iamProbeMemberValue(service, name, "probe")
 		}
 		if len(object) > 0 {
 			body[member] = object
@@ -474,7 +474,7 @@ func iamEC2DerivesItsResource(operation string, params map[string]bool) bool {
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue // the request already carries these
 		}
-		values[name] = iamProbeMemberValueFor("ec2", name,
+		values[name] = iamProbeMemberValue("ec2", name,
 			"arn:aws:ec2:us-east-1:"+iamProbeAccount+":instance/i-0123456789abcdef0")
 	}
 	return len(iamDerivedResourceARNs(iamEC2Request(operation, values), "ec2", operation,
@@ -511,7 +511,7 @@ func iamRDSDerivesItsResource(operation string, params map[string]bool) bool {
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
-		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValueFor("rds", name,
+		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("rds", name,
 			"arn:aws:rds:us-east-1:"+iamProbeAccount+":db:probe"))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
@@ -549,7 +549,7 @@ func iamKMSDerivesItsResource(operation string, members map[string]bool) bool {
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = iamProbeMemberValueFor("kms", name,
+		body[name] = iamProbeMemberValue("kms", name,
 			"arn:aws:kms:us-east-1:"+iamProbeAccount+":probe")
 	}
 	encoded, err := json.Marshal(body)
@@ -748,7 +748,7 @@ func iamACMDerivesItsResource(operation string, members map[string]bool) bool {
 			body[name] = "arn:aws:acm:us-east-1:123456789012:certificate/0123abcd-ef45-6789-abcd-ef0123456789"
 			continue
 		}
-		body[name] = iamProbeMemberValueFor("acm", name,
+		body[name] = iamProbeMemberValue("acm", name,
 			"arn:aws:acm:us-east-1:"+iamProbeAccount+":probe")
 	}
 	encoded, err := json.Marshal(body)
@@ -770,7 +770,7 @@ func iamCloudWatchDerivesItsResource(operation string, members map[string]bool) 
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = iamProbeMemberValueFor("cloudwatch", name,
+		body[name] = iamProbeMemberValue("cloudwatch", name,
 			"arn:aws:cloudwatch:us-east-1:"+iamProbeAccount+":alarm:probe")
 	}
 	encoded, err := json.Marshal(body)
@@ -830,7 +830,7 @@ func iamQueryProbeDerives(service, operation, version string, params map[string]
 		// own copy of that decision, so a rule added to iamProbeMemberValue —
 		// an account identifier is twelve digits — did not reach the query
 		// services at all, and sts:AssumeRoot stayed undecidable.
-		value := iamProbeMemberValueFor(service, name,
+		value := iamProbeMemberValue(service, name,
 			"arn:aws:"+service+":us-east-1:"+iamProbeAccount+":probe")
 		form += "&" + name + "=" + url.QueryEscape(value)
 	}
@@ -849,7 +849,7 @@ func iamJSONProbeDerives(service, operation string, members map[string]bool, arn
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = iamProbeMemberValueFor(service, name, arnValue)
+		body[name] = iamProbeMemberValue(service, name, arnValue)
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -981,7 +981,7 @@ func iamSSMDerivesItsResource(operation string, members map[string]bool) bool {
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
-		body[name] = iamProbeMemberValueFor("ssm", name,
+		body[name] = iamProbeMemberValue("ssm", name,
 			"arn:aws:ssm:us-east-1:"+iamProbeAccount+":probe")
 	}
 	encoded, err := json.Marshal(body)
@@ -1031,11 +1031,7 @@ func iamProductionProbeDerives(r *http.Request, action string) bool {
 // iamProbeMemberValue is what the probe sends for one request member: an ARN
 // where the member is an ARN by definition — which is what a real caller
 // sends — and a bare identifier otherwise.
-func iamProbeMemberValue(name, arnValue string) string {
-	return iamProbeMemberValueFor("", name, arnValue)
-}
-
-// iamProbeMemberValueFor is what a client puts in one request member.
+// iamProbeMemberValue is what a client puts in one request member.
 //
 // It takes the service because some members only accept a value that service
 // defines: Systems Manager's ResourceType is a ResourceTypeForTagging, and the
@@ -1046,7 +1042,7 @@ func iamProbeMemberValue(name, arnValue string) string {
 // copy of this decision — three copies — so a rule added to one reached only
 // the services that went through it, and the operations behind the others kept
 // measuring as underived while their production readers worked.
-func iamProbeMemberValueFor(service, name, arnValue string) string {
+func iamProbeMemberValue(service, name, arnValue string) string {
 	lower := strings.ToLower(name)
 	// An Amazon EC2 identifier states its own type in its prefix — i- an
 	// instance, vol- a volume — and the derivation reads that prefix to decide
@@ -1061,6 +1057,16 @@ func iamProbeMemberValueFor(service, name, arnValue string) string {
 	// it, because that is the resource CodeBuild authorizes against. An id with
 	// no colon names no parent, so a placeholder leaves the whole batch family
 	// measuring as underived while the reader resolves every one of them.
+	// A virtual MFA device's serial number is its ARN — that is the identifier
+	// IAM assigns and the only one a client has to send — so a placeholder
+	// there leaves the derivation nothing to name the device with.
+	if service == "iam" && lower == "serialnumber" {
+		return "arn:aws:iam::" + iamProbeAccount + ":mfa/probe"
+	}
+	// An OpenID Connect provider is named by the issuer URL it is created for.
+	if service == "iam" && lower == "url" {
+		return "https://oidc.probe.example/provider"
+	}
 	if service == "codebuild" && (lower == "id" || lower == "ids") {
 		return "probe:11111111-2222-3333-4444-555555555555"
 	}
@@ -1125,14 +1131,14 @@ func iamAWSJSONProbeRequestFor(
 ) *http.Request {
 	body := make(map[string]any, len(members))
 	for name, kind := range members {
-		value := iamProbeMemberValueFor(service, name, arnValue)
+		value := iamProbeMemberValue(service, name, arnValue)
 		switch kind {
 		case "list":
 			body[name] = []string{value}
 		case "structure":
 			object := make(map[string]any, len(nested[name]))
 			for _, inner := range nested[name] {
-				object[inner] = iamProbeMemberValueFor(service, inner, arnValue)
+				object[inner] = iamProbeMemberValue(service, inner, arnValue)
 			}
 			body[name] = object
 		default:
@@ -1151,7 +1157,7 @@ func iamAWSJSONProbeRequestFor(
 
 // iamAWSQueryProbeRequest is the form-encoded request an awsQuery service takes,
 // with a list member sent under the protocol's indexed .member.N spelling.
-func iamAWSQueryProbeRequest(operation, version, arnValue string, members map[string]string) *http.Request {
+func iamAWSQueryProbeRequest(service, operation, version, arnValue string, members map[string]string) *http.Request {
 	form := "Action=" + operation + "&Version=" + version
 	for name, kind := range members {
 		if name == "Action" || name == "Version" {
@@ -1161,7 +1167,7 @@ func iamAWSQueryProbeRequest(operation, version, arnValue string, members map[st
 		if kind == "list" {
 			key = name + ".member.1"
 		}
-		form += "&" + key + "=" + url.QueryEscape(iamProbeMemberValue(name, arnValue))
+		form += "&" + key + "=" + url.QueryEscape(iamProbeMemberValue(service, name, arnValue))
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1502,7 +1508,14 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // form with a hardcoded placeholder, and the shared body builder had no service
 // to key on. RDS names its tagging target by ARN, so a placeholder there left
 // that family underived against a reader that only ever needed the ARN.
-const iamDerivationCoverageFloor = 1814
+//
+// Raised to 1819 by the query probe, which was the last of the copies to learn
+// which service it was filling for. Two IAM shapes came back with it: a virtual
+// MFA device's serial number is its ARN — the identifier IAM assigns — and an
+// OpenID Connect provider is named by the issuer URL it is created for, which
+// is the only thing the create carries that names it. The provider derivation
+// is new; the MFA one was already there and was being asked with a placeholder.
+const iamDerivationCoverageFloor = 1819
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1671,7 +1684,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 				wafv2Members[o.name], wafv2Nested[o.name]), "wafv2:"+o.name)
 		case "iam":
 			derived = iamProductionProbeDerives(iamAWSQueryProbeRequest(
-				o.name, "2010-05-08", "arn:aws:iam::123456789012:policy/probe",
+				"iam", o.name, "2010-05-08", "arn:aws:iam::"+iamProbeAccount+":policy/probe",
 				iamMembers[o.name]), "iam:"+o.name)
 		}
 		if derived {

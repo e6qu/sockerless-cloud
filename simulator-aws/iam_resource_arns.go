@@ -191,7 +191,37 @@ func iamIAMResourceARNs(r *http.Request, types []string) []string {
 			return []string{serial}
 		}
 	}
+	// An OpenID Connect provider is named by the issuer it is created for: the
+	// URL without its scheme is the provider's name, which is why the ARN of a
+	// provider for https://example.com/oidc ends "oidc-provider/example.com/oidc".
+	// The create carries the URL and nothing else that names the provider.
+	if iamHasType(types, "oidc-provider") {
+		if raw := r.FormValue("Url"); raw != "" {
+			if name := iamOIDCProviderName(raw); name != "" {
+				return []string{"arn:aws:iam::" + account + ":oidc-provider/" + name}
+			}
+		}
+	}
 	return nil
+}
+
+// iamOIDCProviderName is the provider name IAM derives from an issuer URL: the
+// host and path with the scheme and any trailing slash removed. A URL with no
+// host names no provider, and guessing one would authorize against a provider
+// the request never mentioned.
+func iamOIDCProviderName(raw string) string {
+	name := raw
+	for _, scheme := range []string{"https://", "http://"} {
+		if trimmed, found := strings.CutPrefix(name, scheme); found {
+			name = trimmed
+			break
+		}
+	}
+	name = strings.TrimSuffix(name, "/")
+	if name == "" || strings.HasPrefix(name, "/") {
+		return ""
+	}
+	return name
 }
 
 // iamRequestARNField returns the ARN a request names directly. AWS is not
