@@ -1368,7 +1368,10 @@ func iamEC2TypeForIDPrefix(id string) (string, bool) {
 // authorizes against that resource type, so a guess or a stale rename fails
 // rather than silently deriving nothing.
 var iamEC2ParameterAliases = map[string][]string{
-	"CapacityReservationId":           {"SourceCapacityReservationId"},
+	"CapacityReservationId": {"SourceCapacityReservationId"},
+	// Buying a host reservation names the dedicated hosts it covers, as a set
+	// rather than one id.
+	"DedicatedHostId":                 {"HostIdSet", "HostId"},
 	"CertificateId":                   {"CertificateArn"},
 	"DeclarativePoliciesReportId":     {"ReportId"},
 	"FpgaImageId":                     {"SourceFpgaImageId"},

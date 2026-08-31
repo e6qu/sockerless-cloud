@@ -2174,3 +2174,24 @@ func TestIAMResourceARNs_CancelImportReadsTheTaskKind(t *testing.T) {
 			"ec2:CancelImportTask", "*")
 	})
 }
+
+// Buying a host reservation names the dedicated hosts it covers, so a grant
+// scoped to one host allows a purchase for that host and denies one that also
+// covers another.
+func TestIAMResourceARNs_HostReservationNamesItsHosts(t *testing.T) {
+	const p = "arn:aws:ec2:us-east-1:123456789012:dedicated-host/"
+
+	t.Run("every host in the set is authorized", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("PurchaseHostReservation", map[string]string{
+				"OfferingId": "hro-0abc", "HostIdSet.1": "h-0111", "HostIdSet.2": "h-0222",
+			}),
+			"ec2:PurchaseHostReservation", p+"h-0111", p+"h-0222")
+	})
+
+	t.Run("a purchase naming no host derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("PurchaseHostReservation", map[string]string{"OfferingId": "hro-0abc"}),
+			"ec2:PurchaseHostReservation", "*")
+	})
+}
