@@ -90,8 +90,9 @@ func registerComputePreviewFeatures(srv *sim.Server) {
 		for _, feature := range held {
 			items = append(items, feature)
 		}
+		// No kind: PreviewFeatureList is one of the few Compute Engine list
+		// shapes the document declares without one.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":     "compute#previewFeatureList",
 			"id":       "projects/" + sim.PathParam(r, "project") + "/global/previewFeatures",
 			"selfLink": computeSelfLink(prefix),
 			"items":    items,
