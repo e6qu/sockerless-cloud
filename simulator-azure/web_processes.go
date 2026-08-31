@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -477,6 +478,17 @@ func registerWebProcesses(both func(string, string, http.HandlerFunc)) {
 	// WebApps_ListInstanceProcessThreads[Slot].
 	both("GET", "/processes/{processId}/threads", webListProcessThreads)
 	both("GET", "/instances/{instanceId}/processes/{processId}/threads", webListProcessThreads)
+
+	// Killing a process really kills it in the site's container, so the
+	// process table the read beside this returns no longer has it.
+	both("DELETE", "/processes/{processId}", webDeleteProcess)
+	both("DELETE", "/instances/{instanceId}/processes/{processId}", webDeleteProcess)
+
+	// The modules a process has loaded, read from the process itself.
+	both("GET", "/processes/{processId}/modules", webListProcessModules)
+	both("GET", "/instances/{instanceId}/processes/{processId}/modules", webListProcessModules)
+	both("GET", "/processes/{processId}/modules/{baseAddress}", webGetProcessModule)
+	both("GET", "/instances/{instanceId}/processes/{processId}/modules/{baseAddress}", webGetProcessModule)
 }
 
 // webRequireInstance resolves the site's live container and checks it against
@@ -632,4 +644,147 @@ func webProcessNotFound(w http.ResponseWriter, r *http.Request, pid int) {
 	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource 'Microsoft.Web/sites/%s/processes/%d' was not found.",
 		sim.PathParam(r, "siteName"), pid)
+}
+
+// webDeleteProcess kills a process in the site's container. It is a real kill:
+// the process table the reads beside it return comes from the container, so a
+// process killed here is gone from them afterwards.
+func webDeleteProcess(w http.ResponseWriter, r *http.Request) {
+	containerID, procs, ok := webSiteProcesses(w, r)
+	if !ok {
+		return
+	}
+	if containerID == "" {
+		webInstanceNotFound(w, r)
+		return
+	}
+	pid, err := strconv.Atoi(sim.PathParam(r, "processId"))
+	if err != nil {
+		sim.AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
+		return
+	}
+	found := false
+	for _, proc := range procs {
+		if proc.PID == pid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		webProcessNotFound(w, r, pid)
+		return
+	}
+	if err := webKillContainerProcess(containerID, pid); err != nil {
+		webEngineFailure(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// webKillContainerProcess sends the process a TERM inside the container it runs
+// in. The engine has no kill-one-process call, so it is done the way an
+// operator would: by running kill in the container.
+func webKillContainerProcess(containerID string, pid int) error {
+	cli := sim.DockerClient()
+	if cli == nil {
+		return fmt.Errorf("no container engine is available to signal the site's process")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	created, err := cli.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
+		Cmd: []string{"kill", "-TERM", strconv.Itoa(pid)}, AttachStderr: true,
+	})
+	if err != nil {
+		return err
+	}
+	attached, err := cli.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{})
+	if err != nil {
+		return err
+	}
+	defer attached.Close()
+	_, _ = io.Copy(io.Discard, attached.Reader)
+	return nil
+}
+
+// webListProcessModules reports the modules a process has loaded.
+func webListProcessModules(w http.ResponseWriter, r *http.Request) {
+	proc, _, ok := webResolveProcess(w, r)
+	if !ok {
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"value": webProcessModuleDocs(webResourceID(r), webInstanceSegment(r), proc),
+	})
+}
+
+// webGetProcessModule reports one module by the address it is mapped at.
+func webGetProcessModule(w http.ResponseWriter, r *http.Request) {
+	proc, _, ok := webResolveProcess(w, r)
+	if !ok {
+		return
+	}
+	wanted := sim.PathParam(r, "baseAddress")
+	for _, entry := range webProcessModuleDocs(webResourceID(r), webInstanceSegment(r), proc) {
+		module, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		props, _ := module["properties"].(map[string]any)
+		if props != nil && props["base_address"] == wanted {
+			sim.WriteJSON(w, http.StatusOK, module)
+			return
+		}
+	}
+	sim.AzureError(w, "NotFound",
+		fmt.Sprintf("No module is mapped at %q in this process.", wanted), http.StatusNotFound)
+}
+
+// webResolveProcess finds the process a request names in the site's container.
+func webResolveProcess(w http.ResponseWriter, r *http.Request) (webProcess, string, bool) {
+	containerID, procs, ok := webSiteProcesses(w, r)
+	if !ok {
+		return webProcess{}, "", false
+	}
+	if containerID == "" {
+		webInstanceNotFound(w, r)
+		return webProcess{}, "", false
+	}
+	pid, err := strconv.Atoi(sim.PathParam(r, "processId"))
+	if err != nil {
+		sim.AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
+		return webProcess{}, "", false
+	}
+	for _, proc := range procs {
+		if proc.PID == pid {
+			return proc, containerID, true
+		}
+	}
+	webProcessNotFound(w, r, pid)
+	return webProcess{}, "", false
+}
+
+// webProcessModuleDocs renders the modules of a process. The executable a
+// process is running is the one module every process has, and it is the one the
+// container can name — the rest are shared objects the kernel maps, which this
+// engine's process table does not expose.
+func webProcessModuleDocs(base, instanceID string, proc webProcess) []any {
+	command := strings.Fields(proc.CommandLine)
+	if len(command) == 0 {
+		return []any{}
+	}
+	image := command[0]
+	name := image[strings.LastIndex(image, "/")+1:]
+	address := fmt.Sprintf("0x%08x", proc.PID)
+	return []any{map[string]any{
+		"id":   webProcessResourceID(base, instanceID, proc.PID) + "/modules/" + address,
+		"name": name,
+		"type": "Microsoft.Web/sites/processes/modules",
+		"properties": map[string]any{
+			"base_address": address,
+			"file_name":    name,
+			"file_path":    image,
+			"href":         webProcessResourceID(base, instanceID, proc.PID) + "/modules/" + address,
+			"is_debug":     false,
+		},
+	}}
 }

@@ -97,98 +97,32 @@ var gcpDeclaredMethodTotals = map[string]int{
 }
 
 var gcpMethodFloor = map[string]int{
-	// Compute Engine: deliberately the furthest from full — 559 of the
-	// document's 1,007 methods. The served slice is the one the consumers
-	// exercise (instances, disks, networks/subnetworks and the real netns
-	// fabric, firewalls, addresses, routes, NAT, load balancing, instance
-	// groups/templates, project metadata, zones/regions/machine types); the
-	// 448 unserved methods are the long tail of collections nothing here
-	// consumes (commitments, interconnects, node groups, security policies,
-	// TPUs and the rest). There is no per-method enumeration: lower this
-	// floor by one and the gate prints the full unserved list on demand,
-	// which is the work list whenever a slice widens.
-	// Grew by two spellings at the 2026-08-21 revision, both in the unserved
-	// long tail below.
+	// Compute Engine serves 1,976 of the document's 2,016 method spellings.
+	// The forty that remain are two situations, and neither is a surface
+	// nobody got round to.
 	//
-	// 1,118 -> 1,344 on 2026-08-30: eighteen collections whose whole documented
-	// surface is the standard resource lifecycle were registered through
-	// computeMetaResource rather than written by hand — cross-site networks,
-	// interconnect attachments, rollout plans, the regional health aggregation
-	// and health-check services, the network edge security service, zonal VM
-	// extension policies, and instant snapshot groups zonal and regional. The
-	// registrar grew skipList, for a collection whose document declares only
-	// the aggregated list, and the Compute IAM verbs, which Google mounts
-	// beneath the resource rather than as AIP-151 colon verbs — as the full
-	// triple where all three are declared and as the permission check alone
-	// where only it is.
+	// Thirty-four are catalogues Google publishes rather than the caller
+	// creating: the facilities Cloud Interconnect runs out of and the
+	// third-party ones it peers with, the licence codes for images Google
+	// publishes, the preview features it has opened, its reliability
+	// assessments, the preconfigured WAF expression sets, and what interconnect
+	// hardware reports about itself. Each is mounted and answers 501 with that
+	// reason. An empty list would be worse than no answer — an empty
+	// interconnect-locations list states that Google operates no facilities,
+	// and a client cannot tell an invented catalogue from a real one.
 	//
-	// The second batch added the regional backend buckets and snapshots, the
-	// health sources and composite health checks, the interconnects and the two
-	// group collections that bundle them, and the VM extension policies zonal
-	// and global. An interconnect's physical link diagnostics and MACsec
-	// configuration are hardware telemetry nothing here measures, and stay
-	// unserved rather than answered with invented numbers.
+	// Six are the hosts a reservation's blocks sit on, and they are not mounted
+	// at all. Compute Engine declares them at
+	// "zones/{zone}/{association}/hosts", where association is a single path
+	// segment — the same shape to a path router as every other two-segment
+	// zonal read, "zones/{zone}/machineTypes/{machineType}" among them. Go
+	// refuses the pair as ambiguous, and the only way to host both would be one
+	// handler owning every two-segment zonal path: the catch-all
+	// TestServiceConformance_GCPNoPhantomCoverage exists to stop, which would
+	// answer for collections it does not serve and read as covering them.
 	//
-	// 1,344 -> 1,438: the policy collections. Security policies and firewall
-	// policies are one surface repeated — a document holding an ordered rule
-	// list and a list of associations — so registerComputePolicies serves the
-	// project-global and regional security policies and the two organization
-	// spellings from one registration, and the project-scoped network firewall
-	// policies keep the registrar they already had.
-	//
-	// listPreconfiguredExpressionSets answers a declared NotImplemented. The
-	// catalogue is Google's own; an empty list is not what the method returns
-	// and a populated one would be invented. It is mounted rather than left
-	// out because the read beside it swallowed the path and reported the
-	// method as a policy that does not exist — four spellings that counted as
-	// served while nothing implemented them, which is why the number went to
-	// 1,438 rather than 1,442.
-	//
-	// 1,438 -> 1,518: a managed instance group's instances. The group was
-	// metadata alone and listManagedInstances answered empty whatever its
-	// target size, so the verbs beside it had nothing to act on. The group owns
-	// its instances now — createInstances names them, the lifecycle verbs move
-	// them between states, delete and abandon remove them — along with its
-	// per-instance configurations and its resize requests, zonal and regional.
-	//
-	// 1,518 -> 1,582: the verbs an instance carries beyond its lifecycle.
-	// Deletion protection, the minimum CPU platform, machine resources,
-	// scheduling, service account, shielded-VM configuration and integrity
-	// policy, display device, resource policies, access configurations and
-	// network interfaces, suspend and resume, the maintenance verbs, the
-	// referrers and effective-firewalls reads, and the IAM triple. Four of the
-	// declared PATCH verbs were first mounted as POST and the route gate
-	// refused them.
-	//
-	// Four are declared NotImplemented, because the only way to answer them is
-	// to invent what the hardware or the guest would have said: the console
-	// screenshot is a framebuffer capture, the shielded instance identity is
-	// the machine's vTPM endorsement key, the guest attributes are written by
-	// an agent inside the guest, and the diagnostic interrupt is delivered by
-	// the hypervisor.
-	//
-	// 1,582 -> 1,638: the verbs that manage a membership. A target pool's
-	// instances and health checks, its backup pool and the health it reports; a
-	// network's peerings, the routes they exchange, and the switch to custom
-	// subnet mode; a sole-tenant node group's nodes; and a rollout's progress
-	// through pause, resume and advance. The registrar grew skipInsert, for a
-	// collection the service creates some other way — a rollout is produced by
-	// the change it rolls out, and the document declares no insert for it.
-	//
-	// 1,638 -> 1,676: a reservation's resize, maintenance and derived blocks,
-	// and the verbs a disk carries — its resource policies, its encryption key,
-	// the snapshot taken from it and the asynchronous replication it takes part
-	// in, zonal and regional. The zonal disks are a typed record and the
-	// regional ones a map, so the verbs are written once over a small accessor
-	// covering both rather than twice.
-	//
-	// A cross-site network's wire groups are nested under it, which this
-	// registrar cannot express, so they wait for a handler that names the
-	// parent.
-	// The catalogs Google publishes rather than the caller creating —
-	// interconnect locations, license codes, preview features, reliability
-	// risks — stay unserved: an empty list is not what they return, and filling
-	// one in means inventing Google's own facility and licence data.
+	// Lower this floor by one and the gate prints the unserved list, which is
+	// the work list whenever either situation changes.
 	"compute-v1":              1976,
 	"cloudresourcemanager-v3": 126,
 
