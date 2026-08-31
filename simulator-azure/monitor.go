@@ -382,6 +382,33 @@ func registerAzureMonitor(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/workspaces/{workspaceId}/query", postQueryHandler)
 	srv.HandleFunc("GET /v1/workspaces/{workspaceId}/query", getQueryHandler)
 
+	// Query_ExecuteWithResourceId and Query_GetWithResourceId — the same query,
+	// addressed by the Azure resource whose logs are being read rather than by
+	// the workspace they land in. A resource id is a whole ARM path of no fixed
+	// depth, which Go's router cannot spell and which enumerating would turn
+	// into a handful of invented path shapes. So it is intercepted, exactly as
+	// Microsoft.Authorization's any-scope routes are.
+	srv.WrapHandler(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			resourceID, ok := logAnalyticsResourceQueryPath(r)
+			if !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// The engine is asked about the address queried, which for a
+			// resource-scoped query is the resource itself.
+			r.SetPathValue("workspaceId", resourceID)
+			switch r.Method {
+			case http.MethodPost:
+				postQueryHandler(w, r)
+			case http.MethodGet:
+				getQueryHandler(w, r)
+			default:
+				next.ServeHTTP(w, r)
+			}
+		})
+	})
+
 	// Workspace schema metadata (tables and their columns) — the data-plane
 	// metadata API. GET and POST return the same MetadataResults shape.
 	metadataHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -494,4 +521,30 @@ func generateUUID() string {
 	b[8] = (b[8] & 0x3f) | 0x80 // Variant 1
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// logAnalyticsResourceQueryPath reports whether a request addresses the
+// resource-centric query, and the resource it names.
+//
+// The two spellings that have their own routes — the workspace query and the
+// Application Insights app query — are left to them: a resource id is any ARM
+// path, so without excluding those this would swallow both.
+func logAnalyticsResourceQueryPath(r *http.Request) (string, bool) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		return "", false
+	}
+	rest, ok := strings.CutPrefix(r.URL.Path, "/v1/")
+	if !ok {
+		return "", false
+	}
+	resourceID, ok := strings.CutSuffix(rest, "/query")
+	if !ok || resourceID == "" {
+		return "", false
+	}
+	// A resource id is an ARM path, so it begins at a scope. Anything else
+	// under /v1 belongs to whichever data plane owns it.
+	if !strings.HasPrefix(strings.ToLower(resourceID), "subscriptions/") {
+		return "", false
+	}
+	return resourceID, true
 }

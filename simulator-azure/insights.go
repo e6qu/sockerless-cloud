@@ -326,33 +326,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, b)
 	})
 
-	// POST - Query Application Insights (data-plane)
-	srv.HandleFunc("POST /v1/apps/{appId}/query", func(w http.ResponseWriter, r *http.Request) {
-		var req QueryRequest
-		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		if req.Query == "" {
-			sim.AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
-			return
-		}
-
-		// Return empty result set matching the query pattern
-		resp := QueryResponse{
-			Tables: []Table{
-				{
-					Name: "PrimaryResult",
-					Columns: []Column{
-						{Name: "TimeGenerated", Type: "datetime"},
-						{Name: "Message", Type: "string"},
-					},
-					Rows: [][]any{},
-				},
-			},
-		}
-
-		sim.WriteJSON(w, http.StatusOK, resp)
-	})
+	// The data plane — the application's telemetry, read through the same query
+	// engine Log Analytics uses.
+	registerInsightsDataPlane(srv)
 }

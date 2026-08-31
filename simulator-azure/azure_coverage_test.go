@@ -165,7 +165,17 @@ var azureMethodFloor = map[string]int{
 	"app-arm-managedenvironmentsstorages-2025-01-01":        4,
 	"applicationinsights-arm-components_api-2020-02-02":     8,
 	"applicationinsights-arm-featuresandpricing-2015-05-01": 2,
-	"applicationinsights-dataplane-appinsights-v1-preview":  1,
+	// An application's telemetry is the log store its workload writes into, and
+	// Application Insights is a view onto the same store Log Analytics queries,
+	// addressed by app id instead of workspace id. So the query, the events and
+	// the metrics all read through the one engine and all move when the
+	// application writes: an event is a row of the table its type names, and a
+	// metric is that table counted.
+	//
+	// Raised from 1 by nine operations and a correction. The one that counted
+	// as served answered a fixed empty result set and ignored the query it was
+	// given — served, and fake.
+	"applicationinsights-dataplane-appinsights-v1-preview": 10,
 	// Lowered from 9. GET/PUT/DELETE "/{roleAssignmentId}" — the full-resource-ID
 	// spelling — probe to a plain mux miss: no registered pattern serves a bare
 	// resource ID. The old count matched them by shape against the scoped
@@ -246,8 +256,16 @@ var azureMethodFloor = map[string]int{
 	"eventhub-arm-eventhubs-2024-01-01":          4,
 	"eventhub-arm-namespaces-2024-01-01":         14,
 	"eventhub-arm-networkrulessets-2024-01-01":   3,
-	"imds-dataplane-imds-2021-02-01":             2,
-	"keyvault-arm-keyvault-2023-07-01":           17,
+	// The instance metadata service attests the instance it is asked on and
+	// names the tenant its managed identity belongs to. The attestation is a
+	// real signature over the instance's identity and the caller's nonce, made
+	// with the simulator's own signing key — the coordinate difference from
+	// Azure, whose key chains to a Microsoft root, is which key a verifier
+	// trusts, not whether the document is signed.
+	//
+	// Raised from 2 by those two, completing the document.
+	"imds-dataplane-imds-2021-02-01":   4,
+	"keyvault-arm-keyvault-2023-07-01": 17,
 	// Raised from 6: the deleted-pool collection and purge, name availability,
 	// the private endpoint connections and private-link resources, and the
 	// regions listing. A delete retires a pool that carries soft delete, and
@@ -258,13 +276,20 @@ var azureMethodFloor = map[string]int{
 	"keyvault-dataplane-secrets-2025-07-01":            12,
 	"logic-arm-logic-2019-05-01":                       106,
 	"monitor-dataplane-datacollectionrules-2023-01-01": 1,
-	"monitor-dataplane-operationalinsights-v1":         5,
-	"msi-arm-managedidentity-2024-11-30":               12,
-	"network-arm-applicationgateway-2025-03-01":        22,
-	"network-arm-applicationsecuritygroup-2025-03-01":  6,
-	"network-arm-loadbalancer-2025-03-01":              27,
-	"network-arm-natgateway-2025-03-01":                6,
-	"network-arm-networkinterface-2025-03-01":          15,
+	// The resource-centric query is the workspace query addressed by the Azure
+	// resource whose logs are read. Serving it needed the coverage probe
+	// generalised: its scope unifier only handled a scope in the first segment,
+	// and a data plane puts its api-version in front — "/v1/{resourceId}/query"
+	// — so the probe collapsed a whole resource ID into one synthetic segment.
+	//
+	// Raised from 5 by those two, completing the document.
+	"monitor-dataplane-operationalinsights-v1":        7,
+	"msi-arm-managedidentity-2024-11-30":              12,
+	"network-arm-applicationgateway-2025-03-01":       22,
+	"network-arm-applicationsecuritygroup-2025-03-01": 6,
+	"network-arm-loadbalancer-2025-03-01":             27,
+	"network-arm-natgateway-2025-03-01":               6,
+	"network-arm-networkinterface-2025-03-01":         15,
 	// Azure Virtual Network Manager's own resource, its commit and its
 	// deployment status. The configuration resources a commit deploys
 	// (network groups, connectivity and security-admin configurations) are
@@ -560,11 +585,21 @@ const (
 // The value never decides routing — http.ServeMux wildcards accept any
 // non-empty segment — but a well-shaped value keeps a handler from rejecting
 // the request for a reason unrelated to whether it is mounted.
+// azureProbeResourceID is the address the probe uses for a path parameter the
+// specification marks as a whole resource path. A single synthetic segment is
+// not an address any client sends, so an operation addressed that way would be
+// probed at a path nothing serves and reported unserved while answering.
+const azureProbeResourceID = "subscriptions/" + azureProbeSubscription +
+	"/resourceGroups/" + azureProbeResourceGroup +
+	"/providers/Microsoft.Web/sites/simprobedsite"
+
 func azureProbeParamValue(param string) string {
 	name := strings.Trim(param, "{}")
 	name = strings.TrimSuffix(name, "...")
 	lower := strings.ToLower(name)
 	switch {
+	case lower == "resourceid" || lower == "resourceuri":
+		return azureProbeResourceID
 	case strings.Contains(lower, "subscriptionid"):
 		return azureProbeSubscription
 	case strings.Contains(lower, "tenantid"):

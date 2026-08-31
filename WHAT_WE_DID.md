@@ -9,8 +9,9 @@ Discovery method spellings, with `compute-v1` at 1,976 of 2,016 and
 `redis-v1` each complete; Azure 2,521 → 2,573 of 2,628 Swagger operations, with
 App Service at 663 of 692 and no silent gap left in that document, and the
 Azure Container Registry data plane complete at 29 of 29, Azure Storage at 49
-of 49, both Event Grid documents, Microsoft.Compute's provider surface and the
-Log Analytics shared keys.
+of 49, both Event Grid documents, Microsoft.Compute's provider surface, the Log
+Analytics shared keys, the Application Insights data plane, the instance
+metadata service and the resource-scoped log query.
 
 Two of the pass's own instruments were wrong and were corrected before the work
 they measured. The Google Cloud coverage probe rendered a greedy
@@ -40,6 +41,29 @@ own. The six ResourceHealthMetadata spellings beside it declare a 501: the
 operation defines its category as the one the resource matches in Microsoft's
 Resource Health Check policy file, and matching a site against a policy this
 project does not vendor would be fabrication.
+
+The Application Insights data plane went in whole. An application's telemetry
+is the log store its workload writes into — the same store Log Analytics
+queries, addressed by app id instead of workspace id — so the query, the events
+and the metrics all read through the one engine and all move when the
+application writes. Only one of its ten operations had counted as served, and
+that one answered a fixed empty result set and ignored the query it was given:
+served, and fake.
+
+Beside it, the instance metadata service now attests the instance it is asked
+on and names the tenant its managed identity belongs to. The attestation is a
+real signature over the instance's identity and the caller's nonce, made with
+the simulator's own signing key; the coordinate difference from Azure, whose key
+chains to a Microsoft root, is which key a verifier trusts, not whether the
+document is signed. And the log query is servable by resource id as well as by
+workspace, intercepted rather than routed because a resource id is an ARM path
+of no fixed depth — enumerating its shapes would have meant registering invented
+paths, which the route-validity gate said so.
+
+The probe needed one correction to see that last one honestly: it addressed a
+parameter the specification marks as a whole resource path with a single
+synthetic segment, which is not an address any client sends, so an operation
+that answers was reported unserved. It builds a real resource id now.
 
 Four more documents closed on provider-level reads. Microsoft.Compute's action
 catalog is the provider's own surface derived from the vendored documents and

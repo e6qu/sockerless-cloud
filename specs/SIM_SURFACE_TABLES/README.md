@@ -74,6 +74,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`azure-eventhub`](azure-eventhub.md)
 - [`azure-eventhubs`](azure-eventhubs.md)
 - [`azure-functions`](azure-functions.md)
+- [`azure-insights_dataplane`](azure-insights_dataplane.md)
 - [`azure-keyvault`](azure-keyvault.md)
 - [`azure-keyvault_managedhsm`](azure-keyvault_managedhsm.md)
 - [`azure-keyvault_managedhsm_tail`](azure-keyvault_managedhsm_tail.md)

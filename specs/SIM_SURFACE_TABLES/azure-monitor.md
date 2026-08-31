@@ -26,7 +26,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{componentName}/operations/{purgeId}` | ✓ `simulator-azure/insights.go:283::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{componentName}/currentbillingfeatures` | ✓ `simulator-azure/insights.go:310::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{componentName}/currentbillingfeatures` | ✓ `simulator-azure/insights.go:317::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/apps/{appId}/query` | ○ `simulator-azure/insights.go:330::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{componentName}` | ✓ `simulator-azure/insights.go:73::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/providers/Microsoft.OperationalInsights/deletedWorkspaces` | ? `simulator-azure/monitor.go:167::deletedWorkspacesHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /subscriptions/{subscriptionId}/resourcegroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/deletedWorkspaces` | ? `simulator-azure/monitor.go:171::deletedWorkspacesHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -39,10 +38,10 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/workspaces` | ✓ `simulator-azure/monitor.go:347::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/workspaces/{workspaceId}/query` | ? `simulator-azure/monitor.go:382::postQueryHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/workspaces/{workspaceId}/query` | ? `simulator-azure/monitor.go:383::getQueryHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/workspaces/{workspaceId}/metadata` | ? `simulator-azure/monitor.go:390::metadataHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/workspaces/{workspaceId}/metadata` | ? `simulator-azure/monitor.go:391::metadataHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/$batch` | ✓ `simulator-azure/monitor.go:395::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /dataCollectionRules/{dcrId}/streams/{streamName}` | ✓ `simulator-azure/monitor.go:419::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/workspaces/{workspaceId}/metadata` | ? `simulator-azure/monitor.go:417::metadataHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/workspaces/{workspaceId}/metadata` | ? `simulator-azure/monitor.go:418::metadataHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/$batch` | ✓ `simulator-azure/monitor.go:422::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /dataCollectionRules/{dcrId}/streams/{streamName}` | ✓ `simulator-azure/monitor.go:446::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
