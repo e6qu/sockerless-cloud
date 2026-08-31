@@ -59,8 +59,10 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 	// A module nothing is mapped at is not found.
 	_, err = client.GetProcessModule(ctx, rg, name, itoa(int(pid)), "0xdeadbeef", nil)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "No module is mapped")
 
 	// A process the site does not have cannot be killed.
 	_, err = client.DeleteProcess(ctx, rg, name, "999999", nil)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "999999")
 }

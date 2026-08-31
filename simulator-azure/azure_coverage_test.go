@@ -383,7 +383,7 @@ var azureMethodFloor = map[string]int{
 	// Blob data plane of the storage account its SAS URL names; a restore
 	// reads that blob back and replaces the site's file system with it, so
 	// deleting the archive through the Blob API makes the restore fail.
-	"web-arm-openapi-2025-03-01": 628,
+	"web-arm-openapi-2025-03-01": 646,
 }
 
 // Route table
