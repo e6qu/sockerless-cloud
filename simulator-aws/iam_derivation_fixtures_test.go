@@ -30,7 +30,9 @@ import (
 // operation, because two calls can name different things through the same
 // member: DisassociateRouteTable and DisassociateAddress both say
 // AssociationId and mean associations of different kinds.
-func iamSeedDerivationFixtures(t *testing.T, queryRouter *sim.AWSQueryRouter) map[string]string {
+func iamSeedDerivationFixtures(t *testing.T,
+	queryRouter *sim.AWSQueryRouter, jsonRouter *sim.AWSRouter,
+) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 
@@ -74,6 +76,25 @@ func iamSeedDerivationFixtures(t *testing.T, queryRouter *sim.AWSQueryRouter) ma
 		}, `<attachmentId>([^<]+)</attachmentId>`)
 	out["ec2:DetachNetworkInterface:AttachmentId"] = attachment
 
+	// AWS Glue's data-quality runs, which its derivation resolves to the
+	// ruleset each is about. A recommendation run creates a ruleset; an
+	// evaluation run evaluates one and settles a result row per ruleset.
+	recommendation := iamFixtureJSON(t, jsonRouter, "AWSGlue.StartDataQualityRuleRecommendationRun",
+		`{"Role":"probe","CreatedRulesetName":"probe-ruleset","DataSource":{}}`,
+		`"RunId"\s*:\s*"([^"]+)"`)
+	out["glue:GetDataQualityRuleRecommendationRun:RunId"] = recommendation
+	out["glue:CancelDataQualityRuleRecommendationRun:RunId"] = recommendation
+
+	evaluation := iamFixtureJSON(t, jsonRouter, "AWSGlue.StartDataQualityRulesetEvaluationRun",
+		`{"Role":"probe","RulesetNames":["probe-ruleset"],"DataSource":{}}`,
+		`"RunId"\s*:\s*"([^"]+)"`)
+	out["glue:GetDataQualityRulesetEvaluationRun:RunId"] = evaluation
+	out["glue:CancelDataQualityRulesetEvaluationRun:RunId"] = evaluation
+
+	results := iamFixtureJSON(t, jsonRouter, "AWSGlue.ListDataQualityResults",
+		`{}`, `"ResultId"\s*:\s*"([^"]+)"`)
+	out["glue:GetDataQualityResult:ResultId"] = results
+
 	return out
 }
 
@@ -109,6 +130,31 @@ func iamFixtureEC2(t *testing.T, queryRouter *sim.AWSQueryRouter, action string,
 	found := regexp.MustCompile(pattern).FindStringSubmatch(rec.Body.String())
 	if found == nil {
 		t.Fatalf("%s: no %s in %s", action, pattern, rec.Body.String())
+	}
+	return found[1]
+}
+
+// iamFixtureJSON performs one awsJson call and reads an identifier out of the
+// response, reaching the target's handler the same way iamFixtureEC2 does.
+func iamFixtureJSON(t *testing.T, jsonRouter *sim.AWSRouter,
+	target, body, pattern string,
+) string {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	r.Header.Set("X-Amz-Target", target)
+	handler, mounted := jsonRouter.Handler(target)
+	if !mounted {
+		t.Fatalf("%s: no handler mounted for the target", target)
+	}
+	rec := httptest.NewRecorder()
+	handler(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%s: status %d: %s", target, rec.Code, rec.Body.String())
+	}
+	found := regexp.MustCompile(pattern).FindStringSubmatch(rec.Body.String())
+	if found == nil {
+		t.Fatalf("%s: no %s in %s", target, pattern, rec.Body.String())
 	}
 	return found[1]
 }

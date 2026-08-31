@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,948 of 1,994 on 2026-09-01.
+   is not.** 1,953 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 46 that remain are three shapes, and none of them is ordinary work:
+   The 41 that remain are three shapes, and none of them is ordinary work:
 
    - **A resource named inside a nested query member.** `ec2:ModifyInstanceCreditSpecification`
      names its instances at `InstanceCreditSpecification.1.InstanceId`, and
@@ -157,13 +157,20 @@
      first: a route table associated to a subnet, an elastic IP associated to
      an interface, an interface attached to a machine.
 
-     Extending it is mechanical and is where the remaining thirty-odd live. Add
-     the creation calls a family needs and key the result
-     "<service>:<operation>:<member>" — per operation, because two calls can
-     name different things through the same member. AWS Glue's data-quality
-     runs and `iam:GetAccessKeyLastUsed` are the next two clusters; the Glue
-     and IAM probes reach their handlers through the awsJson router rather than
-     the query one, which is the only new part.
+     AWS Glue's data-quality cluster followed through the awsJson router — a
+     recommendation run, an evaluation run and the result row it settles — and
+     took five more. Extending it is mechanical: add the creation calls a
+     family needs and key the result "<service>:<operation>:<member>", per
+     operation because two calls can name different things through the same
+     member.
+
+     What is left needing it: AWS Systems Manager's maintenance-window
+     execution and access request, `iam:GetAccessKeyLastUsed`, Amazon RDS's
+     automated backup and proxy target group, AWS CloudTrail's insights and
+     query, CloudWatch Logs' query results, AWS Auto Scaling's tags and
+     instance health, and the three Amazon EC2 associations left
+     (DisassociateIamInstanceProfile, ReplaceIamInstanceProfileAssociation,
+     DeleteNetworkInterfacePermission).
 
    Take the first shape one service at a time and hold each to a test that
    names the resource it must derive and one it must not.

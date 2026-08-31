@@ -548,7 +548,9 @@ func iamEC2DerivesItsResource(operation string, params map[string]bool, fixtures
 // carrying every member the model declares for the operation, the same way
 // iamEC2DerivesItsResource does: if nothing is derived from all of them, no
 // real request derives anything.
-func iamGlueDerivesItsResource(operation string, members map[string]bool, nested map[string][]string) bool {
+func iamGlueDerivesItsResource(operation string, members map[string]bool,
+	nested map[string][]string, fixtures map[string]string,
+) bool {
 	types := iamActionResourceTypes["glue:"+operation]
 	if len(types) == 0 {
 		return false
@@ -556,7 +558,13 @@ func iamGlueDerivesItsResource(operation string, members map[string]bool, nested
 	// An ARN member gets an ARN of a type the action declares, which is what a
 	// client sends: AWS Glue's tagging operations name the resource by its ARN
 	// and nothing else, so a literal "probe" there measured them as underived.
-	encoded, err := json.Marshal(iamProbeBody("glue", iamProbeARNForAction("glue", operation), members, nested))
+	body := iamProbeBody("glue", iamProbeARNForAction("glue", operation), members, nested)
+	for member := range members {
+		if created, seeded := fixtures["glue:"+operation+":"+member]; seeded {
+			body[member] = created
+		}
+	}
+	encoded, err := json.Marshal(body)
 	if err != nil {
 		return false
 	}
@@ -1786,7 +1794,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1948
+const iamDerivationCoverageFloor = 1953
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1798,7 +1806,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	_, jsonRouter, queryRouter := buildConformanceSimulator(t)
 	// The resources the state-resolving derivations look up, created the way a
 	// client creates them so the probe addresses something that exists.
-	fixtures := iamSeedDerivationFixtures(t, queryRouter)
+	fixtures := iamSeedDerivationFixtures(t, queryRouter, jsonRouter)
 
 	type op struct{ service, name string }
 	served := map[op]bool{}
@@ -1899,7 +1907,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "ec2":
 			derived = iamEC2DerivesItsResource(o.name, ec2Parameters[o.name], fixtures)
 		case "glue":
-			derived = iamGlueDerivesItsResource(o.name, glueMembers[o.name], glueNested[o.name])
+			derived = iamGlueDerivesItsResource(o.name, glueMembers[o.name], glueNested[o.name], fixtures)
 		case "rds":
 			derived = iamRDSDerivesItsResource(o.name, rdsParameters[o.name])
 		case "ssm":
