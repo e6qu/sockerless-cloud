@@ -318,6 +318,7 @@ func registerWebSiteAndSlotHandlers(srv *sim.Server) {
 	registerWebNetworkTraces(srv, both)
 	registerWebPerfCounters(both, site)
 	registerWebResourceHealth(srv, both)
+	registerWebMigrateMySQL(srv, both, site)
 	registerWebDiagnostics(both)
 	registerWebBackups(both)
 	registerWebProviderGlobal(srv, site)

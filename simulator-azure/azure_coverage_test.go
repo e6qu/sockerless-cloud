@@ -487,6 +487,15 @@ var azureMethodFloor = map[string]int{
 	// when a slot is asked) decides the result, and the deployment slots a clone
 	// would leave behind make it partial.
 	//
+	// Raised by the MySQL migration and the two status reads. Moving a site's
+	// in-app database out is a request the platform records and then reports
+	// on, and both halves are the simulator's: whether the site has in-app
+	// MySQL at all is the app setting it already stores, and the migration the
+	// caller started is state like any other. No bytes move — there is no MySQL
+	// process here whose tables could be copied — but a request against a site
+	// with no in-app database is refused exactly as App Service refuses it,
+	// before any copying would begin, which is the answer a caller gets.
+	//
 	// Raised by the six ResourceHealthMetadata spellings, which are read from
 	// the sites the scope holds. Only one of the resource's two properties
 	// belongs to Microsoft: the category is the one the site matches in the
@@ -516,7 +525,7 @@ var azureMethodFloor = map[string]int{
 	// module reads). The six Provider_*Stacks spellings used to miss the router
 	// outright and answer a bare 404, which reads as "no such API" rather than
 	// "this API exists and its data is not vendored"; they declare it now.
-	"web-arm-openapi-2025-03-01": 669,
+	"web-arm-openapi-2025-03-01": 672,
 }
 
 // Route table

@@ -21,9 +21,11 @@ import (
 //   - phplogging reads the effective php.ini of the site's PHP worker, and the
 //     master values are the platform image's own defaults. No PHP worker runs
 //     here and Microsoft's platform php.ini is not vendored.
-//   - migrate and migratemysql move a site's in-app MySQL database and its
-//     content into Azure-managed storage. The simulator hosts no in-app MySQL
-//     database, so there is nothing to migrate and no migration to report on.
+//   - migrate moves a site's content into an Azure Files share, which replaces
+//     where the platform reads the app from. The simulator serves a site out of
+//     a container image rather than a share, so there is no content store to
+//     switch. (The MySQL migration beside it is served: see
+//     web_migrate_mysql.go.)
 //   - a process dump is written from `/proc/<pid>` inside the container, which
 //     the engine's HTTP API does not expose — the same limit that stops the
 //     module reads beside it.
@@ -45,12 +47,9 @@ func registerWebPerfCounters(both, site func(string, string, http.HandlerFunc)) 
 	const phpReason = "the flag reports the effective php.ini of the site's PHP worker, and its master values are the App Service platform image's own defaults — no PHP worker runs here and Microsoft's platform php.ini is not vendored"
 	both("GET", "/phplogging", gap("WebApps_GetSitePhpErrorLogFlag", phpReason))
 
-	const migrateReason = "the simulator hosts no in-app MySQL database and no App Service content share to move, so there is no migration to run and none to report the status of"
-	both("GET", "/migratemysql/status", gap("WebApps_GetMigrateMySqlStatus", migrateReason))
-	// The document declares the migrations on a production site only — a
-	// deployment slot has no in-app database of its own to move — so these two
-	// are mounted there and nowhere else.
-	site("POST", "/migratemysql", gap("WebApps_MigrateMySql", migrateReason))
+	// The document declares the content migration on a production site only —
+	// a deployment slot has no content share of its own to move.
+	const migrateReason = "moving a site's content into an Azure Files share replaces where the platform reads the app from, and the simulator's sites are served out of a container image rather than a share, so there is no content store to switch"
 	site("PUT", "/migrate", gap("WebApps_MigrateStorage", migrateReason))
 
 	const dumpReason = "a process dump is written from /proc/<pid> inside the container, which the container engine's HTTP API does not expose — the same limit that stops the process module reads"
