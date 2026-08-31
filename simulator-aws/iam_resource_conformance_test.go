@@ -1052,6 +1052,15 @@ func iamProbeMemberValueFor(service, name, arnValue string) string {
 	// leaves the derivation nothing to discriminate on and the whole tagging
 	// family measures as underived while the production reader resolves every
 	// one of them.
+	// An AWS CodeBuild identifier carries its parent's name in front of a
+	// colon — a build is "<projectName>:<uuid>", a report is
+	// "<reportGroupName>:<reportId>" — and the derivation reads the parent off
+	// it, because that is the resource CodeBuild authorizes against. An id with
+	// no colon names no parent, so a placeholder leaves the whole batch family
+	// measuring as underived while the reader resolves every one of them.
+	if service == "codebuild" && (lower == "id" || lower == "ids") {
+		return "probe:11111111-2222-3333-4444-555555555555"
+	}
 	if service == "ec2" && lower == "resourceid" {
 		return "i-0123456789abcdef0"
 	}
@@ -1099,18 +1108,28 @@ var iamProbeAccountMembers = map[string]bool{
 // where the API takes a list, an object where it takes a structure — and an
 // ARN in the members that are ARNs by definition.
 func iamAWSJSONProbeRequest(
-	service, operation, arnValue string, members map[string]string, nested map[string][]string,
+	target, operation, arnValue string, members map[string]string, nested map[string][]string,
+) *http.Request {
+	// The wire target names the service and its date — "CodeBuild_20161006" —
+	// and the fill rule needs the service, because a member can only be filled
+	// correctly if you know whose member it is.
+	service := strings.ToLower(strings.SplitN(target, "_", 2)[0])
+	return iamAWSJSONProbeRequestFor(service, target, operation, arnValue, members, nested)
+}
+
+func iamAWSJSONProbeRequestFor(
+	service, target, operation, arnValue string, members map[string]string, nested map[string][]string,
 ) *http.Request {
 	body := make(map[string]any, len(members))
 	for name, kind := range members {
-		value := iamProbeMemberValue(name, arnValue)
+		value := iamProbeMemberValueFor(service, name, arnValue)
 		switch kind {
 		case "list":
 			body[name] = []string{value}
 		case "structure":
 			object := make(map[string]any, len(nested[name]))
 			for _, inner := range nested[name] {
-				object[inner] = iamProbeMemberValue(inner, arnValue)
+				object[inner] = iamProbeMemberValueFor(service, inner, arnValue)
 			}
 			body[name] = object
 		default:
@@ -1465,7 +1484,17 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // longest prefix wins, an unknown one derives nothing — so CreateTags resolves
 // every one of the hundred-odd types it declares from the id it is given. The
 // probe was giving it an id with no prefix.
-const iamDerivationCoverageFloor = 1799
+//
+// Raised to 1809 by giving the awsJson probe the service whose members it is
+// filling. Its first parameter is the wire target — "CodeBuild_20161006" —
+// not a service name, so the service-aware fill rule had nothing to key on and
+// every awsJson service fell back to placeholders. AWS CodeBuild is the clearest
+// case: an identifier carries its parent in front of a colon, a build being
+// "<projectName>:<uuid>", and iamCodeBuildResourceARNs has always read the
+// parent off it — so a placeholder with no colon left 23 operations measuring as
+// underived against a reader that resolved all of them. Ten came back with the
+// service, and the services beside it gained the rest.
+const iamDerivationCoverageFloor = 1809
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
