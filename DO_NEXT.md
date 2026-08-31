@@ -52,6 +52,38 @@
    the Application Insights query data plane; and the two published catalogs
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
+0-iam. **The AWS IAM derivation gap is mostly one rule, not 202 separate
+   fixes.** Measured 1,792 of 1,994 on 2026-08-31. `IAM_DERIVATION_LIST_MISSING=1
+   go test ./simulator-aws -run IAMResourceDerivationCoverage -v` names every
+   missing operation per service; the nine smallest were read off it and all
+   nine have the same shape:
+
+   | operation | declared type | what the request carries |
+   |---|---|---|
+   | `cloudwatch:GetMetricData` / `ListMetrics` / `PutMetricData` | `dataset` | no dataset identifier |
+   | `cloudwatch:ListAlarmMuteRules` | `alarm-mute-rule` | nothing naming a rule |
+   | `organizations:CreatePolicy` | `policy` | the policy does not exist yet |
+   | `budgets:CreateBudgetAction` | `budgetAction` | the action does not exist yet |
+   | `states:CreateStateMachineAlias` | `statemachine` | version ARNs, not the machine |
+   | `organizations:DescribeEffectivePolicy` | `account` | `TargetId` |
+   | `sts:AssumeRoot` | `root-user` | `TargetPrincipal` |
+
+   Only the last two need a per-service reader. The rest are one rule:
+   **an action declared against a resource type, whose request names no
+   instance of it, derives that type's wildcard** — `arn:aws:cloudwatch:{region}:{account}:dataset/*`
+   — which is what a policy granting the type is written against.
+   `iamCreateWildcardARNs` already does exactly this, but only for creates
+   (iam_resource_arns.go); a list or an account-wide write reaches
+   `return one("*")` instead and derives nothing.
+
+   Widening it is a change to authorization *outcomes* for every service, so it
+   needs the whole AWS SDK suite behind it, not a spot check: today those calls
+   are authorized against `*`, and after the change they are authorized against
+   the type wildcard, which a policy written for `*` still matches but a policy
+   written for a different type no longer does. Measure the coverage before and
+   after — if the rule is right, the number should move by far more than the
+   seven operations above.
+
 0-sync. **All three clouds are in sync.** Measured 2026-08-29: zero drift
    across AWS's 41 Smithy models plus its service references, Azure's 120
    Swagger documents, and Google Cloud's 30 Discovery documents.
