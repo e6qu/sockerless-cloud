@@ -32,3 +32,9 @@ GET /v1/projects/{project}/locations/{location}/aclPolicies/{id}/revisions/{revi
 # reader has no method name to match on; both documented methods behind it are
 # exercised by TestCompute_ImageFamilyAndIamShareARouteWithoutShadowingEachOther.
 GET /compute/v1/projects/{project}/global/images/{first}/{second}
+
+# Enrolling a project in a preview feature. The route's tail is a parameter, so
+# the contract reader has no method name to match on; the route answers 501 —
+# the set of preview features is Google's own — and
+# TestCompute_GooglePublishedCatalogsAreDeclaredGaps asserts it says so.
+PATCH /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}

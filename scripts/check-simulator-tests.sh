@@ -187,7 +187,12 @@ op_referenced_in_tests() {
         | tr '[:upper:]' '[:lower:]')
     local esc_short esc_kebab
     esc_short="$(regex_escape "$short")"; esc_kebab="$(regex_escape "$kebab")"
-    grep -qE "\.${esc_short}\(|\"${esc_kebab}\"|\"${esc_short}\"" "$added_dir/tests-$cloud"
+    # `.Op(` is a call; `.Collection.` is the field a generated client hangs a
+    # collection's verbs off — svc.InterconnectLocations.List(...) references
+    # the collection route just as svc.UrlMaps.Validate(...) references the
+    # verb one. Accepting only the call form leaves every collection route
+    # unmatchable, which is an exemption the surface does not need.
+    grep -qE "\.${esc_short}\(|\.${esc_short}\.|\"${esc_kebab}\"|\"${esc_short}\"" "$added_dir/tests-$cloud"
 }
 
 # A route is "referenced" when its literal path appears on an added test line,
@@ -219,8 +224,20 @@ route_referenced_in_tests() {
     # UpperCamel one does. Without this the gate can never match a GCP verb
     # route, and every one of them would have to be exempted despite being
     # tested — which empties the gate of meaning.
-    if printf '%s' "$last_seg" | grep -qE '^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$|^[a-z]+$'; then
-        op_referenced_in_tests "$(printf '%s' "${last_seg:0:1}" | tr '[:lower:]' '[:upper:]')${last_seg:1}" "$cloud" && return 0
+    #
+    # The named segment is not always the last one: a route ending in a
+    # parameter is addressed through the collection before it
+    # (/global/interconnectLocations/{interconnectLocation}), and so is a
+    # resource read (/projects/{project}). Walk back to the nearest segment
+    # that names something and try that.
+    local segment
+    segment=$(printf '%s' "$route_path" | awk -F/ '{
+        for (i = NF; i > 0; i--) {
+            if ($i != "" && substr($i, 1, 1) != "{") { print $i; exit }
+        }
+    }')
+    if [ -n "$segment" ] && printf '%s' "$segment" | grep -qE '^[a-zA-Z][a-zA-Z0-9]*$'; then
+        op_referenced_in_tests "$(printf '%s' "$segment" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$segment" | cut -c2-)" "$cloud" && return 0
     fi
     # cloudTrailRecordedREST("Op", …) names the operation at the route mount;
     # accept a call/assertion reference to that named op.

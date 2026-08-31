@@ -49,7 +49,7 @@ func registerComputeMore2(srv *sim.Server) {
 
 	families := []computeMetaResource{
 		// Global load-balancing / addressing / policy resources.
-		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: mk("compute_backend_buckets"), patch: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList",
+		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: mk("compute_backend_buckets"), patch: true, update: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList",
 			// setEdgeSecurityPolicy sends a SecurityPolicyReference, so its
 			// body member is securityPolicy while the bucket stores it as
 			// edgeSecurityPolicy.
