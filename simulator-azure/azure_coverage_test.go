@@ -497,6 +497,13 @@ var azureMethodFloor = map[string]int{
 	// catalog beside them stays declared: Microsoft's own list of platform
 	// endpoints and address ranges is not something to invent.
 	//
+	// Raised by the content migration too, on the same reading. Moving a site's
+	// content into an Azure Files share was declined because these sites are
+	// served out of a container image rather than out of a share — a primitive
+	// the simulator lacks, which is not the same as data it would have to
+	// invent. What a caller can observe is the operation the platform starts,
+	// and that is state like any other.
+	//
 	// Raised by the MySQL migration and the two status reads. Moving a site's
 	// in-app database out is a request the platform records and then reports
 	// on, and both halves are the simulator's: whether the site has in-app
@@ -535,7 +542,7 @@ var azureMethodFloor = map[string]int{
 	// module reads). The six Provider_*Stacks spellings used to miss the router
 	// outright and answer a bare 404, which reads as "no such API" rather than
 	// "this API exists and its data is not vendored"; they declare it now.
-	"web-arm-openapi-2025-03-01": 676,
+	"web-arm-openapi-2025-03-01": 677,
 }
 
 // Route table

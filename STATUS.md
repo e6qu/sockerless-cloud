@@ -97,27 +97,27 @@ Current state of the sockerless-cloud repository.
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
   revision 20260814, whose declared total fell from 130 when Google withdrew
   the `gitLabConfigs` collection; `cloudrun-v1` 152 of 152;
-  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **676 of 692** (App
+  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **677 of 692** (App
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family, App Service
   Environments, diagnostics, backup and restore, processes, network traces and
   recommendations, whether an app can be cloned, the site's performance
   counters, its Resource Health metadata at all four scopes, the migration of
   its in-app MySQL database, and an environment pool's metric definitions —
-  and with no silent gap left in that document, every one of its 16 unserved
+  and with no silent gap left in that document, every one of its 15 unserved
   operations declaring what is missing);
   `containerregistry-dataplane-containerregistry-2021-07-01` **29 of 29**;
   `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **5,448 of 5,480**
   Discovery method spellings (`compute-v1` **1,984 of 2,016**, with
   `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1`
-  and `redis-v1` each complete); Azure **2,612 of 2,628** operations; the AWS
+  and `redis-v1` each complete); Azure **2,613 of 2,628** operations; the AWS
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint
   operations.
 - **No silent gap in either declared surface.** Every one of Google Cloud's
   5,480 Discovery method spellings reaches a handler: the probe reports **zero
   mux misses** across all thirty documents, the last of them closed when
-  Compute Engine's host methods were served. Every one of Azure's 16 unserved
+  Compute Engine's host methods were served. Every one of Azure's 15 unserved
   operations answers a declared 501 naming what is missing — none answers a
   routing 404, and none answers with invented data. What remains unserved in
   both is a published catalog or a proprietary dataset: Microsoft's runtime

@@ -106,3 +106,61 @@ func TestSDK_WebApps_MigrateMySql(t *testing.T) {
 	// The slot carries no in-app database of its own.
 	assert.False(t, *slotStatus.Properties.LocalMySQLEnabled)
 }
+
+// SDK coverage for moving a site's content into an Azure Files share:
+//
+//	PUT .../sites/{name}/migrate
+//
+// What a caller can observe is the operation the platform starts, which the
+// simulator holds; no bytes move, because these sites are served out of a
+// container image rather than out of a share.
+func TestSDK_WebApps_MigrateStorage(t *testing.T) {
+	rg := "sdk-migrate-rg"
+	ensureRG(t, rg)
+
+	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	poller, err := sites.BeginCreateOrUpdate(ctx, rg, "sdk-migrate-site", armappservice.Site{
+		Location: to.Ptr("eastus"),
+	}, nil)
+	require.NoError(t, err)
+	_, err = poller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
+	migrate, err := sites.BeginMigrateStorage(ctx, "sdk-migrate-sub", rg, "sdk-migrate-site",
+		armappservice.StorageMigrationOptions{
+			Properties: &armappservice.StorageMigrationOptionsProperties{
+				AzurefilesConnectionString: to.Ptr("DefaultEndpointsProtocol=https;AccountName=content"),
+				AzurefilesShare:            to.Ptr("site-content"),
+			},
+		}, nil)
+	require.NoError(t, err)
+	done, err := migrate.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	require.NotNil(t, done.Properties)
+	require.NotNil(t, done.Properties.OperationID)
+	assert.NotEmpty(t, *done.Properties.OperationID,
+		"the platform returns the operation identifying the migration it started")
+
+	// A migration with no share to move into is refused before anything is
+	// recorded.
+	_, err = sites.BeginMigrateStorage(ctx, "sdk-migrate-sub", rg, "sdk-migrate-site",
+		armappservice.StorageMigrationOptions{
+			Properties: &armappservice.StorageMigrationOptionsProperties{
+				AzurefilesConnectionString: to.Ptr("DefaultEndpointsProtocol=https;AccountName=content"),
+			},
+		}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "azurefilesShare")
+
+	// A site that is not there is a 404.
+	_, err = sites.BeginMigrateStorage(ctx, "sdk-migrate-sub", rg, "sdk-migrate-absent",
+		armappservice.StorageMigrationOptions{
+			Properties: &armappservice.StorageMigrationOptionsProperties{
+				AzurefilesConnectionString: to.Ptr("DefaultEndpointsProtocol=https;AccountName=content"),
+				AzurefilesShare:            to.Ptr("site-content"),
+			},
+		}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ResourceNotFound")
+}

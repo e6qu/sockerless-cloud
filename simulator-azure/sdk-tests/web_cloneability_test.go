@@ -121,20 +121,6 @@ func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no PHP worker runs here")
 
-	// The MySQL migration is served — see web_migrate_mysql_test.go. The
-	// content migration beside it is not: moving a site's content into an
-	// Azure Files share replaces where the platform reads the app from, and
-	// these sites are served out of a container image rather than a share.
-	_, err = client.BeginMigrateStorage(ctx, "sdk-webgap-sub", rg, name,
-		armappservice.StorageMigrationOptions{
-			Properties: &armappservice.StorageMigrationOptionsProperties{
-				AzurefilesConnectionString: to.Ptr("DefaultEndpointsProtocol=https;AccountName=probe"),
-				AzurefilesShare:            to.Ptr("content"),
-			},
-		}, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no content store to switch")
-
 	// A dump is written from /proc inside the container, which the engine's
 	// HTTP API does not expose.
 	_, err = client.GetProcessDump(ctx, rg, name, "1", nil)

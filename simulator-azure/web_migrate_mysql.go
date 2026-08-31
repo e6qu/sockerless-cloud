@@ -9,7 +9,8 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
-// Migrating a site's in-app MySQL database to a remote one.
+// Migrating a site's in-app MySQL database to a remote one, and its content
+// into an Azure Files share.
 //
 // App Service offers a site a MySQL database running beside it, in the app's
 // own sandbox, and MigrateMySql moves that database out to a remote server the
@@ -23,6 +24,10 @@ import (
 // what a caller asks for is that the platform accept the request and report its
 // progress, and a request against a site with no in-app MySQL is refused here
 // exactly as App Service refuses it, before any copying would begin.
+
+// webStorageMigrations records the content migrations a caller has started, so
+// the operation each returns is one the simulator actually holds.
+var webStorageMigrations sim.Store[webMySQLMigration]
 
 // webMySQLMigration is a migration a caller started against a site.
 type webMySQLMigration struct {
@@ -54,6 +59,7 @@ func webSiteInAppMySQLEnabled(resourceID string) bool {
 // both.
 func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, http.HandlerFunc)) {
 	webMySQLMigrations = sim.MakeStore[webMySQLMigration](srv.DB(), "web_mysql_migrations")
+	webStorageMigrations = sim.MakeStore[webMySQLMigration](srv.DB(), "web_storage_migrations")
 
 	site("POST", "/migratemysql", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
@@ -110,6 +116,47 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 			"status":       migration.Status,
 			"createdTime":  started,
 			"modifiedTime": started,
+		})
+	})
+
+	// WebApps_MigrateStorage. App Service moves the site's content into the
+	// Azure Files share the caller names and, if asked, switches the site over
+	// to it. What a caller can observe of that is the operation the platform
+	// starts, which is state the simulator holds like any other; no bytes move,
+	// because these sites are served out of a container image rather than out
+	// of a share.
+	site("PUT", "/migrate", func(w http.ResponseWriter, r *http.Request) {
+		if webMissing(w, r) {
+			return
+		}
+		var request struct {
+			Properties struct {
+				AzurefilesConnectionString string `json:"azurefilesConnectionString"`
+				AzurefilesShare            string `json:"azurefilesShare"`
+			} `json:"properties"`
+		}
+		if err := sim.ReadJSON(r, &request); err != nil {
+			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			return
+		}
+		// The document requires both, and a migration with no share to move
+		// into is not a migration.
+		if request.Properties.AzurefilesConnectionString == "" || request.Properties.AzurefilesShare == "" {
+			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+				"azurefilesConnectionString and azurefilesShare are both required to migrate a site's content.")
+			return
+		}
+
+		id := webResourceID(r)
+		migration := webMySQLMigration{Site: id, OperationID: generateUUID(), Status: "Succeeded"}
+		webStorageMigrations.Put(id, migration)
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"id":   id + "/migrate",
+			"name": sim.PathParam(r, "siteName"),
+			"type": "Microsoft.Web/sites/migrate",
+			"properties": map[string]any{
+				"operationId": migration.OperationID,
+			},
 		})
 	})
 
