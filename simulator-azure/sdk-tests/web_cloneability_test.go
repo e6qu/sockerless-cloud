@@ -115,11 +115,13 @@ func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// PHP error logging reads the worker's effective php.ini, and no PHP worker
-	// runs here.
+	// PHP error logging reads the worker's effective php.ini, and both halves
+	// of it are out of reach: the master values are the platform image's, and
+	// the local ones come from a .user.ini in the site's content.
 	_, err = client.GetSitePhpErrorLogFlag(ctx, rg, name, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no PHP worker runs here")
+	assert.Contains(t, err.Error(), "not vendored here")
+	assert.Contains(t, err.Error(), "does not model")
 
 	// A dump is written from /proc inside the container, which the engine's
 	// HTTP API does not expose.

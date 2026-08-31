@@ -18,9 +18,14 @@ import (
 //
 // The other four families answer a declared 501 naming what is missing:
 //
-//   - phplogging reads the effective php.ini of the site's PHP worker, and the
-//     master values are the platform image's own defaults. No PHP worker runs
-//     here and Microsoft's platform php.ini is not vendored.
+//   - phplogging reads the effective php.ini of the site's PHP worker. Both
+//     halves are out of reach: the master values are the platform image's own
+//     defaults, which are not vendored, and the local values come from a
+//     .user.ini in the site's content, which is not modelled. An empty
+//     settings resource would say the settings are unset rather than unknown,
+//     which is why this declares rather than answering emptily — the reading
+//     that let a pool's metric definitions answer with an empty collection
+//     does not carry over to a resource of individual fields.
 //     (The migrations that used to sit here are served: see
 //     web_migrate_mysql.go.)
 //   - a process dump is written from `/proc/<pid>` inside the container, which
@@ -41,7 +46,7 @@ func registerWebPerfCounters(both, site func(string, string, http.HandlerFunc)) 
 		}
 	}
 
-	const phpReason = "the flag reports the effective php.ini of the site's PHP worker, and its master values are the App Service platform image's own defaults — no PHP worker runs here and Microsoft's platform php.ini is not vendored"
+	const phpReason = "the flag reports the effective php.ini of the site's PHP worker: its master values are the App Service platform image's own defaults, which are not vendored here, and its local values come from a .user.ini in the site's content, which this simulator does not model. Unlike a collection, whose emptiness says none exist, a settings resource with every field left out says the settings are unset rather than unknown — so this declares the gap instead"
 	both("GET", "/phplogging", gap("WebApps_GetSitePhpErrorLogFlag", phpReason))
 
 	const dumpReason = "a process dump is written from /proc/<pid> inside the container, which the container engine's HTTP API does not expose — the same limit that stops the process module reads"
