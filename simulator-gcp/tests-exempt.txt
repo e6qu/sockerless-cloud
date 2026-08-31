@@ -38,3 +38,9 @@ GET /compute/v1/projects/{project}/global/images/{first}/{second}
 # the set of preview features is Google's own — and
 # TestCompute_GooglePublishedCatalogsAreDeclaredGaps asserts it says so.
 PATCH /compute/v1/projects/{project}/global/previewFeatures/{previewFeature}
+
+# A zonal disk's patch. Compute Engine declares the method and the simulator
+# serves it, but google-api-go-client's DisksService wraps no Patch, so no SDK
+# test can reach it — the CLI and the terraform provider go through update and
+# resize instead.
+PATCH /compute/v1/projects/{project}/zones/{zone}/disks/{name}
