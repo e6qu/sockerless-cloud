@@ -597,6 +597,15 @@ func pullImage(ctx context.Context, cli *client.Client, imageName, platform stri
 // registry-side throttling and momentary unavailability.
 func isTransientRegistryErr(err error) bool {
 	msg := strings.ToLower(err.Error())
+	// A data cap is not throttling. The ECR Public Gallery answers an exhausted
+	// anonymous allowance with "toomanyrequests: Data limit exceeded", which
+	// reads like the rate limit below it and is nothing like it: waiting does
+	// not clear it, so the backoff only spends two minutes arriving at the same
+	// answer. Saying so at once leaves the reason in the log where the failure
+	// is, instead of five identical lines above it.
+	if strings.Contains(msg, "data limit exceeded") {
+		return false
+	}
 	return strings.Contains(msg, "toomanyrequests") ||
 		strings.Contains(msg, "rate exceeded") ||
 		strings.Contains(msg, "too many requests") ||

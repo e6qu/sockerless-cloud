@@ -101,6 +101,12 @@ Open: 9. Resolved: 84.
   scan is limited to the package whose images every suite touches. Caching
   those thirty, and the Terraform jobs' engine images, is what is left.
 
+  The simulators also stopped mistaking the cap for the rate limit it is spelled
+  like. `toomanyrequests: Data limit exceeded` was classified transient, so a
+  capped pull spent five widening backoffs — about two minutes — arriving at the
+  same answer, with the reason buried five identical lines above the failure.
+  It is classified permanent now and fails at once.
+
   Warming is a step that primes a cache, not one that checks a dependency, so
   all three are `continue-on-error`. Without that the first run of the sim
   suites failed outright when the cap refused one image while warming, denying
