@@ -103,7 +103,28 @@
      wildcard instead would turn a derivation bug into a silently broader
      grant — worse than the `"*"` it replaces, because it looks right. So the
      widening has to distinguish "this request names no instance" from "this
-     reader did not find the instance", and encoding that is the actual work.
+     reader did not find the instance".
+
+     That distinction is decidable, not a judgement call: an action names no
+     instance when its request declares no member that could fill any
+     identifier variable of any declared type's published ARN format. All three
+     inputs are already here — the Smithy model's request members, the format
+     strings in `iamResourceARNFormats`, and the per-service alias tables that
+     say `HostIdSet` fills `DedicatedHostId`. What is missing is somewhere to
+     put the answer: the simulator does not read Smithy models at runtime, so
+     it has to arrive as a generated table, and the generator has to see the
+     alias tables, which are Go. So it wants a `go:generate` program in the
+     package rather than another shell script beside
+     `gen-aws-iam-resource-types.sh`, with a test that recomputes the set and
+     fails on drift — the ratchet `TestIAMResourceTypesTableMatchesTheVendoredReference`
+     already uses for the types table.
+
+     Build it that way and the safety property holds by construction: an action
+     whose model *does* declare such a member is never widened, so a reader
+     that failed to find the identifier still derives `"*"` and shows up as a
+     miss rather than as a grant. It is a change to authorization outcomes
+     across services, so run the whole AWS SDK suite behind it and measure
+     coverage before and after.
    - **A resource found only by looking it up.** AWS Glue's data-quality
      family resolves its ruleset through the run record; `iam:GetAccessKeyLastUsed`
      finds the user who owns a key; Amazon EC2's Disassociate and Detach family
