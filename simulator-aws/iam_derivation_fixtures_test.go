@@ -131,6 +131,21 @@ func iamSeedDerivationFixtures(t *testing.T,
 		map[string]string{"UserName": "probe-key-owner"}, `<AccessKeyId>([^<]+)</AccessKeyId>`)
 	out["iam:GetAccessKeyLastUsed:AccessKeyId"] = accessKey
 
+	// An Auto Scaling group and the launch configuration it runs from, named
+	// the way the probe names them. Every Auto Scaling derivation resolves the
+	// group through the simulator's own record of it, so the record has to be
+	// one the service made rather than a row written into the store.
+	iamFixtureQuery(t, queryRouter, "2011-01-01", "CreateLaunchConfiguration",
+		map[string]string{
+			"LaunchConfigurationName": "probe", "ImageId": "ami-0123456789abcdef0",
+			"InstanceType": "t3.micro",
+		}, `(CreateLaunchConfigurationResponse)`)
+	iamFixtureQuery(t, queryRouter, "2011-01-01", "CreateAutoScalingGroup",
+		map[string]string{
+			"AutoScalingGroupName": "probe", "MinSize": "0", "MaxSize": "1",
+			"AvailabilityZones.member.1": "us-east-1a",
+			"LaunchConfigurationName":    "probe",
+		}, `(CreateAutoScalingGroupResponse)`)
 	// A database cluster, whose automated backup Amazon RDS keeps under the
 	// cluster's own resource id — which is all the delete carries.
 	cluster := iamFixtureQuery(t, queryRouter, "2014-10-31", "CreateDBCluster",

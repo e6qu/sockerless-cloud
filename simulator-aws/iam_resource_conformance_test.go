@@ -430,9 +430,12 @@ func iamQueryProbeForm(service, operation, version, arnValue string,
 		case "list":
 			add(name+".member.1", value)
 		case "structure":
-			for _, inner := range nested[name] {
-				add(name+"."+inner, iamProbeMemberValue(service, inner, arnValue))
-			}
+			// Flat, deliberately. A structure's members arrive after a dot, and
+			// the query parameter reader drops any key with a dot left in it
+			// after the index — its contract being members, not paths — so
+			// spelling one out puts the value somewhere nothing reads. The
+			// member's own name is what the readers match on.
+			add(name, value)
 		case "list-structure":
 			for _, inner := range nested[name] {
 				add(name+".member.1."+inner, iamProbeMemberValue(service, inner, arnValue))
@@ -937,21 +940,23 @@ func iamJSONProbeDerives(service, operation string, members map[string]bool, arn
 // request supplies. A probe that only fills fields would therefore measure zero
 // however well the derivation works, so it seeds the two resources first — which
 // is the state any real caller acting on a group is in.
-func iamAutoScalingDerivesItsResource(operation string, params map[string]bool) bool {
+func iamAutoScalingDerivesItsResource(operation string, params map[string]string,
+	nested map[string][]string, fixtures map[string]string,
+) bool {
 	if len(iamActionResourceTypes["autoscaling:"+operation]) == 0 {
 		return false
 	}
-	autoScalingGroups.Put("probe", AutoScalingGroup{Name: "probe", ARN: autoScalingGroupARN("probe")})
-	asLaunchConfigurations.Put("probe", ASLaunchConfiguration{Name: "probe", ARN: launchConfigurationARN("probe")})
-
-	form := "Action=" + operation + "&Version=2011-01-01"
-	for name := range params {
-		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
+	// The tagging calls name their group inside a tag, so the form has to be
+	// rendered the way the query protocol spells one.
+	form := iamQueryProbeForm("autoscaling", operation, "2011-01-01",
+		"arn:aws:autoscaling:us-east-1:"+iamProbeAccount+
+			":autoScalingGroup:0123:autoScalingGroupName/probe", params, nested)
+	for member := range params {
+		created, seeded := fixtures["autoscaling:"+operation+":"+member]
+		if !seeded {
 			continue
 		}
-		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("autoscaling", name,
-			"arn:aws:autoscaling:us-east-1:"+iamProbeAccount+
-				":autoScalingGroup:0123:autoScalingGroupName/probe"))
+		form += "&" + member + "=" + url.QueryEscape(created)
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1210,6 +1215,10 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	// placeholder names neither.
 	if service == "ssm" && (lower == "instanceid" || lower == "instanceids" || lower == "target") {
 		return "i-0123456789abcdef0"
+	}
+	if service == "autoscaling" && lower == "resourcetype" {
+		// The only kind of resource Auto Scaling tags.
+		return "auto-scaling-group"
 	}
 	if service == "ssm" && lower == "resourcetype" {
 		// Any real member of the enum will do: the test pins all ten, and what
@@ -1808,7 +1817,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1961
+const iamDerivationCoverageFloor = 1963
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1855,7 +1864,10 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	_, dynamoDBNested := loadRequestShapes(t, "dynamodb", memberWireName)
 	dynamoDBMembers := loadCasedRequestMembers(t, "dynamodb")
 	cloudTrailMembers := loadCloudTrailRequestMembers(t)
-	autoScalingParameters := loadRequestFields(t, "auto-scaling", memberWireName)
+	// The tagging calls name their group inside a tag, which needs the member
+	// kinds and the tag's own members.
+	_, autoScalingNested := loadRequestShapes(t, "auto-scaling", memberWireName)
+	autoScalingCasedParameters := loadCasedRequestMembers(t, "auto-scaling")
 	kmsMembers := loadKMSRequestMembers(t)
 	// Amazon EventBridge goes through the shared probe for the same reason
 	// Amazon DynamoDB does: PutEvents names the bus each event goes to under
@@ -1936,7 +1948,8 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "cloudtrail":
 			derived = iamCloudTrailDerivesItsResource(o.name, cloudTrailMembers[o.name])
 		case "autoscaling":
-			derived = iamAutoScalingDerivesItsResource(o.name, autoScalingParameters[o.name])
+			derived = iamAutoScalingDerivesItsResource(o.name,
+				autoScalingCasedParameters[o.name], autoScalingNested[o.name], fixtures)
 		case "kms":
 			derived = iamKMSDerivesItsResource(o.name, kmsMembers[o.name])
 		case "events":

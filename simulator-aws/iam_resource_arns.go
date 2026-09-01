@@ -1019,6 +1019,17 @@ func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 			if group, ok := autoScalingGroups.Get(first("AutoScalingGroupName")); ok && group.ARN != "" {
 				out = append(out, group.ARN)
 			}
+			// The tagging calls name the group inside a tag rather than in a
+			// member of their own — "Tags.member.1.ResourceId" — which the
+			// flat-parameter reader drops, its contract being members and not
+			// paths. A group named anywhere in the request is a group the call
+			// is about, so the raw form is read for those, and every tag
+			// contributes because a call tagging two groups is about both.
+			for _, named := range iamAutoScalingTaggedGroups(r) {
+				if group, ok := autoScalingGroups.Get(named); ok && group.ARN != "" {
+					out = append(out, group.ARN)
+				}
+			}
 		case "launchConfiguration":
 			if config, ok := asLaunchConfigurations.Get(first("LaunchConfigurationName")); ok && config.ARN != "" {
 				out = append(out, config.ARN)
@@ -2994,4 +3005,37 @@ func iamRDSARNResourceSegment(value string) (string, bool) {
 		return "", false
 	}
 	return parts[5], true
+}
+
+// iamAutoScalingTaggedGroups reads the group names a tagging call carries
+// inside its tags. Only a tag saying it is on an Auto Scaling group counts: the
+// member is generic, and a tag on anything else names something the call is not
+// about.
+func iamAutoScalingTaggedGroups(r *http.Request) []string {
+	_ = r.ParseForm()
+	resourceIDs := map[string]string{}
+	resourceTypes := map[string]string{}
+	for key, values := range r.Form {
+		if len(values) == 0 || values[0] == "" {
+			continue
+		}
+		index, member, found := strings.Cut(strings.TrimPrefix(key, "Tags.member."), ".")
+		if !found || index == "" {
+			continue
+		}
+		switch member {
+		case "ResourceId":
+			resourceIDs[index] = values[0]
+		case "ResourceType":
+			resourceTypes[index] = values[0]
+		}
+	}
+	var out []string
+	for index, name := range resourceIDs {
+		if resourceTypes[index] == "auto-scaling-group" {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
