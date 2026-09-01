@@ -76,6 +76,34 @@ func iamSeedDerivationFixtures(t *testing.T,
 		}, `<attachmentId>([^<]+)</attachmentId>`)
 	out["ec2:DetachNetworkInterface:AttachmentId"] = attachment
 
+	// An instance profile bound to a machine, which the disassociate and the
+	// replace both name by the association rather than by the machine.
+	profileAssociation := iamFixtureEC2(t, queryRouter, "AssociateIamInstanceProfile",
+		map[string]string{
+			"InstanceId": instance, "IamInstanceProfile.Name": "probe-profile",
+		}, `<associationId>([^<]+)</associationId>`)
+	out["ec2:DisassociateIamInstanceProfile:AssociationId"] = profileAssociation
+	out["ec2:ReplaceIamInstanceProfileAssociation:AssociationId"] = profileAssociation
+
+	// A permission granted on an interface, which the delete names by the
+	// permission rather than by the interface.
+	permission := iamFixtureEC2(t, queryRouter, "CreateNetworkInterfacePermission",
+		map[string]string{
+			"NetworkInterfaceId": detachable, "AwsAccountId": iamProbeAccount,
+			"Permission": "INSTANCE-ATTACH",
+		}, `<networkInterfacePermissionId>([^<]+)</networkInterfacePermissionId>`)
+	out["ec2:DeleteNetworkInterfacePermission:NetworkInterfacePermissionId"] = permission
+
+	// The CIDR associations, one on the VPC and one on a subnet, each named by
+	// the association rather than by what it is on.
+	vpcCidr := iamFixtureEC2(t, queryRouter, "AssociateVpcCidrBlock",
+		map[string]string{"VpcId": vpc, "CidrBlock": "10.2.0.0/16"},
+		`<associationId>([^<]+)</associationId>`)
+	out["ec2:DisassociateVpcCidrBlock:AssociationId"] = vpcCidr
+	subnetCidr := iamFixtureEC2(t, queryRouter, "AssociateSubnetCidrBlock",
+		map[string]string{"SubnetId": subnet}, `<associationId>([^<]+)</associationId>`)
+	out["ec2:DisassociateSubnetCidrBlock:AssociationId"] = subnetCidr
+
 	// AWS Glue's data-quality runs, which its derivation resolves to the
 	// ruleset each is about. A recommendation run creates a ruleset; an
 	// evaluation run evaluates one and settles a result row per ruleset.

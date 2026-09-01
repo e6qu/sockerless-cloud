@@ -1203,6 +1203,65 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			sort.Strings(out)
 			return out
 		}
+	case "DisassociateIamInstanceProfile", "ReplaceIamInstanceProfileAssociation":
+		// The association record is keyed by the id the request carries and
+		// names the machine the profile is bound to, which is what the call
+		// authorizes against — so no index is needed, the store answers by key.
+		var out []string
+		for _, assoc := range lookup("AssociationId") {
+			if ec2IamInstanceProfileAssocs == nil {
+				break
+			}
+			if held, ok := ec2IamInstanceProfileAssocs.Get(assoc); ok && held.InstanceId != "" {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":instance/"+held.InstanceId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DisassociateVpcCidrBlock", "DisassociateSubnetCidrBlock":
+		// One store holds both kinds of CIDR association and reuses a single
+		// field for what the association is on, so the stored id is read for
+		// what it is rather than for where it sits: an EC2 identifier states
+		// its own type, and it must be the type the action declares — a subnet
+		// association is not what a VPC disassociation authorizes against.
+		var out []string
+		for _, assoc := range lookup("AssociationId") {
+			if ec2VpcCidrAssocs == nil {
+				break
+			}
+			held, ok := ec2VpcCidrAssocs.Get(assoc)
+			if !ok {
+				continue
+			}
+			resourceType, known := iamEC2TypeForIDPrefix(held.VpcId)
+			if !known || !iamHasType(types, resourceType) {
+				continue
+			}
+			out = append(out, "arn:aws:ec2:"+region+":"+account+":"+resourceType+"/"+held.VpcId)
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DeleteNetworkInterfacePermission":
+		// A permission record names the interface it was granted on, and the
+		// interface is what revoking it authorizes against.
+		var out []string
+		for _, id := range lookup("NetworkInterfacePermissionId") {
+			if ec2EniPermissions == nil {
+				break
+			}
+			if perm, ok := ec2EniPermissions.Get(id); ok && perm.NetworkInterfaceId != "" {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+
+					":network-interface/"+perm.NetworkInterfaceId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
 	case "DetachNetworkInterface":
 		var out []string
 		for _, attachment := range lookup("AttachmentId") {
