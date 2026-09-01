@@ -805,6 +805,38 @@ func armSpecValidator(srv *sim.Server) error {
 		// vacuous violation. The response conforms if any consulted
 		// candidate accepts it; otherwise the fewest-violation candidate
 		// reports.
+		// A status the operation does not declare. The candidate loop below
+		// falls back to the "default" response — the error shape — so an
+		// undeclared success code was neither reported nor its body checked:
+		// the response went out unjudged. A client generated from the document
+		// switches on the codes it declares, so one it does not is a code the
+		// caller has no branch for.
+		if status < 400 {
+			declared := false
+			for _, c := range cands {
+				if responses, ok := c.op["responses"].(map[string]any); ok {
+					if _, listed := responses[strconv.Itoa(status)]; listed {
+						declared = true
+						break
+					}
+				}
+			}
+			if !declared && len(cands) > 0 {
+				c := cands[0]
+				listed := make([]string, 0, 4)
+				if responses, ok := c.op["responses"].(map[string]any); ok {
+					for code := range responses {
+						listed = append(listed, code)
+					}
+				}
+				sort.Strings(listed)
+				return []sim.SpecViolation{{
+					Op: c.method + " " + c.template, Kind: "undeclared-status", Field: "$",
+					Detail: fmt.Sprintf("spec declares %s, response has %d",
+						strings.Join(listed, "|"), status),
+				}}
+			}
+		}
 		var best []sim.SpecViolation
 		bestSet := false
 		maxLiterals := -1

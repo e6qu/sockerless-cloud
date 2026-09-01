@@ -1,0 +1,40 @@
+{
+  "_about": [
+    "Corrections to the vendored Smithy model, for operations whose declared",
+    "success status is not the one Amazon S3 answers with. A corrected status",
+    "keeps the code checked against what S3 really returns; the alternative,",
+    "listing the operation as an accepted violation, would stop checking it.",
+    "",
+    "Each correction pins the exact upstream code it replaces. If a re-vendor",
+    "changes that code, the loader fails rather than applying a correction to",
+    "a model it was never written against."
+  ],
+  "shapes": {
+    "com.amazonaws.s3#PutBucketPolicy": {
+      "_evidence": [
+        "PUT Bucket policy answers 204 No Content — the response carries no",
+        "body and S3's REST API reference documents the code. The simulator's",
+        "bucket-subresource table records the same split deliberately, because",
+        "the SDKs and `aws s3api` read it. The operation's trait declares 200,",
+        "which is the code the model assigns rather than the one S3 sends."
+      ],
+      "httpCode": { "replaces": 200, "with": [204] }
+    },
+    "com.amazonaws.s3#PutBucketTagging": {
+      "_evidence": [
+        "PUT Bucket tagging answers 204 No Content, the same way PutBucketPolicy",
+        "does and for the same reason: the response has no body. The trait",
+        "declares 200."
+      ],
+      "httpCode": { "replaces": 200, "with": [204] }
+    },
+    "com.amazonaws.s3#RestoreObject": {
+      "_evidence": [
+        "POST Object restore answers 202 Accepted when it starts a restore and",
+        "200 OK when the object is already being restored, so both are codes S3",
+        "sends. The trait declares only 200."
+      ],
+      "httpCode": { "replaces": 200, "with": [200, 202] }
+    }
+  }
+}

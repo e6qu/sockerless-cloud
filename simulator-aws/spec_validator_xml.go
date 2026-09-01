@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -171,7 +172,7 @@ func (v *xmlShapeValidator) outputMembers(target string) (map[string]smithyMembe
 // operation is identified by the mux pattern that served the request
 // plus the smithy URI's query-string literals; non-restXml routes pass
 // through untouched.
-func (st *specValidatorState) validateRestXML(req *http.Request, respHeader http.Header, respBody []byte) []sim.SpecViolation {
+func (st *specValidatorState) validateRestXML(req *http.Request, status int, respHeader http.Header, respBody []byte) []sim.SpecViolation {
 	_, pattern := st.mux.Handler(req)
 	if pattern == "" {
 		return nil
@@ -197,7 +198,22 @@ func (st *specValidatorState) validateRestXML(req *http.Request, respHeader http
 		return nil
 	}
 	v := &xmlShapeValidator{st: st, idx: op.idx, op: op.idx.serviceShort + "." + op.name}
-	v.restXMLBody(op.idx.ops[op.name], respHeader, respBody)
+	// The success status the operation declares. The trait defaults it to 200
+	// when it says nothing, so a delete modelled 204 answering 200 — or the
+	// reverse — is a code the caller's generated client has no branch for.
+	if declared := op.idx.ops[op.name].httpCodes; len(declared) > 0 && !slices.Contains(declared, status) {
+		codes := make([]string, 0, len(declared))
+		for _, c := range declared {
+			codes = append(codes, strconv.Itoa(c))
+		}
+		v.out = append(v.out, sim.SpecViolation{
+			Op: v.op, Kind: "undeclared-status", Field: "$",
+			Detail: fmt.Sprintf("spec declares %s, response has %d", strings.Join(codes, "|"), status),
+		})
+	}
+	if len(respBody) > 0 {
+		v.restXMLBody(op.idx.ops[op.name], respHeader, respBody)
+	}
 	return v.out
 }
 

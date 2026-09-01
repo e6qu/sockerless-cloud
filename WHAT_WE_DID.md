@@ -187,6 +187,28 @@ read it, rather than the describe answering without a member a client reads.
 And AWS Glue's session endpoint omitted its `AuthToken`, one of three required
 members of the endpoint it describes; it issues the session's own.
 
+A fourth dimension went in and mostly confirmed what was already right: a
+success status the model does not declare. Azure's Swagger lists response codes
+per operation, and the validator had been falling back to the `default` — the
+error shape — when a response's code was not among them, so an undeclared
+success code was neither reported nor its body checked. Both shards came back
+clean, and the check now holds them there.
+
+AWS's needed two corrections before it could be trusted. Its restXml path
+returned early on an empty body, which is exactly where a status matters — a
+delete modelled 204 carries nothing else — so the code is checked before the
+body and the body only when there is one. And Smithy defaults an omitted
+`code` to 200, which is the absence of a statement rather than one: only an
+explicit code is evidence. With both, five responses disagreed with their
+models. One was a real defect — PUT Object tagging answered 204 where both the
+trait and the service say 200 — and the other four were the model being wrong
+about Amazon S3, which answers 204 to PutBucketPolicy and PutBucketTagging and
+202 to a restore it starts. Those are recorded in
+`specs/cloud-api/aws/s3.supplement.json`, the mechanism this repository already
+uses for a model stricter than the service it describes: the correction pins
+the code it replaces, carries its evidence, and keeps the status checked
+against what S3 really sends rather than stopping the check.
+
 Google Cloud's validator learned the enum check too, where the surface is
 largest — 1,248 Discovery properties declare one — and it found eleven. An
 interconnect group's status was `GROUP_STATUS_DEGRADED` where the document

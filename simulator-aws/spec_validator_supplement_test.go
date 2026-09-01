@@ -61,7 +61,7 @@ func writeSupplementedModel(t *testing.T, declaredPattern, supplement string) (m
 	if err := json.Unmarshal(encoded, &doc); err != nil {
 		t.Fatal(err)
 	}
-	return doc.Shapes, applySmithySupplement(model, doc.Shapes)
+	return doc.Shapes, applySmithySupplement(model, doc.Shapes, map[string][]int{})
 }
 
 func sampleCorrection(replaces string) string {

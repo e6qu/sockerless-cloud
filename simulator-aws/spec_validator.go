@@ -66,6 +66,12 @@ type smithyOpDef struct {
 	output     string
 	httpMethod string
 	httpURI    string
+	// httpCode is the success status the smithy.api#http trait declares, and
+	// zero when it declares none. Smithy defaults an omitted code to 200, but
+	// that default is the absence of a statement rather than one: real S3
+	// answers 204 to PutBucketPolicy and 202 to RestoreObject, and their
+	// traits say nothing. Only an explicit code is evidence.
+	httpCodes []int
 }
 
 type smithyModelIndex struct {
@@ -150,7 +156,7 @@ type uriQueryLiteral struct {
 // changes that text fails here rather than silently applying a correction
 // written against something else — which is how a correction that upstream has
 // already made gets noticed and deleted.
-func applySmithySupplement(modelPath string, shapes map[string]smithyShapeDef) error {
+func applySmithySupplement(modelPath string, shapes map[string]smithyShapeDef, httpCodeCorrections map[string][]int) error {
 	path := strings.TrimSuffix(modelPath, ".smithy.json.gz") + ".supplement.json"
 	body, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -165,6 +171,15 @@ func applySmithySupplement(modelPath string, shapes map[string]smithyShapeDef) e
 				Replaces string `json:"replaces"`
 				With     string `json:"with"`
 			} `json:"pattern"`
+			// A success status the operation really answers with, where the
+			// declared one is not it. Written as the set of codes the service
+			// uses, because an operation can have more than one: a restore
+			// answers 202 when it starts one and 200 when the object is
+			// already restored.
+			HTTPCode *struct {
+				Replaces int   `json:"replaces"`
+				With     []int `json:"with"`
+			} `json:"httpCode"`
 		} `json:"shapes"`
 	}
 	if err := json.Unmarshal(body, &supplement); err != nil {
@@ -174,6 +189,26 @@ func applySmithySupplement(modelPath string, shapes map[string]smithyShapeDef) e
 		shape, ok := shapes[id]
 		if !ok {
 			return fmt.Errorf("%s: corrects shape %q, which the model does not define", path, id)
+		}
+		if correction.HTTPCode != nil {
+			raw, ok := shape.Traits["smithy.api#http"]
+			if !ok {
+				return fmt.Errorf("%s: corrects the status of %s, which declares no smithy.api#http", path, id)
+			}
+			var declared struct {
+				Code int `json:"code"`
+			}
+			if err := json.Unmarshal(raw, &declared); err != nil {
+				return fmt.Errorf("%s: %s declares an unreadable smithy.api#http: %w", path, id, err)
+			}
+			if declared.Code != correction.HTTPCode.Replaces {
+				return fmt.Errorf("%s: corrects the status of %s, but the model now declares %d rather than the %d the correction was written against — recheck whether it is still needed and update or delete it",
+					path, id, declared.Code, correction.HTTPCode.Replaces)
+			}
+			if len(correction.HTTPCode.With) == 0 {
+				return fmt.Errorf("%s: the status correction for %s names no code", path, id)
+			}
+			httpCodeCorrections[id] = correction.HTTPCode.With
 		}
 		if correction.Pattern == nil {
 			continue
@@ -232,7 +267,8 @@ func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
-		if err := applySmithySupplement(p, doc.Shapes); err != nil {
+		httpCodeCorrections := map[string][]int{}
+		if err := applySmithySupplement(p, doc.Shapes, httpCodeCorrections); err != nil {
 			return nil, err
 		}
 		idx := &smithyModelIndex{
@@ -264,12 +300,19 @@ func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 					var h struct {
 						Method string `json:"method"`
 						URI    string `json:"uri"`
+						Code   int    `json:"code"`
 					}
 					if err := json.Unmarshal(raw, &h); err != nil {
 						return nil, fmt.Errorf("%s: bad smithy.api#http on %s: %w", p, id, err)
 					}
 					def.httpMethod = h.Method
 					def.httpURI = h.URI
+					if h.Code != 0 {
+						def.httpCodes = []int{h.Code}
+					}
+				}
+				if corrected, ok := httpCodeCorrections[id]; ok {
+					def.httpCodes = corrected
 				}
 				idx.ops[short] = def
 				opShapes[short] = shape
@@ -397,13 +440,20 @@ func (st *specValidatorState) validate(req *http.Request, reqBody []byte, status
 	if target := req.Header.Get("X-Amz-Target"); target != "" {
 		return st.validateJSONTarget(target, status, respHeader, respBody)
 	}
-	if status >= 400 || len(respBody) == 0 {
+	if status >= 400 {
 		return nil
 	}
 	if req.Method == http.MethodPost && req.URL.Path == "/" {
+		if len(respBody) == 0 {
+			return nil
+		}
 		return st.validateQueryAction(reqBody, respHeader, respBody)
 	}
-	return st.validateRestXML(req, respHeader, respBody)
+	// An empty body still carries a status, and the statuses worth checking
+	// are mostly the empty ones — a delete modelled 204. The restXml path
+	// checks the code first and only then the body, so it is reached here even
+	// with nothing to parse.
+	return st.validateRestXML(req, status, respHeader, respBody)
 }
 
 // validateJSONTarget covers the awsJson1.0 / awsJson1.1 protocols.

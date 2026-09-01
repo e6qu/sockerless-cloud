@@ -147,6 +147,16 @@ Open: 8. Resolved: 84.
   the check was not added there — 27 closed against 95 open in a 40-document
   sample.
 
+  A fourth dimension — a success status the model does not declare — found one
+  defect and confirmed the rest: PUT Object tagging answered 204 where both the
+  trait and Amazon S3 say 200. Azure's shards were already clean. Four AWS
+  responses disagree with their models because the models are wrong about S3
+  (204 for PutBucketPolicy and PutBucketTagging, 202 for a restore it starts);
+  those are corrections in `specs/cloud-api/aws/s3.supplement.json` rather than
+  allowlist entries, so the code stays checked against what S3 sends. Google
+  Cloud has no analogue: a Discovery method declares a response schema and no
+  status at all.
+
   Google Cloud's validator took the enum check, where the surface is largest —
   1,248 Discovery properties declare one — and it found eleven, all fixed: an
   interconnect group status, a delegated prefix's state, three Cloud SQL

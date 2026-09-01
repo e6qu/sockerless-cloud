@@ -354,7 +354,7 @@ func TestXMLValidatorRestXML(t *testing.T) {
 			st := testSpecState(t)
 			req := httptest.NewRequest(tc.method, tc.url, nil)
 			header := http.Header{"Content-Type": []string{"application/xml"}}
-			got := st.validateRestXML(req, header, []byte(tc.respBody))
+			got := st.validateRestXML(req, http.StatusOK, header, []byte(tc.respBody))
 			assertViolations(t, got, tc.want)
 		})
 	}
