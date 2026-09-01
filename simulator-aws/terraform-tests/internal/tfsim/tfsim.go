@@ -34,6 +34,22 @@ type Env struct {
 	cmd        *exec.Cmd
 	gatewayCmd *exec.Cmd
 	dir        string
+	extraEnv   []string
+}
+
+// RouteHostPrefixedRequests points terraform's HTTP client at the simulator as
+// a proxy. An operation that carries a modeled endpoint host prefix — every
+// s3control operation is addressed by the account id — makes the provider
+// build and sign a host like "123456789012.<endpoint host>", and the endpoint
+// host is an IP literal, so that name resolves nowhere. Resolution is a
+// coordinate, not a request property: the provider still emits and signs
+// exactly the host it would send AWS, and only where the bytes land differs —
+// the same shape as an operator whose AWS traffic egresses through a corporate
+// proxy. Call it before running terraform.
+func (e *Env) RouteHostPrefixedRequests() {
+	e.extraEnv = append(e.extraEnv,
+		"HTTP_PROXY="+e.BaseURL, "http_proxy="+e.BaseURL,
+		"NO_PROXY=", "no_proxy=")
 }
 
 func Start(t *testing.T, configDir string) *Env {
@@ -140,6 +156,7 @@ func (e *Env) Terraform(t *testing.T, args ...string) []byte {
 	// orphaning a spinning process tree past the test deadline.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(), "TF_VAR_endpoint="+e.Endpoint)
+	cmd.Env = append(cmd.Env, e.extraEnv...)
 	if e.CACertFile != "" {
 		cmd.Env = append(cmd.Env, "SSL_CERT_FILE="+e.CACertFile)
 	}

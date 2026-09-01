@@ -1196,7 +1196,7 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 	}
 	if len(step.Args) >= 2 && step.Args[0] == "push" {
 		target := step.Args[1]
-		push := exec.CommandContext(ctx, "docker", "push", target)
+		push := cancellableDockerCommand(ctx, "push", target)
 		push.Env = os.Environ()
 		if out, err := push.CombinedOutput(); err != nil {
 			return fmt.Errorf("docker push %s failed: %w: %s", target, err, strings.TrimSpace(string(out)))
@@ -1204,7 +1204,7 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 		// Drop the local copy so the run pulls from the registry, not the
 		// build host's daemon. Best-effort — a failure here doesn't fail the
 		// build (the push already succeeded).
-		if out, err := exec.CommandContext(ctx, "docker", "rmi", "-f", target).CombinedOutput(); err != nil {
+		if out, err := cancellableDockerCommand(ctx, "rmi", "-f", target).CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "cloudbuild: could not remove local build output %s after push: %v: %s\n",
 				target, err, strings.TrimSpace(string(out)))
 		}
@@ -1224,7 +1224,7 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 		args = append([]string{"buildx", "build", "--load"}, args[1:]...)
 		fmt.Fprintf(os.Stderr, "cloudbuild: building via `docker buildx build --load` (buildx present)\n")
 	}
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := cancellableDockerCommand(ctx, args...)
 	cmd.Dir = workDir
 	if step.Dir != "" {
 		cmd.Dir = filepath.Join(workDir, step.Dir)
@@ -1245,6 +1245,26 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 	}
 	return nil
 }
+
+// cancellableDockerCommand builds a docker invocation a cancelled build can
+// actually stop. Two things have to be true for the cancel to end the work
+// rather than only the client. The build itself runs in the engine, not in the
+// CLI — buildx hands it to buildkit and only tells buildkit to stop when the
+// CLI unwinds, which it does on an interrupt and not on a kill, so the cancel
+// interrupts. And a killed CLI can leave a child holding the write end of the
+// output pipe, which makes Wait block after the process is gone; WaitDelay
+// bounds the unwind and closes those descriptors, so the call that started the
+// build returns instead of hanging for the length of the build.
+func cancellableDockerCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = dockerStepCancelGrace
+	return cmd
+}
+
+// dockerStepCancelGrace is how long an interrupted docker step has to tell the
+// engine to stop before it is killed outright.
+const dockerStepCancelGrace = 10 * time.Second
 
 // structToMap converts a Build to a generic map[string]any for
 // embedding inside the LRO's response envelope. The real API wraps

@@ -232,6 +232,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerS3ControlAccessGrants(srv)
 	registerS3ControlMultiRegion(srv)
 	registerS3ControlMisc(srv)
+	registerS3ControlTagging(srv)
 	registerFirehose(awsRouter, srv)
 	registerACMPrivateCA(awsRouter, srv)
 	registerCloudFront(srv)

@@ -89,7 +89,8 @@
    nothing, and run details answered for runs that did not exist.
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,986 of 1,994 on 2026-09-01.
+   is not.** 2,000 of 2,008 on 2026-09-01, after the refreshed service
+   references widened the corpus.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 

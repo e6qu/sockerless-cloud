@@ -913,6 +913,10 @@ jobs:
             cloud: aws
             tf_packages: "./network-interface"
             timeout_minutes: 12
+          - suite: aws S3 control plane
+            cloud: aws
+            tf_packages: "./s3control"
+            timeout_minutes: 12
           - suite: gcp
             cloud: gcp
             timeout_minutes: 12

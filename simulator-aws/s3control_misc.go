@@ -193,3 +193,110 @@ func handleS3ListAccessPointsForDirectoryBuckets(w http.ResponseWriter, r *http.
 func s3BucketIsDirectory(bucket S3Bucket) bool {
 	return strings.HasSuffix(bucket.Name, "--x-s3")
 }
+
+// s3ControlResourceTags holds the tags of every s3control resource that is
+// tagged through the shared TagResource / UntagResource / ListTagsForResource
+// trio rather than through its own operation, keyed by the resource's ARN.
+var s3ControlResourceTags sim.Store[map[string]string]
+
+func registerS3ControlTagging(srv *sim.Server) {
+	s3ControlResourceTags = sim.MakeStore[map[string]string](srv.DB(), "s3_control_resource_tags")
+
+	srv.HandleFunc("POST /v20180820/tags/{resourceArn...}", handleS3ControlTagResource)
+	srv.HandleFunc("DELETE /v20180820/tags/{resourceArn...}", handleS3ControlUntagResource)
+	srv.HandleFunc("GET /v20180820/tags/{resourceArn...}", handleS3ControlListTagsForResource)
+}
+
+// s3ControlTaggedResourceExists reports whether the ARN names something this
+// simulator holds. Tagging a resource that does not exist is refused the way
+// the service refuses it, rather than accumulating tags nothing can read back.
+func s3ControlTaggedResourceExists(account, arn string) bool {
+	switch {
+	case strings.HasPrefix(arn, "arn:aws:s3:::"):
+		_, ok := s3Buckets_.Get(strings.TrimPrefix(arn, "arn:aws:s3:::"))
+		return ok
+	case strings.Contains(arn, ":storage-lens/"):
+		_, ok := s3StorageLensConfigurations.Get(
+			s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
+		return ok
+	case strings.Contains(arn, ":storage-lens-group/"):
+		_, ok := s3StorageLensGroups.Get(s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
+		return ok
+	case strings.Contains(arn, ":accesspoint/"):
+		name := arn[strings.LastIndex(arn, "/")+1:]
+		if _, ok := s3AccessPoints.Get(s3AccessPointKey(account, name)); ok {
+			return true
+		}
+		_, ok := s3ObjectLambdaAccessPoints.Get(s3AccessPointKey(account, name))
+		return ok
+	case strings.Contains(arn, ":job/"):
+		_, ok := s3BatchJobs.Get(s3AccessPointKey(account, arn[strings.LastIndex(arn, "/")+1:]))
+		return ok
+	case strings.Contains(arn, ":access-grants/"):
+		_, ok := s3AccessGrantsInstances.Get(account)
+		return ok
+	}
+	return false
+}
+
+func handleS3ControlTagResource(w http.ResponseWriter, r *http.Request) {
+	account, arn := s3ControlAccountID(r), sim.PathParam(r, "resourceArn")
+	if !s3ControlTaggedResourceExists(account, arn) {
+		s3ControlError(w, "NotFoundException", "The specified resource does not exist", http.StatusNotFound)
+		return
+	}
+	body, ok := s3ControlReadXMLBody(w, r, "TagResourceRequest")
+	if !ok {
+		return
+	}
+	tags := s3ControlTagsFrom(body, "Tags", "Tag")
+	if len(tags) == 0 {
+		s3ControlError(w, "InvalidRequest", "Tags is required", http.StatusBadRequest)
+		return
+	}
+	existing, _ := s3ControlResourceTags.Get(arn)
+	merged := map[string]string{}
+	for k, v := range existing {
+		merged[k] = v
+	}
+	for k, v := range tags {
+		merged[k] = v
+	}
+	s3ControlResourceTags.Put(arn, merged)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleS3ControlUntagResource(w http.ResponseWriter, r *http.Request) {
+	account, arn := s3ControlAccountID(r), sim.PathParam(r, "resourceArn")
+	if !s3ControlTaggedResourceExists(account, arn) {
+		s3ControlError(w, "NotFoundException", "The specified resource does not exist", http.StatusNotFound)
+		return
+	}
+	keys := r.URL.Query()["tagKeys"]
+	if len(keys) == 0 {
+		s3ControlError(w, "InvalidRequest", "tagKeys is required", http.StatusBadRequest)
+		return
+	}
+	existing, _ := s3ControlResourceTags.Get(arn)
+	remaining := map[string]string{}
+	for k, v := range existing {
+		remaining[k] = v
+	}
+	for _, list := range keys {
+		for _, key := range strings.Split(list, ",") {
+			delete(remaining, strings.TrimSpace(key))
+		}
+	}
+	s3ControlResourceTags.Put(arn, remaining)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleS3ControlListTagsForResource(w http.ResponseWriter, r *http.Request) {
+	account, arn := s3ControlAccountID(r), sim.PathParam(r, "resourceArn")
+	if !s3ControlTaggedResourceExists(account, arn) {
+		s3ControlError(w, "NotFoundException", "The specified resource does not exist", http.StatusNotFound)
+		return
+	}
+	tags, _ := s3ControlResourceTags.Get(arn)
+	s3ControlWriteTags(w, "ListTagsForResourceResult", "Tag", tags)
+}

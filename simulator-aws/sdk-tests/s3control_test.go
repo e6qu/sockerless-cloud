@@ -591,3 +591,64 @@ func TestS3Control_ListRegionalBuckets(t *testing.T) {
 	assert.Empty(t, onOutpost.RegionalBucketList,
 		"the account has no buckets on that Outpost")
 }
+
+// TestS3Control_ResourceTagging covers the tagging trio the control plane
+// shares across its resources, against a Storage Lens configuration. The three
+// operations are one path under three methods:
+// "POST /v20180820/tags/{resourceArn...}",
+// "GET /v20180820/tags/{resourceArn...}" and
+// "DELETE /v20180820/tags/{resourceArn...}".
+func TestS3Control_ResourceTagging(t *testing.T) {
+	sc := s3ControlClient()
+	configID := "sl-tagged"
+
+	_, err := sc.PutStorageLensConfiguration(ctx, &s3control.PutStorageLensConfigurationInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID),
+		StorageLensConfiguration: &s3ctypes.StorageLensConfiguration{
+			Id: aws.String(configID), IsEnabled: true,
+			AccountLevel: &s3ctypes.AccountLevel{BucketLevel: &s3ctypes.BucketLevel{}},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = sc.DeleteStorageLensConfiguration(ctx, &s3control.DeleteStorageLensConfigurationInput{
+			AccountId: aws.String(s3ObjectLambdaAccount), ConfigId: aws.String(configID)})
+	})
+	arn := fmt.Sprintf("arn:aws:s3:us-east-1:%s:storage-lens/%s", s3ObjectLambdaAccount, configID)
+
+	_, err = sc.TagResource(ctx, &s3control.TagResourceInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ResourceArn: aws.String(arn),
+		Tags: []s3ctypes.Tag{
+			{Key: aws.String("team"), Value: aws.String("storage")},
+			{Key: aws.String("tier"), Value: aws.String("gold")},
+		},
+	})
+	require.NoError(t, err)
+
+	listed, err := sc.ListTagsForResource(ctx, &s3control.ListTagsForResourceInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ResourceArn: aws.String(arn)})
+	require.NoError(t, err)
+	require.Len(t, listed.Tags, 2)
+
+	_, err = sc.UntagResource(ctx, &s3control.UntagResourceInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ResourceArn: aws.String(arn),
+		TagKeys: []string{"tier"}})
+	require.NoError(t, err)
+
+	remaining, err := sc.ListTagsForResource(ctx, &s3control.ListTagsForResourceInput{
+		AccountId: aws.String(s3ObjectLambdaAccount), ResourceArn: aws.String(arn)})
+	require.NoError(t, err)
+	require.Len(t, remaining.Tags, 1)
+	assert.Equal(t, "team", aws.ToString(remaining.Tags[0].Key))
+
+	// Tagging something that does not exist is refused rather than recorded
+	// against an ARN nothing can read back.
+	_, err = sc.TagResource(ctx, &s3control.TagResourceInput{
+		AccountId: aws.String(s3ObjectLambdaAccount),
+		ResourceArn: aws.String(fmt.Sprintf(
+			"arn:aws:s3:us-east-1:%s:storage-lens/never-created", s3ObjectLambdaAccount)),
+		Tags: []s3ctypes.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NotFoundException")
+}

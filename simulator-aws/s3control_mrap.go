@@ -178,7 +178,7 @@ func handleS3CreateMultiRegionAccessPoint(w http.ResponseWriter, r *http.Request
 func s3MultiRegionRegionsFrom(details s3ControlXMLNode) ([]S3MultiRegionAccessPointRegion, error) {
 	list, ok := details.Child("Regions")
 	if !ok || len(list.Children) == 0 {
-		return nil, fmt.Errorf("Regions is required")
+		return nil, fmt.Errorf("the endpoint must name at least one Region")
 	}
 	var regions []S3MultiRegionAccessPointRegion
 	for _, child := range list.Children {
@@ -199,7 +199,7 @@ func s3MultiRegionRegionsFrom(details s3ControlXMLNode) ([]S3MultiRegionAccessPo
 		})
 	}
 	if len(regions) == 0 {
-		return nil, fmt.Errorf("Regions is required")
+		return nil, fmt.Errorf("the endpoint must name at least one Region")
 	}
 	return regions, nil
 }

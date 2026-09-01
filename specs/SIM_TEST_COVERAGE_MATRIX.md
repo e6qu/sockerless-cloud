@@ -40,6 +40,12 @@ Legend:
 | `aws-route53` | direct | direct | direct | `simulator-aws/sdk-tests/route53_test.go`; `simulator-aws/cli-tests/route53_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-s3` | direct | direct | direct | `simulator-aws/sdk-tests/s3_test.go`; `simulator-aws/cli-tests/s3_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-s3-bucket-subresources` | direct | direct | direct | `simulator-aws/sdk-tests/s3_bucket_subresources_test.go`; `simulator-aws/cli-tests/s3_test.go`; `simulator-aws/terraform-tests/main.tf` |
+| `aws-s3_object_lambda` | direct | direct | direct | `simulator-aws/sdk-tests/s3_object_lambda_test.go`; `simulator-aws/cli-tests/s3control_test.go`; `simulator-aws/terraform-tests/s3control/main.tf` |
+| `aws-s3control_access_grants` | direct | direct | direct | `simulator-aws/sdk-tests/s3control_test.go`; `simulator-aws/cli-tests/s3control_test.go`; `simulator-aws/terraform-tests/s3control/main.tf` |
+| `aws-s3control_jobs` | direct | direct | not applicable | `simulator-aws/sdk-tests/s3control_test.go`; `simulator-aws/cli-tests/s3control_test.go`; the AWS provider has no S3 Batch Operations job resource — a job is a one-shot run, not a resource Terraform can own |
+| `aws-s3control_misc` | direct | direct | not applicable | `simulator-aws/sdk-tests/s3control_test.go`; `simulator-aws/cli-tests/s3control_test.go`; the AWS provider exposes no access point scope or regional-bucket listing resource |
+| `aws-s3control_mrap` | direct | direct | not applicable | `simulator-aws/sdk-tests/s3control_test.go`; `simulator-aws/cli-tests/s3control_test.go`; `aws_s3control_multi_region_access_point` addresses the cross-region control plane at `s3-control.us-west-2.amazonaws.com` regardless of the configured endpoint, so the provider cannot be pointed at this simulator for it |
+| `aws-s3control_storage_lens` | direct | direct | direct | `simulator-aws/sdk-tests/s3control_test.go`; `simulator-aws/cli-tests/s3control_test.go`; `simulator-aws/terraform-tests/s3control/main.tf` |
 | `aws-scheduler` | direct | direct | direct | `simulator-aws/sdk-tests/scheduler_test.go`; `simulator-aws/cli-tests/scheduler_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-s3-multipart` | direct | direct | not applicable | `simulator-aws/sdk-tests/s3_list_parts_test.go`; `simulator-aws/cli-tests/s3_test.go` |
 | `aws-secretsmanager` | direct | direct | direct | `simulator-aws/sdk-tests/secretsmanager_test.go`; `simulator-aws/cli-tests/secretsmanager_test.go`; `simulator-aws/terraform-tests/main.tf` |

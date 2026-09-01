@@ -98,6 +98,12 @@ The inventory is intentionally exhaustive rather than customer-report-driven. It
 | Amazon Simple Storage Service (S3) bucket subresources | [`aws-s3-bucket-subresources`](SIM_SURFACE_TABLES/aws-s3-bucket-subresources.md) | [`aws-s3-bucket-subresources`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon S3 multipart upload | [`aws-s3-multipart`](SIM_SURFACE_TABLES/aws-s3-multipart.md) | [`aws-s3-multipart`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon Simple Storage Service (S3) | [`aws-s3`](SIM_SURFACE_TABLES/aws-s3.md) | [`aws-s3`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon S3 Object Lambda | [`aws-s3_object_lambda`](SIM_SURFACE_TABLES/aws-s3_object_lambda.md) | [`aws-s3_object_lambda`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon S3 Access Grants | [`aws-s3control_access_grants`](SIM_SURFACE_TABLES/aws-s3control_access_grants.md) | [`aws-s3control_access_grants`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon S3 Batch Operations | [`aws-s3control_jobs`](SIM_SURFACE_TABLES/aws-s3control_jobs.md) | [`aws-s3control_jobs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon S3 access point scope, Outposts and directory-bucket listings | [`aws-s3control_misc`](SIM_SURFACE_TABLES/aws-s3control_misc.md) | [`aws-s3control_misc`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon S3 Multi-Region Access Points | [`aws-s3control_mrap`](SIM_SURFACE_TABLES/aws-s3control_mrap.md) | [`aws-s3control_mrap`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon S3 Storage Lens | [`aws-s3control_storage_lens`](SIM_SURFACE_TABLES/aws-s3control_storage_lens.md) | [`aws-s3control_storage_lens`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon EventBridge Scheduler | [`aws-scheduler`](SIM_SURFACE_TABLES/aws-scheduler.md) | [`aws-scheduler`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS Secrets Manager | [`aws-secretsmanager`](SIM_SURFACE_TABLES/aws-secretsmanager.md) | [`aws-secretsmanager`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon Simple Notification Service (SNS) | [`aws-sns`](SIM_SURFACE_TABLES/aws-sns.md) | [`aws-sns`](SIM_TEST_COVERAGE_MATRIX.md) |

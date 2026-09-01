@@ -1,6 +1,6 @@
 module github.com/e6qu/sockerless-cloud/simulator-gcp/sdk-tests
 
-go 1.26.0
+go 1.25.8
 
 require (
 	cloud.google.com/go/bigtable v1.53.0

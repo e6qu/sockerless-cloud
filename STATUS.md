@@ -91,7 +91,8 @@ Current state of the sockerless-cloud repository.
   module graphs; govulncheck clean).
 - **Measured floors** (re-read from the ratchets on 2026-09-01, because the
   figures written here had drifted from the tests that produce them): IAM
-  resource derivation **1,986 of 1,994** served operations;
+  resource derivation **2,000 of 2,008** served operations, the eight that
+  remain being requests that carry no resource to derive;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
   catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` **120 of 120**;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
@@ -146,7 +147,10 @@ Current state of the sockerless-cloud repository.
   credentials `GetDataAccess` vends by assuming the location's role, Storage
   Lens configurations and groups, Multi-Region Access Points with traffic dials
   and asynchronous request tokens, access point scopes, and the regional and
-  directory-bucket listings.
+  directory-bucket listings. Every one of those surfaces carries SDK and AWS
+  CLI coverage, and a Terraform fixture applies and destroys the access point,
+  the Object Lambda access point, the Storage Lens dashboard and the Access
+  Grants instance through terraform-provider-aws.
 - **A served count is not proof a handler exists.** The Google Cloud coverage
   probe classifies any handler answer as served, so a collection swallowed by
   a multi-segment wildcard route counts as covered while unimplemented. Cloud

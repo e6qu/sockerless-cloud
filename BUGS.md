@@ -1,30 +1,8 @@
 # BUGS
 
-Open: 6. Resolved: 86.
+Open: 5. Resolved: 87.
 
 ## Open
-
-- **BUG-2961 (a Cloud Build cancel test fails only inside the full suite, and
-  only sometimes):** `TestSDK_CloudBuild_CancelStopsARunningBuild` failed once
-  in a full local `simulator-gcp/sdk-tests` run on 2026-09-01, taking 30.27s;
-  the same binary passed it in 0.27s run alone, in 0.27s run with the rest of
-  its file, and passed the whole suite again on the next run at 120.7s. Nothing
-  in that pass touched Cloud Build.
-
-  What the timing says: the test's own waits are 120s each, so 30s is not one
-  of them expiring — an assertion failed, or a call errored, roughly thirty
-  seconds in. The test drives a real `docker build` of
-  `FROM alpine:latest / RUN sleep 3600` and waits for the build and then its
-  first step to report WORKING, so the thirty seconds is most likely spent in
-  the engine: a pull, or a build starved of I/O while the rest of the suite
-  runs its own containers.
-
-  It has not been reproduced, so the cause is not known and the failing output
-  was not captured — the grep that found it kept only the summary line. Next
-  step is to run the full suite with `-v` until it recurs and keep the whole
-  failure, rather than guess from the shape. Do not paper over it with a
-  retry: the suite runs real containers deliberately, and a cancel that cannot
-  be trusted under load is the thing the test exists to catch.
 
 - **BUG-2960 (a query-protocol answer can invent the row it hands back, and
   the surface tables can already point at every candidate):**
@@ -392,6 +370,30 @@ Open: 6. Resolved: 86.
 
 
 ## Resolved history
+
+- ~~**BUG-2961 (a Cloud Build cancel test fails only inside the full suite, and
+  only sometimes):**~~ `TestSDK_CloudBuild_CancelStopsARunningBuild` failed
+  after exactly 30 seconds — its own deadline for the create call to come back
+  — with the build already recorded CANCELLED. Reproducing it with the whole
+  output kept named the defect: the cancel stopped the client, not the work.
+  A build step ran under `exec.CommandContext`, which kills the docker CLI on
+  cancel, and `docker buildx` hands the build to buildkit and only tells
+  buildkit to stop when the CLI unwinds — which it does on an interrupt, never
+  on a kill. Worse, a killed CLI can leave a child holding the write end of the
+  output pipe, so `Wait` blocks after the process is gone and the call that
+  started the build hangs for the length of the build. Every docker invocation
+  a Cloud Build step makes now goes through one helper that interrupts on
+  cancel and bounds the unwind with `WaitDelay`, so the engine is told to stop
+  and the blocked call returns. Two full verbose suite runs after the fix, plus
+  three isolated runs, all passed it.
+
+  The same investigation separated a second cause that had been mistaken for
+  the same flake: three unrelated tests failed in one of those runs with
+  `Stopping 'podman.service', but its triggering units are still active`. That
+  is the local Podman machine going down mid-run, not the simulator — it takes
+  out whatever is running at the time, so it looks like a different flake each
+  time. A failure that names podman.service is a host condition; read the whole
+  output before treating one as a defect.
 
 - ~~**BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
   not chosen):**~~ The callback an AWS Lambda transformation function makes to

@@ -72,6 +72,38 @@ about something real:
   `text/plain` body as malformed XML. It now resolves a host-addressed data
   plane by what it serves, and checks the read as `GetObject`.
 
+Two more defects came out of verifying it. A cancelled Cloud Build stopped the
+docker CLI and not the build: `exec.CommandContext` kills, and `docker buildx`
+only tells buildkit to stop when the CLI unwinds on an interrupt — and a killed
+CLI can leave a child holding the output pipe, so the call that started the
+build blocks after the process is gone. Every docker invocation a build step
+makes now interrupts on cancel and bounds the unwind with `WaitDelay`. And the
+S3 control plane's shared tagging trio was unserved, which the Terraform
+provider found the moment it read a bucket's tags through `s3control`.
+
+The new surface carries the full testing contract: SDK, AWS CLI, and a
+Terraform fixture that applies a bucket, an access point, an Object Lambda
+access point over a real transformation function, a Storage Lens dashboard, and
+an Access Grants instance with a location and a grant — then destroys them in
+dependency order. Reaching it needed one harness addition: every s3control
+operation is addressed by account id as a modeled host prefix, so the provider
+builds and signs a host that an IP-literal endpoint cannot resolve. The fixture
+routes through the simulator as a proxy, which changes where the bytes land and
+nothing about the request — the same coordinate substitution the CLI suite
+already uses for Cloud Map's data plane.
+
+Re-vendoring the drifted models brought a new AWS surface with it, and the
+conformance ratchets refused to let it pass unserved: Amazon Kinesis Data
+Streams grew a channels family — a managed delivery of one or more streams'
+records into Amazon S3 or S3 Tables. All five operations are served over real
+state. A channel exists only over streams and a service execution role that
+exist, it delivers to exactly one destination, an update may change only what
+that destination has, and the listing's stream filter selects on the streams a
+channel actually reads. Resource-derivation coverage rose with the refreshed
+service references, from 1,986 to 2,000 of 2,008 served operations; the eight
+that remain are the same eight the floor comment already names, where the
+request carries no resource to derive.
+
 Two divergences the validator's own dimensions caught are fixed rather than
 allowlisted: Azure's `partnerRegistrations` create answered 201 where its
 Swagger declares 200 and 202, and the s3-control deletes answered 204 where the

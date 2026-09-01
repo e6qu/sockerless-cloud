@@ -17,18 +17,18 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `PUT /v20180820/storagelens/{configId}` | ✓ `simulator-aws/s3control_storage_lens.go:54::handleS3PutStorageLensConfiguration` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/storagelens/{configId}` | ✓ `simulator-aws/s3control_storage_lens.go:55::handleS3GetStorageLensConfiguration` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `DELETE /v20180820/storagelens/{configId}` | ✓ `simulator-aws/s3control_storage_lens.go:56::handleS3DeleteStorageLensConfiguration` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/storagelens` | ✓ `simulator-aws/s3control_storage_lens.go:57::handleS3ListStorageLensConfigurations` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `PUT /v20180820/storagelens/{configId}/tagging` | ✓ `simulator-aws/s3control_storage_lens.go:58::handleS3PutStorageLensConfigurationTagging` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/storagelens/{configId}/tagging` | ✓ `simulator-aws/s3control_storage_lens.go:59::handleS3GetStorageLensConfigurationTagging` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `DELETE /v20180820/storagelens/{configId}/tagging` | ✓ `simulator-aws/s3control_storage_lens.go:60::handleS3DeleteStorageLensConfigurationTagging` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `POST /v20180820/storagelensgroup` | ✓ `simulator-aws/s3control_storage_lens.go:62::handleS3CreateStorageLensGroup` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/storagelensgroup/{name}` | ✓ `simulator-aws/s3control_storage_lens.go:63::handleS3GetStorageLensGroup` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `PUT /v20180820/storagelensgroup/{name}` | ✓ `simulator-aws/s3control_storage_lens.go:64::handleS3UpdateStorageLensGroup` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `DELETE /v20180820/storagelensgroup/{name}` | ✓ `simulator-aws/s3control_storage_lens.go:65::handleS3DeleteStorageLensGroup` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/storagelensgroup` | ✓ `simulator-aws/s3control_storage_lens.go:66::handleS3ListStorageLensGroups` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
+| `PUT /v20180820/storagelens/{configId}` | ✓ `simulator-aws/s3control_storage_lens.go:54::handleS3PutStorageLensConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/storagelens/{configId}` | ✓ `simulator-aws/s3control_storage_lens.go:55::handleS3GetStorageLensConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v20180820/storagelens/{configId}` | ✓ `simulator-aws/s3control_storage_lens.go:56::handleS3DeleteStorageLensConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/storagelens` | ✓ `simulator-aws/s3control_storage_lens.go:57::handleS3ListStorageLensConfigurations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v20180820/storagelens/{configId}/tagging` | ✓ `simulator-aws/s3control_storage_lens.go:58::handleS3PutStorageLensConfigurationTagging` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/storagelens/{configId}/tagging` | ✓ `simulator-aws/s3control_storage_lens.go:59::handleS3GetStorageLensConfigurationTagging` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v20180820/storagelens/{configId}/tagging` | ✓ `simulator-aws/s3control_storage_lens.go:60::handleS3DeleteStorageLensConfigurationTagging` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v20180820/storagelensgroup` | ✓ `simulator-aws/s3control_storage_lens.go:62::handleS3CreateStorageLensGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/storagelensgroup/{name}` | ✓ `simulator-aws/s3control_storage_lens.go:63::handleS3GetStorageLensGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v20180820/storagelensgroup/{name}` | ✓ `simulator-aws/s3control_storage_lens.go:64::handleS3UpdateStorageLensGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v20180820/storagelensgroup/{name}` | ✓ `simulator-aws/s3control_storage_lens.go:65::handleS3DeleteStorageLensGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/storagelensgroup` | ✓ `simulator-aws/s3control_storage_lens.go:66::handleS3ListStorageLensGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

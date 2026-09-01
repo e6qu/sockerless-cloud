@@ -96,6 +96,8 @@ func registerKinesis(r *sim.AWSRouter, srv *sim.Server) {
 	kinesisConsumers = sim.MakeStore[KinesisConsumer](srv.DB(), "kinesis_consumers")
 	kinesisAccount = sim.MakeStore[KinesisAccountSettings](srv.DB(), "kinesis_account_settings")
 
+	registerKinesisChannels(r, srv)
+
 	r.Register("Kinesis_20131202.CreateStream", handleKinesisCreateStream)
 	r.Register("Kinesis_20131202.DeleteStream", handleKinesisDeleteStream)
 	r.Register("Kinesis_20131202.DescribeStream", handleKinesisDescribeStream)

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -112,6 +113,21 @@ func registerS3ControlAccessGrants(srv *sim.Server) {
 	srv.HandleFunc("GET /v20180820/accessgrantsinstance/dataaccess", handleS3GetDataAccess)
 }
 
+// s3ControlOptionalXMLBody reads a request document that the operation does
+// not require. An absent or unreadable body is an empty document rather than
+// an error, because there is nothing in it the operation needs.
+func s3ControlOptionalXMLBody(r *http.Request) s3ControlXMLNode {
+	body, err := io.ReadAll(r.Body)
+	if err != nil || len(body) == 0 {
+		return s3ControlXMLNode{}
+	}
+	var node s3ControlXMLNode
+	if xml.Unmarshal(body, &node) != nil {
+		return s3ControlXMLNode{}
+	}
+	return node
+}
+
 // s3AccessGrantsNoInstance answers the error every Access Grants operation
 // returns before the account has an instance.
 func s3AccessGrantsNoInstance(w http.ResponseWriter) {
@@ -126,7 +142,10 @@ func handleS3CreateAccessGrantsInstance(w http.ResponseWriter, r *http.Request) 
 			"Access Grants Instance already exists", http.StatusConflict)
 		return
 	}
-	body, _ := s3ControlReadXMLBody(w, r, "CreateAccessGrantsInstanceRequest")
+	// Every member of this request is optional, so a create with no body is a
+	// valid create of an instance with no Identity Center association and no
+	// tags — which is what the CLI sends when neither is given.
+	body := s3ControlOptionalXMLBody(r)
 	instance := S3AccessGrantsInstance{
 		AccountID: account, InstanceID: "default",
 		CreatedAt:         time.Now().UTC().Format(time.RFC3339),

@@ -17,14 +17,14 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v20180820/jobs` | ✓ `simulator-aws/s3control_jobs.go:54::handleS3CreateJob` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/jobs` | ✓ `simulator-aws/s3control_jobs.go:55::handleS3ListJobs` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/jobs/{jobId}` | ✓ `simulator-aws/s3control_jobs.go:56::handleS3DescribeJob` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `POST /v20180820/jobs/{jobId}/priority` | ✓ `simulator-aws/s3control_jobs.go:57::handleS3UpdateJobPriority` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `POST /v20180820/jobs/{jobId}/status` | ✓ `simulator-aws/s3control_jobs.go:58::handleS3UpdateJobStatus` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `PUT /v20180820/jobs/{jobId}/tagging` | ✓ `simulator-aws/s3control_jobs.go:59::handleS3PutJobTagging` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/jobs/{jobId}/tagging` | ✓ `simulator-aws/s3control_jobs.go:60::handleS3GetJobTagging` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `DELETE /v20180820/jobs/{jobId}/tagging` | ✓ `simulator-aws/s3control_jobs.go:61::handleS3DeleteJobTagging` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
+| `POST /v20180820/jobs` | ✓ `simulator-aws/s3control_jobs.go:54::handleS3CreateJob` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/jobs` | ✓ `simulator-aws/s3control_jobs.go:55::handleS3ListJobs` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/jobs/{jobId}` | ✓ `simulator-aws/s3control_jobs.go:56::handleS3DescribeJob` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v20180820/jobs/{jobId}/priority` | ✓ `simulator-aws/s3control_jobs.go:57::handleS3UpdateJobPriority` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v20180820/jobs/{jobId}/status` | ✓ `simulator-aws/s3control_jobs.go:58::handleS3UpdateJobStatus` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PUT /v20180820/jobs/{jobId}/tagging` | ✓ `simulator-aws/s3control_jobs.go:59::handleS3PutJobTagging` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/jobs/{jobId}/tagging` | ✓ `simulator-aws/s3control_jobs.go:60::handleS3GetJobTagging` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `DELETE /v20180820/jobs/{jobId}/tagging` | ✓ `simulator-aws/s3control_jobs.go:61::handleS3DeleteJobTagging` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -1893,7 +1893,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // asked to match; ListIntegrationResourceProperties declares four types and
 // its input is Filters, Marker and MaxRecords. Deriving a resource for any of
 // the eight means inventing the association AWS's own model does not state.
-const iamDerivationCoverageFloor = 1986
+const iamDerivationCoverageFloor = 2000
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

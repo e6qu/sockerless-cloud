@@ -17,16 +17,16 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v20180820/async-requests/mrap/create` | ✓ `simulator-aws/s3control_mrap.go:73::handleS3CreateMultiRegionAccessPoint` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `POST /v20180820/async-requests/mrap/delete` | ✓ `simulator-aws/s3control_mrap.go:74::handleS3DeleteMultiRegionAccessPoint` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `POST /v20180820/async-requests/mrap/put-policy` | ✓ `simulator-aws/s3control_mrap.go:75::handleS3PutMultiRegionAccessPointPolicy` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/async-requests/mrap/{token...}` | ✓ `simulator-aws/s3control_mrap.go:76::handleS3DescribeMultiRegionAccessPointOperation` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/mrap/instances` | ✓ `simulator-aws/s3control_mrap.go:78::handleS3ListMultiRegionAccessPoints` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/mrap/instances/{name}` | ✓ `simulator-aws/s3control_mrap.go:79::handleS3GetMultiRegionAccessPoint` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/mrap/instances/{name}/policy` | ✓ `simulator-aws/s3control_mrap.go:80::handleS3GetMultiRegionAccessPointPolicy` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/mrap/instances/{name}/policystatus` | ✓ `simulator-aws/s3control_mrap.go:81::handleS3GetMultiRegionAccessPointPolicyStatus` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `GET /v20180820/mrap/instances/{name}/routes` | ✓ `simulator-aws/s3control_mrap.go:82::handleS3GetMultiRegionAccessPointRoutes` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
-| `PATCH /v20180820/mrap/instances/{name}/routes` | ✓ `simulator-aws/s3control_mrap.go:83::handleS3SubmitMultiRegionAccessPointRoutes` | ✗ (coverage matrix row missing) | ✗ (coverage matrix row missing) | n/a | |
+| `POST /v20180820/async-requests/mrap/create` | ✓ `simulator-aws/s3control_mrap.go:73::handleS3CreateMultiRegionAccessPoint` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v20180820/async-requests/mrap/delete` | ✓ `simulator-aws/s3control_mrap.go:74::handleS3DeleteMultiRegionAccessPoint` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v20180820/async-requests/mrap/put-policy` | ✓ `simulator-aws/s3control_mrap.go:75::handleS3PutMultiRegionAccessPointPolicy` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/async-requests/mrap/{token...}` | ✓ `simulator-aws/s3control_mrap.go:76::handleS3DescribeMultiRegionAccessPointOperation` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/mrap/instances` | ✓ `simulator-aws/s3control_mrap.go:78::handleS3ListMultiRegionAccessPoints` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/mrap/instances/{name}` | ✓ `simulator-aws/s3control_mrap.go:79::handleS3GetMultiRegionAccessPoint` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/mrap/instances/{name}/policy` | ✓ `simulator-aws/s3control_mrap.go:80::handleS3GetMultiRegionAccessPointPolicy` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/mrap/instances/{name}/policystatus` | ✓ `simulator-aws/s3control_mrap.go:81::handleS3GetMultiRegionAccessPointPolicyStatus` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v20180820/mrap/instances/{name}/routes` | ✓ `simulator-aws/s3control_mrap.go:82::handleS3GetMultiRegionAccessPointRoutes` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /v20180820/mrap/instances/{name}/routes` | ✓ `simulator-aws/s3control_mrap.go:83::handleS3SubmitMultiRegionAccessPointRoutes` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 
