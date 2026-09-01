@@ -297,19 +297,24 @@ func handleSSMGetDefaultPatchBaseline(w http.ResponseWriter, r *http.Request) {
 	if os == "" {
 		os = "WINDOWS"
 	}
-	var id string
-	if def, ok := ssmDefaultBaselines.Get(os); ok {
-		id = def.BaselineId
-	} else {
-		// Real SSM always has an AWS-managed default per OS. Synthesize a
-		// deterministic AWS-managed default ID so callers that never
-		// registered one still get a baseline, matching real behavior.
-		id = "arn:aws:ssm:" + awsRegion() + ":" + awsAccountID() + ":patchbaseline/pb-aws-default-" + os
-	}
+	id := ssmDefaultBaselineID(os)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"BaselineId":      id,
 		"OperatingSystem": os,
 	})
+}
+
+// ssmDefaultBaselineID resolves the baseline a default read answers with for an
+// operating system. Shared with the IAM derivation, which authorizes that read
+// against the same baseline the read returns — two answers to one question
+// have to come from one place.
+func ssmDefaultBaselineID(os string) string {
+	if def, ok := ssmDefaultBaselines.Get(os); ok && def.BaselineId != "" {
+		return def.BaselineId
+	}
+	// Real SSM always has an AWS-managed default per OS, so a caller that
+	// registered none still gets a baseline.
+	return "arn:aws:ssm:" + awsRegion() + ":" + awsAccountID() + ":patchbaseline/pb-aws-default-" + os
 }
 
 func handleSSMRegisterDefaultPatchBaseline(w http.ResponseWriter, r *http.Request) {

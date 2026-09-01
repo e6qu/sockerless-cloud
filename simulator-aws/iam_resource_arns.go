@@ -1213,6 +1213,22 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			sort.Strings(out)
 			return out
 		}
+	case "AcceptAddressTransfer":
+		// The transfer is accepted by naming the address itself, and the
+		// elastic IP that address belongs to is what the call authorizes
+		// against. The address is not the ARN's identifier — the allocation is
+		// — so the record is recovered through an index keyed on the address.
+		var out []string
+		for _, address := range lookup("Address") {
+			if held, ok := iamEC2ElasticIPsByAddress.Lookup(
+				ec2ElasticIPs, address, iamEC2ElasticIPAddressKeys); ok && held.AllocationId != "" {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":elastic-ip/"+held.AllocationId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
 	case "DisassociateAddress":
 		var out []string
 		for _, assoc := range lookup("AssociationId") {
@@ -1343,6 +1359,7 @@ var (
 	iamEC2RouteTablesByAssociation sim.GenerationIndex[EC2RouteTable]
 	iamEC2ElasticIPsByAssociation  sim.GenerationIndex[EC2ElasticIP]
 	iamEC2InterfacesByAttachment   sim.GenerationIndex[EC2NetworkInterface]
+	iamEC2ElasticIPsByAddress      sim.GenerationIndex[EC2ElasticIP]
 
 	// AWS Systems Manager names a maintenance window's execution by an id
 	// derived from the window's own, so the window is recoverable from it —
@@ -2204,6 +2221,18 @@ func iamSSMResourceARNs(r *http.Request, types []string, region, account string)
 	if iamHasType(types, "instance") || iamHasType(types, "managed-instance") {
 		if arns := iamSSMInstanceARNs(fields, region, account); len(arns) > 0 {
 			return arns
+		}
+	}
+	// Reading the default patch baseline names the operating system, and the
+	// baseline that default resolves to is what the read authorizes against —
+	// the same resolution the read itself performs, so the two cannot disagree.
+	if iamHasType(types, "patchbaseline") && ssmDefaultBaselines != nil {
+		if systems := fields["operatingsystem"]; len(systems) > 0 && systems[0] != "" {
+			id := ssmDefaultBaselineID(systems[0])
+			if strings.HasPrefix(id, "arn:") {
+				return []string{id}
+			}
+			return []string{"arn:aws:ssm:" + region + ":" + account + ":patchbaseline/" + id}
 		}
 	}
 	// Cancelling a maintenance window's execution names the execution, and the
@@ -3085,4 +3114,13 @@ func iamAutoScalingGroupInstanceKeys(group AutoScalingGroup) []string {
 		}
 	}
 	return keys
+}
+
+// iamEC2ElasticIPAddressKeys names an elastic IP by the address it carries,
+// which is what an address transfer names it by.
+func iamEC2ElasticIPAddressKeys(address EC2ElasticIP) []string {
+	if address.PublicIp == "" {
+		return nil
+	}
+	return []string{address.PublicIp}
 }

@@ -61,6 +61,12 @@ func iamSeedDerivationFixtures(t *testing.T,
 		`<associationId>([^<]+)</associationId>`)
 	out["ec2:DisassociateAddress:AssociationId"] = addressAssociation
 
+	// The address itself, which an address transfer names instead of the
+	// allocation the ARN is built from.
+	publicIP := iamFixtureEC2(t, queryRouter, "DescribeAddresses",
+		map[string]string{"AllocationId.1": allocation}, `<publicIp>([^<]+)</publicIp>`)
+	out["ec2:AcceptAddressTransfer:Address"] = publicIP
+
 	// An interface's attachment, which the detach names. Attaching one needs a
 	// machine to attach it to.
 	instance := iamFixtureEC2(t, queryRouter, "RunInstances",
