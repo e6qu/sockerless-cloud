@@ -347,6 +347,10 @@ type gcpProbeResult struct {
 	// why names the arm of gcpClassifyProbe that decided, with the status
 	// code and the response excerpt it decided on.
 	why string
+	// status is what the simulator answered, which separates the one unserved
+	// answer that is a declaration — a 501 naming what is missing — from a mux
+	// miss, an unknown verb, and a 500.
+	status int
 }
 
 // gcpCoverageProbe drives the in-process simulator.
@@ -432,15 +436,15 @@ func gcpClassifyProbe(status int, body string) gcpProbeResult {
 	}
 	switch {
 	case status == http.StatusNotFound && strings.HasPrefix(body, gcpMuxMissBody):
-		return gcpProbeResult{served: false, why: "mux miss: no pattern matches the URI"}
+		return gcpProbeResult{served: false, status: status, why: "mux miss: no pattern matches the URI"}
 	case status == http.StatusMethodNotAllowed && strings.HasPrefix(body, gcpMuxMethodMissBody):
-		return gcpProbeResult{served: false, why: "mux miss: no pattern for this HTTP method"}
+		return gcpProbeResult{served: false, status: status, why: "mux miss: no pattern for this HTTP method"}
 	case gcpUnknownMethodError.MatchString(body):
-		return gcpProbeResult{served: false, why: "handler reports the method/verb as unknown: " + excerpt}
+		return gcpProbeResult{served: false, status: status, why: "handler reports the method/verb as unknown: " + excerpt}
 	case status >= http.StatusInternalServerError:
-		return gcpProbeResult{served: false, why: "handler failed with " + http.StatusText(status) + ": " + excerpt}
+		return gcpProbeResult{served: false, status: status, why: "handler failed with " + http.StatusText(status) + ": " + excerpt}
 	}
-	return gcpProbeResult{served: true, why: "handler answered " + http.StatusText(status) + ": " + excerpt}
+	return gcpProbeResult{served: true, status: status, why: "handler answered " + http.StatusText(status) + ": " + excerpt}
 }
 
 // probe sends one request through the simulator and classifies the response.
@@ -780,6 +784,13 @@ func (p *gcpCoverageProbe) methodServed(d *discoveryDoc, m discoveryMethod) gcpP
 
 // docCoverage returns the served count for one Discovery document.
 func (p *gcpCoverageProbe) docCoverage(d *discoveryDoc) (served int, unserved []string) {
+	served, unserved, _ = p.docCoverageDetail(d)
+	return served, unserved
+}
+
+// docCoverageDetail also reports the unserved spellings that did not declare
+// themselves with a 501 — a mux miss, an unknown verb, or a 500.
+func (p *gcpCoverageProbe) docCoverageDetail(d *discoveryDoc) (served int, unserved, silent []string) {
 	for _, m := range d.Methods {
 		res := p.methodServed(d, m)
 		if res.served {
@@ -787,9 +798,13 @@ func (p *gcpCoverageProbe) docCoverage(d *discoveryDoc) (served int, unserved []
 			continue
 		}
 		unserved = append(unserved, m.HTTPMethod+" "+m.Path+"  ("+res.why+")")
+		if res.status != http.StatusNotImplemented {
+			silent = append(silent, m.HTTPMethod+" "+m.Path+"  ("+res.why+")")
+		}
 	}
 	sort.Strings(unserved)
-	return served, unserved
+	sort.Strings(silent)
+	return served, unserved, silent
 }
 
 // TestServiceConformance_GCPCoverageProbeIsSound guards the probe itself: a
@@ -881,6 +896,28 @@ func TestServiceConformance_GCPCoverageFloor(t *testing.T) {
 // The reserved-expansion shape rule, pinned by the three patterns Google
 // writes: one that names its segments, one that constrains a single segment,
 // and one that permits a resource path while describing none of it.
+// Every method spelling this simulator does not serve says so with a 501
+// naming what is missing. The floor counts unserved spellings without caring
+// why, so a gap that stopped declaring itself — a route that went away and now
+// answers the mux's 404, or a verb the dispatcher no longer knows — would hold
+// the count and lose the declaration, and a client cannot tell a routing 404
+// from a resource that does not exist.
+func TestServiceConformance_GCPUnservedMethodsDeclareThemselves(t *testing.T) {
+	p := newGCPCoverageProbe(t)
+	var silent []string
+	for _, d := range loadDiscoveryDocs(t) {
+		_, _, quiet := p.docCoverageDetail(d)
+		for _, m := range quiet {
+			silent = append(silent, strings.TrimSuffix(d.File, ".discovery.json.gz")+": "+m)
+		}
+	}
+	if len(silent) > 0 {
+		sort.Strings(silent)
+		t.Errorf("%d unserved method spelling(s) answered something other than a declared 501:\n  %s",
+			len(silent), strings.Join(silent, "\n  "))
+	}
+}
+
 func TestServiceConformance_GCPShapelessPatternsAreOnlyTheSlashPermittingOnes(t *testing.T) {
 	shapeless := []string{
 		// compute reservationSubBlocks {+parentResource}

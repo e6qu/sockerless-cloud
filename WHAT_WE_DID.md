@@ -60,6 +60,16 @@ ruleset that produced it through an index keyed on the profile. Only the
 identifier is modelled: the profile's statistics would come from analysing the
 data source, which the evaluation does not read.
 
+Both remaining-gap properties are now gates rather than observations. The
+coverage floors count unserved operations without caring why, so a gap that
+stopped declaring itself — a route that went away and now answers the mux's
+404, or one the probe can no longer address — would hold the count and lose the
+declaration, and a client cannot tell a routing 404 from a resource that does
+not exist. `TestServiceConformance_GCPUnservedMethodsDeclareThemselves` and
+`TestServiceConformance_AzureUnservedOperationsDeclareThemselves` fail on any
+unserved operation answering something other than a 501; each was checked
+against a removed route before being trusted.
+
 What is left is eight operations across two services, and all eight are the
 request naming no resource. Amazon CloudWatch's three metric operations declare
 a dataset while naming a namespace, dimensions or metric queries; AWS Glue's

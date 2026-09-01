@@ -1117,6 +1117,13 @@ type azureCoverage struct {
 	total    map[string]int
 	unserved map[string][]string
 	findings []string
+	// silent holds every unserved operation that did not answer a declared
+	// 501. An operation this simulator does not serve has to say so: a routing
+	// 404 claims the resource is absent, and a path the probe could not
+	// synthesize claims nothing at all. Both read to a client as an answer,
+	// and both keep the count at its floor while the reason for the gap has
+	// changed underneath it.
+	silent []string
 }
 
 func azureProbeCoverage(t *testing.T) *azureCoverage {
@@ -1212,6 +1219,11 @@ func azureProbeCoverage(t *testing.T) *azureCoverage {
 		case !res.served:
 			cov.unserved[name] = append(cov.unserved[name],
 				fmt.Sprintf("%s → probed %s: %s", label, res.path, res.reason))
+			if res.status != http.StatusNotImplemented {
+				cov.silent = append(cov.silent,
+					fmt.Sprintf("%s: %s → probed %s: answered %d, not a declared 501: %s",
+						name, label, res.path, res.status, res.reason))
+			}
 		case res.panicked:
 			cov.impl[name]++
 			cov.findings = append(cov.findings,
@@ -1228,6 +1240,7 @@ func azureProbeCoverage(t *testing.T) *azureCoverage {
 		sort.Strings(cov.unserved[name])
 	}
 	sort.Strings(cov.findings)
+	sort.Strings(cov.silent)
 	return cov
 }
 
@@ -1310,6 +1323,20 @@ func TestServiceConformance_AzureCoverageFloor(t *testing.T) {
 // problems probing exposes in handlers that ARE mounted: a panic, or a 5xx.
 // A mounted-but-broken handler still counts toward coverage — it is reached —
 // so without this gate the coverage number would hide it.
+// Every operation this simulator does not serve says so with a declared 501
+// naming what is missing. The floor counts unserved operations without caring
+// why, so a gap that stopped declaring itself — a route that went away and now
+// answers the mux's 404, or one the probe can no longer address — would hold
+// the count and lose the declaration. A client cannot tell a 404 that means
+// "not implemented here" from one that means "this resource does not exist".
+func TestServiceConformance_AzureUnservedOperationsDeclareThemselves(t *testing.T) {
+	cov := azureProbeCoverage(t)
+	if len(cov.silent) > 0 {
+		t.Errorf("%d unserved operation(s) answered something other than a declared 501:\n  %s",
+			len(cov.silent), strings.Join(cov.silent, "\n  "))
+	}
+}
+
 func TestServiceConformance_AzureProbedHandlersAreHealthy(t *testing.T) {
 	cov := azureProbeCoverage(t)
 	if len(cov.findings) > 0 {

@@ -114,12 +114,18 @@ Current state of the sockerless-cloud repository.
   vendored models are implemented or exempt in full, the exemptions being S3
   Object Lambda's callback and S3 Express One Zone's two off-endpoint
   operations.
-- **No silent gap in either declared surface.** Every one of Google Cloud's
-  5,480 Discovery method spellings reaches a handler: the probe reports **zero
-  mux misses** across all thirty documents, the last of them closed when
-  Compute Engine's host methods were served. Every one of Azure's 15 unserved
-  operations answers a declared 501 naming what is missing — none answers a
-  routing 404, and none answers with invented data. What remains unserved in
+- **No silent gap in either declared surface, and a gate holds it.** Every one
+  of Google Cloud's 5,480 Discovery method spellings reaches a handler: the
+  probe reports **zero mux misses** across all thirty documents, the last of
+  them closed when Compute Engine's host methods were served. Every one of
+  Azure's 15 unserved operations answers a declared 501 naming what is missing
+  — none answers a routing 404, and none answers with invented data. Both
+  properties are asserted rather than observed:
+  `TestServiceConformance_GCPUnservedMethodsDeclareThemselves` and
+  `TestServiceConformance_AzureUnservedOperationsDeclareThemselves` fail on any
+  unserved operation that answers something other than a 501. The floor alone
+  could not catch it — a route that goes away stays unserved, so the count
+  holds while the declaration is lost. What remains unserved in
   both is a published catalog or a proprietary dataset: Microsoft's runtime
   stacks, its Resource Health Check policy, its advisory copy and platform
   php.ini; Google's interconnect locations, its physical link diagnostics, and
