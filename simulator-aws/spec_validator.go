@@ -489,6 +489,34 @@ func validateSmithyValue(idx *smithyModelIndex, op, shapeID, path string, v any,
 			}
 			validateSmithyValue(idx, op, ref.Target, path+"."+key, val, out)
 		}
+		// A member the model marks required and the response omits. A
+		// generated client dereferences it without checking, so the omission
+		// is a wire-contract break rather than a missing nicety — and it is
+		// the one shape the field walk above cannot see, because it can only
+		// look at keys that are there. A union carries exactly one of its
+		// members, so required does not apply to it.
+		if shape.Type == "structure" {
+			for name, ref := range shape.Members {
+				if _, isRequired := ref.Traits["smithy.api#required"]; !isRequired {
+					continue
+				}
+				wire := name
+				if raw, ok := ref.Traits["smithy.api#jsonName"]; ok {
+					var alias string
+					if json.Unmarshal(raw, &alias) == nil && alias != "" {
+						wire = alias
+					}
+				}
+				if _, present := obj[name]; present {
+					continue
+				}
+				if _, present := obj[wire]; present {
+					continue
+				}
+				*out = append(*out, sim.SpecViolation{Op: op, Kind: "missing-required",
+					Field: path + "." + name, Detail: shapeID + " declares this member required"})
+			}
+		}
 	case "list", "set":
 		arr, ok := v.([]any)
 		if !ok {

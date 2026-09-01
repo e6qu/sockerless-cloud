@@ -165,6 +165,28 @@ rule, and registering clears it. The subscription-scoped provider listing built
 its own answer with the state hardcoded, so it disagreed with the single read
 the moment that read began telling the truth; both go through one function.
 
+The AWS response validator learned the one omission it could not see. It
+checked every field a response carries — the type, the pattern, whether the
+model declares it at all — and nothing about a field the response leaves out,
+because a walk over the keys that are there cannot see the ones that are not. A
+member the model marks required and the response omits is a wire break: a
+generated client dereferences it without checking. Across the whole AWS SDK
+suite that found four:
+
+`ValidateStateMachineDefinition` omitted `diagnostics` when the definition was
+valid — no diagnostics is a list of none, not an absent list. Amazon ECS threw
+away a capacity provider's auto scaling group ARN on every update, because
+`AutoScalingGroupProviderUpdate` carries only the settings that can change and
+the simulator stored it over the whole provider; the update's members are
+merged now, so the provider that comes back is still attached to its group.
+Application Auto Scaling's scalable targets carried no `RoleARN` unless the
+caller passed one — and the model's own documentation says what the service
+does instead: it uses a service-linked role, creating it if it does not exist.
+So the register creates one, through this account's IAM where a caller can then
+read it, rather than the describe answering without a member a client reads.
+And AWS Glue's session endpoint omitted its `AuthToken`, one of three required
+members of the endpoint it describes; it issues the session's own.
+
 Three Google Discovery documents were re-vendored, which the freshness check
 had been asking for: `iam-v1` and `redis-v1` at revision 20260828 and
 `firestore-v1` at 20260826. Both of the first two were inherited drift — the
