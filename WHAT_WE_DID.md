@@ -60,6 +60,20 @@ ruleset that produced it through an index keyed on the profile. Only the
 identifier is modelled: the profile's statistics would come from analysing the
 data source, which the evaluation does not read.
 
+A purchase that sold nothing was fixed, and the machinery that finds its kind
+was written down. `PurchaseReservedCacheNodesOffering` accepted any offering
+id, ignored it, and answered with terms of its own — `cache.t3.micro`, `redis`,
+`0.018` an hour — whatever was asked for, and stored nothing, so the
+reservation it reported could never be read back. The offerings a read answers
+with and the offerings a purchase can be made against are one table now, a
+reservation carries that offering's terms, it is stored and readable, and an id
+no offering answers to is refused the way the service refuses one.
+`scripts/classify-sim-handlers.go` already marks every handler that answers
+without reaching state, and the surface tables carry the marker — 314 rows
+across the three clouds, most of them honest transcriptions of published facts
+or genuinely empty collections. Reading them is the work list; the marker
+narrows it but does not judge it.
+
 Both remaining-gap properties are now gates rather than observations. The
 coverage floors count unserved operations without caring why, so a gap that
 stopped declaring itself — a route that went away and now answers the mux's

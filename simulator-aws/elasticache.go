@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -129,7 +130,68 @@ var (
 	ecSnapshots   sim.Store[ECSnapshot]
 	ecUsers       sim.Store[ECUser]
 	ecUserGroups  sim.Store[ECUserGroup]
+	// The reservations this account has bought, keyed by reserved-node id.
+	ecReservedNodes sim.Store[ECReservedCacheNode]
 )
+
+// ECReservedCacheNode is one purchased reservation. What it costs and what it
+// reserves are the offering's terms, carried over at purchase rather than
+// restated: a reservation whose price did not come from the offering it was
+// bought against would be a number this simulator made up.
+type ECReservedCacheNode struct {
+	ReservedCacheNodeId string `json:"reservedCacheNodeId"`
+	OfferingId          string `json:"offeringId"`
+	CacheNodeType       string `json:"cacheNodeType"`
+	Duration            int    `json:"duration"`
+	FixedPrice          string `json:"fixedPrice"`
+	UsagePrice          string `json:"usagePrice"`
+	ProductDescription  string `json:"productDescription"`
+	OfferingType        string `json:"offeringType"`
+	RecurringAmount     string `json:"recurringAmount"`
+	RecurringFrequency  string `json:"recurringFrequency"`
+	CacheNodeCount      int    `json:"cacheNodeCount"`
+	StartTime           string `json:"startTime"`
+	State               string `json:"state"`
+}
+
+// ecReservedCacheNodesOffering is one purchasable offering.
+//
+// The offerings the simulator answers with are the ones a purchase can be made
+// against — the two are the same table, so a reservation's terms are the
+// offering's terms and a purchase against an id that is not here is refused the
+// way the service refuses one. Before that, the purchase ignored the offering
+// it was handed and answered with terms of its own, which is a receipt for
+// something nobody sold.
+//
+// The table is a transcription, the way the AWS Lambda runtime images and the
+// ElastiCache engine versions are: what AWS actually sells is a per-region
+// price list that changes, and it is not in the vendored model. Keeping one
+// row is what lets a purchase mean anything at all — declining the catalogue
+// outright would leave PurchaseReservedCacheNodesOffering unreachable, an
+// operation served but impossible to succeed at.
+type ecReservedCacheNodesOffering struct {
+	Id                 string
+	CacheNodeType      string
+	Duration           int
+	FixedPrice         string
+	UsagePrice         string
+	ProductDescription string
+	OfferingType       string
+	RecurringAmount    string
+	RecurringFrequency string
+}
+
+var ecReservedCacheNodesOfferings = []ecReservedCacheNodesOffering{{
+	Id:                 "649fd0c8-cf6d-47a0-bfa6-060f8e75e95f",
+	CacheNodeType:      "cache.t3.micro",
+	Duration:           31536000,
+	FixedPrice:         "0.0",
+	UsagePrice:         "0.0",
+	ProductDescription: "redis",
+	OfferingType:       "No Upfront",
+	RecurringAmount:    "0.018",
+	RecurringFrequency: "Hourly",
+}}
 
 // ecAPIVersion is the canonical AWS ElastiCache API version (Query
 // Protocol). Used to disambiguate Action names from other awsQuery
@@ -161,6 +223,7 @@ func registerElastiCache(r *sim.AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "ListTagsForResource", handleECListTags)
 	r.RegisterVersioned(ecAPIVersion, "RemoveTagsFromResource", handleECRemoveTags)
 	ecSnapshots = sim.MakeStore[ECSnapshot](srv.DB(), "elasticache_snapshots")
+	ecReservedNodes = sim.MakeStore[ECReservedCacheNode](srv.DB(), "elasticache_reserved_nodes")
 	ecUsers = sim.MakeStore[ECUser](srv.DB(), "elasticache_users")
 	ecUserGroups = sim.MakeStore[ECUserGroup](srv.DB(), "elasticache_user_groups")
 	r.RegisterVersioned(ecAPIVersion, "CreateSnapshot", handleECCreateSnapshot)
@@ -1515,26 +1578,82 @@ func handleECDescribeCacheEngineVersions(w http.ResponseWriter, r *http.Request)
 // Reserved cache nodes + offerings
 
 func handleECDescribeReservedCacheNodes(w http.ResponseWriter, r *http.Request) {
-	// No reservations are purchased in the sim; AWS returns an empty
-	// list (not an error) when the account holds no reserved nodes.
-	ecXMLResponse(w, "DescribeReservedCacheNodes", "<ReservedCacheNodes></ReservedCacheNodes>", sim.RequestID(r.Context()))
+	// An account that has bought nothing has an empty list, which is what AWS
+	// answers — not an error. One that has bought gets what it bought back.
+	var b strings.Builder
+	b.WriteString("<ReservedCacheNodes>")
+	if id := r.FormValue("ReservedCacheNodeId"); id != "" {
+		if n, ok := ecReservedNodes.Get(id); ok {
+			ecReservedNodeXML(&b, n)
+		}
+	} else {
+		nodes := ecReservedNodes.List()
+		sort.Slice(nodes, func(i, j int) bool {
+			return nodes[i].ReservedCacheNodeId < nodes[j].ReservedCacheNodeId
+		})
+		wantOffering := r.FormValue("ReservedCacheNodesOfferingId")
+		wantType := r.FormValue("CacheNodeType")
+		for _, n := range nodes {
+			if wantOffering != "" && n.OfferingId != wantOffering {
+				continue
+			}
+			if wantType != "" && n.CacheNodeType != wantType {
+				continue
+			}
+			ecReservedNodeXML(&b, n)
+		}
+	}
+	b.WriteString("</ReservedCacheNodes>")
+	ecXMLResponse(w, "DescribeReservedCacheNodes", b.String(), sim.RequestID(r.Context()))
 }
 
 func handleECDescribeReservedCacheNodesOfferings(w http.ResponseWriter, r *http.Request) {
+	wantID := r.FormValue("ReservedCacheNodesOfferingId")
+	wantType := r.FormValue("CacheNodeType")
 	var b strings.Builder
 	b.WriteString("<ReservedCacheNodesOfferings>")
-	b.WriteString("<ReservedCacheNodesOffering>")
-	b.WriteString("<ReservedCacheNodesOfferingId>649fd0c8-cf6d-47a0-bfa6-060f8e75e95f</ReservedCacheNodesOfferingId>")
-	b.WriteString("<CacheNodeType>cache.t3.micro</CacheNodeType>")
-	b.WriteString("<Duration>31536000</Duration>")
-	b.WriteString("<FixedPrice>0.0</FixedPrice>")
-	b.WriteString("<UsagePrice>0.0</UsagePrice>")
-	b.WriteString("<ProductDescription>redis</ProductDescription>")
-	b.WriteString("<OfferingType>No Upfront</OfferingType>")
-	b.WriteString("<RecurringCharges><RecurringCharge><RecurringChargeAmount>0.018</RecurringChargeAmount><RecurringChargeFrequency>Hourly</RecurringChargeFrequency></RecurringCharge></RecurringCharges>")
-	b.WriteString("</ReservedCacheNodesOffering>")
+	for _, o := range ecReservedCacheNodesOfferings {
+		if wantID != "" && o.Id != wantID {
+			continue
+		}
+		if wantType != "" && o.CacheNodeType != wantType {
+			continue
+		}
+		b.WriteString("<ReservedCacheNodesOffering>")
+		fmt.Fprintf(&b, "<ReservedCacheNodesOfferingId>%s</ReservedCacheNodesOfferingId>", xmlEscape(o.Id))
+		fmt.Fprintf(&b, "<CacheNodeType>%s</CacheNodeType>", xmlEscape(o.CacheNodeType))
+		fmt.Fprintf(&b, "<Duration>%d</Duration>", o.Duration)
+		fmt.Fprintf(&b, "<FixedPrice>%s</FixedPrice>", xmlEscape(o.FixedPrice))
+		fmt.Fprintf(&b, "<UsagePrice>%s</UsagePrice>", xmlEscape(o.UsagePrice))
+		fmt.Fprintf(&b, "<ProductDescription>%s</ProductDescription>", xmlEscape(o.ProductDescription))
+		fmt.Fprintf(&b, "<OfferingType>%s</OfferingType>", xmlEscape(o.OfferingType))
+		fmt.Fprintf(&b, "<RecurringCharges><RecurringCharge><RecurringChargeAmount>%s</RecurringChargeAmount><RecurringChargeFrequency>%s</RecurringChargeFrequency></RecurringCharge></RecurringCharges>",
+			xmlEscape(o.RecurringAmount), xmlEscape(o.RecurringFrequency))
+		b.WriteString("</ReservedCacheNodesOffering>")
+	}
 	b.WriteString("</ReservedCacheNodesOfferings>")
 	ecXMLResponse(w, "DescribeReservedCacheNodesOfferings", b.String(), sim.RequestID(r.Context()))
+}
+
+// ecReservedNodeXML renders one purchased reservation.
+func ecReservedNodeXML(b *strings.Builder, n ECReservedCacheNode) {
+	b.WriteString("<ReservedCacheNode>")
+	fmt.Fprintf(b, "<ReservedCacheNodeId>%s</ReservedCacheNodeId>", xmlEscape(n.ReservedCacheNodeId))
+	fmt.Fprintf(b, "<ReservedCacheNodesOfferingId>%s</ReservedCacheNodesOfferingId>", xmlEscape(n.OfferingId))
+	fmt.Fprintf(b, "<CacheNodeType>%s</CacheNodeType>", xmlEscape(n.CacheNodeType))
+	fmt.Fprintf(b, "<StartTime>%s</StartTime>", xmlEscape(n.StartTime))
+	fmt.Fprintf(b, "<Duration>%d</Duration>", n.Duration)
+	fmt.Fprintf(b, "<FixedPrice>%s</FixedPrice>", xmlEscape(n.FixedPrice))
+	fmt.Fprintf(b, "<UsagePrice>%s</UsagePrice>", xmlEscape(n.UsagePrice))
+	fmt.Fprintf(b, "<CacheNodeCount>%d</CacheNodeCount>", n.CacheNodeCount)
+	fmt.Fprintf(b, "<ProductDescription>%s</ProductDescription>", xmlEscape(n.ProductDescription))
+	fmt.Fprintf(b, "<OfferingType>%s</OfferingType>", xmlEscape(n.OfferingType))
+	fmt.Fprintf(b, "<State>%s</State>", xmlEscape(n.State))
+	fmt.Fprintf(b, "<RecurringCharges><RecurringCharge><RecurringChargeAmount>%s</RecurringChargeAmount><RecurringChargeFrequency>%s</RecurringChargeFrequency></RecurringCharge></RecurringCharges>",
+		xmlEscape(n.RecurringAmount), xmlEscape(n.RecurringFrequency))
+	fmt.Fprintf(b, "<ReservationARN>arn:aws:elasticache:%s:%s:reserved-instance:%s</ReservationARN>",
+		awsRegion(), awsAccountID(), xmlEscape(n.ReservedCacheNodeId))
+	b.WriteString("</ReservedCacheNode>")
 }
 
 // Service updates

@@ -1028,35 +1028,59 @@ func handleECListAllowedNodeTypeModifications(w http.ResponseWriter, r *http.Req
 }
 
 func handleECPurchaseReservedCacheNodesOffering(w http.ResponseWriter, r *http.Request) {
-	offeringId := r.FormValue("ReservedCacheNodesOfferingId")
-	if offeringId == "" {
+	offeringID := r.FormValue("ReservedCacheNodesOfferingId")
+	if offeringID == "" {
 		ecErrorXML(w, "MissingParameter", "ReservedCacheNodesOfferingId is required", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	rcnId := r.FormValue("ReservedCacheNodeId")
-	if rcnId == "" {
-		rcnId = "ri-" + sim.RequestID(r.Context())[:8]
+	// The reservation's terms are the offering's. A purchase against an id no
+	// offering answers to is refused rather than answered with terms nothing
+	// published — the price and the node type would be this simulator's
+	// invention, and the caller would be told it had bought something.
+	var offering ecReservedCacheNodesOffering
+	found := false
+	for _, o := range ecReservedCacheNodesOfferings {
+		if o.Id == offeringID {
+			offering, found = o, true
+			break
+		}
+	}
+	if !found {
+		ecErrorXML(w, "ReservedCacheNodesOfferingNotFound",
+			"Offering "+offeringID+" not found.", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	rcnID := r.FormValue("ReservedCacheNodeId")
+	if rcnID == "" {
+		rcnID = "ri-" + sim.RequestID(r.Context())[:8]
+	}
+	if _, exists := ecReservedNodes.Get(rcnID); exists {
+		ecErrorXML(w, "ReservedCacheNodeAlreadyExists",
+			"Reserved cache node "+rcnID+" already exists.", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
 	}
 	count := atoiOrZero(r.FormValue("CacheNodeCount"))
 	if count == 0 {
 		count = 1
 	}
+	node := ECReservedCacheNode{
+		ReservedCacheNodeId: rcnID,
+		OfferingId:          offering.Id,
+		CacheNodeType:       offering.CacheNodeType,
+		Duration:            offering.Duration,
+		FixedPrice:          offering.FixedPrice,
+		UsagePrice:          offering.UsagePrice,
+		ProductDescription:  offering.ProductDescription,
+		OfferingType:        offering.OfferingType,
+		RecurringAmount:     offering.RecurringAmount,
+		RecurringFrequency:  offering.RecurringFrequency,
+		CacheNodeCount:      count,
+		StartTime:           time.Now().UTC().Format(time.RFC3339),
+		State:               "payment-pending",
+	}
+	ecReservedNodes.Put(rcnID, node)
 	var b strings.Builder
-	b.WriteString("<ReservedCacheNode>")
-	fmt.Fprintf(&b, "<ReservedCacheNodeId>%s</ReservedCacheNodeId>", xmlEscape(rcnId))
-	fmt.Fprintf(&b, "<ReservedCacheNodesOfferingId>%s</ReservedCacheNodesOfferingId>", xmlEscape(offeringId))
-	b.WriteString("<CacheNodeType>cache.t3.micro</CacheNodeType>")
-	fmt.Fprintf(&b, "<StartTime>%s</StartTime>", time.Now().UTC().Format(time.RFC3339))
-	b.WriteString("<Duration>31536000</Duration>")
-	b.WriteString("<FixedPrice>0.0</FixedPrice>")
-	b.WriteString("<UsagePrice>0.0</UsagePrice>")
-	fmt.Fprintf(&b, "<CacheNodeCount>%d</CacheNodeCount>", count)
-	b.WriteString("<ProductDescription>redis</ProductDescription>")
-	b.WriteString("<OfferingType>No Upfront</OfferingType>")
-	b.WriteString("<State>payment-pending</State>")
-	b.WriteString("<RecurringCharges><RecurringCharge><RecurringChargeAmount>0.018</RecurringChargeAmount><RecurringChargeFrequency>Hourly</RecurringChargeFrequency></RecurringCharge></RecurringCharges>")
-	fmt.Fprintf(&b, "<ReservationARN>arn:aws:elasticache:%s:%s:reserved-instance:%s</ReservationARN>", awsRegion(), awsAccountID(), xmlEscape(rcnId))
-	b.WriteString("</ReservedCacheNode>")
+	ecReservedNodeXML(&b, node)
 	ecXMLResponse(w, "PurchaseReservedCacheNodesOffering", b.String(), sim.RequestID(r.Context()))
 }
 

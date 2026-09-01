@@ -1,8 +1,33 @@
 # BUGS
 
-Open: 10. Resolved: 84.
+Open: 7. Resolved: 84.
 
 ## Open
+
+- **BUG-2960 (a query-protocol answer can invent the row it hands back, and
+  the surface tables can already point at every candidate):**
+  `PurchaseReservedCacheNodesOffering` accepted any offering id, ignored it,
+  and answered with terms of its own — `cache.t3.micro`, `redis`, `0.018` an
+  hour — whatever was asked for, and stored nothing, so the reservation it
+  reported could never be read back through `DescribeReservedCacheNodes`. It
+  was a receipt for something nobody sold. That one is fixed: the offerings a
+  read answers with and the offerings a purchase can be made against are the
+  same table, a purchase carries that offering's terms, the reservation is
+  stored, and an id no offering answers to is refused with
+  `ReservedCacheNodesOfferingNotFound`.
+
+  The class is not swept. `scripts/classify-sim-handlers.go` marks every
+  handler that answers without reaching state, and the surface tables carry the
+  marker: 81 such rows in AWS, 140 in Google Cloud, 93 in Azure. Most are
+  honest — a transcription of a published fact (the AWS Lambda runtime images,
+  the ElastiCache engine versions, the ELB security policies), a computed echo
+  (`TestEventPattern`), or a collection that is genuinely empty because the
+  simulator runs no discovery. The ones to find are the other kind: an answer
+  that mints an identifier nothing records, or that states a fact — a price, a
+  size, a status — the simulator has no basis for. Read each one and decide;
+  the marker narrows 4,500 operations to 314 candidates but does not judge
+  them. Fix shape per instance: answer from state the simulator holds, or
+  refuse the way the service refuses.
 
 - **BUG-2955 (a distributed map run does not finish on CI, and the test waits
   sixty seconds for it):** `TestSFNCLI_DistributedMapRun` failed on
@@ -260,7 +285,7 @@ Open: 10. Resolved: 84.
   route of five because a constant defined from another constant did not
   resolve.
 
-- ~~**BUG-2952 (Google Cloud rejected its application-monitoring bearer as an
+- ~~**BUG-2956 (Google Cloud rejected its application-monitoring bearer as an
   invalid cloud JWT):**~~ The simulator's global cloud access-token verifier
   wraps its complete published route table. That table also contains
   `GET /monitoring/observation`, whose deployment bearer is deliberately not a
