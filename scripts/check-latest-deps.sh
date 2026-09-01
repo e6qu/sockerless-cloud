@@ -428,8 +428,21 @@ while IFS= read -r tf; do
       continue
     fi
     index="$work/tf-index.json"
-    if ! curl -fsSL -o "$index" "https://registry.terraform.io/v1/providers/${source}" 2>/dev/null; then
-      echo "  FAIL  $tf: $name ($source) could not be read from the Terraform registry"
+    # A registry that will not answer is not evidence of a stale pin, and this
+    # check reported it as drift — two fixtures failed a CI run that way while
+    # every other fixture read the same provider fine. Retry first: the answer
+    # is the same document each time, so a read that fails once and succeeds on
+    # the next attempt was a transport failure and nothing else.
+    tf_index_read=1
+    for attempt in 1 2 3; do
+      if curl -fsSL --max-time 30 -o "$index" "https://registry.terraform.io/v1/providers/${source}" 2>/dev/null; then
+        tf_index_read=0
+        break
+      fi
+      sleep "$((attempt * 3))"
+    done
+    if [[ "$tf_index_read" -ne 0 ]]; then
+      echo "  FAIL  $tf: $name ($source) could not be read from the Terraform registry after three attempts — this is the registry being unreachable, not a stale pin"
       fail=$((fail + 1))
       continue
     fi

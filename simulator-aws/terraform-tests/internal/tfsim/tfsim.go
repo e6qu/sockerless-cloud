@@ -38,7 +38,7 @@ type Env struct {
 }
 
 // RouteHostPrefixedRequests points terraform's HTTP client at the simulator as
-// a proxy. An operation that carries a modeled endpoint host prefix — every
+// a proxy, and takes the fixture off the HTTPS gateway. An operation that carries a modeled endpoint host prefix — every
 // s3control operation is addressed by the account id — makes the provider
 // build and sign a host like "123456789012.<endpoint host>", and the endpoint
 // host is an IP literal, so that name resolves nowhere. Resolution is a
@@ -50,6 +50,19 @@ func (e *Env) RouteHostPrefixedRequests() {
 	e.extraEnv = append(e.extraEnv,
 		"HTTP_PROXY="+e.BaseURL, "http_proxy="+e.BaseURL,
 		"NO_PROXY=", "no_proxy=")
+}
+
+// WithoutHTTPSGateway must be called before Start by a fixture whose
+// operations carry a modeled endpoint host prefix. The gateway serves a
+// wildcard certificate over one label of *.aws.sockerless.localhost, and a
+// prefix adds a second — "123456789012.s3-control.aws.sockerless.localhost" is
+// a name that certificate does not cover and nothing resolves, so the provider
+// retries it until the test deadline rather than failing. Such a fixture
+// reaches the simulator over plain HTTP through the proxy coordinate instead,
+// which is the same substitution and needs no certificate.
+func WithoutHTTPSGateway(t *testing.T) {
+	t.Helper()
+	t.Setenv("SOCKERLESS_TF_HTTPS_GATEWAY", "")
 }
 
 func Start(t *testing.T, configDir string) *Env {

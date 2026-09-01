@@ -113,17 +113,43 @@ Open: 2. Resolved: 91.
 | 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260814, fetched and checked again on 2026-08-23) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
 | 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
 
-- **BUG-42 (the macOS Terraform harness skips the whole shared azurerm stack):**
-  The harness drops to the host user through `setpriv`, stripping
-  `CAP_NET_ADMIN` and `CAP_SYS_ADMIN`, so `TestTerraformApplyDestroy` skips on
-  every macOS run; adding `--privileged` does not restore them. Running as root
-  with `--privileged` gets past the capability gate and then fails booting the
-  guest, because the Podman virtual machine exposes no nested virtualisation for
-  that path. CI's Linux runner does execute it, so the coverage exists — but no
-  local run of that stack means anything, and a green local suite must not be
-  read as covering it.
+- **BUG-42 (the shared azurerm stack's guest boots on an arm64 host and never
+  reaches userspace):** Re-read against the machine on 2026-09-01, and the
+  entry it replaces was wrong in both halves.
 
+  It said the macOS harness *skips* the stack. It does not: the suite
+  re-executes inside the privileged Linux test container
+  (`runTerraformTestsInDocker`), clears the CAP_NET_ADMIN / CAP_SYS_ADMIN gate,
+  and applies the stack for real — resource groups, virtual networks, private
+  endpoints, DNS zone groups — as far as the virtual machine.
 
+  It said the cause is that the Podman machine exposes no nested
+  virtualisation. It does. `/dev/kvm` is present in that container
+  (`crw-rw-rw- 10, 232`), `firecracker` and `jailer` are installed, and
+  Firecracker starts an instance: the captured log shows the rootfs attached as
+  a root device, `net1` bound to its host tap, `InstanceStart` accepted, and a
+  guest kernel running through initcalls. A gate on KVM was written for the old
+  explanation and removed again when the evidence came in — it could never have
+  fired, and a check that cannot bite is worse than none.
+
+  What the console shows: both virtio devices enumerate (`1af4:1042` block,
+  `1af4:1041` net), `virtio_blk virtio0: [vda] 2228224 512-byte logical blocks`
+  — the guest sees its 1.14 GB root disk — and the output then stops at "Key
+  type encrypted registered", the last late initcall before userspace. No init,
+  no address, no panic; `panic=1 reboot=k` would have rebooted on one. Four
+  minutes later the boot fails on "timed out waiting for Firecracker guest
+  10.0.1.2 reachability".
+
+  The suspicion this points at, and the next thing to check: the host is
+  aarch64 (the Firecracker log is the `arch/aarch64` path) while CI's runner is
+  amd64, and CI completes the round trip. A kernel that mounts root and then
+  produces nothing is what an architecture-mismatched userspace looks like — so
+  the question is whether the guest rootfs this harness builds or caches is
+  x86-64 while the kernel beside it is arm64. Read the rootfs's `/sbin/init`
+  architecture on an arm64 host before looking at the network path: a guest
+  that never reaches userspace cannot configure an address whatever the
+  networking is doing. CI's Linux runner runs the whole round trip, so the
+  coverage exists while this is open.
 
 ## Resolved history
 

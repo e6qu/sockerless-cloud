@@ -130,6 +130,40 @@ at thirty. It watches for the running snapshot now instead of sampling for it,
 and an execution that settles without ever reporting one fails explicitly —
 which is the thing the test is actually for.
 
+Two CI-only failures from the previous push are fixed. The new S3 control-plane
+Terraform suite timed out at its deadline on CI and passed in forty seconds
+locally: CI runs the terraform jobs behind the HTTPS gateway, whose wildcard
+certificate covers one label of `*.aws.sockerless.localhost`, and an
+account-id host prefix adds a second — `123456789012.s3-control.aws.sockerless.localhost`
+is a name nothing resolves and no certificate covers, so the provider retried
+it until the deadline rather than failing. A fixture whose operations carry a
+modeled host prefix now declines the gateway and reaches the simulator through
+the proxy coordinate instead, which is the same substitution and needs no
+certificate. Reproduced and confirmed both ways: with the gateway on and
+without the opt-out it hangs to the deadline, with the opt-out it passes in
+twenty-six seconds.
+
+And the dependency-freshness gate reported two Terraform fixtures as drift when
+the registry simply would not answer for them — every other fixture read the
+same provider in the same run. An unreadable registry is not evidence of a
+stale pin. It retries three times now and, if the registry is still
+unreachable, says that rather than reporting drift.
+
+BUG-42 was re-read against the machine rather than against its own entry, and
+the entry was wrong in both halves. It said the macOS harness skips the shared
+azurerm stack; it does not — it re-executes inside the privileged Linux test
+container and applies the stack for real, as far as the virtual machine. It
+said the cause is that the Podman machine exposes no nested virtualisation; it
+does. `/dev/kvm` is in that container, Firecracker starts an instance, and the
+console shows a guest kernel running through initcalls with its root disk
+enumerated — and then stopping, with no userspace, no address and no panic. A
+gate on KVM was written for the old explanation and removed again when the
+evidence came in: it could never have fired, and a check that cannot bite is
+worse than none. The entry now carries the console evidence and the next thing
+to check — the host is aarch64 where CI's runner is amd64, and a kernel that
+mounts root and then produces nothing is what an architecture-mismatched
+userspace looks like.
+
 The repository moved to Go 1.26, which is what the dependency tree had started
 requiring. Bumping `google.golang.org/api` to v0.296.0 pulls three
 opentelemetry-operations-go modules whose releases declare `go >= 1.26.0`, and

@@ -18,6 +18,7 @@ import (
 // which is where an instance that refuses to delete while it still holds
 // grants would show up.
 func TestS3ControlTerraform(t *testing.T) {
+	tfsim.WithoutHTTPSGateway(t)
 	env := tfsim.Start(t, ".")
 	env.RouteHostPrefixedRequests()
 	env.Terraform(t, "init")
