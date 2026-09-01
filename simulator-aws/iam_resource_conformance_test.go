@@ -721,15 +721,18 @@ func iamOrganizationsProbeState() map[string]string {
 		"ResponsibilityTransferId": transfer.Id,
 		"ParentId":                 ou.Id,
 		"PolicyTargetId":           ou.Id,
-		"TaggableResourceId":       ou.Id,
-		"ChildId":                  ou.Id,
+		// An effective policy is read for a target, which a client names as an
+		// account, an organizational unit or the root.
+		"TargetId":           account.Id,
+		"TaggableResourceId": ou.Id,
+		"ChildId":            ou.Id,
 	}
 }
 
 // iamOrganizationsDerivesItsResource runs the production derivation against a
 // request naming resources that exist, under the members the model declares.
 func iamOrganizationsDerivesItsResource(operation string, members map[string]string,
-	ids map[string]string) bool {
+	ids map[string]string, fixtures map[string]string) bool {
 
 	if len(iamActionResourceTypes["organizations:"+operation]) == 0 {
 		return false
@@ -739,6 +742,13 @@ func iamOrganizationsDerivesItsResource(operation string, members map[string]str
 		value, ok := ids[shape]
 		if !ok {
 			value = "probe"
+		}
+		// A shape shared between operations cannot say what any one of them
+		// names: PolicyTargetId is an organizational unit where a policy is
+		// attached and an account where an effective policy is read, and only
+		// the operation says which.
+		if created, seeded := fixtures["organizations:"+operation+":"+path]; seeded {
+			value = created
 		}
 		member, inner, nested := strings.Cut(path, ".")
 		if !nested {
@@ -1838,7 +1848,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1975
+const iamDerivationCoverageFloor = 1976
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1931,6 +1941,10 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	iamCloudMapProbeState()
 	iamSQSProbeState()
 	organizationsIDs := iamOrganizationsProbeState()
+	// An effective policy is read for an account, which is the only type the
+	// action declares — the shape its target member carries is shared with the
+	// attachments, where it is an organizational unit.
+	fixtures["organizations:DescribeEffectivePolicy:TargetId"] = "123456789012"
 
 	covered := 0
 	missingByService := map[string][]string{}
@@ -1986,7 +2000,8 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 				probeARN("arn:aws:events:us-east-1:"+iamProbeAccount+":event-bus/probe"),
 				eventBridgeMembers[o.name], eventBridgeNested[o.name], fixtures), "events:"+o.name)
 		case "organizations":
-			derived = iamOrganizationsDerivesItsResource(o.name, organizationsMembers[o.name], organizationsIDs)
+			derived = iamOrganizationsDerivesItsResource(o.name,
+				organizationsMembers[o.name], organizationsIDs, fixtures)
 		case "elasticloadbalancing":
 			derived = iamELBv2DerivesItsResource(o.name, elbParameters[o.name], elbNested[o.name])
 		case "acm":

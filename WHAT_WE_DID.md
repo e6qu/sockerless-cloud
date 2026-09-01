@@ -5,7 +5,7 @@
 Three slices moved: Google Cloud 5,440 → 5,464 of 5,480 Discovery method
 spellings with `compute-v1` at 2,000 of 2,016, Azure 2,599 → 2,613 of 2,628
 Swagger operations with App Service at 677 of 692, and AWS resource-scoped
-authorization 1,881 → 1,975 of 1,994 served operations.
+authorization 1,881 → 1,976 of 1,994 served operations.
 
 The AWS figure is the one worth explaining, because almost none of it was a
 missing derivation. The coverage probe was addressing operations the way no
