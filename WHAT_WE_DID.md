@@ -92,6 +92,32 @@ routes through the simulator as a proxy, which changes where the bytes land and
 nothing about the request — the same coordinate substitution the CLI suite
 already uses for Cloud Map's data plane.
 
+The handler-state sweep that has run for several passes closed with the one
+check it was missing. A Discovery document expresses required-ness only for
+requests, and per method: a property carries `annotations.required` listing the
+method ids it is required *for*. Nothing verified that the simulator refuses a
+request omitting one, and the response validators cannot see it — they can only
+judge fields that are present.
+`TestRequestsMissingARequiredPropertyAreRefused` drives all 73 across the
+corpus with the property left out and requires a refusal. It found two:
+Cloud Storage's bucket and managed-folder `setIamPolicy` each stored a policy
+with no bindings, and neither they nor their `getIamPolicy` looked the bucket
+or folder up — a read of a bucket nobody created minted and persisted a default
+policy for it. The probe carries a floor for how much of the corpus it reaches,
+because 18 of the 73 answer 404 to a parent it does not create: those are
+unjudged rather than passing, and counting them as passes is how the gate would
+go quiet.
+
+One test was fixed rather than widened. `TestCloudRun_ExecutionRunningState`
+waited for a log marker and then read the execution once, expecting a task to
+be running — a race it loses under load, because the marker's trip through
+Cloud Logging can outlast the container's hold and the read then finds an
+execution that has already settled. Its own comment recorded the previous
+attempt at this, widening the hold from ten seconds to thirty; it failed again
+at thirty. It watches for the running snapshot now instead of sampling for it,
+and an execution that settles without ever reporting one fails explicitly —
+which is the thing the test is actually for.
+
 One dependency upgrade had to be held rather than taken whole. Bumping
 `google.golang.org/api` to v0.296.0 pulls three opentelemetry-operations-go
 modules whose newest releases declare `go >= 1.26.0`, and every workflow here

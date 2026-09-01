@@ -1,10 +1,163 @@
 # BUGS
 
-Open: 4. Resolved: 88.
+Open: 4. Resolved: 89.
 
 ## Open
 
-- **BUG-2960 (a query-protocol answer can invent the row it hands back, and
+- **BUG-2963 (a Cloud Build webhook receiver accepts a delivery and starts no
+  build):** `webhook`, `regionalWebhook` and the repository webhook receiver
+  answer `Empty` and do nothing. `Empty` is what the API returns on success, so
+  no response could tell a caller otherwise — the observable gap is that a
+  webhook-triggered build never appears. This is not an answer that misreports;
+  it is a feature not yet assembled, and assembling it means matching the
+  delivery to a trigger, verifying that trigger's secret against the delivery's
+  signature, and starting the build the trigger names with the delivery's own
+  head commit as its source. Came out of the BUG-2960 handler-state sweep,
+  which named it as the one candidate of a different kind and left it.
+
+- **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
+  Three jobs failed on 2026-08-31 for the same reason, across two registries:
+  `tf (aws)` could not pull `public.ecr.aws/docker/library/busybox` for the
+  Amazon ECS pause image, `sim (aws cli glue-iam)` timed out downloading
+  `public.ecr.aws/docker/library/python:3.9` inside a job-run budget, and
+  `tf (azure subscription)` exhausted four retries on `alpine` with
+  "toomanyrequests: Data limit exceeded". Retry-with-backoff is already in
+  place in the Azure terraform suite and did not help — the limit is a data
+  cap on the runner's anonymous pulls, not a transient blip, so waiting inside
+  one job does not recover it and neither does moving between Docker Hub and
+  the ECR Public Gallery, which are both throttling the same runners.
+
+  The affected images are few and stable: `alpine`, `busybox`,
+  `python:3.9`, and the Lambda runtime images. Fix shape: stop fetching them
+  per job. Either cache a `docker save` tarball of the set with `actions/cache`
+  keyed on the image list, restoring it before any suite runs, or mirror the
+  set into this repository's own GHCR namespace on a schedule and pull from
+  there. The second is more work and more robust — a GHCR pull from the
+  repository's own package registry is authenticated by the job's token and
+  not subject to an anonymous cap.
+
+  Every job that runs a simulator's containers now warms through
+  `scripts/warm-base-images.sh`, which loads the set from an `actions/cache`
+  tarball and fetches only what the tarball does not hold. The two AWS jobs had
+  been the gap — `sim-aws-sdk` and `sim-aws-cli` are separate jobs from the
+  `sim` matrix, which holds no AWS entry at all, so a warm added to that matrix
+  never reached them. The SDK job's two hand-written pull-with-backoff steps,
+  for the DynamoDB oracle and the Batch workload, are the same fetch the script
+  performs and were replaced by it; its warm sits after the disk prune, which
+  deletes every image on the host.
+
+  `race (simulator-aws shared)` was the next to fail, on `alpine:3.22` for the
+  memory tests and `busybox` for the reaper and sweep, and it now warms through
+  the same script. Warming alone did not fix it: the reaper and sweep asked
+  `ImagePull` for an image the host already held, and a capped host refuses the
+  manifest check as readily as the layers, so both now ask `ImageInspect` first
+  — the same correction the Azure terraform suite's puller needed. Its image list is read out of the package by
+  `scripts/base-images-for.sh` rather than restated in the workflow, and the
+  cache key follows that list, so a test that starts pulling something new is
+  warmed on its first run instead of missing a stale cache. The `module` shard
+  of the same matrix keeps the exposure: its package names the whole Lambda
+  runtime table, some thirty images that only an invocation fetches, so the
+  same package scan would cache far more than the shard pulls. Distinguishing
+  the two needs the image list to come from what a test fetches rather than
+  from what its package mentions.
+
+  `tf (aws Amazon RDS snapshot)` failed next, and it named the root of the
+  whole class: the simulator itself pulled unconditionally. Capturing an RDS
+  snapshot starts a helper container from `alpine:3.22` to copy the volume, and
+  `pullImage` asked the registry for that image whether or not the host held
+  it, then spent its five backoff attempts on a cap that no amount of waiting
+  clears. The snapshot settled `failed` and Terraform reported "unexpected
+  state 'failed'". `pullImage` now asks `ImageInspect` first in all three
+  simulators, which is what `docker run` itself does — its default pull policy
+  is "missing" — and it checks a pinned platform against what the host holds
+  rather than assuming it, because the simulator's own architecture is
+  routinely not the workload's.
+
+  That failure was also invisible: the simulator's stderr is not in the
+  Terraform job's log, so the reason the snapshot failed had to be read out of
+  the source rather than the run. Surfacing a simulator-side failure in the job
+  that provoked it is worth doing before the next one.
+
+  The scan those jobs share reads the whole simulator tree, and reads more than
+  Go. A Terraform suite keeps one Go file per stack in a subdirectory and names
+  the workload image in the stack's HCL, so the original flat Go-only scan saw
+  neither — it missed the Amazon ECS pause image and the alpine workloads,
+  which are the pulls that failed those jobs in the first place.
+
+  The Lambda runtime table was the one source that could not be read literally:
+  it maps some thirty runtime identifiers to images, and one arrives only when
+  a suite invokes a function on that runtime. `scripts/lambda-runtime-images-for.sh`
+  resolves it the other way round, from the identifiers the suites name against
+  the table itself, which is four images rather than thirty and stays right
+  when a suite starts exercising a fifth. AWS Amplify composed its image tag
+  out of the runtime name instead of mapping it, which no scan can read and
+  which answered for versions the service does not offer; it now maps the two
+  it serves.
+
+  One key per cloud, keyed on the image set itself, so every job that runs that
+  cloud's containers shares a single cache entry: the set is fetched once for
+  the whole workflow rather than once per job, which is what a cap counted in
+  bytes responds to. The AWS set is nineteen images and about 2 GB.
+
+  The simulators also stopped mistaking the cap for the rate limit it is spelled
+  like. `toomanyrequests: Data limit exceeded` was classified transient, so a
+  capped pull spent five widening backoffs — about two minutes — arriving at the
+  same answer, with the reason buried five identical lines above the failure.
+  It is classified permanent now and fails at once.
+
+  Warming is a step that primes a cache, not one that checks a dependency, so
+  all three are `continue-on-error`. Without that the first run of the sim
+  suites failed outright when the cap refused one image while warming, denying
+  the run everything else those jobs would have reported; now the job carries
+  on and whatever actually needs the image fails at the point of use, naming
+  it.
+
+  Until those go through the cache, a job that pulls one of them for the first
+  time can still fail for reasons unrelated to the change under test, and a red
+  run has to be read before it is believed.
+
+
+| ID | Sev | Area | Pattern | One-liner |
+|----|-----|------|---------|-----------|
+| 2909 | P2 | AWS simulator IAM enforcement leaves 230 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,764 of the 1,994 served operations that authorize against a resource type derive it; the remaining 230 still request a literal `"*"`. The Amazon RDS and Amazon ElastiCache copies authorize both of their ends — the target ARN is name-determined before the resource exists, the AWS Step Functions argument — AWS Glue's usage profiles, connection types, integrations and tagging derive, Amazon EC2's tag operations read each id's type from its prefix, and its route-table, address and network-interface associations resolve to their parents through generation-keyed indexes over the simulator's own state. AWS Budgets joined the table, its Smithy model vendored for the probe, and its three tagging operations derive from the ARN they name. The coverage probe was also sending every member under a lower-cased name — a body no client sends, while the derivation reads the real member name — so it now sends the wire name in its own case, which is what let those three register. AWS Step Functions state-machine and activity creation joined the table — their ARNs are name-determined, so the create request already carries everything the ARN needs, and the older comment calling every create underivable was wrong for them. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (56), AWS Glue (25), AWS CodeBuild (23), Amazon RDS (22), AWS Identity and Access Management (21), Amazon DynamoDB (18), AWS Systems Manager (16). Amazon ECS fell from 20 to 8 when its daemon and Express Mode families were read from the ARNs they name, type by type. Amazon CloudWatch Logs fell from 31 to 3 when its named families — delivery, delivery destination and source, subscription destination, anomaly detector, lookup table, scheduled query — were assembled from the identifiers their requests carry. What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. | The figures come from `TestIAMResourceDerivationCoverage`, which is the only place they should come from — they had drifted twice — to 1,788 of 1,975, and again to 1,758 of 1,994 while `iamDerivationCoverageFloor` read 1,764 — so read the ratchet, never this row.
+| 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. Re-read from `aws/aws-sdk-go-v2` main on 2026-08-23 and all three are unchanged: `SecretsManagerSecretArn` is `^arn:aws([a-z]|\-)*:secretsmanager:([a-z]|\d|\-)*:([0-9]{12})?:secret:[\/_+=\.@\-A-Za-z0-9]+$` (no `!`), Amazon CloudWatch Logs' `ResourceType` is `^[\w-_]*$` (no `:`), and AWS Certificate Manager's generic `Arn` still requires the service segment to be literally `acm`. |
+| 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260814, fetched and checked again on 2026-08-23) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
+| 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
+
+- **BUG-56 (action downloads failed during a GitHub incident, and the fan-out
+  is the standing risk):** Filed as "the job fan-out throttles GitHub's own
+  action download", which the evidence does not support. Every `429` fetching
+  an action tarball from codeload landed after 2026-08-17T13:40Z, the minute
+  GitHub opened a critical incident (Actions degraded, API degraded, Issues in
+  major outage); the run immediately before it had ten failures and not one was
+  a throttle, and the run at `94a8e3c` — still forty-six jobs, still fetching
+  the same tarballs — went 46 of 46 green. The incident was the cause. What
+  remains true, and is why this stays open rather than being struck: the runner
+  downloads every action a workflow references before evaluating any step's
+  condition, so each of the forty-six jobs fetches every action the workflow
+  names, and a step scoped to one cloud costs all of them. That was measured —
+  a gcp-only `actions/setup-java` step was fetched by the azure job — and the
+  step was replaced by one reading the runtime the runner already ships. Fix
+  shape, if the throttling recurs outside an incident: cut the number of
+  actions the workflow references, and only then consider a matrix
+  `max-parallel`, which trades wall clock on every run against a burst that has
+  not been shown to be the problem.
+
+- **BUG-42 (the macOS Terraform harness skips the whole shared azurerm stack):**
+  The harness drops to the host user through `setpriv`, stripping
+  `CAP_NET_ADMIN` and `CAP_SYS_ADMIN`, so `TestTerraformApplyDestroy` skips on
+  every macOS run; adding `--privileged` does not restore them. Running as root
+  with `--privileged` gets past the capability gate and then fails booting the
+  guest, because the Podman virtual machine exposes no nested virtualisation for
+  that path. CI's Linux runner does execute it, so the coverage exists — but no
+  local run of that stack means anything, and a green local suite must not be
+  read as covering it.
+
+
+
+## Resolved history
+
+- ~~**BUG-2960 (a query-protocol answer can invent the row it hands back, and
   the surface tables can already point at every candidate):**
   `PurchaseReservedCacheNodesOffering` accepted any offering id, ignored it,
   and answered with terms of its own — `cache.t3.micro`, `redis`, `0.018` an
@@ -184,147 +337,23 @@ Open: 4. Resolved: 88.
   was built from what it read — a handler that looks its parent up and then
   answers a fixed body is marked ✓. The legend says so.
 
-- **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
-  Three jobs failed on 2026-08-31 for the same reason, across two registries:
-  `tf (aws)` could not pull `public.ecr.aws/docker/library/busybox` for the
-  Amazon ECS pause image, `sim (aws cli glue-iam)` timed out downloading
-  `public.ecr.aws/docker/library/python:3.9` inside a job-run budget, and
-  `tf (azure subscription)` exhausted four retries on `alpine` with
-  "toomanyrequests: Data limit exceeded". Retry-with-backoff is already in
-  place in the Azure terraform suite and did not help — the limit is a data
-  cap on the runner's anonymous pulls, not a transient blip, so waiting inside
-  one job does not recover it and neither does moving between Docker Hub and
-  the ECR Public Gallery, which are both throttling the same runners.
+  The sweep is closed. All three clouds' candidate lists were read; the request
+  side got the check it was missing, and it found two more defects. A Discovery
+  document's `annotations.required` is per method — it lists the method ids a
+  property is required *for* — and nothing verified that the simulator refuses
+  a request omitting one, which the response validators cannot see because they
+  can only judge fields that are there.
+  `TestRequestsMissingARequiredPropertyAreRefused` drives all 73 of them with
+  the property left out and requires a refusal. Cloud Storage's bucket and
+  managed-folder `setIamPolicy` both stored a policy with no bindings, and
+  neither they nor their `getIamPolicy` looked the bucket or folder up first —
+  a read of a bucket nobody created minted and persisted a default policy for
+  it. Both check, and both refuse a policy that grants nobody.
 
-  The affected images are few and stable: `alpine`, `busybox`,
-  `python:3.9`, and the Lambda runtime images. Fix shape: stop fetching them
-  per job. Either cache a `docker save` tarball of the set with `actions/cache`
-  keyed on the image list, restoring it before any suite runs, or mirror the
-  set into this repository's own GHCR namespace on a schedule and pull from
-  there. The second is more work and more robust — a GHCR pull from the
-  repository's own package registry is authenticated by the job's token and
-  not subject to an anonymous cap.
-
-  Every job that runs a simulator's containers now warms through
-  `scripts/warm-base-images.sh`, which loads the set from an `actions/cache`
-  tarball and fetches only what the tarball does not hold. The two AWS jobs had
-  been the gap — `sim-aws-sdk` and `sim-aws-cli` are separate jobs from the
-  `sim` matrix, which holds no AWS entry at all, so a warm added to that matrix
-  never reached them. The SDK job's two hand-written pull-with-backoff steps,
-  for the DynamoDB oracle and the Batch workload, are the same fetch the script
-  performs and were replaced by it; its warm sits after the disk prune, which
-  deletes every image on the host.
-
-  `race (simulator-aws shared)` was the next to fail, on `alpine:3.22` for the
-  memory tests and `busybox` for the reaper and sweep, and it now warms through
-  the same script. Warming alone did not fix it: the reaper and sweep asked
-  `ImagePull` for an image the host already held, and a capped host refuses the
-  manifest check as readily as the layers, so both now ask `ImageInspect` first
-  — the same correction the Azure terraform suite's puller needed. Its image list is read out of the package by
-  `scripts/base-images-for.sh` rather than restated in the workflow, and the
-  cache key follows that list, so a test that starts pulling something new is
-  warmed on its first run instead of missing a stale cache. The `module` shard
-  of the same matrix keeps the exposure: its package names the whole Lambda
-  runtime table, some thirty images that only an invocation fetches, so the
-  same package scan would cache far more than the shard pulls. Distinguishing
-  the two needs the image list to come from what a test fetches rather than
-  from what its package mentions.
-
-  `tf (aws Amazon RDS snapshot)` failed next, and it named the root of the
-  whole class: the simulator itself pulled unconditionally. Capturing an RDS
-  snapshot starts a helper container from `alpine:3.22` to copy the volume, and
-  `pullImage` asked the registry for that image whether or not the host held
-  it, then spent its five backoff attempts on a cap that no amount of waiting
-  clears. The snapshot settled `failed` and Terraform reported "unexpected
-  state 'failed'". `pullImage` now asks `ImageInspect` first in all three
-  simulators, which is what `docker run` itself does — its default pull policy
-  is "missing" — and it checks a pinned platform against what the host holds
-  rather than assuming it, because the simulator's own architecture is
-  routinely not the workload's.
-
-  That failure was also invisible: the simulator's stderr is not in the
-  Terraform job's log, so the reason the snapshot failed had to be read out of
-  the source rather than the run. Surfacing a simulator-side failure in the job
-  that provoked it is worth doing before the next one.
-
-  The scan those jobs share reads the whole simulator tree, and reads more than
-  Go. A Terraform suite keeps one Go file per stack in a subdirectory and names
-  the workload image in the stack's HCL, so the original flat Go-only scan saw
-  neither — it missed the Amazon ECS pause image and the alpine workloads,
-  which are the pulls that failed those jobs in the first place.
-
-  The Lambda runtime table was the one source that could not be read literally:
-  it maps some thirty runtime identifiers to images, and one arrives only when
-  a suite invokes a function on that runtime. `scripts/lambda-runtime-images-for.sh`
-  resolves it the other way round, from the identifiers the suites name against
-  the table itself, which is four images rather than thirty and stays right
-  when a suite starts exercising a fifth. AWS Amplify composed its image tag
-  out of the runtime name instead of mapping it, which no scan can read and
-  which answered for versions the service does not offer; it now maps the two
-  it serves.
-
-  One key per cloud, keyed on the image set itself, so every job that runs that
-  cloud's containers shares a single cache entry: the set is fetched once for
-  the whole workflow rather than once per job, which is what a cap counted in
-  bytes responds to. The AWS set is nineteen images and about 2 GB.
-
-  The simulators also stopped mistaking the cap for the rate limit it is spelled
-  like. `toomanyrequests: Data limit exceeded` was classified transient, so a
-  capped pull spent five widening backoffs — about two minutes — arriving at the
-  same answer, with the reason buried five identical lines above the failure.
-  It is classified permanent now and fails at once.
-
-  Warming is a step that primes a cache, not one that checks a dependency, so
-  all three are `continue-on-error`. Without that the first run of the sim
-  suites failed outright when the cap refused one image while warming, denying
-  the run everything else those jobs would have reported; now the job carries
-  on and whatever actually needs the image fails at the point of use, naming
-  it.
-
-  Until those go through the cache, a job that pulls one of them for the first
-  time can still fail for reasons unrelated to the change under test, and a red
-  run has to be read before it is believed.
-
-
-| ID | Sev | Area | Pattern | One-liner |
-|----|-----|------|---------|-----------|
-| 2909 | P2 | AWS simulator IAM enforcement leaves 230 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,764 of the 1,994 served operations that authorize against a resource type derive it; the remaining 230 still request a literal `"*"`. The Amazon RDS and Amazon ElastiCache copies authorize both of their ends — the target ARN is name-determined before the resource exists, the AWS Step Functions argument — AWS Glue's usage profiles, connection types, integrations and tagging derive, Amazon EC2's tag operations read each id's type from its prefix, and its route-table, address and network-interface associations resolve to their parents through generation-keyed indexes over the simulator's own state. AWS Budgets joined the table, its Smithy model vendored for the probe, and its three tagging operations derive from the ARN they name. The coverage probe was also sending every member under a lower-cased name — a body no client sends, while the derivation reads the real member name — so it now sends the wire name in its own case, which is what let those three register. AWS Step Functions state-machine and activity creation joined the table — their ARNs are name-determined, so the create request already carries everything the ARN needs, and the older comment calling every create underivable was wrong for them. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (56), AWS Glue (25), AWS CodeBuild (23), Amazon RDS (22), AWS Identity and Access Management (21), Amazon DynamoDB (18), AWS Systems Manager (16). Amazon ECS fell from 20 to 8 when its daemon and Express Mode families were read from the ARNs they name, type by type. Amazon CloudWatch Logs fell from 31 to 3 when its named families — delivery, delivery destination and source, subscription destination, anomaly detector, lookup table, scheduled query — were assembled from the identifiers their requests carry. What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. | The figures come from `TestIAMResourceDerivationCoverage`, which is the only place they should come from — they had drifted twice — to 1,788 of 1,975, and again to 1,758 of 1,994 while `iamDerivationCoverageFloor` read 1,764 — so read the ratchet, never this row.
-| 2932 | P3 | Three AWS Smithy patterns are stricter than the service they describe, so the simulator cannot satisfy both | the vendored model is authoritative for the simulator, but where it contradicts documented service behavior, matching the model would make the simulator less faithful, not more | The runtime pattern check (BUG-2931) reports three responses whose values AWS itself returns. Amazon EventBridge names the managed secret backing a connection `events!connection/<name>/<uuid>`, and `SecretsManagerSecretArn` admits no `!`. AWS Certificate Manager's `DescribeCertificate` reports the issuing authority as an AWS Private Certificate Authority ARN, and the generic `Arn` shape it is typed with requires the service segment to be `acm`. Amazon CloudWatch Logs reports a configuration template's `resourceType` in CloudFormation spelling (`AWS::WAFv2::WebACL`), and `ResourceType` admits no `:`. Each is allowlisted in `simulator-aws/spec-violation-allowlist.txt` against this entry rather than "fixed" by emitting a value the service never emits. The allowlist shrinks if a later model revision widens the patterns, which is the only thing that should close this. Re-read from `aws/aws-sdk-go-v2` main on 2026-08-23 and all three are unchanged: `SecretsManagerSecretArn` is `^arn:aws([a-z]|\-)*:secretsmanager:([a-z]|\d|\-)*:([0-9]{12})?:secret:[\/_+=\.@\-A-Za-z0-9]+$` (no `!`), Amazon CloudWatch Logs' `ResourceType` is `^[\w-_]*$` (no `:`), and AWS Certificate Manager's generic `Arn` still requires the service segment to be literally `acm`. |
-| 2646 | P3 | GCP simulator Cloud Run worker-pool scaling | upstream publication lag, not a simulator defect | The Cloud Run v2 `WorkerPoolScaling` members `scalingMode`, `minInstanceCount`, and `maxInstanceCount` are now modelled and covered end to end (SDK wire round-trip, CLI, and a real `hashicorp/google` 7.36.0 Terraform apply → `plan -detailed-exitcode` = 0). What remains open is upstream: the newest live Cloud Run Discovery document (revision 20260814, fetched and checked again on 2026-08-23) and the published REST reference still declare only `manualInstanceCount`, even though gcloud's own generated client and the GA provider both send all four members. The runtime spec validator therefore reports six `unknown-field` keys, allowlisted in `simulator-gcp/spec-violation-allowlist.txt` under this ID. Close this and drop those six entries when Google publishes the members in the Discovery document. |
-| 2712 | P2 | AWS simulator outbound delivery protocols | the external carrier and mobile-push providers are unreachable, and every path that would reach one says so | All 42 Amazon SNS operations in the vendored model are served, and everything up to the hand-off is real: subscriptions, attributes, opt-outs, origination numbers, platform applications and device endpoints all behave as the API defines them, and email and email-json subscriptions deliver over real SMTP. Two destinations are not AWS coordinates and cannot be reached from here — SMS needs a telecommunications carrier, and mobile push needs Apple's and Google's own hosts; no AWS API provisions either, so there is nothing faithful to point at. Every path that would reach one now fails with that reason in the message rather than a substitute: publishing to a PhoneNumber had been rejected as a missing TopicArn, which sent a reader hunting a defect in their own request instead of telling them where the simulator stops, and publishing to a device endpoint was rejected the same way. `TestSNS_ExternalDeliveryFailsWithItsOwnReason` holds each failure to naming its own dependency, and holds that a topic publish is unaffected. This stays open as the record of a boundary, not of a defect: close it only if those provider primitives ever become configurable through a faithful AWS API.
-
-- **BUG-56 (action downloads failed during a GitHub incident, and the fan-out
-  is the standing risk):** Filed as "the job fan-out throttles GitHub's own
-  action download", which the evidence does not support. Every `429` fetching
-  an action tarball from codeload landed after 2026-08-17T13:40Z, the minute
-  GitHub opened a critical incident (Actions degraded, API degraded, Issues in
-  major outage); the run immediately before it had ten failures and not one was
-  a throttle, and the run at `94a8e3c` — still forty-six jobs, still fetching
-  the same tarballs — went 46 of 46 green. The incident was the cause. What
-  remains true, and is why this stays open rather than being struck: the runner
-  downloads every action a workflow references before evaluating any step's
-  condition, so each of the forty-six jobs fetches every action the workflow
-  names, and a step scoped to one cloud costs all of them. That was measured —
-  a gcp-only `actions/setup-java` step was fetched by the azure job — and the
-  step was replaced by one reading the runtime the runner already ships. Fix
-  shape, if the throttling recurs outside an incident: cut the number of
-  actions the workflow references, and only then consider a matrix
-  `max-parallel`, which trades wall clock on every run against a burst that has
-  not been shown to be the problem.
-
-- **BUG-42 (the macOS Terraform harness skips the whole shared azurerm stack):**
-  The harness drops to the host user through `setpriv`, stripping
-  `CAP_NET_ADMIN` and `CAP_SYS_ADMIN`, so `TestTerraformApplyDestroy` skips on
-  every macOS run; adding `--privileged` does not restore them. Running as root
-  with `--privileged` gets past the capability gate and then fails booting the
-  guest, because the Podman virtual machine exposes no nested virtualisation for
-  that path. CI's Linux runner does execute it, so the coverage exists — but no
-  local run of that stack means anything, and a green local suite must not be
-  read as covering it.
-
-
-
-## Resolved history
+  The probe carries a floor for how much of the corpus it reaches, because 18
+  of the 73 answer 404 to a parent the probe does not create: those are
+  unjudged, not passing, and counting them as passes is how the gate would go
+  quiet. The one candidate that was not part of this class is now BUG-2963.
 
 - ~~**BUG-2955 (a distributed map run does not finish on CI, and the test waits
   sixty seconds for it):**~~ `TestSFNCLI_DistributedMapRun` waited out its whole

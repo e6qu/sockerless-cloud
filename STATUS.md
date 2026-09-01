@@ -151,6 +151,12 @@ Current state of the sockerless-cloud repository.
   CLI coverage, and a Terraform fixture applies and destroys the access point,
   the Object Lambda access point, the Storage Lens dashboard and the Access
   Grants instance through terraform-provider-aws.
+- **The request side of a Discovery document is checked too.** Its
+  `annotations.required` is per method — the method ids a property is required
+  *for* — and a gate drives all 73 in the corpus with the property omitted and
+  requires a refusal. It reaches validation for 53 of them; the rest answer 404
+  to a parent the probe does not create, and a floor on the judged count keeps
+  that from quietly growing.
 - **A goroutine the caller joins is never dropped.** `simGo` drops what it is
   handed once a background drain has begun, which is what makes the drain a
   barrier. That is right for work outliving its request and wrong for a fan-out

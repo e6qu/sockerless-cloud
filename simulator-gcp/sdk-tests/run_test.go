@@ -244,6 +244,29 @@ func createAndRunJob(t *testing.T, jobID string) string {
 // (container start + completion), so a fixed sleep races a loaded CI runner.
 // The poll runs on the calling goroutine so a failing fetch fails the test with
 // its own error rather than being retried until the deadline expires.
+// awaitExecutionRunning returns the first snapshot in which the execution has
+// a task running. An execution that settles without ever reporting one is the
+// failure — the running state is what the caller is here to observe, and a
+// point sample taken after it has passed reports its absence as if it never
+// happened.
+func awaitExecutionRunning(t *testing.T, execName string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		exec := getExecution(t, execName)
+		if running, _ := exec["runningCount"].(float64); running > 0 {
+			return exec
+		}
+		if ct, _ := exec["completionTime"].(string); ct != "" {
+			t.Fatalf("execution %q settled without ever reporting a running task: %v", execName, exec)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("execution %q never reported a running task within 60s: %v", execName, exec)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func waitExecutionDone(t *testing.T, execName string) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
@@ -281,19 +304,18 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 	// snapshot below is taken while a workload container is genuinely up
 	// rather than while the execution record merely claims one.
 	//
-	// The hold has to outlast the marker's trip through Cloud Logging, because
-	// that trip is what the snapshot waits on. At ten seconds it did not: under
-	// the load of the full suite the marker arrived after the container had
-	// already exited, the execution had settled, and runningCount was zero — a
-	// failure of the test's timing, not of the state it describes. Thirty
-	// seconds is wide enough to survive a busy machine while still letting the
-	// container exit on its own, which the succeeded-count assertion below
-	// depends on.
+	// The snapshot is found by watching for it, not by sampling once after the
+	// marker arrives. Waiting for the marker and then reading is a race the
+	// test loses under load: the marker's trip through Cloud Logging can take
+	// longer than the container's hold, and then the read finds an execution
+	// that has already settled. Widening the hold only moves the number.
+	// Watching cannot lose it — the running state either occurs, and the poll
+	// sees it, or it never occurs, which is the defect this test is for.
 	execName := createAndRunJobWithImageAndCommand(t, jobID, commandImageName,
 		[]string{"log", marker, "30"}, "120s")
 	waitForJobLogMessage(t, jobID, marker)
 
-	exec := getExecution(t, execName)
+	exec := awaitExecutionRunning(t, execName)
 	assert.Equal(t, float64(1), exec["runningCount"])
 	assert.Equal(t, float64(0), exec["succeededCount"])
 	assert.Equal(t, float64(0), exec["failedCount"])

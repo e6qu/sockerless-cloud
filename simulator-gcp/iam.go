@@ -1113,6 +1113,10 @@ func registerIAM(srv *sim.Server) {
 	// Bucket IAM - getIamPolicy
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/iam", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
+		if _, exists := gcsBuckets.Get(bucket); !exists {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			return
+		}
 
 		policy, ok := resourcePolicies.Get("bucket/" + bucket)
 		if !ok {
@@ -1134,10 +1138,22 @@ func registerIAM(srv *sim.Server) {
 	// Bucket IAM - setIamPolicy
 	srv.HandleFunc("PUT /storage/v1/b/{bucket}/iam", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
+		if _, exists := gcsBuckets.Get(bucket); !exists {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			return
+		}
 
 		var policy IAMPolicy
 		if err := sim.ReadJSON(r, &policy); err != nil {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		// A policy is its bindings; the document requires them of this method,
+		// and a set with none is a set of nothing rather than a policy that
+		// grants nobody.
+		if len(policy.Bindings) == 0 {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"the policy must carry at least one binding")
 			return
 		}
 		if err := validateIAMMembers(policy.Bindings); err != nil {

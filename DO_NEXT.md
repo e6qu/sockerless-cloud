@@ -81,12 +81,12 @@
    taught: an operation declined because its slice "was not chosen" is not
    blocked, it is unvendored, and vendoring is ordinary work.
 
-   The live work list is now **BUG-2960**, not the coverage floors: the
-   handler-state marker narrows 4,500 operations to 286 that answer without
-   reaching state, most of them honest, and reading them has already found five
-   defects — a purchase that sold nothing, a data-quality model that was never
-   trained, a name check that always said yes, a deactivate that deactivated
-   nothing, and run details answered for runs that did not exist.
+   The handler-state sweep (BUG-2960) is closed: all three clouds' candidate
+   lists were read, the response validators grew the four dimensions they were
+   missing, and the request side got its own gate. What came out of it and is
+   still open is **BUG-2963** — Cloud Build's three webhook receivers accept a
+   delivery and start no build, which is a feature to assemble rather than an
+   answer that misreports.
 
 0-toolchain. **Move the repository to Go 1.26.** Three
    opentelemetry-operations-go modules, reached transitively through

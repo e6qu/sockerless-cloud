@@ -2109,6 +2109,11 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	}
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
+		if _, exists := gcsManagedFolders.Get(key(bucket, name)); !exists {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				"managed folder %q not found in bucket %q", name, bucket)
+			return
+		}
 		policy, ok := gcpResourcePolicies.Get("managedFolder/" + bucket + "/" + name)
 		if !ok {
 			policy = IAMPolicy{Bindings: []IAMBinding{}, Etag: gcpPolicyETag(), Version: 1}
@@ -2120,9 +2125,26 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	})
 	srv.HandleFunc("PUT /storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
+		if _, exists := gcsManagedFolders.Get(key(bucket, name)); !exists {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				"managed folder %q not found in bucket %q", name, bucket)
+			return
+		}
 		var policy IAMPolicy
 		if err := sim.ReadJSON(r, &policy); err != nil {
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		// A policy is its bindings; the document requires them of this method,
+		// and a set with none is a set of nothing rather than a policy that
+		// grants nobody.
+		if len(policy.Bindings) == 0 {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"the policy must carry at least one binding")
+			return
+		}
+		if err := validateIAMMembers(policy.Bindings); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 		policy.Etag = gcpPolicyETag()
