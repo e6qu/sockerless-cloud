@@ -189,7 +189,16 @@ check_gcp() {
     newest_revision=""
     for ((probe = 1; probe <= probes; probe++)); do
       candidate="$probe_dir/${file%.gz}-$probe.json"
-      if ! curl -fsSL -H 'Cache-Control: no-cache' -o "$candidate" "$url" 2>/dev/null; then
+      # The probes sample the edges Google serves concurrently, so they are
+      # deliberately separate requests rather than one. Fired back to back with
+      # no timeout they also sampled one instant, which is how a single
+      # throttling window took all three and turned "could not check" into a
+      # build failure. A failed probe waits, and waits longer each time; a
+      # probe that succeeds costs nothing extra.
+      if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -o "$candidate" "$url" 2>/dev/null; then
+        if [ "$probe" -lt "$probes" ]; then
+          sleep "$((probe * 3))"
+        fi
         continue
       fi
       live="$(jq -er '.revision | select(type == "string" or type == "number") | tostring' "$candidate" 2>/dev/null || true)"

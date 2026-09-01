@@ -165,6 +165,23 @@ rule, and registering clears it. The subscription-scoped provider listing built
 its own answer with the state hardcoded, so it disagreed with the single read
 the moment that read began telling the truth; both go through one function.
 
+Three Google Discovery documents were re-vendored, which the freshness check
+had been asking for: `iam-v1` and `redis-v1` at revision 20260828 and
+`firestore-v1` at 20260826. Both of the first two were inherited drift — the
+scheduled run finds them on main, which belongs to no branch, so it has nowhere
+to put the refresh and asks whichever pull request is open to carry it. The IAM
+document grew three methods, the SCIM tenant IAM verbs on a workforce pool
+provider, and the simulator already serves all three through the shared
+resource-policy store; its lock moved 266 → 272 with coverage still complete.
+
+The freshness check itself had a hole that failed this branch's CI: it fires
+three probes at each Discovery endpoint back to back with no timeout and no
+backoff, so one throttling window took all three of Firestore's and turned
+"could not check" into a build failure. A failed probe now waits, and waits
+longer each time; a probe that succeeds costs nothing. The probes exist to
+sample the several revisions Google serves concurrently, and spacing them
+samples better as well as more reliably.
+
 Both remaining-gap properties are now gates rather than observations. The
 coverage floors count unserved operations without caring why, so a gap that
 stopped declaring itself — a route that went away and now answers the mux's
