@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,967 of 1,994 on 2026-09-01.
+   is not.** 1,968 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 27 that remain are three shapes, and none of them is ordinary work:
+   The 26 that remain are three shapes, and none of them is ordinary work:
 
    - **A resource named inside a nested query member.** `ec2:ModifyInstanceCreditSpecification`
      names its instances at `InstanceCreditSpecification.1.InstanceId`, and
@@ -139,6 +139,14 @@
      service's documentation, safe because a create has no instance to
      over-grant against. Extend the same way, an entry at a time, and only
      where the reviewer can say what the operation is about.
+
+   - **A resource the simulator has no primitive for.** AWS Glue's
+     `GetDataQualityModel`, `GetDataQualityModelResult` and
+     `PutDataQualityProfileAnnotation` name a profile, and the ruleset behind
+     it is what they authorize against — but this simulator trains no models
+     and keeps no profile record, so a ProfileId names nothing it holds. These
+     want the profile modelled before the derivation can find anything, and
+     that is a question about the Glue slice rather than about IAM.
 
    - **A resource found only by looking it up.** This is most of what is left.
      AWS Glue's data-quality family resolves its ruleset through the run

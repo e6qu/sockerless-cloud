@@ -2927,12 +2927,13 @@ func iamGlueDataQualityRulesetARNs(fields map[string][]string, region, account s
 		out = append(out, arn(name))
 	}
 
-	// A ruleset the request names outright.
-	for _, name := range fields["rulesetname"] {
-		add(name)
-	}
-	for _, name := range fields["rulesetnames"] {
-		add(name)
+	// A ruleset the request names outright — including the one a
+	// recommendation run is being started to create, which the caller names
+	// and so is as derivable as any other name a create supplies.
+	for _, member := range []string{"rulesetname", "rulesetnames", "createdrulesetname"} {
+		for _, name := range fields[member] {
+			add(name)
+		}
 	}
 
 	for _, id := range fields["runid"] {
