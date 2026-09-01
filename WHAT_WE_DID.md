@@ -2,8 +2,8 @@
 
 ## 2026-08-31 to 2026-09-01, forty-fourth pass — the probe was measuring the wrong thing
 
-Three slices moved: Google Cloud 5,440 → 5,464 of 5,480 Discovery method
-spellings with `compute-v1` at 2,000 of 2,016, Azure 2,599 → 2,613 of 2,628
+Three slices moved: Google Cloud 5,440 → 5,466 of 5,480 Discovery method
+spellings with `compute-v1` at 2,002 of 2,016, Azure 2,599 → 2,613 of 2,628
 Swagger operations with App Service at 677 of 692, and AWS resource-scoped
 authorization 1,881 → 1,986 of 1,994 served operations.
 
@@ -102,18 +102,24 @@ what a caller can observe of the operation is the one thing it does hold.
 
 Google Cloud also served a project's reliability risks, on the distinction the
 declinations had been eliding. A catalogue is a published set that exists
-whether or not anyone asks — interconnect locations, licence codes,
-preconfigured WAF expression sets — and answering one emptily would be a false
-statement. A risk is something an analysis detected about this project, so an
+whether or not anyone asks — interconnect locations, preconfigured WAF
+expression sets — and answering one emptily would be a false statement. A risk is something an analysis detected about this project, so an
 empty collection says none was detected, which is true of a simulator that runs
 no analysis. It is the same reading that already lets an App Service site's
 recommendations answer empty.
 
-Google Cloud also served the policy a project puts on a licence code. The code
-identifies an image Google publishes and reading the code still means reading
-that catalogue, but the binding on it is the caller's own, written by
-setIamPolicy and read back by the other two, and holding it needs no knowledge
-of which codes Google has issued.
+Google Cloud also served the licence code itself, which had been declined as
+Google's catalogue and is not one when the licence is a project's own. Compute
+Engine assigns the code on insert — it is output only on the License, and the
+simulator was omitting it, so `licenseCodes.get` had nothing to answer from and
+the code a caller needs to attach a licence to an image was never handed out.
+The insert issues it, the licence carries it, and the read projects the licence
+onto the LicenseCode shape: the alias is that licence's URL and description,
+and the retention and attachment rules are the ones the licence itself states
+rather than defaults answered on its behalf. A code this project was never
+issued is not found, which is what a read of something that does not exist
+says. The policy a project puts on a code is unchanged and still needs no
+licence behind it: the binding is the caller's own.
 
 Google Cloud also served a project's enrolment in Compute Engine's preview
 features. Which features exist is Google's to say and is not vendored here, so

@@ -120,7 +120,7 @@ func registerComputeMore2(srv *sim.Server) {
 	// `kind` member (LicensesListResponse), so it cannot ride the shared
 	// list helper (which always stamps kind). Registered with bespoke
 	// handlers that round-trip the stored License faithfully.
-	registerComputeLicenses(srv, mk("compute_licenses"))
+	registerComputeLicenses(srv, mk("compute_licenses"), mk("compute_license_codes"))
 
 	// autoscalers.patch / autoscalers.update are collection-level verbs
 	// (the target is named by the `autoscaler` query parameter, not a path
@@ -171,7 +171,7 @@ func registerComputeMore2(srv *sim.Server) {
 // the LicensesListResponse schema defines no `kind` member (the shared
 // list helper always stamps kind); every verb here emits exactly the
 // documented License / LicensesListResponse / Operation shape.
-func registerComputeLicenses(srv *sim.Server, store sim.Store[map[string]any]) {
+func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]any]) {
 	const collection = "licenses"
 	base := computeScopeMux(cScopeGlobal, collection)
 	relPath := func(r *http.Request, name string) string {
@@ -198,11 +198,82 @@ func registerComputeLicenses(srv *sim.Server, store sim.Store[map[string]any]) {
 		}
 		body["kind"] = "compute#license"
 		body["id"] = computeNumericID()
+		// The code the licence is attached to images and disks by. Compute
+		// Engine assigns it — it is output-only on the License — and it is
+		// what licenseCodes.get is asked for.
+		code := computeNumericID()
+		body["licenseCode"] = code
 		body["selfLink"] = computeSelfLink(key)
 		body["creationTimestamp"] = time.Now().UTC().Format(time.RFC3339)
 		store.Put(key, body)
+		codes.Put(code, map[string]any{"license": key})
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(sim.PathParam(r, "project"), "global", computeSelfLink(key), "insert"))
 	})
+
+	// A licence code is read as a resource of its own, and every field the
+	// LicenseCode schema declares that this simulator knows is the licence's:
+	// the code names the licence it was issued for, and the alias is that
+	// licence's URL and description. The fields a licence here never carries —
+	// the retention and attachment rules Compute Engine's own published
+	// licences set — are left out rather than defaulted, because a licence
+	// this project created declares them or it does not.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{licenseCode}",
+		func(w http.ResponseWriter, r *http.Request) {
+			// The code is its own row, so this is a lookup rather than a walk
+			// of every licence. The row holds the licence's storage key: the
+			// licence stays the one copy of the data, and a code whose licence
+			// has been deleted resolves to nothing, which is the same answer
+			// as a code that was never issued.
+			code := sim.PathParam(r, "licenseCode")
+			notFound := func() {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+					"licenseCode %q not found", code)
+			}
+			row, issued := codes.Get(code)
+			if !issued {
+				notFound()
+				return
+			}
+			key, _ := row["license"].(string)
+			licence, ok := store.Get(key)
+			if key == "" || !ok {
+				notFound()
+				return
+			}
+			out := map[string]any{
+				"kind":     "compute#licenseCode",
+				"id":       code,
+				"name":     code,
+				"selfLink": computeSelfLink("projects/" + sim.PathParam(r, "project") + "/global/licenseCodes/" + code),
+				"state":    "ENABLED",
+			}
+			if v, isSet := licence["creationTimestamp"]; isSet {
+				out["creationTimestamp"] = v
+			}
+			alias := map[string]any{}
+			if v, isSet := licence["selfLink"]; isSet {
+				alias["selfLink"] = v
+			}
+			if v, isSet := licence["description"]; isSet {
+				out["description"] = v
+				alias["description"] = v
+			}
+			if len(alias) > 0 {
+				out["licenseAlias"] = []any{alias}
+			}
+			// The rules the licence itself states, carried through rather than
+			// answered for: each is declared on both resources.
+			for _, field := range []string{
+				"allowedReplacementLicenses", "appendableToDisk", "incompatibleLicenses",
+				"minimumRetention", "multiTenantOnly", "osLicense", "removableFromDisk",
+				"requiredCoattachedLicenses", "soleTenantOnly", "transferable",
+			} {
+				if v, isSet := licence[field]; isSet {
+					out[field] = v
+				}
+			}
+			sim.WriteJSON(w, http.StatusOK, out)
+		})
 
 	srv.HandleFunc("GET "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := store.Get(relPath(r, sim.PathParam(r, "name")))
@@ -245,8 +316,16 @@ func registerComputeLicenses(srv *sim.Server, store sim.Store[map[string]any]) {
 	srv.HandleFunc("DELETE "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		key := relPath(r, sim.PathParam(r, "name"))
+		// Read the code before the licence goes, so the code row goes with it.
+		var code string
+		if licence, ok := store.Get(key); ok {
+			code, _ = licence["licenseCode"].(string)
+		}
 		if computeNotFound(w, store.Delete(key), collection, sim.PathParam(r, "name")) {
 			return
+		}
+		if code != "" {
+			codes.Delete(code)
 		}
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "global", computeSelfLink(key), "delete"))
 	})
@@ -263,7 +342,7 @@ func registerComputeLicenses(srv *sim.Server, store sim.Store[map[string]any]) {
 			cur := *m
 			for k, v := range body {
 				switch k {
-				case "kind", "id", "selfLink", "creationTimestamp", "name":
+				case "kind", "id", "licenseCode", "selfLink", "creationTimestamp", "name":
 					continue
 				}
 				cur[k] = v

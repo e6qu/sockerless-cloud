@@ -97,33 +97,30 @@ var gcpDeclaredMethodTotals = map[string]int{
 }
 
 var gcpMethodFloor = map[string]int{
-	// Compute Engine serves 1,976 of the document's 2,016 method spellings.
-	// The forty that remain are two situations, and neither is a surface
-	// nobody got round to.
+	// Compute Engine serves 2,002 of the document's 2,016 method spellings.
+	// The fourteen that remain are all one situation: a catalogue Google
+	// publishes or hardware reporting on itself, neither of which this
+	// simulator can answer for without inventing the answer. Each is mounted
+	// and answers 501 with that reason, because an empty list would be worse
+	// than no answer — an empty interconnect-locations list states that Google
+	// operates no facilities, and a client cannot tell an invented catalogue
+	// from a real one.
 	//
-	// Thirty-four are catalogues Google publishes rather than the caller
-	// creating: the facilities Cloud Interconnect runs out of and the
-	// third-party ones it peers with, the licence codes for images Google
-	// publishes, the preview features it has opened, its reliability
-	// assessments, the preconfigured WAF expression sets, and what interconnect
-	// hardware reports about itself. Each is mounted and answers 501 with that
-	// reason. An empty list would be worse than no answer — an empty
-	// interconnect-locations list states that Google operates no facilities,
-	// and a client cannot tell an invented catalogue from a real one.
+	// They are the facilities Cloud Interconnect runs out of and the
+	// third-party ones it peers with (a list and a read each), what
+	// interconnect hardware reports about itself, and the preconfigured WAF
+	// expression sets. Discovery spells most methods twice, so fourteen
+	// spellings are seven methods.
 	//
-	// Six are the hosts a reservation's blocks sit on, and they are not mounted
-	// at all. Compute Engine declares them at
-	// "zones/{zone}/{association}/hosts", where association is a single path
-	// segment — the same shape to a path router as every other two-segment
-	// zonal read, "zones/{zone}/machineTypes/{machineType}" among them. Go
-	// refuses the pair as ambiguous, and the only way to host both would be one
-	// handler owning every two-segment zonal path: the catch-all
-	// TestServiceConformance_GCPNoPhantomCoverage exists to stop, which would
-	// answer for collections it does not serve and read as covering them.
+	// A licence code is no longer among them. It is not Google's catalogue
+	// when the licence is one this project created: Compute Engine assigns the
+	// code on insert, and reading the code is a read of the licence it was
+	// issued for. A code this project was never issued is not found, which is
+	// what a read of something that does not exist says.
 	//
 	// Lower this floor by one and the gate prints the unserved list, which is
-	// the work list whenever either situation changes.
-	"compute-v1":              2000,
+	// the work list whenever that changes.
+	"compute-v1":              2002,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

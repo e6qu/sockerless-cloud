@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -65,7 +66,9 @@ func TestCompute2_BackendBuckets_CRUD_IAM(t *testing.T) {
 
 func TestCompute2_Licenses_CRUD(t *testing.T) {
 	svc := computeService(t)
-	_, err := svc.Licenses.Insert(more2Project, &compute.License{Name: "sdk-lic-1"}).Do()
+	_, err := svc.Licenses.Insert(more2Project, &compute.License{
+		Name: "sdk-lic-1", Description: "an SDK licence", Transferable: true,
+	}).Do()
 	require.NoError(t, err)
 	got, err := svc.Licenses.Get(more2Project, "sdk-lic-1").Do()
 	require.NoError(t, err)
@@ -73,8 +76,25 @@ func TestCompute2_Licenses_CRUD(t *testing.T) {
 	list, err := svc.Licenses.List(more2Project).Do()
 	require.NoError(t, err)
 	assertComputeListHasName(t, list.Items, func(l *compute.License) string { return l.Name }, "sdk-lic-1")
+
+	// The code the licence is attached to images and disks by, which Compute
+	// Engine assigns and reads back as a resource of its own.
+	require.NotZero(t, got.LicenseCode)
+	issued := strconv.FormatUint(got.LicenseCode, 10)
+	code, err := svc.LicenseCodes.Get(more2Project, issued).Do()
+	require.NoError(t, err)
+	assert.Equal(t, issued, code.Name)
+	assert.Equal(t, "an SDK licence", code.Description)
+	assert.True(t, code.Transferable)
+	require.Len(t, code.LicenseAlias, 1)
+	assert.Equal(t, got.SelfLink, code.LicenseAlias[0].SelfLink)
+
 	_, err = svc.Licenses.Delete(more2Project, "sdk-lic-1").Do()
 	require.NoError(t, err)
+
+	// The code goes with the licence it named.
+	_, err = svc.LicenseCodes.Get(more2Project, issued).Do()
+	require.Error(t, err)
 }
 
 func TestCompute2_SslPolicies_CRUD_AvailableFeatures(t *testing.T) {

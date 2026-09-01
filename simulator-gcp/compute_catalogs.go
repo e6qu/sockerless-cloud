@@ -63,13 +63,9 @@ func registerComputeCatalogs(srv *sim.Server) {
 				"reliability risk %q not found", sim.PathParam(r, "reliabilityRisk"))
 		})
 
-	// A licence code identifies an image Google publishes, and reading the code
-	// itself means reading that catalogue. The policy a project puts on one is
-	// not Google's, though: it is the caller's own binding, written by
-	// setIamPolicy and read back by the other two, and holding it needs no
-	// knowledge of which codes Google has issued.
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{licenseCode}",
-		catalog("licence codes"))
+	// A licence code is read where it is issued, beside the licences
+	// collection. The policy a project puts on one is the caller's own
+	// binding, written by setIamPolicy and read back by the other two.
 	licenceIAM := func(r *http.Request) string {
 		return "compute/projects/" + sim.PathParam(r, "project") +
 			"/global/licenseCodes/" + sim.PathParam(r, "resource")

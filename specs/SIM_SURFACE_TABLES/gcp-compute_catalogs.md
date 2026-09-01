@@ -23,11 +23,10 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /compute/v1/projects/{project}/global/interconnectRemoteLocations/{interconnectRemoteLocation}` | ? `simulator-gcp/compute_catalogs.go:42::remote` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/global/reliabilityRisks` | ○ `simulator-gcp/compute_catalogs.go:51::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/global/reliabilityRisks/{reliabilityRisk}` | ○ `simulator-gcp/compute_catalogs.go:60::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/licenseCodes/{licenseCode}` | ? `simulator-gcp/compute_catalogs.go:71::catalog` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/licenseCodes/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:77::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:81::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_catalogs.go:85::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics` | ? `simulator-gcp/compute_catalogs.go:95::catalog` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/licenseCodes/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:73::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:77::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_catalogs.go:81::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics` | ? `simulator-gcp/compute_catalogs.go:91::catalog` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -258,17 +258,19 @@ func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
 	assert.Empty(t, other.Items)
 }
 
-// The policy a project puts on a licence code. The code identifies an image
-// Google publishes and reading it means reading that catalogue, but the binding
-// on it is the caller's own.
+// The policy a project puts on a licence code, which is the caller's own
+// binding and needs no licence behind it — a policy can be written for a code
+// Google issued for one of its published images.
 func TestCompute_LicenceCodePolicy(t *testing.T) {
 	svc := computeService(t)
 	const project, code = "licence-project", "1000205"
 
-	// Reading the code itself still means reading Google's catalogue.
+	// A code this project was never issued is not found. Reading a code is a
+	// read of the licence it was issued for, and Google's own published codes
+	// are not licences this project holds.
 	_, err := svc.LicenseCodes.Get(project, code).Do()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "catalogue is Google's own")
+	assert.Contains(t, err.Error(), "not found")
 
 	set, err := svc.LicenseCodes.SetIamPolicy(project, code, &compute.GlobalSetPolicyRequest{
 		Policy: &compute.Policy{
