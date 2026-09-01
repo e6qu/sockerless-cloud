@@ -5,7 +5,7 @@ COPY ui/tsconfig.base.json ./
 COPY ui/packages ./packages
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile && cd packages/simulator-azure && bun run build
 
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /src
 COPY . .
 COPY --from=web /src/ui/packages/simulator-azure/dist /src/simulator-azure/dist

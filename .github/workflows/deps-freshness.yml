@@ -62,7 +62,7 @@ jobs:
           ref: main
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - name: Install check tools
@@ -92,7 +92,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       # A bump opened on top of somebody's branch would break their next commit

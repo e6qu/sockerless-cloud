@@ -130,15 +130,25 @@ at thirty. It watches for the running snapshot now instead of sampling for it,
 and an execution that settles without ever reporting one fails explicitly —
 which is the thing the test is actually for.
 
-One dependency upgrade had to be held rather than taken whole. Bumping
-`google.golang.org/api` to v0.296.0 pulls three opentelemetry-operations-go
-modules whose newest releases declare `go >= 1.26.0`, and every workflow here
-pins Go 1.25 — so the build passed on a laptop running 1.26 and failed every CI
-job that touched the workspace. The three are held one release back with the
-reason in the go.mod, to be lifted when the toolchain moves. The same
-discipline caught a `go.work` directive an earlier `go get` had raised to
-1.26.0: a repository builds on the Go its CI runs, and a local toolchain ahead
-of it will not say so.
+The repository moved to Go 1.26, which is what the dependency tree had started
+requiring. Bumping `google.golang.org/api` to v0.296.0 pulls three
+opentelemetry-operations-go modules whose releases declare `go >= 1.26.0`, and
+every workflow pinned Go 1.25 — so the build passed on a laptop running 1.26
+and failed every CI job that touched the workspace. Holding the three one
+release back was the stopgap; taking the toolchain forward is the fix, and the
+holds are gone with it. The workflows, `go.work` and the three simulator
+container images all pin 1.26 now. The same discipline caught a `go.work`
+directive an earlier `go get` had raised on its own: a repository builds on the
+Go its CI runs, and a local toolchain ahead of it will not say so.
+
+Two GitHub Actions left the workflow. The runner downloads every action a
+workflow references before it evaluates any step's condition, so an action one
+job uses is fetched by all forty-six — which is the standing half of BUG-56,
+the half the incident evidence did not explain away. `hashicorp/setup-terraform`
+became a pinned, checksum-verified download of the release archive, and
+`oven-sh/setup-bun` became a composite action in this repository, already on
+disk from the checkout. Both were installing a floating version; both pin one
+now. What ci.yml references from outside is down from seven actions to four.
 
 A third defect surfaced from the same corner and had been open as an
 unexplained CI flake: a Step Functions distributed map run that never finished.

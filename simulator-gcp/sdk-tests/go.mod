@@ -1,6 +1,6 @@
 module github.com/e6qu/sockerless-cloud/simulator-gcp/sdk-tests
 
-go 1.25.8
+go 1.26.0
 
 require (
 	cloud.google.com/go/bigtable v1.53.0
@@ -30,18 +30,15 @@ require (
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.6.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.37.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.61.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.61.0 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )
 
-// The three opentelemetry-operations-go modules below are held one release
-// back. Their v0.61.0 / v1.37.0 releases declare go >= 1.26.0, and this
-// repository builds on the Go the workflows pin, which is 1.25 — a build that
-// only works on a newer toolchain than CI runs is a build that only works
-// here. They arrive transitively through google.golang.org/api, which is at
-// its own latest. Lift the holds when the toolchain moves.
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
@@ -52,9 +49,6 @@ require (
 	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
 	cloud.google.com/go/spanner v1.95.0
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.36.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.60.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.60.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.39.0 // indirect

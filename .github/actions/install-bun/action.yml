@@ -1,0 +1,29 @@
+name: Install Bun
+description: >-
+  Installs a pinned Bun from its own release archive. A composite action in
+  this repository rather than oven-sh/setup-bun, because the runner downloads
+  every action a workflow references before it evaluates any step's condition:
+  an action three jobs use is fetched by all of them, and a local one is
+  already on disk from the checkout.
+runs:
+  using: composite
+  steps:
+    - name: Install Bun
+      shell: bash
+      env:
+        BUN_VERSION: '1.4.0'
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64) target=bun-linux-x64 ;;
+          aarch64|arm64) target=bun-linux-aarch64 ;;
+          *) echo "::error::unsupported architecture $(uname -m) for Bun"; exit 1 ;;
+        esac
+        archive="$target.zip"
+        curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/$archive" \
+          "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/$archive"
+        unzip -q -o "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP/bun"
+        install -m 0755 "$RUNNER_TEMP/bun/$target/bun" "$HOME/.local/bin/bun" 2>/dev/null \
+          || { mkdir -p "$HOME/.local/bin" && install -m 0755 "$RUNNER_TEMP/bun/$target/bun" "$HOME/.local/bin/bun"; }
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        "$HOME/.local/bin/bun" --version

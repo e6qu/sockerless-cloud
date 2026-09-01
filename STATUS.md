@@ -151,6 +151,11 @@ Current state of the sockerless-cloud repository.
   CLI coverage, and a Terraform fixture applies and destroys the access point,
   the Object Lambda access point, the Storage Lens dashboard and the Access
   Grants instance through terraform-provider-aws.
+- **Go 1.26**, which the dependency tree requires: three
+  opentelemetry-operations-go modules reached through `google.golang.org/api`
+  declare it. The workflows, `go.work` and the three simulator container images
+  pin it together, because a module that only builds on a newer toolchain than
+  CI runs only builds on the author's machine.
 - **The request side of a Discovery document is checked too.** Its
   `annotations.required` is per method — the method ids a property is required
   *for* — and a gate drives all 73 in the corpus with the property omitted and
