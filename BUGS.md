@@ -84,6 +84,14 @@ Open: 7. Resolved: 84.
   resource. Whether the tasks family should require it is a separate question
   and is not answered here.
 
+  Cloud Dataflow's `templates:get` answered a fixed "Word Count" template for
+  whatever `gcsPath` it was asked about, describing a template nobody staged. A
+  template is a file in Cloud Storage and its metadata is the sibling
+  `<template>_metadata` Dataflow's own tooling writes beside it — both the
+  caller's, both in a bucket this simulator serves. It reads them; a path
+  nothing was staged at is not found, and a template staged without metadata
+  answers without any rather than with a name invented for it.
+
   Reading Google Cloud's 140 found four defects and one reason. The four are
   all in Resource Manager v3's tag surfaces and all the same shape:
   `effectiveTags` answered an empty list for a resource whose tag binding the

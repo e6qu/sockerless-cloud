@@ -13,6 +13,7 @@ import (
 	"google.golang.org/api/dataflow/v1b3"
 	"google.golang.org/api/option"
 	"google.golang.org/api/spanner/v1"
+	storageapi "google.golang.org/api/storage/v1"
 )
 
 // awaitSpannerLRO reads a Cloud Spanner long-running operation to its terminal
@@ -377,14 +378,36 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, glaunch.Job)
 
-	// GetTemplate metadata: the reply has to carry the two members a client
-	// reads off it — the status and the template type it names.
-	tmpl, err := svc.Projects.Locations.Templates.Get("tmpl-project", "us-central1").GcsPath("gs://dataflow-templates/word-count").Do()
+	// GetTemplate reads the template the caller staged, and its metadata from
+	// the sibling file Dataflow's tooling writes beside it. A path nothing was
+	// staged at is not a template — answering one for whatever path was asked
+	// about described a template nobody had.
+	storage := storageService(t)
+	_, err = storage.Buckets.Insert("tmpl-project", &storageapi.Bucket{Name: "staged-templates"}).Do()
+	require.NoError(t, err)
+
+	missing, err := svc.Projects.Locations.Templates.Get("tmpl-project", "us-central1").
+		GcsPath("gs://staged-templates/never-staged").Do()
+	require.Error(t, err, "a path nothing was staged at is not a template")
+	require.Nil(t, missing)
+
+	_, err = storage.Objects.Insert("staged-templates", &storageapi.Object{Name: "word-count"}).
+		Media(strings.NewReader(`{"name":"word-count"}`)).Do()
+	require.NoError(t, err)
+	_, err = storage.Objects.Insert("staged-templates", &storageapi.Object{Name: "word-count_metadata"}).
+		Media(strings.NewReader(`{"name":"Word Count","parameters":[{"name":"inputFile","label":"Input"}]}`)).Do()
+	require.NoError(t, err)
+
+	tmpl, err := svc.Projects.Locations.Templates.Get("tmpl-project", "us-central1").
+		GcsPath("gs://staged-templates/word-count").Do()
 	require.NoError(t, err)
 	require.NotNil(t, tmpl.Status)
 	assert.NotEmpty(t, tmpl.TemplateType)
 	require.NotNil(t, tmpl.Metadata)
-	assert.NotEmpty(t, tmpl.Metadata.Name)
+	assert.Equal(t, "Word Count", tmpl.Metadata.Name,
+		"the name must come from the staged metadata file, not from the simulator")
+	require.Len(t, tmpl.Metadata.Parameters, 1)
+	assert.Equal(t, "inputFile", tmpl.Metadata.Parameters[0].Name)
 
 	// Flex template launch → a Job inside LaunchFlexTemplateResponse.
 	flex, err := svc.Projects.Locations.FlexTemplates.Launch("tmpl-project", "us-central1", &dataflow.LaunchFlexTemplateRequest{

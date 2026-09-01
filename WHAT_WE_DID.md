@@ -138,6 +138,15 @@ records it, both reads answer for what exists — created on the data plane or
 through the management plane, which are the same database to a client — and the
 delete takes the record with it.
 
+Cloud Dataflow's `templates:get` answered a fixed "Word Count" template for
+whatever `gcsPath` it was handed, describing a template nobody staged. A
+template is a file in Cloud Storage, and its metadata is the sibling
+`<template>_metadata` that Dataflow's own tooling writes beside it — both the
+caller's, both in a bucket this simulator serves. It reads them now: a path
+nothing was staged at is not found, and a template staged without metadata
+answers without any rather than with a name invented for it. The test stages
+one first, which is what a caller does before launching.
+
 Google Cloud's Resource Manager tag surfaces were four more of the same shape.
 `effectiveTags` answered an empty list for a resource whose binding the
 simulator holds; a tag-binding collection's PATCH returned the tags it was
