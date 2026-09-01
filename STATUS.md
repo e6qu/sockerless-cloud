@@ -89,7 +89,7 @@ Current state of the sockerless-cloud repository.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
-- **Measured floors** (re-read from the ratchets on 2026-08-31, because the
+- **Measured floors** (re-read from the ratchets on 2026-09-01, because the
   figures written here had drifted from the tests that produce them): IAM
   resource derivation **1,986 of 1,994** served operations;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set

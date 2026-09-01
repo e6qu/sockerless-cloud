@@ -33,10 +33,22 @@
    **Memorystore, 90 of 94** (2026-08-28) — the media upload path, the hosted
    build path routed to real Cloud Build, and rescheduleMaintenance.
 
-   Left, largest first, with the per-document floor comment naming each:
-   Compute Engine's long tail (1,118 of 2,014 spellings; 559 of 1,007
-   methods); then Azure's 31 remaining non-App-Service operations and the implementable part of App Service's 76; then the 230 AWS
-   IAM derivations.
+   Left, measured 2026-09-01 against the ratchets that produce the numbers:
+   **nothing that can be served without inventing the answer.** Google Cloud
+   is 5,466 of 5,480 spellings, and the fourteen are seven methods — Cloud
+   Interconnect's facilities and remote facilities, what interconnect hardware
+   reports about itself, and the preconfigured WAF expression sets. Azure is
+   2,613 of 2,628, and the fifteen are all App Service: Microsoft's runtime
+   stacks, its advisory copy, an App Service Environment's outbound dependency
+   endpoints, the platform php.ini, and a process memory dump. AWS is 1,986 of
+   1,994 IAM derivations, and the eight are requests that name no resource.
+
+   Every one of those answers a declared 501 naming its reason, and that is now
+   a gate rather than an observation:
+   `TestServiceConformance_GCPUnservedMethodsDeclareThemselves` and
+   `TestServiceConformance_AzureUnservedOperationsDeclareThemselves` fail on any
+   unserved operation answering anything else, so a gap cannot quietly become a
+   routing 404 while the count holds.
 
    A Discovery document's field descriptions are worth reading before the
    first implementation, not after: the prewarm family's contract was wrong in
@@ -45,12 +57,27 @@
    where a registry URI belongs, and a `gs://` prefix the member does not
    carry.
 
-   Genuinely blocked, and to be left unserved with the reason recorded rather
-   than answered with invented data: Cloud Spanner's Key Visualizer scans,
-   quorum change and wire-protocol adapter; Cloud KMS' Key Access
-   Justifications; App Service's packet capture and process dump/modules/kill;
-   the Application Insights query data plane; and the two published catalogs
-   declined three times (Microsoft's runtime stacks, Google's SKU list).
+   Genuinely blocked, and left unserved with the reason recorded rather than
+   answered with invented data: Cloud Spanner's Key Visualizer scans, quorum
+   change and wire-protocol adapter; Cloud KMS' Key Access Justifications; App
+   Service's packet capture and process dump; the Application Insights query
+   data plane; and the published catalogs declined more than once (Microsoft's
+   runtime stacks, Google's SKU list and interconnect facilities).
+
+   A licence code stopped being one of them: it is not Google's catalogue when
+   the licence is a project's own. Compute Engine assigns the code on insert,
+   so reading one is a read of the licence it was issued for, and a code this
+   project was never issued is not found. Before declining a surface as a
+   published catalogue, check whether the caller's own resource is what the
+   identifier names — the same question turned three AWS Glue operations from
+   underivable into ordinary reads.
+
+   The live work list is now **BUG-2960**, not the coverage floors: the
+   handler-state marker narrows 4,500 operations to 286 that answer without
+   reaching state, most of them honest, and reading them has already found five
+   defects — a purchase that sold nothing, a data-quality model that was never
+   trained, a name check that always said yes, a deactivate that deactivated
+   nothing, and run details answered for runs that did not exist.
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
    is not.** 1,986 of 1,994 on 2026-09-01.
