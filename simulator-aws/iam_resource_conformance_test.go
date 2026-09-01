@@ -1865,7 +1865,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1981
+const iamDerivationCoverageFloor = 1982
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1936,7 +1936,10 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	cloudWatchMembers := loadRequestFields(t, "cloudwatch", memberWireName)
 	ecrMembers := loadRequestFields(t, "ecr", memberWireName)
 	kinesisMembers := loadRequestFields(t, "kinesis", memberWireName)
-	statesMembers := loadRequestFields(t, "sfn", memberWireName)
+	// An alias names the machine it routes to inside its routing entries, a
+	// shape only the shared renderer sends.
+	_, statesNested := loadRequestShapes(t, "sfn", memberWireName)
+	statesCased := loadCasedRequestMembers(t, "sfn")
 	secretsMembers := loadRequestFields(t, "secrets-manager", memberWireName)
 	snsParameters := loadRequestFields(t, "sns", memberWireName)
 	sqsParameters := loadRequestFields(t, "sqs", memberWireName)
@@ -2032,8 +2035,10 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 			derived = iamJSONProbeDerives("kinesis", o.name, kinesisMembers[o.name],
 				probeARN("arn:aws:kinesis:us-east-1:123456789012:stream/probe"))
 		case "states":
-			derived = iamJSONProbeDerives("states", o.name, statesMembers[o.name],
-				probeARN("arn:aws:states:us-east-1:123456789012:stateMachine:probe"))
+			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
+				"states", "AWSStepFunctions", o.name,
+				probeARN("arn:aws:states:us-east-1:123456789012:stateMachine:probe"),
+				statesCased[o.name], statesNested[o.name], fixtures), "states:"+o.name)
 		case "secretsmanager":
 			derived = iamJSONProbeDerives("secretsmanager", o.name, secretsMembers[o.name],
 				probeARN("arn:aws:secretsmanager:us-east-1:123456789012:secret:probe"))

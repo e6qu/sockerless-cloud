@@ -788,6 +788,31 @@ func iamKinesisResourceARNs(r *http.Request, types []string, region, account str
 func iamStatesResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
 	switch op {
+	case "CreateStateMachineAlias":
+		// An alias routes traffic to versions of one state machine, and that
+		// machine is what creating the alias authorizes against. The alias does
+		// not exist yet and the machine is named only inside the version ARNs
+		// the routing carries — a version ARN is the machine's own with the
+		// version appended, so the machine is the ARN without it. Wildcarding
+		// the machine instead would authorize aliasing every state machine,
+		// which is what this reader exists to avoid.
+		var machines []string
+		seen := map[string]struct{}{}
+		for _, version := range fields["statemachineversionarn"] {
+			machine, _, versioned := iamStatesMachineOfVersion(version)
+			if !versioned {
+				continue
+			}
+			if _, dup := seen[machine]; dup {
+				continue
+			}
+			seen[machine] = struct{}{}
+			machines = append(machines, machine)
+		}
+		if len(machines) > 0 {
+			sort.Strings(machines)
+			return machines
+		}
 	case "CreateStateMachine", "CreateActivity":
 		segment := "stateMachine:"
 		if op == "CreateActivity" {
@@ -3329,3 +3354,22 @@ func iamSSMTargetedInstances(r *http.Request) []string {
 // subquery, matches nothing and derives nothing.
 var iamCloudTrailQueryFrom = regexp.MustCompile(
 	`(?i)\b(?:from|join)\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+
+// iamStatesMachineOfVersion splits a state machine version ARN into the machine
+// it is a version of and the version itself. A version ARN is the machine's own
+// ARN with ":<version>" appended, so anything without that trailing number is
+// not one.
+func iamStatesMachineOfVersion(arn string) (machine, version string, ok bool) {
+	if !strings.HasPrefix(arn, "arn:") || !strings.Contains(arn, ":stateMachine:") {
+		return "", "", false
+	}
+	cut := strings.LastIndexByte(arn, ':')
+	if cut < 0 {
+		return "", "", false
+	}
+	version = arn[cut+1:]
+	if version == "" || strings.ContainsFunc(version, func(r rune) bool { return r < '0' || r > '9' }) {
+		return "", "", false
+	}
+	return arn[:cut], version, true
+}

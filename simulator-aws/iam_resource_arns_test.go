@@ -2417,3 +2417,37 @@ func TestIAMResourceARNs_APointerAndACreateNameWhatTheyKnow(t *testing.T) {
 			"arn:aws:organizations::123456789012:policy/o-sim0000000/service_control_policy/p-*")
 	})
 }
+
+// Creating an alias is authorized against the state machine its routing points
+// at, which the request names only inside version ARNs.
+func TestIAMResourceARNs_AnAliasNamesTheMachineItRoutesTo(t *testing.T) {
+	const machine = "arn:aws:states:us-east-1:123456789012:stateMachine:orders"
+
+	t.Run("the machine the versions belong to is the resource", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateStateMachineAlias",
+				`{"name":"live","routingConfiguration":[`+
+					`{"stateMachineVersionArn":"`+machine+`:1","weight":90},`+
+					`{"stateMachineVersionArn":"`+machine+`:2","weight":10}]}`),
+			"states:CreateStateMachineAlias", machine)
+	})
+
+	t.Run("an ARN carrying no version still names the machine it is", func(t *testing.T) {
+		// The version split does not match, but an ARN of a type the action
+		// declares names that resource however it was reached — and the machine
+		// the routing points at is what the alias is about either way.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateStateMachineAlias",
+				`{"name":"live","routingConfiguration":[{"stateMachineVersionArn":"`+machine+`"}]}`),
+			"states:CreateStateMachineAlias", machine)
+	})
+
+	t.Run("a routing naming no machine derives nothing", func(t *testing.T) {
+		// The guard this reader exists for: an alias must never widen to every
+		// state machine in the account.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateStateMachineAlias",
+				`{"name":"live","routingConfiguration":[{"weight":100}]}`),
+			"states:CreateStateMachineAlias", "*")
+	})
+}
