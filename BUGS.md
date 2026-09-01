@@ -21,9 +21,15 @@ Open: 10. Resolved: 84.
   What is left is that the run does not complete on that runner at all. The
   state-machine runtime polls its own work at 20ms, so a Wait that never fires
   points at whatever advances timers under CI's configuration rather than at
-  the budget. Reproducing it needs the CI environment; raising the timeout
-  would hide it rather than fix it, and the run either finishes in seconds or
-  never.
+  the budget. Raising the timeout would hide it rather than fix it: the run
+  either finishes in seconds or never.
+
+  It is intermittent, which narrows it further. The same job passed on the very
+  next commit (016665b), so this is not a configuration the runner always has —
+  it is a race or a scheduling starvation that a loaded two-vCPU runner
+  sometimes loses. Whoever picks it up should look for what the map run waits
+  on that can be missed rather than merely delayed, because a delay would have
+  shown up as a slow pass rather than sixty seconds of nothing.
 
 
 - **BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
