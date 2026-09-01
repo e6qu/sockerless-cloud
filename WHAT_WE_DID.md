@@ -117,7 +117,9 @@ Unregistering an Azure resource provider was the same shape once more: it
 answered `Unregistered` and stored nothing, so the very next read said
 Registered again — and that read is the one a client polls after registering.
 Registration is recorded per subscription now, as the exception rather than the
-rule, and registering clears it.
+rule, and registering clears it. The subscription-scoped provider listing built
+its own answer with the state hardcoded, so it disagreed with the single read
+the moment that read began telling the truth; both go through one function.
 
 Both remaining-gap properties are now gates rather than observations. The
 coverage floors count unserved operations without caring why, so a gap that

@@ -87,5 +87,28 @@ func TestAzureResources_CompletionSurfaces(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, other.RegistrationState)
 		assert.Equal(t, "Registered", *other.RegistrationState)
+
+		// The listing reports the same state the single read does. Two reads
+		// of one fact must not disagree — the list built its own answer and
+		// said Registered for a namespace just unregistered.
+		_, err = client.Unregister(ctx, ns, nil)
+		require.NoError(t, err)
+		var listed string
+		pager := client.NewListPager(nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			require.NoError(t, err)
+			for _, provider := range page.Value {
+				if provider != nil && provider.Namespace != nil && *provider.Namespace == ns {
+					require.NotNil(t, provider.RegistrationState)
+					listed = *provider.RegistrationState
+				}
+			}
+		}
+		assert.Equal(t, "Unregistered", listed,
+			"the listing must report what the single read reports")
+
+		_, err = client.Register(ctx, ns, nil)
+		require.NoError(t, err)
 	})
 }

@@ -60,7 +60,10 @@ Open: 7. Resolved: 84.
   rather than that it named no run. A fourth: unregistering a resource provider
   answered `Unregistered` and stored nothing, so the next read said Registered
   again — an unregister that reverts on the read a client polls. Registration
-  is recorded per subscription now, and register clears it.
+  is recorded per subscription now, and register clears it. The
+  subscription-scoped provider listing built its own answer with the state
+  hardcoded, so it disagreed with the single read the moment that read told the
+  truth; both go through one function.
 
   Reading Google Cloud's 140 found no defect and one reason: almost all of them
   were the marker's own blind spot. A registrar binds sibling closures —

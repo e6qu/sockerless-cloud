@@ -64,14 +64,12 @@ func registerSubscription(srv *sim.Server) {
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 
+		// Built by the same function the single-provider read uses. Two reads
+		// of one fact must not disagree: this list said Registered for a
+		// namespace the subscription had just unregistered.
 		providers := make([]map[string]any, 0, len(resourceProviderNamespaces))
 		for _, ns := range resourceProviderNamespaces {
-			providers = append(providers, map[string]any{
-				"id":                fmt.Sprintf("/subscriptions/%s/providers/%s", sub, ns),
-				"namespace":         ns,
-				"registrationState": "Registered",
-				"resourceTypes":     azureProviderResourceTypeEntries(ns),
-			})
+			providers = append(providers, azureProviderObject(sub, ns))
 		}
 
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
