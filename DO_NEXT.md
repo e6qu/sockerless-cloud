@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,974 of 1,994 on 2026-09-01.
+   is not.** 1,975 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 20 that remain are three shapes, and none of them is ordinary work:
+   The 19 that remain are three shapes, and none of them is ordinary work:
 
    - **A resource the request does not name at all.** `cloudwatch:ListMetrics`,
      `PutMetricData`, `GetMetricData` and `ListAlarmMuteRules` declare a
@@ -136,8 +136,6 @@
      inside SQL; `logs:GetLogRecord` carries an opaque pointer;
      `organizations:CreatePolicy` and `DescribeEffectivePolicy` need the
      organization's own id, which their ARNs carry and their requests do not.
-     `ec2:DeleteVpcEndpointConnectionNotifications` names a notification whose
-     record would have to hold the endpoint it is on.
 
    The measurement seam that carried most of this is closed for the readers
    that existed: `iamSeedDerivationFixtures` creates what a family resolves

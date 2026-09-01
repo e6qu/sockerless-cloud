@@ -182,6 +182,19 @@ func iamSeedDerivationFixtures(t *testing.T,
 		map[string]string{}, `<DbClusterResourceId>([^<]+)</DbClusterResourceId>`)
 	out["rds:DeleteDBClusterAutomatedBackup:DbClusterResourceId"] = cluster
 
+	// A VPC endpoint and the notification on it, which the delete names by the
+	// notification alone.
+	endpoint := iamFixtureEC2(t, queryRouter, "CreateVpcEndpoint",
+		map[string]string{"VpcId": vpc, "ServiceName": "com.amazonaws.us-east-1.s3"},
+		`<vpcEndpointId>([^<]+)</vpcEndpointId>`)
+	notification := iamFixtureEC2(t, queryRouter, "CreateVpcEndpointConnectionNotification",
+		map[string]string{
+			"VpcEndpointId":             endpoint,
+			"ConnectionNotificationArn": "arn:aws:sns:us-east-1:" + iamProbeAccount + ":probe",
+			"ConnectionEvents.1":        "Accept",
+		}, `<connectionNotificationId>([^<]+)</connectionNotificationId>`)
+	out["ec2:DeleteVpcEndpointConnectionNotifications:ConnectionNotificationId"] = notification
+
 	// A database proxy, whose default target group Amazon RDS keeps under the
 	// proxy's own name — the modify names the proxy and the group, and the
 	// group's id, which its ARN is built from, is neither.

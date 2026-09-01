@@ -1216,6 +1216,34 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			sort.Strings(out)
 			return out
 		}
+	case "DeleteVpcEndpointConnectionNotifications", "ModifyVpcEndpointConnectionNotification":
+		// A notification names neither of the things the action declares — the
+		// endpoint and the service it is on — so the record it is keyed by is
+		// read for them. Each contributes only if the action declares it: a
+		// notification on a service is not what an endpoint-scoped grant
+		// covers.
+		var out []string
+		for _, id := range lookup("ConnectionNotificationId") {
+			if ec2ConnNotifications == nil {
+				break
+			}
+			notification, ok := ec2ConnNotifications.Get(id)
+			if !ok {
+				continue
+			}
+			if notification.VpcEndpointId != "" && iamHasType(types, "vpc-endpoint") {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+
+					":vpc-endpoint/"+notification.VpcEndpointId)
+			}
+			if notification.ServiceId != "" && iamHasType(types, "vpc-endpoint-service") {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+
+					":vpc-endpoint-service/"+notification.ServiceId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
 	case "ModifyInstanceCreditSpecification":
 		// The machines are named inside a specification entry rather than in a
 		// member of their own — "InstanceCreditSpecification.1.InstanceId" —
