@@ -1,6 +1,6 @@
 # WHAT WE DID
 
-## 2026-08-31, forty-fourth pass — the probe was measuring the wrong thing
+## 2026-08-31 to 2026-09-01, forty-fourth pass — the probe was measuring the wrong thing
 
 Three slices moved: Google Cloud 5,440 → 5,464 of 5,480 Discovery method
 spellings with `compute-v1` at 2,000 of 2,016, Azure 2,599 → 2,613 of 2,628
@@ -22,6 +22,34 @@ renders the whole format, and sends both batch shapes; Amazon DynamoDB and
 Amazon EventBridge go through the shared probe rather than their own flat ones.
 Nine of AWS Glue's operations and four of WAFv2's needed no production change
 at all.
+
+Two more probe defects came out of the same seam, and each had been written up
+as something else first. The shared awsJson probe read its service name off the
+wire target by splitting on an underscore, which works for
+"CodeBuild_20161006" and silently does not for "AmazonSSM": the whole word
+became the service, every rule written for "ssm" missed, and a member wanting
+an instance id got the literal "probe". Amazon ECS, AWS Glue, Amazon
+EventBridge and WAFv2 were misread the same way. And the probe filled every
+inner member of a structure with a scalar, so a member the model declares as a
+list arrived as a string — a body nothing accepts, which is why AWS Systems
+Manager's access request measured as absent against a reader that refuses it
+correctly. The service is passed explicitly now and the shape loader records
+each inner member's kind.
+
+The larger correction was to a claim made in this repository's own notes: that
+the operations resolving an identifier to what it belongs to could not move the
+ratchet, because seeding the probe would measure the fixture. Half of that is
+right — writing rows into a store measures a fixture — and half is wrong.
+Creating the resource through the service's own creation handler and probing
+the derivation against it measures the reader, which is what every SDK test
+here already does. `iamSeedDerivationFixtures` does that, and the probe names
+each resource by the identifier the service assigned back. It recovered Amazon
+EC2's associations, AWS Glue's data-quality runs, an IAM access key, a
+maintenance window, an Auto Scaling group, a database cluster and proxy, a VPC
+endpoint notification and a Logs Insights query — and the readers it then
+exposed as genuinely missing were ordinary work once they could be measured.
+Every one of them answers from a keyed store read or a generation-keyed index,
+so the store-scan gate still counts zero full store reads on a request path.
 
 What did change behind it: a create resolves its type when the action declares
 its inputs alongside what it mints, so `ec2:CreateVpc` authorizes against
