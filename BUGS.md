@@ -136,6 +136,19 @@ Open: 8. Resolved: 84.
   describe, and two API Management contracts that could be stored without what
   they require — a schema with no document and a subscription with no scope.
 
+  Google Cloud has no equivalent of that check and should not grow one: a
+  Discovery document expresses required-ness only for requests. Its
+  `annotations.required` is a list of the method ids a property is required
+  *for* — `Route.destRange` carries `["compute.routes.insert"]` — and says
+  nothing about what a response guarantees, so a response-side check built on
+  it would be measuring the wrong thing. The available analogue is the request
+  side, and it is a real one: 63 properties across the corpus are marked
+  required for some insert, and nothing checks that the simulator refuses an
+  insert that omits one. That is the same defect the two API Management
+  contracts had — a resource stored that the service would have refused —
+  and it wants a conformance test driving each insert with one property
+  removed, not a runtime validator.
+
   Reading Google Cloud's 140 found four defects and one reason. The four are
   all in Resource Manager v3's tag surfaces and all the same shape:
   `effectiveTags` answered an empty list for a resource whose tag binding the
