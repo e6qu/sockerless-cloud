@@ -369,8 +369,20 @@ func insightsMetadataDoc(appID string) map[string]any {
 			"id": name, "name": name, "columns": columns,
 		})
 	}
+	// The application this metadata is about. Its resource id and region are
+	// both required members of the entry and both are the component's own: the
+	// data plane addresses it by the application id the component records.
+	app := map[string]any{"id": appID, "name": appID, "region": "", "resourceId": ""}
+	if azureAppInsightsComponents != nil {
+		if c, ok := azureInsightsByApplicationID.Lookup(
+			azureAppInsightsComponents, strings.ToLower(appID), azureInsightsApplicationIDKeys); ok {
+			app["name"] = c.Name
+			app["region"] = c.Location
+			app["resourceId"] = c.ID
+		}
+	}
 	return map[string]any{
-		"applications": []any{map[string]any{"id": appID, "name": appID}},
+		"applications": []any{app},
 		"tables":       tables,
 		"tableGroups":  []any{},
 		"functions":    []any{},

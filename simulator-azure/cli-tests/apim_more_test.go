@@ -37,7 +37,10 @@ func TestAPIMMoreCLI(t *testing.T) {
 	api := svc + "/apis/cliapi"
 	runCLI(t, azRest("PUT", api+apiVersion, `{"properties":{"displayName":"CLI API","path":"v1","apiType":"http"}}`))
 	runCLI(t, azRest("PATCH", api+apiVersion, `{"properties":{"description":"updated"}}`))
-	runCLI(t, azRest("PUT", api+"/schemas/s1"+apiVersion, `{"properties":{"contentType":"application/json"}}`))
+	// A schema's contract requires the document as well as its content type.
+	runCLI(t, azRest("PUT", api+"/schemas/s1"+apiVersion,
+		`{"properties":{"contentType":"application/json",`+
+			`"document":{"components":{"schemas":{"Thing":{"type":"object"}}}}}}`))
 	runCLI(t, azRest("PUT", api+"/policies/policy"+apiVersion, `{"properties":{"format":"xml","value":"<policies/>"}}`))
 	op := api + "/operations/op1"
 	runCLI(t, azRest("PUT", op+apiVersion, `{"properties":{"displayName":"Op","method":"GET","urlTemplate":"/x"}}`))
@@ -51,8 +54,11 @@ func TestAPIMMoreCLI(t *testing.T) {
 	}
 
 	// Subscription + key regeneration.
+	// A subscription names what it is a subscription to; the contract requires
+	// that scope.
 	apimSub := svc + "/subscriptions/cs1"
-	runCLI(t, azRest("PUT", apimSub+apiVersion, `{"properties":{"displayName":"CLI Sub"}}`))
+	runCLI(t, azRest("PUT", apimSub+apiVersion,
+		`{"properties":{"displayName":"CLI Sub","scope":"`+product+`"}}`))
 	runCLI(t, azRest("POST", apimSub+"/regeneratePrimaryKey"+apiVersion, ""))
 
 	// NamedValue: secret is write-only, surfaced only via listValue.

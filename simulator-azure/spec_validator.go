@@ -456,6 +456,7 @@ type azureMergedSchema struct {
 	items     *azureRefSchema
 	addl      *azureRefSchema // additionalProperties schema (map values)
 	addlAny   bool            // additionalProperties: true
+	required  map[string]bool // properties the schema declares required
 	disc      string          // discriminator property name
 	discOwner string          // canonical id of the declaring schema
 	pattern   string          // declared regular expression for a string value
@@ -476,6 +477,16 @@ func (idx *azureSpecIndex) merge(rs azureRefSchema, id string, visited map[strin
 	}
 	if p, ok := rs.s["pattern"].(string); ok && p != "" && m.pattern == "" {
 		m.pattern = p
+	}
+	if req, ok := rs.s["required"].([]any); ok {
+		for _, raw := range req {
+			if name, ok := raw.(string); ok && name != "" {
+				if m.required == nil {
+					m.required = map[string]bool{}
+				}
+				m.required[name] = true
+			}
+		}
 	}
 	if props, ok := rs.s["properties"].(map[string]any); ok {
 		for name, raw := range props {
@@ -630,6 +641,19 @@ func (idx *azureSpecIndex) validate(op string, rs azureRefSchema, fieldPath stri
 			*out = append(*out, sim.SpecViolation{
 				Op: op, Kind: "unknown-field", Field: fieldPath + "." + key,
 				Detail: "property not defined by " + schemaName(id, rs),
+			})
+		}
+		// A property the schema declares required and the response omits. The
+		// loop above can only look at keys that are there, so this is the one
+		// omission it cannot see — and a generated client reads a required
+		// property without checking whether it arrived.
+		for name := range m.required {
+			if _, present := obj[name]; present {
+				continue
+			}
+			*out = append(*out, sim.SpecViolation{
+				Op: op, Kind: "missing-required", Field: fieldPath + "." + name,
+				Detail: schemaName(id, rs) + " declares this property required",
 			})
 		}
 	case "array":

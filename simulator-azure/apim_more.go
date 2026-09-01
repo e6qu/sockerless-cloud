@@ -69,12 +69,12 @@ func registerAPIMMore(srv *sim.Server) {
 	srv.HandleFunc("PATCH "+base+"/{name}/apis/{api}", handleAPIMPatchChildStore(apimApisStore))
 	srv.HandleFunc("PATCH "+base+"/{name}/apis/{api}/operations/{op}", handleAPIMPatchChildStore(apimOperationsStore))
 
-	apimRegisterChild(srv, base+"/{name}/apis/{api}/schemas", "{schema}", "Microsoft.ApiManagement/service/apis/schemas", false)
-	apimRegisterChild(srv, base+"/{name}/apis/{api}/policies", "{policy}", "Microsoft.ApiManagement/service/apis/policies", false)
-	apimRegisterChild(srv, base+"/{name}/apis/{api}/diagnostics", "{diag}", "Microsoft.ApiManagement/service/apis/diagnostics", true)
+	apimRegisterChild(srv, base+"/{name}/apis/{api}/schemas", "{schema}", "Microsoft.ApiManagement/service/apis/schemas", false, "contentType", "document")
+	apimRegisterChild(srv, base+"/{name}/apis/{api}/policies", "{policy}", "Microsoft.ApiManagement/service/apis/policies", false, "value")
+	apimRegisterChild(srv, base+"/{name}/apis/{api}/diagnostics", "{diag}", "Microsoft.ApiManagement/service/apis/diagnostics", true, "loggerId")
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/releases", "{release}", "Microsoft.ApiManagement/service/apis/releases", true)
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/tags", "{tag}", "Microsoft.ApiManagement/service/apis/tags", false)
-	apimRegisterChild(srv, base+"/{name}/apis/{api}/operations/{op}/policies", "{policy}", "Microsoft.ApiManagement/service/apis/operations/policies", false)
+	apimRegisterChild(srv, base+"/{name}/apis/{api}/operations/{op}/policies", "{policy}", "Microsoft.ApiManagement/service/apis/operations/policies", false, "value")
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/operations/{op}/tags", "{tag}", "Microsoft.ApiManagement/service/apis/operations/tags", false)
 
 	// API revisions (read-only) + products-by-api.
@@ -83,12 +83,12 @@ func registerAPIMMore(srv *sim.Server) {
 
 	// GraphQL API resolvers + resolver policies.
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/resolvers", "{resolver}", "Microsoft.ApiManagement/service/apis/resolvers", true)
-	apimRegisterChild(srv, base+"/{name}/apis/{api}/resolvers/{resolver}/policies", "{policy}", "Microsoft.ApiManagement/service/apis/resolvers/policies", false)
+	apimRegisterChild(srv, base+"/{name}/apis/{api}/resolvers/{resolver}/policies", "{policy}", "Microsoft.ApiManagement/service/apis/resolvers/policies", false, "value")
 
 	// API issues + issue comments + issue attachments.
-	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues", "{issue}", "Microsoft.ApiManagement/service/apis/issues", true)
-	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues/{issue}/comments", "{comment}", "Microsoft.ApiManagement/service/apis/issues/comments", false)
-	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues/{issue}/attachments", "{attachment}", "Microsoft.ApiManagement/service/apis/issues/attachments", false)
+	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues", "{issue}", "Microsoft.ApiManagement/service/apis/issues", true, "title", "description", "userId")
+	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues/{issue}/comments", "{comment}", "Microsoft.ApiManagement/service/apis/issues/comments", false, "text", "userId")
+	apimRegisterChild(srv, base+"/{name}/apis/{api}/issues/{issue}/attachments", "{attachment}", "Microsoft.ApiManagement/service/apis/issues/attachments", false, "title", "contentFormat", "content")
 
 	// API tag descriptions + API wiki.
 	apimRegisterChild(srv, base+"/{name}/apis/{api}/tagDescriptions", "{tagDescription}", "Microsoft.ApiManagement/service/apis/tagDescriptions", false)
@@ -102,7 +102,7 @@ func registerAPIMMore(srv *sim.Server) {
 
 	// Product Update + child collections + associations.
 	srv.HandleFunc("PATCH "+base+"/{name}/products/{product}", handleAPIMPatchChildStore(apimProductsStore))
-	apimRegisterChild(srv, base+"/{name}/products/{product}/policies", "{policy}", "Microsoft.ApiManagement/service/products/policies", false)
+	apimRegisterChild(srv, base+"/{name}/products/{product}/policies", "{policy}", "Microsoft.ApiManagement/service/products/policies", false, "value")
 	apimRegisterChild(srv, base+"/{name}/products/{product}/tags", "{tag}", "Microsoft.ApiManagement/service/products/tags", false)
 
 	srv.HandleFunc("GET "+base+"/{name}/products/{product}/apis", handleAPIMListProductApis)
@@ -138,11 +138,13 @@ func apimLastSeg(p string) string {
 }
 
 // apimRegisterChild mounts PUT/GET/DELETE/LIST (and PATCH when patch=true) for
-// one leaf child collection. parent is the collection route (".../schemas") and
-// childVar the per-item path variable (e.g. "{schema}").
-func apimRegisterChild(srv *sim.Server, parent, childVar, typeStr string, patch bool) {
+// apimRegisterChild mounts one leaf child collection. required names the
+// properties that child's contract declares required, taken from the vendored
+// definition — a create omitting one is a resource the service would never
+// hold, and the response describing it breaks the contract a client reads.
+func apimRegisterChild(srv *sim.Server, parent, childVar, typeStr string, patch bool, required ...string) {
 	item := parent + "/" + childVar
-	srv.HandleFunc("PUT "+item, apimChildPut(typeStr))
+	srv.HandleFunc("PUT "+item, apimChildPut(typeStr, required))
 	srv.HandleFunc("GET "+item, apimChildGet)
 	srv.HandleFunc("HEAD "+item, apimChildHead)
 	srv.HandleFunc("DELETE "+item, apimChildDelete)
@@ -182,7 +184,7 @@ func apimHeadFromStore(exists func(r *http.Request) bool) http.HandlerFunc {
 	}
 }
 
-func apimChildPut(typeStr string) http.HandlerFunc {
+func apimChildPut(typeStr string, required []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := apimReqPath(r)
 		var req struct {
@@ -194,6 +196,14 @@ func apimChildPut(typeStr string) http.HandlerFunc {
 		}
 		if req.Properties == nil {
 			req.Properties = map[string]any{}
+		}
+		for _, name := range required {
+			if value, ok := req.Properties[name]; ok && value != nil {
+				continue
+			}
+			sim.AzureErrorf(w, "ValidationError", http.StatusBadRequest,
+				"Property %q is required for %s.", name, typeStr)
+			return
 		}
 		c := apimChild{ID: path, Name: apimLastSeg(path), Type: typeStr, Properties: req.Properties}
 		apimChildren.Put(strings.ToLower(path), c)

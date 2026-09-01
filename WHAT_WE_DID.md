@@ -187,6 +187,24 @@ read it, rather than the describe answering without a member a client reads.
 And AWS Glue's session endpoint omitted its `AuthToken`, one of three required
 members of the endpoint it describes; it issues the session's own.
 
+Azure's validator learned the same check, and it found seven more of the same
+kind — all of them a response leaving out something the simulator holds. The
+Azure Container Registry tag listing omitted the registry and, on every tag,
+when it was pushed; it also reported the changeable attributes hardcoded open,
+so a tag whose attributes had been patched listed as though they had not, while
+the single-tag read beside it answered correctly from the store. A Logic Apps
+workflow version described a resource in no region, because a workflow hosted
+on an App Service site was stored without one — a site-hosted workflow is in
+the site's region, and the snapshot carries it now. The Log Analytics and
+Application Insights metadata documents named neither the resource id nor the
+region of the workspace or component they describe, both of which the ARM
+resource records; each is reached through an index on the id the data plane
+addresses it by, because a read of one row must not walk the store. And two API
+Management contracts were storable without what they require: a schema with no
+document, and a subscription with no scope — a subscription to nothing. Both
+are refused, and the child registrar now carries each type's required
+properties, taken from the vendored definitions.
+
 Three Google Discovery documents were re-vendored, which the freshness check
 had been asking for: `iam-v1` and `redis-v1` at revision 20260828 and
 `firestore-v1` at 20260826. Both of the first two were inherited drift — the

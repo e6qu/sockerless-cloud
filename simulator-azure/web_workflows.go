@@ -205,7 +205,15 @@ func webUpsertSiteWorkflow(resID, name string, fileContent any) {
 		props["kind"] = kind
 	}
 	logicNormalizeWorkflowProperties(props)
-	wf := LogicWorkflow{ID: id, Name: name, Type: "workflows", Properties: props}
+	// A workflow hosted on a site is in the site's region. WorkflowVersion
+	// declares that location required and the snapshot inherits it from here,
+	// so a workflow stored without one produced versions describing a resource
+	// in no region.
+	location := ""
+	if site, ok := webSiteStoreFor(resID).Get(resID); ok {
+		location = site.Location
+	}
+	wf := LogicWorkflow{ID: id, Name: name, Type: "workflows", Location: location, Properties: props}
 	logicWorkflows.Put(id, wf)
 	logicSnapshotWorkflowVersion(wf)
 	logicSyncTriggers(wf)

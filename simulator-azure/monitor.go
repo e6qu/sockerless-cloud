@@ -19,6 +19,18 @@ import (
 var logMu sync.RWMutex
 var azureMonitorWorkspaces sim.Store[Workspace]
 
+// A workspace is stored under its ARM id while the query data plane addresses
+// it by the customer id it was issued, so the one reaches the other through an
+// index rather than a walk of every workspace.
+var azureWorkspacesByCustomerID sim.GenerationIndex[Workspace]
+
+func azureWorkspaceCustomerIDKeys(ws Workspace) []string {
+	if ws.Properties.CustomerID == "" {
+		return nil
+	}
+	return []string{strings.ToLower(ws.Properties.CustomerID)}
+}
+
 // Workspace represents an Azure Log Analytics Workspace.
 type Workspace struct {
 	ID         string              `json:"id"`
@@ -505,12 +517,27 @@ func logAnalyticsMetadata(workspaceID string) map[string]any {
 			"columns":        cols,
 		})
 	}
+	// The workspace this metadata is about. Its ARM resource id and its region
+	// are both required members of the entry, and both are the workspace's
+	// own: it is addressed here by the customer id it was issued, which the
+	// ARM resource records.
+	entry := map[string]any{
+		"id":         workspaceID,
+		"name":       workspaceID,
+		"region":     "",
+		"resourceId": "",
+	}
+	if azureMonitorWorkspaces != nil {
+		if ws, ok := azureWorkspacesByCustomerID.Lookup(
+			azureMonitorWorkspaces, strings.ToLower(workspaceID), azureWorkspaceCustomerIDKeys); ok {
+			entry["name"] = ws.Name
+			entry["region"] = ws.Location
+			entry["resourceId"] = ws.ID
+		}
+	}
 	return map[string]any{
-		"tables": tables,
-		"workspaces": []map[string]any{{
-			"id":   workspaceID,
-			"name": workspaceID,
-		}},
+		"tables":     tables,
+		"workspaces": []map[string]any{entry},
 	}
 }
 

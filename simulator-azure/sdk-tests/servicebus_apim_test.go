@@ -107,8 +107,17 @@ func TestAzureAPIM_ARMLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
+	// A subscription names what it is a subscription to. The contract requires
+	// that scope, and a create without one is refused rather than stored as a
+	// subscription to nothing.
 	apimSubPath := svcPath + "/subscriptions/sub1"
 	resp = armReq(t, "PUT", apimSubPath, `{"properties":{"displayName":"Sub 1"}}`)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode,
+		"a subscription with no scope is not a subscription")
+	resp.Body.Close()
+
+	resp = armReq(t, "PUT", apimSubPath,
+		`{"properties":{"displayName":"Sub 1","scope":"`+prodPath+`"}}`)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 

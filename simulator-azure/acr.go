@@ -513,20 +513,25 @@ func registerACR(srv *sim.Server) {
 		tags := reg.Manifests.Filter(func(m sim.OCIManifest) bool {
 			return m.Scope == scope && m.Repo == repoName && m.Ref != "" && !strings.HasPrefix(m.Ref, "sha256:")
 		})
+		sort.Slice(tags, func(i, j int) bool { return tags[i].Ref < tags[j].Ref })
 		tagList := make([]map[string]any, 0, len(tags))
 		for _, m := range tags {
+			// The same tag the item read describes, described the same way:
+			// when it was pushed, and the attributes this registry holds for
+			// it. The list used to answer without the timestamps the schema
+			// requires and with the attributes hardcoded open, so a tag whose
+			// attributes had been patched listed as though they had not.
 			tagList = append(tagList, map[string]any{
-				"name":   m.Ref,
-				"digest": m.Digest,
-				"changeableAttributes": map[string]any{
-					"deleteEnabled": true,
-					"writeEnabled":  true,
-					"readEnabled":   true,
-					"listEnabled":   true,
-				},
+				"name":                 m.Ref,
+				"digest":               m.Digest,
+				"createdTime":          acrStamp(m.Pushed),
+				"lastUpdateTime":       acrStamp(m.Pushed),
+				"signed":               false,
+				"changeableAttributes": acrAttributesDoc(acrAttributesFor(acrAttributeKey(scope, repoName, ":"+m.Ref))),
 			})
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"registry":  acrRegistryName(r),
 			"imageName": repoName,
 			"tags":      tagList,
 		})

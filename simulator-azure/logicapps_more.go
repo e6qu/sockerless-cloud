@@ -529,8 +529,13 @@ func logicSnapshotWorkflowVersion(wf LogicWorkflow) {
 			props[k] = v
 		}
 	}
+	// A version is a snapshot of the workflow, and it is in the workflow's
+	// region — WorkflowVersion declares that location required, and the
+	// snapshot was dropping it, so every version read described a resource
+	// with no region while the workflow beside it named one.
 	logicWorkflowVersions.Put(id, LogicResource{
-		ID: id, Name: version, Type: wf.Type + "/versions", Properties: props,
+		ID: id, Name: version, Type: wf.Type + "/versions",
+		Location: wf.Location, Properties: props,
 	})
 }
 

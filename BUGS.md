@@ -122,6 +122,20 @@ Open: 8. Resolved: 84.
   be matched to a trigger and its secret verified, which is more than this
   sweep.
 
+  A second sweep ran the other way round — not "what answers without reaching
+  state" but "what the model requires and the response omits", which the field
+  walk cannot see because it can only look at keys that are there. Both spec
+  validators gained a `missing-required` kind. It found four across the whole
+  AWS SDK suite and seven across Azure's, all fixed and both suites clean:
+  Step Functions' empty diagnostics list, an Amazon ECS capacity provider whose
+  auto scaling group ARN an update threw away, an Application Auto Scaling
+  target with no role where the service creates a service-linked one, AWS
+  Glue's session endpoint auth token, the Azure Container Registry tag listing's
+  registry and push times, a Logic Apps workflow version's region, the resource
+  id and region of the workspace and component the two metadata documents
+  describe, and two API Management contracts that could be stored without what
+  they require — a schema with no document and a subscription with no scope.
+
   Reading Google Cloud's 140 found four defects and one reason. The four are
   all in Resource Manager v3's tag surfaces and all the same shape:
   `effectiveTags` answered an empty list for a resource whose tag binding the

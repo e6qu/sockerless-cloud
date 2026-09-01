@@ -63,6 +63,18 @@ type AppInsightsDataVolumeCap struct {
 
 var azureAppInsightsComponents sim.Store[AppInsightsComponent]
 
+// A component is stored under its ARM id while the query data plane addresses
+// it by the application id it was issued, so the one reaches the other through
+// an index rather than a walk of every component.
+var azureInsightsByApplicationID sim.GenerationIndex[AppInsightsComponent]
+
+func azureInsightsApplicationIDKeys(c AppInsightsComponent) []string {
+	if c.Properties.ApplicationID == "" {
+		return nil
+	}
+	return []string{strings.ToLower(c.Properties.ApplicationID)}
+}
+
 func registerApplicationInsights(srv *sim.Server) {
 	components := sim.MakeStore[AppInsightsComponent](srv.DB(), "insights_components")
 	azureAppInsightsComponents = components

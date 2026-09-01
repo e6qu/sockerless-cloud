@@ -87,9 +87,18 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	revs := mustStatus("GET", api+"/revisions", "", http.StatusOK)
 	assert.Contains(t, string(revs), `"apiRevision"`)
 
-	mustStatus("PUT", api+"/schemas/schema1", `{"properties":{"contentType":"application/vnd.oai.openapi.components+json"}}`, http.StatusOK)
+	// A schema's contract requires both its content type and the document
+	// itself; a create without the document is one the service refuses, and
+	// the resource it would otherwise store describes a schema with no schema
+	// in it.
+	mustStatus("PUT", api+"/schemas/schema1",
+		`{"properties":{"contentType":"application/vnd.oai.openapi.components+json",`+
+			`"document":{"components":{"schemas":{"Thing":{"type":"object"}}}}}}`, http.StatusOK)
+	mustStatus("PUT", api+"/schemas/nodocument",
+		`{"properties":{"contentType":"application/vnd.oai.openapi.components+json"}}`, http.StatusBadRequest)
 	gotSchema := mustStatus("GET", api+"/schemas/schema1", "", http.StatusOK)
 	assert.Contains(t, string(gotSchema), `"contentType"`)
+	assert.Contains(t, string(gotSchema), `"document"`)
 	assert.Contains(t, string(mustStatus("GET", api+"/schemas", "", http.StatusOK)), "schema1")
 
 	mustStatus("PUT", api+"/policies/policy", `{"properties":{"format":"xml","value":"<policies/>"}}`, http.StatusOK)
