@@ -187,6 +187,17 @@ read it, rather than the describe answering without a member a client reads.
 And AWS Glue's session endpoint omitted its `AuthToken`, one of three required
 members of the endpoint it describes; it issues the session's own.
 
+Blob soft delete stopped being two settings. The ARM
+`blobServices/default` resource's `deleteRetentionPolicy` and the data-plane Set
+Blob Service Properties document are two APIs onto one configuration in Azure,
+and here they were independent stores — so a client that enabled soft delete the
+way an operator does, through `azurerm_storage_account`'s
+`blob_properties.delete_retention_policy`, got a permanent delete and a
+point-in-time restore with nothing to bring back. The policy lives in one place
+now, the document a blob delete consults; the ARM write puts it there and keeps
+no copy, and the ARM read renders it from there. Two stores kept in step would
+have been the same divergence with more code.
+
 A fourth dimension went in and mostly confirmed what was already right: a
 success status the model does not declare. Azure's Swagger lists response codes
 per operation, and the validator had been falling back to the `default` — the

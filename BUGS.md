@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 8. Resolved: 84.
+Open: 7. Resolved: 85.
 
 ## Open
 
@@ -261,24 +261,6 @@ Open: 8. Resolved: 84.
   shape: vendor `s3control`, implement Object Lambda access points, and then
   this callback, in one slice. Until then the S3 model is 111 of 112 served,
   and every other gap the model-drift sweep found on 2026-08-24 was closed.
-- **BUG-1700 (blob soft delete is two settings in the simulator and one in
-  Azure):** `Microsoft.Storage/storageAccounts/{a}/blobServices/default`
-  `properties.deleteRetentionPolicy` and the data-plane Set Blob Service
-  Properties `DeleteRetentionPolicy` are the same setting in Azure — two APIs
-  onto one configuration. Here they are independent stores: `blobSoftDeleteDays`
-  (blob_state.go) reads the data-plane `blobServicePropsStore`, while
-  `blobContainerSoftDeleteDays` reads the ARM `blobARMServiceProps` map. A client
-  that enables blob soft delete through ARM — which is what
-  `azurerm_storage_account`'s `blob_properties.delete_retention_policy` and
-  `armstorage.BlobServicesClient.SetServiceProperties` do — gets container soft
-  delete and no blob soft delete, so its blob deletions are permanent and a
-  point-in-time restore has nothing to bring back. Found while testing
-  StorageAccounts_RestoreBlobRanges: the ARM policy was set, the delete was hard,
-  and the restore correctly reported restoring nothing. Fix shape: make one of
-  the two the single source and have the other API read and write it, rather
-  than keeping two stores in step — a sync would be the same divergence with
-  more code. Run the whole storage SDK and CLI suite behind it, since both
-  spellings are already asserted in places.
 - **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
   Three jobs failed on 2026-08-31 for the same reason, across two registries:
   `tf (aws)` could not pull `public.ecr.aws/docker/library/busybox` for the
@@ -420,6 +402,25 @@ Open: 8. Resolved: 84.
 
 
 ## Resolved history
+
+- ~~**BUG-1700 (blob soft delete was two settings in the simulator and one in
+  Azure):**~~ `Microsoft.Storage/storageAccounts/{a}/blobServices/default`
+  `properties.deleteRetentionPolicy` and the data-plane Set Blob Service
+  Properties `DeleteRetentionPolicy` are the same setting in Azure — two APIs
+  onto one configuration — and here they were independent stores. A client that
+  enabled blob soft delete through ARM, which is what
+  `azurerm_storage_account`'s `blob_properties.delete_retention_policy` and
+  `armstorage.BlobServicesClient.SetServiceProperties` do, got container soft
+  delete and no blob soft delete: its deletions were permanent and a
+  point-in-time restore had nothing to bring back.
+
+  The policy now lives in one place, the data-plane service-properties document
+  that a blob delete consults. The ARM write puts it there and keeps no copy of
+  its own; the ARM read renders it from there. That is one configuration with
+  two views rather than two stores kept in step, which would have been the same
+  divergence with more code. `TestStorageSDK_BlobSoftDeleteThroughARM` drives
+  the operator's path end to end — set through ARM, read back on both APIs,
+  delete a blob, find it retained and undelete it — and fails without the fix.
 
 - ~~**BUG-2954 (one Application Insights component's billing plan became every
   later component's default):**~~ The billing PUT started from the shared

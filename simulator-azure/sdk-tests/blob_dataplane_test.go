@@ -1320,3 +1320,92 @@ func storageReadBody(t *testing.T, resp *http.Response) string {
 	require.NoError(t, resp.Body.Close())
 	return string(body)
 }
+
+// TestStorageSDK_BlobSoftDeleteThroughARM turns blob soft delete on the way an
+// operator actually does — through the ARM blobServices/default resource, which
+// is what azurerm_storage_account's blob_properties.delete_retention_policy
+// writes — and then deletes a blob through the data plane. The two APIs are one
+// configuration in Azure; while they were two stores here, a client that
+// enabled soft delete through ARM got a permanent delete and a point-in-time
+// restore with nothing to bring back.
+func TestStorageSDK_BlobSoftDeleteThroughARM(t *testing.T) {
+	const (
+		rg            = "blob-armsoftdelete-rg"
+		account       = "armsoftdelacct"
+		containerName = "armsoftdelete-container"
+		blobName      = "recoverable-through-arm.txt"
+	)
+	ensureRG(t, rg)
+
+	accountsClient, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	poller, err := accountsClient.BeginCreate(ctx, rg, account, armstorage.AccountCreateParameters{
+		Location: to.Ptr("eastus"),
+		SKU:      &armstorage.SKU{Name: to.Ptr(armstorage.SKUNameStandardLRS)},
+		Kind:     to.Ptr(armstorage.KindStorageV2),
+	}, nil)
+	require.NoError(t, err)
+	_, err = poller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
+	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	_, err = blobServices.SetServiceProperties(ctx, rg, account, armstorage.BlobServiceProperties{
+		BlobServiceProperties: &armstorage.BlobServicePropertiesProperties{
+			DeleteRetentionPolicy: &armstorage.DeleteRetentionPolicy{
+				Enabled: to.Ptr(true),
+				Days:    to.Ptr(int32(4)),
+			},
+		},
+	}, nil)
+	require.NoError(t, err)
+
+	// The ARM resource reports what was set…
+	armRead, err := blobServices.GetServiceProperties(ctx, rg, account, nil)
+	require.NoError(t, err)
+	require.NotNil(t, armRead.BlobServiceProperties.BlobServiceProperties)
+	armPolicy := armRead.BlobServiceProperties.BlobServiceProperties.DeleteRetentionPolicy
+	require.NotNil(t, armPolicy)
+	require.NotNil(t, armPolicy.Enabled)
+	assert.True(t, *armPolicy.Enabled)
+	require.NotNil(t, armPolicy.Days)
+	assert.Equal(t, int32(4), *armPolicy.Days)
+
+	// …and so does the data plane, because it is the same setting.
+	client := newBlobTestClient(t, account)
+	dataPlane, err := client.ServiceClient().GetProperties(ctx, nil)
+	require.NoError(t, err)
+	require.NotNil(t, dataPlane.DeleteRetentionPolicy)
+	require.NotNil(t, dataPlane.DeleteRetentionPolicy.Enabled)
+	assert.True(t, *dataPlane.DeleteRetentionPolicy.Enabled,
+		"soft delete enabled through ARM must be enabled on the data plane")
+	require.NotNil(t, dataPlane.DeleteRetentionPolicy.Days)
+	assert.Equal(t, int32(4), *dataPlane.DeleteRetentionPolicy.Days)
+
+	// And the delete it governs retains the blob rather than destroying it.
+	containerClient := newBlobTestContainer(t, client, containerName)
+	_, err = client.UploadBuffer(ctx, containerName, blobName, []byte("retained by the ARM policy"), nil)
+	require.NoError(t, err)
+	blobClient := containerClient.NewBlobClient(blobName)
+	_, err = blobClient.Delete(ctx, nil)
+	require.NoError(t, err)
+
+	pager := containerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
+		Include: container.ListBlobsInclude{Deleted: true},
+	})
+	page, err := pager.NextPage(ctx)
+	require.NoError(t, err)
+	require.Len(t, page.Segment.BlobItems, 1,
+		"a blob deleted under an ARM-set retention policy is retained, not destroyed")
+	require.NotNil(t, page.Segment.BlobItems[0].Properties.RemainingRetentionDays)
+	assert.Equal(t, int32(4), *page.Segment.BlobItems[0].Properties.RemainingRetentionDays)
+
+	_, err = blobClient.Undelete(ctx, nil)
+	require.NoError(t, err)
+	download, err := client.DownloadStream(ctx, containerName, blobName, nil)
+	require.NoError(t, err)
+	got, err := io.ReadAll(download.Body)
+	require.NoError(t, err)
+	require.NoError(t, download.Body.Close())
+	assert.Equal(t, "retained by the ARM policy", string(got))
+}
