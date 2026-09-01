@@ -310,7 +310,7 @@ func loadRequestFields(t *testing.T, service string, wireName func(member string
 // one, so it cannot exercise a derivation that reads inside a structure, and an
 // operation whose resource is only named there would be counted as underived
 // while a real request derives it perfectly well.
-func loadRequestShapes(t *testing.T, service string, wireName func(member string, traits map[string]string) string) (map[string]map[string]bool, map[string]map[string][]string) {
+func loadRequestShapes(t *testing.T, service string, wireName func(member string, traits map[string]string) string) (map[string]map[string]bool, map[string]map[string]map[string]string) {
 	t.Helper()
 	path := filepath.Join("..", "specs", "cloud-api", "aws", service+".smithy.json.gz")
 	f, err := os.Open(path)
@@ -342,14 +342,14 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 	}
 
 	fields := map[string]map[string]bool{}
-	nested := map[string]map[string][]string{}
+	nested := map[string]map[string]map[string]string{}
 	for id, shape := range doc.Shapes {
 		if shape.Type != "operation" || shape.Input.Target == "" {
 			continue
 		}
 		operation := id[strings.Index(id, "#")+1:]
 		named := map[string]bool{}
-		inner := map[string][]string{}
+		inner := map[string]map[string]string{}
 		for name, m := range doc.Shapes[shape.Input.Target].Members {
 			traits := map[string]string{}
 			for trait, raw := range m.Traits {
@@ -375,9 +375,18 @@ func loadRequestShapes(t *testing.T, service string, wireName func(member string
 					element = doc.Shapes[target.Value.Target]
 				}
 				if element.Type == "structure" {
-					for innerName := range element.Members {
-						inner[wire] = append(inner[wire], innerName)
+					members := map[string]string{}
+					for innerName, innerMember := range element.Members {
+						// The inner member's own kind, so a list inside a
+						// structure is sent as the array a client sends —
+						// filling it with a scalar is a body nothing accepts.
+						kind := "string"
+						if target, known := doc.Shapes[innerMember.Target]; known && target.Type == "list" {
+							kind = "list"
+						}
+						members[innerName] = kind
 					}
+					inner[wire] = members
 				}
 			}
 		}
@@ -415,7 +424,7 @@ func iamProbeARN(service, operation, serviceWide string) string {
 // RulePriorities.member.1.RuleArn — is reachable only when the probe spells it
 // that way. A flat member of the same name is a body no client sends.
 func iamQueryProbeForm(service, operation, version, arnValue string,
-	members map[string]string, nested map[string][]string, fixtures map[string]string,
+	members map[string]string, nested map[string]map[string]string, fixtures map[string]string,
 ) string {
 	form := "Action=" + operation + "&Version=" + version
 	add := func(key, value string) {
@@ -443,7 +452,7 @@ func iamQueryProbeForm(service, operation, version, arnValue string,
 			// member's own name is what the readers match on.
 			add(name, value)
 		case "list-structure":
-			for _, inner := range nested[name] {
+			for inner := range nested[name] {
 				add(name+".member.1."+inner, iamProbeMemberValue(service, inner, arnValue))
 			}
 		default:
@@ -453,14 +462,18 @@ func iamQueryProbeForm(service, operation, version, arnValue string,
 	return form
 }
 
-func iamProbeBody(service, arnValue string, members map[string]bool, nested map[string][]string) map[string]any {
+func iamProbeBody(service, arnValue string, members map[string]bool, nested map[string]map[string]string) map[string]any {
 	body := make(map[string]any, len(members))
 	for name := range members {
 		body[name] = iamProbeMemberValue(service, name, arnValue)
 	}
 	for member, inner := range nested {
 		object := make(map[string]any, len(inner))
-		for _, name := range inner {
+		for name, kind := range inner {
+			if kind == "list" {
+				object[name] = []string{iamProbeMemberValue(service, name, arnValue)}
+				continue
+			}
 			object[name] = iamProbeMemberValue(service, name, arnValue)
 		}
 		if len(object) > 0 {
@@ -564,7 +577,7 @@ func iamEC2DerivesItsResource(operation string, params map[string]bool, fixtures
 // iamEC2DerivesItsResource does: if nothing is derived from all of them, no
 // real request derives anything.
 func iamGlueDerivesItsResource(operation string, members map[string]bool,
-	nested map[string][]string, fixtures map[string]string,
+	nested map[string]map[string]string, fixtures map[string]string,
 ) bool {
 	types := iamActionResourceTypes["glue:"+operation]
 	if len(types) == 0 {
@@ -808,7 +821,7 @@ func loadOrganizationsRequestShapes(t *testing.T) map[string]map[string]string {
 // carrying every parameter the model declares, with the ARN-bearing ones
 // carrying an ARN — which is what a real caller sends, since Elastic Load
 // Balancing resources are addressed by ARN and not by parts.
-func iamELBv2DerivesItsResource(operation string, params map[string]string, nested map[string][]string) bool {
+func iamELBv2DerivesItsResource(operation string, params map[string]string, nested map[string]map[string]string) bool {
 	if len(iamActionResourceTypes["elasticloadbalancing:"+operation]) == 0 {
 		return false
 	}
@@ -953,7 +966,7 @@ func iamJSONProbeDerives(service, operation string, members map[string]bool, arn
 // however well the derivation works, so it seeds the two resources first — which
 // is the state any real caller acting on a group is in.
 func iamAutoScalingDerivesItsResource(operation string, params map[string]string,
-	nested map[string][]string, fixtures map[string]string,
+	nested map[string]map[string]string, fixtures map[string]string,
 ) bool {
 	if len(iamActionResourceTypes["autoscaling:"+operation]) == 0 {
 		return false
@@ -1257,7 +1270,7 @@ var iamProbeAccountMembers = map[string]bool{
 // ARN in the members that are ARNs by definition.
 func iamAWSJSONProbeRequest(
 	service, target, operation, arnValue string, members map[string]string,
-	nested map[string][]string, fixtures map[string]string,
+	nested map[string]map[string]string, fixtures map[string]string,
 ) *http.Request {
 	// The service is passed rather than read off the wire target. Reading it
 	// off worked only where the target happened to be "<service>_<date>":
@@ -1270,13 +1283,21 @@ func iamAWSJSONProbeRequest(
 
 func iamAWSJSONProbeRequestFor(
 	service, target, operation, arnValue string, members map[string]string,
-	nested map[string][]string, fixtures map[string]string,
+	nested map[string]map[string]string, fixtures map[string]string,
 ) *http.Request {
 	body := make(map[string]any, len(members))
 	element := func(name string) map[string]any {
 		object := make(map[string]any, len(nested[name]))
-		for _, inner := range nested[name] {
-			object[inner] = iamProbeMemberValue(service, inner, arnValue)
+		for inner, kind := range nested[name] {
+			value := iamProbeMemberValue(service, inner, arnValue)
+			if kind == "list" {
+				// A list inside a structure arrives as the array a client
+				// sends: a scalar there is a body nothing accepts, and a
+				// reader that rightly refuses it measures as absent.
+				object[inner] = []string{value}
+				continue
+			}
+			object[inner] = value
 		}
 		return object
 	}
@@ -1817,7 +1838,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1973
+const iamDerivationCoverageFloor = 1974
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

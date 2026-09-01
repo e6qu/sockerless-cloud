@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,973 of 1,994 on 2026-09-01.
+   is not.** 1,974 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 21 that remain are four shapes, and none of them is ordinary work:
+   The 20 that remain are three shapes, and none of them is ordinary work:
 
    - **A resource the request does not name at all.** `cloudwatch:ListMetrics`,
      `PutMetricData`, `GetMetricData` and `ListAlarmMuteRules` declare a
@@ -129,22 +129,6 @@
      `GetAccessToken` cannot reach the machine it was issued for. These want
      the resource modelled before the derivation can find anything, which is a
      question about those slices rather than about IAM.
-
-   - **A resource named inside a nested member.** `ssm:StartAccessRequest`
-     names its machines as the `Values` of a target whose `Key` says what they
-     are, and that reader is written — a target keyed on a tag names no
-     machine, which is the half that makes it safe. What is missing is the
-     probe: the shared renderer fills a structure's inner members with scalars,
-     so a `Values` that a client sends as an array arrives as a string and the
-     reader rightly refuses it. Teaching the renderer inner kinds means
-     `loadRequestShapes` returning a kind per inner member rather than a name,
-     which is a signature change across its callers. Until then the behaviour
-     is held by `TestIAMResourceARNs_AnAccessRequestNamesTheMachinesItsTargetSelects`
-     and the ratchet understates it by one.
-     Loosening it is a trap: Amazon EC2's filters are nested the same way,
-     `Filter.1.Name` would read as a member called Name, and a request would
-     derive from what it was searching on rather than what it was about.
-     `TestIAMResourceARNs_EC2IgnoresNestedStructureMembers` stands on that line.
 
    - **A resource only the caller or a parser knows.** `iam:ChangePassword`
      authorizes against the calling user, which the signature knows and the
