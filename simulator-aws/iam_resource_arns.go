@@ -1086,7 +1086,10 @@ func iamCloudTrailResourceARNs(r *http.Request, types []string, region, account 
 // member the vendored model declares on an operation authorizing against that
 // resource type.
 var iamCloudTrailFieldAliases = map[string][]string{
-	"ChannelId":        {"Channel"},
+	"ChannelId": {"Channel"},
+	// Insights are read from the trail that produced them, which the request
+	// names as the source — by name or by ARN.
+	"TrailName":        {"Name", "InsightSource"},
 	"EventDataStoreId": {"EventDataStore"},
 	"DashboardName":    {"DashboardId"},
 }
