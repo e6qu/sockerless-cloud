@@ -1001,12 +1001,16 @@ func iamElastiCacheDerivesItsResource(operation string, params map[string]bool) 
 
 // iamSSMDerivesItsResource runs the production derivation against a request
 // carrying every member the model declares for the operation.
-func iamSSMDerivesItsResource(operation string, members map[string]bool) bool {
+func iamSSMDerivesItsResource(operation string, members map[string]bool, fixtures map[string]string) bool {
 	if len(iamActionResourceTypes["ssm:"+operation]) == 0 {
 		return false
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
+		if created, seeded := fixtures["ssm:"+operation+":"+name]; seeded {
+			body[name] = created
+			continue
+		}
 		body[name] = iamProbeMemberValue("ssm", name,
 			iamProbeARN("ssm", operation, "arn:aws:ssm:us-east-1:"+iamProbeAccount+":probe"))
 	}
@@ -1800,7 +1804,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1954
+const iamDerivationCoverageFloor = 1955
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1917,7 +1921,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "rds":
 			derived = iamRDSDerivesItsResource(o.name, rdsParameters[o.name])
 		case "ssm":
-			derived = iamSSMDerivesItsResource(o.name, ssmMembers[o.name])
+			derived = iamSSMDerivesItsResource(o.name, ssmMembers[o.name], fixtures)
 		case "elasticache":
 			derived = iamElastiCacheDerivesItsResource(o.name, elastiCacheParameters[o.name])
 		case "dynamodb":

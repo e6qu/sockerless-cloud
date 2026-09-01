@@ -103,6 +103,14 @@ func iamSeedDerivationFixtures(t *testing.T,
 		map[string]string{"UserName": "probe-key-owner"}, `<AccessKeyId>([^<]+)</AccessKeyId>`)
 	out["iam:GetAccessKeyLastUsed:AccessKeyId"] = accessKey
 
+	// A maintenance window, named by the execution id AWS Systems Manager
+	// derives from it — which is all a cancellation carries.
+	window := iamFixtureJSON(t, jsonRouter, "AmazonSSM.CreateMaintenanceWindow",
+		`{"Name":"probe-window","Schedule":"rate(1 day)","Duration":1,"Cutoff":0,`+
+			`"AllowUnassociatedTargets":true}`,
+		`"WindowId"\s*:\s*"([^"]+)"`)
+	out["ssm:CancelMaintenanceWindowExecution:WindowExecutionId"] = ssmWindowExecID(window)
+
 	return out
 }
 

@@ -2224,3 +2224,27 @@ func TestIAMResourceARNs_ABatchEntryNamesItsResource(t *testing.T) {
 			"ssm:CreateAssociationBatch", p+"top-level")
 	})
 }
+
+// Cancelling a maintenance window's execution names only the execution, and
+// the window it belongs to is what the call authorizes against.
+func TestIAMResourceARNs_WindowExecutionNamesItsWindow(t *testing.T) {
+	// The derivation reads the simulator's own windows, so there has to be one.
+	buildConformanceSimulator(t)
+
+	window := SSMMaintenanceWindow{WindowId: "mw-0123456789abcdef0", Name: "nightly"}
+	ssmWindows.Put(window.WindowId, window)
+	t.Cleanup(func() { ssmWindows.Delete(window.WindowId) })
+
+	assertDerivedARNs(t,
+		iamJSONRequest("AmazonSSM.CancelMaintenanceWindowExecution",
+			`{"WindowExecutionId":"`+ssmWindowExecID(window.WindowId)+`"}`),
+		"ssm:CancelMaintenanceWindowExecution",
+		"arn:aws:ssm:us-east-1:123456789012:maintenancewindow/"+window.WindowId)
+
+	// An execution of no window this simulator holds names no window, rather
+	// than authorizing against one the request never mentioned.
+	assertDerivedARNs(t,
+		iamJSONRequest("AmazonSSM.CancelMaintenanceWindowExecution",
+			`{"WindowExecutionId":"00000000-0000-0000-0000-000000000000"}`),
+		"ssm:CancelMaintenanceWindowExecution", "*")
+}
