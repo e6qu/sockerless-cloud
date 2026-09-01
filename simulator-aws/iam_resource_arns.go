@@ -2573,6 +2573,28 @@ var iamKMSFieldAliases = map[string][]string{
 // stream-scoped actions and a policy written "<group-arn>:*" covers those but
 // not the group-scoped reads. The gate requests whichever type AWS declares.
 func iamLogsResourceARNs(r *http.Request, types []string, arn func(svc, resource string) string) []string {
+	// Reading a query's results names the query and nothing else, and the log
+	// groups it ran over are what the read authorizes against — the query
+	// record holds them, under the id the request carries, so the store
+	// answers by key with no scan on a path every request pays. A query over
+	// two groups authorizes both, because it read both.
+	if iamHasType(types, "log-group") && cwQueries != nil {
+		if id := iamJSONBodyField(r, "queryId"); id != "" {
+			if query, ok := cwQueries.Get(id); ok {
+				var out []string
+				for _, group := range query.LogGroups {
+					if group != "" {
+						out = append(out, arn("logs", "log-group:"+group))
+					}
+				}
+				if len(out) > 0 {
+					sort.Strings(out)
+					return out
+				}
+			}
+		}
+	}
+
 	// The families beyond log groups and streams each authorize against a
 	// resource type of their own, and every one of their ARNs is
 	// "<type>:<name>" over a name, id or ARN the request already carries —

@@ -104,6 +104,14 @@ func iamSeedDerivationFixtures(t *testing.T,
 		map[string]string{"SubnetId": subnet}, `<associationId>([^<]+)</associationId>`)
 	out["ec2:DisassociateSubnetCidrBlock:AssociationId"] = subnetCidr
 
+	// A CloudWatch Logs Insights query, which the results read names by the
+	// query rather than by the groups it ran over.
+	query := iamFixtureJSON(t, jsonRouter, "Logs_20140328.StartQuery",
+		`{"logGroupNames":["probe-group"],"queryString":"fields @message",`+
+			`"startTime":0,"endTime":1}`,
+		`"queryId"\s*:\s*"([^"]+)"`)
+	out["logs:GetQueryResults:queryId"] = query
+
 	// AWS Glue's data-quality runs, which its derivation resolves to the
 	// ruleset each is about. A recommendation run creates a ruleset; an
 	// evaluation run evaluates one and settles a result row per ruleset.

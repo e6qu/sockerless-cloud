@@ -1265,17 +1265,19 @@ var iamProbeAccountMembers = map[string]bool{
 // where the API takes a list, an object where it takes a structure — and an
 // ARN in the members that are ARNs by definition.
 func iamAWSJSONProbeRequest(
-	target, operation, arnValue string, members map[string]string, nested map[string][]string,
+	target, operation, arnValue string, members map[string]string,
+	nested map[string][]string, fixtures map[string]string,
 ) *http.Request {
 	// The wire target names the service and its date — "CodeBuild_20161006" —
 	// and the fill rule needs the service, because a member can only be filled
 	// correctly if you know whose member it is.
 	service := strings.ToLower(strings.SplitN(target, "_", 2)[0])
-	return iamAWSJSONProbeRequestFor(service, target, operation, arnValue, members, nested)
+	return iamAWSJSONProbeRequestFor(service, target, operation, arnValue, members, nested, fixtures)
 }
 
 func iamAWSJSONProbeRequestFor(
-	service, target, operation, arnValue string, members map[string]string, nested map[string][]string,
+	service, target, operation, arnValue string, members map[string]string,
+	nested map[string][]string, fixtures map[string]string,
 ) *http.Request {
 	body := make(map[string]any, len(members))
 	element := func(name string) map[string]any {
@@ -1287,6 +1289,11 @@ func iamAWSJSONProbeRequestFor(
 	}
 	for name, kind := range members {
 		value := iamProbeMemberValue(service, name, arnValue)
+		// A resource the simulator holds, named the way its own API named it.
+		if created, seeded := fixtures[service+":"+operation+":"+name]; seeded {
+			body[name] = created
+			continue
+		}
 		switch kind {
 		case "list":
 			body[name] = []string{value}
@@ -1817,7 +1824,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1963
+const iamDerivationCoverageFloor = 1964
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1944,7 +1951,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"DynamoDB_20120810", o.name,
 				probeARN("arn:aws:dynamodb:us-east-1:"+iamProbeAccount+":table/probe"),
-				dynamoDBMembers[o.name], dynamoDBNested[o.name]), "dynamodb:"+o.name)
+				dynamoDBMembers[o.name], dynamoDBNested[o.name], fixtures), "dynamodb:"+o.name)
 		case "cloudtrail":
 			derived = iamCloudTrailDerivesItsResource(o.name, cloudTrailMembers[o.name])
 		case "autoscaling":
@@ -1956,7 +1963,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"AWSEvents", o.name,
 				probeARN("arn:aws:events:us-east-1:"+iamProbeAccount+":event-bus/probe"),
-				eventBridgeMembers[o.name], eventBridgeNested[o.name]), "events:"+o.name)
+				eventBridgeMembers[o.name], eventBridgeNested[o.name], fixtures), "events:"+o.name)
 		case "organizations":
 			derived = iamOrganizationsDerivesItsResource(o.name, organizationsMembers[o.name], organizationsIDs)
 		case "elasticloadbalancing":
@@ -2004,22 +2011,22 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"AmazonEC2ContainerServiceV20141113", o.name,
 				probeARN("arn:aws:ecs:us-east-1:123456789012:cluster/probe"),
-				ecsMembers[o.name], ecsNested[o.name]), "ecs:"+o.name)
+				ecsMembers[o.name], ecsNested[o.name], fixtures), "ecs:"+o.name)
 		case "logs":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"Logs_20140328", o.name,
 				probeARN("arn:aws:logs:us-east-1:123456789012:log-group:probe"),
-				logsMembers[o.name], logsNested[o.name]), "logs:"+o.name)
+				logsMembers[o.name], logsNested[o.name], fixtures), "logs:"+o.name)
 		case "codebuild":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"CodeBuild_20161006", o.name,
 				probeARN("arn:aws:codebuild:us-east-1:123456789012:project/probe"),
-				codeBuildMembers[o.name], codeBuildNested[o.name]), "codebuild:"+o.name)
+				codeBuildMembers[o.name], codeBuildNested[o.name], fixtures), "codebuild:"+o.name)
 		case "wafv2":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
 				"AWSWAF_20190729", o.name,
 				probeARN("arn:aws:wafv2:us-east-1:123456789012:regional/webacl/probe/0123"),
-				wafv2Members[o.name], wafv2Nested[o.name]), "wafv2:"+o.name)
+				wafv2Members[o.name], wafv2Nested[o.name], fixtures), "wafv2:"+o.name)
 		case "iam":
 			derived = iamProductionProbeDerives(iamAWSQueryProbeRequest(
 				"iam", o.name, "2010-05-08", probeARN("arn:aws:iam::"+iamProbeAccount+":policy/probe"),
