@@ -2012,6 +2012,24 @@ func iamRDSResourceARNs(r *http.Request, op string, types []string, region, acco
 	params := iamQueryRequestParameters(r)
 	lookup := func(field string) []string { return params[strings.ToLower(field)] }
 
+	// A cluster's automated backup is named by the cluster's resource id and
+	// by nothing else — the model declares no other member — so the backup is
+	// resolved through the record the simulator keeps under exactly that id.
+	// The store answers by key, with no scan on a path every request pays.
+	if iamHasType(types, "cluster-auto-backup") && rdsClusterAutomatedBackups != nil {
+		var out []string
+		for _, resourceID := range lookup("DbClusterResourceId") {
+			if backup, ok := rdsClusterAutomatedBackups.Get(resourceID); ok &&
+				backup.DBClusterAutomatedBackupsArn != "" {
+				out = append(out, backup.DBClusterAutomatedBackupsArn)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
+
 	// An ARN the request carries names its resource outright — Amazon RDS sends
 	// one under members like SourceDBInstanceArn and
 	// DBInstanceAutomatedBackupsArn. It is accepted only when its own resource

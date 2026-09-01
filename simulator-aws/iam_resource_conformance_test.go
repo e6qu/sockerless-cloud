@@ -575,7 +575,7 @@ func iamGlueDerivesItsResource(operation string, members map[string]bool,
 
 // iamRDSDerivesItsResource runs the production derivation against a request
 // carrying every parameter the model declares for the operation.
-func iamRDSDerivesItsResource(operation string, params map[string]bool) bool {
+func iamRDSDerivesItsResource(operation string, params map[string]bool, fixtures map[string]string) bool {
 	types := iamActionResourceTypes["rds:"+operation]
 	if len(types) == 0 {
 		return false
@@ -585,8 +585,12 @@ func iamRDSDerivesItsResource(operation string, params map[string]bool) bool {
 		if strings.EqualFold(name, "action") || strings.EqualFold(name, "version") {
 			continue
 		}
-		form += "&" + name + "=" + url.QueryEscape(iamProbeMemberValue("rds", name,
-			iamProbeARN("rds", operation, "arn:aws:rds:us-east-1:"+iamProbeAccount+":db:probe")))
+		value := iamProbeMemberValue("rds", name,
+			iamProbeARN("rds", operation, "arn:aws:rds:us-east-1:"+iamProbeAccount+":db:probe"))
+		if created, seeded := fixtures["rds:"+operation+":"+name]; seeded {
+			value = created
+		}
+		form += "&" + name + "=" + url.QueryEscape(value)
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1804,7 +1808,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1960
+const iamDerivationCoverageFloor = 1961
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1919,7 +1923,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "glue":
 			derived = iamGlueDerivesItsResource(o.name, glueMembers[o.name], glueNested[o.name], fixtures)
 		case "rds":
-			derived = iamRDSDerivesItsResource(o.name, rdsParameters[o.name])
+			derived = iamRDSDerivesItsResource(o.name, rdsParameters[o.name], fixtures)
 		case "ssm":
 			derived = iamSSMDerivesItsResource(o.name, ssmMembers[o.name], fixtures)
 		case "elasticache":
