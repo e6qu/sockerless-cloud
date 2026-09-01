@@ -113,6 +113,12 @@ told the run had no repetitions rather than that it named no run. They check
 the run first; the collections are still empty for every run the simulator does
 hold, because its runs settle without recording repetitions.
 
+Unregistering an Azure resource provider was the same shape once more: it
+answered `Unregistered` and stored nothing, so the very next read said
+Registered again — and that read is the one a client polls after registering.
+Registration is recorded per subscription now, as the exception rather than the
+rule, and registering clears it.
+
 Both remaining-gap properties are now gates rather than observations. The
 coverage floors count unserved operations without caring why, so a gap that
 stopped declaring itself — a route that went away and now answers the mux's

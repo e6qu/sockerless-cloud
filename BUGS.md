@@ -57,7 +57,10 @@ Open: 7. Resolved: 84.
   Logic Apps run details — repetitions, scope repetitions, request histories,
   expression traces — answered an empty collection without looking the run up,
   so a caller that mistyped a run name was told the run had no repetitions
-  rather than that it named no run.
+  rather than that it named no run. A fourth: unregistering a resource provider
+  answered `Unregistered` and stored nothing, so the next read said Registered
+  again — an unregister that reverts on the read a client polls. Registration
+  is recorded per subscription now, and register clears it.
 
   Reading Google Cloud's 140 found no defect and one reason: almost all of them
   were the marker's own blind spot. A registrar binds sibling closures —
