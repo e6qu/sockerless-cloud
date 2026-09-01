@@ -92,6 +92,28 @@ routes through the simulator as a proxy, which changes where the bytes land and
 nothing about the request — the same coordinate substitution the CLI suite
 already uses for Cloud Map's data plane.
 
+One dependency upgrade had to be held rather than taken whole. Bumping
+`google.golang.org/api` to v0.296.0 pulls three opentelemetry-operations-go
+modules whose newest releases declare `go >= 1.26.0`, and every workflow here
+pins Go 1.25 — so the build passed on a laptop running 1.26 and failed every CI
+job that touched the workspace. The three are held one release back with the
+reason in the go.mod, to be lifted when the toolchain moves. The same
+discipline caught a `go.work` directive an earlier `go get` had raised to
+1.26.0: a repository builds on the Go its CI runs, and a local toolchain ahead
+of it will not say so.
+
+A third defect surfaced from the same corner and had been open as an
+unexplained CI flake: a Step Functions distributed map run that never finished.
+`simGo` drops the work it is handed once a background drain has begun — right
+for work that outlives its request, and fatal for a fan-out the caller joins.
+A dropped worker left the map's feed blocked on a channel nobody read; a
+dropped feed left the collector blocked on a channel nobody closed. Goroutines
+the caller joins go through `simJoinedGo` now, counted like any other work and
+never dropped, and five more call sites of the same shape moved with it — a
+Task state waiting on its own result, the AWS Lambda Runtime API sidecar's
+listener, the container watch a Lambda invoke waits on, and both halves of the
+Elastic Load Balancing TLS proxy's stream copy.
+
 Re-vendoring the drifted models brought a new AWS surface with it, and the
 conformance ratchets refused to let it pass unserved: Amazon Kinesis Data
 Streams grew a channels family — a managed delivery of one or more streams'

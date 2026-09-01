@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 5. Resolved: 87.
+Open: 4. Resolved: 88.
 
 ## Open
 
@@ -184,51 +184,6 @@ Open: 5. Resolved: 87.
   was built from what it read — a handler that looks its parent up and then
   answers a fixed body is marked ✓. The legend says so.
 
-- **BUG-2955 (a distributed map run does not finish on CI, and the test waits
-  sixty seconds for it):** `TestSFNCLI_DistributedMapRun` failed on
-  `sim (aws cli appdata3)` for commit b8587ed with "Condition never satisfied"
-  after 63.42s — its `require.Eventually` spent the whole `sfnMapRunCompletes`
-  budget of 60s without the run reaching SUCCEEDED. The same test passes
-  locally in 74.7s.
-
-  The work itself is trivial: the map's item processor is a single
-  `Wait` of one second, two items, MaxConcurrency 2, so the run should settle
-  in about two seconds. That rules out the explanations that fit the other CI
-  failures this week — there is no container to start and no image to pull, so
-  the ECR Public Gallery data cap (BUG-1702) is not this. It also rules out a
-  slow poll: at 500ms the loop gets a hundred-odd attempts inside the budget.
-
-  What is left is that the run does not complete on that runner at all. The
-  state-machine runtime polls its own work at 20ms, so a Wait that never fires
-  points at whatever advances timers under CI's configuration rather than at
-  the budget. Raising the timeout would hide it rather than fix it: the run
-  either finishes in seconds or never.
-
-  Three explanations were examined and eliminated. The Wait itself blocks on a
-  real `time.NewTimer`, so it fires or the execution aborts — it cannot silently
-  not fire. The counters the test waits on are incremented through
-  `sfnMapRuns.Update`, which is atomic, and the loop that increments them reads
-  a single channel, so two children finishing together cannot lose an
-  increment. And the finaliser that writes SUCCEEDED runs after that loop, which
-  ends only when the workers are joined and the channel closed, so it cannot
-  race the counters it is about to publish.
-
-  That last one was tightened anyway, whatever the cause: the finaliser was a
-  `Get`, a mutation and a `Put` on a record every other writer mutates through
-  the atomic `Update`, correct only because the workers happen to be joined
-  first, and anything that ever incremented after the loop would have lost its
-  write silently. It goes through `Update` now. That is not known to be this
-  failure — the elimination above still stands — it is one fewer way for the
-  record to be wrong.
-
-  It is intermittent, which narrows it further. The same job passed on the very
-  next commit (016665b), so this is not a configuration the runner always has —
-  it is a race or a scheduling starvation that a loaded two-vCPU runner
-  sometimes loses. Whoever picks it up should look for what the map run waits
-  on that can be missed rather than merely delayed, because a delay would have
-  shown up as a slow pass rather than sixty seconds of nothing.
-
-
 - **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
   Three jobs failed on 2026-08-31 for the same reason, across two registries:
   `tf (aws)` could not pull `public.ecr.aws/docker/library/busybox` for the
@@ -370,6 +325,26 @@ Open: 5. Resolved: 87.
 
 
 ## Resolved history
+
+- ~~**BUG-2955 (a distributed map run does not finish on CI, and the test waits
+  sixty seconds for it):**~~ `TestSFNCLI_DistributedMapRun` waited out its whole
+  budget with the run still RUNNING, on work that should settle in two seconds.
+  The cause was `simGo`. It drops what it is handed once a drain has begun —
+  right for work that outlives its request, and fatal for a fan-out the caller
+  joins. A Map state ran its workers and its feed through `simGo`, so a drain
+  overlapping the start of a map left the feed blocked on a channel nobody read,
+  or the collector blocked on a channel nobody closed. Neither is a slow finish:
+  the run never completes, which is exactly the shape the earlier investigation
+  described and could not place.
+
+  Goroutines the caller joins now go through `simJoinedGo`, which is counted
+  like any other work and never dropped. Five more call sites had the same
+  shape and are converted: a Task state waiting on its own result, the AWS
+  Lambda Runtime API sidecar's `Serve`, the container watch a Lambda invoke
+  waits on, and both halves of the Elastic Load Balancing TLS proxy's stream
+  copy. `TestSFN_MapCompletesWhileABackgroundDrainIsInProgress` pins it; put
+  back on `simGo` it fails in exactly the reported way, a map that never
+  returns.
 
 - ~~**BUG-2961 (a Cloud Build cancel test fails only inside the full suite, and
   only sometimes):**~~ `TestSDK_CloudBuild_CancelStopsARunningBuild` failed

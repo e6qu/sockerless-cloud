@@ -260,7 +260,7 @@ func sfnRunTaskValue(state sfnState, input, context any, cancel <-chan struct{})
 		err   *sfnExecutionError
 	}
 	done := make(chan taskResult, 1)
-	simGo(func() {
+	simJoinedGo(func() {
 		value, taskErr := sfnInvokeTaskResource(
 			state.Resource, input, inputJSON, context, cancel, sfnTaskHeartbeat(state, input, context),
 		)
@@ -1210,9 +1210,13 @@ func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-ch
 	work := make(chan int)
 	resultCh := make(chan itemResult, len(items))
 	var workers sync.WaitGroup
+	// The map's own fan-out is joined below, so it goes through simJoinedGo: a
+	// dropped worker leaves the feed blocked on a channel nobody reads, and a
+	// dropped feed leaves the collector blocked on a channel nobody closes.
+	// Either way the map run stays RUNNING for good rather than finishing late.
 	for worker := 0; worker < maxConcurrency; worker++ {
 		workers.Add(1)
-		simGo(func() {
+		simJoinedGo(func() {
 			defer workers.Done()
 			for index := range work {
 				if mapRun != nil {
@@ -1294,7 +1298,7 @@ func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-ch
 			}
 		})
 	}
-	simGo(func() {
+	simJoinedGo(func() {
 		for index := range items {
 			work <- index
 		}

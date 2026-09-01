@@ -88,6 +88,17 @@
    trained, a name check that always said yes, a deactivate that deactivated
    nothing, and run details answered for runs that did not exist.
 
+0-toolchain. **Move the repository to Go 1.26.** Three
+   opentelemetry-operations-go modules, reached transitively through
+   `google.golang.org/api`, released versions declaring `go >= 1.26.0` on
+   2026-09-01 and are held one release back in `simulator-gcp/sdk-tests/go.mod`
+   because every workflow pins Go 1.25. The hold is a stopgap: the next module
+   in that tree to move will need the same treatment, and each one held is a
+   version the repository is not testing against. Moving means the `go-version`
+   in `.github/workflows/ci.yml`, the `go` directive in `go.work` and each
+   module's `go.mod`, and then dropping the three holds and re-running
+   `scripts/check-latest-deps.sh`.
+
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
    is not.** 2,000 of 2,008 on 2026-09-01, after the refreshed service
    references widened the corpus.

@@ -116,7 +116,7 @@ func startRuntimeAPISidecar(inv *lambdaInvocation) (*runtimeAPISidecar, error) {
 		WriteTimeout: 0,
 	}
 
-	simGo(func() {
+	simJoinedGo(func() {
 		_ = s.server.Serve(ln)
 	})
 
@@ -807,7 +807,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	)
 	waitForContainer := make(chan int, 1)
 	watchContainer := func(h *sim.ContainerHandle) {
-		simGo(func() {
+		simJoinedGo(func() {
 			res := h.Wait()
 			waitForContainer <- res.ExitCode
 		})

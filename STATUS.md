@@ -151,6 +151,14 @@ Current state of the sockerless-cloud repository.
   CLI coverage, and a Terraform fixture applies and destroys the access point,
   the Object Lambda access point, the Storage Lens dashboard and the Access
   Grants instance through terraform-provider-aws.
+- **A goroutine the caller joins is never dropped.** `simGo` drops what it is
+  handed once a background drain has begun, which is what makes the drain a
+  barrier. That is right for work outliving its request and wrong for a fan-out
+  the caller waits on: dropping one hangs the caller rather than shortening the
+  drain. `simJoinedGo` is the counted, undroppable form, and every site whose
+  result something waits for uses it — a Step Functions Map's workers and feed
+  and its Task states, the AWS Lambda Runtime API sidecar, the container watch
+  an invoke waits on, and the Elastic Load Balancing TLS proxy's stream copy.
 - **A served count is not proof a handler exists.** The Google Cloud coverage
   probe classifies any handler answer as served, so a collection swallowed by
   a multi-segment wildcard route counts as covered while unimplemented. Cloud

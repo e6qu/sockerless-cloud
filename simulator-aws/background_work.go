@@ -61,6 +61,28 @@ func simGo(f func()) {
 	}()
 }
 
+// simJoinedGo runs f in a goroutine the caller waits for, and never drops it.
+//
+// simGo drops what it is handed once a drain has begun, which is what makes the
+// barrier a barrier: the work it drops is work that outlives the request that
+// asked for it, and admitting more of it would keep the drain waiting forever.
+// A goroutine the caller joins is the opposite case. Nothing outlives anything
+// — the call does not return until the goroutine is done — and dropping it does
+// not shorten the drain, it hangs the caller, whose own goroutine the drain is
+// already waiting on. A Step Functions Map whose fan-out was dropped left its
+// map run RUNNING for good; the Lambda Runtime API sidecar would have accepted
+// no connection at all.
+//
+// It is still counted, so a drain waits for it like any other work.
+func simJoinedGo(f func()) {
+	simBackgroundWG.Add(1)
+	simBackgroundStarted.Add(1)
+	go func() {
+		defer simBackgroundWG.Done()
+		f()
+	}()
+}
+
 // simTracked counts work the caller has already been given a goroutine for.
 //
 // A simulator has two ways to run work off the request path, and only one of
