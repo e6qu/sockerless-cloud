@@ -1300,7 +1300,9 @@ func iamAWSJSONProbeRequestFor(
 
 // iamAWSQueryProbeRequest is the form-encoded request an awsQuery service takes,
 // with a list member sent under the protocol's indexed .member.N spelling.
-func iamAWSQueryProbeRequest(service, operation, version, arnValue string, members map[string]string) *http.Request {
+func iamAWSQueryProbeRequest(service, operation, version, arnValue string,
+	members map[string]string, fixtures map[string]string,
+) *http.Request {
 	form := "Action=" + operation + "&Version=" + version
 	for name, kind := range members {
 		if name == "Action" || name == "Version" {
@@ -1310,7 +1312,11 @@ func iamAWSQueryProbeRequest(service, operation, version, arnValue string, membe
 		if kind == "list" {
 			key = name + ".member.1"
 		}
-		form += "&" + key + "=" + url.QueryEscape(iamProbeMemberValue(service, name, arnValue))
+		value := iamProbeMemberValue(service, name, arnValue)
+		if created, seeded := fixtures[service+":"+operation+":"+name]; seeded {
+			value = created
+		}
+		form += "&" + key + "=" + url.QueryEscape(value)
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1794,7 +1800,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1953
+const iamDerivationCoverageFloor = 1954
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1996,7 +2002,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "iam":
 			derived = iamProductionProbeDerives(iamAWSQueryProbeRequest(
 				"iam", o.name, "2010-05-08", probeARN("arn:aws:iam::"+iamProbeAccount+":policy/probe"),
-				iamMembers[o.name]), "iam:"+o.name)
+				iamMembers[o.name], fixtures), "iam:"+o.name)
 		}
 		if derived {
 			covered++

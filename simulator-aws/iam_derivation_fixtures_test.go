@@ -95,6 +95,14 @@ func iamSeedDerivationFixtures(t *testing.T,
 		`{}`, `"ResultId"\s*:\s*"([^"]+)"`)
 	out["glue:GetDataQualityResult:ResultId"] = results
 
+	// An access key, which AWS Identity and Access Management resolves to the
+	// user it was created for — the key being the only thing the request names.
+	iamFixtureQuery(t, queryRouter, "2010-05-08", "CreateUser",
+		map[string]string{"UserName": "probe-key-owner"}, `<UserName>([^<]+)</UserName>`)
+	accessKey := iamFixtureQuery(t, queryRouter, "2010-05-08", "CreateAccessKey",
+		map[string]string{"UserName": "probe-key-owner"}, `<AccessKeyId>([^<]+)</AccessKeyId>`)
+	out["iam:GetAccessKeyLastUsed:AccessKeyId"] = accessKey
+
 	return out
 }
 
@@ -110,7 +118,16 @@ func iamFixtureEC2(t *testing.T, queryRouter *sim.AWSQueryRouter, action string,
 	params map[string]string, pattern string,
 ) string {
 	t.Helper()
-	form := url.Values{"Action": {action}, "Version": {"2016-11-15"}}
+	return iamFixtureQuery(t, queryRouter, "2016-11-15", action, params, pattern)
+}
+
+// iamFixtureQuery performs one query-protocol call at a service's own API
+// version and reads the identifier the service assigned out of the response.
+func iamFixtureQuery(t *testing.T, queryRouter *sim.AWSQueryRouter,
+	version, action string, params map[string]string, pattern string,
+) string {
+	t.Helper()
+	form := url.Values{"Action": {action}, "Version": {version}}
 	for name, value := range params {
 		form.Set(name, value)
 	}
@@ -118,7 +135,7 @@ func iamFixtureEC2(t *testing.T, queryRouter *sim.AWSQueryRouter, action string,
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.Header.Set("Authorization",
 		"AWS4-HMAC-SHA256 Credential=ASIAEXAMPLECREDENTIAL/20260801/us-east-1/ec2/aws4_request, SignedHeaders=host, Signature=00")
-	handler, mounted := queryRouter.Handler("2016-11-15", action)
+	handler, mounted := queryRouter.Handler(version, action)
 	if !mounted {
 		t.Fatalf("%s: no handler mounted for the EC2 query action", action)
 	}

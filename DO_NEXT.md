@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,953 of 1,994 on 2026-09-01.
+   is not.** 1,954 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 41 that remain are three shapes, and none of them is ordinary work:
+   The 40 that remain are three shapes, and none of them is ordinary work:
 
    - **A resource named inside a nested query member.** `ec2:ModifyInstanceCreditSpecification`
      names its instances at `InstanceCreditSpecification.1.InstanceId`, and
@@ -164,11 +164,16 @@
      operation because two calls can name different things through the same
      member.
 
-     What is left needing it: AWS Systems Manager's maintenance-window
-     execution and access request, `iam:GetAccessKeyLastUsed`, Amazon RDS's
-     automated backup and proxy target group, AWS CloudTrail's insights and
-     query, CloudWatch Logs' query results, AWS Auto Scaling's tags and
-     instance health, and the three Amazon EC2 associations left
+     `iam:GetAccessKeyLastUsed` followed, on a key created for a user the same
+     way. That exhausts the readers that were already written: every remaining
+     state-resolved operation needs the reader *as well as* the fixture, which
+     makes them per-service work rather than more of this. AWS Systems
+     Manager's maintenance-window execution resolves through `ssmWindowForExec`
+     — a lookup its handler already has and its derivation does not use — and
+     is the clearest of them. Beside it: Systems Manager's access request,
+     Amazon RDS's automated backup and proxy target group, AWS CloudTrail's
+     insights and query, CloudWatch Logs' query results, AWS Auto Scaling's
+     tags and instance health, and the three Amazon EC2 associations left
      (DisassociateIamInstanceProfile, ReplaceIamInstanceProfileAssociation,
      DeleteNetworkInterfacePermission).
 
