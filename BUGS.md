@@ -92,6 +92,14 @@ Open: 7. Resolved: 84.
   nothing was staged at is not found, and a template staged without metadata
   answers without any rather than with a name invented for it.
 
+  One candidate is a different kind and was left: Cloud Build's three webhook
+  receivers answer Empty and start no build. That is what the API returns on
+  success, so no response could tell a caller otherwise — the observable gap is
+  that a webhook-triggered build never appears. It is a feature not yet
+  assembled rather than an answer that misreports, and it needs the delivery to
+  be matched to a trigger and its secret verified, which is more than this
+  sweep.
+
   Reading Google Cloud's 140 found four defects and one reason. The four are
   all in Resource Manager v3's tag surfaces and all the same shape:
   `effectiveTags` answered an empty list for a resource whose tag binding the
