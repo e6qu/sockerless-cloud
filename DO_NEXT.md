@@ -92,50 +92,54 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 18 that remain are three shapes, and none of them is ordinary work:
+   The 18 that remain are three shapes, and none of them is ordinary work.
+   Every other AWS service derives every operation it declares a type for.
 
-   - **A resource the request does not name at all.** `cloudwatch:ListMetrics`,
-     `PutMetricData`, `GetMetricData` and `ListAlarmMuteRules` declare a
-     dataset or a mute rule and name none; AWS Glue's `ListMLTransforms`,
-     `GetMLTransforms` and its data-quality listings are filters over a
-     collection. `"*"` is the honest answer for these and the ratchet counts
-     them as misses. Deriving the type wildcard instead would turn a derivation
-     bug into a silently broader grant — worse than the `"*"` it replaces,
-     because it looks right.
+   - **A resource the request does not name at all** (7). CloudWatch's
+     `ListMetrics`, `PutMetricData` and `GetMetricData` declare a dataset and
+     carry no dataset identifier; `ListAlarmMuteRules` declares a mute rule and
+     names the alarm the rules are on. AWS Glue's `GetMLTransforms`,
+     `ListMLTransforms` and its data-quality and integration listings are
+     filters over a collection. `"*"` is the honest answer for these and the
+     ratchet counts them as misses.
 
-     Do not try to decide it by inspecting member names. That was built and
-     measured on 2026-09-01: read the request members out of the Smithy models
-     and call an action "names no instance" when none of them shares a word
-     with the type or with an identifier its ARN format declares. Tightened
-     three times — a bare `Name` always counts, a word inside a run-together
-     type name counts, any member ending in an identifier suffix counts — it
-     still produced dangerous false positives of four kinds, each of which
-     would have widened a real grant: a resource named indirectly by a value
-     whose member name says nothing about it (`ec2:AcceptAddressTransfer`
-     carries an `Address`), the caller as the resource (`iam:ChangePassword` —
-     widening it would have authorized changing any user's password), an
-     identifier in a map's keys (`dynamodb:BatchWriteItem`), and an identifier
-     that resolves through the simulator's own state. Against two operations it
-     would legitimately have gained, that is a bad trade, and it was discarded
-     rather than shipped. The class needs per-action review, not inference —
-     which is what `iamCreatesItsOnlyDeclaredType` is.
+     Do not try to decide the class by inspecting member names. That was built
+     and measured on 2026-09-01: read the request members out of the Smithy
+     models and call an action "names no instance" when none shares a word with
+     the type or an identifier its ARN format declares. Tightened three times —
+     a bare `Name` always counts, a word inside a run-together type name
+     counts, any member ending in an identifier suffix counts — it still
+     produced dangerous false positives of four kinds, each of which would have
+     widened a real grant: a resource named indirectly by a value whose member
+     name says nothing (`ec2:AcceptAddressTransfer` carries an `Address`), the
+     caller as the resource (`iam:ChangePassword` — widening it would have
+     authorized changing any user's password), an identifier in a map's keys
+     (`dynamodb:BatchWriteItem`), and an identifier resolved through the
+     simulator's own state. Against two operations it would legitimately have
+     gained, that is a bad trade, and it was discarded rather than shipped. The
+     class needs per-action review, which is what
+     `iamCreatesItsOnlyDeclaredType` is.
 
-   - **A resource the simulator has no primitive for.** AWS Glue's
+   - **A resource the simulator has no primitive for** (4). AWS Glue's
      `GetDataQualityModel`, `GetDataQualityModelResult` and
      `PutDataQualityProfileAnnotation` name a profile, and the ruleset behind
      it is what they authorize against — but this simulator trains no models
-     and keeps no profile record, so a ProfileId names nothing it holds. AWS
-     Systems Manager's access-request record likewise keeps no targets, so
-     `GetAccessToken` cannot reach the machine it was issued for. These want
-     the resource modelled before the derivation can find anything, which is a
-     question about those slices rather than about IAM.
+     and keeps no profile record. AWS Systems Manager's access-request record
+     likewise keeps no targets, so `ssm:GetAccessToken` cannot reach the
+     machine it was issued for. These want the resource modelled first, which
+     is a question about those slices rather than about IAM.
 
-   - **A resource only the caller or a parser knows.** `iam:ChangePassword`
-     authorizes against the calling user, which the signature knows and the
-     request does not; `cloudtrail:StartQuery` names its event data store
-     inside SQL; `logs:GetLogRecord` carries an opaque pointer;
-     `organizations:CreatePolicy` and `DescribeEffectivePolicy` need the
-     organization's own id, which their ARNs carry and their requests do not.
+   - **A resource only the caller or a parser knows** (4). `iam:ChangePassword`
+     authorizes against the calling user: the signature knows it and the
+     request does not, and the access key in the header resolves to a user the
+     same way `GetAccessKeyLastUsed` does — but only because sigv4 verification
+     runs before the enforcement gate, so establish that ordering before
+     relying on it, or a caller naming any key would name any user.
+     `cloudtrail:StartQuery` names its event data store inside SQL;
+     `logs:GetLogRecord` carries an opaque pointer;
+     `organizations:CreatePolicy` mints a policy whose ARN carries the
+     organization id, the policy type and a service-assigned id, which is three
+     identifiers where the create rule fills one.
 
    The measurement seam that carried most of this is closed for the readers
    that existed: `iamSeedDerivationFixtures` creates what a family resolves
