@@ -415,7 +415,7 @@ func iamProbeARN(service, operation, serviceWide string) string {
 // RulePriorities.member.1.RuleArn — is reachable only when the probe spells it
 // that way. A flat member of the same name is a body no client sends.
 func iamQueryProbeForm(service, operation, version, arnValue string,
-	members map[string]string, nested map[string][]string,
+	members map[string]string, nested map[string][]string, fixtures map[string]string,
 ) string {
 	form := "Action=" + operation + "&Version=" + version
 	add := func(key, value string) {
@@ -426,6 +426,12 @@ func iamQueryProbeForm(service, operation, version, arnValue string,
 			continue
 		}
 		value := iamProbeMemberValue(service, name, arnValue)
+		// A resource the simulator holds, named the way its own API named it —
+		// substituted rather than appended, because a form carrying the member
+		// twice is read at its first value.
+		if created, seeded := fixtures[service+":"+operation+":"+name]; seeded {
+			value = created
+		}
 		switch kind {
 		case "list":
 			add(name+".member.1", value)
@@ -804,7 +810,7 @@ func iamELBv2DerivesItsResource(operation string, params map[string]string, nest
 		iamProbeARN("elasticloadbalancing", operation,
 			"arn:aws:elasticloadbalancing:us-east-1:"+iamProbeAccount+
 				":targetgroup/probe/0123456789abcdef"),
-		params, nested)
+		params, nested, nil)
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return len(iamDerivedResourceARNs(r, "elasticloadbalancing", operation, "us-east-1", "123456789012")) > 0
@@ -950,14 +956,7 @@ func iamAutoScalingDerivesItsResource(operation string, params map[string]string
 	// rendered the way the query protocol spells one.
 	form := iamQueryProbeForm("autoscaling", operation, "2011-01-01",
 		"arn:aws:autoscaling:us-east-1:"+iamProbeAccount+
-			":autoScalingGroup:0123:autoScalingGroupName/probe", params, nested)
-	for member := range params {
-		created, seeded := fixtures["autoscaling:"+operation+":"+member]
-		if !seeded {
-			continue
-		}
-		form += "&" + member + "=" + url.QueryEscape(created)
-	}
+			":autoScalingGroup:0123:autoScalingGroupName/probe", params, nested, fixtures)
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return len(iamDerivedResourceARNs(r, "autoscaling", operation, "us-east-1", "123456789012")) > 0
@@ -1824,7 +1823,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1964
+const iamDerivationCoverageFloor = 1965
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

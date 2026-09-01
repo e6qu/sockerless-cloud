@@ -154,6 +154,15 @@ func iamSeedDerivationFixtures(t *testing.T,
 			"AvailabilityZones.member.1": "us-east-1a",
 			"LaunchConfigurationName":    "probe",
 		}, `(CreateAutoScalingGroupResponse)`)
+	// The group's own machine, which the health write names instead of the
+	// group. Attaching one is how a client puts a machine into a group it did
+	// not launch.
+	iamFixtureQuery(t, queryRouter, "2011-01-01", "AttachInstances",
+		map[string]string{
+			"AutoScalingGroupName": "probe", "InstanceIds.member.1": instance,
+		}, `(AttachInstancesResponse)`)
+	out["autoscaling:SetInstanceHealth:InstanceId"] = instance
+
 	// A database cluster, whose automated backup Amazon RDS keeps under the
 	// cluster's own resource id — which is all the delete carries.
 	cluster := iamFixtureQuery(t, queryRouter, "2014-10-31", "CreateDBCluster",

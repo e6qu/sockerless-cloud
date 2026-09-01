@@ -1019,6 +1019,16 @@ func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 			if group, ok := autoScalingGroups.Get(first("AutoScalingGroupName")); ok && group.ARN != "" {
 				out = append(out, group.ARN)
 			}
+			// Setting an instance's health names the machine, and the group
+			// it belongs to is what the call authorizes against. The group
+			// records the machines it holds, so it is recovered through an
+			// index keyed on them rather than by reading every group.
+			for _, instance := range params["instanceid"] {
+				if group, ok := iamAutoScalingGroupsByInstance.Lookup(
+					autoScalingGroups, instance, iamAutoScalingGroupInstanceKeys); ok && group.ARN != "" {
+					out = append(out, group.ARN)
+				}
+			}
 			// The tagging calls name the group inside a tag rather than in a
 			// member of their own — "Tags.member.1.ResourceId" — which the
 			// flat-parameter reader drops, its contract being members and not
@@ -3060,4 +3070,19 @@ func iamAutoScalingTaggedGroups(r *http.Request) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// The instance-to-group lookup SetInstanceHealth needs, answered from a
+// generation-keyed index so a per-request derivation never decodes every group.
+var iamAutoScalingGroupsByInstance sim.GenerationIndex[AutoScalingGroup]
+
+// iamAutoScalingGroupInstanceKeys names a group by each machine it holds.
+func iamAutoScalingGroupInstanceKeys(group AutoScalingGroup) []string {
+	keys := make([]string, 0, len(group.InstanceIds))
+	for _, instance := range group.InstanceIds {
+		if instance != "" {
+			keys = append(keys, instance)
+		}
+	}
+	return keys
 }
