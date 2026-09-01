@@ -196,6 +196,18 @@ func registerACRTasks(srv *sim.Server) {
 	// POST .../runs/{runId}/listLogSasUrl — link to the run's build logs.
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/runs/{runId}/listLogSasUrl", func(w http.ResponseWriter, r *http.Request) {
 		runID := sim.PathParam(r, "runId")
+		// A link to the logs of a run that never happened leads nowhere: the
+		// endpoint it points at answers 404, so handing the link out reports a
+		// log that is not there. Only the run is checked, because scheduling
+		// one does not require the registry resource to exist either — the
+		// build runs against the registry's login server, and holding the log
+		// link to a stricter rule than the run itself would refuse a link to a
+		// log that is there.
+		if _, ok := acrRuns.Get(runID); !ok {
+			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				"The run %q was not found.", runID)
+			return
+		}
 		scheme := "https"
 		if r.TLS == nil {
 			scheme = "http"

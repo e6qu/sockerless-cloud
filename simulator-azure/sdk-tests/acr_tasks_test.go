@@ -181,6 +181,12 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	require.Equal(t, http.StatusOK, logResp.StatusCode, "advertised logLink must resolve: %s", *sas.LogLink)
 	assert.Contains(t, string(logBytes), "The push refers to repository",
 		"the run log must carry the docker build/push output")
+
+	// A link to the logs of a run that never happened leads nowhere — the
+	// endpoint it points at answers 404 — so the action refuses rather than
+	// handing out a URL that reports a log is there.
+	_, err = runsClient.GetLogSasURL(ctx, rg, regName, "ca-does-not-exist", nil)
+	require.Error(t, err, "a run nobody scheduled has no log link")
 }
 
 // pullImageWithRetry pulls an image with bounded exponential backoff so a

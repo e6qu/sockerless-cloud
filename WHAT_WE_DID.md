@@ -121,6 +121,13 @@ read on the bridge answered not-found for a run that was right there. CI caught
 it; the check resolves the id for whichever surface it is on, and the bridge's
 test now pins both halves.
 
+Azure Container Registry's `listLogSasUrl` handed out a link to the logs of any
+run id, including one nobody scheduled, and the endpoint that link points at
+answers 404 — so the action reported a log that is not there. It checks the run
+now. It deliberately does not check the registry resource: scheduling a run
+does not require one either, and holding the link to a stricter rule than the
+run itself would refuse a link to a log that is there.
+
 Azure's Cosmos DB data plane read back names nobody created. A database read
 and a container read each answered 200 whatever they were asked for, so a
 client was told every name it tried already existed — while the listing beside

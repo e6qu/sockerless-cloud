@@ -75,6 +75,15 @@ Open: 7. Resolved: 84.
   for what exists (created on the data plane or through the management plane),
   and the delete takes the record with it.
 
+  Azure Container Registry's `listLogSasUrl` handed out a link to the logs of
+  any run id, including one nobody scheduled, and the endpoint that link points
+  at answers 404 — so the action reported a log that is not there. It checks
+  the run. It does not check the registry resource, because scheduling a run
+  does not require one either: the build runs against the registry's login
+  server, and `TestACRTasks_ScheduleRunDockerBuild` never creates the ARM
+  resource. Whether the tasks family should require it is a separate question
+  and is not answered here.
+
   Reading Google Cloud's 140 found four defects and one reason. The four are
   all in Resource Manager v3's tag surfaces and all the same shape:
   `effectiveTags` answered an empty list for a resource whose tag binding the
