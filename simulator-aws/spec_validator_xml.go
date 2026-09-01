@@ -172,16 +172,33 @@ func (v *xmlShapeValidator) outputMembers(target string) (map[string]smithyMembe
 // operation is identified by the mux pattern that served the request
 // plus the smithy URI's query-string literals; non-restXml routes pass
 // through untouched.
-func (st *specValidatorState) validateRestXML(req *http.Request, status int, respHeader http.Header, respBody []byte) []sim.SpecViolation {
+// restXMLKey is the "METHOD <normalized-uri>" the served route indexes an
+// operation by. It is the mux pattern for a path-addressed request; a
+// host-addressed data plane is resolved by what it serves instead, because the
+// path it matches belongs to a different operation — a read through an Object
+// Lambda access point carries the object key as the whole path, which matches
+// the bucket route ListObjects lives on.
+func (st *specValidatorState) restXMLKey(req *http.Request) (string, bool) {
+	if _, ok := s3ObjectLambdaHostAccessPoint(req.Host); ok &&
+		(req.Method == http.MethodGet || req.Method == http.MethodHead) {
+		return req.Method + " /{}/{+}", true
+	}
 	_, pattern := st.mux.Handler(req)
 	if pattern == "" {
+		return "", false
+	}
+	method, path, found := strings.Cut(pattern, " ")
+	if !found {
+		return "", false // method-less or host-addressed pattern: not a restXml surface
+	}
+	return method + " " + normalizeAWSPath(strings.TrimSuffix(path, "{$}")), true
+}
+
+func (st *specValidatorState) validateRestXML(req *http.Request, status int, respHeader http.Header, respBody []byte) []sim.SpecViolation {
+	key, ok := st.restXMLKey(req)
+	if !ok {
 		return nil
 	}
-	method, path, ok := strings.Cut(pattern, " ")
-	if !ok {
-		return nil // method-less or host-addressed pattern: not a restXml surface
-	}
-	key := method + " " + normalizeAWSPath(strings.TrimSuffix(path, "{$}"))
 	cands := st.spec.restXMLOps[key]
 	if len(cands) == 0 {
 		// A greedy sim label where the spec has a plain label accepts a

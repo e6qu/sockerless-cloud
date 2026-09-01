@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 85.
+Open: 6. Resolved: 86.
 
 ## Open
 
@@ -251,16 +251,6 @@ Open: 7. Resolved: 85.
   shown up as a slow pass rather than sixty seconds of nothing.
 
 
-- **BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
-  not chosen):** The one operation in the vendored S3 model without a handler.
-  It is the callback an AWS Lambda function makes to return a transformed
-  object through S3 Object Lambda — meaningful only behind an Object Lambda
-  access point, and access points are managed by the `s3control` service,
-  which is not a vendored slice. Serving the callback without the access-point
-  control plane would acknowledge writes nothing can ever read back. Fix
-  shape: vendor `s3control`, implement Object Lambda access points, and then
-  this callback, in one slice. Until then the S3 model is 111 of 112 served,
-  and every other gap the model-drift sweep found on 2026-08-24 was closed.
 - **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
   Three jobs failed on 2026-08-31 for the same reason, across two registries:
   `tf (aws)` could not pull `public.ecr.aws/docker/library/busybox` for the
@@ -402,6 +392,24 @@ Open: 7. Resolved: 85.
 
 
 ## Resolved history
+
+- ~~**BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
+  not chosen):**~~ The callback an AWS Lambda transformation function makes to
+  return an object through Amazon S3 Object Lambda was the one operation in the
+  vendored S3 model without a handler, because the access points it answers
+  behind are managed by `s3control`, which was not a vendored slice. The
+  simulator now serves the whole loop: `s3control` is vendored, S3 access
+  points and Object Lambda access points are real resources, and a GetObject
+  addressed to an Object Lambda access point invokes the transformation
+  function with a route token and returns what the function posts back through
+  `WriteGetObjectResponse` — the stored object is never served directly. The
+  s3-control model's other 57 operations came with it: S3 Batch Operations jobs
+  that read their manifest out of S3 and apply their operation to every object
+  in it, S3 Access Grants (instance, locations, grants, and the credentials
+  `GetDataAccess` vends by assuming the location's role), Storage Lens
+  configurations and groups, Multi-Region Access Points with their traffic
+  dials and asynchronous request tokens, access point scopes, and the regional
+  and directory-bucket listings.
 
 - ~~**BUG-1700 (blob soft delete was two settings in the simulator and one in
   Azure):**~~ `Microsoft.Storage/storageAccounts/{a}/blobServices/default`

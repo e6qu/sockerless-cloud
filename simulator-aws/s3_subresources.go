@@ -140,6 +140,9 @@ func handleS3PutObjectDispatch(w http.ResponseWriter, r *http.Request) {
 // handleS3GetOrHeadObjectDispatch routes GET / HEAD /{bucket}/{key...}
 // based on subresource query strings. Known-bucket gate.
 func handleS3GetOrHeadObjectDispatch(w http.ResponseWriter, r *http.Request) {
+	if s3ServeObjectLambdaRead(w, r) {
+		return
+	}
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		http.NotFound(w, r)

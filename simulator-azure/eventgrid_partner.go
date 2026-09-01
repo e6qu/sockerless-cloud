@@ -93,8 +93,8 @@ func eventGridPartnerConfigurationID(r *http.Request) string {
 }
 
 func handleEventGridPutPartnerRegistration(w http.ResponseWriter, r *http.Request) {
-	eventGridCreateARMResource(w, r, eventGridPartnerRegistrations, eventGridPartnerRegistrationID(r),
-		sim.PathParam(r, "partnerRegistrationName"), "Microsoft.EventGrid/partnerRegistrations", func(props map[string]any) {
+	eventGridCreateARMResourceStatus(w, r, eventGridPartnerRegistrations, eventGridPartnerRegistrationID(r),
+		sim.PathParam(r, "partnerRegistrationName"), "Microsoft.EventGrid/partnerRegistrations", http.StatusOK, func(props map[string]any) {
 			props["provisioningState"] = "Succeeded"
 			if _, ok := props["partnerRegistrationImmutableId"]; !ok {
 				props["partnerRegistrationImmutableId"] = generateUUID()

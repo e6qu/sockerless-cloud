@@ -1,5 +1,83 @@
 # WHAT WE DID
 
+## 2026-09-01, forty-fifth pass — Amazon S3 Object Lambda, control plane and all
+
+Amazon S3's `WriteGetObjectResponse` was the one operation in the vendored S3
+model without a handler, and the reason was real: it is the callback an AWS
+Lambda transformation function makes to return an object through S3 Object
+Lambda, and the access points it answers behind are managed by `s3control`,
+which was not a vendored slice. Serving the callback alone would have
+acknowledged writes nothing could ever read back.
+
+The whole loop is served now. `s3control` is vendored, standard S3 access
+points and Object Lambda access points are real resources, and a GetObject
+addressed to an Object Lambda access point by its ARN hands the transformation
+function a route token and the URL of the stored object, invokes it over the
+simulator's own Lambda, and returns exactly what the function posts back
+through `WriteGetObjectResponse`. The stored object is never served instead: a
+function that returns without writing produces an error, and a write on a route
+nobody is waiting on is refused. The SDK test proves it end to end — the caller
+receives the uppercased body the function produced and the `Content-Type` the
+function forwarded, while a direct read of the bucket still returns the
+original bytes.
+
+Making that work needed one coordinate the function containers had been
+missing. A function that calls an AWS service resolves its endpoint from
+`AWS_ENDPOINT_URL`; in real Lambda that is unset and the SDK finds the regional
+host, but here the services live in the simulator, so a function container is
+now given the address it can reach the simulator on — the same host its Runtime
+API already arrives on. The function's own environment still wins.
+
+Vendoring `s3control` brought its other 57 operations with it, and every one is
+served rather than exempted:
+
+- **S3 Batch Operations** jobs read their manifest object out of S3 and really
+  apply their operation to each entry — Lambda invocation, object tagging and
+  untagging, copy, legal hold — and report how many tasks succeeded and failed.
+  A job created with `ConfirmationRequired` waits until `UpdateJobStatus` moves
+  it to Ready, and a job that already finished refuses to move at all.
+- **S3 Access Grants**: the account's instance, the locations it manages behind
+  a role that must exist, and the grants inside them. `GetDataAccess` matches
+  the caller's grant by the most specific scope and vends credentials by
+  assuming the location's role through the same STS path any `AssumeRole`
+  takes, so the credentials it returns authenticate on the S3 surface. An
+  instance with grants or locations still in it will not delete.
+- **Storage Lens** configurations and groups, stored as the client composed
+  them and returned unchanged, with their tags.
+- **Multi-Region Access Points**, whose create, delete and policy write are
+  asynchronous: each returns a request token, and polling
+  `DescribeMultiRegionAccessPointOperation` is where the caller learns whether
+  it succeeded. Traffic dials start even and move where
+  `SubmitMultiRegionAccessPointRoutes` puts them.
+- **Access point scopes**, and the **regional** and **directory-bucket**
+  listings.
+
+Three gates got sharper on the way through, each because it had gone quiet
+about something real:
+
+- The model-drift gate matched an operation name as a bare substring, so
+  `DeleteBucketLifecycleConfiguration` marked `DeleteBucketLifecycle` as
+  implemented the moment the longer name appeared. It now requires the name to
+  end where the operation's name ends.
+- The route-existence gate treated a plain simulator label where the model has
+  a greedy one as an offense in every case. That is right when the label's
+  value can contain a `/` and wrong when it cannot — a Multi-Region Access
+  Point name matches `^[a-z0-9][-a-z0-9]{1,48}[a-z0-9]$`, so the model's greedy
+  label spans one segment however it is written, and Go's mux cannot place a
+  greedy label before more path anyway. The gate now reads the label's own
+  pattern and accepts a plain label only where a slash is impossible.
+- The runtime spec validator identified a restXml operation from the mux
+  pattern alone, so an Object Lambda read — the object key as the whole path,
+  on the access point's own host — validated as `ListObjects` and reported its
+  `text/plain` body as malformed XML. It now resolves a host-addressed data
+  plane by what it serves, and checks the read as `GetObject`.
+
+Two divergences the validator's own dimensions caught are fixed rather than
+allowlisted: Azure's `partnerRegistrations` create answered 201 where its
+Swagger declares 200 and 202, and the s3-control deletes answered 204 where the
+model declares 200 — every one of them except the two Storage Lens group
+operations, which declare 204 and answer it.
+
 ## 2026-08-31 to 2026-09-01, forty-fourth pass — the probe was measuring the wrong thing
 
 Three slices moved: Google Cloud 5,440 → 5,466 of 5,480 Discovery method

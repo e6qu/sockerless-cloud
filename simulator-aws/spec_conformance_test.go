@@ -27,6 +27,29 @@ import (
 type smithyOp struct {
 	HTTPMethod string
 	HTTPURI    string
+	// SlashFreeLabels names the URI's greedy labels whose member's pattern
+	// admits no "/" — the label is greedy in the model but can only ever match
+	// one segment, so a plain label serves every value the service accepts.
+	SlashFreeLabels map[string]bool
+}
+
+// patternForbidsSlash reports whether a shape's pattern rejects every value
+// containing a "/". A greedy URI label over such a shape spans one segment
+// however it is written, so a plain label in its place loses nothing.
+func patternForbidsSlash(traits map[string]json.RawMessage) bool {
+	raw, ok := traits["smithy.api#pattern"]
+	if !ok {
+		return false
+	}
+	var pattern string
+	if json.Unmarshal(raw, &pattern) != nil {
+		return false
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return false
+	}
+	return !re.MatchString("a/b")
 }
 
 // smithyService is the parsed surface of one vendored Smithy model.
@@ -61,6 +84,13 @@ func loadSmithyModels(t *testing.T) []*smithyService {
 				Type    string                     `json:"type"`
 				Version string                     `json:"version"`
 				Traits  map[string]json.RawMessage `json:"traits"`
+				Input   struct {
+					Target string `json:"target"`
+				} `json:"input"`
+				Members map[string]struct {
+					Target string                     `json:"target"`
+					Traits map[string]json.RawMessage `json:"traits"`
+				} `json:"members"`
 			} `json:"shapes"`
 		}
 		err = json.NewDecoder(gz).Decode(&doc)
@@ -101,6 +131,15 @@ func loadSmithyModels(t *testing.T) []*smithyService {
 					}
 					op.HTTPMethod = h.Method
 					op.HTTPURI = h.URI
+				}
+				op.SlashFreeLabels = map[string]bool{}
+				for name, member := range doc.Shapes[shape.Input.Target].Members {
+					if _, isLabel := member.Traits["smithy.api#httpLabel"]; !isLabel {
+						continue
+					}
+					if patternForbidsSlash(doc.Shapes[member.Target].Traits) {
+						op.SlashFreeLabels[name] = true
+					}
 				}
 				svc.Ops[short] = op
 			}
@@ -305,6 +344,13 @@ func TestRESTRoutesExistInSmithyModels(t *testing.T) {
 				continue
 			}
 			specOps[op.HTTPMethod+" "+normalizeAWSPath(op.HTTPURI)] = true
+			// A greedy label the service can never fill with a slash is a
+			// single segment in practice, so a plain simulator label matches
+			// every request the model does — Go's mux cannot place a greedy
+			// label before more path, and this is where that shows up.
+			if plain := plainLabelURI(op); plain != op.HTTPURI {
+				specOps[op.HTTPMethod+" "+normalizeAWSPath(plain)] = true
+			}
 		}
 	}
 
@@ -373,6 +419,18 @@ func TestRESTRoutesExistInSmithyModels(t *testing.T) {
 	}
 
 	reportOffenders(t, "REST route", offenders)
+}
+
+// plainLabelURI rewrites an operation's URI, dropping the greedy marker from
+// every label whose value can never contain a "/".
+func plainLabelURI(op smithyOp) string {
+	return awsParamSegment.ReplaceAllStringFunc(op.HTTPURI, func(seg string) string {
+		inner := strings.TrimSuffix(seg[1:len(seg)-1], "+")
+		if op.SlashFreeLabels[inner] {
+			return "{" + inner + "}"
+		}
+		return seg
+	})
 }
 
 func reportOffenders(t *testing.T, kind string, offenders []string) {

@@ -72,6 +72,15 @@
    identifier names — the same question turned three AWS Glue operations from
    underivable into ordinary reads.
 
+   AWS's own tail closed on 2026-09-01: the vendored models are implemented or
+   exempt in full, with no exemption left for a surface a client can reach.
+   `s3control` is vendored and all 67 of its operations are served, which is
+   what let Amazon S3 Object Lambda run end to end — the transformation
+   function is invoked and its `WriteGetObjectResponse` is what the caller
+   receives. The pattern that unblocked it is the same one the licence code
+   taught: an operation declined because its slice "was not chosen" is not
+   blocked, it is unvendored, and vendoring is ordinary work.
+
    The live work list is now **BUG-2960**, not the coverage floors: the
    handler-state marker narrows 4,500 operations to 286 that answer without
    reaching state, most of them honest, and reading them has already found five

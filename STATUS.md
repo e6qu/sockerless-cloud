@@ -111,9 +111,9 @@ Current state of the sockerless-cloud repository.
   Discovery method spellings (`compute-v1` **2,002 of 2,016**, with
   `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1`
   and `redis-v1` each complete); Azure **2,613 of 2,628** operations; the AWS
-  vendored models are implemented or exempt in full, the exemptions being S3
-  Object Lambda's callback and S3 Express One Zone's two off-endpoint
-  operations.
+  vendored models are implemented or exempt in full, and the S3 Object Lambda
+  exemption is gone — the whole loop is served, control plane and data plane
+  alike, with `s3control` vendored and its 67 operations implemented.
 - **No silent gap in either declared surface, and a gate holds it.** Every one
   of Google Cloud's 5,480 Discovery method spellings reaches a handler: the
   probe reports **zero mux misses** across all thirty documents, the last of
@@ -134,6 +134,19 @@ Current state of the sockerless-cloud repository.
   licence it was issued for. VPC networks allocate bridge subnets from a host-side pool with
   ENI addresses as real secondary interface addresses, so same-CIDR VPCs
   coexist.
+- **Amazon S3 Object Lambda runs end to end.** A GetObject addressed to an
+  Object Lambda access point hands the transformation function a route token
+  and the URL of the stored object, invokes it over the simulator's own Lambda,
+  and returns what the function posts back through `WriteGetObjectResponse`.
+  Nothing falls back to the stored bytes: a function that returns without
+  writing produces an error, and a write on a route nobody is waiting on is
+  refused. Vendoring `s3control` for the access points brought its whole
+  surface with it — S3 Batch Operations jobs that read their manifest out of S3
+  and really apply their operation to each object, S3 Access Grants down to the
+  credentials `GetDataAccess` vends by assuming the location's role, Storage
+  Lens configurations and groups, Multi-Region Access Points with traffic dials
+  and asynchronous request tokens, access point scopes, and the regional and
+  directory-bucket listings.
 - **A served count is not proof a handler exists.** The Google Cloud coverage
   probe classifies any handler answer as served, so a collection swallowed by
   a multi-segment wildcard route counts as covered while unimplemented. Cloud
