@@ -153,6 +153,23 @@ stays on 8.x because v9 is an API redesign rather than a version bump.
 imports every console entry point makes. Each was found by taking the newer
 version, watching what failed, and bisecting — not by assuming.
 
+Updating knip with the rest of the tree turned its gate red, and the gate said
+nothing about why: `out=$(npx knip)` under `set -e` aborts the script at the
+assignment, before a line of reporting runs, so CI showed exit 1 and no output.
+It captures the status now, and a knip that exits non-zero with nothing to say
+is reported as knip itself failing rather than passed over. It also runs with
+`--no-config-hints`, because a hint is not a finding — knip prints one per
+package for the .css extension, and any output at all read as failure, so the
+gate could not have passed however clean the code was.
+
+What the newer knip found was real: three barrel files re-exported names
+nothing imports through them. Every consumer of `GcpTabs`, `NAV_GROUPS`,
+`AzureTableErrorRow` and the rest takes them from the defining module directly —
+nineteen importers of `GcpTabs`, none through the barrel — so the re-export
+lines were dead. They are gone, the names stay exported where they are defined,
+and a negative control confirms the gate reports a re-added dead export instead
+of dying mute.
+
 Two CI-only failures from the previous push are fixed. The new S3 control-plane
 Terraform suite timed out at its deadline on CI and passed in forty seconds
 locally: CI runs the terraform jobs behind the HTTPS gateway, whose wildcard
