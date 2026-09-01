@@ -1373,6 +1373,14 @@ func iamAWSQueryProbeRequest(service, operation, version, arnValue string,
 	}
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// A real caller signs as a principal the service holds, and an operation
+	// authorized against the caller — iam:ChangePassword — can be derived only
+	// from one. The signature itself is verified before the derivation ever
+	// runs, so what matters here is that the key names a principal.
+	if caller, seeded := fixtures["caller:AccessKeyId"]; seeded {
+		r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+caller+
+			"/20260801/us-east-1/"+service+"/aws4_request, SignedHeaders=host, Signature=00")
+	}
 	return r
 }
 
@@ -1853,7 +1861,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1978
+const iamDerivationCoverageFloor = 1979
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

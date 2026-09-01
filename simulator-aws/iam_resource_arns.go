@@ -129,7 +129,7 @@ func iamServiceResourceARNs(r *http.Request, service, op string, types []string,
 	case "wafv2":
 		return iamWAFv2ResourceARNs(r, op, types)
 	case "iam":
-		return iamIAMResourceARNs(r, types)
+		return iamIAMResourceARNs(r, op, types)
 	}
 	return nil
 }
@@ -157,7 +157,7 @@ func iamBudgetsResourceARNs(r *http.Request, types []string, account string) []s
 // name may carry a path ("/team/", giving "role/team/name"); the API takes the
 // path separately on create and folds it into the ARN, which is what the
 // resource types call a "NameWithPath".
-func iamIAMResourceARNs(r *http.Request, types []string) []string {
+func iamIAMResourceARNs(r *http.Request, op string, types []string) []string {
 	account := awsAccountID()
 	build := func(resourceType, path, name string) string {
 		path = strings.Trim(path, "/")
@@ -197,6 +197,18 @@ func iamIAMResourceARNs(r *http.Request, types []string) []string {
 	if iamHasType(types, "mfa") {
 		if serial := r.FormValue("SerialNumber"); strings.HasPrefix(serial, "arn:") {
 			return []string{serial}
+		}
+	}
+	// Changing a password names nobody: AWS Identity and Access Management
+	// authorizes it against the calling user, which the signature establishes
+	// and the request does not. Reading the caller here is only sound because
+	// sigv4 verification runs before the enforcement gate — main.go orders them
+	// that way deliberately, so the key in the header is one the caller proved
+	// possession of. A caller who is not a user, a role or the account root,
+	// names no user and derives nothing.
+	if op == "ChangePassword" && iamHasType(types, "user") && iamAccessKeys != nil {
+		if key, ok := iamAccessKeys.Get(iamAccessKeyIDFromRequest(r)); ok && key.UserName != "" {
+			return []string{build("user", "", key.UserName)}
 		}
 	}
 	// An access key belongs to a user, and IAM authorizes the user — the key is

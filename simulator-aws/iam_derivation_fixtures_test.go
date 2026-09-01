@@ -144,6 +144,9 @@ func iamSeedDerivationFixtures(t *testing.T,
 	accessKey := iamFixtureQuery(t, queryRouter, "2010-05-08", "CreateAccessKey",
 		map[string]string{"UserName": "probe-key-owner"}, `<AccessKeyId>([^<]+)</AccessKeyId>`)
 	out["iam:GetAccessKeyLastUsed:AccessKeyId"] = accessKey
+	// The principal the probe signs as, for the operations AWS authorizes
+	// against the caller rather than against anything the request names.
+	out["caller:AccessKeyId"] = accessKey
 
 	// An Auto Scaling group and the launch configuration it runs from, named
 	// the way the probe names them. Every Auto Scaling derivation resolves the

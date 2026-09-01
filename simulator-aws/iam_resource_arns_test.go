@@ -2363,3 +2363,30 @@ func TestIAMResourceARNs_ALakeQueryNamesTheStoreItReads(t *testing.T) {
 			"cloudtrail:StartQuery", "*")
 	})
 }
+
+// Changing a password is authorized against the calling user, which the
+// signature establishes and the request never names.
+func TestIAMResourceARNs_APasswordChangeNamesItsCaller(t *testing.T) {
+	buildConformanceSimulator(t)
+
+	const key = "AKIAPROBECALLER00000"
+	iamAccessKeys.Put(key, IAMAccessKey{AccessKeyId: key, UserName: "kim"})
+	t.Cleanup(func() { iamAccessKeys.Delete(key) })
+
+	signed := func(credential string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/",
+			strings.NewReader("Action=ChangePassword&Version=2010-05-08"))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+credential+
+			"/20260801/us-east-1/iam/aws4_request, SignedHeaders=host, Signature=00")
+		return r
+	}
+
+	assertDerivedARNs(t, signed(key), "iam:ChangePassword",
+		"arn:aws:iam::123456789012:user/kim")
+
+	// A key naming no principal the simulator holds names no user. The header
+	// is only trustworthy because the signature is verified before this runs;
+	// deriving a user from an unknown key would authorize whoever was guessed.
+	assertDerivedARNs(t, signed("AKIAUNKNOWN000000000"), "iam:ChangePassword", "*")
+}
