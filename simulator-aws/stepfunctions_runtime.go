@@ -1179,18 +1179,19 @@ func sfnRunMap(state sfnState, stateName string, input, context any, cancel <-ch
 		sfnMapRuns.Put(run.MapRunArn, run)
 		mapRun = &run
 		defer func() {
-			finished, exists := sfnMapRuns.Get(run.MapRunArn)
-			if !exists {
-				return
-			}
+			// Through Update, like every other writer of this record. A read,
+			// a mutation and a write would be correct only for as long as the
+			// workers are joined before this runs, and would then lose the
+			// counters silently the first time one was not.
 			now := sfnEpochNow()
-			finished.StopDate = &now
-			if executionErr != nil {
-				finished.Status = "FAILED"
-			} else {
+			sfnMapRuns.Update(run.MapRunArn, func(finished *SFNMapRun) {
+				finished.StopDate = &now
+				if executionErr != nil {
+					finished.Status = "FAILED"
+					return
+				}
 				finished.Status = "SUCCEEDED"
-			}
-			sfnMapRuns.Put(run.MapRunArn, finished)
+			})
 		}()
 	}
 	results := make([]any, len(items))

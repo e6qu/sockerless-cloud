@@ -33,11 +33,13 @@ Open: 10. Resolved: 84.
   ends only when the workers are joined and the channel closed, so it cannot
   race the counters it is about to publish.
 
-  That last one is worth tightening anyway, whatever the cause: the finaliser is
-  a `Get`, a mutation and a `Put` on a record every other writer mutates through
-  the atomic `Update`, and it is correct only because the workers happen to be
-  joined first. Anything that ever increments after the loop would lose its
-  write silently.
+  That last one was tightened anyway, whatever the cause: the finaliser was a
+  `Get`, a mutation and a `Put` on a record every other writer mutates through
+  the atomic `Update`, correct only because the workers happen to be joined
+  first, and anything that ever incremented after the loop would have lost its
+  write silently. It goes through `Update` now. That is not known to be this
+  failure — the elimination above still stands — it is one fewer way for the
+  record to be wrong.
 
   It is intermittent, which narrows it further. The same job passed on the very
   next commit (016665b), so this is not a configuration the runner always has —
