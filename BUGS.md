@@ -16,9 +16,16 @@ Open: 7. Resolved: 84.
   stored, and an id no offering answers to is refused with
   `ReservedCacheNodesOfferingNotFound`.
 
-  The class is not swept. `scripts/classify-sim-handlers.go` marks every
-  handler that answers without reaching state, and the surface tables carry the
-  marker: 81 such rows in AWS, 140 in Google Cloud, 93 in Azure. Most are
+  The class is not swept. `scripts/classify-sim-handlers.go` marks the handlers
+  it can see answering without reaching state, and the surface tables carry the
+  marker: 81 such rows in AWS, 140 in Google Cloud, 93 in Azure. Read it as a
+  reading list, not a defect count. The marker understates reaching state by
+  design, and its blind spot is a real shape here: a handler that mutates
+  through a closure held in a struct field — the Compute Engine disk verbs call
+  `disks.setField(key, …)`, which does write — cannot be followed to the store
+  and reads as static. Following methods by name was tried and reclassified one
+  registration of 341, so it was not kept; resolving the closures needs
+  dataflow the marker deliberately does not do. Most are
   honest — a transcription of a published fact (the AWS Lambda runtime images,
   the ElastiCache engine versions, the ELB security policies), a computed echo
   (`TestEventPattern`), or a collection that is genuinely empty because the
@@ -28,6 +35,15 @@ Open: 7. Resolved: 84.
   the marker narrows 4,500 operations to 314 candidates but does not judge
   them. Fix shape per instance: answer from state the simulator holds, or
   refuse the way the service refuses.
+
+  Reading AWS's 81 found one more of the first kind and no others.
+  `GetDataQualityModel` answered SUCCEEDED for any profile — a model trained
+  and ready to read, which `GetDataQualityModelResult` then contradicted with
+  an empty model. Both answer `EntityNotFoundException` now, the error the
+  model declares, because a model is trained from statistics this simulator
+  does not collect. The rest of AWS's are transcriptions of published facts,
+  computed echoes, or collections that are empty because nothing was observed.
+  Google Cloud's 140 and Azure's 93 are unread.
 
 - **BUG-2955 (a distributed map run does not finish on CI, and the test waits
   sixty seconds for it):** `TestSFNCLI_DistributedMapRun` failed on

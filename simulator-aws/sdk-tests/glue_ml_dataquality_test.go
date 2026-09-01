@@ -220,23 +220,34 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	_, err = c.CancelDataQualityRuleRecommendationRun(ctx, &glue.CancelDataQualityRuleRecommendationRunInput{RunId: aws.String(recID)})
 	require.NoError(t, err)
 
-	// Statistics / model endpoints return shaped-but-empty bodies.
+	// No statistic was recorded, so the listing is empty — a true answer over a
+	// history nothing wrote.
 	stats, err := c.ListDataQualityStatistics(ctx, &glue.ListDataQualityStatisticsInput{})
 	require.NoError(t, err)
 	assert.Empty(t, stats.Statistics)
 
-	model, err := c.GetDataQualityModel(ctx, &glue.GetDataQualityModelInput{
+	// A model is trained from that history, so no profile has one — including
+	// the one this evaluation just wrote. Reporting SUCCEEDED would say a model
+	// is ready to read, which the read itself disproves.
+	_, err = c.GetDataQualityModel(ctx, &glue.GetDataQualityModelInput{
+		ProfileId: aws.String(profileID),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EntityNotFoundException")
+
+	_, err = c.GetDataQualityModelResult(ctx, &glue.GetDataQualityModelResultInput{
+		StatisticId: aws.String("stat-1"),
+		ProfileId:   aws.String(profileID),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EntityNotFoundException")
+
+	// And a profile nothing issued is not found rather than answered for.
+	_, err = c.GetDataQualityModel(ctx, &glue.GetDataQualityModelInput{
 		ProfileId: aws.String("profile-1"),
 	})
-	require.NoError(t, err)
-	assert.Equal(t, gluetypes.DataQualityModelStatusSucceeded, model.Status)
-
-	modelRes, err := c.GetDataQualityModelResult(ctx, &glue.GetDataQualityModelResultInput{
-		StatisticId: aws.String("stat-1"),
-		ProfileId:   aws.String("profile-1"),
-	})
-	require.NoError(t, err)
-	assert.Empty(t, modelRes.Model)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "No data quality profile")
 }
 
 // TestGlue_ColumnStatisticsTaskLifecycle_SDK exercises the column-statistics

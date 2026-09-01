@@ -199,6 +199,17 @@ func handleGlueBatchPutDataQualityStatisticAnnotation(w http.ResponseWriter, r *
 			})
 			continue
 		}
+		// An entry naming a profile no evaluation wrote is reported as the
+		// entry that failed rather than refused for the whole batch, which is
+		// what the per-entry channel is for.
+		if _, known := glueResultForProfile(a.ProfileId); !known {
+			failed = append(failed, map[string]any{
+				"ProfileId":     a.ProfileId,
+				"StatisticId":   a.StatisticId,
+				"FailureReason": "No data quality profile " + a.ProfileId + " exists.",
+			})
+			continue
+		}
 		glueStatAnnotations.Put(glueStatAnnotationKey(a.ProfileId, a.StatisticId), GlueStatisticAnnotation{
 			ProfileId:           a.ProfileId,
 			StatisticId:         a.StatisticId,
@@ -222,8 +233,11 @@ func handleGluePutDataQualityProfileAnnotation(w http.ResponseWriter, r *http.Re
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	if req.ProfileId == "" {
-		glueWriteError(w, "InvalidInputException", "ProfileId is required")
+	// An annotation is written against a profile an evaluation wrote. Recording
+	// one for a profile that was never issued would keep a judgement about
+	// something that does not exist, and the read of it would report on
+	// nothing.
+	if glueProfileMissing(w, req.ProfileId) {
 		return
 	}
 

@@ -74,6 +74,21 @@ across the three clouds, most of them honest transcriptions of published facts
 or genuinely empty collections. Reading them is the work list; the marker
 narrows it but does not judge it.
 
+Reading AWS's found one more. `GetDataQualityModel` answered SUCCEEDED for any
+profile id, which says a model was trained and is ready to read — and the very
+next call, `GetDataQualityModelResult`, returned an empty model. A model is
+trained from the statistical history an evaluation collects over time, which
+this simulator does not collect, so no profile has one: both operations answer
+`EntityNotFoundException`, the error the model declares for them, and a profile
+no evaluation wrote is not found rather than answered for. The annotations went
+the same way — `PutDataQualityProfileAnnotation` recorded a judgement about any
+id it was handed, and the batch form now reports an unknown profile as the
+entry that failed, which is what its per-entry channel is for.
+
+The tests moved with it: the SDK and CLI suites obtain a profile by running an
+evaluation and reading it off the result, the way a caller has to, rather than
+naming one that never existed.
+
 Both remaining-gap properties are now gates rather than observations. The
 coverage floors count unserved operations without caring why, so a gap that
 stopped declaring itself — a route that went away and now answers the mux's

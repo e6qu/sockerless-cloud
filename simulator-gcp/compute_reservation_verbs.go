@@ -93,8 +93,7 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 			return
 		}
 		blocks := []any{}
-		for i, block := range computeReservationBlocks(reservation, sim.PathParam(r, "name")) {
-			_ = i
+		for _, block := range computeReservationBlocks(reservation, sim.PathParam(r, "name")) {
 			blocks = append(blocks, block)
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{

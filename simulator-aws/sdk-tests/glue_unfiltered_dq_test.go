@@ -102,12 +102,36 @@ func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 // reads back, and a bad batch entry surfaces in FailedInclusionAnnotations.
 func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	c := glueClient()
-	profileID := "glue-dq-profile-sdk"
 	statisticID := "glue-dq-stat-sdk"
+
+	// The profile an evaluation wrote its statistics to, obtained the only way
+	// a caller can: run one, and read the profile off the result. An
+	// annotation names a profile, and one nothing issued names nothing.
+	_, err := c.StartDataQualityRulesetEvaluationRun(ctx, &glue.StartDataQualityRulesetEvaluationRunInput{
+		Role:         aws.String("arn:aws:iam::000000000000:role/dq"),
+		RulesetNames: []string{"glue-dq-annotations-ruleset"},
+		DataSource:   &gluetypes.DataSource{},
+	})
+	require.NoError(t, err)
+	results, err := c.ListDataQualityResults(ctx, &glue.ListDataQualityResultsInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, results.Results)
+	var profileID string
+	for _, candidate := range results.Results {
+		got, err := c.GetDataQualityResult(ctx, &glue.GetDataQualityResultInput{
+			ResultId: candidate.ResultId,
+		})
+		require.NoError(t, err)
+		if aws.ToString(got.RulesetName) == "glue-dq-annotations-ruleset" {
+			profileID = aws.ToString(got.ProfileId)
+			break
+		}
+	}
+	require.NotEmpty(t, profileID)
 
 	// BatchPutDataQualityStatisticAnnotation: one good entry, one missing
 	// StatisticId which must come back as a FailedInclusionAnnotation.
-	batch, err := c.BatchPutDataQualityStatisticAnnotation(ctx, &glue.BatchPutDataQualityStatisticAnnotationInput{
+	batch, err2 := c.BatchPutDataQualityStatisticAnnotation(ctx, &glue.BatchPutDataQualityStatisticAnnotationInput{
 		InclusionAnnotations: []gluetypes.DatapointInclusionAnnotation{
 			{
 				ProfileId:           aws.String(profileID),
@@ -120,7 +144,7 @@ func TestGlue_DQAnnotations_SDK(t *testing.T) {
 			},
 		},
 	})
-	require.NoError(t, err)
+	require.NoError(t, err2)
 	require.Len(t, batch.FailedInclusionAnnotations, 1)
 	assert.Equal(t, profileID, aws.ToString(batch.FailedInclusionAnnotations[0].ProfileId))
 	assert.NotEmpty(t, aws.ToString(batch.FailedInclusionAnnotations[0].FailureReason))
@@ -146,6 +170,41 @@ func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	require.NotNil(t, a.InclusionAnnotation)
 	assert.Equal(t, gluetypes.InclusionAnnotationValueInclude, a.InclusionAnnotation.Value)
 	require.NotNil(t, a.InclusionAnnotation.LastModifiedOn)
+
+	// An entry naming a profile nothing issued fails as that entry, and the
+	// batch's other work is unaffected.
+	unknown, err := c.BatchPutDataQualityStatisticAnnotation(ctx, &glue.BatchPutDataQualityStatisticAnnotationInput{
+		InclusionAnnotations: []gluetypes.DatapointInclusionAnnotation{{
+			ProfileId:           aws.String("no-such-profile"),
+			StatisticId:         aws.String(statisticID),
+			InclusionAnnotation: gluetypes.InclusionAnnotationValueInclude,
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, unknown.FailedInclusionAnnotations, 1)
+	assert.Contains(t, aws.ToString(unknown.FailedInclusionAnnotations[0].FailureReason), "no-such-profile")
+
+	// Nor can a profile nothing issued be annotated whole, or asked for a
+	// model: a model is trained from statistics this simulator never collects,
+	// so no profile has one.
+	_, err = c.PutDataQualityProfileAnnotation(ctx, &glue.PutDataQualityProfileAnnotationInput{
+		ProfileId:           aws.String("no-such-profile"),
+		InclusionAnnotation: gluetypes.InclusionAnnotationValueInclude,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EntityNotFoundException")
+
+	_, err = c.GetDataQualityModel(ctx, &glue.GetDataQualityModelInput{
+		ProfileId: aws.String(profileID), StatisticId: aws.String(statisticID),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EntityNotFoundException")
+
+	_, err = c.GetDataQualityModelResult(ctx, &glue.GetDataQualityModelResultInput{
+		ProfileId: aws.String(profileID), StatisticId: aws.String(statisticID),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EntityNotFoundException")
 
 	// Filtering by a non-matching statistic returns nothing.
 	none, err := c.ListDataQualityStatisticAnnotations(ctx, &glue.ListDataQualityStatisticAnnotationsInput{

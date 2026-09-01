@@ -187,9 +187,15 @@ func TestGlueDataQualityCLI(t *testing.T) {
 	runCLI(t, awsCLI("glue", "cancel-data-quality-rule-recommendation-run", "--run-id", recID))
 
 	runCLI(t, awsCLI("glue", "list-data-quality-statistics"))
-	runCLI(t, awsCLI("glue", "get-data-quality-model", "--profile-id", "profile-1"))
-	runCLI(t, awsCLI("glue", "get-data-quality-model-result",
+
+	// A model is trained from a statistical history this simulator never
+	// collects, so no profile has one — and a profile nothing issued is not
+	// found rather than answered for.
+	modelErr := runCLIExpectError(t, awsCLI("glue", "get-data-quality-model", "--profile-id", "profile-1"))
+	assert.Contains(t, modelErr, "No data quality profile")
+	resultErr := runCLIExpectError(t, awsCLI("glue", "get-data-quality-model-result",
 		"--statistic-id", "stat-1", "--profile-id", "profile-1"))
+	assert.Contains(t, resultErr, "No data quality profile")
 }
 
 // TestGlueColumnStatisticsTaskCLI exercises the column-statistics task settings

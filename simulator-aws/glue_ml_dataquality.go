@@ -997,6 +997,42 @@ func handleGlueListDataQualityStatistics(w http.ResponseWriter, r *http.Request)
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Statistics": []any{}})
 }
 
+// A result is stored under its own id while the data-quality model operations
+// name the profile the evaluation wrote to, so the result is reachable from the
+// profile only through an index — a read of one row must not walk the store.
+var glueResultsByProfile sim.GenerationIndex[GlueDataQualityResult]
+
+// glueResultProfileKeys names a data-quality result by the profile it wrote.
+func glueResultProfileKeys(result GlueDataQualityResult) []string {
+	if result.ProfileId == "" {
+		return nil
+	}
+	return []string{result.ProfileId}
+}
+
+// glueResultForProfile finds the evaluation result that wrote a profile.
+func glueResultForProfile(profileID string) (GlueDataQualityResult, bool) {
+	if profileID == "" || glueDQResults == nil {
+		return GlueDataQualityResult{}, false
+	}
+	return glueResultsByProfile.Lookup(glueDQResults, profileID, glueResultProfileKeys)
+}
+
+// glueProfileMissing writes the error the service declares for a profile no
+// evaluation of this account wrote, and reports whether it wrote one.
+func glueProfileMissing(w http.ResponseWriter, profileID string) bool {
+	if profileID == "" {
+		glueWriteError(w, "InvalidInputException", "ProfileId is required")
+		return true
+	}
+	if _, ok := glueResultForProfile(profileID); !ok {
+		glueWriteError(w, "EntityNotFoundException",
+			"No data quality profile "+profileID+" exists.")
+		return true
+	}
+	return false
+}
+
 func handleGlueGetDataQualityModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		StatisticId string `json:"StatisticId"`
@@ -1006,14 +1042,15 @@ func handleGlueGetDataQualityModel(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	// No model is trained without real statistical history; report a terminal
-	// SUCCEEDED status with no failure reason — shaped, not fabricated.
-	now := glueEpochNow()
-	glueWriteJSON(w, http.StatusOK, map[string]any{
-		"Status":      "SUCCEEDED",
-		"StartedOn":   now,
-		"CompletedOn": now,
-	})
+	if glueProfileMissing(w, req.ProfileId) {
+		return
+	}
+	// A model is trained from the statistics an evaluation collects over time,
+	// and this simulator collects none, so no profile has one. Reporting
+	// SUCCEEDED would say a model was trained and is ready to be read, which
+	// the very next call disproves.
+	glueWriteError(w, "EntityNotFoundException",
+		"No data quality model has been trained for profile "+req.ProfileId+".")
 }
 
 func handleGlueGetDataQualityModelResult(w http.ResponseWriter, r *http.Request) {
@@ -1025,11 +1062,11 @@ func handleGlueGetDataQualityModelResult(w http.ResponseWriter, r *http.Request)
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	// No model results over empty statistical history.
-	glueWriteJSON(w, http.StatusOK, map[string]any{
-		"CompletedOn": glueEpochNow(),
-		"Model":       []any{},
-	})
+	if glueProfileMissing(w, req.ProfileId) {
+		return
+	}
+	glueWriteError(w, "EntityNotFoundException",
+		"No data quality model has been trained for profile "+req.ProfileId+".")
 }
 
 func handleGlueCreateColumnStatisticsTaskSettings(w http.ResponseWriter, r *http.Request) {
