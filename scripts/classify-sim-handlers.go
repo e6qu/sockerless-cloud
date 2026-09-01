@@ -183,9 +183,68 @@ func (p *pkg) resolveConsts(exprs map[string]ast.Expr, seed map[string][]string)
 }
 
 // classify walks every registration and reports the class of its handler.
+// localClosures collects the function values a body binds to a name —
+// `patchAutokey := func(…)`, `var load = func(…)`. A registrar's handler
+// commonly reaches state only through one of these siblings, and without them
+// the handler reads as answering with nothing behind it. They are collected per
+// enclosing function rather than per package: two files each declaring a `load`
+// mean different things, and resolving one against the other would report state
+// a handler never reaches.
+func localClosures(body *ast.BlockStmt) map[string]*ast.FuncLit {
+	found := map[string]*ast.FuncLit{}
+	if body == nil {
+		return found
+	}
+	bind := func(names []ast.Expr, values []ast.Expr) {
+		for i, name := range names {
+			if i >= len(values) {
+				break
+			}
+			ident, isIdent := name.(*ast.Ident)
+			lit, isLit := values[i].(*ast.FuncLit)
+			if isIdent && isLit {
+				found[ident.Name] = lit
+			}
+		}
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.AssignStmt:
+			bind(node.Lhs, node.Rhs)
+		case *ast.ValueSpec:
+			names := make([]ast.Expr, 0, len(node.Names))
+			for _, name := range node.Names {
+				names = append(names, name)
+			}
+			bind(names, node.Values)
+		}
+		return true
+	})
+	return found
+}
+
 func (p *pkg) classify() []string {
 	var rows []string
 	for _, file := range p.files {
+		// The closures visible where a registration sits. A registration
+		// outside any function sees none.
+		scope := map[*ast.CallExpr]map[string]*ast.FuncLit{}
+		for _, decl := range file.Decls {
+			fn, isFunc := decl.(*ast.FuncDecl)
+			if !isFunc || fn.Body == nil {
+				continue
+			}
+			closures := localClosures(fn.Body)
+			if len(closures) == 0 {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if call, isCall := n.(*ast.CallExpr); isCall {
+					scope[call] = closures
+				}
+				return true
+			})
+		}
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -197,7 +256,7 @@ func (p *pkg) classify() []string {
 			}
 			handler := call.Args[len(call.Args)-1]
 			position := p.fset.Position(call.Pos())
-			class := p.classifyHandler(handler)
+			class := p.classifyHandler(handler, scope[call])
 			name := handlerName(handler)
 			for _, route := range p.routes(call, file) {
 				rows = append(rows, fmt.Sprintf("%s:%d\t%s\t%s\t%s",
@@ -210,12 +269,16 @@ func (p *pkg) classify() []string {
 }
 
 // classifyHandler resolves a handler expression to a body and reports its class.
-func (p *pkg) classifyHandler(handler ast.Expr) string {
+func (p *pkg) classifyHandler(handler ast.Expr, closures map[string]*ast.FuncLit) string {
 	var body *ast.BlockStmt
 	switch h := handler.(type) {
 	case *ast.FuncLit:
 		body = h.Body
 	case *ast.Ident:
+		if lit, isClosure := closures[h.Name]; isClosure {
+			body = lit.Body
+			break
+		}
 		fn, ok := p.funcs[h.Name]
 		if !ok {
 			// A handler this package does not declare — a method value or an
@@ -227,7 +290,7 @@ func (p *pkg) classifyHandler(handler ast.Expr) string {
 		// A decorated handler: cloudTrailRecordedREST("CreateApp", …, handleX).
 		// The wrapper and the handler it wraps both run, so the registration is
 		// whatever the strongest of them is.
-		touches, notImplemented, known := p.classifyWrapped(h)
+		touches, notImplemented, known := p.classifyWrapped(h, closures)
 		switch {
 		case touches:
 			return "state"
@@ -241,7 +304,7 @@ func (p *pkg) classifyHandler(handler ast.Expr) string {
 	default:
 		return "unknown"
 	}
-	touches, notImplemented := p.walk(body, map[string]bool{}, 0)
+	touches, notImplemented := p.walk(body, closures, map[string]bool{}, 0)
 	switch {
 	case touches:
 		return "state"
@@ -415,31 +478,35 @@ func (p *pkg) enclosingFunc(target ast.Node, file *ast.File) *ast.FuncDecl {
 // classifyWrapped reads a decorated registration: the wrapper's own body plus
 // every argument that resolves to a handler this package declares. known is
 // false when neither could be read, so the row stays honest about that.
-func (p *pkg) classifyWrapped(call *ast.CallExpr) (touches, notImplemented, known bool) {
+func (p *pkg) classifyWrapped(call *ast.CallExpr, closures map[string]*ast.FuncLit) (touches, notImplemented, known bool) {
 	consider := func(body *ast.BlockStmt) {
 		if body == nil {
 			return
 		}
 		known = true
-		bodyTouches, bodyNotImplemented := p.walk(body, map[string]bool{}, 0)
+		bodyTouches, bodyNotImplemented := p.walk(body, closures, map[string]bool{}, 0)
 		touches = touches || bodyTouches
 		notImplemented = notImplemented || bodyNotImplemented
 	}
 	if ident, ok := call.Fun.(*ast.Ident); ok {
-		if fn, declared := p.funcs[ident.Name]; declared {
+		if lit, isClosure := closures[ident.Name]; isClosure {
+			consider(lit.Body)
+		} else if fn, declared := p.funcs[ident.Name]; declared {
 			consider(fn.Body)
 		}
 	}
 	for _, arg := range call.Args {
 		switch a := arg.(type) {
 		case *ast.Ident:
-			if fn, declared := p.funcs[a.Name]; declared {
+			if lit, isClosure := closures[a.Name]; isClosure {
+				consider(lit.Body)
+			} else if fn, declared := p.funcs[a.Name]; declared {
 				consider(fn.Body)
 			}
 		case *ast.FuncLit:
 			consider(a.Body)
 		case *ast.CallExpr:
-			innerTouches, innerNotImplemented, innerKnown := p.classifyWrapped(a)
+			innerTouches, innerNotImplemented, innerKnown := p.classifyWrapped(a, closures)
 			touches = touches || innerTouches
 			notImplemented = notImplemented || innerNotImplemented
 			known = known || innerKnown
@@ -449,10 +516,15 @@ func (p *pkg) classifyWrapped(call *ast.CallExpr) (touches, notImplemented, know
 }
 
 // walk reports whether a body reaches stored state, and whether it answers
-// NotImplemented, following calls to functions the package declares. The depth
-// bound keeps a cycle or a deep helper chain from running away; state reached
-// deeper than that reads as static, which understates rather than overstates.
-func (p *pkg) walk(body *ast.BlockStmt, seen map[string]bool, depth int) (touches, notImplemented bool) {
+// NotImplemented, following calls to functions the package declares and to the
+// closures its enclosing function binds. The depth bound keeps a cycle or a
+// deep helper chain from running away; state reached deeper than that reads as
+// static, which understates rather than overstates.
+//
+// One shape it still cannot follow is a closure held in a struct field —
+// `disks.setField(key, …)`, where the field was filled by a composite literal
+// elsewhere. Resolving those needs dataflow this deliberately does not do.
+func (p *pkg) walk(body *ast.BlockStmt, closures map[string]*ast.FuncLit, seen map[string]bool, depth int) (touches, notImplemented bool) {
 	if body == nil || depth > 6 {
 		return false, false
 	}
@@ -476,9 +548,17 @@ func (p *pkg) walk(body *ast.BlockStmt, seen map[string]bool, depth int) (touche
 			}
 		case *ast.CallExpr:
 			if ident, ok := node.Fun.(*ast.Ident); ok && !seen[ident.Name] {
-				if fn, declared := p.funcs[ident.Name]; declared {
+				// A sibling closure first: a name bound in the enclosing
+				// function shadows a package function of the same name, and it
+				// is the one the handler actually calls.
+				if lit, isClosure := closures[ident.Name]; isClosure {
 					seen[ident.Name] = true
-					innerTouches, innerNotImplemented := p.walk(fn.Body, seen, depth+1)
+					innerTouches, innerNotImplemented := p.walk(lit.Body, closures, seen, depth+1)
+					touches = touches || innerTouches
+					notImplemented = notImplemented || innerNotImplemented
+				} else if fn, declared := p.funcs[ident.Name]; declared {
+					seen[ident.Name] = true
+					innerTouches, innerNotImplemented := p.walk(fn.Body, closures, seen, depth+1)
 					touches = touches || innerTouches
 					notImplemented = notImplemented || innerNotImplemented
 				}

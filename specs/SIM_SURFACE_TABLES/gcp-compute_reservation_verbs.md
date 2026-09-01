@@ -6,7 +6,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 ## Status legend
 
-- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did. It does not follow that the answer is built from what it read: a handler that looks its parent up and then answers a fixed body reaches state and is marked ✓
 - ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
 - ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
@@ -17,21 +17,21 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}` | ○ `simulator-gcp/compute_reservation_verbs.go:103::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/performMaintenance` | ○ `simulator-gcp/compute_reservation_verbs.go:117::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}` | ✓ `simulator-gcp/compute_reservation_verbs.go:103::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/performMaintenance` | ✓ `simulator-gcp/compute_reservation_verbs.go:117::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/getIamPolicy` | ✓ `simulator-gcp/compute_reservation_verbs.go:134::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/setIamPolicy` | ✓ `simulator-gcp/compute_reservation_verbs.go:137::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/testIamPermissions` | ✓ `simulator-gcp/compute_reservation_verbs.go:140::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks` | ○ `simulator-gcp/compute_reservation_verbs.go:161::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}` | ○ `simulator-gcp/compute_reservation_verbs.go:188::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks` | ✓ `simulator-gcp/compute_reservation_verbs.go:161::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}` | ✓ `simulator-gcp/compute_reservation_verbs.go:188::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}/getIamPolicy` | ✓ `simulator-gcp/compute_reservation_verbs.go:208::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}/setIamPolicy` | ✓ `simulator-gcp/compute_reservation_verbs.go:211::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}/testIamPermissions` | ✓ `simulator-gcp/compute_reservation_verbs.go:214::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}/reservationSlots` | ○ `simulator-gcp/compute_reservation_verbs.go:245::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}/reservationSlots/{slot}` | ○ `simulator-gcp/compute_reservation_verbs.go:258::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}/reservationSlots` | ✓ `simulator-gcp/compute_reservation_verbs.go:245::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks/{block}/reservationSubBlocks/{subBlock}/reservationSlots/{slot}` | ✓ `simulator-gcp/compute_reservation_verbs.go:258::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/resize` | ✓ `simulator-gcp/compute_reservation_verbs.go:48::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/performMaintenance` | ✓ `simulator-gcp/compute_reservation_verbs.go:73::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks` | ○ `simulator-gcp/compute_reservation_verbs.go:90::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/reservations/{name}/reservationBlocks` | ✓ `simulator-gcp/compute_reservation_verbs.go:90::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

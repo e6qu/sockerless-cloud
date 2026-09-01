@@ -192,7 +192,7 @@ for table_name in "${tables[@]}"; do
     echo
     echo "## Status legend"
     echo
-    echo "- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did"
+    echo "- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did. It does not follow that the answer is built from what it read: a handler that looks its parent up and then answers a fixed body reaches state and is marked ✓"
     echo "- ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it"
     echo "- ? — the handler is not declared in this package, so the generator cannot say"
     echo "- ✗ — missing (paired with an open BUG or issue; never silent)"

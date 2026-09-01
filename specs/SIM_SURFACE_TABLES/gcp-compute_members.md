@@ -6,7 +6,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 ## Status legend
 
-- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did. It does not follow that the answer is built from what it read: a handler that looks its parent up and then answers a fixed body reaches state and is marked ✓
 - ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
 - ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
@@ -19,7 +19,7 @@ The extractor reads the route out of a single string literal, so a registration 
 |---|---|---|---|---|---|
 | `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/setBackup` | ✓ `simulator-gcp/compute_members.go:180::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/setSecurityPolicy` | ✓ `simulator-gcp/compute_members.go:200::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/getHealth` | ○ `simulator-gcp/compute_members.go:224::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/targetPools/{targetPool}/getHealth` | ✓ `simulator-gcp/compute_members.go:224::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/global/networks/{network}/addPeering` | ✓ `simulator-gcp/compute_members.go:284::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/global/networks/{network}/removePeering` | ✓ `simulator-gcp/compute_members.go:329::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /compute/v1/projects/{project}/global/networks/{network}/updatePeering` | ✓ `simulator-gcp/compute_members.go:352::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

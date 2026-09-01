@@ -59,9 +59,19 @@ Open: 7. Resolved: 84.
   so a caller that mistyped a run name was told the run had no repetitions
   rather than that it named no run.
 
-  Google Cloud's 140 are read as far as the Compute Engine disk and reservation
-  verbs, which are false positives: both mutate through a closure held in a
-  struct field, which is the marker's blind spot.
+  Reading Google Cloud's 140 found no defect and one reason: almost all of them
+  were the marker's own blind spot. A registrar binds sibling closures —
+  `patchAutokey := func(…)`, `load := func(…)` — and the handler reaches state
+  only through one of them, which the walker did not follow. It follows them
+  now, scoped to the enclosing function so two files' `load` cannot be resolved
+  against each other, and the marker fell from 341 registrations to 286: AWS 89,
+  Google Cloud 109, Azure 88. What is left of the shape is a closure held in a
+  struct field (`disks.setField(key, …)`), which needs dataflow the marker
+  deliberately does not do.
+
+  A ✓ still means only that the handler reaches state, never that its answer
+  was built from what it read — a handler that looks its parent up and then
+  answers a fixed body is marked ✓. The legend says so.
 
 - **BUG-2955 (a distributed map run does not finish on CI, and the test waits
   sixty seconds for it):** `TestSFNCLI_DistributedMapRun` failed on

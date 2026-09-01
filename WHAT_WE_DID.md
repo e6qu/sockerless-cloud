@@ -68,11 +68,16 @@ reservation it reported could never be read back. The offerings a read answers
 with and the offerings a purchase can be made against are one table now, a
 reservation carries that offering's terms, it is stored and readable, and an id
 no offering answers to is refused the way the service refuses one.
-`scripts/classify-sim-handlers.go` already marks every handler that answers
-without reaching state, and the surface tables carry the marker — 314 rows
-across the three clouds, most of them honest transcriptions of published facts
-or genuinely empty collections. Reading them is the work list; the marker
-narrows it but does not judge it.
+`scripts/classify-sim-handlers.go` marks the handlers that answer without
+reaching state, and the surface tables carry the marker. Reading Google Cloud's
+140 found no defect and one reason: almost all were the marker's own blind
+spot. A registrar binds sibling closures — `patchAutokey := func(…)`,
+`load := func(…)` — and the handler reaches state only through one of them,
+which the walker did not follow. It follows them now, scoped to the enclosing
+function so two files' `load` cannot be resolved against each other, and the
+marker fell from 341 registrations to 286. Reading them is the work list; the
+marker narrows it but does not judge it, and a ✓ means only that the handler
+reaches state, never that its answer was built from what it read.
 
 Reading AWS's found one more. `GetDataQualityModel` answered SUCCEEDED for any
 profile id, which says a model was trained and is ready to read — and the very

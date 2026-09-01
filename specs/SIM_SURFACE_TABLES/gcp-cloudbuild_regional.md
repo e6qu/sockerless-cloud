@@ -6,7 +6,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 ## Status legend
 
-- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did. It does not follow that the answer is built from what it read: a handler that looks its parent up and then answers a fixed body reaches state and is marked ✓
 - ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
 - ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
@@ -19,9 +19,9 @@ The extractor reads the route out of a single string literal, so a registration 
 |---|---|---|---|---|---|
 | `POST /v1/projects/{project}/locations/{location}/builds` | ✓ `simulator-gcp/cloudbuild_regional.go:165::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /v1/projects/{project}/triggers/{triggerAction}` | ✓ `simulator-gcp/cloudbuild_regional.go:184::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/webhook` | ? `simulator-gcp/cloudbuild_regional.go:198::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/githubDotComWebhook:receive` | ? `simulator-gcp/cloudbuild_regional.go:199::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/locations/{location}/regionalWebhook` | ? `simulator-gcp/cloudbuild_regional.go:200::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/webhook` | ○ `simulator-gcp/cloudbuild_regional.go:198::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/githubDotComWebhook:receive` | ○ `simulator-gcp/cloudbuild_regional.go:199::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/locations/{location}/regionalWebhook` | ○ `simulator-gcp/cloudbuild_regional.go:200::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{configAction}` | ✓ `simulator-gcp/cloudbuild_regional.go:202::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate` | ✓ `simulator-gcp/cloudbuild_regional.go:249::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 

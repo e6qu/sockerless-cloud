@@ -6,7 +6,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 ## Status legend
 
-- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did. It does not follow that the answer is built from what it read: a handler that looks its parent up and then answers a fixed body reaches state and is marked ✓
 - ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
 - ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
@@ -17,18 +17,18 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/targetHttpsProxies/{name}/setUrlMap` | ? `simulator-gcp/compute_lb_more_verbs.go:105::unscoped` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/targetHttpsProxies/{name}/setSslCertificates` | ? `simulator-gcp/compute_lb_more_verbs.go:107::unscoped` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PATCH /compute/v1/projects/{project}/global/forwardingRules/{name}` | ? `simulator-gcp/compute_lb_more_verbs.go:132::rule` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PATCH /compute/v1/projects/{project}/global/targetHttpProxies/{name}` | ? `simulator-gcp/compute_lb_more_verbs.go:134::httpProxy` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/backendServices/{name}/addSignedUrlKey` | ? `simulator-gcp/compute_lb_more_verbs.go:214::true` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/backendServices/{name}/deleteSignedUrlKey` | ? `simulator-gcp/compute_lb_more_verbs.go:216::false` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/targetHttpsProxies/{name}/setUrlMap` | ✓ `simulator-gcp/compute_lb_more_verbs.go:105::unscoped` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/targetHttpsProxies/{name}/setSslCertificates` | ✓ `simulator-gcp/compute_lb_more_verbs.go:107::unscoped` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/global/forwardingRules/{name}` | ✓ `simulator-gcp/compute_lb_more_verbs.go:132::rule` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /compute/v1/projects/{project}/global/targetHttpProxies/{name}` | ✓ `simulator-gcp/compute_lb_more_verbs.go:134::httpProxy` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/backendServices/{name}/addSignedUrlKey` | ✓ `simulator-gcp/compute_lb_more_verbs.go:214::true` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/backendServices/{name}/deleteSignedUrlKey` | ✓ `simulator-gcp/compute_lb_more_verbs.go:216::false` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/global/backendServices/{name}/getEffectiveSecurityPolicies` | ✓ `simulator-gcp/compute_lb_more_verbs.go:224::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/backendServices/{name}/setSecurityPolicy` | ? `simulator-gcp/compute_lb_more_verbs.go:63::backend` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/backendServices/{name}/setEdgeSecurityPolicy` | ? `simulator-gcp/compute_lb_more_verbs.go:65::backend` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/forwardingRules/{name}/setTarget` | ? `simulator-gcp/compute_lb_more_verbs.go:69::rule` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/forwardingRules/{name}/setLabels` | ? `simulator-gcp/compute_lb_more_verbs.go:71::rule` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/targetHttpProxies/{name}/setUrlMap` | ? `simulator-gcp/compute_lb_more_verbs.go:77::httpProxy` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/backendServices/{name}/setSecurityPolicy` | ✓ `simulator-gcp/compute_lb_more_verbs.go:63::backend` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/backendServices/{name}/setEdgeSecurityPolicy` | ✓ `simulator-gcp/compute_lb_more_verbs.go:65::backend` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/forwardingRules/{name}/setTarget` | ✓ `simulator-gcp/compute_lb_more_verbs.go:69::rule` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/forwardingRules/{name}/setLabels` | ✓ `simulator-gcp/compute_lb_more_verbs.go:71::rule` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/targetHttpProxies/{name}/setUrlMap` | ✓ `simulator-gcp/compute_lb_more_verbs.go:77::httpProxy` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -6,7 +6,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 ## Status legend
 
-- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did. It does not follow that the answer is built from what it read: a handler that looks its parent up and then answers a fixed body reaches state and is marked ✓
 - ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
 - ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
@@ -17,12 +17,12 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/updateKmsKey` | ○ `simulator-gcp/compute_disk_verbs.go:208::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/updateKmsKey` | ○ `simulator-gcp/compute_disk_verbs.go:208::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/startAsyncReplication` | ○ `simulator-gcp/compute_disk_verbs.go:229::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/startAsyncReplication` | ○ `simulator-gcp/compute_disk_verbs.go:229::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/stopAsyncReplication` | ○ `simulator-gcp/compute_disk_verbs.go:253::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/stopAsyncReplication` | ○ `simulator-gcp/compute_disk_verbs.go:253::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/updateKmsKey` | ✓ `simulator-gcp/compute_disk_verbs.go:208::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/updateKmsKey` | ✓ `simulator-gcp/compute_disk_verbs.go:208::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/startAsyncReplication` | ✓ `simulator-gcp/compute_disk_verbs.go:229::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/startAsyncReplication` | ✓ `simulator-gcp/compute_disk_verbs.go:229::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/stopAsyncReplication` | ✓ `simulator-gcp/compute_disk_verbs.go:253::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/stopAsyncReplication` | ✓ `simulator-gcp/compute_disk_verbs.go:253::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/regions/{region}/disks/{name}/createSnapshot` | ✓ `simulator-gcp/compute_disk_verbs.go:269::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/createSnapshot` | ✓ `simulator-gcp/compute_disk_verbs.go:269::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/regions/{region}/disks/stopGroupAsyncReplication` | ✓ `simulator-gcp/compute_disk_verbs.go:305::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
