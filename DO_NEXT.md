@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,976 of 1,994 on 2026-09-01.
+   is not.** 1,977 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 18 that remain are three shapes, and none of them is ordinary work.
+   The 17 that remain are three shapes, and none of them is ordinary work.
    Every other AWS service derives every operation it declares a type for.
 
    - **A resource the request does not name at all** (7). CloudWatch's
@@ -120,14 +120,12 @@
      class needs per-action review, which is what
      `iamCreatesItsOnlyDeclaredType` is.
 
-   - **A resource the simulator has no primitive for** (4). AWS Glue's
+   - **A resource the simulator has no primitive for** (3). AWS Glue's
      `GetDataQualityModel`, `GetDataQualityModelResult` and
      `PutDataQualityProfileAnnotation` name a profile, and the ruleset behind
      it is what they authorize against — but this simulator trains no models
-     and keeps no profile record. AWS Systems Manager's access-request record
-     likewise keeps no targets, so `ssm:GetAccessToken` cannot reach the
-     machine it was issued for. These want the resource modelled first, which
-     is a question about those slices rather than about IAM.
+     and keeps no profile record. These want the profile modelled first, which is a
+     question about the Glue slice rather than about IAM.
 
    - **A resource only the caller or a parser knows** (4). `iam:ChangePassword`
      authorizes against the calling user: the signature knows it and the

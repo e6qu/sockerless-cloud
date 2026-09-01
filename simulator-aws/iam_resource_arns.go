@@ -2390,8 +2390,11 @@ func iamSSMTaggedResourceARNs(fields map[string][]string, region, account string
 // TestIAMSSMFieldAliasesAreRealRequestMembers holds every entry to a member the
 // vendored model declares on an operation authorizing against that type.
 var iamSSMFieldAliases = map[string][]string{
-	"maintenancewindow.ResourceId":               {"WindowId"},
-	"opsitem.ResourceId":                         {"OpsItemId", "OpsItemArn"},
+	"maintenancewindow.ResourceId": {"WindowId"},
+	// A just-in-time access request is tracked as an OpsItem, which is why the
+	// simulator mints its id with the OpsItem prefix and why reading its token
+	// authorizes against that item.
+	"opsitem.ResourceId":                         {"OpsItemId", "OpsItemArn", "AccessRequestId"},
 	"opsmetadata.ResourceId":                     {"OpsMetadataArn"},
 	"servicesetting.ResourceId":                  {"SettingId"},
 	"patchbaseline.PatchBaselineIdResourceId":    {"BaselineId"},
