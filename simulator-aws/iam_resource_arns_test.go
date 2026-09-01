@@ -2390,3 +2390,30 @@ func TestIAMResourceARNs_APasswordChangeNamesItsCaller(t *testing.T) {
 	// deriving a user from an unknown key would authorize whoever was guessed.
 	assertDerivedARNs(t, signed("AKIAUNKNOWN000000000"), "iam:ChangePassword", "*")
 }
+
+// A record pointer says which log group the record is in, and a policy create
+// knows every part of its ARN but the id the service has not assigned yet.
+func TestIAMResourceARNs_APointerAndACreateNameWhatTheyKnow(t *testing.T) {
+	t.Run("a record pointer names its group", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.GetLogRecord",
+				`{"logRecordPointer":"orders|orders-1|3"}`),
+			"logs:GetLogRecord", "arn:aws:logs:us-east-1:123456789012:log-group:orders")
+	})
+
+	t.Run("a pointer of another shape names no group", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.GetLogRecord", `{"logRecordPointer":"opaque"}`),
+			"logs:GetLogRecord", "*")
+	})
+
+	t.Run("a policy create wildcards only the id it does not have", func(t *testing.T) {
+		// The organization and the policy type are known, so wildcarding them
+		// too would authorize policies of every type in every organization.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSOrganizationsV20161128.CreatePolicy",
+				`{"Name":"deny-root","Type":"SERVICE_CONTROL_POLICY","Content":"{}"}`),
+			"organizations:CreatePolicy",
+			"arn:aws:organizations::123456789012:policy/o-sim0000000/service_control_policy/p-*")
+	})
+}

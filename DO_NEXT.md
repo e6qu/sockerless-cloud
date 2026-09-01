@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,979 of 1,994 on 2026-09-01.
+   is not.** 1,981 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 15 that remain are three shapes, and none of them is ordinary work.
+   The 13 that remain are two shapes, and none of them is ordinary work.
    Every other AWS service derives every operation it declares a type for.
 
    - **A resource the request does not name at all** (7). CloudWatch's
@@ -126,11 +126,6 @@
      it is what they authorize against — but this simulator trains no models
      and keeps no profile record. These want the profile modelled first, which is a
      question about the Glue slice rather than about IAM.
-
-   - **A resource that is opaque or spread across identifiers** (2). `logs:GetLogRecord` carries an opaque pointer;
-     `organizations:CreatePolicy` mints a policy whose ARN carries the
-     organization id, the policy type and a service-assigned id, which is three
-     identifiers where the create rule fills one.
 
    The measurement seam that carried most of this is closed for the readers
    that existed: `iamSeedDerivationFixtures` creates what a family resolves

@@ -117,7 +117,7 @@ func iamServiceResourceARNs(r *http.Request, service, op string, types []string,
 	case "elasticloadbalancing":
 		return iamELBv2ResourceARNs(r, types, region, account)
 	case "organizations":
-		return iamOrganizationsResourceARNs(r, types)
+		return iamOrganizationsResourceARNs(r, op, types)
 	case "budgets":
 		return iamBudgetsResourceARNs(r, types, account)
 	case "rds":
@@ -414,7 +414,19 @@ func iamHasType(types []string, resourceType string) bool {
 // alone and are built from it, which also covers a request naming a resource
 // that does not exist: AWS authorizes such a call and then reports it missing,
 // rather than refusing it as unauthorized.
-func iamOrganizationsResourceARNs(r *http.Request, types []string) []string {
+func iamOrganizationsResourceARNs(r *http.Request, op string, types []string) []string {
+	// Creating a policy mints an id the service assigns, so the ARN's last
+	// identifier is the wildcard AWS evaluates against — but the two before it
+	// are known: the organization is the one this account is in, and the policy
+	// type is in the request. Filling those and wildcarding only what does not
+	// exist yet is narrower than the "*" it replaces, and narrower than
+	// wildcarding the organization would be.
+	if op == "CreatePolicy" && iamHasType(types, "policy") {
+		if typ := iamFirstJSONField(r, "Type"); typ != "" {
+			return []string{orgPolicyArn("p-*", typ, false)}
+		}
+	}
+
 	var out []string
 	seen := map[string]struct{}{}
 	add := func(arn string) {
@@ -2728,6 +2740,17 @@ var iamKMSFieldAliases = map[string][]string{
 // stream-scoped actions and a policy written "<group-arn>:*" covers those but
 // not the group-scoped reads. The gate requests whichever type AWS declares.
 func iamLogsResourceARNs(r *http.Request, types []string, arn func(svc, resource string) string) []string {
+	// A log record is fetched by a pointer the service issued, and that pointer
+	// says which group the record is in: it is "group|stream|index", which is
+	// how the read itself resolves the record. A pointer of any other shape
+	// names no group.
+	if iamHasType(types, "log-group") {
+		if pointer := iamJSONBodyField(r, "logRecordPointer"); pointer != "" {
+			if group, _, split := strings.Cut(pointer, "|"); split && group != "" {
+				return []string{arn("logs", "log-group:"+group)}
+			}
+		}
+	}
 	// Reading a query's results names the query and nothing else, and the log
 	// groups it ran over are what the read authorizes against — the query
 	// record holds them, under the id the request carries, so the store
