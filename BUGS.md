@@ -1,8 +1,30 @@
 # BUGS
 
-Open: 7. Resolved: 84.
+Open: 8. Resolved: 84.
 
 ## Open
+
+- **BUG-2961 (a Cloud Build cancel test fails only inside the full suite, and
+  only sometimes):** `TestSDK_CloudBuild_CancelStopsARunningBuild` failed once
+  in a full local `simulator-gcp/sdk-tests` run on 2026-09-01, taking 30.27s;
+  the same binary passed it in 0.27s run alone, in 0.27s run with the rest of
+  its file, and passed the whole suite again on the next run at 120.7s. Nothing
+  in that pass touched Cloud Build.
+
+  What the timing says: the test's own waits are 120s each, so 30s is not one
+  of them expiring — an assertion failed, or a call errored, roughly thirty
+  seconds in. The test drives a real `docker build` of
+  `FROM alpine:latest / RUN sleep 3600` and waits for the build and then its
+  first step to report WORKING, so the thirty seconds is most likely spent in
+  the engine: a pull, or a build starved of I/O while the rest of the suite
+  runs its own containers.
+
+  It has not been reproduced, so the cause is not known and the failing output
+  was not captured — the grep that found it kept only the summary line. Next
+  step is to run the full suite with `-v` until it recurs and keep the whole
+  failure, rather than guess from the shape. Do not paper over it with a
+  retry: the suite runs real containers deliberately, and a cancel that cannot
+  be trusted under load is the thing the test exists to catch.
 
 - **BUG-2960 (a query-protocol answer can invent the row it hands back, and
   the surface tables can already point at every candidate):**
