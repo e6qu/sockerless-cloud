@@ -197,13 +197,19 @@ func handleECRCreatePullThroughCacheRule(w http.ResponseWriter, r *http.Request)
 	}
 	ecrPullThroughCacheRules.Put(req.EcrRepositoryPrefix, rule)
 
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
+	// upstreamRegistry names which upstream this rule caches, from a closed
+	// set — a rule created without one is answered without it rather than with
+	// an empty string the enum does not declare.
+	created := map[string]any{
 		"ecrRepositoryPrefix": rule.EcrRepositoryPrefix,
 		"upstreamRegistryUrl": rule.UpstreamRegistryUrl,
-		"upstreamRegistry":    rule.UpstreamRegistry,
 		"registryId":          rule.RegistryId,
 		"createdAt":           rule.CreatedAt,
-	})
+	}
+	if rule.UpstreamRegistry != "" {
+		created["upstreamRegistry"] = rule.UpstreamRegistry
+	}
+	sim.WriteJSON(w, http.StatusOK, created)
 }
 
 // handleECRDescribePullThroughCacheRules returns rules matching the

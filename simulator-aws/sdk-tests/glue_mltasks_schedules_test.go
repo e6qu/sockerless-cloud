@@ -335,15 +335,30 @@ func TestGlue_ConnectionTypeRegistry_SDK(t *testing.T) {
 	require.NotNil(t, desc.Capabilities)
 	assert.NotEmpty(t, desc.Capabilities.SupportedAuthenticationTypes)
 
-	listCT, err := c.ListConnectionTypes(ctx, &glue.ListConnectionTypesInput{})
-	require.NoError(t, err)
-	foundCT := false
-	for _, b := range listCT.ConnectionTypes {
-		if string(b.ConnectionType) == ctName {
-			foundCT = true
+	// ListConnectionTypes is the catalogue of connection types Glue supports,
+	// and its brief types the name as the ConnectionType enum — a registered
+	// custom connector takes a free-form name and cannot appear in a field
+	// that cannot hold it. So the listing carries the published types, and not
+	// the one registered above.
+	// The catalogue is longer than a page, so it is read the way a client reads
+	// it: following the token until there is none.
+	published := map[string]bool{}
+	var pageToken *string
+	for {
+		listCT, err := c.ListConnectionTypes(ctx, &glue.ListConnectionTypesInput{NextToken: pageToken})
+		require.NoError(t, err)
+		require.NotEmpty(t, listCT.ConnectionTypes)
+		for _, b := range listCT.ConnectionTypes {
+			published[string(b.ConnectionType)] = true
 		}
+		if listCT.NextToken == nil || *listCT.NextToken == "" {
+			break
+		}
+		pageToken = listCT.NextToken
 	}
-	assert.True(t, foundCT)
+	assert.True(t, published["SALESFORCE"], "the catalogue lists the types Glue supports")
+	assert.True(t, published["JDBC"])
+	assert.False(t, published[ctName], "a registered custom connector is not one of them")
 
 	// TestConnection against a stored connection.
 	const conn = "glue-sdk-conntype-conn"

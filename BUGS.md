@@ -136,6 +136,17 @@ Open: 8. Resolved: 84.
   describe, and two API Management contracts that could be stored without what
   they require — a schema with no document and a subscription with no scope.
 
+  A third dimension followed: a value outside the set an enum declares. AWS's
+  validator gained an `enum-mismatch` kind and it found seven — a Systems
+  Manager inventory type spelled `STRING` for `string`, a CodeBuild batch
+  ending on a `COMPLETED` phase a batch does not have, a webhook status of
+  `NORMAL`, three optional enum members sent as `""` where the absence is the
+  answer, and AWS Glue listing caller-registered connectors in the catalogue of
+  the types Glue supports. Azure's enums are mostly `x-ms-enum` with
+  `modelAsString: true`, which explicitly permits values outside the list, so
+  the check was not added there — 27 closed against 95 open in a 40-document
+  sample.
+
   Google Cloud has no equivalent of that check and should not grow one: a
   Discovery document expresses required-ness only for requests. Its
   `annotations.required` is a list of the method ids a property is required

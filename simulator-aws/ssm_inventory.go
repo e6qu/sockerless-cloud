@@ -389,9 +389,12 @@ func ssmInventoryAttributes(typeName string) []map[string]any {
 	sort.Strings(names)
 	out := make([]map[string]any, 0, len(names))
 	for _, n := range names {
+		// InventoryAttributeDataType spells its members lowercase — "string"
+		// and "number" — and an attribute whose type is not one of them is a
+		// type the service does not have.
 		out = append(out, map[string]any{
 			"Name":     n,
-			"DataType": "STRING",
+			"DataType": "string",
 		})
 	}
 	return out

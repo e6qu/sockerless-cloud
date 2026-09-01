@@ -584,7 +584,6 @@ func handleGlueCreateDevEndpoint(w http.ResponseWriter, r *http.Request) {
 		"SubnetId":              de.SubnetId,
 		"RoleArn":               de.RoleArn,
 		"NumberOfNodes":         de.NumberOfNodes,
-		"WorkerType":            de.WorkerType,
 		"GlueVersion":           de.GlueVersion,
 		"ExtraPythonLibsS3Path": de.ExtraPythonLibsS3Path,
 		"ExtraJarsS3Path":       de.ExtraJarsS3Path,
@@ -594,6 +593,12 @@ func handleGlueCreateDevEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	if de.NumberOfWorkers != nil {
 		resp["NumberOfWorkers"] = *de.NumberOfWorkers
+	}
+	// WorkerType is one of a closed set, and an endpoint created without one —
+	// the NumberOfNodes form rather than the worker form — has none. Sending
+	// "" put a value in the field that the type does not have.
+	if de.WorkerType != "" {
+		resp["WorkerType"] = de.WorkerType
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }

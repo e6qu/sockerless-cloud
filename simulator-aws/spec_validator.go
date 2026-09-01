@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -556,6 +557,15 @@ func validateSmithyValue(idx *smithyModelIndex, op, shapeID, path string, v any,
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "pattern-mismatch", Field: path,
 				Detail: fmt.Sprintf("spec %s requires %s, response has %q", shapeID, re.String(), s)})
 		}
+		// An enum names every value the service uses. A response outside that
+		// set is a value the service does not have — a status nobody defined,
+		// a state invented to fill the field — and the type check above cannot
+		// see it, because an invented value is still a string.
+		if shape.Type == "enum" && len(shape.Members) > 0 && !smithyEnumAllows(shape, s) {
+			*out = append(*out, sim.SpecViolation{Op: op, Kind: "enum-mismatch", Field: path,
+				Detail: fmt.Sprintf("spec %s declares %s, response has %q",
+					shapeID, strings.Join(smithyEnumValues(shape), "|"), s)})
+		}
 	case "boolean":
 		if _, ok := v.(bool); !ok {
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "type-mismatch", Field: path, Detail: fmt.Sprintf("spec %s is a boolean, response has %T", shapeID, v)})
@@ -606,6 +616,34 @@ func (idx *smithyModelIndex) pattern(shapeID string, shape smithyShapeDef) *rege
 }
 
 // validateSmithyPrimitive covers smithy.api# prelude targets.
+// smithyEnumValues lists the wire values an enum shape declares, in the order
+// the model writes them.
+func smithyEnumValues(shape smithyShapeDef) []string {
+	values := make([]string, 0, len(shape.Members))
+	for name, ref := range shape.Members {
+		value := name
+		if raw, ok := ref.Traits["smithy.api#enumValue"]; ok {
+			var declared string
+			if json.Unmarshal(raw, &declared) == nil && declared != "" {
+				value = declared
+			}
+		}
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
+}
+
+// smithyEnumAllows reports whether an enum shape declares a wire value.
+func smithyEnumAllows(shape smithyShapeDef, s string) bool {
+	for _, value := range smithyEnumValues(shape) {
+		if value == s {
+			return true
+		}
+	}
+	return false
+}
+
 func validateSmithyPrimitive(op, shapeID, path string, v any, out *[]sim.SpecViolation) {
 	short := shapeID
 	if i := strings.Index(shapeID, "#"); i >= 0 {

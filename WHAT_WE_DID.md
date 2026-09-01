@@ -187,6 +187,30 @@ read it, rather than the describe answering without a member a client reads.
 And AWS Glue's session endpoint omitted its `AuthToken`, one of three required
 members of the endpoint it describes; it issues the session's own.
 
+The AWS validator also learned to read an enum. A response value outside the
+set an enum shape declares is a value the service does not have — a status
+nobody defined, a state invented to fill a field — and the type check cannot
+see it, because an invented value is still a string. Six across the suites:
+
+AWS Systems Manager reported an inventory attribute's type as `STRING` where
+the enum spells it `string`. A CodeBuild build batch ended on a phase typed
+`COMPLETED`, which is a Build's terminal phase and not a batch's — a batch ends
+on the outcome, `SUCCEEDED`, `FAILED` or `STOPPED`. A CodeBuild webhook was
+`NORMAL`, which is not one of `ACTIVE`, `CREATING`, `CREATE_FAILED`,
+`DELETING`. And three optional enum-typed members were sent as the empty string
+when nothing set them — a budget notification's threshold type and state, a
+pull-through cache rule's upstream registry, a dev endpoint's worker type —
+where the absence is the answer.
+
+The seventh was AWS Glue's `ListConnectionTypes`, which listed the connection
+types a caller had registered. That listing is the catalogue Glue supports and
+its brief types the name as the ConnectionType enum, so a registered custom
+connector — which takes a free-form name and describes back as one — cannot
+appear in it. The catalogue is now the 92 names the vendored model declares, a
+transcription like the Lambda runtime images; the rest of a brief is AWS's own
+copy, which this simulator does not have and does not invent, and every one of
+those members is optional.
+
 Azure's validator learned the same check, and it found seven more of the same
 kind — all of them a response leaving out something the simulator holds. The
 Azure Container Registry tag listing omitted the registry and, on every tag,

@@ -280,7 +280,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action AWSGlue.ResetJobBookmark` | ✓ `simulator-aws/glue_mltasks_schedules.go:131::handleGlueResetJobBookmark` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.RegisterConnectionType` | ✓ `simulator-aws/glue_mltasks_schedules.go:133::handleGlueRegisterConnectionType` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.DescribeConnectionType` | ✓ `simulator-aws/glue_mltasks_schedules.go:134::handleGlueDescribeConnectionType` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSGlue.ListConnectionTypes` | ✓ `simulator-aws/glue_mltasks_schedules.go:135::handleGlueListConnectionTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSGlue.ListConnectionTypes` | ○ `simulator-aws/glue_mltasks_schedules.go:135::handleGlueListConnectionTypes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.DeleteConnectionType` | ✓ `simulator-aws/glue_mltasks_schedules.go:136::handleGlueDeleteConnectionType` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.TestConnection` | ✓ `simulator-aws/glue_mltasks_schedules.go:137::handleGlueTestConnection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSGlue.StartMLEvaluationTaskRun` | ✓ `simulator-aws/glue_mltasks_schedules.go:99::glueStartMLTaskRunHandler` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
