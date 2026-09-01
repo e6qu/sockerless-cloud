@@ -1216,6 +1216,22 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			sort.Strings(out)
 			return out
 		}
+	case "ModifyInstanceCreditSpecification":
+		// The machines are named inside a specification entry rather than in a
+		// member of their own — "InstanceCreditSpecification.1.InstanceId" —
+		// which the flat-parameter reader drops, its contract being members and
+		// not paths. Reading the raw form for this one operation keeps that
+		// contract intact: loosening the shared reader would make a filter's
+		// members readable too, and a request would derive from what it was
+		// searching on rather than what it was about.
+		var out []string
+		for _, instance := range iamEC2NestedMembers(r, "InstanceCreditSpecification", "InstanceId") {
+			out = append(out, "arn:aws:ec2:"+region+":"+account+":instance/"+instance)
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
 	case "AcceptAddressTransfer":
 		// The transfer is accepted by naming the address itself, and the
 		// elastic IP that address belongs to is what the call authorizes
@@ -3144,4 +3160,29 @@ func iamEC2ElasticIPAddressKeys(address EC2ElasticIP) []string {
 		return nil
 	}
 	return []string{address.PublicIp}
+}
+
+// iamEC2NestedMembers reads one member out of every entry of a named list in a
+// query request: "<list>.<index>.<member>", which is how Amazon EC2 spells a
+// list of structures.
+func iamEC2NestedMembers(r *http.Request, list, member string) []string {
+	_ = r.ParseForm()
+	var out []string
+	seen := map[string]struct{}{}
+	for key, values := range r.Form {
+		if len(values) == 0 || values[0] == "" {
+			continue
+		}
+		index, rest, found := strings.Cut(strings.TrimPrefix(key, list+"."), ".")
+		if !found || index == "" || rest != member {
+			continue
+		}
+		if _, dup := seen[values[0]]; dup {
+			continue
+		}
+		seen[values[0]] = struct{}{}
+		out = append(out, values[0])
+	}
+	sort.Strings(out)
+	return out
 }

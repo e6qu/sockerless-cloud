@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,972 of 1,994 on 2026-09-01.
+   is not.** 1,973 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 22 that remain are four shapes, and none of them is ordinary work:
+   The 21 that remain are four shapes, and none of them is ordinary work:
 
    - **A resource the request does not name at all.** `cloudwatch:ListMetrics`,
      `PutMetricData`, `GetMetricData` and `ListAlarmMuteRules` declare a
@@ -130,13 +130,13 @@
      the resource modelled before the derivation can find anything, which is a
      question about those slices rather than about IAM.
 
-   - **A resource named inside a nested member.** `ec2:ModifyInstanceCreditSpecification`
-     names its instances at `InstanceCreditSpecification.1.InstanceId`, and
+   - **A resource named inside a nested member.**
      `ssm:StartAccessRequest` names its machines as the `Values` of a target
-     whose `Key` says what they are. Both need the pairing that flattening
-     loses, so both want a targeted read over the raw request — the shape
-     Elastic Load Balancing's rule ARNs and AWS Auto Scaling's tags already
-     use, confined to the operation rather than loosening the shared reader.
+     whose `Key` says what they are, and needs the pairing that flattening
+     loses. It wants a targeted read over the raw request — the shape Elastic
+     Load Balancing's rule ARNs, AWS Auto Scaling's tags and Amazon EC2's
+     credit specification already use, confined to the operation rather than
+     loosening the shared reader.
      Loosening it is a trap: Amazon EC2's filters are nested the same way,
      `Filter.1.Name` would read as a member called Name, and a request would
      derive from what it was searching on rather than what it was about.

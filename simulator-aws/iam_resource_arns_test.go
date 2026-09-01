@@ -2276,3 +2276,37 @@ func TestIAMResourceARNs_AGenericKindMustBeADeclaredOne(t *testing.T) {
 			"glue:GetDashboardUrl", "*")
 	})
 }
+
+// A machine named inside a specification entry is still the machine the call
+// is about, and reading it must not make a filter's members readable too.
+func TestIAMResourceARNs_ACreditChangeNamesItsInstances(t *testing.T) {
+	const p = "arn:aws:ec2:us-east-1:123456789012:instance/"
+
+	t.Run("every machine in the request is authorized", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("ModifyInstanceCreditSpecification", map[string]string{
+				"InstanceCreditSpecification.1.InstanceId": "i-0111",
+				"InstanceCreditSpecification.1.CpuCredits": "standard",
+				"InstanceCreditSpecification.2.InstanceId": "i-0222",
+			}),
+			"ec2:ModifyInstanceCreditSpecification", p+"i-0111", p+"i-0222")
+	})
+
+	t.Run("a request naming no machine derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("ModifyInstanceCreditSpecification", map[string]string{
+				"InstanceCreditSpecification.1.CpuCredits": "unlimited",
+			}),
+			"ec2:ModifyInstanceCreditSpecification", "*")
+	})
+
+	t.Run("a filter is still not a resource", func(t *testing.T) {
+		// The guard the whole nested read is written around: a search names
+		// what it is searching on, not what the call is about.
+		assertDerivedARNs(t,
+			iamEC2Request("DescribeVolumes", map[string]string{
+				"Filter.1.Name": "status", "Filter.1.Value.1": "available",
+			}),
+			"ec2:DescribeVolumes", "*")
+	})
+}

@@ -546,6 +546,12 @@ func iamEC2DerivesItsResource(operation string, params map[string]bool, fixtures
 			values[name] = created
 			continue
 		}
+		if name == "InstanceCreditSpecification" {
+			// A list of structures, which the query protocol spells out and a
+			// flat member cannot express.
+			values[name+".1.InstanceId"] = "i-0123456789abcdef0"
+			continue
+		}
 		values[name] = iamProbeMemberValue("ec2", name, iamProbeARN("ec2", operation,
 			"arn:aws:ec2:us-east-1:"+iamProbeAccount+":instance/i-0123456789abcdef0"))
 	}
@@ -1805,7 +1811,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1972
+const iamDerivationCoverageFloor = 1973
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
