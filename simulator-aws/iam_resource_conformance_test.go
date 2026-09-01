@@ -1194,7 +1194,13 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	// A Systems Manager instance identifier is an Amazon EC2 instance id or a
 	// managed-instance id, and the prefix is what tells the two apart — a
 	// placeholder names neither.
-	if service == "ssm" && (lower == "instanceid" || lower == "instanceids" || lower == "target") {
+	if service == "ssm" && lower == "key" {
+		// A target's key says what its values select, and a machine is what a
+		// just-in-time access request selects.
+		return "InstanceIds"
+	}
+	if service == "ssm" && (lower == "instanceid" || lower == "instanceids" ||
+		lower == "target" || lower == "values") {
 		return "i-0123456789abcdef0"
 	}
 	if service == "glue" && lower == "resourcetype" {

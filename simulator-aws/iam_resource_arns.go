@@ -2259,6 +2259,19 @@ func iamSSMResourceARNs(r *http.Request, types []string, region, account string)
 			return arns
 		}
 	}
+	// A just-in-time access request names its machines as the values of a
+	// target whose key says what they are, and the key is the half that makes
+	// them readable: a target keyed on a tag names a tag, not a machine.
+	// Flattening the request loses that pairing, so the body is read for this
+	// one operation.
+	if iamHasType(types, "instance") || iamHasType(types, "managed-instance") {
+		if machines := iamSSMTargetedInstances(r); len(machines) > 0 {
+			if arns := iamSSMInstanceARNs(
+				map[string][]string{"instanceids": machines}, region, account); len(arns) > 0 {
+				return arns
+			}
+		}
+	}
 	// Reading the default patch baseline names the operating system, and the
 	// baseline that default resolves to is what the read authorizes against —
 	// the same resolution the read itself performs, so the two cannot disagree.
@@ -3182,6 +3195,39 @@ func iamEC2NestedMembers(r *http.Request, list, member string) []string {
 		}
 		seen[values[0]] = struct{}{}
 		out = append(out, values[0])
+	}
+	sort.Strings(out)
+	return out
+}
+
+// iamSSMTargetedInstances reads the machines a request's targets name. AWS
+// Systems Manager spells a target as a key and the values it selects, and only
+// a target keyed on the instance id names machines.
+func iamSSMTargetedInstances(r *http.Request) []string {
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var request struct {
+		Targets []struct {
+			Key    string   `json:"Key"`
+			Values []string `json:"Values"`
+		} `json:"Targets"`
+	}
+	if json.Unmarshal(body, &request) != nil {
+		return nil
+	}
+	var out []string
+	for _, target := range request.Targets {
+		if !strings.EqualFold(target.Key, "InstanceIds") &&
+			!strings.EqualFold(target.Key, "InstanceId") {
+			continue
+		}
+		for _, value := range target.Values {
+			if value != "" {
+				out = append(out, value)
+			}
+		}
 	}
 	sort.Strings(out)
 	return out

@@ -130,13 +130,17 @@
      the resource modelled before the derivation can find anything, which is a
      question about those slices rather than about IAM.
 
-   - **A resource named inside a nested member.**
-     `ssm:StartAccessRequest` names its machines as the `Values` of a target
-     whose `Key` says what they are, and needs the pairing that flattening
-     loses. It wants a targeted read over the raw request — the shape Elastic
-     Load Balancing's rule ARNs, AWS Auto Scaling's tags and Amazon EC2's
-     credit specification already use, confined to the operation rather than
-     loosening the shared reader.
+   - **A resource named inside a nested member.** `ssm:StartAccessRequest`
+     names its machines as the `Values` of a target whose `Key` says what they
+     are, and that reader is written — a target keyed on a tag names no
+     machine, which is the half that makes it safe. What is missing is the
+     probe: the shared renderer fills a structure's inner members with scalars,
+     so a `Values` that a client sends as an array arrives as a string and the
+     reader rightly refuses it. Teaching the renderer inner kinds means
+     `loadRequestShapes` returning a kind per inner member rather than a name,
+     which is a signature change across its callers. Until then the behaviour
+     is held by `TestIAMResourceARNs_AnAccessRequestNamesTheMachinesItsTargetSelects`
+     and the ratchet understates it by one.
      Loosening it is a trap: Amazon EC2's filters are nested the same way,
      `Filter.1.Name` would read as a member called Name, and a request would
      derive from what it was searching on rather than what it was about.

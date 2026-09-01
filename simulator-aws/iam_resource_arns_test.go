@@ -2310,3 +2310,25 @@ func TestIAMResourceARNs_ACreditChangeNamesItsInstances(t *testing.T) {
 			"ec2:DescribeVolumes", "*")
 	})
 }
+
+// A just-in-time access request names its machines as the values of a target,
+// and the target's key is the half that makes them readable.
+func TestIAMResourceARNs_AnAccessRequestNamesTheMachinesItsTargetSelects(t *testing.T) {
+	t.Run("a target keyed on the instance id names machines", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.StartAccessRequest",
+				`{"Reason":"incident","Targets":[{"Key":"InstanceIds","Values":["i-0111","i-0222"]}]}`),
+			"ssm:StartAccessRequest",
+			"arn:aws:ec2:us-east-1:123456789012:instance/i-0111",
+			"arn:aws:ec2:us-east-1:123456789012:instance/i-0222")
+	})
+
+	t.Run("a target keyed on a tag names no machine", func(t *testing.T) {
+		// The key is what says whether the values are machines. Reading them
+		// regardless would authorize whatever a tag happened to select.
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.StartAccessRequest",
+				`{"Reason":"incident","Targets":[{"Key":"tag:Env","Values":["prod"]}]}`),
+			"ssm:StartAccessRequest", "*")
+	})
+}
