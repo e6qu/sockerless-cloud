@@ -89,6 +89,30 @@ The tests moved with it: the SDK and CLI suites obtain a profile by running an
 evaluation and reading it off the result, the way a caller has to, rather than
 naming one that never existed.
 
+Azure's list found two more of the same kind. Azure Container Registry's
+`checknameavailability` answered "available" for every name, including one the
+simulator already held — a check exists so a client can avoid a conflict, and
+answering it that way leaves the create to deliver the news. It reads the
+registries now, through a name index because a registry is stored under its
+resource id, and refuses a name the document's own pattern rejects. And
+`connectedRegistries/{name}/deactivate` answered 200 without looking anything
+up or changing anything; it sets the activation status and connection state,
+and a connected registry that does not exist is not found rather than reported
+done. Its test runs through `az rest`, because the operation is a preview
+surface the pinned Go management SDK does not expose and the CLI does.
+
+Azure's list found two more of the same kind. Azure Container Registry's
+`checknameavailability` answered "available" for every name, including one the
+simulator already held — a check exists so a client can avoid a conflict, and
+answering it that way leaves the create to deliver the news. It reads the
+registries now, through a name index because a registry is stored under its
+resource id, and refuses a name the document's own pattern rejects. And
+`connectedRegistries/{name}/deactivate` answered 200 without looking anything
+up or changing anything; it sets the activation status and connection state,
+and a connected registry that does not exist is not found rather than reported
+done. Its test runs through `az rest`, because the operation is a preview
+surface the pinned Go management SDK does not expose and the CLI does.
+
 Both remaining-gap properties are now gates rather than observations. The
 coverage floors count unserved operations without caring why, so a gap that
 stopped declaring itself — a route that went away and now answers the mux's

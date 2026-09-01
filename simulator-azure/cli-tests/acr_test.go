@@ -251,3 +251,43 @@ func readBody(t *testing.T, resp *http.Response) string {
 	}
 	return buf.String()
 }
+
+// TestACR_ConnectedRegistryDeactivateTakesEffect exercises the action that
+// takes a connected registry offline. A 200 that leaves the registry Active
+// reports work that did not happen, and the read straight after contradicts
+// it. Driven through `az rest` because the operation is a preview surface the
+// pinned Go management SDK does not expose, while the CLI does.
+func TestACR_ConnectedRegistryDeactivateTakesEffect(t *testing.T) {
+	const registryName = "connectedhostregistry"
+	const connected = "edge-one"
+
+	registryURL := acrURL("registries/" + registryName)
+	runCLI(t, azRest("PUT", registryURL,
+		`{"location":"eastus","sku":{"name":"Basic"},"properties":{}}`))
+
+	childURL := acrURL("registries/" + registryName + "/connectedRegistries/" + connected)
+	parentID := strings.SplitN(registryURL, "?", 2)[0]
+	runCLI(t, azRest("PUT", childURL,
+		`{"properties":{"mode":"ReadOnly","parent":{"id":"`+parentID+`"}}}`))
+
+	runCLI(t, azRest("POST", acrURL("registries/"+registryName+
+		"/connectedRegistries/"+connected+"/deactivate"), ""))
+
+	out := runCLI(t, azRest("GET", childURL, ""))
+	var got struct {
+		Properties struct {
+			ConnectionState string `json:"connectionState"`
+			Activation      struct {
+				Status string `json:"status"`
+			} `json:"activation"`
+		} `json:"properties"`
+	}
+	parseJSON(t, out, &got)
+	assert.Equal(t, "Inactive", got.Properties.Activation.Status)
+	assert.Equal(t, "Offline", got.Properties.ConnectionState)
+
+	// Deactivating one that does not exist is not found, rather than reported
+	// done.
+	runCLIExpectFailure(t, azRest("POST", acrURL("registries/"+registryName+
+		"/connectedRegistries/no-such-edge/deactivate"), ""))
+}
