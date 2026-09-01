@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,977 of 1,994 on 2026-09-01.
+   is not.** 1,978 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 17 that remain are three shapes, and none of them is ordinary work.
+   The 16 that remain are three shapes, and none of them is ordinary work.
    Every other AWS service derives every operation it declares a type for.
 
    - **A resource the request does not name at all** (7). CloudWatch's
@@ -127,13 +127,12 @@
      and keeps no profile record. These want the profile modelled first, which is a
      question about the Glue slice rather than about IAM.
 
-   - **A resource only the caller or a parser knows** (4). `iam:ChangePassword`
+   - **A resource only the caller knows, or an opaque one** (3). `iam:ChangePassword`
      authorizes against the calling user: the signature knows it and the
      request does not, and the access key in the header resolves to a user the
      same way `GetAccessKeyLastUsed` does — but only because sigv4 verification
      runs before the enforcement gate, so establish that ordering before
      relying on it, or a caller naming any key would name any user.
-     `cloudtrail:StartQuery` names its event data store inside SQL;
      `logs:GetLogRecord` carries an opaque pointer;
      `organizations:CreatePolicy` mints a policy whose ARN carries the
      organization id, the policy type and a service-assigned id, which is three

@@ -1172,6 +1172,11 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	}
 	// AWS CloudTrail names a trail by its ARN under members that do not end in
 	// "arn": ResourceId and ResourceIdList carry one.
+	if service == "cloudtrail" && lower == "querystatement" {
+		// A Lake query names the store it reads, which is how a client writes
+		// one — a bare word there names no store.
+		return "SELECT eventName FROM 01234567-89ab-cdef-0123-456789abcdef"
+	}
 	if service == "cloudtrail" && (lower == "resourceid" || lower == "resourceidlist") {
 		return arnValue
 	}
@@ -1848,7 +1853,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1977
+const iamDerivationCoverageFloor = 1978
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

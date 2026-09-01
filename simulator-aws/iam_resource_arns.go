@@ -1059,6 +1059,30 @@ func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 // The channel and event-data-store members carry an ARN as often as an
 // identifier, and an ARN needs no assembly, so it is taken as it stands.
 func iamCloudTrailResourceARNs(r *http.Request, types []string, region, account string) []string {
+	// A Lake query names the event data stores it reads in its own statement —
+	// the first after FROM, any others after JOIN — and those stores are what
+	// running the query authorizes against. Only a token shaped like a store's identifier is
+	// taken: a FROM naming anything else is not a store this call reads, and
+	// authorizing it would grant past what the query asked for.
+	if iamHasType(types, "eventdatastore") {
+		if statement := iamJSONBodyField(r, "QueryStatement"); statement != "" {
+			var out []string
+			seen := map[string]struct{}{}
+			for _, match := range iamCloudTrailQueryFrom.FindAllStringSubmatch(statement, -1) {
+				id := strings.ToLower(match[1])
+				if _, dup := seen[id]; dup {
+					continue
+				}
+				seen[id] = struct{}{}
+				out = append(out, "arn:aws:cloudtrail:"+region+":"+account+":eventdatastore/"+id)
+			}
+			if len(out) > 0 {
+				sort.Strings(out)
+				return out
+			}
+		}
+	}
+
 	fields := iamJSONRequestFields(r)
 	// The tagging operations name their target as ResourceId, and ListTags as
 	// ResourceIdList — each an ARN despite the name — and an ARN needs no
@@ -3263,3 +3287,10 @@ func iamSSMTargetedInstances(r *http.Request) []string {
 	sort.Strings(out)
 	return out
 }
+
+// iamCloudTrailQueryFrom finds the event data stores a Lake query reads. A
+// query names its first store after FROM and any others after JOIN, and a store
+// is identified by a UUID — so a FROM naming anything else, a table alias or a
+// subquery, matches nothing and derives nothing.
+var iamCloudTrailQueryFrom = regexp.MustCompile(
+	`(?i)\b(?:from|join)\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)

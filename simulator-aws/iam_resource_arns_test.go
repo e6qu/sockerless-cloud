@@ -2332,3 +2332,34 @@ func TestIAMResourceARNs_AnAccessRequestNamesTheMachinesItsTargetSelects(t *test
 			"ssm:StartAccessRequest", "*")
 	})
 }
+
+// A Lake query names the event data store it reads in its own statement, and
+// only a token shaped like a store's identifier is taken from it.
+func TestIAMResourceARNs_ALakeQueryNamesTheStoreItReads(t *testing.T) {
+	const p = "arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/"
+	const store = "01234567-89ab-cdef-0123-456789abcdef"
+	const other = "fedcba98-7654-3210-fedc-ba9876543210"
+
+	t.Run("the store the query reads is what it authorizes against", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CloudTrail_20131101.StartQuery",
+				`{"QueryStatement":"SELECT eventName FROM `+store+` WHERE eventSource = 's3'"}`),
+			"cloudtrail:StartQuery", p+store)
+	})
+
+	t.Run("a query reading two stores authorizes both", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CloudTrail_20131101.StartQuery",
+				`{"QueryStatement":"SELECT a.eventName FROM `+store+` a JOIN `+other+` b ON a.eventID = b.eventID"}`),
+			"cloudtrail:StartQuery", p+store, p+other)
+	})
+
+	t.Run("a FROM naming no store derives nothing", func(t *testing.T) {
+		// A table alias or a subquery is not a store, and authorizing one
+		// would grant past what the query asked for.
+		assertDerivedARNs(t,
+			iamJSONRequest("CloudTrail_20131101.StartQuery",
+				`{"QueryStatement":"SELECT eventName FROM my_events"}`),
+			"cloudtrail:StartQuery", "*")
+	})
+}
