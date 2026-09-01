@@ -80,7 +80,11 @@ func TestAmplifyComputeRuntimeImage(t *testing.T) {
 	if err != nil || image != "public.ecr.aws/docker/library/node:20-alpine" {
 		t.Fatalf("nodejs20.x: %q %v", image, err)
 	}
-	for _, bad := range []string{"", "python3.12", "nodejs", "nodejsx.x"} {
+	// A version the service does not offer is refused rather than turned into
+	// an image reference nobody publishes. The rejected version is one no AWS
+	// Lambda runtime spells either, so CI's image scan does not read it as a
+	// runtime some suite exercises and warm an image nothing pulls.
+	for _, bad := range []string{"", "python3.12", "nodejs", "nodejsx.x", "nodejs21.x"} {
 		if _, err := amplifyComputeRuntimeImage(bad); err == nil {
 			t.Fatalf("%q: expected error", bad)
 		}

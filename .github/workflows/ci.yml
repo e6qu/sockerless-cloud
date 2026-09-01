@@ -342,108 +342,31 @@ jobs:
       # Caching the images means the common case makes no registry request at
       # all, and the simulator's own puller asks the engine before the registry,
       # so a warmed image costs nothing even when a test starts it repeatedly.
-      - name: Resolve the base images these suites pull
+      - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |
-          # AWS's module names the whole Lambda runtime table — some thirty
-          # images that only an invocation fetches — so its scan is limited to
-          # the package whose images every suite touches. The other two modules
-          # name a handful between them.
-          dirs="simulator-${{ matrix.cloud }} simulator-${{ matrix.cloud }}/shared"
-          if [ "${{ matrix.cloud }}" = "aws" ]; then
-            dirs="simulator-aws/shared"
-          fi
-          # shellcheck disable=SC2086
-          images="$(bash scripts/base-images-for.sh $dirs | tr '\n' ' ')"
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
           echo "$images"
       - name: Restore the base images
         uses: actions/cache@v6.1.0
         with:
-          path: ~/.cache/sockerless/sim-base-images.tar
-          key: sim-base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
       - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry
-        # refuses an image here, the job carries on and whatever
-        # actually needs it fails at the point of use, naming it. A cap
-        # hit while warming must not deny the run everything else the
-        # job would have told us.
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
         continue-on-error: true
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/sim-base-images.tar \
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
-      # Simulator runs mutate the restored guest rootfs as root. Restore the
-      # immutable seed produced by the dedicated Firecracker job, but never
-      # archive the test-mutated tree from a matrix job.
-      - uses: actions/cache/restore@v6.1.0
-        with:
-          path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
-      # The Cloud Firestore emulator is a Java program, and the component
-      # refuses anything below a Java 21 runtime, which the runner's default
-      # `java` is not. The runner does ship newer runtimes alongside it, each
-      # announced through a JAVA_HOME_<major>_<arch> variable, so the newest one
-      # that satisfies the emulator goes on PATH ahead of the default.
-      #
-      # Deliberately not actions/setup-java: the runner downloads every action a
-      # workflow references before it evaluates any step's condition, so a
-      # gcp-only action step costs every job in the matrix one more tarball
-      # fetch from codeload — and those fetches are already being throttled
-      # (BUG-56). A step that reads what is installed costs nothing.
-      - name: Put the Java runtime the Cloud Firestore emulator requires on PATH
-        if: matrix.cloud == 'gcp'
-        run: |
-          best=""
-          best_major=0
-          while IFS='=' read -r name home; do
-            case "$name" in JAVA_HOME_*) ;; *) continue ;; esac
-            major=${name#JAVA_HOME_}
-            major=${major%%_*}
-            case "$major" in ''|*[!0-9]*) continue ;; esac
-            [ -x "$home/bin/java" ] || continue
-            [ "$major" -ge 21 ] || continue
-            [ "$major" -gt "$best_major" ] || continue
-            best_major=$major
-            best=$home
-          done <<<"$(env)"
-          if [ -z "$best" ]; then
-            echo "No Java 21+ runtime is installed on this runner; the Cloud Firestore emulator cannot start without one." >&2
-            env | grep '^JAVA_HOME' >&2 || echo "(the runner announced no JAVA_HOME_* runtimes at all)" >&2
-            exit 1
-          fi
-          echo "Using Java $best_major from $best"
-          echo "$best/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$best" >> "$GITHUB_ENV"
-      - name: Install gcloud CLI
-        if: matrix.cloud == 'gcp'
-        run: |
-          archive="$RUNNER_TEMP/google-cloud-cli-linux-x86_64.tar.gz"
-          curl --fail --location --show-error --silent --http1.1 \
-            --retry 5 --retry-all-errors --retry-delay 5 \
-            --connect-timeout 20 --max-time 300 \
-            --output "$archive" \
-            https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz
-          tar -xzf "$archive" -C "$HOME"
-          echo "$HOME/google-cloud-sdk/bin" >> "$GITHUB_PATH"
-          # The Firestore-emulator component is the differential-test oracle for
-          # TestFirestore_DifferentialVsEmulator; the step above provides the
-          # Java runtime it runs on.
-          "$HOME/google-cloud-sdk/bin/gcloud" components install cloud-firestore-emulator beta --quiet
-      # The runner image ships an Azure CLI, and it lags Microsoft's releases —
-      # the AWS CLI and gcloud steps above each fetch the newest build, so
-      # testing Azure against whatever the image happened to bake in was the one
-      # cloud whose client was not current. Install the newest, as they do.
-      - name: Install Azure CLI
-        if: matrix.cloud == 'azure'
-        run: |
-          curl --fail --location --show-error --silent \
-            --retry 5 --retry-all-errors --retry-delay 5 \
-            --connect-timeout 20 --max-time 300 \
-            https://aka.ms/InstallAzureCLIDeb | sudo bash
-          hash -r
-          az version
       - name: Install real-execution tools
         run: |
           bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
@@ -618,51 +541,36 @@ jobs:
           sudo apt-get clean
           df -h
         timeout-minutes: 3
-      # Pre-pull the DynamoDB Local differential oracle so the timed test run
-      # below doesn't spend its budget on the image fetch (the differential test
-      # checks the local image store before pulling). DynamoDB Local is the
-      # reference oracle for the TestDynamoDB_DifferentialVsLocal sweep.
-      - name: Pull DynamoDB Local (differential oracle)
-        # TestDynamoDB_DifferentialVsLocal lives in the data shard.
-        if: matrix.suite == 'data'
-        # A registry answering "toomanyrequests" is telling us to wait, not that
-        # the image is unavailable — the same signal a client is expected to
-        # back off on. Anonymous pulls share a per-address budget with every
-        # other runner on the same egress, so one throttled attempt is not a
-        # verdict. Retry with widening backoff and fail loudly if the budget
-        # never frees up.
+      # These suites run real containers — the DynamoDB Local differential
+      # oracle, the alpine workload a Batch job runs, the database engines the
+      # Amazon RDS data plane starts — and the registry caps anonymous requests
+      # by data volume, which no retry recovers from. The warm sits after the
+      # prune above because that step deletes every image on the host.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
         run: |
-          set -o pipefail
-          image=public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local:latest
-          for attempt in 1 2 3 4 5; do
-            if docker pull "$image"; then exit 0; fi
-            delay=$((attempt * 15))
-            echo "pull attempt $attempt failed; retrying in ${delay}s" >&2
-            sleep "$delay"
-          done
-          echo "could not pull $image after 5 attempts" >&2
-          exit 1
-        timeout-minutes: 6
-      - name: Pull the Batch job image (workload container)
-        # TestBatch_JobSubmitDescribe_SDK runs a real container from
-        # public.ecr.aws; a pull inside the timed test run has failed on a
-        # registry token timeout ("context deadline exceeded" fetching the
-        # auth token), which surfaced as the job FAILED rather than as what it
-        # was — the network. Same retry/backoff contract as the DynamoDB
-        # oracle pull above.
-        if: matrix.suite == 'services-a-m'
+          images="$(bash scripts/base-images-for.sh simulator-aws | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
         run: |
-          set -o pipefail
-          image=public.ecr.aws/docker/library/alpine:3
-          for attempt in 1 2 3 4 5; do
-            if docker pull "$image"; then exit 0; fi
-            delay=$((attempt * 15))
-            echo "pull attempt $attempt failed; retrying in ${delay}s" >&2
-            sleep "$delay"
-          done
-          echo "could not pull $image after 5 attempts" >&2
-          exit 1
-        timeout-minutes: 6
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       - name: Run AWS SDK tests
         # The suite has exhausted the runner volume from a 89 GB starting
         # margin, killing the runner process as it wrote its own diagnostic log
@@ -836,6 +744,34 @@ jobs:
           sudo /tmp/aws/install --update
           hash -r
           aws --version
+      # Same contract as the SDK job: the CLI shards run real containers — the
+      # Glue shard's python:3.9 among them, which timed out inside a job budget
+      # spent on the fetch.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh simulator-aws | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       - name: Run AWS CLI tests
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
@@ -933,6 +869,35 @@ jobs:
           go-version: '1.25'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # A Terraform stack runs the same real workloads the suites do, and the
+      # registry caps anonymous requests by data volume — capturing an Amazon
+      # RDS snapshot copies a volume through an alpine helper, which is the
+      # pull that failed the snapshot stack outright.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
@@ -947,26 +912,6 @@ jobs:
       - name: Install Caddy
         run: |
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
-      # The base images these suites run containers from come from registries
-      # that rate-limit anonymous pulls by data volume, and a data cap is not a
-      # transient failure a retry recovers from — the Azure suite exhausted four
-      # backoff attempts on alpine and stopped the job. Caching the images means
-      # the common case makes no registry request at all; on a miss the pull
-      # happens exactly as before, so the worst case is today's behaviour.
-      - name: Restore the base images
-        id: base-images
-        uses: actions/cache@v6.1.0
-        with:
-          path: ~/.cache/sockerless/base-images.tar
-          key: base-images-${{ runner.os }}-${{ runner.arch }}-alpine-latest-v1
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry
-        # refuses an image here, the job carries on and whatever
-        # actually needs it fails at the point of use, naming it. A cap
-        # hit while warming must not deny the run everything else the
-        # job would have told us.
-        continue-on-error: true
-        run: bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar public.ecr.aws/docker/library/alpine:latest
       - name: Run terraform tests
         run: |
           cd simulator-${{ matrix.cloud }}
@@ -1111,34 +1056,30 @@ jobs:
       # workflow holds no list to drift, and the key follows that set, so a
       # test that starts pulling something new gets a fresh cache rather than
       # a stale one that silently misses.
-      - name: Resolve the base images this package pulls
-        if: matrix.pkg == 'shared'
+      - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |
-          # One line, space separated: the list is interpolated into a shell
-          # command below, where a newline would end that command and run the
-          # rest of the images as commands of their own.
-          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }}/shared | tr '\n' ' ')"
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
           echo "$images"
       - name: Restore the base images
-        if: matrix.pkg == 'shared'
         uses: actions/cache@v6.1.0
         with:
-          path: ~/.cache/sockerless/race-base-images.tar
-          key: race-base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
       - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry
-        # refuses an image here, the job carries on and whatever
-        # actually needs it fails at the point of use, naming it. A cap
-        # hit while warming must not deny the run everything else the
-        # job would have told us.
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
         continue-on-error: true
-        if: matrix.pkg == 'shared'
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/race-base-images.tar \
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
       # The detector needs cgo, so the test binary is built differently from
       # every other job here and gets its own compile budget.

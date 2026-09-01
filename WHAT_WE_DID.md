@@ -125,13 +125,30 @@ pattern can name it. The zone subtree is mounted multi-segment and routes its
 own tail, the way the Cloud Spanner instance family already does, answering a
 method not found for every tail it does not own.
 
-CI stopped failing on base images it already had. The race shard warms its
-images from an `actions/cache` tarball through `scripts/warm-base-images.sh`,
-with the image set read out of the package by `scripts/base-images-for.sh`
-rather than restated in the workflow, and the reaper and sweep tests ask
-`ImageInspect` before pulling — a host that has exhausted its anonymous data
-allowance refuses the manifest check as readily as the layers, so a warmed
-cache alone did not help.
+CI stopped failing on base images it already had. Every job that runs a
+simulator's containers — both AWS jobs, the `sim` matrix, the Terraform stacks
+and the race shards — warms from an `actions/cache` tarball through
+`scripts/warm-base-images.sh`, sharing one entry per cloud keyed on the image
+set itself, so the set is fetched once for the whole workflow rather than once
+per job. The two AWS jobs had been the gap: they are separate jobs from the
+`sim` matrix, which holds no AWS entry, and their two hand-written
+pull-with-backoff steps are the same fetch the script performs. Pullers ask
+`ImageInspect` before reaching for the network, in all three simulators as well
+as in the tests — a host that has exhausted its anonymous data allowance
+refuses the manifest check as readily as the layers, so a warmed cache alone
+did not help.
+
+The set is read out of the source by `scripts/base-images-for.sh` rather than
+restated in the workflow, and it reads the whole tree and more than Go: a
+Terraform suite keeps one Go file per stack in a subdirectory and names the
+workload image in the stack's HCL, which a flat Go-only scan saw as neither.
+The AWS Lambda runtime table is the one source that cannot be read literally —
+it maps thirty runtime identifiers to images, and one arrives only when a suite
+invokes a function on that runtime — so `scripts/lambda-runtime-images-for.sh`
+resolves it from the identifiers the suites name against the table itself,
+which is four images rather than thirty. AWS Amplify composed its compute image
+tag out of the runtime name, which no scan can read and which answered for
+versions the service does not offer; it maps the two it serves.
 
 ## 2026-08-31, forty-third pass — the declared tails, served
 

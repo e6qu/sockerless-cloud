@@ -98,14 +98,15 @@ Open: 10. Resolved: 84.
   repository's own package registry is authenticated by the job's token and
   not subject to an anonymous cap.
 
-  First half landed for the job that exposed it: `scripts/warm-base-images.sh`
-  loads the set from an `actions/cache` tarball and only fetches what the
-  tarball does not hold, and the Azure terraform suite's own puller now asks
-  `docker image inspect` before reaching for the network — without that, a
-  cached image still would not have helped it. The remaining work is the other
-  jobs: the AWS SDK shards pull the DynamoDB oracle and an alpine workload, the
-  Glue shard pulls `python:3.9`, and the ECS suites pull `busybox` for the pause
-  image. Each should go through the same script and cache key.
+  Every job that runs a simulator's containers now warms through
+  `scripts/warm-base-images.sh`, which loads the set from an `actions/cache`
+  tarball and fetches only what the tarball does not hold. The two AWS jobs had
+  been the gap — `sim-aws-sdk` and `sim-aws-cli` are separate jobs from the
+  `sim` matrix, which holds no AWS entry at all, so a warm added to that matrix
+  never reached them. The SDK job's two hand-written pull-with-backoff steps,
+  for the DynamoDB oracle and the Batch workload, are the same fetch the script
+  performs and were replaced by it; its warm sits after the disk prune, which
+  deletes every image on the host.
 
   `race (simulator-aws shared)` was the next to fail, on `alpine:3.22` for the
   memory tests and `busybox` for the reaper and sweep, and it now warms through
@@ -139,11 +140,26 @@ Open: 10. Resolved: 84.
   the source rather than the run. Surfacing a simulator-side failure in the job
   that provoked it is worth doing before the next one.
 
-  The `sim` suites warm through the same script too, scanning their module and
-  its shared package — except AWS's, whose module names the whole Lambda
-  runtime table, some thirty images that only an invocation fetches, so its
-  scan is limited to the package whose images every suite touches. Caching
-  those thirty, and the Terraform jobs' engine images, is what is left.
+  The scan those jobs share reads the whole simulator tree, and reads more than
+  Go. A Terraform suite keeps one Go file per stack in a subdirectory and names
+  the workload image in the stack's HCL, so the original flat Go-only scan saw
+  neither — it missed the Amazon ECS pause image and the alpine workloads,
+  which are the pulls that failed those jobs in the first place.
+
+  The Lambda runtime table was the one source that could not be read literally:
+  it maps some thirty runtime identifiers to images, and one arrives only when
+  a suite invokes a function on that runtime. `scripts/lambda-runtime-images-for.sh`
+  resolves it the other way round, from the identifiers the suites name against
+  the table itself, which is four images rather than thirty and stays right
+  when a suite starts exercising a fifth. AWS Amplify composed its image tag
+  out of the runtime name instead of mapping it, which no scan can read and
+  which answered for versions the service does not offer; it now maps the two
+  it serves.
+
+  One key per cloud, keyed on the image set itself, so every job that runs that
+  cloud's containers shares a single cache entry: the set is fetched once for
+  the whole workflow rather than once per job, which is what a cap counted in
+  bytes responds to. The AWS set is nineteen images and about 2 GB.
 
   The simulators also stopped mistaking the cap for the rate limit it is spelled
   like. `toomanyrequests: Data limit exceeded` was classified transient, so a
