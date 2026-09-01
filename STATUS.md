@@ -151,6 +151,12 @@ Current state of the sockerless-cloud repository.
   CLI coverage, and a Terraform fixture applies and destroys the access point,
   the Object Lambda access point, the Storage Lens dashboard and the Access
   Grants instance through terraform-provider-aws.
+- **Every dependency class is under one freshness gate**, including the console
+  user interface: `scripts/check-latest-deps.sh` now checks the four
+  `package.json` files against npm's publication metadata under the same
+  24-hour adoption quarantine as the Go, Terraform and GitHub Actions
+  dependencies. Three npm packages are held with their reason printed by the
+  gate and the evidence in `ui/README.md`.
 - **Go 1.26**, which the dependency tree requires: three
   opentelemetry-operations-go modules reached through `google.golang.org/api`
   declare it. The workflows, `go.work` and the three simulator container images

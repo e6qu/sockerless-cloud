@@ -2,9 +2,11 @@
   "name": "sockerless-ui",
   "private": true,
   "packageManager": "bun@1.2.19",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "devDependencies": {
-    "turbo": "^2.10.8",
-    "typescript": "^7.0.2"
+    "turbo": "^2.10.12",
+    "typescript": "^5.9.3"
   }
 }

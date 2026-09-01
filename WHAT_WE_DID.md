@@ -130,6 +130,29 @@ at thirty. It watches for the running snapshot now instead of sampling for it,
 and an execution that settles without ever reporting one fails explicitly —
 which is the thing the test is actually for.
 
+The console user interface was a whole dependency tree nothing checked. Every
+other class in this repository — Go modules, Terraform providers, GitHub
+Actions, workflow Go tools — is held to its newest release that has cleared the
+24-hour adoption quarantine, and the four `package.json` files were simply
+outside that, so they drifted by however long nobody happened to look.
+`scripts/check-latest-deps.sh` grew an npm class that checks them the same way,
+against npm's own publication metadata, and it found drift `bun outdated` does
+not report: a `^4.1.0` range *admits* 4.3.3, so bun calls it current while the
+declared floor rots. Everything the tree can take is on its newest adoptable
+release now — React, React Router, TanStack Query, Fluent, Cloudscape,
+Playwright, Vite, Vitest, Turbo and the rest.
+
+Three are held, each because the newer release breaks something here and not
+because nobody looked, with the evidence in `ui/README.md` and the reason
+printed by the gate itself. `@fluentui/react-components` is pinned at 9.74.5:
+9.74.6 and later fail every Azure console test with "tabster does not provide
+an export named createTabster", and tabster 8.8.0 is the newest release and
+does export it — the break is in Fluent's own build. `@tanstack/react-table`
+stays on 8.x because v9 is an API redesign rather than a version bump.
+`typescript` stays on 5.x because TypeScript 7 rejects the side-effect CSS
+imports every console entry point makes. Each was found by taking the newer
+version, watching what failed, and bisecting — not by assuming.
+
 Two CI-only failures from the previous push are fixed. The new S3 control-plane
 Terraform suite timed out at its deadline on CI and passed in forty seconds
 locally: CI runs the terraform jobs behind the HTTPS gateway, whose wildcard
