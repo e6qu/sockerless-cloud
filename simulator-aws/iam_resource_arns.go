@@ -997,6 +997,27 @@ func iamACMResourceARNs(r *http.Request, types []string) []string {
 // is all it takes.
 func iamCloudWatchResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
+	// Listing an alarm's mute rules names the alarm, and the rules on it are
+	// what the listing authorizes against — each rule records the alarms it
+	// covers, so the rules are recovered through an index keyed on them rather
+	// than by reading every rule. An alarm nothing mutes has no rule to
+	// authorize, which is not the same as authorizing every rule.
+	if iamHasType(types, "alarm-mute-rule") && cwAlarmMuteRules != nil {
+		var out []string
+		for _, alarm := range fields["alarmname"] {
+			for _, rule := range iamCloudWatchMuteRulesByAlarm.LookupAll(
+				cwAlarmMuteRules, alarm, iamCloudWatchMuteRuleAlarmKeys) {
+				if rule.Name != "" {
+					out = append(out, "arn:aws:cloudwatch:"+region+":"+account+
+						":alarm-mute-rule:"+rule.Name)
+				}
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
 	// The tagging operations name their target by ARN and the reference lists
 	// every taggable type for them; which one the call is about is what the ARN
 	// says, so there is nothing to fill.
@@ -3372,4 +3393,19 @@ func iamStatesMachineOfVersion(arn string) (machine, version string, ok bool) {
 		return "", "", false
 	}
 	return arn[:cut], version, true
+}
+
+// The alarm-to-rule lookup a mute-rule listing needs, answered from a
+// generation-keyed index so a per-request derivation never reads every rule.
+var iamCloudWatchMuteRulesByAlarm sim.GenerationIndex[CWAlarmMuteRule]
+
+// iamCloudWatchMuteRuleAlarmKeys names a mute rule by each alarm it covers.
+func iamCloudWatchMuteRuleAlarmKeys(rule CWAlarmMuteRule) []string {
+	keys := make([]string, 0, len(rule.AlarmNames))
+	for _, alarm := range rule.AlarmNames {
+		if alarm != "" {
+			keys = append(keys, alarm)
+		}
+	}
+	return keys
 }

@@ -871,12 +871,16 @@ func iamACMDerivesItsResource(operation string, members map[string]bool) bool {
 // request carrying every member the model declares. A member that is an ARN by
 // definition carries one, because that is what a real caller sends — this is
 // not the same as filling an ordinary field with an ARN to satisfy the metric.
-func iamCloudWatchDerivesItsResource(operation string, members map[string]bool) bool {
+func iamCloudWatchDerivesItsResource(operation string, members map[string]bool, fixtures map[string]string) bool {
 	if len(iamActionResourceTypes["cloudwatch:"+operation]) == 0 {
 		return false
 	}
 	body := make(map[string]string, len(members))
 	for name := range members {
+		if created, seeded := fixtures["cloudwatch:"+operation+":"+name]; seeded {
+			body[name] = created
+			continue
+		}
 		body[name] = iamProbeMemberValue("cloudwatch", name,
 			iamProbeARN("cloudwatch", operation, "arn:aws:cloudwatch:us-east-1:"+iamProbeAccount+":alarm:probe"))
 	}
@@ -1865,7 +1869,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1982
+const iamDerivationCoverageFloor = 1983
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -2027,7 +2031,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "acm":
 			derived = iamACMDerivesItsResource(o.name, acmMembers[o.name])
 		case "cloudwatch":
-			derived = iamCloudWatchDerivesItsResource(o.name, cloudWatchMembers[o.name])
+			derived = iamCloudWatchDerivesItsResource(o.name, cloudWatchMembers[o.name], fixtures)
 		case "ecr":
 			derived = iamJSONProbeDerives("ecr", o.name, ecrMembers[o.name],
 				probeARN("arn:aws:ecr:us-east-1:123456789012:repository/probe"))

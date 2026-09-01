@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,982 of 1,994 on 2026-09-01.
+   is not.** 1,983 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 12 that remain are two shapes, and none of them is ordinary work.
+   The 11 that remain are two shapes, and none of them is ordinary work.
    Every other AWS service derives every operation it declares a type for.
 
    - **A resource the request does not name at all** (7). CloudWatch's

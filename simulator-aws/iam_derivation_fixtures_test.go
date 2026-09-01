@@ -198,6 +198,12 @@ func iamSeedDerivationFixtures(t *testing.T,
 		}, `<connectionNotificationId>([^<]+)</connectionNotificationId>`)
 	out["ec2:DeleteVpcEndpointConnectionNotifications:ConnectionNotificationId"] = notification
 
+	// A mute rule covering an alarm, which the listing names by the alarm.
+	iamFixtureJSON(t, jsonRouter, "GraniteServiceVersion20100801.PutAlarmMuteRule",
+		`{"Name":"probe-mute","Rule":{"Schedule":{"Type":"ONE_TIME"}},`+
+			`"MuteTargets":{"AlarmNames":["probe"]}}`, `(.*)`)
+	out["cloudwatch:ListAlarmMuteRules:AlarmName"] = "probe"
+
 	// A database proxy, whose default target group Amazon RDS keeps under the
 	// proxy's own name — the modify names the proxy and the group, and the
 	// group's id, which its ARN is built from, is neither.

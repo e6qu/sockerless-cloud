@@ -1,8 +1,29 @@
 # BUGS
 
-Open: 9. Resolved: 84.
+Open: 10. Resolved: 84.
 
 ## Open
+
+- **BUG-2955 (a distributed map run does not finish on CI, and the test waits
+  sixty seconds for it):** `TestSFNCLI_DistributedMapRun` failed on
+  `sim (aws cli appdata3)` for commit b8587ed with "Condition never satisfied"
+  after 63.42s — its `require.Eventually` spent the whole `sfnMapRunCompletes`
+  budget of 60s without the run reaching SUCCEEDED. The same test passes
+  locally in 74.7s.
+
+  The work itself is trivial: the map's item processor is a single
+  `Wait` of one second, two items, MaxConcurrency 2, so the run should settle
+  in about two seconds. That rules out the explanations that fit the other CI
+  failures this week — there is no container to start and no image to pull, so
+  the ECR Public Gallery data cap (BUG-1702) is not this. It also rules out a
+  slow poll: at 500ms the loop gets a hundred-odd attempts inside the budget.
+
+  What is left is that the run does not complete on that runner at all. The
+  state-machine runtime polls its own work at 20ms, so a Wait that never fires
+  points at whatever advances timers under CI's configuration rather than at
+  the budget. Reproducing it needs the CI environment; raising the timeout
+  would hide it rather than fix it, and the run either finishes in seconds or
+  never.
 
 
 - **BUG-73 (S3 `WriteGetObjectResponse` is the data plane of a slice that was
