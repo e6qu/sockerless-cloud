@@ -1007,30 +1007,6 @@ func iamElastiCacheDerivesItsResource(operation string, params map[string]bool) 
 	return len(iamDerivedResourceARNs(r, "elasticache", operation, "us-east-1", "123456789012")) > 0
 }
 
-// iamSSMDerivesItsResource runs the production derivation against a request
-// carrying every member the model declares for the operation.
-func iamSSMDerivesItsResource(operation string, members map[string]bool, fixtures map[string]string) bool {
-	if len(iamActionResourceTypes["ssm:"+operation]) == 0 {
-		return false
-	}
-	body := make(map[string]string, len(members))
-	for name := range members {
-		if created, seeded := fixtures["ssm:"+operation+":"+name]; seeded {
-			body[name] = created
-			continue
-		}
-		body[name] = iamProbeMemberValue("ssm", name,
-			iamProbeARN("ssm", operation, "arn:aws:ssm:us-east-1:"+iamProbeAccount+":probe"))
-	}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return false
-	}
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(encoded)))
-	r.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	return len(iamDerivedResourceARNs(r, "ssm", operation, "us-east-1", "123456789012")) > 0
-}
-
 // iamHandwrittenDerivationServices are the services whose target resource is
 // read by a per-service case in iamResourceARNsForRequest rather than from the
 // generated resource-type table. They predate the table and are listed here so
@@ -1264,13 +1240,15 @@ var iamProbeAccountMembers = map[string]bool{
 // where the API takes a list, an object where it takes a structure — and an
 // ARN in the members that are ARNs by definition.
 func iamAWSJSONProbeRequest(
-	target, operation, arnValue string, members map[string]string,
+	service, target, operation, arnValue string, members map[string]string,
 	nested map[string][]string, fixtures map[string]string,
 ) *http.Request {
-	// The wire target names the service and its date — "CodeBuild_20161006" —
-	// and the fill rule needs the service, because a member can only be filled
-	// correctly if you know whose member it is.
-	service := strings.ToLower(strings.SplitN(target, "_", 2)[0])
+	// The service is passed rather than read off the wire target. Reading it
+	// off worked only where the target happened to be "<service>_<date>":
+	// "AmazonSSM" carries no date, so the whole word became the service name
+	// and every rule written for "ssm" missed, filling an instance id member
+	// with the literal "probe" — a body no client sends, against which a
+	// working derivation measures as absent.
 	return iamAWSJSONProbeRequestFor(service, target, operation, arnValue, members, nested, fixtures)
 }
 
@@ -1823,7 +1801,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1969
+const iamDerivationCoverageFloor = 1970
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
@@ -1861,7 +1839,11 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 	ec2Parameters := loadEC2RequestParameters(t)
 	glueMembers, glueNested := loadRequestShapes(t, "glue", memberWireName)
 	rdsParameters := loadRDSRequestParameters(t)
-	ssmMembers := loadSSMRequestMembers(t)
+	// AWS Systems Manager goes through the shared probe like every other
+	// awsJson service: CreateAssociationBatch names each document and machine
+	// inside a batch entry, a shape only the shared renderer sends.
+	_, ssmNestedShapes := loadRequestShapes(t, "ssm", memberWireName)
+	ssmMembers := loadCasedRequestMembers(t, "ssm")
 	elastiCacheParameters := loadElastiCacheRequestParameters(t)
 	// Amazon DynamoDB goes through the shared probe like every other awsJson
 	// service: its own flat one sent every member as a string, so RequestItems
@@ -1943,12 +1925,15 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 		case "rds":
 			derived = iamRDSDerivesItsResource(o.name, rdsParameters[o.name], fixtures)
 		case "ssm":
-			derived = iamSSMDerivesItsResource(o.name, ssmMembers[o.name], fixtures)
+			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
+				"ssm", "AmazonSSM", o.name,
+				probeARN("arn:aws:ssm:us-east-1:"+iamProbeAccount+":probe"),
+				ssmMembers[o.name], ssmNestedShapes[o.name], fixtures), "ssm:"+o.name)
 		case "elasticache":
 			derived = iamElastiCacheDerivesItsResource(o.name, elastiCacheParameters[o.name])
 		case "dynamodb":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
-				"DynamoDB_20120810", o.name,
+				"dynamodb", "DynamoDB_20120810", o.name,
 				probeARN("arn:aws:dynamodb:us-east-1:"+iamProbeAccount+":table/probe"),
 				dynamoDBMembers[o.name], dynamoDBNested[o.name], fixtures), "dynamodb:"+o.name)
 		case "cloudtrail":
@@ -1960,7 +1945,7 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 			derived = iamKMSDerivesItsResource(o.name, kmsMembers[o.name])
 		case "events":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
-				"AWSEvents", o.name,
+				"events", "AWSEvents", o.name,
 				probeARN("arn:aws:events:us-east-1:"+iamProbeAccount+":event-bus/probe"),
 				eventBridgeMembers[o.name], eventBridgeNested[o.name], fixtures), "events:"+o.name)
 		case "organizations":
@@ -2008,22 +1993,22 @@ func TestIAMResourceDerivationCoverage(t *testing.T) {
 				probeARN("arn:aws:application-autoscaling:us-east-1:123456789012:scalable-target/probe"))
 		case "ecs":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
-				"AmazonEC2ContainerServiceV20141113", o.name,
+				"ecs", "AmazonEC2ContainerServiceV20141113", o.name,
 				probeARN("arn:aws:ecs:us-east-1:123456789012:cluster/probe"),
 				ecsMembers[o.name], ecsNested[o.name], fixtures), "ecs:"+o.name)
 		case "logs":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
-				"Logs_20140328", o.name,
+				"logs", "Logs_20140328", o.name,
 				probeARN("arn:aws:logs:us-east-1:123456789012:log-group:probe"),
 				logsMembers[o.name], logsNested[o.name], fixtures), "logs:"+o.name)
 		case "codebuild":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
-				"CodeBuild_20161006", o.name,
+				"codebuild", "CodeBuild_20161006", o.name,
 				probeARN("arn:aws:codebuild:us-east-1:123456789012:project/probe"),
 				codeBuildMembers[o.name], codeBuildNested[o.name], fixtures), "codebuild:"+o.name)
 		case "wafv2":
 			derived = iamProductionProbeDerives(iamAWSJSONProbeRequest(
-				"AWSWAF_20190729", o.name,
+				"wafv2", "AWSWAF_20190729", o.name,
 				probeARN("arn:aws:wafv2:us-east-1:123456789012:regional/webacl/probe/0123"),
 				wafv2Members[o.name], wafv2Nested[o.name], fixtures), "wafv2:"+o.name)
 		case "iam":

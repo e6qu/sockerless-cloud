@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,969 of 1,994 on 2026-09-01.
+   is not.** 1,970 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,7 +92,7 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 25 that remain are four shapes, and none of them is ordinary work:
+   The 24 that remain are four shapes, and none of them is ordinary work:
 
    - **A resource named inside a nested query member.** `ec2:ModifyInstanceCreditSpecification`
      names its instances at `InstanceCreditSpecification.1.InstanceId`, and
@@ -139,6 +139,48 @@
      service's documentation, safe because a create has no instance to
      over-grant against. Extend the same way, an entry at a time, and only
      where the reviewer can say what the operation is about.
+
+   - **A resource the simulator has no primitive for.** AWS Glue's
+     `GetDataQualityModel`, `GetDataQualityModelResult` and
+     `PutDataQualityProfileAnnotation` name a profile, and the ruleset behind
+     it is what they authorize against — but this simulator trains no models
+     and keeps no profile record, so a ProfileId names nothing it holds. These
+     want the profile modelled before the derivation can find anything, and
+     that is a question about the Glue slice rather than about IAM.
+
+   - **A resource found only by looking it up.** This is most of what is left.
+     AWS Glue's data-quality family resolves its ruleset through the run
+     record; `iam:GetAccessKeyLastUsed` finds the user who owns a key; Amazon
+     EC2's Disassociate and Detach family resolves an association to its
+     parent. Every one is implemented and held by a direct test, and none can
+     move the ratchet as the probe stands, because the probe sends a synthetic
+     request against an empty simulator.
+
+     The seam is open and the mechanism is built.
+     `iamSeedDerivationFixtures` creates what a family resolves through by
+     calling the service's own creation handler, and the probe then names the
+     resource by the identifier the service assigned — which measures the
+     reader rather than a fixture, the distinction being that nothing writes
+     into a store. Amazon EC2's three association derivations went through it
+     first: a route table associated to a subnet, an elastic IP associated to
+     an interface, an interface attached to a machine.
+
+     AWS Glue's data-quality cluster followed through the awsJson router — a
+     recommendation run, an evaluation run and the result row it settles — and
+     took five more. Extending it is mechanical: add the creation calls a
+     family needs and key the result "<service>:<operation>:<member>", per
+     operation because two calls can name different things through the same
+     member.
+
+     `iam:GetAccessKeyLastUsed` followed, on a key created for a user the same
+     way, and AWS Systems Manager after it — which had been blocked by a defect
+     in the shared probe rather than by anything about Systems Manager. The
+     probe read the service name off the wire target by splitting on an
+     underscore, so "CodeBuild_20161006" gave "codebuild" and "AmazonSSM",
+     which carries no date, gave "amazonssm": every fill rule written for
+     "ssm" missed, and an instance-id member arrived as the literal "probe".
+     The service is passed explicitly now. Amazon ECS, AWS Glue, Amazon
+     EventBridge and WAFv2 were misread the same way.
 
    - **A resource the simulator has no primitive for.** AWS Glue's
      `GetDataQualityModel`, `GetDataQualityModelResult` and
