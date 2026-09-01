@@ -121,6 +121,16 @@ read on the bridge answered not-found for a run that was right there. CI caught
 it; the check resolves the id for whichever surface it is on, and the bridge's
 test now pins both halves.
 
+Azure's Cosmos DB data plane read back names nobody created. A database read
+and a container read each answered 200 whatever they were asked for, so a
+client was told every name it tried already existed — while the listing beside
+them enumerates only what does. Behind that was the reason: creating a database
+recorded nothing, and existence was inferred from the containers and documents
+under it, which cannot see a database created and not yet filled. The create
+records it, both reads answer for what exists — created on the data plane or
+through the management plane, which are the same database to a client — and the
+delete takes the record with it.
+
 Google Cloud's Resource Manager tag surfaces were four more of the same shape.
 `effectiveTags` answered an empty list for a resource whose binding the
 simulator holds; a tag-binding collection's PATCH returned the tags it was

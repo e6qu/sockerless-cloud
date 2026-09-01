@@ -23,6 +23,18 @@ import (
 // The azcosmos SDK (and the real REST API) create containers via the DATA plane
 // (POST /dbs/{db}/colls), not ARM, so the declared partition key lives here, not
 // in the ARM cosmosContainers store.
+// CosmosDataDB is a database created through the data plane. Existence used to
+// be inferred from the containers and documents under it, which cannot see a
+// database created and not yet filled.
+type CosmosDataDB struct {
+	Account string
+	DB      string
+}
+
+func cosmosDataDBKey(account, db string) string {
+	return account + "/" + db
+}
+
 type CosmosDataColl struct {
 	Account string
 	DB      string

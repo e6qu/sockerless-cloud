@@ -65,6 +65,16 @@ Open: 7. Resolved: 84.
   hardcoded, so it disagreed with the single read the moment that read told the
   truth; both go through one function.
 
+  Azure's Cosmos DB data plane was two more of the first kind, with one of the
+  second behind them. Reading a database or a container answered 200 for any
+  name, so a client was told every name it asked about was already there — and
+  the listing beside it enumerates only what exists, so the two contradicted
+  each other. Behind that, creating a database recorded nothing: existence was
+  inferred from the containers and documents under it, which cannot see a
+  database created and not yet filled. The create records it, the reads answer
+  for what exists (created on the data plane or through the management plane),
+  and the delete takes the record with it.
+
   Reading Google Cloud's 140 found four defects and one reason. The four are
   all in Resource Manager v3's tag surfaces and all the same shape:
   `effectiveTags` answered an empty list for a resource whose tag binding the
