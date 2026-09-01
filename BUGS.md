@@ -24,6 +24,21 @@ Open: 10. Resolved: 84.
   the budget. Raising the timeout would hide it rather than fix it: the run
   either finishes in seconds or never.
 
+  Three explanations were examined and eliminated. The Wait itself blocks on a
+  real `time.NewTimer`, so it fires or the execution aborts — it cannot silently
+  not fire. The counters the test waits on are incremented through
+  `sfnMapRuns.Update`, which is atomic, and the loop that increments them reads
+  a single channel, so two children finishing together cannot lose an
+  increment. And the finaliser that writes SUCCEEDED runs after that loop, which
+  ends only when the workers are joined and the channel closed, so it cannot
+  race the counters it is about to publish.
+
+  That last one is worth tightening anyway, whatever the cause: the finaliser is
+  a `Get`, a mutation and a `Put` on a record every other writer mutates through
+  the atomic `Update`, and it is correct only because the workers happen to be
+  joined first. Anything that ever increments after the loop would lose its
+  write silently.
+
   It is intermittent, which narrows it further. The same job passed on the very
   next commit (016665b), so this is not a configuration the runner always has —
   it is a race or a scheduling starvation that a loaded two-vCPU runner
