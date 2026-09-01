@@ -346,4 +346,34 @@ func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
 
 	_, err = runOps.Get(ctx, rg, wfName, runName, "00000000-0000-0000-0000-000000000000", nil)
 	requireAzureNotFound(t, err, "a run operation that does not exist")
+
+	// A run this workflow never had is not found, rather than answered about.
+	// These collections describe one run, so "no repetitions" for a run that
+	// does not exist tells a caller its typo produced nothing. The routes each
+	// pager drives:
+	//
+	//   GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions
+	//   GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories
+	//   GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/requestHistories
+	//   GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/scopeRepetitions
+	const noSuchRun = "08000000000000000000000000000000"
+	missingReps := repetitions.NewListPager(rg, wfName, noSuchRun, actionName, nil)
+	require.True(t, missingReps.More())
+	_, err = missingReps.NextPage(ctx)
+	requireAzureNotFound(t, err, "the repetitions of a run that does not exist")
+
+	missingScopes := scopeReps.NewListPager(rg, wfName, noSuchRun, actionName, nil)
+	require.True(t, missingScopes.More())
+	_, err = missingScopes.NextPage(ctx)
+	requireAzureNotFound(t, err, "the scope repetitions of a run that does not exist")
+
+	missingHistories := reqHistories.NewListPager(rg, wfName, noSuchRun, actionName, nil)
+	require.True(t, missingHistories.More())
+	_, err = missingHistories.NextPage(ctx)
+	requireAzureNotFound(t, err, "the request histories of a run that does not exist")
+
+	missingTraces := repetitions.NewListExpressionTracesPager(rg, wfName, noSuchRun, actionName, "000000", nil)
+	require.True(t, missingTraces.More())
+	_, err = missingTraces.NextPage(ctx)
+	requireAzureNotFound(t, err, "the expression traces of a run that does not exist")
 }

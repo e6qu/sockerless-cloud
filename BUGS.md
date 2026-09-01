@@ -43,7 +43,25 @@ Open: 7. Resolved: 84.
   model declares, because a model is trained from statistics this simulator
   does not collect. The rest of AWS's are transcriptions of published facts,
   computed echoes, or collections that are empty because nothing was observed.
-  Google Cloud's 140 and Azure's 93 are unread.
+  Azure's 93 found three more. Azure Container Registry's
+  `checknameavailability` answered `nameAvailable: true` for every name,
+  including one this simulator already holds — the operation exists so a client
+  can avoid a conflict, and answering it that way makes the create the thing
+  that tells the caller the name was taken. It reads the registries now,
+  through a name index because a registry is stored under its resource id, and
+  refuses a name the document's own pattern rejects.
+  `connectedRegistries/{name}/deactivate` answered 200 without looking the
+  connected registry up or changing anything, so the read straight after
+  contradicted it; it sets the activation status and connection state, and a
+  registry that does not exist is not found rather than reported done. And the
+  Logic Apps run details — repetitions, scope repetitions, request histories,
+  expression traces — answered an empty collection without looking the run up,
+  so a caller that mistyped a run name was told the run had no repetitions
+  rather than that it named no run.
+
+  Google Cloud's 140 are read as far as the Compute Engine disk and reservation
+  verbs, which are false positives: both mutate through a closure held in a
+  struct field, which is the marker's blind spot.
 
 - **BUG-2955 (a distributed map run does not finish on CI, and the test waits
   sixty seconds for it):** `TestSFNCLI_DistributedMapRun` failed on
