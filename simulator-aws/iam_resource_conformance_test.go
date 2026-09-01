@@ -1523,8 +1523,8 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // behaviour. The remaining associations (IAM instance profile, subnet and
 // VPC CIDR blocks) still derive nothing.
 //
-// AWS Glue's 25: the data-quality operations name a result or a run rather
-// than the ruleset they authorize against, GetDashboardUrl names a resource
+// AWS Glue's 5: the data-quality operations name a result, a run or a profile
+// rather than the ruleset they authorize against, GetDashboardUrl names a resource
 // by a bare id and a separate type member, and the rest create something
 // that has no identifier yet. The usage profiles, connection types and
 // integrations derive now — a usage profile and a connection type are
@@ -1577,7 +1577,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // Amazon EC2 Auto Scaling's 3: the tagging operations carry each target inside
 // a nested tag entry rather than under a member of its own, and the two
 // instance operations name an instance whose group the request does not carry.
-// Amazon CloudWatch's 4: three are metric operations the reference associates
+// Amazon CloudWatch's 3: three are metric operations the reference associates
 // with a dataset while the request names no dataset, and ListAlarmMuteRules
 // filters mute rules by the alarm they belong to rather than naming one.
 // Elastic Load Balancing's 4: three create an object that has no assigned
@@ -1869,7 +1869,31 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1983
+//
+// Raised to 1986 by the AWS Glue data-quality model operations, which name the
+// profile an evaluation wrote its statistics to and authorize the ruleset that
+// produced it. The result rows carried no profile id at all — a member the
+// model declares on GetDataQualityResult, and the only place the API hands one
+// out, so the three operations that take one were unreachable as well as
+// underived. The evaluation assigns it now, the result returns it, and the
+// derivation resolves it to the ruleset through an index keyed on the profile.
+// TestIAMResourceARNs_GlueProfileNamesItsRuleset pins all three and pins that
+// a profile no evaluation wrote names no ruleset.
+//
+// What is left is eight operations across two services, and both are the
+// request naming no resource rather than a reader that cannot read one.
+//
+// Amazon CloudWatch's three metric operations declare the "dataset" type while
+// GetMetricData names metric queries, ListMetrics names a namespace and
+// dimensions, and PutMetricData names a namespace and the data — no dataset in
+// any of them. AWS Glue's five: GetMLTransforms, ListMLTransforms,
+// ListDataQualityResults and ListDataQualityRuleRecommendationRuns carry a
+// filter and a page token, and a filter is not the resource it selects on —
+// reading one as a resource would authorize against something the caller only
+// asked to match; ListIntegrationResourceProperties declares four types and
+// its input is Filters, Marker and MaxRecords. Deriving a resource for any of
+// the eight means inventing the association AWS's own model does not state.
+const iamDerivationCoverageFloor = 1986
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

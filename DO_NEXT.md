@@ -53,7 +53,7 @@
    declined three times (Microsoft's runtime stacks, Google's SKU list).
 
 0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 1,983 of 1,994 on 2026-09-01.
+   is not.** 1,986 of 1,994 on 2026-09-01.
    `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
    IAMResourceDerivationCoverage -v` names every missing operation per service.
 
@@ -92,16 +92,19 @@
    nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
    an entry at a time when a new create needs it.
 
-   The 11 that remain are two shapes, and none of them is ordinary work.
-   Every other AWS service derives every operation it declares a type for.
+   The 8 that remain are one shape: the request names no resource. Every other
+   AWS service derives every operation it declares a type for.
 
-   - **A resource the request does not name at all** (7). CloudWatch's
+   - **A resource the request does not name at all** (8). CloudWatch's
      `ListMetrics`, `PutMetricData` and `GetMetricData` declare a dataset and
-     carry no dataset identifier; `ListAlarmMuteRules` declares a mute rule and
-     names the alarm the rules are on. AWS Glue's `GetMLTransforms`,
-     `ListMLTransforms` and its data-quality and integration listings are
-     filters over a collection. `"*"` is the honest answer for these and the
-     ratchet counts them as misses.
+     carry no dataset identifier. AWS Glue's `GetMLTransforms`,
+     `ListMLTransforms`, `ListDataQualityResults` and
+     `ListDataQualityRuleRecommendationRuns` carry a filter and a page token,
+     and a filter is not the resource it selects on; reading one as a resource
+     would authorize against something the caller only asked to match.
+     `ListIntegrationResourceProperties` declares four types and its whole
+     input is `Filters`, `Marker` and `MaxRecords`. `"*"` is the honest answer
+     for these and the ratchet counts them as misses.
 
      Do not try to decide the class by inspecting member names. That was built
      and measured on 2026-09-01: read the request members out of the Smithy
@@ -120,12 +123,16 @@
      class needs per-action review, which is what
      `iamCreatesItsOnlyDeclaredType` is.
 
-   - **A resource the simulator has no primitive for** (3). AWS Glue's
-     `GetDataQualityModel`, `GetDataQualityModelResult` and
-     `PutDataQualityProfileAnnotation` name a profile, and the ruleset behind
-     it is what they authorize against — but this simulator trains no models
-     and keeps no profile record. These want the profile modelled first, which is a
-     question about the Glue slice rather than about IAM.
+   The three AWS Glue data-quality model operations were the other shape and
+   are done. They name the profile an evaluation wrote its statistics to, and
+   the ruleset that produced it is what they authorize against. The result rows
+   carried no profile id at all — a member the model declares on
+   `GetDataQualityResult`, and the only place the API hands one out, so those
+   three operations were unreachable as well as underived. The evaluation
+   assigns it, the result returns it, and the derivation resolves it to the
+   ruleset through an index keyed on the profile. Only the identifier is
+   modelled: the profile's statistics would come from analysing the data
+   source, which the evaluation does not read.
 
    The measurement seam that carried most of this is closed for the readers
    that existed: `iamSeedDerivationFixtures` creates what a family resolves

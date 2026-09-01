@@ -5,7 +5,7 @@
 Three slices moved: Google Cloud 5,440 → 5,464 of 5,480 Discovery method
 spellings with `compute-v1` at 2,000 of 2,016, Azure 2,599 → 2,613 of 2,628
 Swagger operations with App Service at 677 of 692, and AWS resource-scoped
-authorization 1,881 → 1,983 of 1,994 served operations.
+authorization 1,881 → 1,986 of 1,994 served operations.
 
 The AWS figure is the one worth explaining, because almost none of it was a
 missing derivation. The coverage probe was addressing operations the way no
@@ -48,6 +48,24 @@ EC2's associations, AWS Glue's data-quality runs, an IAM access key, a
 maintenance window, an Auto Scaling group, a database cluster and proxy, a VPC
 endpoint notification and a Logs Insights query — and the readers it then
 exposed as genuinely missing were ordinary work once they could be measured.
+
+The last derivable family was AWS Glue's data-quality model operations, and
+what stood in the way was not the reader. `GetDataQualityResult` declares a
+`ProfileId` and the simulator's result rows carried none, which is the only
+place the API hands one out — so `GetDataQualityModel`,
+`GetDataQualityModelResult` and `PutDataQualityProfileAnnotation`, which take
+nothing else, were unreachable as well as underived. The evaluation assigns the
+profile now, the result returns it, and the derivation resolves it to the
+ruleset that produced it through an index keyed on the profile. Only the
+identifier is modelled: the profile's statistics would come from analysing the
+data source, which the evaluation does not read.
+
+What is left is eight operations across two services, and all eight are the
+request naming no resource. Amazon CloudWatch's three metric operations declare
+a dataset while naming a namespace, dimensions or metric queries; AWS Glue's
+five carry a filter and a page token, and a filter is not the resource it
+selects on — reading one as a resource would authorize against something the
+caller only asked to match.
 Every one of them answers from a keyed store read or a generation-keyed index,
 so the store-scan gate still counts zero full store reads on a request path.
 

@@ -159,6 +159,18 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 	assert.Equal(t, rulesetName, aws.ToString(res.RulesetName))
 	assert.Empty(t, res.RuleResults)
 
+	// The evaluation writes its statistics to a profile, and the result is the
+	// only place the API hands that identifier out — GetDataQualityModel and
+	// PutDataQualityProfileAnnotation take nothing else, so a result without
+	// one leaves them unreachable.
+	profileID := aws.ToString(res.ProfileId)
+	require.NotEmpty(t, profileID)
+	_, err = c.PutDataQualityProfileAnnotation(ctx, &glue.PutDataQualityProfileAnnotationInput{
+		ProfileId:           aws.String(profileID),
+		InclusionAnnotation: gluetypes.InclusionAnnotationValueInclude,
+	})
+	require.NoError(t, err)
+
 	batch, err := c.BatchGetDataQualityResult(ctx, &glue.BatchGetDataQualityResultInput{
 		ResultIds: []string{resultID, "missing-id"},
 	})

@@ -129,6 +129,7 @@ type GlueDQRuleRecommendationRun struct {
 // rule-result set — no fabricated metrics.
 type GlueDataQualityResult struct {
 	ResultId               string           `json:"ResultId"`
+	ProfileId              string           `json:"ProfileId,omitempty"`
 	DataSource             map[string]any   `json:"DataSource,omitempty"`
 	RulesetName            string           `json:"RulesetName,omitempty"`
 	RulesetEvaluationRunId string           `json:"RulesetEvaluationRunId,omitempty"`
@@ -657,8 +658,15 @@ func handleGlueStartDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *ht
 	resultIDs := make([]string, 0, len(req.RulesetNames))
 	for _, name := range req.RulesetNames {
 		resID := "dqresult-" + glueHashID()[:16]
+		// The profile the evaluation writes its statistics to. It is the
+		// identifier the data-quality model operations take, and the result is
+		// the only place the API hands one out — GetDataQualityModel and
+		// PutDataQualityProfileAnnotation are unreachable without it. Only the
+		// identifier is modelled: the profile's statistics come from analysing
+		// the data source, which this evaluation does not read.
 		glueDQResults.Put(resID, GlueDataQualityResult{
 			ResultId:               resID,
+			ProfileId:              glueHashID(),
 			DataSource:             req.DataSource,
 			RulesetName:            name,
 			RulesetEvaluationRunId: runID,
@@ -893,6 +901,9 @@ func glueDQResultPayload(res GlueDataQualityResult) map[string]any {
 	}
 	if res.DataSource != nil {
 		m["DataSource"] = res.DataSource
+	}
+	if res.ProfileId != "" {
+		m["ProfileId"] = res.ProfileId
 	}
 	if res.RulesetName != "" {
 		m["RulesetName"] = res.RulesetName

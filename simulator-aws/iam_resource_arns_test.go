@@ -2249,6 +2249,40 @@ func TestIAMResourceARNs_WindowExecutionNamesItsWindow(t *testing.T) {
 		"ssm:CancelMaintenanceWindowExecution", "*")
 }
 
+// A data-quality model is asked for by the profile an evaluation wrote its
+// statistics to, and AWS Glue authorizes the ruleset that produced it. The
+// profile id is one the service assigned, read back the only way a caller can
+// reach one — off the result the evaluation settled.
+func TestIAMResourceARNs_GlueProfileNamesItsRuleset(t *testing.T) {
+	_, jsonRouter, _ := buildConformanceSimulator(t)
+
+	iamFixtureJSON(t, jsonRouter, "AWSGlue.StartDataQualityRulesetEvaluationRun",
+		`{"Role":"probe","RulesetNames":["nightly-rules"],"DataSource":{}}`,
+		`"RunId"\s*:\s*"([^"]+)"`)
+	result := iamFixtureJSON(t, jsonRouter, "AWSGlue.ListDataQualityResults",
+		`{}`, `"ResultId"\s*:\s*"([^"]+)"`)
+	profile := iamFixtureJSON(t, jsonRouter, "AWSGlue.GetDataQualityResult",
+		`{"ResultId":"`+result+`"}`, `"ProfileId"\s*:\s*"([^"]+)"`)
+
+	const ruleset = "arn:aws:glue:us-east-1:123456789012:dataQualityRuleset/nightly-rules"
+	for _, target := range []string{"GetDataQualityModel", "GetDataQualityModelResult"} {
+		assertDerivedARNs(t,
+			iamGlueRequest(target, `{"ProfileId":"`+profile+`","StatisticId":"stat-1"}`),
+			"glue:"+target, ruleset)
+	}
+	assertDerivedARNs(t,
+		iamGlueRequest("PutDataQualityProfileAnnotation",
+			`{"ProfileId":"`+profile+`","InclusionAnnotation":"INCLUDE"}`),
+		"glue:PutDataQualityProfileAnnotation", ruleset)
+
+	// A profile no evaluation of this simulator wrote names no ruleset, rather
+	// than authorizing against one the request never mentioned.
+	assertDerivedARNs(t,
+		iamGlueRequest("GetDataQualityModel",
+			`{"ProfileId":"00000000000000000000000000000000","StatisticId":"stat-1"}`),
+		"glue:GetDataQualityModel", "*")
+}
+
 // A request that names its resource generically — an id beside the kind of
 // thing it is — is authorized against that resource, and only when the kind is
 // one the action declares.

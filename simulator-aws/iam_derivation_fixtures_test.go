@@ -137,6 +137,15 @@ func iamSeedDerivationFixtures(t *testing.T,
 		`{}`, `"ResultId"\s*:\s*"([^"]+)"`)
 	out["glue:GetDataQualityResult:ResultId"] = results
 
+	// The profile that evaluation wrote its statistics to, read back from the
+	// result the way a caller reaches one: the result is the only place the
+	// API hands a profile id out, and the model operations take nothing else.
+	profile := iamFixtureJSON(t, jsonRouter, "AWSGlue.GetDataQualityResult",
+		`{"ResultId":"`+results+`"}`, `"ProfileId"\s*:\s*"([^"]+)"`)
+	out["glue:GetDataQualityModel:ProfileId"] = profile
+	out["glue:GetDataQualityModelResult:ProfileId"] = profile
+	out["glue:PutDataQualityProfileAnnotation:ProfileId"] = profile
+
 	// An access key, which AWS Identity and Access Management resolves to the
 	// user it was created for — the key being the only thing the request names.
 	iamFixtureQuery(t, queryRouter, "2010-05-08", "CreateUser",

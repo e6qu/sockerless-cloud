@@ -1507,7 +1507,20 @@ var (
 	// but only by asking every window what its execution id would be, which a
 	// per-request derivation must not do a store-read at a time.
 	iamSSMWindowsByExecution sim.GenerationIndex[SSMMaintenanceWindow]
+
+	// An AWS Glue data-quality result is stored under the result's own id
+	// while the model operations name the profile the evaluation wrote to, so
+	// the result is reachable from the profile only through an index.
+	iamGlueResultsByProfile sim.GenerationIndex[GlueDataQualityResult]
 )
+
+// iamGlueResultProfileKeys names a data-quality result by the profile it wrote.
+func iamGlueResultProfileKeys(result GlueDataQualityResult) []string {
+	if result.ProfileId == "" {
+		return nil
+	}
+	return []string{result.ProfileId}
+}
 
 // iamSSMWindowExecutionKeys names a window by the execution id it answers to.
 func iamSSMWindowExecutionKeys(window SSMMaintenanceWindow) []string {
@@ -3142,6 +3155,19 @@ func iamGlueDataQualityRulesetARNs(fields map[string][]string, region, account s
 			if result, ok := glueDQResults.Get(id); ok {
 				add(result.RulesetName)
 			}
+		}
+	}
+	// A data-quality model is asked for by the profile an evaluation wrote its
+	// statistics to, and the profile belongs to the ruleset that produced it —
+	// which the result records. The result is stored under its own id, so the
+	// profile reaches it through an index rather than a scan.
+	for _, id := range fields["profileid"] {
+		if glueDQResults == nil {
+			continue
+		}
+		if result, ok := iamGlueResultsByProfile.Lookup(
+			glueDQResults, id, iamGlueResultProfileKeys); ok {
+			add(result.RulesetName)
 		}
 	}
 	return out
