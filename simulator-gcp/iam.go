@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -1232,6 +1233,23 @@ type CRMTagBinding struct {
 	TagValueNamespacedName string `json:"tagValueNamespacedName,omitempty"`
 }
 
+// CRMTagBindingCollection mirrors the cloudresourcemanager#TagBindingCollection
+// (v3) resource: the tags bound directly to one resource, addressed by that
+// resource's percent-encoded name.
+type CRMTagBindingCollection struct {
+	Name             string            `json:"name"`
+	FullResourceName string            `json:"fullResourceName,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	Etag             string            `json:"etag,omitempty"`
+}
+
+// CRMCapability mirrors the cloudresourcemanager#Capability (v3) resource: a
+// boolean toggle on a folder, whose configured value a read reports back.
+type CRMCapability struct {
+	Name  string `json:"name"`
+	Value bool   `json:"value"`
+}
+
 // CRMTagHold mirrors the cloudresourcemanager#TagHold (v3) resource.
 type CRMTagHold struct {
 	Name       string `json:"name"`
@@ -1346,6 +1364,8 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	tagValues := sim.MakeStore[CRMTagValue](srv.DB(), "crm_tag_values")
 	tagBindings := sim.MakeStore[CRMTagBinding](srv.DB(), "crm_tag_bindings")
 	tagHolds := sim.MakeStore[CRMTagHold](srv.DB(), "crm_tag_holds")
+	folderCapabilities := sim.MakeStore[CRMCapability](srv.DB(), "crm_folder_capabilities")
+	tagBindingCollections := sim.MakeStore[CRMTagBindingCollection](srv.DB(), "crm_tag_binding_collections")
 	const (
 		typeProject  = "type.googleapis.com/google.cloud.resourcemanager.v3.Project"
 		typeFolder   = "type.googleapis.com/google.cloud.resourcemanager.v3.Folder"
@@ -1987,41 +2007,106 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		sim.WriteJSON(w, http.StatusOK, crmLRO(map[string]any{}, typeEmpty, crmMetaDeleteTagBinding))
 	})
 
+	// The tags in force on a resource. This simulator models no hierarchy
+	// inheritance, so every effective tag is one bound directly to the
+	// resource asked about — which is what the bindings record. Answering an
+	// empty list for a resource that has bindings would contradict the read
+	// that created them.
+	effectiveTagsFor := func(parent string) []map[string]any {
+		out := []map[string]any{}
+		if parent == "" {
+			return out
+		}
+		bound := tagBindings.Filter(func(b CRMTagBinding) bool { return b.Parent == parent })
+		sort.Slice(bound, func(i, j int) bool { return bound[i].Name < bound[j].Name })
+		for _, b := range bound {
+			tag := map[string]any{"inherited": false}
+			if b.TagValue != "" {
+				tag["tagValue"] = b.TagValue
+			}
+			if b.TagValueNamespacedName != "" {
+				tag["namespacedTagValue"] = b.TagValueNamespacedName
+			}
+			// The key a value belongs to is the value's own parent, which the
+			// simulator holds; a namespaced value spells its key in front of
+			// the last slash.
+			if value, ok := tagValues.Get(b.TagValue); ok {
+				if value.Parent != "" {
+					tag["tagKey"] = value.Parent
+				}
+				if key, ok := tagKeys.Get(value.Parent); ok && key.NamespacedName != "" {
+					tag["namespacedTagKey"] = key.NamespacedName
+					tag["tagKeyParentName"] = key.Parent
+				}
+			}
+			out = append(out, tag)
+		}
+		return out
+	}
 	srv.HandleFunc("GET /v3/effectiveTags", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"effectiveTags": []any{}})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"effectiveTags": effectiveTagsFor(r.URL.Query().Get("parent")),
+		})
 	})
 
 	// A folder capability is a boolean feature toggle on the folder; the only
 	// modeled one is the management capability. GET reads it, PATCH returns an
 	// Operation (the API models the mutation as long-running).
+	capabilityName := func(r *http.Request) string {
+		return "folders/" + sim.PathParam(r, "folder") +
+			"/capabilities/" + sim.PathParam(r, "capability")
+	}
 	srv.HandleFunc("GET /v3/folders/{folder}/capabilities/{capability}", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"name":  "folders/" + sim.PathParam(r, "folder") + "/capabilities/" + sim.PathParam(r, "capability"),
-			"value": false,
-		})
+		name := capabilityName(r)
+		// Off is the default, and the value a PATCH set is what a read has to
+		// report: a toggle whose read always says false is a toggle nothing
+		// can turn on.
+		row, set := folderCapabilities.Get(name)
+		if !set {
+			row = CRMCapability{Name: name}
+		}
+		sim.WriteJSON(w, http.StatusOK, row)
 	})
 	srv.HandleFunc("PATCH /v3/folders/{folder}/capabilities/{capability}", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Value bool `json:"value"`
 		}
 		_ = sim.ReadJSON(r, &req)
-		cap := map[string]any{
-			"name":  "folders/" + sim.PathParam(r, "folder") + "/capabilities/" + sim.PathParam(r, "capability"),
-			"value": req.Value,
-		}
-		sim.WriteJSON(w, http.StatusOK, crmLRO(cap, "type.googleapis.com/google.cloud.resourcemanager.v3.Capability", crmMetaUpdateCapability))
+		row := CRMCapability{Name: capabilityName(r), Value: req.Value}
+		folderCapabilities.Put(row.Name, row)
+		sim.WriteJSON(w, http.StatusOK, crmLRO(row, "type.googleapis.com/google.cloud.resourcemanager.v3.Capability", crmMetaUpdateCapability))
 	})
 
 	// A tagBindingCollection is the full set of direct tag bindings on a
 	// resource, keyed by its full-resource-name and addressable in a location.
 	// GET reads it; PATCH (the only mutator) returns an Operation.
+	// A collection is addressed by the resource it belongs to, percent-encoded
+	// into the last path segment, so the resource never has to be guessed: it
+	// is decoded from the name the caller used. The tags a PATCH sets are the
+	// tags a GET reports — a collection whose read is always empty is one
+	// nothing can be written to.
+	collectionResource := func(r *http.Request) string {
+		decoded, err := url.PathUnescape(sim.PathParam(r, "collection"))
+		if err != nil {
+			return sim.PathParam(r, "collection")
+		}
+		return decoded
+	}
 	srv.HandleFunc("GET /v3/locations/{location}/tagBindingCollections/{collection}", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"name":             "locations/" + sim.PathParam(r, "location") + "/tagBindingCollections/" + sim.PathParam(r, "collection"),
-			"fullResourceName": "",
-			"tags":             map[string]string{},
-			"etag":             crmEtag(),
-		})
+		name := "locations/" + sim.PathParam(r, "location") +
+			"/tagBindingCollections/" + sim.PathParam(r, "collection")
+		row, set := tagBindingCollections.Get(name)
+		if !set {
+			row = CRMTagBindingCollection{
+				Name:             name,
+				FullResourceName: collectionResource(r),
+				Etag:             crmEtag(),
+			}
+		}
+		if row.Tags == nil {
+			row.Tags = map[string]string{}
+		}
+		sim.WriteJSON(w, http.StatusOK, row)
 	})
 	srv.HandleFunc("PATCH /v3/locations/{location}/tagBindingCollections/{collection}", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -2029,19 +2114,46 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			Tags             map[string]string `json:"tags"`
 		}
 		_ = sim.ReadJSON(r, &req)
-		coll := map[string]any{
-			"name":             "locations/" + sim.PathParam(r, "location") + "/tagBindingCollections/" + sim.PathParam(r, "collection"),
-			"fullResourceName": req.FullResourceName,
-			"tags":             req.Tags,
-			"etag":             crmEtag(),
+		resource := req.FullResourceName
+		if resource == "" {
+			resource = collectionResource(r)
 		}
+		if req.Tags == nil {
+			req.Tags = map[string]string{}
+		}
+		coll := CRMTagBindingCollection{
+			Name: "locations/" + sim.PathParam(r, "location") +
+				"/tagBindingCollections/" + sim.PathParam(r, "collection"),
+			FullResourceName: resource,
+			Tags:             req.Tags,
+			Etag:             crmEtag(),
+		}
+		tagBindingCollections.Put(coll.Name, coll)
 		sim.WriteJSON(w, http.StatusOK, crmLRO(coll, "type.googleapis.com/google.cloud.resourcemanager.v3.TagBindingCollection", crmMetaUpdateTagBindingCollection))
 	})
 	srv.HandleFunc("GET /v3/locations/{location}/effectiveTagBindingCollections/{collection}", func(w http.ResponseWriter, r *http.Request) {
+		resource := collectionResource(r)
+		// Effective tags are the ones in force: what the collection holds
+		// directly, plus what a tagBindings create bound to the same resource.
+		// No hierarchy is modelled, so nothing else is in force.
+		effective := map[string]string{}
+		direct, _ := tagBindingCollections.Get("locations/" + sim.PathParam(r, "location") +
+			"/tagBindingCollections/" + sim.PathParam(r, "collection"))
+		for key, value := range direct.Tags {
+			effective[key] = value
+		}
+		for _, tag := range effectiveTagsFor(resource) {
+			key, keyOK := tag["namespacedTagKey"].(string)
+			value, valueOK := tag["namespacedTagValue"].(string)
+			if keyOK && valueOK && key != "" && value != "" {
+				effective[key] = value
+			}
+		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"name":             "locations/" + sim.PathParam(r, "location") + "/effectiveTagBindingCollections/" + sim.PathParam(r, "collection"),
-			"fullResourceName": "",
-			"effectiveTags":    map[string]string{},
+			"name": "locations/" + sim.PathParam(r, "location") +
+				"/effectiveTagBindingCollections/" + sim.PathParam(r, "collection"),
+			"fullResourceName": resource,
+			"effectiveTags":    effective,
 		})
 	})
 }

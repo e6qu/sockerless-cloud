@@ -113,6 +113,16 @@ told the run had no repetitions rather than that it named no run. They check
 the run first; the collections are still empty for every run the simulator does
 hold, because its runs settle without recording repetitions.
 
+Google Cloud's Resource Manager tag surfaces were four more of the same shape.
+`effectiveTags` answered an empty list for a resource whose binding the
+simulator holds; a tag-binding collection's PATCH returned the tags it was
+handed and stored nothing, so the GET stayed empty; the effective collection
+reported nothing for either; and a folder capability's read always said `false`
+whatever a PATCH had set. Each answers from what the simulator already had — a
+collection is addressed by its resource's percent-encoded name, so the read
+never has to guess what it is about, and effective tags are the bound ones
+because no hierarchy is modelled to inherit from.
+
 Unregistering an Azure resource provider was the same shape once more: it
 answered `Unregistered` and stored nothing, so the very next read said
 Registered again — and that read is the one a client polls after registering.

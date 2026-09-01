@@ -361,6 +361,73 @@ func TestResourceManagerV3_TagValues(t *testing.T) {
 	require.Len(t, pol.Bindings, 1)
 }
 
+// TestResourceManagerV3_TagsInForceAreTheOnesBound drives the reads that report
+// which tags apply to a resource. Each of them answered a fixed empty answer:
+// effectiveTags for a resource with a binding, a binding collection whose
+// PATCH stored nothing, and a folder capability whose read always said false.
+// Every one of those contradicts the write that came before it.
+func TestResourceManagerV3_TagsInForceAreTheOnesBound(t *testing.T) {
+	svc := crmV3Service(t)
+
+	kop, err := svc.TagKeys.Create(&crm.TagKey{
+		Parent:    "organizations/123456789012",
+		ShortName: "inforce",
+	}).Do()
+	require.NoError(t, err)
+	keyName := crmOpResourceName(t, kop)
+
+	vop, err := svc.TagValues.Create(&crm.TagValue{Parent: keyName, ShortName: "yes"}).Do()
+	require.NoError(t, err)
+	valueName := crmOpResourceName(t, vop)
+
+	const resource = "//cloudresourcemanager.googleapis.com/projects/735298346299"
+	_, err = svc.TagBindings.Create(&crm.TagBinding{
+		Parent: resource, TagValue: valueName,
+	}).Do()
+	require.NoError(t, err)
+
+	// The tag bound a moment ago is in force on the resource it was bound to.
+	inForce, err := svc.EffectiveTags.List().Parent(resource).Do()
+	require.NoError(t, err)
+	require.Len(t, inForce.EffectiveTags, 1)
+	assert.Equal(t, valueName, inForce.EffectiveTags[0].TagValue)
+	assert.False(t, inForce.EffectiveTags[0].Inherited)
+
+	// A resource nothing was bound to has none.
+	none, err := svc.EffectiveTags.List().
+		Parent("//cloudresourcemanager.googleapis.com/projects/735298346298").Do()
+	require.NoError(t, err)
+	assert.Empty(t, none.EffectiveTags)
+
+	// A collection reports the tags it was told to hold. Its name carries the
+	// resource, percent-encoded, so the read knows what it is about.
+	collection := "locations/global/tagBindingCollections/" + url.PathEscape(resource)
+	_, err = svc.Locations.TagBindingCollections.Patch(collection, &crm.TagBindingCollection{
+		FullResourceName: resource,
+		Tags:             map[string]string{"123456789012/inforce": "yes"},
+	}).Do()
+	require.NoError(t, err)
+
+	held, err := svc.Locations.TagBindingCollections.Get(collection).Do()
+	require.NoError(t, err)
+	assert.Equal(t, resource, held.FullResourceName)
+	assert.Equal(t, map[string]string{"123456789012/inforce": "yes"}, held.Tags)
+
+	effective, err := svc.Locations.EffectiveTagBindingCollections.Get(
+		"locations/global/effectiveTagBindingCollections/" + url.PathEscape(resource)).Do()
+	require.NoError(t, err)
+	assert.Equal(t, resource, effective.FullResourceName)
+	assert.Equal(t, "yes", effective.EffectiveTags["123456789012/inforce"])
+
+	// A folder capability reports the value it was set to.
+	const capability = "folders/123456789012/capabilities/app-management"
+	_, err = svc.Folders.Capabilities.Patch(capability, &crm.Capability{Value: true}).Do()
+	require.NoError(t, err)
+	got, err := svc.Folders.Capabilities.Get(capability).Do()
+	require.NoError(t, err)
+	assert.True(t, got.Value, "a capability read must report the value a patch set")
+}
+
 // TestIAMCredentials_SignBlobAndJwt drives the two IAM Credentials signing
 // methods the way a relying party drives them: sign, then fetch the public half
 // of the named key from the IAM service-account keys surface and verify the

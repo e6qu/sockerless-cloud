@@ -65,7 +65,17 @@ Open: 7. Resolved: 84.
   hardcoded, so it disagreed with the single read the moment that read told the
   truth; both go through one function.
 
-  Reading Google Cloud's 140 found no defect and one reason: almost all of them
+  Reading Google Cloud's 140 found four defects and one reason. The four are
+  all in Resource Manager v3's tag surfaces and all the same shape:
+  `effectiveTags` answered an empty list for a resource whose tag binding the
+  simulator holds; a tag-binding collection's PATCH returned the tags it was
+  handed and stored nothing, so the GET stayed empty; the effective collection
+  reported nothing for either; and a folder capability's read always said
+  `false` whatever a PATCH had set. Each answers from what the simulator
+  already had — a collection is addressed by its resource's percent-encoded
+  name, so the read never has to guess what it is about.
+
+  The reason the rest read as they did: almost all of them
   were the marker's own blind spot. A registrar binds sibling closures —
   `patchAutokey := func(…)`, `load := func(…)` — and the handler reaches state
   only through one of them, which the walker did not follow. It follows them
