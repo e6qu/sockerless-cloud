@@ -17,13 +17,13 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v1/projects/{project}/locations/{location}/builds` | ✓ `simulator-gcp/cloudbuild_regional.go:165::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/triggers/{triggerAction}` | ✓ `simulator-gcp/cloudbuild_regional.go:184::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/webhook` | ○ `simulator-gcp/cloudbuild_regional.go:198::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/githubDotComWebhook:receive` | ○ `simulator-gcp/cloudbuild_regional.go:199::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/locations/{location}/regionalWebhook` | ○ `simulator-gcp/cloudbuild_regional.go:200::receive` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{configAction}` | ✓ `simulator-gcp/cloudbuild_regional.go:202::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate` | ✓ `simulator-gcp/cloudbuild_regional.go:249::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/builds` | ✓ `simulator-gcp/cloudbuild_regional.go:214::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/triggers/{triggerAction}` | ✓ `simulator-gcp/cloudbuild_regional.go:233::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/webhook` | ✓ `simulator-gcp/cloudbuild_regional.go:244::cbHandleSharedWebhook` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/githubDotComWebhook:receive` | ✓ `simulator-gcp/cloudbuild_regional.go:245::cbHandleSharedWebhook` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/locations/{location}/regionalWebhook` | ✓ `simulator-gcp/cloudbuild_regional.go:246::cbHandleSharedWebhook` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{configAction}` | ✓ `simulator-gcp/cloudbuild_regional.go:248::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate` | ✓ `simulator-gcp/cloudbuild_regional.go:295::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

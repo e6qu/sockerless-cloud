@@ -108,6 +108,18 @@ because 18 of the 73 answer 404 to a parent it does not create: those are
 unjudged rather than passing, and counting them as passes is how the gate would
 go quiet.
 
+The last thing that sweep had left is assembled. Cloud Build's three shared
+webhook receivers answered `Empty` and started nothing, and a trigger's own
+`:webhook` looked the trigger up and stopped there — and `Empty` is what the
+API returns on success, so the gap only showed as a build that never appeared.
+A trigger's webhook now authenticates against the secret its `webhookConfig`
+names, read out of Secret Manager rather than trusted from the request. The
+shared receivers authenticate against a configured source host's webhook key,
+read the repository and ref out of the delivery — GitHub and Bitbucket Server
+spell them differently — and start every enabled trigger watching that
+repository whose push filter admits the ref, carrying the delivery's revision
+and branch into the build's substitutions.
+
 One test was fixed rather than widened. `TestCloudRun_ExecutionRunningState`
 waited for a log marker and then read the execution once, expecting a task to
 be running — a race it loses under load, because the marker's trip through

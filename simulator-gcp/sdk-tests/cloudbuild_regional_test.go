@@ -103,10 +103,12 @@ func TestCloudBuild_RunTriggerStartsItsInlineBuild(t *testing.T) {
 	assert.Equal(t, trigger.Id, started.BuildTriggerId,
 		"the started build names the trigger that ran it")
 
-	// The trigger's webhook answers for a trigger that exists.
+	// A trigger that declares no webhookConfig has no webhook to call, so the
+	// call says so rather than answering as though it had started something.
 	_, err = svc.Projects.Locations.Triggers.Webhook(parent+"/triggers/"+trigger.Id,
 		&cloudbuild.HttpBody{}).Do()
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "declares no webhookConfig")
 
 	// And reports the absence of one that does not.
 	_, err = svc.Projects.Locations.Triggers.Run(parent+"/triggers/absent",

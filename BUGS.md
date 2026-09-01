@@ -1,19 +1,8 @@
 # BUGS
 
-Open: 4. Resolved: 89.
+Open: 3. Resolved: 90.
 
 ## Open
-
-- **BUG-2963 (a Cloud Build webhook receiver accepts a delivery and starts no
-  build):** `webhook`, `regionalWebhook` and the repository webhook receiver
-  answer `Empty` and do nothing. `Empty` is what the API returns on success, so
-  no response could tell a caller otherwise — the observable gap is that a
-  webhook-triggered build never appears. This is not an answer that misreports;
-  it is a feature not yet assembled, and assembling it means matching the
-  delivery to a trigger, verifying that trigger's secret against the delivery's
-  signature, and starting the build the trigger names with the delivery's own
-  head commit as its source. Came out of the BUG-2960 handler-state sweep,
-  which named it as the one candidate of a different kind and left it.
 
 - **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
   Three jobs failed on 2026-08-31 for the same reason, across two registries:
@@ -156,6 +145,26 @@ Open: 4. Resolved: 89.
 
 
 ## Resolved history
+
+- ~~**BUG-2963 (a Cloud Build webhook receiver accepts a delivery and starts no
+  build):**~~ `webhook`, `regionalWebhook` and `githubDotComWebhook:receive`
+  answered `Empty` and did nothing, and a trigger's own `:webhook` looked the
+  trigger up and stopped there. `Empty` is what the API returns on success, so
+  no response could tell a caller otherwise — the gap only showed as a build
+  that never appeared.
+
+  All four are assembled. A trigger's webhook authenticates against the secret
+  its `webhookConfig` names, read from Secret Manager rather than trusted from
+  the request, and starts the trigger's build; a trigger with no
+  `webhookConfig` has no webhook to call and says so. The three shared
+  receivers authenticate the delivery against a configured source host's
+  webhook key, read the repository and ref out of the event — GitHub and
+  Bitbucket Server spell them differently, and each is read where that host
+  puts it — and start every enabled trigger watching that repository whose push
+  filter admits the ref. The build carries the delivery's own revision and
+  branch or tag as `COMMIT_SHA`, `BRANCH_NAME` and `TAG_NAME`, which is where a
+  trigger's build reads what it was started for. A delivery matching no trigger
+  is not an error: it is a repository nothing is watching.
 
 - ~~**BUG-2960 (a query-protocol answer can invent the row it hands back, and
   the surface tables can already point at every candidate):**

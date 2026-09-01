@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -129,14 +130,62 @@ func cbHandleRunTrigger(w http.ResponseWriter, r *http.Request, project, locatio
 	cbWriteBuildOperation(w, project, executeCancellableBuild(r.Context(), started))
 }
 
-// cbHandleTriggerWebhook answers the webhook a trigger exposes. The response
-// carries no members, so what the caller learns is whether the trigger exists.
+// cbHandleTriggerWebhook answers the webhook a trigger exposes. The caller
+// names the trigger in the path and presents the secret the trigger declares,
+// and the trigger's build starts. The response carries no members, so what a
+// caller sees of the build is the build itself — which is exactly why
+// answering without starting one reports nothing wrong.
 func cbHandleTriggerWebhook(w http.ResponseWriter, r *http.Request, project, location, id string) {
-	if _, ok := cbTriggers.Get(buildTriggerKey(project, location, id)); !ok {
+	trigger, ok := cbTriggers.Get(buildTriggerKey(project, location, id))
+	if !ok {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %s not found", id)
 		return
 	}
+	if !cbTriggerWebhookSecretMatches(w, r, trigger) {
+		return
+	}
+	if trigger.Disabled {
+		sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+			"trigger %s is disabled", id)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"could not read the delivery: %v", err)
+		return
+	}
+	delivery, _ := cbReadWebhookDelivery(body)
+	cbStartTriggeredBuild(r, trigger, delivery)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// cbTriggerWebhookSecretMatches authenticates a trigger webhook. The trigger's
+// WebhookConfig names a Secret Manager version, and the caller presents its
+// payload as the secret query parameter — so the check reads the secret the
+// operator actually stored rather than trusting the request.
+func cbTriggerWebhookSecretMatches(w http.ResponseWriter, r *http.Request, trigger BuildTrigger) bool {
+	reference := ""
+	if trigger.WebhookConfig != nil {
+		reference, _ = trigger.WebhookConfig["secret"].(string)
+	}
+	if reference == "" {
+		sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+			"trigger %s declares no webhookConfig, so it has no webhook to call", trigger.ID)
+		return false
+	}
+	payload, err := resolveSecretManagerReference(reference)
+	if err != nil {
+		sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+			"the trigger's webhook secret %s could not be read: %v", reference, err)
+		return false
+	}
+	if presented := r.URL.Query().Get("secret"); presented != string(payload) {
+		sim.GCPErrorf(w, http.StatusUnauthorized, "UNAUTHENTICATED",
+			"the secret does not match the one the trigger declares")
+		return false
+	}
+	return true
 }
 
 func cbWriteBuildOperation(w http.ResponseWriter, project string, result Build) {
@@ -190,14 +239,11 @@ func registerCloudBuildRegional(srv *sim.Server) {
 		}
 	})
 
-	// The three webhook receivers. Each takes an HttpBody the service does not
-	// interpret without a configured source host, and answers Empty.
-	receive := func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
-	}
-	srv.HandleFunc("POST /v1/webhook", receive)
-	srv.HandleFunc("POST /v1/githubDotComWebhook:receive", receive)
-	srv.HandleFunc("POST /v1/locations/{location}/regionalWebhook", receive)
+	// The three webhook receivers a source host posts a delivery to. They
+	// differ only in the path the host was given.
+	srv.HandleFunc("POST /v1/webhook", cbHandleSharedWebhook)
+	srv.HandleFunc("POST /v1/githubDotComWebhook:receive", cbHandleSharedWebhook)
+	srv.HandleFunc("POST /v1/locations/{location}/regionalWebhook", cbHandleSharedWebhook)
 
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{configAction}",
 		func(w http.ResponseWriter, r *http.Request) {

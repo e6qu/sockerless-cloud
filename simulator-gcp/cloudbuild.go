@@ -142,6 +142,7 @@ type BuildTrigger struct {
 	SourceToBuild         map[string]any    `json:"sourceToBuild,omitempty"`
 	RepositoryEventConfig map[string]any    `json:"repositoryEventConfig,omitempty"`
 	Github                map[string]any    `json:"github,omitempty"`
+	WebhookConfig         map[string]any    `json:"webhookConfig,omitempty"`
 	Build                 *Build            `json:"build,omitempty"`
 }
 
