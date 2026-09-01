@@ -267,8 +267,13 @@ func TestACR_ConnectedRegistryDeactivateTakesEffect(t *testing.T) {
 
 	childURL := acrURL("registries/" + registryName + "/connectedRegistries/" + connected)
 	parentID := strings.SplitN(registryURL, "?", 2)[0]
+	// A connected registry's parent declares its sync properties, and those in
+	// turn declare the token they sync with and how long a message lives —
+	// what a real caller sends, because a connected registry with no sync
+	// configuration syncs with nothing.
 	runCLI(t, azRest("PUT", childURL,
-		`{"properties":{"mode":"ReadOnly","parent":{"id":"`+parentID+`"}}}`))
+		`{"properties":{"mode":"ReadOnly","parent":{"id":"`+parentID+`",`+
+			`"syncProperties":{"tokenId":"`+parentID+`/tokens/edge-token","messageTtl":"P1D"}}}}`))
 
 	runCLI(t, azRest("POST", acrURL("registries/"+registryName+
 		"/connectedRegistries/"+connected+"/deactivate"), ""))
