@@ -387,12 +387,20 @@ type RPCStatus struct {
 // proto-JSON: real run/apiv2 REST clients serialize the enum as a
 // number on PATCH (e.g. `"state": 2` for CONDITION_SUCCEEDED), so
 // enumString accepts both forms.
+// Condition carries three reason fields, each with its own enum in the
+// Discovery document. Those enums are not exhaustive for `reason`: gcloud's
+// own cancellation poller reads condition["reason"] and compares it to the
+// literal "Cancelled" (and "Stopped" for a stop), which is proof the service
+// sends values the document does not list. The simulator answers what the real
+// client expects, and the spec validator skips this field for that reason.
 type Condition struct {
 	Type               string     `json:"type"`
 	State              enumString `json:"state"`
 	Message            string     `json:"message,omitempty"`
 	LastTransitionTime string     `json:"lastTransitionTime,omitempty"`
 	Reason             string     `json:"reason,omitempty"`
+	ExecutionReason    string     `json:"executionReason,omitempty"`
+	RevisionReason     string     `json:"revisionReason,omitempty"`
 }
 
 // Operation represents a long-running operation. Kind and SelfLink are the two

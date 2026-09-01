@@ -94,7 +94,9 @@ func TestCompute_RegionalPublicDelegatedPrefixAnnounceAndWithdraw(t *testing.T) 
 	require.NoError(t, err)
 	got, err = svc.PublicDelegatedPrefixes.Get(project, region, name).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "INITIAL", got.Status)
+	// A delegated prefix's states are its own: INITIALIZING, not the
+	// advertised prefix's INITIAL.
+	assert.Equal(t, "INITIALIZING", got.Status)
 
 	// The regional prefixes are their own collection: the global ones do not
 	// see this one.

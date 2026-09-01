@@ -23,7 +23,7 @@ func TestCompute_RouterNamedSets(t *testing.T) {
 	// A named set is created by writing it: a route policy names the sets it
 	// matches against, so they have to be declarable.
 	_, err = svc.Routers.UpdateNamedSet(project, region, router, &compute.NamedSet{
-		Name: "trusted", Type: "PREFIX",
+		Name: "trusted", Type: "NAMED_SET_TYPE_PREFIX",
 		Elements: []*compute.Expr{{Expression: "10.0.0.0/8"}},
 	}).Do()
 	require.NoError(t, err)
@@ -47,7 +47,7 @@ func TestCompute_RouterNamedSets(t *testing.T) {
 	got, err = svc.Routers.GetNamedSet(project, region, router).NamedSet("trusted").Do()
 	require.NoError(t, err)
 	require.Len(t, got.Resource.Elements, 2)
-	assert.Equal(t, "PREFIX", got.Resource.Type, "a patch keeps what it did not mention")
+	assert.Equal(t, "NAMED_SET_TYPE_PREFIX", got.Resource.Type, "a patch keeps what it did not mention")
 
 	_, err = svc.Routers.DeleteNamedSet(project, region, router).NamedSet("trusted").Do()
 	require.NoError(t, err)

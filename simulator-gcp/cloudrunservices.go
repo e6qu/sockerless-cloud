@@ -51,6 +51,49 @@ func (e enumString) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(e))
 }
 
+// ingressString is the ingress-traffic enum. Like the VPC egress one beside
+// it, a client may send the proto numeric form, and the name is what a read
+// has to answer with: keeping the digits put a value in the field that the
+// enum does not declare, and no generated client can map "2".
+type ingressString string
+
+func (e *ingressString) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*e = ""
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*e = ingressString(s)
+		return nil
+	}
+	switch strings.TrimSpace(string(data)) {
+	case "0":
+		*e = "INGRESS_TRAFFIC_UNSPECIFIED"
+	case "1":
+		*e = "INGRESS_TRAFFIC_ALL"
+	case "2":
+		*e = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+	case "3":
+		*e = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+	case "4":
+		*e = "INGRESS_TRAFFIC_NONE"
+	default:
+		return fmt.Errorf("unknown ingress traffic enum %s", data)
+	}
+	return nil
+}
+
+func (e ingressString) MarshalJSON() ([]byte, error) {
+	if e == "" {
+		return []byte("null"), nil
+	}
+	return json.Marshal(string(e))
+}
+
 type vpcEgressString string
 
 func (e *vpcEgressString) UnmarshalJSON(data []byte) error {
@@ -113,7 +156,7 @@ type ServiceV2 struct {
 	LaunchStage           enumString           `json:"launchStage,omitempty"`
 	Client                string               `json:"client,omitempty"`
 	ClientVersion         string               `json:"clientVersion,omitempty"`
-	Ingress               enumString           `json:"ingress,omitempty"`
+	Ingress               ingressString        `json:"ingress,omitempty"`
 	DefaultUriDisabled    bool                 `json:"defaultUriDisabled,omitempty"`
 	InvokerIamDisabled    bool                 `json:"invokerIamDisabled,omitempty"`
 	IapEnabled            bool                 `json:"iapEnabled,omitempty"`

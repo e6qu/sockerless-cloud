@@ -156,7 +156,7 @@ func TestCompute_InterconnectGroupCreateMembers(t *testing.T) {
 
 	before, err := svc.InterconnectGroups.GetOperationalStatus(project, name).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "GROUP_STATUS_DEGRADED", before.Result.GroupStatus)
+	assert.Equal(t, "DEGRADED", before.Result.GroupStatus)
 
 	_, err = svc.InterconnectGroups.CreateMembers(project, name,
 		&compute.InterconnectGroupsCreateMembersRequest{

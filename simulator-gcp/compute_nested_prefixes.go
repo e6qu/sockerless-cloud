@@ -162,8 +162,10 @@ func registerComputeRegionalPublicDelegatedPrefixes(srv *sim.Server) {
 	// Announcing one that is already announced is refused, as is withdrawing
 	// one that was never announced — a no-op would hide the mistake.
 	for verb, want := range map[string]struct{ from, to, done string }{
-		"announce": {from: "INITIAL", to: "ANNOUNCED", done: "announced"},
-		"withdraw": {from: "ANNOUNCED", to: "INITIAL", done: "withdrawn"},
+		// A delegated prefix's states are ANNOUNCED and INITIALIZING; INITIAL
+		// belongs to the advertised prefix, whose enum is a different one.
+		"announce": {from: "INITIALIZING", to: "ANNOUNCED", done: "announced"},
+		"withdraw": {from: "ANNOUNCED", to: "INITIALIZING", done: "withdrawn"},
 	} {
 		verb, want := verb, want
 		srv.HandleFunc("POST "+base+"/{publicDelegatedPrefix}/"+verb, func(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +175,7 @@ func registerComputeRegionalPublicDelegatedPrefixes(srv *sim.Server) {
 			}
 			status, _ := prefix["status"].(string)
 			if status == "" {
-				status = "INITIAL"
+				status = "INITIALIZING"
 			}
 			if status != want.from {
 				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",

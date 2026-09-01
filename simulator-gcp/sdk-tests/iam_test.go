@@ -977,7 +977,7 @@ func TestIAM_OAuthClientCRUD(t *testing.T) {
 		&iam.OauthClient{
 			DisplayName:         "CLI Client",
 			ClientType:          "CONFIDENTIAL_CLIENT",
-			AllowedGrantTypes:   []string{"authorization_code_grant"},
+			AllowedGrantTypes:   []string{"AUTHORIZATION_CODE_GRANT"},
 			AllowedScopes:       []string{"https://www.googleapis.com/auth/cloud-platform"},
 			AllowedRedirectUris: []string{"https://example.com/callback"},
 		}).OauthClientId("cli-client").Do()

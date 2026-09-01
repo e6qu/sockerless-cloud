@@ -91,7 +91,7 @@ func TestCompute_StatusReadsReportWhatTheResourceHolds(t *testing.T) {
 	group, err := svc.InterconnectGroups.GetOperationalStatus(project, "sites").Do()
 	require.NoError(t, err)
 	require.NotNil(t, group.Result)
-	assert.Equal(t, "GROUP_STATUS_DEGRADED", group.Result.GroupStatus)
+	assert.Equal(t, "DEGRADED", group.Result.GroupStatus)
 
 	_, err = svc.InterconnectAttachmentGroups.Insert(project, &compute.InterconnectAttachmentGroup{
 		Name: "landings",
@@ -100,7 +100,7 @@ func TestCompute_StatusReadsReportWhatTheResourceHolds(t *testing.T) {
 	attachments, err := svc.InterconnectAttachmentGroups.GetOperationalStatus(project, "landings").Do()
 	require.NoError(t, err)
 	require.NotNil(t, attachments.Result)
-	assert.Equal(t, "GROUP_STATUS_DEGRADED", attachments.Result.GroupStatus)
+	assert.Equal(t, "DEGRADED", attachments.Result.GroupStatus)
 
 	// A resource that is not there has no status.
 	_, err = svc.VpnGateways.GetStatus(project, region, "absent").Do()

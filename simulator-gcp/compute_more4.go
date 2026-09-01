@@ -156,12 +156,14 @@ func registerComputeMore4(srv *sim.Server) {
 // with no members cannot carry traffic, so it is degraded rather than fully
 // available — reporting otherwise would tell a client its topology is
 // redundant when it is empty.
+// The declared values are the bare states — FULLY_UP, DEGRADED, FULLY_DOWN —
+// not the GROUP_STATUS_-prefixed spellings, which no client can map.
 func computeGroupStatus(group map[string]any) string {
 	if members, _ := group["interconnects"].(map[string]any); len(members) > 0 {
-		return "GROUP_STATUS_FULLY_UP"
+		return "FULLY_UP"
 	}
 	if members, _ := group["attachments"].(map[string]any); len(members) > 0 {
-		return "GROUP_STATUS_FULLY_UP"
+		return "FULLY_UP"
 	}
-	return "GROUP_STATUS_DEGRADED"
+	return "DEGRADED"
 }

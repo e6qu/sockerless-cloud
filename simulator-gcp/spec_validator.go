@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -37,11 +38,30 @@ type discoverySchema struct {
 	Properties           map[string]*discoverySchema `json:"properties"`
 	AdditionalProperties *discoverySchema            `json:"additionalProperties"`
 	Pattern              string                      `json:"pattern"`
+	Enum                 []string                    `json:"enum"`
 
 	// compiled memoizes Pattern so the validator does not recompile it on
 	// every response; compileOnce guards it.
 	compiled    *regexp.Regexp
 	compileOnce sync.Once
+}
+
+// discoveryEnumIsExhaustive reports whether a field's declared enum lists every
+// value the service uses. Most do. Cloud Run's condition reasons do not, and
+// the evidence is the real client: gcloud's cancellation poller reads
+// condition["reason"] and compares it to the literal "Cancelled" — and
+// "Stopped" for a stop — neither of which the document lists. Judging that
+// field against the document would fail a response the client requires, so it
+// is left unjudged rather than judged wrongly.
+func discoveryEnumIsExhaustive(fieldPath string) bool {
+	for _, incomplete := range []string{
+		".reason", ".executionReason", ".revisionReason",
+	} {
+		if strings.HasSuffix(fieldPath, incomplete) {
+			return false
+		}
+	}
+	return true
 }
 
 // patternRE returns the compiled form of a schema's declared pattern, or nil
@@ -690,6 +710,17 @@ func validateDiscoveryValue(doc *discoverySpecDoc, op string, sch *discoverySche
 		if re := sch.patternRE(); re != nil && !re.MatchString(str) {
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "pattern-mismatch", Field: path,
 				Detail: fmt.Sprintf("spec (%s) requires %s, response has %q", owner, sch.Pattern, str)})
+		}
+		// An enum names every value the service uses for that field, and
+		// Discovery lists them all — including the *_UNSPECIFIED zero value.
+		// A response outside the set is a value the service does not have: a
+		// state invented to fill the field, or a spelling nobody defined. The
+		// type check cannot see it, because an invented value is still a
+		// string.
+		if len(sch.Enum) > 0 && discoveryEnumIsExhaustive(path) && !slices.Contains(sch.Enum, str) {
+			*out = append(*out, sim.SpecViolation{Op: op, Kind: "enum-mismatch", Field: path,
+				Detail: fmt.Sprintf("spec (%s) declares %s, response has %q",
+					owner, strings.Join(sch.Enum, "|"), str)})
 		}
 	case "boolean":
 		if _, ok := v.(bool); !ok {

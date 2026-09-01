@@ -28,10 +28,14 @@ import (
 
 // Build represents a Cloud Build build resource.
 type Build struct {
-	ID               string            `json:"id"`
-	Name             string            `json:"name,omitempty"`
-	ProjectID        string            `json:"projectId"`
-	Status           string            `json:"status"`
+	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
+	ProjectID string `json:"projectId"`
+	// A trigger carries a build template, which has not run and has no status;
+	// omitting it is what the absence means. A build that has run always has
+	// one, so nothing that ran loses it — and "" is a value the enum does not
+	// declare.
+	Status           string            `json:"status,omitempty"`
 	StatusDetail     string            `json:"statusDetail,omitempty"`
 	Source           *BuildSource      `json:"source,omitempty"`
 	Steps            []*BuildStep      `json:"steps,omitempty"`

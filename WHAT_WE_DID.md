@@ -187,6 +187,30 @@ read it, rather than the describe answering without a member a client reads.
 And AWS Glue's session endpoint omitted its `AuthToken`, one of three required
 members of the endpoint it describes; it issues the session's own.
 
+Google Cloud's validator learned the enum check too, where the surface is
+largest — 1,248 Discovery properties declare one — and it found eleven. An
+interconnect group's status was `GROUP_STATUS_DEGRADED` where the document
+declares the bare `DEGRADED`; a delegated prefix used the advertised prefix's
+`INITIAL` in place of its own `INITIALIZING`; three Cloud SQL operations were
+typed `CREATE_SSL_CERT`, `DELETE_SSL_CERT` and `CREATE_BACKUP` against an enum
+of 57 values that has none of them; a Cloud Run image export reported
+`OPERATION_STATE_SUCCEEDED` and `EXPORT_JOB_STATE_SUCCEEDED` where both enums
+spell a finished job `FINISHED`; a build trigger's template carried an empty
+`status`, which a template has none of; and `ingress` came back as `"2"`,
+because the enum decoder kept the digits of the proto numeric form instead of
+the name it stands for — the VPC egress decoder beside it already mapped them.
+Three test bodies sent values of their own invention and were corrected.
+
+One family turned out not to be a defect, and the real client is why. Cloud
+Run's condition `reason` is enum-typed in the document, and the simulator
+answered `Cancelled`, `Stopped` and `NonZeroExitCode`, none of which it lists.
+Changing them broke `gcloud run jobs executions cancel`, whose own poller reads
+`condition["reason"]` and compares it to the literal `Cancelled`. That is proof
+the service sends values the document does not list, so the simulator was right
+and the document is incomplete: the changes were reverted and the validator
+leaves those three fields unjudged, with the evidence in the comment. A check
+that fails a response the real client requires is worse than no check.
+
 The AWS validator also learned to read an enum. A response value outside the
 set an enum shape declares is a value the service does not have — a status
 nobody defined, a state invented to fill a field — and the type check cannot

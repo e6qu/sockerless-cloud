@@ -57,7 +57,7 @@ func TestCloudRunV2_UploadSourceAndExportImage(t *testing.T) {
 		parent+"/services/web/revisions/web-00001", exported.OperationId).Do()
 	require.NoError(t, err)
 	assert.Equal(t, exported.OperationId, status.OperationId)
-	assert.Equal(t, "OPERATION_STATE_SUCCEEDED", status.OperationState)
+	assert.Equal(t, "FINISHED", status.OperationState)
 	require.Len(t, status.ImageExportStatuses, 1)
 
 	// An execution's export status is read the same way, through the execution

@@ -48,11 +48,13 @@ func registerCloudRunExport(srv *sim.Server) {
 		}
 		destination, _ := held["destination"].(string)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"operationId":    operationID,
-			"operationState": "OPERATION_STATE_SUCCEEDED",
+			"operationId": operationID,
+			// Both enums spell a finished job FINISHED. The
+			// *_STATE_SUCCEEDED spellings are values neither declares.
+			"operationState": "FINISHED",
 			"imageExportStatuses": []any{map[string]any{
 				"tag":            destination,
-				"exportJobState": "EXPORT_JOB_STATE_SUCCEEDED",
+				"exportJobState": "FINISHED",
 			}},
 		})
 	}

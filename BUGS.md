@@ -147,7 +147,19 @@ Open: 8. Resolved: 84.
   the check was not added there — 27 closed against 95 open in a 40-document
   sample.
 
-  Google Cloud has no equivalent of that check and should not grow one: a
+  Google Cloud's validator took the enum check, where the surface is largest —
+  1,248 Discovery properties declare one — and it found eleven, all fixed: an
+  interconnect group status, a delegated prefix's state, three Cloud SQL
+  operation types, two Cloud Run export states, an empty build-template status,
+  and `ingress` answered as the digits of the proto numeric form rather than
+  the name. One family was not a defect: Cloud Run's condition `reason` is
+  enum-typed but the enum is incomplete, which gcloud proves — its cancellation
+  poller reads `condition["reason"]` and compares it to the literal
+  "Cancelled". Those three fields are left unjudged rather than judged wrongly.
+  The lesson generalises: a Discovery enum is the best evidence available until
+  a real client contradicts it, and then the client wins.
+
+  Google Cloud has no equivalent of the required-member check and should not grow one: a
   Discovery document expresses required-ness only for requests. Its
   `annotations.required` is a list of the method ids a property is required
   *for* — `Route.destRange` carries `["compute.routes.insert"]` — and says
