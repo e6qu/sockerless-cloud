@@ -182,6 +182,19 @@ func iamSeedDerivationFixtures(t *testing.T,
 		map[string]string{}, `<DbClusterResourceId>([^<]+)</DbClusterResourceId>`)
 	out["rds:DeleteDBClusterAutomatedBackup:DbClusterResourceId"] = cluster
 
+	// A database proxy, whose default target group Amazon RDS keeps under the
+	// proxy's own name — the modify names the proxy and the group, and the
+	// group's id, which its ARN is built from, is neither.
+	iamFixtureQuery(t, queryRouter, "2014-10-31", "CreateDBProxy",
+		map[string]string{
+			"DBProxyName": "probe-proxy", "EngineFamily": "POSTGRESQL",
+			"RoleArn":                  "arn:aws:iam::" + iamProbeAccount + ":role/probe",
+			"Auth.member.1.AuthScheme": "SECRETS",
+			"VpcSubnetIds.member.1":    subnet,
+		}, `<DBProxyName>([^<]+)</DBProxyName>`)
+	out["rds:ModifyDBProxyTargetGroup:DBProxyName"] = "probe-proxy"
+	out["rds:ModifyDBProxyTargetGroup:TargetGroupName"] = "default"
+
 	// A maintenance window, named by the execution id AWS Systems Manager
 	// derives from it — which is all a cancellation carries.
 	window := iamFixtureJSON(t, jsonRouter, "AmazonSSM.CreateMaintenanceWindow",

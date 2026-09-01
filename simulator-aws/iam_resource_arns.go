@@ -1895,6 +1895,23 @@ func iamGlueResourceARNs(r *http.Request, types []string, region, account string
 	// is what records which one that was. So the ruleset is resolved through
 	// the simulator's own state: the derived ARN is the ruleset the run
 	// actually used, not one inferred from the request.
+	// A dashboard is asked for by the resource it is about, which the request
+	// names generically: an id beside the kind of thing it is. The kind has to
+	// be one the action declares, because a request naming something else is
+	// not about a resource this call authorizes.
+	if kinds := fields["resourcetype"]; len(kinds) > 0 {
+		for _, id := range fields["resourceid"] {
+			resourceType := strings.ToLower(kinds[0])
+			if id == "" || !iamHasType(types, resourceType) {
+				continue
+			}
+			format, declared := iamResourceARNFormats["glue:"+resourceType]
+			if !declared {
+				continue
+			}
+			return []string{iamFillARNFormat(format, region, account, []string{id})}
+		}
+	}
 	if iamHasType(types, "dataQualityRuleset") {
 		if arns := iamGlueDataQualityRulesetARNs(fields, region, account); len(arns) > 0 {
 			return arns

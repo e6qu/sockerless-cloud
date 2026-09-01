@@ -2248,3 +2248,31 @@ func TestIAMResourceARNs_WindowExecutionNamesItsWindow(t *testing.T) {
 			`{"WindowExecutionId":"00000000-0000-0000-0000-000000000000"}`),
 		"ssm:CancelMaintenanceWindowExecution", "*")
 }
+
+// A request that names its resource generically — an id beside the kind of
+// thing it is — is authorized against that resource, and only when the kind is
+// one the action declares.
+func TestIAMResourceARNs_AGenericKindMustBeADeclaredOne(t *testing.T) {
+	t.Run("the kind decides what the id names", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDashboardUrl",
+				`{"ResourceId":"sess-42","ResourceType":"session"}`),
+			"glue:GetDashboardUrl", "arn:aws:glue:us-east-1:123456789012:session/sess-42")
+	})
+
+	t.Run("a kind the action does not declare names nothing", func(t *testing.T) {
+		// GetDashboardUrl declares only the session. A request naming a job is
+		// not about a resource this call authorizes, and authorizing the job
+		// would grant past what was asked.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDashboardUrl",
+				`{"ResourceId":"nightly","ResourceType":"job"}`),
+			"glue:GetDashboardUrl", "*")
+	})
+
+	t.Run("an id with no kind beside it names nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDashboardUrl", `{"ResourceId":"sess-42"}`),
+			"glue:GetDashboardUrl", "*")
+	})
+}

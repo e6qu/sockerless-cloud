@@ -1191,6 +1191,10 @@ func iamProbeMemberValue(service, name, arnValue string) string {
 	if service == "ssm" && (lower == "instanceid" || lower == "instanceids" || lower == "target") {
 		return "i-0123456789abcdef0"
 	}
+	if service == "glue" && lower == "resourcetype" {
+		// The kind of thing a dashboard is asked for, as the caller names it.
+		return "session"
+	}
 	if service == "autoscaling" && lower == "resourcetype" {
 		// The only kind of resource Auto Scaling tags.
 		return "auto-scaling-group"
@@ -1801,7 +1805,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // authorizing against those would grant far past what was asked.
 // TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule and both
 // halves of the limit.
-const iamDerivationCoverageFloor = 1970
+const iamDerivationCoverageFloor = 1972
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and
