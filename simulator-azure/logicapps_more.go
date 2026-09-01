@@ -261,10 +261,19 @@ func handleLogicEmptyList(w http.ResponseWriter, _ *http.Request) {
 // its request histories, its expression traces — are answers about that run,
 // and answering "none" for a run that does not exist tells a caller its typo
 // produced nothing rather than that it named nothing.
+//
+// Two surfaces reach these handlers and they key the same run store
+// differently: the standalone Microsoft.Logic workflow, and the App Service
+// site's hostruntime bridge, whose routes carry a siteName and build the id
+// from it. Looking one up with the other's id finds nothing, and every detail
+// read on the bridge would answer not-found for a run that is right there.
 func logicRunMissing(w http.ResponseWriter, r *http.Request) bool {
 	id := logicWorkflowRunID(
 		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
 		sim.PathParam(r, "workflowName"), sim.PathParam(r, "runName"))
+	if sim.PathParam(r, "siteName") != "" {
+		id = webWorkflowRunID(r)
+	}
 	if _, ok := logicRuns.Get(id); ok {
 		return false
 	}

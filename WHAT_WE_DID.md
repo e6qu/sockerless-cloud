@@ -113,6 +113,14 @@ told the run had no repetitions rather than that it named no run. They check
 the run first; the collections are still empty for every run the simulator does
 hold, because its runs settle without recording repetitions.
 
+Those detail handlers serve two surfaces, and the two key the same run store
+differently: the standalone Microsoft.Logic workflow, and the App Service
+site's hostruntime bridge, whose routes carry a siteName and build the id from
+it. The first cut of the check used the Logic id everywhere, so every detail
+read on the bridge answered not-found for a run that was right there. CI caught
+it; the check resolves the id for whichever surface it is on, and the bridge's
+test now pins both halves.
+
 Google Cloud's Resource Manager tag surfaces were four more of the same shape.
 `effectiveTags` answered an empty list for a resource whose binding the
 simulator holds; a tag-binding collection's PATCH returned the tags it was
