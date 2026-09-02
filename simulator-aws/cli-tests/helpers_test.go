@@ -356,9 +356,11 @@ func shutdownSimulator(cmd *exec.Cmd) {
 func waitForHealth(url string) error {
 	client := &http.Client{Timeout: 2 * time.Second}
 	// Registration creates every persistent store table before the listener
-	// binds; with synchronous=FULL SQLite on a loaded hosted disk that DDL
-	// phase alone has measured ~25 seconds, so the budget covers it with
-	// headroom while still failing loudly.
+	// binds. That DDL phase used to measure ~25 seconds on a loaded hosted
+	// disk under synchronous=FULL SQLite, which fsynced every CREATE TABLE
+	// commit individually; synchronous=NORMAL (see shared/db.go) dropped that
+	// substantially, but the deadline stays generous so the wait fails loudly
+	// on a genuinely stuck listener rather than a merely loaded host.
 	deadline := time.Now().Add(120 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
