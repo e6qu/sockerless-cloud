@@ -288,6 +288,11 @@ func TestGlueConnectionTypeCLI(t *testing.T) {
 	assert.Equal(t, ctName, desc.ConnectionType)
 	assert.NotEmpty(t, desc.Capabilities.SupportedAuthenticationTypes)
 
+	// The catalogue of connection types Glue supports. Its brief types the name
+	// as the ConnectionType enum, so a registered custom connector — which
+	// takes a free-form name — cannot appear in it. `--no-paginate` is not
+	// passed: the CLI follows the token itself, which is how a client reads a
+	// list longer than a page.
 	out = runCLI(t, awsCLI("glue", "list-connection-types"))
 	var listCT struct {
 		ConnectionTypes []struct {
@@ -295,13 +300,12 @@ func TestGlueConnectionTypeCLI(t *testing.T) {
 		} `json:"ConnectionTypes"`
 	}
 	parseJSON(t, out, &listCT)
-	foundCT := false
+	published := map[string]bool{}
 	for _, b := range listCT.ConnectionTypes {
-		if b.ConnectionType == ctName {
-			foundCT = true
-		}
+		published[b.ConnectionType] = true
 	}
-	assert.True(t, foundCT)
+	assert.True(t, published["SALESFORCE"], "the catalogue lists the types Glue supports")
+	assert.False(t, published[ctName], "a registered custom connector is not one of them")
 
 	const conn = "glue-cli-conntype-conn"
 	runCLI(t, awsCLI("glue", "create-connection",

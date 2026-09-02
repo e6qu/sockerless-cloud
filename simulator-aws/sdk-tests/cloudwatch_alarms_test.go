@@ -45,13 +45,21 @@ func TestCloudWatch_MetricAlarms(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{"sdk-alarm"}})
-	require.NoError(t, err)
-	require.Len(t, out.MetricAlarms, 1)
-	a := out.MetricAlarms[0]
+	// A new alarm starts in INSUFFICIENT_DATA and reaches ALARM when CloudWatch
+	// evaluates it against the breaching datapoint — the transition is the
+	// service's, so it is waited for rather than expected of the create.
+	var a cwtypes.MetricAlarm
+	require.Eventually(t, func() bool {
+		out, err := client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{"sdk-alarm"}})
+		require.NoError(t, err)
+		if len(out.MetricAlarms) != 1 {
+			return false
+		}
+		a = out.MetricAlarms[0]
+		return a.StateValue == cwtypes.StateValueAlarm
+	}, 30*time.Second, 25*time.Millisecond, "value 5 > threshold 0 → ALARM")
 	assert.Equal(t, "sdk-alarm", aws.ToString(a.AlarmName))
 	assert.Contains(t, aws.ToString(a.AlarmArn), ":alarm:sdk-alarm")
-	assert.Equal(t, cwtypes.StateValueAlarm, a.StateValue, "value 5 > threshold 0 → ALARM")
 	assert.Equal(t, "GreaterThanThreshold", string(a.ComparisonOperator))
 	assert.InDelta(t, 0, aws.ToFloat64(a.Threshold), 0.001)
 
@@ -75,10 +83,11 @@ func TestCloudWatch_MetricAlarms(t *testing.T) {
 		TreatMissingData:   aws.String("notBreaching"),
 	})
 	require.NoError(t, err)
-	okOut, err := client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{"sdk-alarm-ok"}})
-	require.NoError(t, err)
-	require.Len(t, okOut.MetricAlarms, 1)
-	assert.Equal(t, cwtypes.StateValueOk, okOut.MetricAlarms[0].StateValue)
+	require.Eventually(t, func() bool {
+		okOut, err := client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{"sdk-alarm-ok"}})
+		require.NoError(t, err)
+		return len(okOut.MetricAlarms) == 1 && okOut.MetricAlarms[0].StateValue == cwtypes.StateValueOk
+	}, 30*time.Second, 25*time.Millisecond, "no data + notBreaching → OK")
 
 	// DeleteAlarms removes them.
 	_, err = client.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{"sdk-alarm", "sdk-alarm-ok"}})

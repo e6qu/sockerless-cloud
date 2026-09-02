@@ -1,5 +1,852 @@
 # WHAT WE DID
 
+## 2026-09-01, forty-fifth pass — Amazon S3 Object Lambda, control plane and all
+
+Amazon S3's `WriteGetObjectResponse` was the one operation in the vendored S3
+model without a handler, and the reason was real: it is the callback an AWS
+Lambda transformation function makes to return an object through S3 Object
+Lambda, and the access points it answers behind are managed by `s3control`,
+which was not a vendored slice. Serving the callback alone would have
+acknowledged writes nothing could ever read back.
+
+The whole loop is served now. `s3control` is vendored, standard S3 access
+points and Object Lambda access points are real resources, and a GetObject
+addressed to an Object Lambda access point by its ARN hands the transformation
+function a route token and the URL of the stored object, invokes it over the
+simulator's own Lambda, and returns exactly what the function posts back
+through `WriteGetObjectResponse`. The stored object is never served instead: a
+function that returns without writing produces an error, and a write on a route
+nobody is waiting on is refused. The SDK test proves it end to end — the caller
+receives the uppercased body the function produced and the `Content-Type` the
+function forwarded, while a direct read of the bucket still returns the
+original bytes.
+
+Making that work needed one coordinate the function containers had been
+missing. A function that calls an AWS service resolves its endpoint from
+`AWS_ENDPOINT_URL`; in real Lambda that is unset and the SDK finds the regional
+host, but here the services live in the simulator, so a function container is
+now given the address it can reach the simulator on — the same host its Runtime
+API already arrives on. The function's own environment still wins.
+
+Vendoring `s3control` brought its other 57 operations with it, and every one is
+served rather than exempted:
+
+- **S3 Batch Operations** jobs read their manifest object out of S3 and really
+  apply their operation to each entry — Lambda invocation, object tagging and
+  untagging, copy, legal hold — and report how many tasks succeeded and failed.
+  A job created with `ConfirmationRequired` waits until `UpdateJobStatus` moves
+  it to Ready, and a job that already finished refuses to move at all.
+- **S3 Access Grants**: the account's instance, the locations it manages behind
+  a role that must exist, and the grants inside them. `GetDataAccess` matches
+  the caller's grant by the most specific scope and vends credentials by
+  assuming the location's role through the same STS path any `AssumeRole`
+  takes, so the credentials it returns authenticate on the S3 surface. An
+  instance with grants or locations still in it will not delete.
+- **Storage Lens** configurations and groups, stored as the client composed
+  them and returned unchanged, with their tags.
+- **Multi-Region Access Points**, whose create, delete and policy write are
+  asynchronous: each returns a request token, and polling
+  `DescribeMultiRegionAccessPointOperation` is where the caller learns whether
+  it succeeded. Traffic dials start even and move where
+  `SubmitMultiRegionAccessPointRoutes` puts them.
+- **Access point scopes**, and the **regional** and **directory-bucket**
+  listings.
+
+Three gates got sharper on the way through, each because it had gone quiet
+about something real:
+
+- The model-drift gate matched an operation name as a bare substring, so
+  `DeleteBucketLifecycleConfiguration` marked `DeleteBucketLifecycle` as
+  implemented the moment the longer name appeared. It now requires the name to
+  end where the operation's name ends.
+- The route-existence gate treated a plain simulator label where the model has
+  a greedy one as an offense in every case. That is right when the label's
+  value can contain a `/` and wrong when it cannot — a Multi-Region Access
+  Point name matches `^[a-z0-9][-a-z0-9]{1,48}[a-z0-9]$`, so the model's greedy
+  label spans one segment however it is written, and Go's mux cannot place a
+  greedy label before more path anyway. The gate now reads the label's own
+  pattern and accepts a plain label only where a slash is impossible.
+- The runtime spec validator identified a restXml operation from the mux
+  pattern alone, so an Object Lambda read — the object key as the whole path,
+  on the access point's own host — validated as `ListObjects` and reported its
+  `text/plain` body as malformed XML. It now resolves a host-addressed data
+  plane by what it serves, and checks the read as `GetObject`.
+
+Two more defects came out of verifying it. A cancelled Cloud Build stopped the
+docker CLI and not the build: `exec.CommandContext` kills, and `docker buildx`
+only tells buildkit to stop when the CLI unwinds on an interrupt — and a killed
+CLI can leave a child holding the output pipe, so the call that started the
+build blocks after the process is gone. Every docker invocation a build step
+makes now interrupts on cancel and bounds the unwind with `WaitDelay`. And the
+S3 control plane's shared tagging trio was unserved, which the Terraform
+provider found the moment it read a bucket's tags through `s3control`.
+
+The new surface carries the full testing contract: SDK, AWS CLI, and a
+Terraform fixture that applies a bucket, an access point, an Object Lambda
+access point over a real transformation function, a Storage Lens dashboard, and
+an Access Grants instance with a location and a grant — then destroys them in
+dependency order. Reaching it needed one harness addition: every s3control
+operation is addressed by account id as a modeled host prefix, so the provider
+builds and signs a host that an IP-literal endpoint cannot resolve. The fixture
+routes through the simulator as a proxy, which changes where the bytes land and
+nothing about the request — the same coordinate substitution the CLI suite
+already uses for Cloud Map's data plane.
+
+The handler-state sweep that has run for several passes closed with the one
+check it was missing. A Discovery document expresses required-ness only for
+requests, and per method: a property carries `annotations.required` listing the
+method ids it is required *for*. Nothing verified that the simulator refuses a
+request omitting one, and the response validators cannot see it — they can only
+judge fields that are present.
+`TestRequestsMissingARequiredPropertyAreRefused` drives all 73 across the
+corpus with the property left out and requires a refusal. It found two:
+Cloud Storage's bucket and managed-folder `setIamPolicy` each stored a policy
+with no bindings, and neither they nor their `getIamPolicy` looked the bucket
+or folder up — a read of a bucket nobody created minted and persisted a default
+policy for it. The probe carries a floor for how much of the corpus it reaches,
+because 18 of the 73 answer 404 to a parent it does not create: those are
+unjudged rather than passing, and counting them as passes is how the gate would
+go quiet.
+
+The last thing that sweep had left is assembled. Cloud Build's three shared
+webhook receivers answered `Empty` and started nothing, and a trigger's own
+`:webhook` looked the trigger up and stopped there — and `Empty` is what the
+API returns on success, so the gap only showed as a build that never appeared.
+A trigger's webhook now authenticates against the secret its `webhookConfig`
+names, read out of Secret Manager rather than trusted from the request. The
+shared receivers authenticate against a configured source host's webhook key,
+read the repository and ref out of the delivery — GitHub and Bitbucket Server
+spell them differently — and start every enabled trigger watching that
+repository whose push filter admits the ref, carrying the delivery's revision
+and branch into the build's substitutions.
+
+One test was fixed rather than widened. `TestCloudRun_ExecutionRunningState`
+waited for a log marker and then read the execution once, expecting a task to
+be running — a race it loses under load, because the marker's trip through
+Cloud Logging can outlast the container's hold and the read then finds an
+execution that has already settled. Its own comment recorded the previous
+attempt at this, widening the hold from ten seconds to thirty; it failed again
+at thirty. It watches for the running snapshot now instead of sampling for it,
+and an execution that settles without ever reporting one fails explicitly —
+which is the thing the test is actually for.
+
+The console user interface was a whole dependency tree nothing checked. Every
+other class in this repository — Go modules, Terraform providers, GitHub
+Actions, workflow Go tools — is held to its newest release that has cleared the
+24-hour adoption quarantine, and the four `package.json` files were simply
+outside that, so they drifted by however long nobody happened to look.
+`scripts/check-latest-deps.sh` grew an npm class that checks them the same way,
+against npm's own publication metadata, and it found drift `bun outdated` does
+not report: a `^4.1.0` range *admits* 4.3.3, so bun calls it current while the
+declared floor rots. Everything the tree can take is on its newest adoptable
+release now — React, React Router, TanStack Query, Fluent, Cloudscape,
+Playwright, Vite, Vitest, Turbo and the rest.
+
+Three are held, each because the newer release breaks something here and not
+because nobody looked, with the evidence in `ui/README.md` and the reason
+printed by the gate itself. `@fluentui/react-components` is pinned at 9.74.5:
+9.74.6 and later fail every Azure console test with "tabster does not provide
+an export named createTabster", and tabster 8.8.0 is the newest release and
+does export it — the break is in Fluent's own build. `@tanstack/react-table`
+stays on 8.x because v9 is an API redesign rather than a version bump.
+`typescript` stays on 5.x because TypeScript 7 rejects the side-effect CSS
+imports every console entry point makes. Each was found by taking the newer
+version, watching what failed, and bisecting — not by assuming.
+
+Updating knip with the rest of the tree turned its gate red, and the gate said
+nothing about why: `out=$(npx knip)` under `set -e` aborts the script at the
+assignment, before a line of reporting runs, so CI showed exit 1 and no output.
+It captures the status now, and a knip that exits non-zero with nothing to say
+is reported as knip itself failing rather than passed over. It also runs with
+`--no-config-hints`, because a hint is not a finding — knip prints one per
+package for the .css extension, and any output at all read as failure, so the
+gate could not have passed however clean the code was.
+
+What the newer knip found was real: three barrel files re-exported names
+nothing imports through them. Every consumer of `GcpTabs`, `NAV_GROUPS`,
+`AzureTableErrorRow` and the rest takes them from the defining module directly —
+nineteen importers of `GcpTabs`, none through the barrel — so the re-export
+lines were dead. They are gone, the names stay exported where they are defined,
+and a negative control confirms the gate reports a re-added dead export instead
+of dying mute.
+
+Two CI-only failures from the previous push are fixed. The new S3 control-plane
+Terraform suite timed out at its deadline on CI and passed in forty seconds
+locally: CI runs the terraform jobs behind the HTTPS gateway, whose wildcard
+certificate covers one label of `*.aws.sockerless.localhost`, and an
+account-id host prefix adds a second — `123456789012.s3-control.aws.sockerless.localhost`
+is a name nothing resolves and no certificate covers, so the provider retried
+it until the deadline rather than failing. A fixture whose operations carry a
+modeled host prefix now declines the gateway and reaches the simulator through
+the proxy coordinate instead, which is the same substitution and needs no
+certificate. Reproduced and confirmed both ways: with the gateway on and
+without the opt-out it hangs to the deadline, with the opt-out it passes in
+twenty-six seconds.
+
+And the dependency-freshness gate reported two Terraform fixtures as drift when
+the registry simply would not answer for them — every other fixture read the
+same provider in the same run. An unreadable registry is not evidence of a
+stale pin. It retries three times now and, if the registry is still
+unreachable, says that rather than reporting drift.
+
+BUG-42 was re-read against the machine rather than against its own entry, and
+the entry was wrong in both halves. It said the macOS harness skips the shared
+azurerm stack; it does not — it re-executes inside the privileged Linux test
+container and applies the stack for real, as far as the virtual machine. It
+said the cause is that the Podman machine exposes no nested virtualisation; it
+does. `/dev/kvm` is in that container, Firecracker starts an instance, and the
+console shows a guest kernel running through initcalls with its root disk
+enumerated — and then stopping, with no userspace, no address and no panic. A
+gate on KVM was written for the old explanation and removed again when the
+evidence came in: it could never have fired, and a check that cannot bite is
+worse than none. The entry now carries the console evidence and the next thing
+to check — the host is aarch64 where CI's runner is amd64, and a kernel that
+mounts root and then produces nothing is what an architecture-mismatched
+userspace looks like.
+
+The repository moved to Go 1.26, which is what the dependency tree had started
+requiring. Bumping `google.golang.org/api` to v0.296.0 pulls three
+opentelemetry-operations-go modules whose releases declare `go >= 1.26.0`, and
+every workflow pinned Go 1.25 — so the build passed on a laptop running 1.26
+and failed every CI job that touched the workspace. Holding the three one
+release back was the stopgap; taking the toolchain forward is the fix, and the
+holds are gone with it. The workflows, `go.work` and the three simulator
+container images all pin 1.26 now. The same discipline caught a `go.work`
+directive an earlier `go get` had raised on its own: a repository builds on the
+Go its CI runs, and a local toolchain ahead of it will not say so.
+
+Two GitHub Actions left the workflow. The runner downloads every action a
+workflow references before it evaluates any step's condition, so an action one
+job uses is fetched by all forty-six — which is the standing half of BUG-56,
+the half the incident evidence did not explain away. `hashicorp/setup-terraform`
+became a pinned, checksum-verified download of the release archive, and
+`oven-sh/setup-bun` became a composite action in this repository, already on
+disk from the checkout. Both were installing a floating version; both pin one
+now. What ci.yml references from outside is down from seven actions to four.
+
+A third defect surfaced from the same corner and had been open as an
+unexplained CI flake: a Step Functions distributed map run that never finished.
+`simGo` drops the work it is handed once a background drain has begun — right
+for work that outlives its request, and fatal for a fan-out the caller joins.
+A dropped worker left the map's feed blocked on a channel nobody read; a
+dropped feed left the collector blocked on a channel nobody closed. Goroutines
+the caller joins go through `simJoinedGo` now, counted like any other work and
+never dropped, and five more call sites of the same shape moved with it — a
+Task state waiting on its own result, the AWS Lambda Runtime API sidecar's
+listener, the container watch a Lambda invoke waits on, and both halves of the
+Elastic Load Balancing TLS proxy's stream copy.
+
+Re-vendoring the drifted models brought a new AWS surface with it, and the
+conformance ratchets refused to let it pass unserved: Amazon Kinesis Data
+Streams grew a channels family — a managed delivery of one or more streams'
+records into Amazon S3 or S3 Tables. All five operations are served over real
+state. A channel exists only over streams and a service execution role that
+exist, it delivers to exactly one destination, an update may change only what
+that destination has, and the listing's stream filter selects on the streams a
+channel actually reads. Resource-derivation coverage rose with the refreshed
+service references, from 1,986 to 2,000 of 2,008 served operations; the eight
+that remain are the same eight the floor comment already names, where the
+request carries no resource to derive.
+
+Two divergences the validator's own dimensions caught are fixed rather than
+allowlisted: Azure's `partnerRegistrations` create answered 201 where its
+Swagger declares 200 and 202, and the s3-control deletes answered 204 where the
+model declares 200 — every one of them except the two Storage Lens group
+operations, which declare 204 and answer it.
+
+## 2026-08-31 to 2026-09-01, forty-fourth pass — the probe was measuring the wrong thing
+
+Three slices moved: Google Cloud 5,440 → 5,466 of 5,480 Discovery method
+spellings with `compute-v1` at 2,002 of 2,016, Azure 2,599 → 2,613 of 2,628
+Swagger operations with App Service at 677 of 692, and AWS resource-scoped
+authorization 1,881 → 1,986 of 1,994 served operations.
+
+The AWS figure is the one worth explaining, because almost none of it was a
+missing derivation. The coverage probe was addressing operations the way no
+client does, so readers that already worked measured as absent. Each service's
+probe filled its ARN-valued members with one ARN chosen for the whole service —
+an action about something else was therefore addressed with an ARN naming a
+resource it is not about. That ARN was rendered by filling only the first
+variable its format declares, so a WAFv2 web ACL came out `probe/webacl//`. And
+the probe could express a scalar, a list of scalars and a structure and nothing
+else, so a list of structures and a map both arrived as bare strings — which is
+how a service spells a batch, with the identifier inside the element or in the
+key. Every probe now builds its ARN from the action's own declared type,
+renders the whole format, and sends both batch shapes; Amazon DynamoDB and
+Amazon EventBridge go through the shared probe rather than their own flat ones.
+Nine of AWS Glue's operations and four of WAFv2's needed no production change
+at all.
+
+Two more probe defects came out of the same seam, and each had been written up
+as something else first. The shared awsJson probe read its service name off the
+wire target by splitting on an underscore, which works for
+"CodeBuild_20161006" and silently does not for "AmazonSSM": the whole word
+became the service, every rule written for "ssm" missed, and a member wanting
+an instance id got the literal "probe". Amazon ECS, AWS Glue, Amazon
+EventBridge and WAFv2 were misread the same way. And the probe filled every
+inner member of a structure with a scalar, so a member the model declares as a
+list arrived as a string — a body nothing accepts, which is why AWS Systems
+Manager's access request measured as absent against a reader that refuses it
+correctly. The service is passed explicitly now and the shape loader records
+each inner member's kind.
+
+The larger correction was to a claim made in this repository's own notes: that
+the operations resolving an identifier to what it belongs to could not move the
+ratchet, because seeding the probe would measure the fixture. Half of that is
+right — writing rows into a store measures a fixture — and half is wrong.
+Creating the resource through the service's own creation handler and probing
+the derivation against it measures the reader, which is what every SDK test
+here already does. `iamSeedDerivationFixtures` does that, and the probe names
+each resource by the identifier the service assigned back. It recovered Amazon
+EC2's associations, AWS Glue's data-quality runs, an IAM access key, a
+maintenance window, an Auto Scaling group, a database cluster and proxy, a VPC
+endpoint notification and a Logs Insights query — and the readers it then
+exposed as genuinely missing were ordinary work once they could be measured.
+
+The last derivable family was AWS Glue's data-quality model operations, and
+what stood in the way was not the reader. `GetDataQualityResult` declares a
+`ProfileId` and the simulator's result rows carried none, which is the only
+place the API hands one out — so `GetDataQualityModel`,
+`GetDataQualityModelResult` and `PutDataQualityProfileAnnotation`, which take
+nothing else, were unreachable as well as underived. The evaluation assigns the
+profile now, the result returns it, and the derivation resolves it to the
+ruleset that produced it through an index keyed on the profile. Only the
+identifier is modelled: the profile's statistics would come from analysing the
+data source, which the evaluation does not read.
+
+A purchase that sold nothing was fixed, and the machinery that finds its kind
+was written down. `PurchaseReservedCacheNodesOffering` accepted any offering
+id, ignored it, and answered with terms of its own — `cache.t3.micro`, `redis`,
+`0.018` an hour — whatever was asked for, and stored nothing, so the
+reservation it reported could never be read back. The offerings a read answers
+with and the offerings a purchase can be made against are one table now, a
+reservation carries that offering's terms, it is stored and readable, and an id
+no offering answers to is refused the way the service refuses one.
+`scripts/classify-sim-handlers.go` marks the handlers that answer without
+reaching state, and the surface tables carry the marker. Reading Google Cloud's
+140 found no defect and one reason: almost all were the marker's own blind
+spot. A registrar binds sibling closures — `patchAutokey := func(…)`,
+`load := func(…)` — and the handler reaches state only through one of them,
+which the walker did not follow. It follows them now, scoped to the enclosing
+function so two files' `load` cannot be resolved against each other, and the
+marker fell from 341 registrations to 286. Reading them is the work list; the
+marker narrows it but does not judge it, and a ✓ means only that the handler
+reaches state, never that its answer was built from what it read.
+
+Reading AWS's found one more. `GetDataQualityModel` answered SUCCEEDED for any
+profile id, which says a model was trained and is ready to read — and the very
+next call, `GetDataQualityModelResult`, returned an empty model. A model is
+trained from the statistical history an evaluation collects over time, which
+this simulator does not collect, so no profile has one: both operations answer
+`EntityNotFoundException`, the error the model declares for them, and a profile
+no evaluation wrote is not found rather than answered for. The annotations went
+the same way — `PutDataQualityProfileAnnotation` recorded a judgement about any
+id it was handed, and the batch form now reports an unknown profile as the
+entry that failed, which is what its per-entry channel is for.
+
+The tests moved with it: the SDK and CLI suites obtain a profile by running an
+evaluation and reading it off the result, the way a caller has to, rather than
+naming one that never existed.
+
+Azure's list found two more of the same kind. Azure Container Registry's
+`checknameavailability` answered "available" for every name, including one the
+simulator already held — a check exists so a client can avoid a conflict, and
+answering it that way leaves the create to deliver the news. It reads the
+registries now, through a name index because a registry is stored under its
+resource id, and refuses a name the document's own pattern rejects. And
+`connectedRegistries/{name}/deactivate` answered 200 without looking anything
+up or changing anything; it sets the activation status and connection state,
+and a connected registry that does not exist is not found rather than reported
+done. Its test runs through `az rest`, because the operation is a preview
+surface the pinned Go management SDK does not expose and the CLI does.
+
+Azure's Logic Apps run details went the same way. The repetitions, scope
+repetitions, request histories and expression traces of a run answered an empty
+collection without looking the run up, so a caller that mistyped a run name was
+told the run had no repetitions rather than that it named no run. They check
+the run first; the collections are still empty for every run the simulator does
+hold, because its runs settle without recording repetitions.
+
+Those detail handlers serve two surfaces, and the two key the same run store
+differently: the standalone Microsoft.Logic workflow, and the App Service
+site's hostruntime bridge, whose routes carry a siteName and build the id from
+it. The first cut of the check used the Logic id everywhere, so every detail
+read on the bridge answered not-found for a run that was right there. CI caught
+it; the check resolves the id for whichever surface it is on, and the bridge's
+test now pins both halves.
+
+Azure Container Registry's `listLogSasUrl` handed out a link to the logs of any
+run id, including one nobody scheduled, and the endpoint that link points at
+answers 404 — so the action reported a log that is not there. It checks the run
+now. It deliberately does not check the registry resource: scheduling a run
+does not require one either, and holding the link to a stricter rule than the
+run itself would refuse a link to a log that is there.
+
+Azure's Cosmos DB data plane read back names nobody created. A database read
+and a container read each answered 200 whatever they were asked for, so a
+client was told every name it tried already existed — while the listing beside
+them enumerates only what does. Behind that was the reason: creating a database
+recorded nothing, and existence was inferred from the containers and documents
+under it, which cannot see a database created and not yet filled. The create
+records it, both reads answer for what exists — created on the data plane or
+through the management plane, which are the same database to a client — and the
+delete takes the record with it.
+
+Cloud Dataflow's `templates:get` answered a fixed "Word Count" template for
+whatever `gcsPath` it was handed, describing a template nobody staged. A
+template is a file in Cloud Storage, and its metadata is the sibling
+`<template>_metadata` that Dataflow's own tooling writes beside it — both the
+caller's, both in a bucket this simulator serves. It reads them now: a path
+nothing was staged at is not found, and a template staged without metadata
+answers without any rather than with a name invented for it. The test stages
+one first, which is what a caller does before launching.
+
+Google Cloud's Resource Manager tag surfaces were four more of the same shape.
+`effectiveTags` answered an empty list for a resource whose binding the
+simulator holds; a tag-binding collection's PATCH returned the tags it was
+handed and stored nothing, so the GET stayed empty; the effective collection
+reported nothing for either; and a folder capability's read always said `false`
+whatever a PATCH had set. Each answers from what the simulator already had — a
+collection is addressed by its resource's percent-encoded name, so the read
+never has to guess what it is about, and effective tags are the bound ones
+because no hierarchy is modelled to inherit from.
+
+Unregistering an Azure resource provider was the same shape once more: it
+answered `Unregistered` and stored nothing, so the very next read said
+Registered again — and that read is the one a client polls after registering.
+Registration is recorded per subscription now, as the exception rather than the
+rule, and registering clears it. The subscription-scoped provider listing built
+its own answer with the state hardcoded, so it disagreed with the single read
+the moment that read began telling the truth; both go through one function.
+
+The AWS response validator learned the one omission it could not see. It
+checked every field a response carries — the type, the pattern, whether the
+model declares it at all — and nothing about a field the response leaves out,
+because a walk over the keys that are there cannot see the ones that are not. A
+member the model marks required and the response omits is a wire break: a
+generated client dereferences it without checking. Across the whole AWS SDK
+suite that found four:
+
+`ValidateStateMachineDefinition` omitted `diagnostics` when the definition was
+valid — no diagnostics is a list of none, not an absent list. Amazon ECS threw
+away a capacity provider's auto scaling group ARN on every update, because
+`AutoScalingGroupProviderUpdate` carries only the settings that can change and
+the simulator stored it over the whole provider; the update's members are
+merged now, so the provider that comes back is still attached to its group.
+Application Auto Scaling's scalable targets carried no `RoleARN` unless the
+caller passed one — and the model's own documentation says what the service
+does instead: it uses a service-linked role, creating it if it does not exist.
+So the register creates one, through this account's IAM where a caller can then
+read it, rather than the describe answering without a member a client reads.
+And AWS Glue's session endpoint omitted its `AuthToken`, one of three required
+members of the endpoint it describes; it issues the session's own.
+
+Blob soft delete stopped being two settings. The ARM
+`blobServices/default` resource's `deleteRetentionPolicy` and the data-plane Set
+Blob Service Properties document are two APIs onto one configuration in Azure,
+and here they were independent stores — so a client that enabled soft delete the
+way an operator does, through `azurerm_storage_account`'s
+`blob_properties.delete_retention_policy`, got a permanent delete and a
+point-in-time restore with nothing to bring back. The policy lives in one place
+now, the document a blob delete consults; the ARM write puts it there and keeps
+no copy, and the ARM read renders it from there. Two stores kept in step would
+have been the same divergence with more code.
+
+A fourth dimension went in and mostly confirmed what was already right: a
+success status the model does not declare. Azure's Swagger lists response codes
+per operation, and the validator had been falling back to the `default` — the
+error shape — when a response's code was not among them, so an undeclared
+success code was neither reported nor its body checked. Both shards came back
+clean, and the check now holds them there.
+
+AWS's needed two corrections before it could be trusted. Its restXml path
+returned early on an empty body, which is exactly where a status matters — a
+delete modelled 204 carries nothing else — so the code is checked before the
+body and the body only when there is one. And Smithy defaults an omitted
+`code` to 200, which is the absence of a statement rather than one: only an
+explicit code is evidence. With both, five responses disagreed with their
+models. One was a real defect — PUT Object tagging answered 204 where both the
+trait and the service say 200 — and the other four were the model being wrong
+about Amazon S3, which answers 204 to PutBucketPolicy and PutBucketTagging and
+202 to a restore it starts. Those are recorded in
+`specs/cloud-api/aws/s3.supplement.json`, the mechanism this repository already
+uses for a model stricter than the service it describes: the correction pins
+the code it replaces, carries its evidence, and keeps the status checked
+against what S3 really sends rather than stopping the check.
+
+Google Cloud's validator learned the enum check too, where the surface is
+largest — 1,248 Discovery properties declare one — and it found eleven. An
+interconnect group's status was `GROUP_STATUS_DEGRADED` where the document
+declares the bare `DEGRADED`; a delegated prefix used the advertised prefix's
+`INITIAL` in place of its own `INITIALIZING`; three Cloud SQL operations were
+typed `CREATE_SSL_CERT`, `DELETE_SSL_CERT` and `CREATE_BACKUP` against an enum
+of 57 values that has none of them; a Cloud Run image export reported
+`OPERATION_STATE_SUCCEEDED` and `EXPORT_JOB_STATE_SUCCEEDED` where both enums
+spell a finished job `FINISHED`; a build trigger's template carried an empty
+`status`, which a template has none of; and `ingress` came back as `"2"`,
+because the enum decoder kept the digits of the proto numeric form instead of
+the name it stands for — the VPC egress decoder beside it already mapped them.
+Three test bodies sent values of their own invention and were corrected.
+
+One family turned out not to be a defect, and the real client is why. Cloud
+Run's condition `reason` is enum-typed in the document, and the simulator
+answered `Cancelled`, `Stopped` and `NonZeroExitCode`, none of which it lists.
+Changing them broke `gcloud run jobs executions cancel`, whose own poller reads
+`condition["reason"]` and compares it to the literal `Cancelled`. That is proof
+the service sends values the document does not list, so the simulator was right
+and the document is incomplete: the changes were reverted and the validator
+leaves those three fields unjudged, with the evidence in the comment. A check
+that fails a response the real client requires is worse than no check.
+
+The AWS validator also learned to read an enum. A response value outside the
+set an enum shape declares is a value the service does not have — a status
+nobody defined, a state invented to fill a field — and the type check cannot
+see it, because an invented value is still a string. Six across the suites:
+
+AWS Systems Manager reported an inventory attribute's type as `STRING` where
+the enum spells it `string`. A CodeBuild build batch ended on a phase typed
+`COMPLETED`, which is a Build's terminal phase and not a batch's — a batch ends
+on the outcome, `SUCCEEDED`, `FAILED` or `STOPPED`. A CodeBuild webhook was
+`NORMAL`, which is not one of `ACTIVE`, `CREATING`, `CREATE_FAILED`,
+`DELETING`. And three optional enum-typed members were sent as the empty string
+when nothing set them — a budget notification's threshold type and state, a
+pull-through cache rule's upstream registry, a dev endpoint's worker type —
+where the absence is the answer.
+
+The seventh was AWS Glue's `ListConnectionTypes`, which listed the connection
+types a caller had registered. That listing is the catalogue Glue supports and
+its brief types the name as the ConnectionType enum, so a registered custom
+connector — which takes a free-form name and describes back as one — cannot
+appear in it. The catalogue is now the 92 names the vendored model declares, a
+transcription like the Lambda runtime images; the rest of a brief is AWS's own
+copy, which this simulator does not have and does not invent, and every one of
+those members is optional.
+
+Azure's validator learned the same check, and it found seven more of the same
+kind — all of them a response leaving out something the simulator holds. The
+Azure Container Registry tag listing omitted the registry and, on every tag,
+when it was pushed; it also reported the changeable attributes hardcoded open,
+so a tag whose attributes had been patched listed as though they had not, while
+the single-tag read beside it answered correctly from the store. A Logic Apps
+workflow version described a resource in no region, because a workflow hosted
+on an App Service site was stored without one — a site-hosted workflow is in
+the site's region, and the snapshot carries it now. The Log Analytics and
+Application Insights metadata documents named neither the resource id nor the
+region of the workspace or component they describe, both of which the ARM
+resource records; each is reached through an index on the id the data plane
+addresses it by, because a read of one row must not walk the store. And two API
+Management contracts were storable without what they require: a schema with no
+document, and a subscription with no scope — a subscription to nothing. Both
+are refused, and the child registrar now carries each type's required
+properties, taken from the vendored definitions.
+
+Three Google Discovery documents were re-vendored, which the freshness check
+had been asking for: `iam-v1` and `redis-v1` at revision 20260828 and
+`firestore-v1` at 20260826. Both of the first two were inherited drift — the
+scheduled run finds them on main, which belongs to no branch, so it has nowhere
+to put the refresh and asks whichever pull request is open to carry it. The IAM
+document grew three methods, the SCIM tenant IAM verbs on a workforce pool
+provider, and the simulator already serves all three through the shared
+resource-policy store; its lock moved 266 → 272 with coverage still complete.
+
+The freshness check itself had a hole that failed this branch's CI: it fires
+three probes at each Discovery endpoint back to back with no timeout and no
+backoff, so one throttling window took all three of Firestore's and turned
+"could not check" into a build failure. A failed probe now waits, and waits
+longer each time; a probe that succeeds costs nothing. The probes exist to
+sample the several revisions Google serves concurrently, and spacing them
+samples better as well as more reliably.
+
+Both remaining-gap properties are now gates rather than observations. The
+coverage floors count unserved operations without caring why, so a gap that
+stopped declaring itself — a route that went away and now answers the mux's
+404, or one the probe can no longer address — would hold the count and lose the
+declaration, and a client cannot tell a routing 404 from a resource that does
+not exist. `TestServiceConformance_GCPUnservedMethodsDeclareThemselves` and
+`TestServiceConformance_AzureUnservedOperationsDeclareThemselves` fail on any
+unserved operation answering something other than a 501; each was checked
+against a removed route before being trusted.
+
+What is left is eight operations across two services, and all eight are the
+request naming no resource. Amazon CloudWatch's three metric operations declare
+a dataset while naming a namespace, dimensions or metric queries; AWS Glue's
+five carry a filter and a page token, and a filter is not the resource it
+selects on — reading one as a resource would authorize against something the
+caller only asked to match.
+Every one of them answers from a keyed store read or a generation-keyed index,
+so the store-scan gate still counts zero full store reads on a request path.
+
+What did change behind it: a create resolves its type when the action declares
+its inputs alongside what it mints, so `ec2:CreateVpc` authorizes against
+`vpc/*` rather than `"*"`; an ARN the request carries names the resource
+wherever the service nests it, accepted only when it matches a format one of
+the action's declared types publishes, so a KMS key beside a web ACL never
+becomes what the call is authorized against; a DynamoDB batch authorizes every
+table it touches; WAFv2 reads the collection its operation's name carries
+wherever in the name it appears; Amazon ECS authorizes a command execution
+against its sandbox; a Systems Manager change calendar is read as the document
+it is; five AWS Identity and Access Management delegation operations and a role
+template read the members that name them; cancelling an EC2 import picks
+between an image and a snapshot import task from the id's own prefix; and a
+create whose type says the same words in another order is recognised as the
+thing it mints, which is how `RequestSpotFleet` reaches its spot-fleet-request.
+
+Azure served App Service's Resource Health metadata at all four scopes, the
+migration of a site's in-app MySQL database — answered with the Operation the
+document declares and the absolute Location header a client polls it through —
+an App Service Environment pool's metric definitions, and the
+migration of a site's content into an Azure Files share. All four had answered
+a declared 501, and in each
+case the reason given argued for an answer rather than a refusal: the metric
+definitions' own stated reason was that the simulator publishes no series for a
+pool, which is what an empty collection says. Only the fields that are
+genuinely Microsoft's are withheld — a resource-health category comes from a
+policy file this project does not vendor, so it is absent rather than invented.
+The content migration's reason was of a different kind again: these sites are
+served out of a container image rather than out of a share, which is a
+primitive the simulator lacks rather than data it would have to invent, and
+what a caller can observe of the operation is the one thing it does hold.
+
+Google Cloud also served a project's reliability risks, on the distinction the
+declinations had been eliding. A catalogue is a published set that exists
+whether or not anyone asks — interconnect locations, preconfigured WAF
+expression sets — and answering one emptily would be a false statement. A risk is something an analysis detected about this project, so an
+empty collection says none was detected, which is true of a simulator that runs
+no analysis. It is the same reading that already lets an App Service site's
+recommendations answer empty.
+
+Google Cloud also served the licence code itself, which had been declined as
+Google's catalogue and is not one when the licence is a project's own. Compute
+Engine assigns the code on insert — it is output only on the License, and the
+simulator was omitting it, so `licenseCodes.get` had nothing to answer from and
+the code a caller needs to attach a licence to an image was never handed out.
+The insert issues it, the licence carries it, and the read projects the licence
+onto the LicenseCode shape: the alias is that licence's URL and description,
+and the retention and attachment rules are the ones the licence itself states
+rather than defaults answered on its behalf. A code this project was never
+issued is not found, which is what a read of something that does not exist
+says. The policy a project puts on a code is unchanged and still needs no
+licence behind it: the binding is the caller's own.
+
+Google Cloud also served a project's enrolment in Compute Engine's preview
+features. Which features exist is Google's to say and is not vendored here, so
+a feature's description — which the document marks output only — is left out;
+what a project has done about a feature is the caller's own, written by the
+update and handed back by the read, and the listing is the features this
+project has spoken for rather than a catalogue the simulator does not have.
+
+Google Cloud also served a Cloud Interconnect's MACsec configuration, which had
+been declined as hardware telemetry beside the link diagnostics. It is not: the
+keychain is the caller's own, written onto the interconnect the simulator
+already holds, and the operation returns it with the key name and key the
+service generates for each entry — which is work the operation does, not a
+dataset Google publishes. They are derived from the interconnect and the key so
+that reading the configuration twice hands back the same keychain. The
+diagnostics beside it stay declined, because link status and LACP state really
+are read off equipment at both ends.
+
+Google Cloud served Compute Engine's three host methods, which had been a mux
+miss: no route matched them at all, the one class of gap that is neither served
+nor declared. A host is one machine of a reservation's capacity, derived the
+way its blocks, sub-blocks and slots already are. Discovery puts the
+association — a path naming a reservation, one of its blocks, or one of that
+block's sub-blocks — inside a single parameter declared without reserved
+expansion, so a client sends it as one escaped segment and no per-segment
+pattern can name it. The zone subtree is mounted multi-segment and routes its
+own tail, the way the Cloud Spanner instance family already does, answering a
+method not found for every tail it does not own.
+
+CI stopped failing on base images it already had. Every job that runs a
+simulator's containers — both AWS jobs, the `sim` matrix, the Terraform stacks
+and the race shards — warms from an `actions/cache` tarball through
+`scripts/warm-base-images.sh`, sharing one entry per cloud keyed on the image
+set itself, so the set is fetched once for the whole workflow rather than once
+per job. The two AWS jobs had been the gap: they are separate jobs from the
+`sim` matrix, which holds no AWS entry, and their two hand-written
+pull-with-backoff steps are the same fetch the script performs. Pullers ask
+`ImageInspect` before reaching for the network, in all three simulators as well
+as in the tests — a host that has exhausted its anonymous data allowance
+refuses the manifest check as readily as the layers, so a warmed cache alone
+did not help.
+
+The set is read out of the source by `scripts/base-images-for.sh` rather than
+restated in the workflow, and it reads the whole tree and more than Go: a
+Terraform suite keeps one Go file per stack in a subdirectory and names the
+workload image in the stack's HCL, which a flat Go-only scan saw as neither.
+The AWS Lambda runtime table is the one source that cannot be read literally —
+it maps thirty runtime identifiers to images, and one arrives only when a suite
+invokes a function on that runtime — so `scripts/lambda-runtime-images-for.sh`
+resolves it from the identifiers the suites name against the table itself,
+which is four images rather than thirty. AWS Amplify composed its compute image
+tag out of the runtime name, which no scan can read and which answered for
+versions the service does not offer; it maps the two it serves.
+
+## 2026-08-31, forty-third pass — the declared tails, served
+
+The three slices were carried toward their declared totals one document at a
+time, and the numbers are the record: Google Cloud 5,363 → 5,440 of 5,480
+Discovery method spellings, with `compute-v1` at 1,976 of 2,016 and
+`dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1` and
+`redis-v1` each complete; Azure 2,521 → 2,573 of 2,628 Swagger operations, with
+App Service at 663 of 692 and no silent gap left in that document, and the
+Azure Container Registry data plane complete at 29 of 29, Azure Storage at 49
+of 49, both Event Grid documents, Microsoft.Compute's provider surface, the Log
+Analytics shared keys, the Application Insights data plane, the instance
+metadata service, the resource-scoped log query and Application Insights'
+features and pricing — leaving App Service the only Azure document with
+anything unserved, and every one of those declaring its reason.
+
+Two of the pass's own instruments were wrong and were corrected before the work
+they measured. The Google Cloud coverage probe rendered a greedy
+`{+parentResource}` label as a single path segment, reporting whole collections
+unserved that were mounted and answering; it now substitutes a sibling method's
+shape for a shapeless label, and a unit test pins the predicate so the fix
+cannot widen again. The Azure coverage report named only its totals, so the
+next operation to serve could be read off nothing but a deliberately broken
+floor; it now names every unserved operation and the address it was probed at.
+
+App Service recommendations went in at all three scopes — subscription, App
+Service Environment and site — as 13 of their 15 operations. What each answers
+follows from the simulator running no advisory engine: the lists and the
+histories are empty, because nothing has been observed about any site and an
+invented advisory would be worse than none; the filters are the client's own
+decisions and are recorded against the scope until they are reset. The two
+rule-detail reads answer a declared 501, because a `RecommendationRule` is
+Microsoft's published advisory copy — display name, portal message, blade link
+— which this project does not vendor.
+
+Whether an app can be cloned went in the same way, computed rather than
+declared: App Service clones an app only from a Premium or Isolated plan, so
+the plan the site is placed on decides the result, and a deployment slot — which
+a clone does not copy — makes the result partial. A slot asked directly is
+answered for by its production site's plan, because a slot carries none of its
+own. The six ResourceHealthMetadata spellings beside it declare a 501: the
+operation defines its category as the one the resource matches in Microsoft's
+Resource Health Check policy file, and matching a site against a policy this
+project does not vendor would be fabrication.
+
+A component's billing plan now decides what it is entitled to. The Enterprise
+plan carries continuous export and the higher burst and the Basic one does not,
+so the capabilities are a read of the plan rather than a fixed answer; the
+available features are the plans the component could move to with the one it is
+on marked, a choice rather than a published price list; and the quota status
+compares the telemetry the application actually wrote against the cap the
+component set.
+
+The Application Insights data plane went in whole. An application's telemetry
+is the log store its workload writes into — the same store Log Analytics
+queries, addressed by app id instead of workspace id — so the query, the events
+and the metrics all read through the one engine and all move when the
+application writes. Only one of its ten operations had counted as served, and
+that one answered a fixed empty result set and ignored the query it was given:
+served, and fake.
+
+Beside it, the instance metadata service now attests the instance it is asked
+on and names the tenant its managed identity belongs to. The attestation is a
+real signature over the instance's identity and the caller's nonce, made with
+the simulator's own signing key; the coordinate difference from Azure, whose key
+chains to a Microsoft root, is which key a verifier trusts, not whether the
+document is signed. And the log query is servable by resource id as well as by
+workspace, intercepted rather than routed because a resource id is an ARM path
+of no fixed depth — enumerating its shapes would have meant registering invented
+paths, which the route-validity gate said so.
+
+The probe needed one correction to see that last one honestly: it addressed a
+parameter the specification marks as a whole resource path with a single
+synthetic segment, which is not an address any client sends, so an operation
+that answers was reported unserved. It builds a real resource id now.
+
+Four more documents closed on provider-level reads. Microsoft.Compute's action
+catalog is the provider's own surface derived from the vendored documents and
+held to that derivation by a test, so a re-vendor that adds an operation fails
+until the catalog names the action it needs; its per-location usage is counted
+from the machines and cores the subscription actually holds there. A Log
+Analytics workspace's shared keys became the workspace's own pair, minted on
+first use — they had been a constant, which made the regeneration that was
+being added unobservable. And an extension topic is derived from the scope
+asked about, naming the system topic whose source is that resource.
+
+That last one needed the coverage probe corrected first. An Azure Resource
+Manager scope is normally marked `x-ms-skip-url-encoding`, because it is a
+resource ID whose slashes must survive; Event Grid's `extensionTopics` declares
+a bare `scope` without it, so the probe addressed a whole resource ID as one
+synthetic segment and reported an operation that answers as unserved. A leading
+parameter named `scope` followed by the literal `providers` is a scope by
+construction, and the predicate says so now — pinned by a unit test, because the
+wider rule would have treated ordinary leading parameters as resource IDs.
+
+A storage account's migrations and its point-in-time blob restore each change
+the account or its blobs rather than reporting that they would. A
+customer-initiated migration moves the account to the SKU it names, so the
+account reports that SKU afterwards; the hierarchical-namespace migration turns
+the namespace on, and its validation request deliberately does not; and a
+blob-range restore takes the blobs in the ranges it covers back to the instant
+it names — one deleted after that instant comes back, one written after it goes
+away, because neither had happened yet. A blob records those times to the
+second, which is the precision of the header they ride in, so the restore point
+is compared at the same precision; a nanosecond comparison placed every deletion
+in the current second before the restore point and restored nothing.
+
+Testing that turned up a divergence filed as BUG-1700: blob soft delete is one
+setting in Azure with two APIs onto it, and two independent stores here, so a
+client that enables it through Azure Resource Manager gets container soft delete
+and permanent blob deletions.
+
+The Azure Container Registry data plane's properties APIs describe what a
+registry holds: the manifests it stores, the tags pointing at them, the size of
+each manifest document, the platform its image config declares, and when it was
+pushed — the shared OCI store stamps that now, because a registry knows when it
+received a manifest. The one thing they add is the four changeable attributes a
+client sets, which the data plane then honours: a tag or a repository with
+deletion disabled is refused, and deleting a tag leaves the manifest addressable
+by digest rather than removing it.
+
+Nine operations went in for that, and only five of them had been counted as
+missing. The other four had counted as *served* while answering a bare 404: the
+GET handler on the shared `/acr/v1` path served the tag list and fell through
+for everything else, and the probe reads any answer as an answer. That is the
+phantom coverage the Google Cloud gate was built for, found on the Azure side by
+reading the handler rather than trusting the number.
+
+A site's performance counters went in from the same source the instance
+statistics and the diagnostics samples already read: the container engine's
+own resource-usage reading for the workload behind the site. A site with
+nothing running is measuring nothing and reports no counters, rather than a set
+of zeroes that would claim a measurement was taken. The generated client caught
+the shape on the first run — a `PerfMonResponse` carries a single `PerfMonSet`,
+not a list of them.
+
+That closed the last silent gap in App Service. All 29 operations the document
+still declares unserved now answer a 501 naming what is missing: Microsoft's
+runtime-stack catalogue and its Resource Health Check policy file, the App
+Service Environment metric series and outbound-endpoint catalogue, the
+recommendation rule details, the effective php.ini of a PHP worker that does
+not run here, the in-app MySQL and content-share migrations there is nothing to
+migrate for, and the process dumps that would have to come from `/proc` inside
+the container. Ten of them used to miss the router outright and answer a bare
+404, which reads as "no such API" rather than "this API exists and its data is
+not vendored".
+
+Four Compute Engine verbs recorded a machine state without moving the machine,
+and all four now move it. `instances.startWithEncryptionKey` set `RUNNING` in
+the store and booted nothing; `suspend` and `resume` did the same in both
+directions; and `instances.bulkInsert` wrote a whole run of instances with no
+network interface, no disks and no boot, then called them running. Linux CI
+caught the first — it reads an instance's status back from the machine — and
+macOS never could, because those tests are capability-skipped there.
+`bulkInsert` was invisible even on Linux, because its own test was the one in
+the family that was not capability-gated; it now builds every member of the run
+through the same function `instances.insert` builds one with, boots each machine
+behind the operation the caller polls, and its test is gated like the rest, so
+a real host proves the run is three attached, running machines rather than three
+records shaped like them.
+
+That last distinction also retired a claim this repository had been making
+about itself. `DO_NEXT.md` said nothing in the App Service tail was
+implementable from what the simulator can observe; recommendations disproved
+it, and the item now records the corrected split, naming the families that have
+not yet been examined rather than filing them under a blanket refusal.
+
 ## 2026-08-30, forty-second pass — the project describes itself
 
 Sockerless Cloud read as a component of the repository that consumes it: the

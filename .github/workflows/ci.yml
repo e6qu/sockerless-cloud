@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - name: Install golangci-lint
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - name: Install script check tools
@@ -260,7 +260,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - uses: actions/cache@v6.1.0
@@ -304,8 +304,23 @@ jobs:
             suite: sdk
           - cloud: gcp
             suite: cli
+          # The Azure SDK suite is split the same way, and for the same reason:
+          # at 681 seconds of test time across 537 tests it reached a
+          # fourteen-minute step allowance whose inner deadline is already at
+          # thirteen minutes, and a run that overshoots is cancelled rather
+          # than reported. The split is by cost rather than by count, because
+          # the cost is not spread evenly over the alphabet: the names
+          # beginning with A — the resource-move family and the PostgreSQL
+          # flexible-server tests — are 346 seconds on their own, and every
+          # other letter together is 335.
           - cloud: azure
             suite: sdk
+            shard: A
+            run: '^TestA'
+          - cloud: azure
+            suite: sdk
+            shard: B-Z
+            run: '^Test[B-Z]'
           - cloud: azure
             suite: cli
             shard: A-M
@@ -319,9 +334,39 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # These suites run real containers, and the ECR Public Gallery caps
+      # anonymous requests by data volume — a cap no retry recovers from.
+      # Caching the images means the common case makes no registry request at
+      # all, and the simulator's own puller asks the engine before the registry,
+      # so a warmed image costs nothing even when a test starts it repeatedly.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       # Simulator runs mutate the restored guest rootfs as root. Restore the
       # immutable seed produced by the dedicated Firecracker job, but never
       # archive the test-mutated tree from a matrix job.
@@ -440,10 +485,10 @@ jobs:
           sudo env "PATH=$PATH" "HOME=$HOME" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
-            make sdk-test
-        # Now the SDK suite owns the whole job: give the step headroom over the
-        # inner go-test deadline (SDK_TEST_TIMEOUT, 13m) so the Cosmos-heavy
-        # Azure suite fails with a named Go stack rather than an opaque step kill.
+            make sdk-test ${{ matrix.run && format('SDK_TEST_ARGS="-run ''{0}'' ./..."', matrix.run) || '' }}
+        # Headroom over the inner go-test deadline (SDK_TEST_TIMEOUT, 13m) so a
+        # suite that overruns fails with a named Go stack rather than an opaque
+        # step kill.
         timeout-minutes: 14
       - name: Run CLI tests
         if: matrix.suite == 'cli'
@@ -491,7 +536,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - uses: actions/cache/restore@v6.1.0
@@ -566,51 +611,36 @@ jobs:
           sudo apt-get clean
           df -h
         timeout-minutes: 3
-      # Pre-pull the DynamoDB Local differential oracle so the timed test run
-      # below doesn't spend its budget on the image fetch (the differential test
-      # checks the local image store before pulling). DynamoDB Local is the
-      # reference oracle for the TestDynamoDB_DifferentialVsLocal sweep.
-      - name: Pull DynamoDB Local (differential oracle)
-        # TestDynamoDB_DifferentialVsLocal lives in the data shard.
-        if: matrix.suite == 'data'
-        # A registry answering "toomanyrequests" is telling us to wait, not that
-        # the image is unavailable — the same signal a client is expected to
-        # back off on. Anonymous pulls share a per-address budget with every
-        # other runner on the same egress, so one throttled attempt is not a
-        # verdict. Retry with widening backoff and fail loudly if the budget
-        # never frees up.
+      # These suites run real containers — the DynamoDB Local differential
+      # oracle, the alpine workload a Batch job runs, the database engines the
+      # Amazon RDS data plane starts — and the registry caps anonymous requests
+      # by data volume, which no retry recovers from. The warm sits after the
+      # prune above because that step deletes every image on the host.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
         run: |
-          set -o pipefail
-          image=public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local:latest
-          for attempt in 1 2 3 4 5; do
-            if docker pull "$image"; then exit 0; fi
-            delay=$((attempt * 15))
-            echo "pull attempt $attempt failed; retrying in ${delay}s" >&2
-            sleep "$delay"
-          done
-          echo "could not pull $image after 5 attempts" >&2
-          exit 1
-        timeout-minutes: 6
-      - name: Pull the Batch job image (workload container)
-        # TestBatch_JobSubmitDescribe_SDK runs a real container from
-        # public.ecr.aws; a pull inside the timed test run has failed on a
-        # registry token timeout ("context deadline exceeded" fetching the
-        # auth token), which surfaced as the job FAILED rather than as what it
-        # was — the network. Same retry/backoff contract as the DynamoDB
-        # oracle pull above.
-        if: matrix.suite == 'services-a-m'
+          images="$(bash scripts/base-images-for.sh simulator-aws | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
         run: |
-          set -o pipefail
-          image=public.ecr.aws/docker/library/alpine:3
-          for attempt in 1 2 3 4 5; do
-            if docker pull "$image"; then exit 0; fi
-            delay=$((attempt * 15))
-            echo "pull attempt $attempt failed; retrying in ${delay}s" >&2
-            sleep "$delay"
-          done
-          echo "could not pull $image after 5 attempts" >&2
-          exit 1
-        timeout-minutes: 6
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       - name: Run AWS SDK tests
         # The suite has exhausted the runner volume from a 89 GB starting
         # margin, killing the runner process as it wrote its own diagnostic log
@@ -743,7 +773,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - uses: actions/cache/restore@v6.1.0
@@ -784,6 +814,34 @@ jobs:
           sudo /tmp/aws/install --update
           hash -r
           aws --version
+      # Same contract as the SDK job: the CLI shards run real containers — the
+      # Glue shard's python:3.9 among them, which timed out inside a job budget
+      # spent on the fetch.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh simulator-aws | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       - name: Run AWS CLI tests
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
@@ -855,6 +913,10 @@ jobs:
             cloud: aws
             tf_packages: "./network-interface"
             timeout_minutes: 12
+          - suite: aws S3 control plane
+            cloud: aws
+            tf_packages: "./s3control"
+            timeout_minutes: 12
           - suite: gcp
             cloud: gcp
             timeout_minutes: 12
@@ -878,16 +940,62 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # A Terraform stack runs the same real workloads the suites do, and the
+      # registry caps anonymous requests by data volume — capturing an Amazon
+      # RDS snapshot copies a volume through an alpine helper, which is the
+      # pull that failed the snapshot stack outright.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
           key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-bin1
-      - uses: hashicorp/setup-terraform@v4.0.1
-        with:
-          terraform_wrapper: false
+      # Terraform is installed from its own release archive rather than
+      # through hashicorp/setup-terraform. The runner downloads every action a
+      # workflow references before it evaluates any step's condition, so an
+      # action one job uses is fetched by all of them; this one was on every
+      # job's critical path for the sake of the terraform jobs alone. The
+      # version is pinned here, which the action was not doing.
+      - name: Install Terraform
+        env:
+          TERRAFORM_VERSION: 1.16.0
+        run: |
+          set -euo pipefail
+          archive="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          base="https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/$archive" "$base/$archive"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/sums" \
+            "$base/terraform_${TERRAFORM_VERSION}_SHA256SUMS"
+          (cd "$RUNNER_TEMP" && grep " $archive\$" sums | sha256sum --check --strict -)
+          unzip -q -o "$RUNNER_TEMP/$archive" -d /usr/local/bin terraform
+          terraform version
+        timeout-minutes: 3
       - name: Install real-execution tools
         run: |
           bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
@@ -936,9 +1044,8 @@ jobs:
       DO_NOT_TRACK: '1'
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: '1.3'
+      - name: Install Bun
+        uses: ./.github/actions/install-bun
       - run: cd ui && bun install --frozen-lockfile
         timeout-minutes: 3
       - run: cd ui && bunx turbo run build --no-daemon
@@ -963,12 +1070,11 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
-      - uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: '1.3'
+      - name: Install Bun
+        uses: ./.github/actions/install-bun
       - run: cd ui && bun install --frozen-lockfile
       # The browser binaries are cached because the only thing between this job
       # and the network is a 177 MiB download that the lockfile pins exactly.
@@ -1028,9 +1134,42 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      # The shared package's tests run real containers, and the ECR Public
+      # Gallery caps anonymous pulls by data volume — a cap that is not a
+      # transient failure a retry recovers from. Caching the images means the
+      # common case makes no registry request at all; on a miss the pull
+      # happens exactly as before. The set is read out of the package so the
+      # workflow holds no list to drift, and the key follows that set, so a
+      # test that starts pulling something new gets a fresh cache rather than
+      # a stale one that silently misses.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          # One entry per cloud, keyed on the image set itself, so every job
+          # that runs that cloud's containers shares it: the set is fetched
+          # once for the whole workflow rather than once per job, which is
+          # what a cap counted in bytes actually responds to.
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       # The detector needs cgo, so the test binary is built differently from
       # every other job here and gets its own compile budget.
       - name: Pre-build the race test binary
@@ -1057,12 +1196,11 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
-      - uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: '1.3'
+      - name: Install Bun
+        uses: ./.github/actions/install-bun
       - name: Install deadcode
         run: go install golang.org/x/tools/cmd/deadcode@v0.49.0
       - name: Install dupl
@@ -1085,7 +1223,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
       - name: Check simulator SDK/CLI/Terraform coverage matrix
@@ -1105,6 +1243,9 @@ jobs:
         timeout-minutes: 5
       - name: Check Azure CLI shard coverage
         run: bash scripts/check-azure-cli-shard-coverage.sh
+        timeout-minutes: 5
+      - name: Check Azure SDK shard coverage
+        run: bash scripts/check-azure-sdk-shard-coverage.sh
         timeout-minutes: 5
       - name: Check AWS Terraform shard coverage
         run: bash scripts/check-tf-shard-coverage.sh

@@ -579,13 +579,22 @@ func handleBudgetsDescribeBudgetNotificationsForAccount(w http.ResponseWriter, r
 	for _, name := range names {
 		notifications := make([]map[string]any, 0)
 		for _, notification := range entries[name].Notifications {
-			notifications = append(notifications, map[string]any{
+			// ThresholdType and NotificationState are optional and have no
+			// default, so a notification that carries neither is answered
+			// without them. Sending "" put a value in a field whose enum does
+			// not declare one — the absence is the honest answer.
+			entry := map[string]any{
 				"NotificationType":   notification.NotificationType,
 				"ComparisonOperator": notification.ComparisonOperator,
 				"Threshold":          notification.Threshold,
-				"ThresholdType":      notification.ThresholdType,
-				"NotificationState":  notification.NotificationState,
-			})
+			}
+			if notification.ThresholdType != "" {
+				entry["ThresholdType"] = notification.ThresholdType
+			}
+			if notification.NotificationState != "" {
+				entry["NotificationState"] = notification.NotificationState
+			}
+			notifications = append(notifications, entry)
 		}
 		out = append(out, map[string]any{
 			"BudgetName":    name,

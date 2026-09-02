@@ -264,6 +264,13 @@ func s3WriteIAMDeny(w http.ResponseWriter, r *http.Request, principalArn, action
 }
 
 func s3BucketOperationName(r *http.Request, _ []byte) string {
+	// A read addressed to an Object Lambda access point arrives on the access
+	// point's own host with the object key as the whole path, so it matches the
+	// bucket route even though the operation is GetObject.
+	if _, ok := s3ObjectLambdaHostAccessPoint(r.Host); ok &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		return "GetObject"
+	}
 	q := r.URL.Query()
 	switch r.Method {
 	case http.MethodHead:
@@ -502,6 +509,9 @@ func s3SubresourceOperationSuffix(name string) string {
 // (metadata-only existence check) and otherwise runs the GET-flavor
 // sub-resource dispatch in handleS3GetBucket.
 func handleS3GetOrHeadBucket(w http.ResponseWriter, r *http.Request) {
+	if s3ServeObjectLambdaRead(w, r) {
+		return
+	}
 	if r.Method == http.MethodHead {
 		handleS3HeadBucket(w, r)
 		return

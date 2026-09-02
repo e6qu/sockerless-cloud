@@ -262,6 +262,15 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 		assert.Empty(t, page.Value)
 	}
 
+	// The bridge and the standalone Microsoft.Logic slice key the same run
+	// store differently, and these detail handlers serve both. A run this
+	// site never had is not found; one it did have answers, as it did above.
+	missingTraces := actions.NewListExpressionTracesPager(rg, name, "wf1",
+		"08000000000000000000000000000000", "respond", nil)
+	require.True(t, missingTraces.More())
+	_, err = missingTraces.NextPage(ctx)
+	requireAzureNotFound(t, err, "the expression traces of a run this site never had")
+
 	// Trigger history: list, get, resubmit (adds a second run).
 	var histName string
 	histPager := histories.NewListPager(rg, name, "wf1", "manual", nil)

@@ -85,13 +85,13 @@ func registerLogicAppsMore(srv *sim.Server) {
 
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions", handleLogicRunActionList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}", handleLogicResourceGet(logicRunActions, "run action"))
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions", handleLogicEmptyList)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions", handleLogicRunDetailEmptyList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}", handleLogicNestedNotFound("repetition"))
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories", handleLogicEmptyList)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories", handleLogicRunDetailEmptyList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories/{requestHistoryName}", handleLogicNestedNotFound("request history"))
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/requestHistories", handleLogicEmptyList)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/requestHistories", handleLogicRunDetailEmptyList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/requestHistories/{requestHistoryName}", handleLogicNestedNotFound("request history"))
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/scopeRepetitions", handleLogicEmptyList)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/scopeRepetitions", handleLogicRunDetailEmptyList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/scopeRepetitions/{repetitionName}", handleLogicNestedNotFound("scope repetition"))
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/operations/{operationId}", handleLogicNestedNotFound("run operation"))
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/listExpressionTraces", handleLogicExpressionTraces)
@@ -256,13 +256,55 @@ func handleLogicEmptyList(w http.ResponseWriter, _ *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 }
 
+// logicRunMissing writes the not-found for a run this account never started,
+// and reports whether it wrote one. The details of a run — its repetitions,
+// its request histories, its expression traces — are answers about that run,
+// and answering "none" for a run that does not exist tells a caller its typo
+// produced nothing rather than that it named nothing.
+//
+// Two surfaces reach these handlers and they key the same run store
+// differently: the standalone Microsoft.Logic workflow, and the App Service
+// site's hostruntime bridge, whose routes carry a siteName and build the id
+// from it. Looking one up with the other's id finds nothing, and every detail
+// read on the bridge would answer not-found for a run that is right there.
+func logicRunMissing(w http.ResponseWriter, r *http.Request) bool {
+	id := logicWorkflowRunID(
+		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
+		sim.PathParam(r, "workflowName"), sim.PathParam(r, "runName"))
+	if sim.PathParam(r, "siteName") != "" {
+		id = webWorkflowRunID(r)
+	}
+	if _, ok := logicRuns.Get(id); ok {
+		return false
+	}
+	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		"Run %q not found.", sim.PathParam(r, "runName"))
+	return true
+}
+
+// handleLogicRunDetailEmptyList answers a run's detail collection. The
+// simulator's runs settle without recording repetitions or request histories,
+// so the collection is empty for every run it does hold.
+func handleLogicRunDetailEmptyList(w http.ResponseWriter, r *http.Request) {
+	if logicRunMissing(w, r) {
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+}
+
 func handleLogicNestedNotFound(label string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if logicRunMissing(w, r) {
+			return
+		}
 		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The %s %q was not found.", label, logicLastSeg(r.URL.Path))
 	}
 }
 
-func handleLogicExpressionTraces(w http.ResponseWriter, _ *http.Request) {
+func handleLogicExpressionTraces(w http.ResponseWriter, r *http.Request) {
+	if logicRunMissing(w, r) {
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"inputs": []any{}})
 }
 
@@ -487,8 +529,13 @@ func logicSnapshotWorkflowVersion(wf LogicWorkflow) {
 			props[k] = v
 		}
 	}
+	// A version is a snapshot of the workflow, and it is in the workflow's
+	// region — WorkflowVersion declares that location required, and the
+	// snapshot was dropping it, so every version read described a resource
+	// with no region while the workflow beside it named one.
 	logicWorkflowVersions.Put(id, LogicResource{
-		ID: id, Name: version, Type: wf.Type + "/versions", Properties: props,
+		ID: id, Name: version, Type: wf.Type + "/versions",
+		Location: wf.Location, Properties: props,
 	})
 }
 

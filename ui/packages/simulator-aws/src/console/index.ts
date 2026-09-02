@@ -23,4 +23,4 @@ export {
   removedKeys,
   type KeyValueRow,
 } from "./forms.js";
-export { findNavService, NAV_GROUPS, type NavGroup, type NavService } from "./serviceCatalog.js";
+export { findNavService } from "./serviceCatalog.js";

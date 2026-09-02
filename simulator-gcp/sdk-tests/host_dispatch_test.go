@@ -53,18 +53,10 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 		},
 		{
 			file: "cloudbuild.go",
-			call: `exec.CommandContext(ctx, "docker", "push", target)`,
-			why:  "pushes a built Cloud Build image to the registry; sim tooling, not a workload",
-		},
-		{
-			file: "cloudbuild.go",
-			call: `exec.CommandContext(ctx, "docker", "rmi", "-f", target)`,
-			why:  "drops the local tag after a Cloud Build push; sim tooling, not a workload",
-		},
-		{
-			file: "cloudbuild.go",
 			call: `exec.CommandContext(ctx, "docker", args...)`,
-			why:  "runs a Cloud Build step through the docker CLI, which dispatches it to the Docker host",
+			why: "the one docker invocation every Cloud Build step goes through — the build itself, " +
+				"the push of its image, and the drop of the local tag afterwards — dispatched to the " +
+				"Docker host by the docker CLI, and interruptible so a cancelled build stops the engine's work",
 		},
 		{
 			file: filepath.Join("shared", "container_reaper.go"),

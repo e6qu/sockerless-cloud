@@ -94,17 +94,23 @@ func TestMain(m *testing.M) {
 	pullImage := "public.ecr.aws/docker/library/alpine:latest"
 	backoff := 5 * time.Second
 	var pullErr error
-	for attempt := 1; attempt <= 4; attempt++ {
-		pull := exec.Command("docker", "pull", pullImage)
-		pull.Stdout = os.Stdout
-		pull.Stderr = os.Stderr
-		pullErr = pull.Run()
-		if pullErr == nil {
-			break
+	// An image already on the host needs no registry at all. Asking first is
+	// what makes a warmed cache useful: the data cap that answers
+	// "toomanyrequests" is not a transient blip a retry recovers from, so the
+	// only way past it is not to make the request.
+	if exec.Command("docker", "image", "inspect", pullImage).Run() != nil {
+		for attempt := 1; attempt <= 4; attempt++ {
+			pull := exec.Command("docker", "pull", pullImage)
+			pull.Stdout = os.Stdout
+			pull.Stderr = os.Stderr
+			pullErr = pull.Run()
+			if pullErr == nil {
+				break
+			}
+			log.Printf("alpine pull attempt %d failed: %v — retrying in %s", attempt, pullErr, backoff)
+			time.Sleep(backoff)
+			backoff *= 2
 		}
-		log.Printf("alpine pull attempt %d failed: %v — retrying in %s", attempt, pullErr, backoff)
-		time.Sleep(backoff)
-		backoff *= 2
 	}
 	if pullErr != nil {
 		log.Fatalf("Failed to pre-pull alpine image after retries: %v", pullErr)

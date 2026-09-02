@@ -604,7 +604,13 @@ func handleSFNValidateStateMachineDefinition(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
-	sfnWriteJSON(w, http.StatusOK, map[string]any{"result": "OK"})
+	// `diagnostics` is required, so a valid definition answers with an empty
+	// list rather than omitting it: a generated client reads the field without
+	// checking, and "no diagnostics" is a list of none, not an absent list.
+	sfnWriteJSON(w, http.StatusOK, map[string]any{
+		"result":      "OK",
+		"diagnostics": []map[string]string{},
+	})
 }
 
 func handleSFNStartExecution(w http.ResponseWriter, r *http.Request) {

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // OCI Distribution data plane — the Docker Registry HTTP API v2 (`/v2/…`),
@@ -35,6 +36,11 @@ type OCIManifest struct {
 	Data        []byte
 	Repo        string
 	Ref         string
+	// Pushed is when the registry received this manifest. A registry knows
+	// when it was written, and the properties APIs the clouds put in front of
+	// it report that time; without it they would have to name a moment nothing
+	// happened at.
+	Pushed time.Time
 }
 
 // OCIBlob is a stored content-addressed blob (image config or layer), keyed by
@@ -449,7 +455,10 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, s
 // content digest) under its digest, with the given content type.
 func (reg *OCIRegistry) putManifestRaw(scope, repo, ref, contentType string, data []byte) {
 	digest := ociDigest(data)
-	m := OCIManifest{Scope: scope, ContentType: contentType, Digest: digest, Data: data, Repo: repo, Ref: ref}
+	m := OCIManifest{
+		Scope: scope, ContentType: contentType, Digest: digest,
+		Data: data, Repo: repo, Ref: ref, Pushed: time.Now().UTC(),
+	}
 	reg.manifestMu.Lock()
 	defer reg.manifestMu.Unlock()
 	reg.Manifests.Put(ociManifestKey(scope, repo, ref), m)
@@ -551,4 +560,48 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// GetBlob reads a stored blob. The properties APIs the clouds put in front of a
+// registry describe an image from the config blob its manifest points at, which
+// is where the registry actually holds the platform it was built for.
+func (reg *OCIRegistry) GetBlob(scope, repo, digest string) ([]byte, bool) {
+	blob, ok := reg.Blobs.Get(ociBlobKey(scope, repo, digest))
+	if !ok {
+		return nil, false
+	}
+	return blob.Data, true
+}
+
+// DeleteManifest removes a manifest and every alias pointing at the same
+// content, which is what the registry's own DELETE does: a manifest removed by
+// digest takes its tags with it, and one removed by tag takes the digest entry.
+func (reg *OCIRegistry) DeleteManifest(scope, repo, ref string) bool {
+	reg.manifestMu.Lock()
+	defer reg.manifestMu.Unlock()
+	entry, ok := reg.Manifests.Get(ociManifestKey(scope, repo, ref))
+	if !ok {
+		return false
+	}
+	for _, m := range reg.Manifests.Filter(func(m OCIManifest) bool {
+		return m.Scope == scope && m.Repo == repo && m.Digest == entry.Digest
+	}) {
+		reg.Manifests.Delete(ociManifestKey(scope, repo, m.Ref))
+	}
+	reg.Manifests.Delete(ociManifestKey(scope, repo, ref))
+	return true
+}
+
+// DeleteTagOnly removes a tag and leaves the manifest it pointed at in place.
+// That is the difference between deleting a tag and deleting a manifest: the
+// content stays addressable by digest, untagged rather than gone.
+func (reg *OCIRegistry) DeleteTagOnly(scope, repo, tag string) bool {
+	reg.manifestMu.Lock()
+	defer reg.manifestMu.Unlock()
+	key := ociManifestKey(scope, repo, tag)
+	if _, ok := reg.Manifests.Get(key); !ok {
+		return false
+	}
+	reg.Manifests.Delete(key)
+	return true
 }

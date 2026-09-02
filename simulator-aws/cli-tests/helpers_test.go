@@ -2,6 +2,7 @@ package aws_cli_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -696,4 +697,44 @@ func findFilesNamed(root, name string) ([]string, error) {
 		return nil
 	})
 	return matches, err
+}
+
+// gluePythonShellImage is the interpreter an AWS Glue Python shell job run
+// executes in — the image the simulator's job runner starts a container from.
+const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
+
+// ensureGluePythonShellImage puts the interpreter on the host before a Glue job
+// run is timed, and is called by the tests that start one.
+//
+// A Glue job run is real container work and the wait for it to settle is
+// bounded: with the download inside that bound, a slow or throttled registry
+// expires the budget and the test reports a job that never succeeded when what
+// actually happened is that the pull did not finish. Pulling first takes the
+// download out of the measured window and leaves the budget measuring what it
+// names.
+//
+// It is deliberately not in TestMain. A shard is a -run filter over this one
+// package, so TestMain runs for every shard, and a pull placed there makes
+// shards with no Glue test in them download an interpreter they never use —
+// turning a registry refusal into several dead shards instead of one failed
+// test.
+func ensureGluePythonShellImage(t *testing.T) {
+	t.Helper()
+	if exec.Command("docker", "image", "inspect", gluePythonShellImage).Run() == nil {
+		return
+	}
+	var last error
+	for attempt := 1; attempt <= 5; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		last = exec.CommandContext(ctx, "docker", "pull", gluePythonShellImage).Run()
+		cancel()
+		if last == nil {
+			return
+		}
+		// A registry that is rate-limiting answers again shortly; backing off
+		// quadratically spans a throttling window without hammering it.
+		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	}
+	t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
+		gluePythonShellImage, last)
 }

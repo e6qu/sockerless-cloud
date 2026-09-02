@@ -578,36 +578,44 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, links.Value)
 
-	// Declared gaps: the four metric-definition operations and the outbound
-	// dependency catalog answer 501 naming what is missing, rather than a bare
-	// routing 404 from inside a resource whose other operations all work.
-	for name, pager := range map[string]func() error{
-		"multi-role metric definitions": func() error {
-			_, err := client.NewListMultiRoleMetricDefinitionsPager(aseRG, aseName, nil).NextPage(ctx)
-			return err
+	// A pool's metric definitions are the metric series Microsoft.Insights
+	// publishes about it, and this simulator publishes none. There being none
+	// is the answer the four operations give.
+	for name, pager := range map[string]func() (int, error){
+		"multi-role metric definitions": func() (int, error) {
+			page, err := client.NewListMultiRoleMetricDefinitionsPager(aseRG, aseName, nil).NextPage(ctx)
+			return len(page.Value), err
 		},
-		"multi-role instance metric definitions": func() error {
-			_, err := client.NewListMultiRolePoolInstanceMetricDefinitionsPager(aseRG, aseName, "default_0", nil).NextPage(ctx)
-			return err
+		"multi-role instance metric definitions": func() (int, error) {
+			page, err := client.NewListMultiRolePoolInstanceMetricDefinitionsPager(aseRG, aseName, "default_0", nil).NextPage(ctx)
+			return len(page.Value), err
 		},
-		"worker metric definitions": func() error {
-			_, err := client.NewListWebWorkerMetricDefinitionsPager(aseRG, aseName, "1", nil).NextPage(ctx)
-			return err
+		"worker metric definitions": func() (int, error) {
+			page, err := client.NewListWebWorkerMetricDefinitionsPager(aseRG, aseName, "1", nil).NextPage(ctx)
+			return len(page.Value), err
 		},
-		"worker instance metric definitions": func() error {
-			_, err := client.NewListWorkerPoolInstanceMetricDefinitionsPager(aseRG, aseName, "1", "1_0", nil).NextPage(ctx)
-			return err
-		},
-		"outbound network dependencies": func() error {
-			_, err := client.NewGetOutboundNetworkDependenciesEndpointsPager(aseRG, aseName, nil).NextPage(ctx)
-			return err
+		"worker instance metric definitions": func() (int, error) {
+			page, err := client.NewListWorkerPoolInstanceMetricDefinitionsPager(aseRG, aseName, "1", "1_0", nil).NextPage(ctx)
+			return len(page.Value), err
 		},
 	} {
-		err := pager()
-		require.Error(t, err, "%s must report the gap rather than answer", name)
-		assert.Contains(t, err.Error(), "NotImplemented", name)
-		assert.Contains(t, err.Error(), "not implemented by the simulator", name)
+		count, err := pager()
+		require.NoError(t, err, "%s must answer", name)
+		assert.Zero(t, count, "%s: the simulator publishes no series for a pool", name)
 	}
+
+	// An environment that is not there is a 404 rather than an empty list: the
+	// answer is about a pool of a particular environment.
+	_, err = client.NewListMultiRoleMetricDefinitionsPager(aseRG, "sdk-ase-absent", nil).NextPage(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ResourceNotFound")
+
+	// The outbound dependency catalog stays declared: it is Microsoft's own
+	// list of platform endpoints and address ranges, not something to invent.
+	_, err = client.NewGetOutboundNetworkDependenciesEndpointsPager(aseRG, aseName, nil).NextPage(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NotImplemented")
+	assert.Contains(t, err.Error(), "not implemented by the simulator")
 
 	// Moving the environment to another subnet re-derives its address. The
 	// apps it hosts come with it, which is the collection the move answers

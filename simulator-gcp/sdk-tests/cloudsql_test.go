@@ -324,7 +324,9 @@ func TestCloudSQL_BackupsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "RUNNING", createOp.Status,
 		"the CREATE_BACKUP operation runs until the capture settles")
-	require.Equal(t, "CREATE_BACKUP", createOp.OperationType)
+	// SqlOperationType declares BACKUP; CREATE_BACKUP is not one of its 57
+	// values.
+	require.Equal(t, "BACKUP", createOp.OperationType)
 	waitSQLOperationDone(t, svc, project, createOp.Name)
 
 	list, err := svc.Backups.ListBackups(parent).Do()

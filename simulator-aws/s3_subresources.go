@@ -140,6 +140,9 @@ func handleS3PutObjectDispatch(w http.ResponseWriter, r *http.Request) {
 // handleS3GetOrHeadObjectDispatch routes GET / HEAD /{bucket}/{key...}
 // based on subresource query strings. Known-bucket gate.
 func handleS3GetOrHeadObjectDispatch(w http.ResponseWriter, r *http.Request) {
+	if s3ServeObjectLambdaRead(w, r) {
+		return
+	}
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		http.NotFound(w, r)
@@ -637,7 +640,11 @@ func handleS3PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 		tags[t.Key] = t.Value
 	}
 	s3ObjectTags.Put(bucket+"/"+key, tags)
-	w.WriteHeader(http.StatusNoContent)
+	// PUT Object tagging answers 200, which is what the operation's own
+	// smithy.api#http trait declares and what the service returns — unlike the
+	// bucket-level subresources beside it, several of which really do answer
+	// 204. The body is empty either way, so nothing but the code says which.
+	w.WriteHeader(http.StatusOK)
 }
 
 func handleS3GetObjectTagging(w http.ResponseWriter, r *http.Request) {

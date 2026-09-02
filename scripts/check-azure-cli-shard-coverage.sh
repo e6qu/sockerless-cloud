@@ -22,10 +22,17 @@ regex_file=$(mktemp)
 test_file=$(mktemp)
 trap 'rm -f "$regex_file" "$test_file"' EXIT
 
-# Only the shared `sim` job's shards — the Azure CLI suite is one of its matrix
-# entries.
+# Only the shared `sim` job's Azure CLI shards. Two suites in that job are
+# sharded now, so selecting on the regex shape alone would pull in the SDK
+# suite's — the awk below tracks which matrix entry each `run:` belongs to and
+# keeps only the ones under `cloud: azure` + `suite: cli`.
 job_block=$(awk '/^  sim:$/{inside=1; next} /^  [a-z][a-z0-9-]*:$/{inside=0} inside' "$ci")
-grep -oE "run: '\^Test\[[^']*'" <<<"$job_block" | sed -E "s/^run: '//; s/'\$//" > "$regex_file"
+awk '
+  /^ *steps:/   { exit }
+  /^ *- cloud:/ { cloud=$3; suite=""; next }
+  /^ *suite:/   { suite=$2; next }
+  /^ *run:/     { if (cloud == "azure" && suite == "cli") { sub(/^ *run: /, ""); print } }
+' <<<"$job_block" | sed -E "s/^'//; s/'\$//" > "$regex_file"
 if [ ! -s "$regex_file" ]; then
   echo "FAIL: no Azure CLI shard regexes (run: '^Test[...]') found in the sim job of $ci" >&2
   exit 1

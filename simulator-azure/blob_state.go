@@ -217,6 +217,71 @@ func blobSoftDeleteDays(account string) (int32, bool) {
 	return days, true
 }
 
+// blobARMDeleteRetentionPolicy converts the ARM blobServices/default
+// deleteRetentionPolicy into the data-plane shape, and back. The two APIs are
+// two views of one configuration in Azure — an operator enabling blob soft
+// delete through `azurerm_storage_account`'s blob_properties, or through
+// armstorage's SetServiceProperties, is enabling the same thing a data-plane
+// Set Blob Service Properties enables. Keeping a copy on each side let one
+// answer enabled while the other deleted permanently.
+func blobARMDeleteRetentionPolicy(props map[string]any) (*BlobRetentionPolicy, bool) {
+	raw, ok := props["deleteRetentionPolicy"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	policy := &BlobRetentionPolicy{}
+	policy.Enabled, _ = raw["enabled"].(bool)
+	if days, ok := raw["days"].(float64); ok {
+		d := int32(days)
+		policy.Days = &d
+	}
+	if allow, ok := raw["allowPermanentDelete"].(bool); ok {
+		policy.AllowPermanentDelete = &allow
+	}
+	return policy, true
+}
+
+// blobDeleteRetentionPolicyARM renders the data-plane policy in the shape the
+// ARM resource declares.
+func blobDeleteRetentionPolicyARM(policy *BlobRetentionPolicy) map[string]any {
+	if policy == nil {
+		return map[string]any{"enabled": false}
+	}
+	out := map[string]any{"enabled": policy.Enabled}
+	if policy.Days != nil {
+		out["days"] = float64(*policy.Days)
+	}
+	if policy.AllowPermanentDelete != nil {
+		out["allowPermanentDelete"] = *policy.AllowPermanentDelete
+	}
+	return out
+}
+
+// blobSetDeleteRetentionPolicy records the account's blob soft-delete policy in
+// the one place it lives: the data-plane service-properties document that
+// blobSoftDeleteDays reads.
+func blobSetDeleteRetentionPolicy(account string, policy *BlobRetentionPolicy) {
+	cfg, ok := blobServicePropsStore.Get(account)
+	if !ok {
+		cfg = BlobServiceConfig{Account: account, Properties: defaultBlobServiceProperties()}
+	}
+	cfg.Properties.DeleteRetentionPolicy = policy
+	blobServicePropsStore.Put(account, cfg)
+}
+
+// blobServicePropsWithSoftDelete renders the ARM property bag with the blob
+// soft-delete policy read from where it lives, so the ARM resource reports the
+// setting a data-plane write made and vice versa.
+func blobServicePropsWithSoftDelete(account string, props map[string]any) map[string]any {
+	out := make(map[string]any, len(props)+1)
+	for k, v := range props {
+		out[k] = v
+	}
+	out["deleteRetentionPolicy"] = blobDeleteRetentionPolicyARM(
+		blobServiceProperties(account).DeleteRetentionPolicy)
+	return out
+}
+
 // blobContainerSoftDeleteDays is the container-level sibling of
 // blobSoftDeleteDays. Azure configures container soft delete on the ARM
 // `Microsoft.Storage/storageAccounts/{name}/blobServices/default` resource

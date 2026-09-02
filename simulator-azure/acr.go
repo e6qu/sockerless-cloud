@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -67,6 +68,24 @@ type ACRCacheRuleProperties struct {
 // Package-level store for dashboard access.
 var acrRegistries sim.Store[Registry]
 
+// A registry is stored under its full resource id while a name check names
+// only the registry, so the name reaches it through an index rather than a
+// walk of every registry. A registry name is global in Azure Container
+// Registry, which is why the check exists at all and why the index is keyed on
+// the name alone.
+var acrRegistriesByName sim.GenerationIndex[Registry]
+
+// acrNamePattern is the constraint the vendored document declares on the name
+// a check is asked about: 5 to 50 characters, alphanumeric only.
+var acrNamePattern = regexp.MustCompile(`^[a-zA-Z0-9]{5,50}$`)
+
+func acrRegistryNameKeys(reg Registry) []string {
+	if reg.Name == "" {
+		return nil
+	}
+	return []string{strings.ToLower(reg.Name)}
+}
+
 func registerACR(srv *sim.Server) {
 	makeAzureKeyGens(srv)
 	// A second buildSimulator in the same process re-collects its own child
@@ -104,9 +123,30 @@ func registerACR(srv *sim.Server) {
 			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"nameAvailable": true,
-		})
+		// The name a caller is about to create with. Answering "available" for
+		// every name makes the check worthless: a client asks precisely so it
+		// can avoid the conflict, and this simulator knows which names it
+		// already holds.
+		switch {
+		case !acrNamePattern.MatchString(req.Name):
+			sim.WriteJSON(w, http.StatusOK, map[string]any{
+				"nameAvailable": false,
+				"reason":        "Invalid",
+				"message": "The registry name must be between 5 and 50 characters long " +
+					"and use alphanumeric characters only.",
+			})
+		default:
+			if _, taken := acrRegistriesByName.Lookup(
+				acrRegistries, strings.ToLower(req.Name), acrRegistryNameKeys); taken {
+				sim.WriteJSON(w, http.StatusOK, map[string]any{
+					"nameAvailable": false,
+					"reason":        "AlreadyExists",
+					"message":       "The registry " + req.Name + " is already in use.",
+				})
+				return
+			}
+			sim.WriteJSON(w, http.StatusOK, map[string]any{"nameAvailable": true})
+		}
 	})
 
 	// PUT - Create or update registry
@@ -450,17 +490,20 @@ func registerACR(srv *sim.Server) {
 	// GET /acr/v1/{name}/_tags - List tags for a repository (ACR data-plane tags API)
 	// {name} can contain slashes (e.g. "myrepo/myimage"), so matched via {path...}.
 	srv.HandleFunc("GET /acr/v1/{path...}", func(w http.ResponseWriter, r *http.Request) {
-		fullPath := sim.PathParam(r, "path")
-		const tagsSuffix = "/_tags"
-		if !strings.HasSuffix(fullPath, tagsSuffix) {
-			http.NotFound(w, r)
+		target, ok := acrParsePropertiesPath(sim.PathParam(r, "path"))
+		if !ok {
+			acrPropertiesNotFound(w, "the path does not address a repository, manifest or tag")
 			return
 		}
-		repoName := fullPath[:len(fullPath)-len(tagsSuffix)]
-		if repoName == "" {
-			http.NotFound(w, r)
+		// Only the tag list is answered here; the repository, manifest and tag
+		// reads that share this path are served beside the writes they belong
+		// with. They used to fall through to a bare 404, which reads as "no
+		// such API" for an API the registry does offer.
+		if target.kind != "tags" {
+			acrReadProperties(w, r, reg, target)
 			return
 		}
+		repoName := target.repo
 		// Listing a repository's tags needs the repository's metadata_read
 		// access — the action ACR names in the challenge for this API.
 		if !acrAuthorize(w, r, acrRepositoryResource(repoName, acrActionMetadataRead, acrActionMetadataRead)) {
@@ -470,25 +513,31 @@ func registerACR(srv *sim.Server) {
 		tags := reg.Manifests.Filter(func(m sim.OCIManifest) bool {
 			return m.Scope == scope && m.Repo == repoName && m.Ref != "" && !strings.HasPrefix(m.Ref, "sha256:")
 		})
+		sort.Slice(tags, func(i, j int) bool { return tags[i].Ref < tags[j].Ref })
 		tagList := make([]map[string]any, 0, len(tags))
 		for _, m := range tags {
+			// The same tag the item read describes, described the same way:
+			// when it was pushed, and the attributes this registry holds for
+			// it. The list used to answer without the timestamps the schema
+			// requires and with the attributes hardcoded open, so a tag whose
+			// attributes had been patched listed as though they had not.
 			tagList = append(tagList, map[string]any{
-				"name":   m.Ref,
-				"digest": m.Digest,
-				"changeableAttributes": map[string]any{
-					"deleteEnabled": true,
-					"writeEnabled":  true,
-					"readEnabled":   true,
-					"listEnabled":   true,
-				},
+				"name":                 m.Ref,
+				"digest":               m.Digest,
+				"createdTime":          acrStamp(m.Pushed),
+				"lastUpdateTime":       acrStamp(m.Pushed),
+				"signed":               false,
+				"changeableAttributes": acrAttributesDoc(acrAttributesFor(acrAttributeKey(scope, repoName, ":"+m.Ref))),
 			})
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"registry":  acrRegistryName(r),
 			"imageName": repoName,
 			"tags":      tagList,
 		})
 	})
 
+	registerACRDataPlaneProperties(srv, reg)
 	registerACROAuth2(srv)
 }
 
@@ -972,10 +1021,11 @@ func registerACRChildResources(srv *sim.Server) {
 		allowIdentity: true, patch: true,
 		store: sim.MakeStore[acrSubResource](srv.DB(), "acr_credential_sets"),
 	})
-	registerACRChild(srv, acrChildKind{
+	connectedRegistries := acrChildKind{
 		seg: "connectedRegistries", nameParam: "connectedRegistryName", typeName: t + "connectedRegistries", patch: true,
 		store: sim.MakeStore[acrSubResource](srv.DB(), "acr_connected_registries"),
-	})
+	}
+	registerACRChild(srv, connectedRegistries)
 	registerACRChild(srv, acrChildKind{
 		seg: "privateEndpointConnections", nameParam: "privateEndpointConnectionName",
 		typeName: t + "privateEndpointConnections", patch: false,
@@ -983,8 +1033,29 @@ func registerACRChildResources(srv *sim.Server) {
 	})
 
 	// POST .../connectedRegistries/{name}/deactivate — LRO action, no body.
+	// It deactivates the connected registry it names: answering 200 while
+	// leaving the registry Active reports work that did not happen, and the
+	// read that follows contradicts it.
 	srv.HandleFunc("POST "+acrARMBase+"/registries/{registryName}/connectedRegistries/{connectedRegistryName}/deactivate",
 		func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := acrRegistryID(r); !ok {
+				acrRegistryNotFound(w, r)
+				return
+			}
+			key := connectedRegistries.resourceID(r)
+			updated := connectedRegistries.store.Update(key, func(child *acrSubResource) {
+				if child.Properties == nil {
+					child.Properties = map[string]any{}
+				}
+				child.Properties["activation"] = map[string]any{"status": "Inactive"}
+				child.Properties["connectionState"] = "Offline"
+			})
+			if !updated {
+				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+					"The connected registry %q was not found.",
+					sim.PathParam(r, "connectedRegistryName"))
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 		})
 }

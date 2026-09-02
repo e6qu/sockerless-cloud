@@ -634,14 +634,14 @@ func TestIAMResourceARNs_EC2IgnoresNestedStructureMembers(t *testing.T) {
 		"ec2:DescribeVolumes", "*")
 }
 
-// An operation that creates its resource carries no identifier for it, so there
-// is nothing to derive and the request falls back to "*". This is the honest
-// answer rather than a guessed ARN — but it is also why a policy scoping
-// CreateVpc to a resource is not yet evaluated against one.
-func TestIAMResourceARNs_EC2CreateNamesNoResourceYet(t *testing.T) {
+// An operation that creates its resource carries no identifier for it — the
+// service assigns that. What it does carry is the type, and that is what AWS
+// evaluates the call against, so a policy scoping CreateVpc to
+// arn:aws:ec2:*:*:vpc/* is honoured here as it is there.
+func TestIAMResourceARNs_EC2CreateScopesToTheTypeItMints(t *testing.T) {
 	assertDerivedARNs(t,
 		iamEC2Request("CreateVpc", map[string]string{"CidrBlock": "10.0.0.0/16"}),
-		"ec2:CreateVpc", "*")
+		"ec2:CreateVpc", "arn:aws:ec2:us-east-1:123456789012:vpc/*")
 }
 
 // The whole point of deriving the resource: a policy scoped to one volume
@@ -1637,12 +1637,13 @@ func TestIAMResourceARNs_CreateAuthorizesAgainstTheTypeWildcard(t *testing.T) {
 			"arn:aws:ec2:us-east-1:123456789012:dedicated-host/*")
 	})
 
-	t.Run("a create declaring several types stays undivined", func(t *testing.T) {
-		// CreateVpc declares ipam-pool, ipv6pool-ec2 and vpc. Which one it
-		// creates is not decidable from the declaration, and widening to all
-		// three would authorize against resources the call is not about.
+	t.Run("a create declaring its inputs still names what it mints", func(t *testing.T) {
+		// CreateVpc declares ipam-pool and ipv6pool-ec2 — the pools it may
+		// draw a CIDR from — besides the vpc it creates. Only the VPC answers
+		// to the operation's name, so widening to all three, which would
+		// authorize against resources the call is not about, never arises.
 		r := iamQueryRequest("CreateVpc", "2016-11-15", map[string]string{"CidrBlock": "10.0.0.0/16"})
-		assertDerivedARNs(t, r, "ec2:CreateVpc", "*")
+		assertDerivedARNs(t, r, "ec2:CreateVpc", "arn:aws:ec2:us-east-1:123456789012:vpc/*")
 	})
 
 	t.Run("a read is not a create", func(t *testing.T) {
@@ -1658,5 +1659,829 @@ func TestIAMResourceARNs_CreateAuthorizesAgainstTheTypeWildcard(t *testing.T) {
 				t.Fatalf("DescribeHosts derived the type wildcard %q; a read must name what it reads", arn)
 			}
 		}
+	})
+}
+
+// TestIAMResourceARNs_NamedOutrightByTheRequest pins the two IAM shapes whose
+// resource the request states rather than implies.
+//
+// The access-advisor reads declare every entity type their subject could be —
+// group, policy, role, user — and take that subject's own ARN under the bare
+// member "Arn". The ARN says which type it is, so the derivation returns it and
+// chooses nothing. An organizations access report is named by the path of the
+// entity it covers, which is the only thing that identifies it.
+//
+// Both are pinned in the negative too: without the member there is no resource
+// to name, and deriving one anyway would authorize against something the
+// request never mentioned.
+func TestIAMResourceARNs_NamedOutrightByTheRequest(t *testing.T) {
+	const iamARN = "arn:aws:iam::123456789012:"
+
+	t.Run("an access-advisor read names its subject by ARN", func(t *testing.T) {
+		for _, subject := range []string{"role/deploy", "user/ana", "group/admins", "policy/ReadOnly"} {
+			assertDerivedARNs(t,
+				iamQueryRequest("GenerateServiceLastAccessedDetails", "2010-05-08",
+					map[string]string{"Arn": iamARN + subject}),
+				"iam:GenerateServiceLastAccessedDetails", iamARN+subject)
+		}
+	})
+
+	t.Run("the policies-granting read names its subject the same way", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("ListPoliciesGrantingServiceAccess", "2010-05-08",
+				map[string]string{"Arn": iamARN + "role/deploy"}),
+			"iam:ListPoliciesGrantingServiceAccess", iamARN+"role/deploy")
+	})
+
+	t.Run("an organizations access report is named by the entity it covers", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GenerateOrganizationsAccessReport", "2010-05-08",
+				map[string]string{"EntityPath": "o-abc123/r-xyz/ou-1/123456789012"}),
+			"iam:GenerateOrganizationsAccessReport",
+			iamARN+"access-report/o-abc123/r-xyz/ou-1/123456789012")
+	})
+
+	t.Run("a request naming no subject derives no subject", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GenerateServiceLastAccessedDetails", "2010-05-08",
+				map[string]string{"Granularity": "SERVICE_LEVEL"}),
+			"iam:GenerateServiceLastAccessedDetails", "*")
+		assertDerivedARNs(t,
+			iamQueryRequest("GenerateOrganizationsAccessReport", "2010-05-08",
+				map[string]string{}),
+			"iam:GenerateOrganizationsAccessReport", "*")
+	})
+}
+
+// TestIAMResourceARNs_CreateTaskSetScopesToItsService pins what creating an
+// Amazon ECS task set authorizes against.
+//
+// The create names no task set, because none exists yet, but it does name the
+// cluster and the service the set will belong to — and those are what keep the
+// grant narrow. The id is the wildcard; the cluster and service are not, so a
+// policy written for one service's task sets does not reach another's.
+func TestIAMResourceARNs_CreateTaskSetScopesToItsService(t *testing.T) {
+	const ecs = "arn:aws:ecs:us-east-1:123456789012:"
+
+	t.Run("the service the set will belong to bounds the wildcard", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.CreateTaskSet",
+				`{"cluster":"prod","service":"web","taskDefinition":"web:3"}`),
+			"ecs:CreateTaskSet", ecs+"task-set/prod/web/*")
+	})
+
+	t.Run("another service's task sets are not in scope", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.CreateTaskSet",
+				`{"cluster":"prod","service":"api","taskDefinition":"api:1"}`),
+			"ecs:CreateTaskSet", ecs+"task-set/prod/api/*")
+	})
+
+	t.Run("a create naming no service derives no task set", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonEC2ContainerServiceV20141113.CreateTaskSet",
+				`{"cluster":"prod","taskDefinition":"web:3"}`),
+			"ecs:CreateTaskSet", "*")
+	})
+}
+
+// TestIAMResourceARNs_DataQualityRunNamesItsRuleset pins the AWS Glue
+// data-quality derivation, which the coverage probe cannot express.
+//
+// These operations declare the dataQualityRuleset type and name a run or a
+// result — the ruleset they are about is the one that run evaluated, which only
+// the simulator's own state records. The probe fills RunId with a placeholder,
+// no run answers to it, and the derivation correctly declines; so the
+// derivation is real and measures as absent, the same way the Systems Manager
+// tagging family did before its type was named. This test is where it is
+// actually held.
+func TestIAMResourceARNs_DataQualityRunNamesItsRuleset(t *testing.T) {
+	const glue = "arn:aws:glue:us-east-1:123456789012:dataQualityRuleset/"
+
+	glueDQEvalRuns = sim.MakeStore[GlueDQRulesetEvaluationRun](nil, "test_dq_eval_runs")
+	glueDQRecRuns = sim.MakeStore[GlueDQRuleRecommendationRun](nil, "test_dq_rec_runs")
+	glueDQResults = sim.MakeStore[GlueDataQualityResult](nil, "test_dq_results")
+	t.Cleanup(func() { glueDQEvalRuns, glueDQRecRuns, glueDQResults = nil, nil, nil })
+
+	glueDQEvalRuns.Put("run-eval", GlueDQRulesetEvaluationRun{
+		RunId: "run-eval", RulesetNames: []string{"nightly", "hourly"},
+	})
+	glueDQRecRuns.Put("run-rec", GlueDQRuleRecommendationRun{
+		RunId: "run-rec", CreatedRulesetName: "recommended",
+	})
+	glueDQResults.Put("result-1", GlueDataQualityResult{
+		ResultId: "result-1", RulesetName: "nightly",
+	})
+
+	t.Run("an evaluation run names every ruleset it evaluated", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDataQualityRulesetEvaluationRun", `{"RunId":"run-eval"}`),
+			"glue:GetDataQualityRulesetEvaluationRun", glue+"nightly", glue+"hourly")
+	})
+
+	t.Run("a recommendation run names the ruleset it created", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDataQualityRuleRecommendationRun", `{"RunId":"run-rec"}`),
+			"glue:GetDataQualityRuleRecommendationRun", glue+"recommended")
+	})
+
+	t.Run("a result names the ruleset that produced it", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDataQualityResult", `{"ResultId":"result-1"}`),
+			"glue:GetDataQualityResult", glue+"nightly")
+	})
+
+	t.Run("a run the simulator does not hold names no ruleset", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDataQualityRulesetEvaluationRun", `{"RunId":"no-such-run"}`),
+			"glue:GetDataQualityRulesetEvaluationRun", "*")
+	})
+}
+
+// TestIAMResourceARNs_CodeBuildNamesItsParent pins the two ways an AWS
+// CodeBuild request identifies what it is about.
+//
+// A resource named by its own ARN needs no assembly, and CodeBuild spells that
+// member "arn" on the fleet and report-group deletes and "projectArn" where a
+// project is meant. A report is different: it belongs to a group, and CodeBuild
+// authorizes the group, so the group is read out of the report's identifier.
+func TestIAMResourceARNs_CodeBuildNamesItsParent(t *testing.T) {
+	const cb = "arn:aws:codebuild:us-east-1:123456789012:"
+
+	t.Run("a fleet delete names the fleet by ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CodeBuild_20161006.DeleteFleet",
+				`{"arn":"`+cb+`fleet/builders:0123"}`),
+			"codebuild:DeleteFleet", cb+"fleet/builders:0123")
+	})
+
+	t.Run("a report group delete names the group by ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CodeBuild_20161006.DeleteReportGroup",
+				`{"arn":"`+cb+`report-group/nightly"}`),
+			"codebuild:DeleteReportGroup", cb+"report-group/nightly")
+	})
+
+	t.Run("a report names the group it belongs to, not itself", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CodeBuild_20161006.DescribeTestCases",
+				`{"reportArn":"`+cb+`report/nightly:abcd-1234"}`),
+			"codebuild:DescribeTestCases", cb+"report-group/nightly")
+	})
+
+	t.Run("a reference in neither shape names no group", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CodeBuild_20161006.DescribeTestCases",
+				`{"reportArn":"not-a-report-reference"}`),
+			"codebuild:DescribeTestCases", "*")
+	})
+}
+
+// TestIAMResourceARNs_SSMInstanceIdPicksItsService pins how an instance-scoped
+// Systems Manager read decides which of the two instance types it is about.
+//
+// The identifier says it. Amazon EC2 assigns "i-", Systems Manager assigns
+// "mi-" to a machine registered with it, and the two live in different
+// services' ARNs — an EC2 instance is arn:aws:ec2:...:instance/i-…, a managed
+// instance is arn:aws:ssm:...:managed-instance/mi-…. Deriving both would
+// authorize against a machine the request never named.
+func TestIAMResourceARNs_SSMInstanceIdPicksItsService(t *testing.T) {
+	t.Run("an EC2 instance id names an EC2 instance", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.DescribeInstancePatches",
+				`{"InstanceId":"i-0123456789abcdef0"}`),
+			"ssm:DescribeInstancePatches",
+			"arn:aws:ec2:us-east-1:123456789012:instance/i-0123456789abcdef0")
+	})
+
+	t.Run("a managed instance id names a managed instance", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.DescribeInstancePatches",
+				`{"InstanceId":"mi-0123456789abcdef0"}`),
+			"ssm:DescribeInstancePatches",
+			"arn:aws:ssm:us-east-1:123456789012:managed-instance/mi-0123456789abcdef0")
+	})
+
+	t.Run("an identifier with neither prefix names no machine", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.DescribeInstancePatches",
+				`{"InstanceId":"whatever"}`),
+			"ssm:DescribeInstancePatches", "*")
+	})
+}
+
+// TestIAMResourceARNs_IAMNamesItsResourceIndirectly pins the two IAM shapes
+// where the request names something that points at the resource rather than
+// the resource itself.
+//
+// An access key belongs to a user and IAM authorizes the user; the key is all
+// the request carries, so the user comes from the simulator's own record of who
+// the key was created for. The coverage probe cannot express that — it names a
+// key nothing holds, and the derivation correctly declines — so this test is
+// where it is held.
+//
+// A service-linked-role deletion is tracked by a task whose id spells the role
+// being deleted, which needs no lookup at all.
+func TestIAMResourceARNs_IAMNamesItsResourceIndirectly(t *testing.T) {
+	iamAccessKeys = sim.MakeStore[IAMAccessKey](nil, "test_iam_access_keys")
+	t.Cleanup(func() { iamAccessKeys = nil })
+	iamAccessKeys.Put("AKIAEXAMPLE", IAMAccessKey{
+		AccessKeyId: "AKIAEXAMPLE", UserName: "ana", Status: "Active",
+	})
+
+	t.Run("an access key names the user it belongs to", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GetAccessKeyLastUsed", "2010-05-08",
+				map[string]string{"AccessKeyId": "AKIAEXAMPLE"}),
+			"iam:GetAccessKeyLastUsed", "arn:aws:iam::123456789012:user/ana")
+	})
+
+	t.Run("a key the simulator does not hold names no user", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GetAccessKeyLastUsed", "2010-05-08",
+				map[string]string{"AccessKeyId": "AKIANOSUCHKEY"}),
+			"iam:GetAccessKeyLastUsed", "*")
+	})
+
+	t.Run("a deletion task spells the role it is deleting", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GetServiceLinkedRoleDeletionStatus", "2010-05-08",
+				map[string]string{"DeletionTaskId": "task%2Faws-service-role%2Fecs.amazonaws.com%2FAWSServiceRoleForECS%2Fabcd"}),
+			"iam:GetServiceLinkedRoleDeletionStatus",
+			"arn:aws:iam::123456789012:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS")
+	})
+
+	t.Run("a task id in another shape names no role", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("GetServiceLinkedRoleDeletionStatus", "2010-05-08",
+				map[string]string{"DeletionTaskId": "not-a-task"}),
+			"iam:GetServiceLinkedRoleDeletionStatus", "*")
+	})
+}
+
+// TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName pins that an AWS WAFv2
+// request naming its web ACL by ARN derives it whatever the operation is
+// called.
+//
+// The reader picks a resource type from the operation's name suffix — GetWebACL
+// gives webacl — which is what lets a request carrying only a name and a scope
+// be assembled into an ARN. It is not a precondition for reading an ARN the
+// request already carries, and treating it as one left GetSampledRequests and
+// DeleteFirewallManagerRuleGroups deriving nothing at all.
+func TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName(t *testing.T) {
+	const acl = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/front/0123"
+
+	t.Run("an operation whose name ends in neither type still reads the ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.GetSampledRequests",
+				`{"WebAclArn":"`+acl+`","RuleMetricName":"m","Scope":"REGIONAL"}`),
+			"wafv2:GetSampledRequests", acl)
+	})
+
+	t.Run("the plural spelling reads it too", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.DeleteFirewallManagerRuleGroups",
+				`{"WebACLArn":"`+acl+`","WebACLLockToken":"tok"}`),
+			"wafv2:DeleteFirewallManagerRuleGroups", acl)
+	})
+
+	t.Run("a request carrying no ARN still assembles from name and scope", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.GetWebACL",
+				`{"Name":"front","Id":"0123","Scope":"REGIONAL"}`),
+			"wafv2:GetWebACL", acl)
+	})
+}
+
+// TestIAMResourceARNs_ELBv2CreateScopesToItsName pins what an Elastic Load
+// Balancing v2 create authorizes against.
+//
+// Every ARN in the service ends in a name and an identifier the service
+// assigns, and a create names the first and cannot name the second. So the
+// identifier is the wildcard and the name is not — a grant written for one
+// target group does not reach another. A load balancer's ARN carries its kind
+// too, and the request states it.
+func TestIAMResourceARNs_ELBv2CreateScopesToItsName(t *testing.T) {
+	const elb = "arn:aws:elasticloadbalancing:us-east-1:123456789012:"
+
+	t.Run("a target group create is scoped to its name", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("CreateTargetGroup", "2015-12-01",
+				map[string]string{"Name": "web", "Port": "80"}),
+			"elasticloadbalancing:CreateTargetGroup", elb+"targetgroup/web/*")
+	})
+
+	t.Run("a load balancer create carries its kind", func(t *testing.T) {
+		for kind, segment := range map[string]string{
+			"application": "app", "network": "net", "gateway": "gwy",
+		} {
+			assertDerivedARNs(t,
+				iamQueryRequest("CreateLoadBalancer", "2015-12-01",
+					map[string]string{"Name": "front", "Type": kind}),
+				"elasticloadbalancing:CreateLoadBalancer", elb+"loadbalancer/"+segment+"/front/*")
+		}
+	})
+
+	t.Run("a kind the service does not define names no particular balancer", func(t *testing.T) {
+		// Without a kind the ARN's own segment cannot be written, so the named
+		// scope is unavailable — but the call still creates a load balancer,
+		// and the type it mints is what remains true of it.
+		assertDerivedARNs(t,
+			iamQueryRequest("CreateLoadBalancer", "2015-12-01",
+				map[string]string{"Name": "front", "Type": "hovercraft"}),
+			"elasticloadbalancing:CreateLoadBalancer",
+			"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/*")
+	})
+
+	t.Run("a create naming nothing derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("CreateTargetGroup", "2015-12-01",
+				map[string]string{"Port": "80"}),
+			"elasticloadbalancing:CreateTargetGroup", "*")
+	})
+}
+
+// TestIAMResourceARNs_RDSCustomEngineVersionScopesToItsEngine pins what the
+// custom-engine-version operations authorize against.
+//
+// A custom engine version is identified by the engine and the version it is
+// for, plus an identifier Amazon RDS assigns. The request states the first two
+// and never the third — not on the create, which has none yet, and not on the
+// modify or delete, which address the version by engine and number. So the
+// identifier is the wildcard and the engine and version are not, which keeps a
+// grant written for one engine's versions off another's.
+func TestIAMResourceARNs_RDSCustomEngineVersionScopesToItsEngine(t *testing.T) {
+	const rds = "arn:aws:rds:us-east-1:123456789012:"
+
+	for _, op := range []string{
+		"CreateCustomDBEngineVersion", "ModifyCustomDBEngineVersion", "DeleteCustomDBEngineVersion",
+	} {
+		t.Run(op+" is scoped to its engine and version", func(t *testing.T) {
+			assertDerivedARNs(t,
+				iamQueryRequest(op, "2014-10-31",
+					map[string]string{"Engine": "custom-oracle-ee", "EngineVersion": "19.cdb_1"}),
+				"rds:"+op, rds+"cev:custom-oracle-ee/19.cdb_1/*")
+		})
+	}
+
+	t.Run("another engine's versions are a different ARN", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("DeleteCustomDBEngineVersion", "2014-10-31",
+				map[string]string{"Engine": "custom-sqlserver-ee", "EngineVersion": "15.00"}),
+			"rds:DeleteCustomDBEngineVersion", rds+"cev:custom-sqlserver-ee/15.00/*")
+	})
+
+	t.Run("a request naming no version derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("DeleteCustomDBEngineVersion", "2014-10-31",
+				map[string]string{"Engine": "custom-oracle-ee"}),
+			"rds:DeleteCustomDBEngineVersion", "*")
+	})
+}
+
+// TestIAMResourceARNs_RDSARNMustMatchADeclaredType pins the rule that lets an
+// Amazon RDS request name its resource by ARN, and the limit that keeps the
+// rule safe.
+//
+// RDS sends ARNs under members like SourceDBInstanceArn, and such an ARN names
+// the resource outright. But a request also carries ARNs for things it is not
+// about — a KMS key most often — and authorizing against those would grant far
+// past what was asked. So an ARN is taken only when its own resource segment is
+// one of the types the action declares.
+func TestIAMResourceARNs_RDSARNMustMatchADeclaredType(t *testing.T) {
+	const rds = "arn:aws:rds:us-east-1:123456789012:"
+
+	t.Run("an ARN whose segment is a declared type names the resource", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamQueryRequest("StartDBInstanceAutomatedBackupsReplication", "2014-10-31",
+				map[string]string{"SourceDBInstanceArn": rds + "db:orders"}),
+			"rds:StartDBInstanceAutomatedBackupsReplication", rds+"db:orders")
+	})
+
+	t.Run("a KMS key ARN in the same request is not the resource", func(t *testing.T) {
+		// The action declares auto-backup and db; a key is neither, so the key
+		// must not become what the call is authorized against.
+		assertDerivedARNs(t,
+			iamQueryRequest("StartDBInstanceAutomatedBackupsReplication", "2014-10-31",
+				map[string]string{"KmsKeyId": "arn%3Aaws%3Akms%3Aus-east-1%3A123456789012%3Akey%2Fabcd"}),
+			"rds:StartDBInstanceAutomatedBackupsReplication", "*")
+	})
+
+	t.Run("an RDS ARN of an undeclared type is not the resource either", func(t *testing.T) {
+		// A proxy ARN in a request about backups names nothing the action
+		// declares, so it is ignored rather than authorized against.
+		assertDerivedARNs(t,
+			iamQueryRequest("DeleteDBInstanceAutomatedBackup", "2014-10-31",
+				map[string]string{"SomeProxyArn": "arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb-proxy%3Ap1"}),
+			"rds:DeleteDBInstanceAutomatedBackup", "*")
+	})
+}
+
+// WAFv2 names the collection an operation is about inside the operation's own
+// name, not only at the end of it.
+func TestIAMResourceARNs_WAFv2ReadsTheCollectionItsNameCarries(t *testing.T) {
+	const scope = "arn:aws:wafv2:us-east-1:123456789012:regional/"
+
+	t.Run("a name that continues past the collection still names it", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.UpdateManagedRuleSetVersionExpiryDate",
+				`{"Name":"vendor-set","Scope":"REGIONAL","Id":"0123","VersionToExpire":"1.0"}`),
+			"wafv2:UpdateManagedRuleSetVersionExpiryDate", scope+"managedruleset/vendor-set/0123")
+	})
+
+	t.Run("a qualified member names the resource the call is about", func(t *testing.T) {
+		// The rule keys are what is being read; the web ACL is what the read is
+		// authorized against, and it is named WebACLName rather than Name
+		// because the request also names the rule inside it.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.GetRateBasedStatementManagedKeys",
+				`{"Scope":"REGIONAL","WebACLName":"front","WebACLId":"0123","RuleName":"throttle"}`),
+			"wafv2:GetRateBasedStatementManagedKeys", scope+"webacl/front/0123")
+	})
+
+	t.Run("an ARN the request carries beats the operation's name", func(t *testing.T) {
+		// A rule group ARN is what AssociateWebACL's sibling carries, and the
+		// ARN is the resource however the operation is spelled.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.PutLoggingConfiguration",
+				`{"ARN":"`+scope+`webacl/other/9999"}`),
+			"wafv2:PutLoggingConfiguration", scope+"webacl/other/9999")
+	})
+
+	t.Run("a request naming no resource derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSWAF_20190729.UpdateManagedRuleSetVersionExpiryDate",
+				`{"Scope":"REGIONAL","VersionToExpire":"1.0"}`),
+			"wafv2:UpdateManagedRuleSetVersionExpiryDate", "*")
+	})
+}
+
+// A batch names its tables as the keys of RequestItems, so a grant scoped to
+// one table must allow a batch over that table and deny one that also reaches
+// another.
+func TestIAMResourceARNs_DynamoDBBatchNamesEveryTableItTouches(t *testing.T) {
+	const p = "arn:aws:dynamodb:us-east-1:123456789012:table/"
+
+	t.Run("every table in the batch is authorized", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("DynamoDB_20120810.BatchGetItem",
+				`{"RequestItems":{"orders":{"Keys":[]},"customers":{"Keys":[]}}}`),
+			"dynamodb:BatchGetItem", p+"customers", p+"orders")
+	})
+
+	t.Run("a write batch reads the same keys", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("DynamoDB_20120810.BatchWriteItem",
+				`{"RequestItems":{"orders":[]}}`),
+			"dynamodb:BatchWriteItem", p+"orders")
+	})
+
+	t.Run("an empty batch names no table", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("DynamoDB_20120810.BatchGetItem", `{"RequestItems":{}}`),
+			"dynamodb:BatchGetItem", "*")
+	})
+
+	t.Run("a single-table read still names it the ordinary way", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("DynamoDB_20120810.GetItem", `{"TableName":"orders","Key":{}}`),
+			"dynamodb:GetItem", p+"orders")
+	})
+}
+
+// An import task id says which kind of import it is, so cancelling one picks
+// between the two types the action declares rather than authorizing both.
+func TestIAMResourceARNs_CancelImportReadsTheTaskKind(t *testing.T) {
+	const p = "arn:aws:ec2:us-east-1:123456789012:"
+
+	t.Run("an image import is an image import task", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("CancelImportTask", map[string]string{"ImportTaskId": "import-ami-0abc"}),
+			"ec2:CancelImportTask", p+"import-image-task/import-ami-0abc")
+	})
+
+	t.Run("a snapshot import is a snapshot import task", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("CancelImportTask", map[string]string{"ImportTaskId": "import-snap-0abc"}),
+			"ec2:CancelImportTask", p+"import-snapshot-task/import-snap-0abc")
+	})
+
+	t.Run("an id with no known prefix names no task", func(t *testing.T) {
+		// Authorizing both types would grant the cancellation of an import the
+		// caller did not name.
+		assertDerivedARNs(t,
+			iamEC2Request("CancelImportTask", map[string]string{"ImportTaskId": "0abc"}),
+			"ec2:CancelImportTask", "*")
+	})
+}
+
+// Buying a host reservation names the dedicated hosts it covers, so a grant
+// scoped to one host allows a purchase for that host and denies one that also
+// covers another.
+func TestIAMResourceARNs_HostReservationNamesItsHosts(t *testing.T) {
+	const p = "arn:aws:ec2:us-east-1:123456789012:dedicated-host/"
+
+	t.Run("every host in the set is authorized", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("PurchaseHostReservation", map[string]string{
+				"OfferingId": "hro-0abc", "HostIdSet.1": "h-0111", "HostIdSet.2": "h-0222",
+			}),
+			"ec2:PurchaseHostReservation", p+"h-0111", p+"h-0222")
+	})
+
+	t.Run("a purchase naming no host derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("PurchaseHostReservation", map[string]string{"OfferingId": "hro-0abc"}),
+			"ec2:PurchaseHostReservation", "*")
+	})
+}
+
+// An identifier inside a batch entry is as much the identifier as one at the
+// top level, so a batch is authorized against every resource its entries name.
+func TestIAMResourceARNs_ABatchEntryNamesItsResource(t *testing.T) {
+	const p = "arn:aws:ssm:us-east-1:123456789012:document/"
+
+	t.Run("every document the batch names is authorized", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.CreateAssociationBatch",
+				`{"Entries":[{"Name":"patch-baseline"},{"Name":"inventory"}]}`),
+			"ssm:CreateAssociationBatch", p+"patch-baseline", p+"inventory")
+	})
+
+	t.Run("an entry naming nothing of the declared type derives nothing", func(t *testing.T) {
+		// A batch of entries carrying only a schedule names no document, and
+		// authorizing every document would grant far past what was asked.
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.CreateAssociationBatch",
+				`{"Entries":[{"ScheduleExpression":"rate(1 day)"}]}`),
+			"ssm:CreateAssociationBatch", "*")
+	})
+
+	t.Run("a top-level member still wins over a batch entry", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.CreateAssociationBatch",
+				`{"Name":"top-level","Entries":[{"Name":"in-entry"}]}`),
+			"ssm:CreateAssociationBatch", p+"top-level")
+	})
+}
+
+// Cancelling a maintenance window's execution names only the execution, and
+// the window it belongs to is what the call authorizes against.
+func TestIAMResourceARNs_WindowExecutionNamesItsWindow(t *testing.T) {
+	// The derivation reads the simulator's own windows, so there has to be one.
+	buildConformanceSimulator(t)
+
+	window := SSMMaintenanceWindow{WindowId: "mw-0123456789abcdef0", Name: "nightly"}
+	ssmWindows.Put(window.WindowId, window)
+	t.Cleanup(func() { ssmWindows.Delete(window.WindowId) })
+
+	assertDerivedARNs(t,
+		iamJSONRequest("AmazonSSM.CancelMaintenanceWindowExecution",
+			`{"WindowExecutionId":"`+ssmWindowExecID(window.WindowId)+`"}`),
+		"ssm:CancelMaintenanceWindowExecution",
+		"arn:aws:ssm:us-east-1:123456789012:maintenancewindow/"+window.WindowId)
+
+	// An execution of no window this simulator holds names no window, rather
+	// than authorizing against one the request never mentioned.
+	assertDerivedARNs(t,
+		iamJSONRequest("AmazonSSM.CancelMaintenanceWindowExecution",
+			`{"WindowExecutionId":"00000000-0000-0000-0000-000000000000"}`),
+		"ssm:CancelMaintenanceWindowExecution", "*")
+}
+
+// A data-quality model is asked for by the profile an evaluation wrote its
+// statistics to, and AWS Glue authorizes the ruleset that produced it. The
+// profile id is one the service assigned, read back the only way a caller can
+// reach one — off the result the evaluation settled.
+func TestIAMResourceARNs_GlueProfileNamesItsRuleset(t *testing.T) {
+	_, jsonRouter, _ := buildConformanceSimulator(t)
+
+	iamFixtureJSON(t, jsonRouter, "AWSGlue.StartDataQualityRulesetEvaluationRun",
+		`{"Role":"probe","RulesetNames":["nightly-rules"],"DataSource":{}}`,
+		`"RunId"\s*:\s*"([^"]+)"`)
+	result := iamFixtureJSON(t, jsonRouter, "AWSGlue.ListDataQualityResults",
+		`{}`, `"ResultId"\s*:\s*"([^"]+)"`)
+	profile := iamFixtureJSON(t, jsonRouter, "AWSGlue.GetDataQualityResult",
+		`{"ResultId":"`+result+`"}`, `"ProfileId"\s*:\s*"([^"]+)"`)
+
+	const ruleset = "arn:aws:glue:us-east-1:123456789012:dataQualityRuleset/nightly-rules"
+	for _, target := range []string{"GetDataQualityModel", "GetDataQualityModelResult"} {
+		assertDerivedARNs(t,
+			iamGlueRequest(target, `{"ProfileId":"`+profile+`","StatisticId":"stat-1"}`),
+			"glue:"+target, ruleset)
+	}
+	assertDerivedARNs(t,
+		iamGlueRequest("PutDataQualityProfileAnnotation",
+			`{"ProfileId":"`+profile+`","InclusionAnnotation":"INCLUDE"}`),
+		"glue:PutDataQualityProfileAnnotation", ruleset)
+
+	// A profile no evaluation of this simulator wrote names no ruleset, rather
+	// than authorizing against one the request never mentioned.
+	assertDerivedARNs(t,
+		iamGlueRequest("GetDataQualityModel",
+			`{"ProfileId":"00000000000000000000000000000000","StatisticId":"stat-1"}`),
+		"glue:GetDataQualityModel", "*")
+}
+
+// A request that names its resource generically — an id beside the kind of
+// thing it is — is authorized against that resource, and only when the kind is
+// one the action declares.
+func TestIAMResourceARNs_AGenericKindMustBeADeclaredOne(t *testing.T) {
+	t.Run("the kind decides what the id names", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDashboardUrl",
+				`{"ResourceId":"sess-42","ResourceType":"session"}`),
+			"glue:GetDashboardUrl", "arn:aws:glue:us-east-1:123456789012:session/sess-42")
+	})
+
+	t.Run("a kind the action does not declare names nothing", func(t *testing.T) {
+		// GetDashboardUrl declares only the session. A request naming a job is
+		// not about a resource this call authorizes, and authorizing the job
+		// would grant past what was asked.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDashboardUrl",
+				`{"ResourceId":"nightly","ResourceType":"job"}`),
+			"glue:GetDashboardUrl", "*")
+	})
+
+	t.Run("an id with no kind beside it names nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSGlue.GetDashboardUrl", `{"ResourceId":"sess-42"}`),
+			"glue:GetDashboardUrl", "*")
+	})
+}
+
+// A machine named inside a specification entry is still the machine the call
+// is about, and reading it must not make a filter's members readable too.
+func TestIAMResourceARNs_ACreditChangeNamesItsInstances(t *testing.T) {
+	const p = "arn:aws:ec2:us-east-1:123456789012:instance/"
+
+	t.Run("every machine in the request is authorized", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("ModifyInstanceCreditSpecification", map[string]string{
+				"InstanceCreditSpecification.1.InstanceId": "i-0111",
+				"InstanceCreditSpecification.1.CpuCredits": "standard",
+				"InstanceCreditSpecification.2.InstanceId": "i-0222",
+			}),
+			"ec2:ModifyInstanceCreditSpecification", p+"i-0111", p+"i-0222")
+	})
+
+	t.Run("a request naming no machine derives nothing", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamEC2Request("ModifyInstanceCreditSpecification", map[string]string{
+				"InstanceCreditSpecification.1.CpuCredits": "unlimited",
+			}),
+			"ec2:ModifyInstanceCreditSpecification", "*")
+	})
+
+	t.Run("a filter is still not a resource", func(t *testing.T) {
+		// The guard the whole nested read is written around: a search names
+		// what it is searching on, not what the call is about.
+		assertDerivedARNs(t,
+			iamEC2Request("DescribeVolumes", map[string]string{
+				"Filter.1.Name": "status", "Filter.1.Value.1": "available",
+			}),
+			"ec2:DescribeVolumes", "*")
+	})
+}
+
+// A just-in-time access request names its machines as the values of a target,
+// and the target's key is the half that makes them readable.
+func TestIAMResourceARNs_AnAccessRequestNamesTheMachinesItsTargetSelects(t *testing.T) {
+	t.Run("a target keyed on the instance id names machines", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.StartAccessRequest",
+				`{"Reason":"incident","Targets":[{"Key":"InstanceIds","Values":["i-0111","i-0222"]}]}`),
+			"ssm:StartAccessRequest",
+			"arn:aws:ec2:us-east-1:123456789012:instance/i-0111",
+			"arn:aws:ec2:us-east-1:123456789012:instance/i-0222")
+	})
+
+	t.Run("a target keyed on a tag names no machine", func(t *testing.T) {
+		// The key is what says whether the values are machines. Reading them
+		// regardless would authorize whatever a tag happened to select.
+		assertDerivedARNs(t,
+			iamJSONRequest("AmazonSSM.StartAccessRequest",
+				`{"Reason":"incident","Targets":[{"Key":"tag:Env","Values":["prod"]}]}`),
+			"ssm:StartAccessRequest", "*")
+	})
+}
+
+// A Lake query names the event data store it reads in its own statement, and
+// only a token shaped like a store's identifier is taken from it.
+func TestIAMResourceARNs_ALakeQueryNamesTheStoreItReads(t *testing.T) {
+	const p = "arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/"
+	const store = "01234567-89ab-cdef-0123-456789abcdef"
+	const other = "fedcba98-7654-3210-fedc-ba9876543210"
+
+	t.Run("the store the query reads is what it authorizes against", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CloudTrail_20131101.StartQuery",
+				`{"QueryStatement":"SELECT eventName FROM `+store+` WHERE eventSource = 's3'"}`),
+			"cloudtrail:StartQuery", p+store)
+	})
+
+	t.Run("a query reading two stores authorizes both", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("CloudTrail_20131101.StartQuery",
+				`{"QueryStatement":"SELECT a.eventName FROM `+store+` a JOIN `+other+` b ON a.eventID = b.eventID"}`),
+			"cloudtrail:StartQuery", p+store, p+other)
+	})
+
+	t.Run("a FROM naming no store derives nothing", func(t *testing.T) {
+		// A table alias or a subquery is not a store, and authorizing one
+		// would grant past what the query asked for.
+		assertDerivedARNs(t,
+			iamJSONRequest("CloudTrail_20131101.StartQuery",
+				`{"QueryStatement":"SELECT eventName FROM my_events"}`),
+			"cloudtrail:StartQuery", "*")
+	})
+}
+
+// Changing a password is authorized against the calling user, which the
+// signature establishes and the request never names.
+func TestIAMResourceARNs_APasswordChangeNamesItsCaller(t *testing.T) {
+	buildConformanceSimulator(t)
+
+	const key = "AKIAPROBECALLER00000"
+	iamAccessKeys.Put(key, IAMAccessKey{AccessKeyId: key, UserName: "kim"})
+	t.Cleanup(func() { iamAccessKeys.Delete(key) })
+
+	signed := func(credential string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/",
+			strings.NewReader("Action=ChangePassword&Version=2010-05-08"))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+credential+
+			"/20260801/us-east-1/iam/aws4_request, SignedHeaders=host, Signature=00")
+		return r
+	}
+
+	assertDerivedARNs(t, signed(key), "iam:ChangePassword",
+		"arn:aws:iam::123456789012:user/kim")
+
+	// A key naming no principal the simulator holds names no user. The header
+	// is only trustworthy because the signature is verified before this runs;
+	// deriving a user from an unknown key would authorize whoever was guessed.
+	assertDerivedARNs(t, signed("AKIAUNKNOWN000000000"), "iam:ChangePassword", "*")
+}
+
+// A record pointer says which log group the record is in, and a policy create
+// knows every part of its ARN but the id the service has not assigned yet.
+func TestIAMResourceARNs_APointerAndACreateNameWhatTheyKnow(t *testing.T) {
+	t.Run("a record pointer names its group", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.GetLogRecord",
+				`{"logRecordPointer":"orders|orders-1|3"}`),
+			"logs:GetLogRecord", "arn:aws:logs:us-east-1:123456789012:log-group:orders")
+	})
+
+	t.Run("a pointer of another shape names no group", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("Logs_20140328.GetLogRecord", `{"logRecordPointer":"opaque"}`),
+			"logs:GetLogRecord", "*")
+	})
+
+	t.Run("a policy create wildcards only the id it does not have", func(t *testing.T) {
+		// The organization and the policy type are known, so wildcarding them
+		// too would authorize policies of every type in every organization.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSOrganizationsV20161128.CreatePolicy",
+				`{"Name":"deny-root","Type":"SERVICE_CONTROL_POLICY","Content":"{}"}`),
+			"organizations:CreatePolicy",
+			"arn:aws:organizations::123456789012:policy/o-sim0000000/service_control_policy/p-*")
+	})
+}
+
+// Creating an alias is authorized against the state machine its routing points
+// at, which the request names only inside version ARNs.
+func TestIAMResourceARNs_AnAliasNamesTheMachineItRoutesTo(t *testing.T) {
+	const machine = "arn:aws:states:us-east-1:123456789012:stateMachine:orders"
+
+	t.Run("the machine the versions belong to is the resource", func(t *testing.T) {
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateStateMachineAlias",
+				`{"name":"live","routingConfiguration":[`+
+					`{"stateMachineVersionArn":"`+machine+`:1","weight":90},`+
+					`{"stateMachineVersionArn":"`+machine+`:2","weight":10}]}`),
+			"states:CreateStateMachineAlias", machine)
+	})
+
+	t.Run("an ARN carrying no version still names the machine it is", func(t *testing.T) {
+		// The version split does not match, but an ARN of a type the action
+		// declares names that resource however it was reached — and the machine
+		// the routing points at is what the alias is about either way.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateStateMachineAlias",
+				`{"name":"live","routingConfiguration":[{"stateMachineVersionArn":"`+machine+`"}]}`),
+			"states:CreateStateMachineAlias", machine)
+	})
+
+	t.Run("a routing naming no machine derives nothing", func(t *testing.T) {
+		// The guard this reader exists for: an alias must never widen to every
+		// state machine in the account.
+		assertDerivedARNs(t,
+			iamJSONRequest("AWSStepFunctions.CreateStateMachineAlias",
+				`{"name":"live","routingConfiguration":[{"weight":100}]}`),
+			"states:CreateStateMachineAlias", "*")
 	})
 }

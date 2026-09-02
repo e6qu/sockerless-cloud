@@ -456,6 +456,7 @@ type azureMergedSchema struct {
 	items     *azureRefSchema
 	addl      *azureRefSchema // additionalProperties schema (map values)
 	addlAny   bool            // additionalProperties: true
+	required  map[string]bool // properties the schema declares required
 	disc      string          // discriminator property name
 	discOwner string          // canonical id of the declaring schema
 	pattern   string          // declared regular expression for a string value
@@ -476,6 +477,16 @@ func (idx *azureSpecIndex) merge(rs azureRefSchema, id string, visited map[strin
 	}
 	if p, ok := rs.s["pattern"].(string); ok && p != "" && m.pattern == "" {
 		m.pattern = p
+	}
+	if req, ok := rs.s["required"].([]any); ok {
+		for _, raw := range req {
+			if name, ok := raw.(string); ok && name != "" {
+				if m.required == nil {
+					m.required = map[string]bool{}
+				}
+				m.required[name] = true
+			}
+		}
 	}
 	if props, ok := rs.s["properties"].(map[string]any); ok {
 		for name, raw := range props {
@@ -632,6 +643,19 @@ func (idx *azureSpecIndex) validate(op string, rs azureRefSchema, fieldPath stri
 				Detail: "property not defined by " + schemaName(id, rs),
 			})
 		}
+		// A property the schema declares required and the response omits. The
+		// loop above can only look at keys that are there, so this is the one
+		// omission it cannot see — and a generated client reads a required
+		// property without checking whether it arrived.
+		for name := range m.required {
+			if _, present := obj[name]; present {
+				continue
+			}
+			*out = append(*out, sim.SpecViolation{
+				Op: op, Kind: "missing-required", Field: fieldPath + "." + name,
+				Detail: schemaName(id, rs) + " declares this property required",
+			})
+		}
 	case "array":
 		arr, ok := v.([]any)
 		if !ok {
@@ -781,6 +805,38 @@ func armSpecValidator(srv *sim.Server) error {
 		// vacuous violation. The response conforms if any consulted
 		// candidate accepts it; otherwise the fewest-violation candidate
 		// reports.
+		// A status the operation does not declare. The candidate loop below
+		// falls back to the "default" response — the error shape — so an
+		// undeclared success code was neither reported nor its body checked:
+		// the response went out unjudged. A client generated from the document
+		// switches on the codes it declares, so one it does not is a code the
+		// caller has no branch for.
+		if status < 400 {
+			declared := false
+			for _, c := range cands {
+				if responses, ok := c.op["responses"].(map[string]any); ok {
+					if _, listed := responses[strconv.Itoa(status)]; listed {
+						declared = true
+						break
+					}
+				}
+			}
+			if !declared && len(cands) > 0 {
+				c := cands[0]
+				listed := make([]string, 0, 4)
+				if responses, ok := c.op["responses"].(map[string]any); ok {
+					for code := range responses {
+						listed = append(listed, code)
+					}
+				}
+				sort.Strings(listed)
+				return []sim.SpecViolation{{
+					Op: c.method + " " + c.template, Kind: "undeclared-status", Field: "$",
+					Detail: fmt.Sprintf("spec declares %s, response has %d",
+						strings.Join(listed, "|"), status),
+				}}
+			}
+		}
 		var best []sim.SpecViolation
 		bestSet := false
 		maxLiterals := -1

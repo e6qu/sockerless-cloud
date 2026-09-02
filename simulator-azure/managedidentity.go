@@ -230,10 +230,10 @@ func registerManagedIdentity(srv *sim.Server) {
 	//   - App Service / Container Apps: $IDENTITY_ENDPOINT (e.g.
 	//     http://localhost:42356/msi/token), with $IDENTITY_HEADER as a
 	//     simple shared-secret to gate the call.
-	// Sockerless's runners and any Azure SDK that relies on
-	// DefaultAzureCredential / ChainedTokenCredential will hit this
-	// endpoint to mint scoped tokens. Backends point their managed
-	// containers at <sim-base>/metadata/identity/oauth2/token by setting
+	// Any Azure SDK that relies on DefaultAzureCredential /
+	// ChainedTokenCredential reaches this endpoint to mint scoped tokens. A
+	// client points its managed containers at
+	// <sim-base>/metadata/identity/oauth2/token by setting
 	// IDENTITY_ENDPOINT in the function/app env.
 	tokenHandler := func(w http.ResponseWriter, r *http.Request) {
 		resource := r.URL.Query().Get("resource")

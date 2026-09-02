@@ -148,8 +148,12 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 	cw := cloudwatchClient()
 	snsC := snsClient()
 	sqsC := sqsClient()
-	ns := "Custom/AlarmOKSDK"
-	alarmName := "sdk-alarm-ok-" + t.Name()
+	// A namespace of its own per run. Metric data outlives the alarm that read
+	// it, so a shared namespace lets one run's recovery datapoint satisfy the
+	// next run's breach precondition — which is a test poisoning itself, and
+	// reads as a flake in whichever run loses.
+	ns := fmt.Sprintf("Custom/AlarmOKSDK-%d", nextCloudWatchProbeID())
+	alarmName := fmt.Sprintf("sdk-alarm-ok-%s-%d", t.Name(), nextCloudWatchProbeID())
 
 	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("alarm-ok-t")})
 	require.NoError(t, err)
@@ -173,16 +177,20 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Period=1 + EvaluationPeriods=1 makes each second its own evaluation
-	// bucket, so a breaching datapoint followed a few seconds later by a
-	// non-breaching one produces a real ALARM → OK transition.
+	// The two datapoints are placed in different evaluation buckets by their
+	// timestamps, below, so the breach is followed by a recovery rather than
+	// averaged with it. The period is a minute because that also sets how long
+	// the recovered state lasts: TreatMissingData=breaching turns the bucket
+	// after the recovery back into a breach, and a one-second period would
+	// leave the OK state alive for under a second — a window a poll can miss
+	// through no fault of the behaviour under test.
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
 		Namespace:          aws.String(ns),
 		MetricName:         aws.String("Latency"),
 		ComparisonOperator: cwtypes.ComparisonOperatorGreaterThanThreshold,
 		EvaluationPeriods:  aws.Int32(1),
-		Period:             aws.Int32(1),
+		Period:             aws.Int32(60),
 		Threshold:          aws.Float64(100),
 		Statistic:          cwtypes.StatisticAverage,
 		// TreatMissingData=breaching pins the alarm to ALARM once the
@@ -198,24 +206,30 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 		_, _ = cw.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{alarmName}})
 	})
 
+	// The breach goes two periods back, so it and the recovery below cannot
+	// land in one bucket and average into a single still-breaching period.
+	// Stamping them is what separates them: sleeping between the two puts
+	// would separate them too, but only by spending the time and only as
+	// reliably as the machine's timing.
+	breachAt := time.Now().UTC().Add(-2 * time.Minute)
 	_, err = cw.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String(ns),
 		MetricData: []cwtypes.MetricDatum{
-			{MetricName: aws.String("Latency"), Value: aws.Float64(500), Timestamp: aws.Time(time.Now().UTC())},
+			{MetricName: aws.String("Latency"), Value: aws.Float64(500), Timestamp: aws.Time(breachAt)},
 		},
 	})
 	require.NoError(t, err)
 
-	// Wait for DescribeAlarms to surface ALARM, then sleep past one
-	// evaluator tick so cwAlarmLastState=ALARM is recorded before the
-	// non-breaching datapoint arrives (DescribeAlarms evaluates live; the
-	// dispatch path keys off the evaluator's remembered state).
+	// DescribeAlarms reports the state the evaluator recorded, so seeing ALARM
+	// is seeing the transition the OK below has to follow.
 	require.Eventually(t, func() bool {
 		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
 		require.NoError(t, err)
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
-	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM with the breaching datapoint")
-	time.Sleep(3 * time.Second)
+	}, 15*time.Second, 25*time.Millisecond, "alarm should reach ALARM with the breaching datapoint")
+	// The recovery below has to follow a recorded ALARM, or the transition it
+	// produces skips a state and the notification reports the wrong one.
+	awaitRecordedTransition(ctx, t, cw, alarmName, "ALARM")
 
 	_, err = cw.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String(ns),
@@ -228,7 +242,7 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 		desc, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
 		require.NoError(t, err)
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueOk
-	}, 15*time.Second, 500*time.Millisecond, "alarm should return to OK after the non-breaching datapoint")
+	}, 15*time.Second, 25*time.Millisecond, "alarm should return to OK after the non-breaching datapoint")
 
 	// Drain the queue for the OK notification.
 	deadline := time.Now().Add(15 * time.Second)
@@ -328,11 +342,8 @@ func TestCloudWatch_ActionsDisabledSkipsDispatch(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should still transition to ALARM (state evaluation is independent of ActionsEnabled)")
 
-	// Allow multiple evaluator ticks to elapse, then confirm no notification arrived.
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:        q.QueueUrl,
-		WaitTimeSeconds: 5,
-	})
-	require.NoError(t, err)
-	assert.Empty(t, recv.Messages, "no notification should be delivered when ActionsEnabled is false")
+	// The alarm has transitioned, so the dispatch that must not happen would
+	// have happened by now; this watches for it and fails the moment one shows.
+	requireQueueStaysEmpty(ctx, t, sqsC, q.QueueUrl,
+		"no notification should be delivered when ActionsEnabled is false")
 }

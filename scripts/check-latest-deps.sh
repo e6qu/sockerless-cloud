@@ -182,6 +182,7 @@ publish_time() {
     go) go_module_publish_time "$1" ;;
     terraform) tf_provider_publish_time "$1" ;;
     github) gh_tag_publish_time "$1" ;;
+    npm) npm_version_publish_time "$1" ;;
     *)
       echo "ERROR: no publication-time source for dependency class '$LOOKUP_CLASS'" >&2
       return 1
@@ -428,8 +429,21 @@ while IFS= read -r tf; do
       continue
     fi
     index="$work/tf-index.json"
-    if ! curl -fsSL -o "$index" "https://registry.terraform.io/v1/providers/${source}" 2>/dev/null; then
-      echo "  FAIL  $tf: $name ($source) could not be read from the Terraform registry"
+    # A registry that will not answer is not evidence of a stale pin, and this
+    # check reported it as drift — two fixtures failed a CI run that way while
+    # every other fixture read the same provider fine. Retry first: the answer
+    # is the same document each time, so a read that fails once and succeeds on
+    # the next attempt was a transport failure and nothing else.
+    tf_index_read=1
+    for attempt in 1 2 3; do
+      if curl -fsSL --max-time 30 -o "$index" "https://registry.terraform.io/v1/providers/${source}" 2>/dev/null; then
+        tf_index_read=0
+        break
+      fi
+      sleep "$((attempt * 3))"
+    done
+    if [[ "$tf_index_read" -ne 0 ]]; then
+      echo "  FAIL  $tf: $name ($source) could not be read from the Terraform registry after three attempts — this is the registry being unreachable, not a stale pin"
       fail=$((fail + 1))
       continue
     fi
@@ -744,6 +758,119 @@ if [[ -d .github/workflows ]]; then
     report_version_state "$file: $pkg" "$pinned" "$file" "$module"
   done <<<"$tools"
 fi
+
+
+# ---------------------------------------------------------------------------
+# npm package freshness (the console user interface).
+#
+# The three console SPAs are a dependency tree nothing here watched. Every
+# other class in this script — Go modules, Terraform providers, GitHub Actions,
+# workflow Go tools — is held to its newest release that has cleared the
+# adoption quarantine, and the user interface was simply outside that, so its
+# packages drifted by however long nobody happened to look. They are checked
+# the same way now, against npm's own publication metadata.
+#
+# npm_packument caches one package document per run, because a package appears
+# in several of the four package.json files and the document is the same each
+# time.
+npm_packument() {
+  local name=$1 cache
+  cache="$work/npm-$(printf '%s' "$name" | tr '/@' '__').json"
+  if [[ ! -f $cache ]]; then
+    curl -fsSL --max-time 60 --retry 3 --retry-delay 3 -o "$cache" \
+      "https://registry.npmjs.org/$name" 2>/dev/null || return 1
+  fi
+  printf '%s\n' "$cache"
+}
+
+# npm_version_publish_time answers from the packument's own `time` map, which
+# is npm's record of when each version was published.
+npm_version_publish_time() {
+  local version=$1 doc ts
+  doc=$(npm_packument "$LOOKUP_SUBJECT") || return 1
+  ts=$(jq -r --arg v "$version" '.time[$v] // empty' "$doc" 2>/dev/null || true)
+  [[ -n $ts ]] || return 1
+  printf '%s\n' "$ts"
+}
+
+# npm_release_versions lists a package's released versions, newest first, with
+# prereleases dropped: a canary is not a release this repository adopts, and
+# treating one as the newest would hold every package forever behind a version
+# nobody intends to take.
+npm_release_versions() {
+  local doc
+  doc=$(npm_packument "$1") || return 1
+  jq -r '.versions | keys[]' "$doc" 2>/dev/null \
+    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV
+}
+
+
+# npm_hold_reason names a package deliberately kept behind its newest release,
+# and prints why. A hold is not a version nobody looked at: each of these
+# breaks something here, and ui/README.md carries the evidence. Drop a branch
+# the moment the upstream release that broke it is superseded.
+#
+# A case rather than an associative array: this script runs under the bash
+# macOS ships, which is 3.2 and has none, and under zsh in its own CI job.
+npm_hold_reason() {
+  case $1 in
+    "@fluentui/react-components")
+      printf '%s\n' "9.74.6 and later fail every Azure console test with \"tabster does not provide an export named createTabster\"; tabster 8.8.0 is the newest release and does export it, so the break is in Fluent's own build. See ui/README.md."
+      ;;
+    "@tanstack/react-table")
+      printf '%s\n' "v9 is an API redesign — createColumnHelper takes feature generics and the table is built from a feature set — so adopting it is a migration of every console's tables. See ui/README.md."
+      ;;
+    typescript)
+      printf '%s\n' "TypeScript 7 rejects the side-effect CSS imports every console entry point makes (TS2882); adopting it needs module declarations for those first. See ui/README.md."
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+echo "=== npm package freshness (adoption quarantine ${quarantine_seconds}s) ==="
+while IFS= read -r manifest; do
+  [[ -z "$manifest" ]] && continue
+  while IFS='|' read -r name constraint; do
+    [[ -z "$name" ]] && continue
+    if hold_reason=$(npm_hold_reason "$name"); then
+      echo "  HELD  $manifest: $name pinned at $constraint — $hold_reason"
+      held=$((held + 1))
+      continue
+    fi
+    versions=$(npm_release_versions "$name") || {
+      echo "  FAIL  $manifest: $name could not be read from the npm registry after three attempts — this is the registry being unreachable, not a stale pin"
+      fail=$((fail + 1))
+      continue
+    }
+    LOOKUP_CLASS=npm
+    LOOKUP_SUBJECT=$name
+    if ! adoptable_version '' "$versions"; then
+      echo "  FAIL  $manifest: $name publication time for $UNREADABLE could not be determined from the npm registry (a version of unknown age is never adopted)"
+      fail=$((fail + 1))
+      continue
+    fi
+    [[ -z "$ADOPTABLE" ]] && continue
+    # The constraint is "^x.y.z" or a bare "x.y.z"; either way the number in it
+    # is what the tree resolves against, and it is behind once a newer release
+    # has cleared the quarantine.
+    pinned=${constraint#^}
+    pinned=${pinned#~}
+    [[ "$pinned" == "$ADOPTABLE" ]] && continue
+    newest=$(printf '%s\n%s\n' "$pinned" "$ADOPTABLE" | sort -V | tail -1)
+    if [[ "$newest" == "$pinned" ]]; then
+      echo "  HELD  $manifest: $name pinned at $pinned, newer than the latest adoptable $ADOPTABLE — inside the ${quarantine_seconds}s adoption quarantine, so it is not drift"
+      held=$((held + 1))
+      continue
+    fi
+    echo "  FAIL  $manifest: $name pinned $constraint (latest adoptable $ADOPTABLE)"
+    fail=$((fail + 1))
+  done < <(jq -r '
+      [(.dependencies // {}), (.devDependencies // {})]
+      | add // {}
+      | to_entries[]
+      | select(.value | test("^[\\^~]?[0-9]+\\.[0-9]+\\.[0-9]+$"))
+      | "\(.key)|\(.value)"' "$manifest")
+done < <(git ls-files 'ui/package.json' 'ui/packages/*/package.json' | sort)
 
 echo
 if [[ $held -gt 0 ]]; then

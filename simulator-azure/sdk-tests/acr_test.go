@@ -301,3 +301,60 @@ type nopSeekCloserT struct{ io.ReadSeeker }
 
 func (nopSeekCloserT) Close() error                   { return nil }
 func nopSeekCloser(r io.ReadSeeker) io.ReadSeekCloser { return nopSeekCloserT{r} }
+
+// TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist checks the
+// operation a client calls precisely so it can avoid a conflict. Answering
+// "available" for every name makes it worthless — the caller creates, and the
+// create is the thing that tells it the name was taken.
+func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
+	const (
+		rgName       = "acr-namecheck-rg"
+		registryName = "namecheckregistry"
+	)
+	ensureRG(t, rgName)
+
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+
+	check := func(name string) armcontainerregistry.RegistryNameStatus {
+		t.Helper()
+		resp, err := client.CheckNameAvailability(ctx, armcontainerregistry.RegistryNameCheckRequest{
+			Name: ptrStr(name),
+			Type: ptrStr("Microsoft.ContainerRegistry/registries"),
+		}, nil)
+		require.NoError(t, err)
+		return resp.RegistryNameStatus
+	}
+
+	// Free before anything holds it.
+	free := check(registryName)
+	require.NotNil(t, free.NameAvailable)
+	assert.True(t, *free.NameAvailable)
+
+	poller, err := client.BeginCreate(ctx, rgName, registryName, armcontainerregistry.Registry{
+		Location: ptrStr("eastus"),
+		SKU:      &armcontainerregistry.SKU{Name: ptrSKU(armcontainerregistry.SKUNameBasic)},
+	}, nil)
+	require.NoError(t, err)
+	_, err = poller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
+	// Taken once the registry holding it exists.
+	taken := check(registryName)
+	require.NotNil(t, taken.NameAvailable)
+	assert.False(t, *taken.NameAvailable)
+	require.NotNil(t, taken.Reason)
+	assert.Equal(t, "AlreadyExists", *taken.Reason)
+	require.NotNil(t, taken.Message)
+	assert.Contains(t, *taken.Message, registryName)
+
+	// A name the service's own rule refuses is refused for that reason rather
+	// than reported free: the document declares 5 to 50 alphanumerics.
+	for _, bad := range []string{"abc", "has-a-hyphen", strings.Repeat("a", 51)} {
+		invalid := check(bad)
+		require.NotNil(t, invalid.NameAvailable, bad)
+		assert.False(t, *invalid.NameAvailable, bad)
+		require.NotNil(t, invalid.Reason, bad)
+		assert.Equal(t, "Invalid", *invalid.Reason, bad)
+	}
+}

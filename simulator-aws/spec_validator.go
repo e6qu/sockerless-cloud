@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -65,6 +66,12 @@ type smithyOpDef struct {
 	output     string
 	httpMethod string
 	httpURI    string
+	// httpCode is the success status the smithy.api#http trait declares, and
+	// zero when it declares none. Smithy defaults an omitted code to 200, but
+	// that default is the absence of a statement rather than one: real S3
+	// answers 204 to PutBucketPolicy and 202 to RestoreObject, and their
+	// traits say nothing. Only an explicit code is evidence.
+	httpCodes []int
 }
 
 type smithyModelIndex struct {
@@ -135,6 +142,102 @@ type uriQueryLiteral struct {
 	hasValue bool
 }
 
+// applySmithySupplement corrects a model's shapes from the supplement beside
+// it, if it has one.
+//
+// A correction exists where a shape's declared pattern is stricter than the
+// service it describes, so no value AWS returns for a member of that shape can
+// match it. Correcting the pattern keeps the member validated against what the
+// service really returns; the alternative — listing the field as an accepted
+// violation — stops checking the value at all, and would let the simulator
+// return anything there.
+//
+// Each correction pins the exact upstream pattern it replaces. A re-vendor that
+// changes that text fails here rather than silently applying a correction
+// written against something else — which is how a correction that upstream has
+// already made gets noticed and deleted.
+func applySmithySupplement(modelPath string, shapes map[string]smithyShapeDef, httpCodeCorrections map[string][]int) error {
+	path := strings.TrimSuffix(modelPath, ".smithy.json.gz") + ".supplement.json"
+	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	var supplement struct {
+		Shapes map[string]struct {
+			Pattern *struct {
+				Replaces string `json:"replaces"`
+				With     string `json:"with"`
+			} `json:"pattern"`
+			// A success status the operation really answers with, where the
+			// declared one is not it. Written as the set of codes the service
+			// uses, because an operation can have more than one: a restore
+			// answers 202 when it starts one and 200 when the object is
+			// already restored.
+			HTTPCode *struct {
+				Replaces int   `json:"replaces"`
+				With     []int `json:"with"`
+			} `json:"httpCode"`
+		} `json:"shapes"`
+	}
+	if err := json.Unmarshal(body, &supplement); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	for id, correction := range supplement.Shapes {
+		shape, ok := shapes[id]
+		if !ok {
+			return fmt.Errorf("%s: corrects shape %q, which the model does not define", path, id)
+		}
+		if correction.HTTPCode != nil {
+			raw, ok := shape.Traits["smithy.api#http"]
+			if !ok {
+				return fmt.Errorf("%s: corrects the status of %s, which declares no smithy.api#http", path, id)
+			}
+			var declared struct {
+				Code int `json:"code"`
+			}
+			if err := json.Unmarshal(raw, &declared); err != nil {
+				return fmt.Errorf("%s: %s declares an unreadable smithy.api#http: %w", path, id, err)
+			}
+			if declared.Code != correction.HTTPCode.Replaces {
+				return fmt.Errorf("%s: corrects the status of %s, but the model now declares %d rather than the %d the correction was written against — recheck whether it is still needed and update or delete it",
+					path, id, declared.Code, correction.HTTPCode.Replaces)
+			}
+			if len(correction.HTTPCode.With) == 0 {
+				return fmt.Errorf("%s: the status correction for %s names no code", path, id)
+			}
+			httpCodeCorrections[id] = correction.HTTPCode.With
+		}
+		if correction.Pattern == nil {
+			continue
+		}
+		raw, ok := shape.Traits["smithy.api#pattern"]
+		if !ok {
+			return fmt.Errorf("%s: corrects the pattern of %s, which declares none", path, id)
+		}
+		var declared string
+		if err := json.Unmarshal(raw, &declared); err != nil {
+			return fmt.Errorf("%s: %s declares an unreadable pattern: %w", path, id, err)
+		}
+		if declared != correction.Pattern.Replaces {
+			return fmt.Errorf("%s: corrects the pattern of %s, but the model now declares %q rather than the %q the correction was written against — recheck whether it is still needed and update or delete it",
+				path, id, declared, correction.Pattern.Replaces)
+		}
+		if _, err := regexp.Compile(correction.Pattern.With); err != nil {
+			return fmt.Errorf("%s: the corrected pattern for %s does not compile: %w", path, id, err)
+		}
+		corrected, err := json.Marshal(correction.Pattern.With)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		shape.Traits["smithy.api#pattern"] = corrected
+		shapes[id] = shape
+	}
+	return nil
+}
+
 func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.smithy.json.gz"))
 	if err != nil || len(paths) == 0 {
@@ -163,6 +266,10 @@ func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 		_ = f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		httpCodeCorrections := map[string][]int{}
+		if err := applySmithySupplement(p, doc.Shapes, httpCodeCorrections); err != nil {
+			return nil, err
 		}
 		idx := &smithyModelIndex{
 			shapes:    doc.Shapes,
@@ -193,12 +300,19 @@ func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 					var h struct {
 						Method string `json:"method"`
 						URI    string `json:"uri"`
+						Code   int    `json:"code"`
 					}
 					if err := json.Unmarshal(raw, &h); err != nil {
 						return nil, fmt.Errorf("%s: bad smithy.api#http on %s: %w", p, id, err)
 					}
 					def.httpMethod = h.Method
 					def.httpURI = h.URI
+					if h.Code != 0 {
+						def.httpCodes = []int{h.Code}
+					}
+				}
+				if corrected, ok := httpCodeCorrections[id]; ok {
+					def.httpCodes = corrected
 				}
 				idx.ops[short] = def
 				opShapes[short] = shape
@@ -326,13 +440,20 @@ func (st *specValidatorState) validate(req *http.Request, reqBody []byte, status
 	if target := req.Header.Get("X-Amz-Target"); target != "" {
 		return st.validateJSONTarget(target, status, respHeader, respBody)
 	}
-	if status >= 400 || len(respBody) == 0 {
+	if status >= 400 {
 		return nil
 	}
 	if req.Method == http.MethodPost && req.URL.Path == "/" {
+		if len(respBody) == 0 {
+			return nil
+		}
 		return st.validateQueryAction(reqBody, respHeader, respBody)
 	}
-	return st.validateRestXML(req, respHeader, respBody)
+	// An empty body still carries a status, and the statuses worth checking
+	// are mostly the empty ones — a delete modelled 204. The restXml path
+	// checks the code first and only then the body, so it is reached here even
+	// with nothing to parse.
+	return st.validateRestXML(req, status, respHeader, respBody)
 }
 
 // validateJSONTarget covers the awsJson1.0 / awsJson1.1 protocols.
@@ -419,6 +540,34 @@ func validateSmithyValue(idx *smithyModelIndex, op, shapeID, path string, v any,
 			}
 			validateSmithyValue(idx, op, ref.Target, path+"."+key, val, out)
 		}
+		// A member the model marks required and the response omits. A
+		// generated client dereferences it without checking, so the omission
+		// is a wire-contract break rather than a missing nicety — and it is
+		// the one shape the field walk above cannot see, because it can only
+		// look at keys that are there. A union carries exactly one of its
+		// members, so required does not apply to it.
+		if shape.Type == "structure" {
+			for name, ref := range shape.Members {
+				if _, isRequired := ref.Traits["smithy.api#required"]; !isRequired {
+					continue
+				}
+				wire := name
+				if raw, ok := ref.Traits["smithy.api#jsonName"]; ok {
+					var alias string
+					if json.Unmarshal(raw, &alias) == nil && alias != "" {
+						wire = alias
+					}
+				}
+				if _, present := obj[name]; present {
+					continue
+				}
+				if _, present := obj[wire]; present {
+					continue
+				}
+				*out = append(*out, sim.SpecViolation{Op: op, Kind: "missing-required",
+					Field: path + "." + name, Detail: shapeID + " declares this member required"})
+			}
+		}
 	case "list", "set":
 		arr, ok := v.([]any)
 		if !ok {
@@ -457,6 +606,15 @@ func validateSmithyValue(idx *smithyModelIndex, op, shapeID, path string, v any,
 		if re := idx.pattern(shapeID, shape); re != nil && !re.MatchString(s) {
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "pattern-mismatch", Field: path,
 				Detail: fmt.Sprintf("spec %s requires %s, response has %q", shapeID, re.String(), s)})
+		}
+		// An enum names every value the service uses. A response outside that
+		// set is a value the service does not have — a status nobody defined,
+		// a state invented to fill the field — and the type check above cannot
+		// see it, because an invented value is still a string.
+		if shape.Type == "enum" && len(shape.Members) > 0 && !smithyEnumAllows(shape, s) {
+			*out = append(*out, sim.SpecViolation{Op: op, Kind: "enum-mismatch", Field: path,
+				Detail: fmt.Sprintf("spec %s declares %s, response has %q",
+					shapeID, strings.Join(smithyEnumValues(shape), "|"), s)})
 		}
 	case "boolean":
 		if _, ok := v.(bool); !ok {
@@ -508,6 +666,34 @@ func (idx *smithyModelIndex) pattern(shapeID string, shape smithyShapeDef) *rege
 }
 
 // validateSmithyPrimitive covers smithy.api# prelude targets.
+// smithyEnumValues lists the wire values an enum shape declares, in the order
+// the model writes them.
+func smithyEnumValues(shape smithyShapeDef) []string {
+	values := make([]string, 0, len(shape.Members))
+	for name, ref := range shape.Members {
+		value := name
+		if raw, ok := ref.Traits["smithy.api#enumValue"]; ok {
+			var declared string
+			if json.Unmarshal(raw, &declared) == nil && declared != "" {
+				value = declared
+			}
+		}
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
+}
+
+// smithyEnumAllows reports whether an enum shape declares a wire value.
+func smithyEnumAllows(shape smithyShapeDef, s string) bool {
+	for _, value := range smithyEnumValues(shape) {
+		if value == s {
+			return true
+		}
+	}
+	return false
+}
+
 func validateSmithyPrimitive(op, shapeID, path string, v any, out *[]sim.SpecViolation) {
 	short := shapeID
 	if i := strings.Index(shapeID, "#"); i >= 0 {

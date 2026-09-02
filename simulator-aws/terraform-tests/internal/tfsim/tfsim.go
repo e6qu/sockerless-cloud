@@ -34,6 +34,35 @@ type Env struct {
 	cmd        *exec.Cmd
 	gatewayCmd *exec.Cmd
 	dir        string
+	extraEnv   []string
+}
+
+// RouteHostPrefixedRequests points terraform's HTTP client at the simulator as
+// a proxy, and takes the fixture off the HTTPS gateway. An operation that carries a modeled endpoint host prefix — every
+// s3control operation is addressed by the account id — makes the provider
+// build and sign a host like "123456789012.<endpoint host>", and the endpoint
+// host is an IP literal, so that name resolves nowhere. Resolution is a
+// coordinate, not a request property: the provider still emits and signs
+// exactly the host it would send AWS, and only where the bytes land differs —
+// the same shape as an operator whose AWS traffic egresses through a corporate
+// proxy. Call it before running terraform.
+func (e *Env) RouteHostPrefixedRequests() {
+	e.extraEnv = append(e.extraEnv,
+		"HTTP_PROXY="+e.BaseURL, "http_proxy="+e.BaseURL,
+		"NO_PROXY=", "no_proxy=")
+}
+
+// WithoutHTTPSGateway must be called before Start by a fixture whose
+// operations carry a modeled endpoint host prefix. The gateway serves a
+// wildcard certificate over one label of *.aws.sockerless.localhost, and a
+// prefix adds a second — "123456789012.s3-control.aws.sockerless.localhost" is
+// a name that certificate does not cover and nothing resolves, so the provider
+// retries it until the test deadline rather than failing. Such a fixture
+// reaches the simulator over plain HTTP through the proxy coordinate instead,
+// which is the same substitution and needs no certificate.
+func WithoutHTTPSGateway(t *testing.T) {
+	t.Helper()
+	t.Setenv("SOCKERLESS_TF_HTTPS_GATEWAY", "")
 }
 
 func Start(t *testing.T, configDir string) *Env {
@@ -140,6 +169,7 @@ func (e *Env) Terraform(t *testing.T, args ...string) []byte {
 	// orphaning a spinning process tree past the test deadline.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(), "TF_VAR_endpoint="+e.Endpoint)
+	cmd.Env = append(cmd.Env, e.extraEnv...)
 	if e.CACertFile != "" {
 		cmd.Env = append(cmd.Env, "SSL_CERT_FILE="+e.CACertFile)
 	}
@@ -290,6 +320,14 @@ func (e *Env) AWSJSON(t *testing.T, service, target string, in, out any) {
 
 func (e *Env) AWSQuery(t *testing.T, service string, values url.Values) {
 	t.Helper()
+	e.AWSQueryBody(t, service, values)
+}
+
+// AWSQueryBody is AWSQuery with the response returned, for the setup calls that
+// have to read what the service answered — waiting for a resource to reach the
+// state a later step requires means reading its state, not assuming it.
+func (e *Env) AWSQueryBody(t *testing.T, service string, values url.Values) string {
+	t.Helper()
 	body := []byte(values.Encode())
 	req, err := http.NewRequest(http.MethodPost, e.Endpoint+"/", bytes.NewReader(body))
 	if err != nil {
@@ -307,6 +345,11 @@ func (e *Env) AWSQuery(t *testing.T, service string, values url.Values) {
 		_, _ = b.ReadFrom(resp.Body)
 		t.Fatalf("query action %s status=%d body=%s", values.Get("Action"), resp.StatusCode, b.String())
 	}
+	var answered bytes.Buffer
+	if _, err := answered.ReadFrom(resp.Body); err != nil {
+		t.Fatalf("read query action %s response: %v", values.Get("Action"), err)
+	}
+	return answered.String()
 }
 
 // signSimSigV4 signs a request to the simulator with Signature Version 4 using

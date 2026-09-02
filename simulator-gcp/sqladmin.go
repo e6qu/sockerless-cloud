@@ -1631,7 +1631,7 @@ func handleSQLInsertSslCert(w http.ResponseWriter, r *http.Request) {
 	role := defaultStr(req.CommonName, "client")
 	cert := sqlNewSslCert(r, project, instance, "client-"+role)
 	sqlSslCerts.Put(sqlSslCertKey(project, instance, cert.Sha1Fingerprint), cert)
-	op := newSQLOperation(project, "CREATE_SSL_CERT", instance)
+	op := newSQLOperation(project, "CREATE", instance)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"kind":         "sql#sslCertsInsert",
 		"clientCert":   map[string]any{"certInfo": cert},
@@ -1680,7 +1680,7 @@ func handleSQLDeleteSslCert(w http.ResponseWriter, r *http.Request) {
 		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sslCert not found: %s", fp)
 		return
 	}
-	op := newSQLOperation(project, "DELETE_SSL_CERT", instance)
+	op := newSQLOperation(project, "DELETE", instance)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
@@ -1894,7 +1894,7 @@ func handleSQLCreateBackup(w http.ResponseWriter, r *http.Request) {
 		SelfLink:        gcpSelfLink(r, sqlAPIPrefix(r)+"/projects/"+project+"/backups/"+id),
 	}
 	sqlBackups.Put(sqlBackupKey(project, id), b)
-	op := newSQLOperationRunning(project, "CREATE_BACKUP", id)
+	op := newSQLOperationRunning(project, "BACKUP", id)
 	opName := op.Name
 	simGo(func() {
 		captureErr := sqlCaptureVolume(project, instanceName, sqlBackupVolume(project, id))

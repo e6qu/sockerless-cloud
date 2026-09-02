@@ -42,6 +42,32 @@ fi
 # sockerless monorepo — every historical registration would be judged as new,
 # including routes that pre-date the hook. There is no incremental change to
 # gate, so pass explicitly rather than mis-applying the contract.
+# Every exemption has to say why it is one. The allowlists next to these files
+# demand a reason and an owner; this list demanded nothing, so entries
+# accumulated as bare routes and nobody could tell a route that genuinely has no
+# SDK/CLI/terraform surface from one whose test was simply never written. A
+# reason is a comment on the line directly above the entry.
+for exempt_file in simulator-*/tests-exempt.txt; do
+    [[ -f "$exempt_file" ]] || continue
+    previous=""
+    line_no=0
+    while IFS= read -r line; do
+        line_no=$((line_no + 1))
+        if [[ -z "${line// }" || "$line" =~ ^[[:space:]]*# ]]; then
+            previous="$line"
+            continue
+        fi
+        if [[ ! "$previous" =~ ^[[:space:]]*# ]]; then
+            echo "[simulator-tests] FAIL: $exempt_file:$line_no exempts \"$line\" with no reason above it. Put a comment line directly above the entry saying why the route has no SDK/CLI/terraform test — or write the test and delete the entry." >&2
+            exempt_fail=1
+        fi
+        previous="$line"
+    done <"$exempt_file"
+done
+if [[ "${exempt_fail:-0}" == "1" ]]; then
+    exit 1
+fi
+
 if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
     echo "[simulator-tests] root commit (no parent): nothing incremental to gate"
     exit 0
@@ -161,7 +187,12 @@ op_referenced_in_tests() {
         | tr '[:upper:]' '[:lower:]')
     local esc_short esc_kebab
     esc_short="$(regex_escape "$short")"; esc_kebab="$(regex_escape "$kebab")"
-    grep -qE "\.${esc_short}\(|\"${esc_kebab}\"|\"${esc_short}\"" "$added_dir/tests-$cloud"
+    # `.Op(` is a call; `.Collection.` is the field a generated client hangs a
+    # collection's verbs off — svc.InterconnectLocations.List(...) references
+    # the collection route just as svc.UrlMaps.Validate(...) references the
+    # verb one. Accepting only the call form leaves every collection route
+    # unmatchable, which is an exemption the surface does not need.
+    grep -qE "\.${esc_short}\(|\.${esc_short}\.|\"${esc_kebab}\"|\"${esc_short}\"" "$added_dir/tests-$cloud"
 }
 
 # A route is "referenced" when its literal path appears on an added test line,
@@ -176,9 +207,10 @@ route_referenced_in_tests() {
     # route_path, not `path`: zsh ties `path` to `PATH`, so a local named
     # `path` here would blank the command search path for this function and
     # every grep below would stop resolving.
-    local route cloud route_path last_seg
+    local route cloud route_path last_seg method
     route="$1"; cloud="$2"
     route_path="${route#* }"
+    method="${route%% *}"
     if grep -qF "$route_path" "$added_dir/tests-$cloud"; then
         return 0
     fi
@@ -186,6 +218,87 @@ route_referenced_in_tests() {
     last_seg="${route_path##*/}"
     if printf '%s' "$last_seg" | grep -qE '^[A-Z][a-zA-Z0-9]+$'; then
         op_referenced_in_tests "$last_seg" "$cloud" && return 0
+    fi
+    # Google spells a verb segment in lowerCamelCase ("validate",
+    # "invalidateCache", "setNamedPorts") and its generated clients export the
+    # same name capitalised, so the segment names the SDK call just as an
+    # UpperCamel one does. Without this the gate can never match a GCP verb
+    # route, and every one of them would have to be exempted despite being
+    # tested — which empties the gate of meaning.
+    #
+    # The named segment is not always the last one: a route ending in a
+    # parameter is addressed through the collection before it
+    # (/global/interconnectLocations/{interconnectLocation}), and so is a
+    # resource read (/projects/{project}). Walk back to the nearest segment
+    # that names something and try that.
+    # A route mounted at a literal colon verb ends in "collection:verb", and it
+    # is the verb that names the SDK method — .Documents.ExecutePipeline for
+    # documents:executePipeline. Without this the whole colon-verb shape is
+    # unmatchable and every one of them would need exempting.
+    case "$last_seg" in
+        *:*)
+            local colon_verb
+            colon_verb="${last_seg#*:}"
+            if printf '%s' "$colon_verb" | grep -qE '^[a-zA-Z][a-zA-Z0-9]*$'; then
+                op_referenced_in_tests \
+                    "$(printf '%s' "$colon_verb" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$colon_verb" | cut -c2-)" \
+                    "$cloud" && return 0
+            fi
+            ;;
+    esac
+
+    local segment
+    segment=$(printf '%s' "$route_path" | awk -F/ '{
+        for (i = NF; i > 0; i--) {
+            if ($i != "" && substr($i, 1, 1) != "{") { print $i; exit }
+        }
+    }')
+    if [ -n "$segment" ] && printf '%s' "$segment" | grep -qE '^[a-zA-Z][a-zA-Z0-9]*$'; then
+        local capitalised
+        capitalised="$(printf '%s' "$segment" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$segment" | cut -c2-)"
+        # A route whose tail is a parameter is a verb on a resource, and the
+        # named segment is only its collection — so matching the collection
+        # alone would accept any test that touched the collection at all. Ask
+        # for the call the HTTP method names as well, which is what the
+        # generated client spells it: PATCH is Patch, PUT is Update, DELETE is
+        # Delete. A route whose tail names the verb itself needs no such help.
+        local wants_verb=""
+        case "$last_seg" in
+            '{'*)
+                case "$method" in
+                    PATCH) wants_verb=Patch ;;
+                    PUT) wants_verb=Update ;;
+                    DELETE) wants_verb=Delete ;;
+                esac
+                ;;
+        esac
+        if [ -n "$wants_verb" ]; then
+            # As one expression, not two lookups: a collection referenced in
+            # one test and the verb in another says nothing about this route.
+            grep -qE "\.$(regex_escape "$capitalised")\.$(regex_escape "$wants_verb")\(" \
+                "$added_dir/tests-$cloud" && return 0
+        else
+            op_referenced_in_tests "$capitalised" "$cloud" && return 0
+        fi
+        # Google's generated clients prefix the scoped variant of a collection
+        # that exists at more than one scope — /global/forwardingRules is
+        # reached through GlobalForwardingRules and /regions/{region}/zones
+        # through RegionZones. Without this the scoped spelling of every such
+        # collection is unmatchable.
+        local scoped=""
+        case "$route_path" in
+            */global/*) scoped=Global ;;
+            */regions/*) scoped=Region ;;
+            */zones/*) scoped=Zone ;;
+        esac
+        if [ -n "$scoped" ]; then
+            if [ -n "$wants_verb" ]; then
+                grep -qE "\.${scoped}$(regex_escape "$capitalised")\.$(regex_escape "$wants_verb")\(" \
+                    "$added_dir/tests-$cloud" && return 0
+            else
+                op_referenced_in_tests "${scoped}$capitalised" "$cloud" && return 0
+            fi
+        fi
     fi
     # cloudTrailRecordedREST("Op", …) names the operation at the route mount;
     # accept a call/assertion reference to that named op.

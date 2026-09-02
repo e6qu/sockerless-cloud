@@ -152,20 +152,39 @@ var azureDeclaredOperationTotals = map[string]int{
 }
 
 var azureMethodFloor = map[string]int{
-	"apimanagement-arm-apimapis-2022-08-01":                 91,
-	"apimanagement-arm-apimbackends-2022-08-01":             7,
-	"apimanagement-arm-apimdeletedservices-2022-08-01":      3,
-	"apimanagement-arm-apimdeployment-2022-08-01":           15,
-	"apimanagement-arm-apimnamedvalues-2022-08-01":          8,
-	"apimanagement-arm-apimproducts-2022-08-01":             31,
-	"apimanagement-arm-apimsubscriptions-2022-08-01":        9,
-	"app-arm-containerapps-2025-01-01":                      11,
-	"app-arm-jobs-2025-01-01":                               12,
-	"app-arm-managedenvironments-2025-01-01":                19,
-	"app-arm-managedenvironmentsstorages-2025-01-01":        4,
-	"applicationinsights-arm-components_api-2020-02-02":     8,
-	"applicationinsights-arm-featuresandpricing-2015-05-01": 2,
-	"applicationinsights-dataplane-appinsights-v1-preview":  1,
+	"apimanagement-arm-apimapis-2022-08-01":             91,
+	"apimanagement-arm-apimbackends-2022-08-01":         7,
+	"apimanagement-arm-apimdeletedservices-2022-08-01":  3,
+	"apimanagement-arm-apimdeployment-2022-08-01":       15,
+	"apimanagement-arm-apimnamedvalues-2022-08-01":      8,
+	"apimanagement-arm-apimproducts-2022-08-01":         31,
+	"apimanagement-arm-apimsubscriptions-2022-08-01":    9,
+	"app-arm-containerapps-2025-01-01":                  11,
+	"app-arm-jobs-2025-01-01":                           12,
+	"app-arm-managedenvironments-2025-01-01":            19,
+	"app-arm-managedenvironmentsstorages-2025-01-01":    4,
+	"applicationinsights-arm-components_api-2020-02-02": 8,
+	// A component's billing plan decides what it is entitled to: the Enterprise
+	// plan carries continuous export and the higher burst, the Basic one does
+	// not, so the capabilities are a read of the plan rather than a fixed
+	// answer. The available features are the plans the component could be on
+	// with the one it is on marked — a choice, not a published price list. The
+	// quota status compares the telemetry the application actually wrote
+	// against the cap the component set.
+	//
+	// Raised from 2 by those three, completing the document.
+	"applicationinsights-arm-featuresandpricing-2015-05-01": 5,
+	// An application's telemetry is the log store its workload writes into, and
+	// Application Insights is a view onto the same store Log Analytics queries,
+	// addressed by app id instead of workspace id. So the query, the events and
+	// the metrics all read through the one engine and all move when the
+	// application writes: an event is a row of the table its type names, and a
+	// metric is that table counted.
+	//
+	// Raised from 1 by nine operations and a correction. The one that counted
+	// as served answered a fixed empty result set and ignored the query it was
+	// given — served, and fake.
+	"applicationinsights-dataplane-appinsights-v1-preview": 10,
 	// Lowered from 9. GET/PUT/DELETE "/{roleAssignmentId}" — the full-resource-ID
 	// spelling — probe to a plain mux miss: no registered pattern serves a bare
 	// resource ID. The old count matched them by shape against the scoped
@@ -174,13 +193,22 @@ var azureMethodFloor = map[string]int{
 	// Lowered from 5. GET "/{roleId}" and the two ".../Microsoft.Authorization/
 	// permissions" list operations mux-miss; nothing is registered for either.
 	"authorization-arm-authorization-roledefinitionscalls-2022-04-01": 7,
-	"compute-arm-computerpcommon-2022-03-01":                          1,
-	"compute-arm-skus-2021-07-01":                                     1,
-	"compute-arm-virtualmachine-2022-03-01":                           29,
-	"containerinstance-arm-containerinstance-2021-10-01":              18,
-	"containerregistry-arm-containerregistry-2023-07-01":              52,
-	"containerregistry-arm-containerregistry-2025-11-01":              58,
-	"containerregistry-arm-registrytasks-2019-06-01-preview":          25,
+	// Microsoft.Compute's operation catalog is the provider's own surface
+	// expressed as role-assignable actions, derived from the vendored documents
+	// and held to that derivation by TestComputeOperationCatalogCoversSpec — a
+	// re-vendor that adds an operation fails until the catalog names the action
+	// it needs. The per-location usage is counted rather than declared: the
+	// figures are the machines and cores the subscription is actually holding
+	// there, against the subscription's own quotas.
+	//
+	// Raised from 1 by those two, completing the document.
+	"compute-arm-computerpcommon-2022-03-01":                 3,
+	"compute-arm-skus-2021-07-01":                            1,
+	"compute-arm-virtualmachine-2022-03-01":                  29,
+	"containerinstance-arm-containerinstance-2021-10-01":     18,
+	"containerregistry-arm-containerregistry-2023-07-01":     52,
+	"containerregistry-arm-containerregistry-2025-11-01":     58,
+	"containerregistry-arm-registrytasks-2019-06-01-preview": 25,
 	// Raised from 13: the "/acr/v1/{path...}" registry routes do serve these,
 	// which shape matching missed where a route parameter sat under a spec
 	// literal. Raised again from 19 by the registry's token service growing
@@ -188,7 +216,21 @@ var azureMethodFloor = map[string]int{
 	// (Authentication_GetAcrAccessTokenFromLogin) — the Docker Registry v2
 	// token endpoint that trades a Basic admin credential for the scoped
 	// access token the data plane now requires.
-	"containerregistry-dataplane-containerregistry-2021-07-01": 24,
+	// The registry's properties APIs describe what the registry holds — the
+	// manifests it stores, the tags pointing at them, the size of each manifest
+	// document, the platform its image config declares, and when it was pushed
+	// (which the shared OCI store now stamps, because a registry knows when it
+	// received a manifest). The only state they add is the four changeable
+	// attributes a client sets, which the data plane then honours: a tag or
+	// repository with deletion disabled is refused.
+	//
+	// Raised from 24 by all nine of them. Five were unserved outright; the other
+	// four counted as served while answering a bare 404 — the GET handler on the
+	// shared /acr/v1 path served only the tag list and fell through for
+	// everything else, which the probe reads as an answer. That is the phantom
+	// coverage the Google Cloud gate exists for, found here by reading the
+	// handler rather than the number.
+	"containerregistry-dataplane-containerregistry-2021-07-01": 29,
 	"cosmos-db-arm-cosmos-db-2021-10-15":                       121,
 	"cosmos-db-arm-cosmos-db-2024-08-15":                       124,
 	"cosmos-db-arm-privateendpointconnection-2021-10-15":       4,
@@ -205,17 +247,34 @@ var azureMethodFloor = map[string]int{
 	"dns-arm-dns-2018-05-01":               14,
 	// Lowered from 61. GET "/{scope}/providers/Microsoft.EventGrid/
 	// extensionTopics/default" mux-misses — no extensionTopics route exists.
-	"eventgrid-arm-eventgrid-2021-12-01": 60,
+	// An extension topic is not a resource a client creates: it is the name
+	// Event Grid gives the events a resource already emits, so it is derived
+	// from the scope addressed and names the system topic whose source is that
+	// resource, when the subscription holds one.
+	//
+	// Raised from 60 by ExtensionTopics_Get, completing the document.
+	"eventgrid-arm-eventgrid-2021-12-01": 61,
 	// Lowered from 127, for the same unserved extensionTopics operation.
-	"eventgrid-arm-eventgrid-2022-06-15":         126,
+	// The same extension topic, in this document's api-version.
+	//
+	// Raised from 126 by ExtensionTopics_Get, completing the document.
+	"eventgrid-arm-eventgrid-2022-06-15":         127,
 	"eventgrid-dataplane-eventgrid-2018-01-01":   3,
 	"eventhub-arm-authorizationrules-2024-01-01": 15,
 	"eventhub-arm-consumergroups-2024-01-01":     4,
 	"eventhub-arm-eventhubs-2024-01-01":          4,
 	"eventhub-arm-namespaces-2024-01-01":         14,
 	"eventhub-arm-networkrulessets-2024-01-01":   3,
-	"imds-dataplane-imds-2021-02-01":             2,
-	"keyvault-arm-keyvault-2023-07-01":           17,
+	// The instance metadata service attests the instance it is asked on and
+	// names the tenant its managed identity belongs to. The attestation is a
+	// real signature over the instance's identity and the caller's nonce, made
+	// with the simulator's own signing key — the coordinate difference from
+	// Azure, whose key chains to a Microsoft root, is which key a verifier
+	// trusts, not whether the document is signed.
+	//
+	// Raised from 2 by those two, completing the document.
+	"imds-dataplane-imds-2021-02-01":   4,
+	"keyvault-arm-keyvault-2023-07-01": 17,
 	// Raised from 6: the deleted-pool collection and purge, name availability,
 	// the private endpoint connections and private-link resources, and the
 	// regions listing. A delete retires a pool that carries soft delete, and
@@ -226,13 +285,20 @@ var azureMethodFloor = map[string]int{
 	"keyvault-dataplane-secrets-2025-07-01":            12,
 	"logic-arm-logic-2019-05-01":                       106,
 	"monitor-dataplane-datacollectionrules-2023-01-01": 1,
-	"monitor-dataplane-operationalinsights-v1":         5,
-	"msi-arm-managedidentity-2024-11-30":               12,
-	"network-arm-applicationgateway-2025-03-01":        22,
-	"network-arm-applicationsecuritygroup-2025-03-01":  6,
-	"network-arm-loadbalancer-2025-03-01":              27,
-	"network-arm-natgateway-2025-03-01":                6,
-	"network-arm-networkinterface-2025-03-01":          15,
+	// The resource-centric query is the workspace query addressed by the Azure
+	// resource whose logs are read. Serving it needed the coverage probe
+	// generalised: its scope unifier only handled a scope in the first segment,
+	// and a data plane puts its api-version in front — "/v1/{resourceId}/query"
+	// — so the probe collapsed a whole resource ID into one synthetic segment.
+	//
+	// Raised from 5 by those two, completing the document.
+	"monitor-dataplane-operationalinsights-v1":        7,
+	"msi-arm-managedidentity-2024-11-30":              12,
+	"network-arm-applicationgateway-2025-03-01":       22,
+	"network-arm-applicationsecuritygroup-2025-03-01": 6,
+	"network-arm-loadbalancer-2025-03-01":             27,
+	"network-arm-natgateway-2025-03-01":               6,
+	"network-arm-networkinterface-2025-03-01":         15,
 	// Azure Virtual Network Manager's own resource, its commit and its
 	// deployment status. The configuration resources a commit deploys
 	// (network groups, connectivity and security-admin configurations) are
@@ -245,16 +311,22 @@ var azureMethodFloor = map[string]int{
 	// packet socket on the target machine's interface and writes the frames it
 	// records into the storage account it names, through the same Blob data
 	// plane a client reads them back from.
-	"network-arm-networkwatcher-2025-03-01":         35,
-	"network-arm-privateendpoint-2025-03-01":        11,
-	"network-arm-privatelinkservice-2025-03-01":     13,
-	"network-arm-publicipaddress-2025-03-01":        9,
-	"network-arm-publicipprefix-2025-03-01":         6,
-	"network-arm-routetable-2025-03-01":             10,
-	"network-arm-serviceendpointpolicy-2025-03-01":  10,
-	"network-arm-virtualnetwork-2025-03-01":         21,
-	"network-arm-virtualnetworktap-2025-03-01":      6,
-	"operationalinsights-arm-sharedkeys-2020-08-01": 1,
+	"network-arm-networkwatcher-2025-03-01":        35,
+	"network-arm-privateendpoint-2025-03-01":       11,
+	"network-arm-privatelinkservice-2025-03-01":    13,
+	"network-arm-publicipaddress-2025-03-01":       9,
+	"network-arm-publicipprefix-2025-03-01":        6,
+	"network-arm-routetable-2025-03-01":            10,
+	"network-arm-serviceendpointpolicy-2025-03-01": 10,
+	"network-arm-virtualnetwork-2025-03-01":        21,
+	"network-arm-virtualnetworktap-2025-03-01":     6,
+	// A workspace's shared keys are its own pair, minted on first use and
+	// replaced by a regeneration, so the keys read back after one are not the
+	// keys read back before. They used to be a constant, which made a
+	// regeneration unobservable.
+	//
+	// Raised from 1 by SharedKeys_Regenerate, completing the document.
+	"operationalinsights-arm-sharedkeys-2020-08-01": 2,
 	"operationalinsights-arm-workspaces-2020-08-01": 8,
 	"postgresql-arm-openapi-2025-08-01":             66,
 	"privatedns-arm-privatedns-2024-06-01":          17,
@@ -278,8 +350,20 @@ var azureMethodFloor = map[string]int{
 	"storage-arm-blob-2024-01-01":                       17,
 	"storage-arm-file-2024-01-01":                       12,
 	"storage-arm-queue-2024-01-01":                      8,
-	"storage-arm-storage-2024-01-01":                    44,
-	"storage-arm-table-2024-01-01":                      8,
+	// A storage account's migrations and its point-in-time blob restore each
+	// change the account or its blobs rather than reporting that they would: a
+	// customer-initiated migration moves the account to the SKU it names, the
+	// hierarchical-namespace migration turns the namespace on (and its
+	// validation request deliberately does not), and a blob-range restore takes
+	// the blobs in the ranges it covers back to the instant it names — one
+	// deleted after that instant comes back, one written after it goes away.
+	// The deletion and modification times a blob records carry seconds, because
+	// that is the precision of the header they ride in, so the restore point is
+	// compared at the same precision.
+	//
+	// Raised from 44 by those five, completing the document.
+	"storage-arm-storage-2024-01-01": 49,
+	"storage-arm-table-2024-01-01":   8,
 	// The three storage data-plane counts are measurements now that each
 	// dispatcher answers an unrecognized "comp"/"restype" with a declared gap
 	// instead of falling through to whichever sibling handler sits under the
@@ -383,7 +467,82 @@ var azureMethodFloor = map[string]int{
 	// Blob data plane of the storage account its SAS URL names; a restore
 	// reads that blob back and replaces the site's file system with it, so
 	// deleting the archive through the Blob API makes the restore fail.
-	"web-arm-openapi-2025-03-01": 616,
+	//
+	// Raised from 646 by the recommendations family (13 of its 15 operations,
+	// across the subscription, App Service Environment and site scopes). The
+	// simulator runs no advisory engine, which decides what each answers: the
+	// lists and the histories are empty because nothing has been observed about
+	// anything, and the filters — disable one rule, disable them all, reset —
+	// are the client's own decisions and are recorded against the scope. The two
+	// remaining operations, GetRuleDetailsByWebApp and
+	// GetRuleDetailsByHostingEnvironment, answer a declared 501: a
+	// RecommendationRule is Microsoft's published advisory copy (its display
+	// name, portal message and blade link), the same class as the declined
+	// Provider_*Stacks catalog.
+	//
+	// Raised from 659 by WebApps_IsCloneable and its slot spelling, which are
+	// computed from the site rather than declared: App Service clones an app
+	// only from a Premium or Isolated plan, so the plan the site is placed on
+	// (read at the time of the question, and inherited from the production site
+	// when a slot is asked) decides the result, and the deployment slots a clone
+	// would leave behind make it partial.
+	//
+	// Raised by the four App Service Environment pool metric-definition reads.
+	// A pool's definitions are the metric series Microsoft.Insights publishes
+	// about it, and this simulator publishes none — which is an answer, not a
+	// refusal, and the document spells it as an empty collection. The reason
+	// the declared 501 gave was already "it has no metric definitions to
+	// declare", which is what the empty collection says; withholding it was
+	// keeping back something the simulator knows. The outbound dependency
+	// catalog beside them stays declared: Microsoft's own list of platform
+	// endpoints and address ranges is not something to invent.
+	//
+	// Raised by the content migration too, on the same reading. Moving a site's
+	// content into an Azure Files share was declined because these sites are
+	// served out of a container image rather than out of a share — a primitive
+	// the simulator lacks, which is not the same as data it would have to
+	// invent. What a caller can observe is the operation the platform starts,
+	// and that is state like any other.
+	//
+	// Raised by the MySQL migration and the two status reads. Moving a site's
+	// in-app database out is a request the platform records and then reports
+	// on, and both halves are the simulator's: whether the site has in-app
+	// MySQL at all is the app setting it already stores, and the migration the
+	// caller started is state like any other. No bytes move — there is no MySQL
+	// process here whose tables could be copied — but a request against a site
+	// with no in-app database is refused exactly as App Service refuses it,
+	// before any copying would begin, which is the answer a caller gets.
+	//
+	// Raised by the six ResourceHealthMetadata spellings, which are read from
+	// the sites the scope holds. Only one of the resource's two properties
+	// belongs to Microsoft: the category is the one the site matches in the
+	// Resource Health Check policy file, which this project does not vendor, so
+	// it is left absent — the document does not require it. signalAvailability
+	// is a fact about the site, and a site with a workload running is producing
+	// the signal Resource Health reads while a site with nothing running is
+	// producing none. Declining the whole read over the one field that is
+	// Microsoft's would have withheld an answer the simulator has.
+	//
+	// Raised from 661 by WebApps_ListPerfMonCounters and its slot spelling. A
+	// site's counters are what the site is using, and the site's workload
+	// container is what is using it, so each counter carries the container
+	// engine's own reading — the same source the instance statistics and the
+	// diagnostics samples come from. A site with nothing running is measuring
+	// nothing and reports no counters, rather than a set of zeroes that would
+	// claim a measurement was taken.
+	//
+	// With that, no App Service operation is a silent gap any more: all 29 that
+	// remain answer a declared 501 naming what is missing. Beside the catalogs
+	// and metric series already listed, those are phplogging (the effective
+	// php.ini of a PHP worker that does not run here, whose master values are
+	// the platform image's own defaults), migrate and migratemysql (there is no
+	// in-app MySQL database and no content share to move), and the four process
+	// dump spellings (written from /proc inside the container, which the
+	// engine's HTTP API does not expose — the limit that already stops the
+	// module reads). The six Provider_*Stacks spellings used to miss the router
+	// outright and answer a bare 404, which reads as "no such API" rather than
+	// "this API exists and its data is not vendored"; they declare it now.
+	"web-arm-openapi-2025-03-01": 677,
 }
 
 // Route table
@@ -464,11 +623,21 @@ const (
 // The value never decides routing — http.ServeMux wildcards accept any
 // non-empty segment — but a well-shaped value keeps a handler from rejecting
 // the request for a reason unrelated to whether it is mounted.
+// azureProbeResourceID is the address the probe uses for a path parameter the
+// specification marks as a whole resource path. A single synthetic segment is
+// not an address any client sends, so an operation addressed that way would be
+// probed at a path nothing serves and reported unserved while answering.
+const azureProbeResourceID = "subscriptions/" + azureProbeSubscription +
+	"/resourceGroups/" + azureProbeResourceGroup +
+	"/providers/Microsoft.Web/sites/simprobedsite"
+
 func azureProbeParamValue(param string) string {
 	name := strings.Trim(param, "{}")
 	name = strings.TrimSuffix(name, "...")
 	lower := strings.ToLower(name)
 	switch {
+	case lower == "resourceid" || lower == "resourceuri":
+		return azureProbeResourceID
 	case strings.Contains(lower, "subscriptionid"):
 		return azureProbeSubscription
 	case strings.Contains(lower, "tenantid"):
@@ -610,7 +779,16 @@ func azureHasScopeLead(sp swaggerPath) bool {
 	if len(sp.Raw) < 2 || !azureIsWildcard(sp.Raw[0]) {
 		return false
 	}
-	if !sp.PathScopes[strings.Trim(sp.Raw[0], "{}")] {
+	// The marker Azure Resource Manager scopes usually carry is
+	// x-ms-skip-url-encoding, because a scope is a resource ID whose slashes
+	// must survive. Some documents forget it — Event Grid's extensionTopics
+	// declares a bare `scope` — but a leading parameter named `scope` followed
+	// by the literal `providers` is an Azure Resource Manager scope by
+	// construction, and probing it as one synthetic segment would address the
+	// operation at a path no client uses.
+	name := strings.Trim(sp.Raw[0], "{}")
+	bareARMScope := name == "scope" && len(sp.Raw) > 1 && sp.Raw[1] == "providers"
+	if !sp.PathScopes[name] && !bareARMScope {
 		return false
 	}
 	for _, s := range sp.Raw[1:] {
@@ -939,6 +1117,13 @@ type azureCoverage struct {
 	total    map[string]int
 	unserved map[string][]string
 	findings []string
+	// silent holds every unserved operation that did not answer a declared
+	// 501. An operation this simulator does not serve has to say so: a routing
+	// 404 claims the resource is absent, and a path the probe could not
+	// synthesize claims nothing at all. Both read to a client as an answer,
+	// and both keep the count at its floor while the reason for the gap has
+	// changed underneath it.
+	silent []string
 }
 
 func azureProbeCoverage(t *testing.T) *azureCoverage {
@@ -1034,6 +1219,11 @@ func azureProbeCoverage(t *testing.T) *azureCoverage {
 		case !res.served:
 			cov.unserved[name] = append(cov.unserved[name],
 				fmt.Sprintf("%s → probed %s: %s", label, res.path, res.reason))
+			if res.status != http.StatusNotImplemented {
+				cov.silent = append(cov.silent,
+					fmt.Sprintf("%s: %s → probed %s: answered %d, not a declared 501: %s",
+						name, label, res.path, res.status, res.reason))
+			}
 		case res.panicked:
 			cov.impl[name]++
 			cov.findings = append(cov.findings,
@@ -1050,6 +1240,7 @@ func azureProbeCoverage(t *testing.T) *azureCoverage {
 		sort.Strings(cov.unserved[name])
 	}
 	sort.Strings(cov.findings)
+	sort.Strings(cov.silent)
 	return cov
 }
 
@@ -1093,6 +1284,11 @@ func TestServiceConformance_AzureCoverage(t *testing.T) {
 		if cov.impl[name] > 0 {
 			t.Logf("%-60s %d/%d", name, cov.impl[name], cov.total[name])
 		}
+		// Name what is missing, so the next operation to serve is readable from
+		// an ordinary run rather than only from a floor that has been broken.
+		for _, op := range cov.unserved[name] {
+			t.Logf("%-60s   unserved: %s", name, op)
+		}
 	}
 	t.Logf("TOTAL: %d/%d Azure Swagger operations served by a mounted handler", ti, tt)
 }
@@ -1127,6 +1323,20 @@ func TestServiceConformance_AzureCoverageFloor(t *testing.T) {
 // problems probing exposes in handlers that ARE mounted: a panic, or a 5xx.
 // A mounted-but-broken handler still counts toward coverage — it is reached —
 // so without this gate the coverage number would hide it.
+// Every operation this simulator does not serve says so with a declared 501
+// naming what is missing. The floor counts unserved operations without caring
+// why, so a gap that stopped declaring itself — a route that went away and now
+// answers the mux's 404, or one the probe can no longer address — would hold
+// the count and lose the declaration. A client cannot tell a 404 that means
+// "not implemented here" from one that means "this resource does not exist".
+func TestServiceConformance_AzureUnservedOperationsDeclareThemselves(t *testing.T) {
+	cov := azureProbeCoverage(t)
+	if len(cov.silent) > 0 {
+		t.Errorf("%d unserved operation(s) answered something other than a declared 501:\n  %s",
+			len(cov.silent), strings.Join(cov.silent, "\n  "))
+	}
+}
+
 func TestServiceConformance_AzureProbedHandlersAreHealthy(t *testing.T) {
 	cov := azureProbeCoverage(t)
 	if len(cov.findings) > 0 {

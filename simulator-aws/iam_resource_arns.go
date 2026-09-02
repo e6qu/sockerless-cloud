@@ -52,7 +52,13 @@ func iamDerivedResourceARNs(r *http.Request, service, op, region, account string
 	if arns := iamServiceResourceARNs(r, service, op, types, region, account, arn); arns != nil {
 		return arns
 	}
-	// Only where the service's own reader found no identifier: a create names
+	// Still only where the service's own reader found no identifier: the
+	// request may carry the resource's ARN somewhere its own shape nests it,
+	// which names the resource outright.
+	if arns := iamARNsNamingADeclaredType(r, service, types, region, account); len(arns) > 0 {
+		return arns
+	}
+	// Only where nothing above named a resource: a create names
 	// a resource that does not exist yet, and the type wildcard is what AWS
 	// evaluates it against. A request that does carry the name — SNS's
 	// CreateTopic carries the topic's — derives that above and never reaches
@@ -111,7 +117,7 @@ func iamServiceResourceARNs(r *http.Request, service, op string, types []string,
 	case "elasticloadbalancing":
 		return iamELBv2ResourceARNs(r, types, region, account)
 	case "organizations":
-		return iamOrganizationsResourceARNs(r, types)
+		return iamOrganizationsResourceARNs(r, op, types)
 	case "budgets":
 		return iamBudgetsResourceARNs(r, types, account)
 	case "rds":
@@ -123,7 +129,7 @@ func iamServiceResourceARNs(r *http.Request, service, op string, types []string,
 	case "wafv2":
 		return iamWAFv2ResourceARNs(r, op, types)
 	case "iam":
-		return iamIAMResourceARNs(r, types)
+		return iamIAMResourceARNs(r, op, types)
 	}
 	return nil
 }
@@ -151,7 +157,7 @@ func iamBudgetsResourceARNs(r *http.Request, types []string, account string) []s
 // name may carry a path ("/team/", giving "role/team/name"); the API takes the
 // path separately on create and folds it into the ARN, which is what the
 // resource types call a "NameWithPath".
-func iamIAMResourceARNs(r *http.Request, types []string) []string {
+func iamIAMResourceARNs(r *http.Request, op string, types []string) []string {
 	account := awsAccountID()
 	build := func(resourceType, path, name string) string {
 		path = strings.Trim(path, "/")
@@ -161,8 +167,10 @@ func iamIAMResourceARNs(r *http.Request, types []string) []string {
 		return "arn:aws:iam::" + account + ":" + resourceType + "/" + path + name
 	}
 	// The operations that act on a policy, an OIDC provider or a SAML provider
-	// name it by ARN outright.
-	for _, field := range []string{"PolicyArn", "OpenIDConnectProviderArn", "SAMLProviderArn", "PolicySourceArn"} {
+	// name it by ARN outright — and so do the access-advisor reads, which take
+	// the entity's own ARN under the bare member "Arn" and declare every entity
+	// type it could be. The ARN says which one, so there is nothing to choose.
+	for _, field := range []string{"Arn", "PolicyArn", "OpenIDConnectProviderArn", "SAMLProviderArn", "PolicySourceArn"} {
 		if v := r.FormValue(field); strings.HasPrefix(v, "arn:") {
 			return []string{v}
 		}
@@ -191,7 +199,98 @@ func iamIAMResourceARNs(r *http.Request, types []string) []string {
 			return []string{serial}
 		}
 	}
+	// Changing a password names nobody: AWS Identity and Access Management
+	// authorizes it against the calling user, which the signature establishes
+	// and the request does not. Reading the caller here is only sound because
+	// sigv4 verification runs before the enforcement gate — main.go orders them
+	// that way deliberately, so the key in the header is one the caller proved
+	// possession of. A caller who is not a user, a role or the account root,
+	// names no user and derives nothing.
+	if op == "ChangePassword" && iamHasType(types, "user") && iamAccessKeys != nil {
+		if key, ok := iamAccessKeys.Get(iamAccessKeyIDFromRequest(r)); ok && key.UserName != "" {
+			return []string{build("user", "", key.UserName)}
+		}
+	}
+	// An access key belongs to a user, and IAM authorizes the user — the key is
+	// the only thing the request names, so the user is resolved through the
+	// simulator's own record of who the key was created for. A key it does not
+	// hold names no user, and guessing one would authorize against a user the
+	// request never mentioned.
+	if iamHasType(types, "user") {
+		for _, id := range []string{r.FormValue("AccessKeyId")} {
+			if id == "" || iamAccessKeys == nil {
+				continue
+			}
+			if key, ok := iamAccessKeys.Get(id); ok && key.UserName != "" {
+				return []string{build("user", "", key.UserName)}
+			}
+		}
+	}
+	// A service-linked role deletion is tracked by a task whose id spells the
+	// role it is deleting: "task/aws-service-role/<service>/<roleName>/<uuid>".
+	// The role is what the deletion authorizes against, and the id states it.
+	if iamHasType(types, "role") {
+		if name := iamServiceLinkedRoleFromTask(r.FormValue("DeletionTaskId")); name != "" {
+			return []string{"arn:aws:iam::" + account + ":role/" + name}
+		}
+	}
+	// A delegation request is named by its own identifier, which every
+	// operation over one carries.
+	if iamHasType(types, "delegation-request") {
+		if id := r.FormValue("DelegationRequestId"); id != "" {
+			return []string{"arn:aws:iam::" + account + ":delegation-request/" + id}
+		}
+	}
+	// A role template belongs to AWS rather than to the account, which is why
+	// its ARN says "aws" where an account would be. It is named by the service
+	// principal it is for, its own name, and the major version — all three, or
+	// the ARN names a different template.
+	if iamHasType(types, "role-template") {
+		principal := r.FormValue("AWSServicePrincipal")
+		name := r.FormValue("RoleTemplateName")
+		major := r.FormValue("RoleTemplateMajorVersion")
+		if principal != "" && name != "" && major != "" {
+			return []string{"arn:aws:iam::aws:role-template/" + principal + "/" + name + ":" + major}
+		}
+	}
+	// An organizations access report is named by the entity it covers, which
+	// the request carries as the path of that entity in the organization.
+	if iamHasType(types, "access-report") {
+		if entity := r.FormValue("EntityPath"); entity != "" {
+			return []string{"arn:aws:iam::" + account + ":access-report/" + entity}
+		}
+	}
+	// An OpenID Connect provider is named by the issuer it is created for: the
+	// URL without its scheme is the provider's name, which is why the ARN of a
+	// provider for https://example.com/oidc ends "oidc-provider/example.com/oidc".
+	// The create carries the URL and nothing else that names the provider.
+	if iamHasType(types, "oidc-provider") {
+		if raw := r.FormValue("Url"); raw != "" {
+			if name := iamOIDCProviderName(raw); name != "" {
+				return []string{"arn:aws:iam::" + account + ":oidc-provider/" + name}
+			}
+		}
+	}
 	return nil
+}
+
+// iamOIDCProviderName is the provider name IAM derives from an issuer URL: the
+// host and path with the scheme and any trailing slash removed. A URL with no
+// host names no provider, and guessing one would authorize against a provider
+// the request never mentioned.
+func iamOIDCProviderName(raw string) string {
+	name := raw
+	for _, scheme := range []string{"https://", "http://"} {
+		if trimmed, found := strings.CutPrefix(name, scheme); found {
+			name = trimmed
+			break
+		}
+	}
+	name = strings.TrimSuffix(name, "/")
+	if name == "" || strings.HasPrefix(name, "/") {
+		return ""
+	}
+	return name
 }
 
 // iamRequestARNField returns the ARN a request names directly. AWS is not
@@ -315,7 +414,19 @@ func iamHasType(types []string, resourceType string) bool {
 // alone and are built from it, which also covers a request naming a resource
 // that does not exist: AWS authorizes such a call and then reports it missing,
 // rather than refusing it as unauthorized.
-func iamOrganizationsResourceARNs(r *http.Request, types []string) []string {
+func iamOrganizationsResourceARNs(r *http.Request, op string, types []string) []string {
+	// Creating a policy mints an id the service assigns, so the ARN's last
+	// identifier is the wildcard AWS evaluates against — but the two before it
+	// are known: the organization is the one this account is in, and the policy
+	// type is in the request. Filling those and wildcarding only what does not
+	// exist yet is narrower than the "*" it replaces, and narrower than
+	// wildcarding the organization would be.
+	if op == "CreatePolicy" && iamHasType(types, "policy") {
+		if typ := iamFirstJSONField(r, "Type"); typ != "" {
+			return []string{orgPolicyArn("p-*", typ, false)}
+		}
+	}
+
 	var out []string
 	seen := map[string]struct{}{}
 	add := func(arn string) {
@@ -677,6 +788,31 @@ func iamKinesisResourceARNs(r *http.Request, types []string, region, account str
 func iamStatesResourceARNs(r *http.Request, op string, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
 	switch op {
+	case "CreateStateMachineAlias":
+		// An alias routes traffic to versions of one state machine, and that
+		// machine is what creating the alias authorizes against. The alias does
+		// not exist yet and the machine is named only inside the version ARNs
+		// the routing carries — a version ARN is the machine's own with the
+		// version appended, so the machine is the ARN without it. Wildcarding
+		// the machine instead would authorize aliasing every state machine,
+		// which is what this reader exists to avoid.
+		var machines []string
+		seen := map[string]struct{}{}
+		for _, version := range fields["statemachineversionarn"] {
+			machine, _, versioned := iamStatesMachineOfVersion(version)
+			if !versioned {
+				continue
+			}
+			if _, dup := seen[machine]; dup {
+				continue
+			}
+			seen[machine] = struct{}{}
+			machines = append(machines, machine)
+		}
+		if len(machines) > 0 {
+			sort.Strings(machines)
+			return machines
+		}
 	case "CreateStateMachine", "CreateActivity":
 		segment := "stateMachine:"
 		if op == "CreateActivity" {
@@ -761,6 +897,9 @@ func iamSTSResourceARNs(r *http.Request, types []string, account string) []strin
 // previous generation, addressed by name alone.
 func iamELBv2ResourceARNs(r *http.Request, types []string, region, account string) []string {
 	params := iamQueryRequestParameters(r)
+	if arns := iamELBv2CreatedResourceARNs(params, region, account); len(arns) > 0 {
+		return arns
+	}
 	var out []string
 	seen := map[string]struct{}{}
 	add := func(arn string) {
@@ -858,6 +997,27 @@ func iamACMResourceARNs(r *http.Request, types []string) []string {
 // is all it takes.
 func iamCloudWatchResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
+	// Listing an alarm's mute rules names the alarm, and the rules on it are
+	// what the listing authorizes against — each rule records the alarms it
+	// covers, so the rules are recovered through an index keyed on them rather
+	// than by reading every rule. An alarm nothing mutes has no rule to
+	// authorize, which is not the same as authorizing every rule.
+	if iamHasType(types, "alarm-mute-rule") && cwAlarmMuteRules != nil {
+		var out []string
+		for _, alarm := range fields["alarmname"] {
+			for _, rule := range iamCloudWatchMuteRulesByAlarm.LookupAll(
+				cwAlarmMuteRules, alarm, iamCloudWatchMuteRuleAlarmKeys) {
+				if rule.Name != "" {
+					out = append(out, "arn:aws:cloudwatch:"+region+":"+account+
+						":alarm-mute-rule:"+rule.Name)
+				}
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
 	// The tagging operations name their target by ARN and the reference lists
 	// every taggable type for them; which one the call is about is what the ARN
 	// says, so there is nothing to fill.
@@ -929,6 +1089,27 @@ func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 			if group, ok := autoScalingGroups.Get(first("AutoScalingGroupName")); ok && group.ARN != "" {
 				out = append(out, group.ARN)
 			}
+			// Setting an instance's health names the machine, and the group
+			// it belongs to is what the call authorizes against. The group
+			// records the machines it holds, so it is recovered through an
+			// index keyed on them rather than by reading every group.
+			for _, instance := range params["instanceid"] {
+				if group, ok := iamAutoScalingGroupsByInstance.Lookup(
+					autoScalingGroups, instance, iamAutoScalingGroupInstanceKeys); ok && group.ARN != "" {
+					out = append(out, group.ARN)
+				}
+			}
+			// The tagging calls name the group inside a tag rather than in a
+			// member of their own — "Tags.member.1.ResourceId" — which the
+			// flat-parameter reader drops, its contract being members and not
+			// paths. A group named anywhere in the request is a group the call
+			// is about, so the raw form is read for those, and every tag
+			// contributes because a call tagging two groups is about both.
+			for _, named := range iamAutoScalingTaggedGroups(r) {
+				if group, ok := autoScalingGroups.Get(named); ok && group.ARN != "" {
+					out = append(out, group.ARN)
+				}
+			}
 		case "launchConfiguration":
 			if config, ok := asLaunchConfigurations.Get(first("LaunchConfigurationName")); ok && config.ARN != "" {
 				out = append(out, config.ARN)
@@ -948,6 +1129,30 @@ func iamAutoScalingResourceARNs(r *http.Request, types []string) []string {
 // The channel and event-data-store members carry an ARN as often as an
 // identifier, and an ARN needs no assembly, so it is taken as it stands.
 func iamCloudTrailResourceARNs(r *http.Request, types []string, region, account string) []string {
+	// A Lake query names the event data stores it reads in its own statement —
+	// the first after FROM, any others after JOIN — and those stores are what
+	// running the query authorizes against. Only a token shaped like a store's identifier is
+	// taken: a FROM naming anything else is not a store this call reads, and
+	// authorizing it would grant past what the query asked for.
+	if iamHasType(types, "eventdatastore") {
+		if statement := iamJSONBodyField(r, "QueryStatement"); statement != "" {
+			var out []string
+			seen := map[string]struct{}{}
+			for _, match := range iamCloudTrailQueryFrom.FindAllStringSubmatch(statement, -1) {
+				id := strings.ToLower(match[1])
+				if _, dup := seen[id]; dup {
+					continue
+				}
+				seen[id] = struct{}{}
+				out = append(out, "arn:aws:cloudtrail:"+region+":"+account+":eventdatastore/"+id)
+			}
+			if len(out) > 0 {
+				sort.Strings(out)
+				return out
+			}
+		}
+	}
+
 	fields := iamJSONRequestFields(r)
 	// The tagging operations name their target as ResourceId, and ListTags as
 	// ResourceIdList — each an ARN despite the name — and an ARN needs no
@@ -975,7 +1180,10 @@ func iamCloudTrailResourceARNs(r *http.Request, types []string, region, account 
 // member the vendored model declares on an operation authorizing against that
 // resource type.
 var iamCloudTrailFieldAliases = map[string][]string{
-	"ChannelId":        {"Channel"},
+	"ChannelId": {"Channel"},
+	// Insights are read from the trail that produced them, which the request
+	// names as the source — by name or by ARN.
+	"TrailName":        {"Name", "InsightSource"},
 	"EventDataStoreId": {"EventDataStore"},
 	"DashboardName":    {"DashboardId"},
 }
@@ -1003,9 +1211,55 @@ func iamDynamoDBResourceARNs(r *http.Request, types []string, region, account st
 			return []string{a}
 		}
 	}
+	// A batch names its tables as the keys of RequestItems rather than as a
+	// value anywhere, so nothing that reads member values finds them and a
+	// batch over two tables authorized against "*". Amazon DynamoDB authorizes
+	// each table the batch touches, the same way it authorizes each item of a
+	// transaction against the table that item names.
+	if iamHasType(types, "table") {
+		if tables := iamJSONObjectKeys(r, "RequestItems"); len(tables) > 0 {
+			out := make([]string, 0, len(tables))
+			for _, table := range tables {
+				out = append(out, "arn:aws:dynamodb:"+region+":"+account+":table/"+table)
+			}
+			sort.Strings(out)
+			return out
+		}
+	}
+
 	fields := iamJSONRequestFields(r)
 	return iamTableDrivenARNs("dynamodb", types, region, account, nil,
 		func(field string) []string { return fields[strings.ToLower(field)] })
+}
+
+// iamJSONObjectKeys reads the keys of a top-level object member. A service that
+// keys a map by the resource — DynamoDB's RequestItems by table name — puts the
+// identifier there and nowhere else.
+func iamJSONObjectKeys(r *http.Request, field string) []string {
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(body, &envelope) != nil {
+		return nil
+	}
+	raw, present := envelope[field]
+	if !present {
+		return nil
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // iamEC2ResourceARNs derives the ARNs an Amazon EC2 request names. EC2 declares
@@ -1056,11 +1310,130 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			sort.Strings(out)
 			return out
 		}
+	case "DeleteVpcEndpointConnectionNotifications", "ModifyVpcEndpointConnectionNotification":
+		// A notification names neither of the things the action declares — the
+		// endpoint and the service it is on — so the record it is keyed by is
+		// read for them. Each contributes only if the action declares it: a
+		// notification on a service is not what an endpoint-scoped grant
+		// covers.
+		var out []string
+		for _, id := range lookup("ConnectionNotificationId") {
+			if ec2ConnNotifications == nil {
+				break
+			}
+			notification, ok := ec2ConnNotifications.Get(id)
+			if !ok {
+				continue
+			}
+			if notification.VpcEndpointId != "" && iamHasType(types, "vpc-endpoint") {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+
+					":vpc-endpoint/"+notification.VpcEndpointId)
+			}
+			if notification.ServiceId != "" && iamHasType(types, "vpc-endpoint-service") {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+
+					":vpc-endpoint-service/"+notification.ServiceId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "ModifyInstanceCreditSpecification":
+		// The machines are named inside a specification entry rather than in a
+		// member of their own — "InstanceCreditSpecification.1.InstanceId" —
+		// which the flat-parameter reader drops, its contract being members and
+		// not paths. Reading the raw form for this one operation keeps that
+		// contract intact: loosening the shared reader would make a filter's
+		// members readable too, and a request would derive from what it was
+		// searching on rather than what it was about.
+		var out []string
+		for _, instance := range iamEC2NestedMembers(r, "InstanceCreditSpecification", "InstanceId") {
+			out = append(out, "arn:aws:ec2:"+region+":"+account+":instance/"+instance)
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "AcceptAddressTransfer":
+		// The transfer is accepted by naming the address itself, and the
+		// elastic IP that address belongs to is what the call authorizes
+		// against. The address is not the ARN's identifier — the allocation is
+		// — so the record is recovered through an index keyed on the address.
+		var out []string
+		for _, address := range lookup("Address") {
+			if held, ok := iamEC2ElasticIPsByAddress.Lookup(
+				ec2ElasticIPs, address, iamEC2ElasticIPAddressKeys); ok && held.AllocationId != "" {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":elastic-ip/"+held.AllocationId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
 	case "DisassociateAddress":
 		var out []string
 		for _, assoc := range lookup("AssociationId") {
 			if address, ok := iamEC2ElasticIPsByAssociation.Lookup(ec2ElasticIPs, assoc, iamEC2ElasticIPAssociationKeys); ok {
 				out = append(out, "arn:aws:ec2:"+region+":"+account+":elastic-ip/"+address.AllocationId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DisassociateIamInstanceProfile", "ReplaceIamInstanceProfileAssociation":
+		// The association record is keyed by the id the request carries and
+		// names the machine the profile is bound to, which is what the call
+		// authorizes against — so no index is needed, the store answers by key.
+		var out []string
+		for _, assoc := range lookup("AssociationId") {
+			if ec2IamInstanceProfileAssocs == nil {
+				break
+			}
+			if held, ok := ec2IamInstanceProfileAssocs.Get(assoc); ok && held.InstanceId != "" {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":instance/"+held.InstanceId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DisassociateVpcCidrBlock", "DisassociateSubnetCidrBlock":
+		// One store holds both kinds of CIDR association and reuses a single
+		// field for what the association is on, so the stored id is read for
+		// what it is rather than for where it sits: an EC2 identifier states
+		// its own type, and it must be the type the action declares — a subnet
+		// association is not what a VPC disassociation authorizes against.
+		var out []string
+		for _, assoc := range lookup("AssociationId") {
+			if ec2VpcCidrAssocs == nil {
+				break
+			}
+			held, ok := ec2VpcCidrAssocs.Get(assoc)
+			if !ok {
+				continue
+			}
+			resourceType, known := iamEC2TypeForIDPrefix(held.VpcId)
+			if !known || !iamHasType(types, resourceType) {
+				continue
+			}
+			out = append(out, "arn:aws:ec2:"+region+":"+account+":"+resourceType+"/"+held.VpcId)
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DeleteNetworkInterfacePermission":
+		// A permission record names the interface it was granted on, and the
+		// interface is what revoking it authorizes against.
+		var out []string
+		for _, id := range lookup("NetworkInterfacePermissionId") {
+			if ec2EniPermissions == nil {
+				break
+			}
+			if perm, ok := ec2EniPermissions.Get(id); ok && perm.NetworkInterfaceId != "" {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+
+					":network-interface/"+perm.NetworkInterfaceId)
 			}
 		}
 		if len(out) > 0 {
@@ -1073,6 +1446,25 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			if eni, ok := iamEC2InterfacesByAttachment.Lookup(ec2NetworkInterfaces, attachment, iamEC2InterfaceAttachmentKeys); ok {
 				out = append(out, "arn:aws:ec2:"+region+":"+account+":network-interface/"+eni.NetworkInterfaceId)
 			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
+
+	// Cancelling an import names the task by an id whose prefix says which of
+	// the two kinds it is — import-ami- an image import, import-snap- a
+	// snapshot import — so the same convention the tag operations read picks
+	// between the two types the action declares.
+	if op == "CancelImportTask" {
+		var out []string
+		for _, id := range lookup("ImportTaskId") {
+			resourceType, known := iamEC2TypeForIDPrefix(id)
+			if !known || !iamHasType(types, resourceType) {
+				continue
+			}
+			out = append(out, "arn:aws:ec2:"+region+":"+account+":"+resourceType+"/"+id)
 		}
 		if len(out) > 0 {
 			sort.Strings(out)
@@ -1108,7 +1500,22 @@ var (
 	iamEC2RouteTablesByAssociation sim.GenerationIndex[EC2RouteTable]
 	iamEC2ElasticIPsByAssociation  sim.GenerationIndex[EC2ElasticIP]
 	iamEC2InterfacesByAttachment   sim.GenerationIndex[EC2NetworkInterface]
+	iamEC2ElasticIPsByAddress      sim.GenerationIndex[EC2ElasticIP]
+
+	// AWS Systems Manager names a maintenance window's execution by an id
+	// derived from the window's own, so the window is recoverable from it —
+	// but only by asking every window what its execution id would be, which a
+	// per-request derivation must not do a store-read at a time.
+	iamSSMWindowsByExecution sim.GenerationIndex[SSMMaintenanceWindow]
 )
+
+// iamSSMWindowExecutionKeys names a window by the execution id it answers to.
+func iamSSMWindowExecutionKeys(window SSMMaintenanceWindow) []string {
+	if window.WindowId == "" {
+		return nil
+	}
+	return []string{ssmWindowExecID(window.WindowId)}
+}
 
 func iamEC2RouteTableAssociationKeys(rtb EC2RouteTable) []string {
 	keys := make([]string, 0, len(rtb.Associations))
@@ -1213,7 +1620,10 @@ func iamEC2TypeForIDPrefix(id string) (string, bool) {
 // authorizes against that resource type, so a guess or a stale rename fails
 // rather than silently deriving nothing.
 var iamEC2ParameterAliases = map[string][]string{
-	"CapacityReservationId":           {"SourceCapacityReservationId"},
+	"CapacityReservationId": {"SourceCapacityReservationId"},
+	// Buying a host reservation names the dedicated hosts it covers, as a set
+	// rather than one id.
+	"DedicatedHostId":                 {"HostIdSet", "HostId"},
 	"CertificateId":                   {"CertificateArn"},
 	"DeclarativePoliciesReportId":     {"ReportId"},
 	"FpgaImageId":                     {"SourceFpgaImageId"},
@@ -1618,6 +2028,33 @@ func iamFirehoseResourceARNs(r *http.Request, types []string, region, account st
 // of whichever spelling it uses.
 func iamGlueResourceARNs(r *http.Request, types []string, region, account string) []string {
 	fields := iamJSONRequestFields(r)
+	// A data-quality read names a run or a result, not the ruleset the action
+	// declares — AWS Glue authorizes the ruleset the run evaluated, and the run
+	// is what records which one that was. So the ruleset is resolved through
+	// the simulator's own state: the derived ARN is the ruleset the run
+	// actually used, not one inferred from the request.
+	// A dashboard is asked for by the resource it is about, which the request
+	// names generically: an id beside the kind of thing it is. The kind has to
+	// be one the action declares, because a request naming something else is
+	// not about a resource this call authorizes.
+	if kinds := fields["resourcetype"]; len(kinds) > 0 {
+		for _, id := range fields["resourceid"] {
+			resourceType := strings.ToLower(kinds[0])
+			if id == "" || !iamHasType(types, resourceType) {
+				continue
+			}
+			format, declared := iamResourceARNFormats["glue:"+resourceType]
+			if !declared {
+				continue
+			}
+			return []string{iamFillARNFormat(format, region, account, []string{id})}
+		}
+	}
+	if iamHasType(types, "dataQualityRuleset") {
+		if arns := iamGlueDataQualityRulesetARNs(fields, region, account); len(arns) > 0 {
+			return arns
+		}
+	}
 	// The tagging operations name their target by ResourceArn outright, which
 	// needs no assembly — the ARN the caller sent is the ARN to authorize
 	// against.
@@ -1676,12 +2113,29 @@ func iamJSONRequestFields(r *http.Request) map[string][]string {
 		// SchemaId{SchemaName, RegistryName} — and the member inside is the
 		// resource's name however it is wrapped.
 		var inner map[string]json.RawMessage
-		if json.Unmarshal(value, &inner) != nil {
+		if json.Unmarshal(value, &inner) == nil {
+			for innerName, innerValue := range inner {
+				if values, ok := iamJSONStrings(innerValue); ok {
+					nested[strings.ToLower(innerName)] = values
+				}
+			}
 			continue
 		}
-		for innerName, innerValue := range inner {
-			if values, ok := iamJSONStrings(innerValue); ok {
-				nested[strings.ToLower(innerName)] = values
+		// A batch spells the same thing as a list of those structures, and an
+		// identifier inside one entry is as much the identifier as one at the
+		// top level: AWS Systems Manager's CreateAssociationBatch names each
+		// document and each machine inside its own entry. Every entry
+		// contributes, because a batch over two documents is about both.
+		var entries []map[string]json.RawMessage
+		if json.Unmarshal(value, &entries) != nil {
+			continue
+		}
+		for _, entry := range entries {
+			for innerName, innerValue := range entry {
+				if values, ok := iamJSONStrings(innerValue); ok {
+					key := strings.ToLower(innerName)
+					nested[key] = append(nested[key], values...)
+				}
 			}
 		}
 	}
@@ -1754,6 +2208,40 @@ func iamRDSResourceARNs(r *http.Request, op string, types []string, region, acco
 	params := iamQueryRequestParameters(r)
 	lookup := func(field string) []string { return params[strings.ToLower(field)] }
 
+	// A cluster's automated backup is named by the cluster's resource id and
+	// by nothing else — the model declares no other member — so the backup is
+	// resolved through the record the simulator keeps under exactly that id.
+	// The store answers by key, with no scan on a path every request pays.
+	if iamHasType(types, "cluster-auto-backup") && rdsClusterAutomatedBackups != nil {
+		var out []string
+		for _, resourceID := range lookup("DbClusterResourceId") {
+			if backup, ok := rdsClusterAutomatedBackups.Get(resourceID); ok &&
+				backup.DBClusterAutomatedBackupsArn != "" {
+				out = append(out, backup.DBClusterAutomatedBackupsArn)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
+
+	// An ARN the request carries names its resource outright — Amazon RDS sends
+	// one under members like SourceDBInstanceArn and
+	// DBInstanceAutomatedBackupsArn. It is accepted only when its own resource
+	// segment is a type the action declares: a request also carries ARNs for
+	// things it is not about, a KMS key among them, and authorizing against
+	// those would grant far past what was asked.
+	for field, values := range params {
+		if !strings.HasSuffix(field, "arn") && !strings.HasSuffix(field, "arns") {
+			continue
+		}
+		for _, value := range values {
+			if segment, ok := iamRDSARNResourceSegment(value); ok && iamHasType(types, segment) {
+				return []string{value}
+			}
+		}
+	}
 	// A copy authorizes both of its ends. The table-driven builder names one
 	// field per format, so the pairs are read here: a bare name fills the
 	// type's published format — the target's ARN is fully determined before
@@ -1792,9 +2280,24 @@ func iamRDSResourceARNs(r *http.Request, op string, types []string, region, acco
 	for _, resourceType := range types {
 		switch resourceType {
 		case "cev":
-			if cev, ok := rdsCustomEngineVersions.Get(
-				rdsCEVKey(iamFirstValue(lookup, "Engine"), iamFirstValue(lookup, "EngineVersion"))); ok {
-				stateful = append(stateful, cev.ARN)
+			engine := iamFirstValue(lookup, "Engine")
+			version := iamFirstValue(lookup, "EngineVersion")
+			// A version the simulator holds has an ARN of its own, which is the
+			// exact resource the call is about.
+			if rdsCustomEngineVersions != nil {
+				if cev, ok := rdsCustomEngineVersions.Get(rdsCEVKey(engine, version)); ok {
+					stateful = append(stateful, cev.ARN)
+					continue
+				}
+			}
+			// A create names a version that does not exist yet, and the
+			// identifier Amazon RDS will assign is the only part of the ARN the
+			// request cannot state. The engine and the version it names are not
+			// the wildcard, so a grant written for one engine's versions still
+			// does not reach another's.
+			if engine != "" && version != "" {
+				stateful = append(stateful, "arn:aws:rds:"+region+":"+account+
+					":cev:"+engine+"/"+version+"/*")
 			}
 		case "target-group":
 			group := iamFirstValue(lookup, "TargetGroupName")
@@ -1868,6 +2371,59 @@ func iamSSMResourceARNs(r *http.Request, types []string, region, account string)
 	if arns := iamSSMTaggedResourceARNs(fields, region, account); len(arns) > 0 {
 		return arns
 	}
+	// An instance-scoped read declares both instance types, and the identifier
+	// says which: Amazon EC2 assigns "i-", Systems Manager assigns "mi-" to a
+	// machine registered with it, and their ARNs are in different services.
+	// Filling both would authorize against a managed instance the request never
+	// mentioned, and filling neither leaves the read unscoped.
+	if iamHasType(types, "instance") || iamHasType(types, "managed-instance") {
+		if arns := iamSSMInstanceARNs(fields, region, account); len(arns) > 0 {
+			return arns
+		}
+	}
+	// A just-in-time access request names its machines as the values of a
+	// target whose key says what they are, and the key is the half that makes
+	// them readable: a target keyed on a tag names a tag, not a machine.
+	// Flattening the request loses that pairing, so the body is read for this
+	// one operation.
+	if iamHasType(types, "instance") || iamHasType(types, "managed-instance") {
+		if machines := iamSSMTargetedInstances(r); len(machines) > 0 {
+			if arns := iamSSMInstanceARNs(
+				map[string][]string{"instanceids": machines}, region, account); len(arns) > 0 {
+				return arns
+			}
+		}
+	}
+	// Reading the default patch baseline names the operating system, and the
+	// baseline that default resolves to is what the read authorizes against —
+	// the same resolution the read itself performs, so the two cannot disagree.
+	if iamHasType(types, "patchbaseline") && ssmDefaultBaselines != nil {
+		if systems := fields["operatingsystem"]; len(systems) > 0 && systems[0] != "" {
+			id := ssmDefaultBaselineID(systems[0])
+			if strings.HasPrefix(id, "arn:") {
+				return []string{id}
+			}
+			return []string{"arn:aws:ssm:" + region + ":" + account + ":patchbaseline/" + id}
+		}
+	}
+	// Cancelling a maintenance window's execution names the execution, and the
+	// window is what the call authorizes against. The execution id is derived
+	// from the window's own id, so the window is recovered through an index
+	// keyed on what each window's execution id would be.
+	if iamHasType(types, "maintenancewindow") && ssmWindows != nil {
+		var out []string
+		for _, execution := range fields["windowexecutionid"] {
+			if window, ok := iamSSMWindowsByExecution.Lookup(
+				ssmWindows, execution, iamSSMWindowExecutionKeys); ok && window.WindowId != "" {
+				out = append(out, "arn:aws:ssm:"+region+":"+account+
+					":maintenancewindow/"+window.WindowId)
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	}
 	return iamTableDrivenARNs("ssm", types, region, account, iamSSMFieldAliases,
 		func(field string) []string { return fields[strings.ToLower(field)] })
 }
@@ -1928,12 +2484,18 @@ func iamSSMTaggedResourceARNs(fields map[string][]string, region, account string
 // TestIAMSSMFieldAliasesAreRealRequestMembers holds every entry to a member the
 // vendored model declares on an operation authorizing against that type.
 var iamSSMFieldAliases = map[string][]string{
-	"maintenancewindow.ResourceId":               {"WindowId"},
-	"opsitem.ResourceId":                         {"OpsItemId", "OpsItemArn"},
+	"maintenancewindow.ResourceId": {"WindowId"},
+	// A just-in-time access request is tracked as an OpsItem, which is why the
+	// simulator mints its id with the OpsItem prefix and why reading its token
+	// authorizes against that item.
+	"opsitem.ResourceId":                         {"OpsItemId", "OpsItemArn", "AccessRequestId"},
 	"opsmetadata.ResourceId":                     {"OpsMetadataArn"},
 	"servicesetting.ResourceId":                  {"SettingId"},
 	"patchbaseline.PatchBaselineIdResourceId":    {"BaselineId"},
 	"parameter.ParameterNameWithoutLeadingSlash": {"Name", "Path"},
+	// A change calendar is a Systems Manager document, and GetCalendarState
+	// names the ones it reads under CalendarNames — by name or by ARN.
+	"document.DocumentName": {"Name", "DocumentName", "CalendarNames"},
 	// The patch and association reads name the instance they are about, which
 	// is the resource AWS authorizes them against.
 	"managed-instance.InstanceId": {"InstanceId", "InstanceIds", "Target"},
@@ -1985,6 +2547,15 @@ func iamElastiCacheResourceARNs(r *http.Request, op string, types []string, regi
 	params := iamQueryRequestParameters(r)
 	lookup := func(field string) []string { return params[strings.ToLower(field)] }
 
+	// The tagging operations name their target by ARN, spelled ResourceName the
+	// way every query-protocol database service spells it. The ARN says which
+	// of the fourteen types the action declares it is, so there is nothing to
+	// assemble and nothing to choose.
+	for _, value := range lookup("ResourceName") {
+		if strings.HasPrefix(value, "arn:") {
+			return []string{value}
+		}
+	}
 	// A copy authorizes both of its ends, and the target's ARN is fully
 	// determined by the name the request supplies before the snapshot
 	// exists — the same argument that derives the Amazon RDS copies.
@@ -2090,8 +2661,18 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 		addNamed("daemon-task-definition/", iamNamesFrom(r, []string{"daemonTaskDefinition"}, nil))
 	}
 	if iamHasType(types, "task-set") {
-		addNamed("task-set/"+cluster+"/"+iamFirstJSONField(r, "service")+"/",
+		service := iamFirstJSONField(r, "service")
+		addNamed("task-set/"+cluster+"/"+service+"/",
 			iamNamesFrom(r, []string{"taskSet"}, []string{"taskSets"}))
+		// Creating a task set names no task set — it does not exist yet — but
+		// it does name the service the set will belong to, and Amazon ECS
+		// authorizes the create against the task sets of that service. The id
+		// is the wildcard, exactly as it is for every other create whose
+		// resource the request cannot name; the cluster and service are not,
+		// so a grant scoped to one service's task sets still denies another's.
+		if op == "CreateTaskSet" && service != "" {
+			out = append(out, arn("ecs", "task-set/"+cluster+"/"+service+"/*"))
+		}
 	}
 	if iamHasType(types, "task") {
 		addNamed("task/"+cluster+"/", iamNamesFrom(r, []string{"task"}, []string{"tasks"}))
@@ -2205,6 +2786,39 @@ var iamKMSFieldAliases = map[string][]string{
 // stream-scoped actions and a policy written "<group-arn>:*" covers those but
 // not the group-scoped reads. The gate requests whichever type AWS declares.
 func iamLogsResourceARNs(r *http.Request, types []string, arn func(svc, resource string) string) []string {
+	// A log record is fetched by a pointer the service issued, and that pointer
+	// says which group the record is in: it is "group|stream|index", which is
+	// how the read itself resolves the record. A pointer of any other shape
+	// names no group.
+	if iamHasType(types, "log-group") {
+		if pointer := iamJSONBodyField(r, "logRecordPointer"); pointer != "" {
+			if group, _, split := strings.Cut(pointer, "|"); split && group != "" {
+				return []string{arn("logs", "log-group:"+group)}
+			}
+		}
+	}
+	// Reading a query's results names the query and nothing else, and the log
+	// groups it ran over are what the read authorizes against — the query
+	// record holds them, under the id the request carries, so the store
+	// answers by key with no scan on a path every request pays. A query over
+	// two groups authorizes both, because it read both.
+	if iamHasType(types, "log-group") && cwQueries != nil {
+		if id := iamJSONBodyField(r, "queryId"); id != "" {
+			if query, ok := cwQueries.Get(id); ok {
+				var out []string
+				for _, group := range query.LogGroups {
+					if group != "" {
+						out = append(out, arn("logs", "log-group:"+group))
+					}
+				}
+				if len(out) > 0 {
+					sort.Strings(out)
+					return out
+				}
+			}
+		}
+	}
+
 	// The families beyond log groups and streams each authorize against a
 	// resource type of their own, and every one of their ARNs is
 	// "<type>:<name>" over a name, id or ARN the request already carries —
@@ -2356,11 +2970,53 @@ func iamCodeBuildResourceARNs(r *http.Request, types []string, arn func(svc, res
 	if iamHasType(types, "report-group") {
 		addNamed("report-group/",
 			iamNamesFrom(r, []string{"reportGroupArn", "name"}, []string{"reportGroupArns"}))
+		// A report belongs to a group, and AWS CodeBuild authorizes the group:
+		// a report ARN ends "report/<groupName>:<reportId>", so the group is
+		// the segment the report id follows.
+		for _, ref := range iamNamesFrom(r, []string{"reportArn"}, []string{"reportArns"}) {
+			if group := iamCodeBuildReportGroupName(ref); group != "" {
+				addNamed("report-group/", []string{group})
+			}
+		}
 	}
 	if iamHasType(types, "fleet") {
 		addNamed("fleet/", iamNamesFrom(r, []string{"name"}, []string{"names"}))
 	}
+	// A command execution belongs to a sandbox, and AWS CodeBuild authorizes
+	// the sandbox: both the batch read and the listing name it under
+	// sandboxId, and the sandbox reads name it under id.
+	if iamHasType(types, "sandbox") {
+		addNamed("sandbox/", iamNamesFrom(r, []string{"sandboxId", "id"}, []string{"ids"}))
+	}
+	// A resource the request names by its own ARN needs no assembly, whatever
+	// type it is: CodeBuild spells that member "arn" on the fleet and
+	// report-group deletes, and "projectArn" where a project is meant.
+	for _, named := range iamNamesFrom(r, []string{"arn", "projectArn"}, []string{"arns"}) {
+		if strings.HasPrefix(named, "arn:") {
+			out = append(out, named)
+		}
+	}
 	return out
+}
+
+// iamCodeBuildReportGroupName is the report group a report belongs to, read off
+// the report's own identifier. AWS CodeBuild spells a report
+// "<groupName>:<reportId>", and its ARN puts that under "report/", so both
+// spellings name the same group. A reference in neither shape names no group,
+// and guessing one would authorize against a group the request never mentioned.
+func iamCodeBuildReportGroupName(ref string) string {
+	if strings.HasPrefix(ref, "arn:") {
+		_, tail, found := strings.Cut(ref, ":report/")
+		if !found {
+			return ""
+		}
+		ref = tail
+	}
+	group, _, found := strings.Cut(ref, ":")
+	if !found {
+		return ""
+	}
+	return group
 }
 
 // iamWAFv2ResourceARNs derives the ARNs an AWS WAFv2 request names. WAFv2 is
@@ -2375,28 +3031,393 @@ func iamCodeBuildResourceARNs(r *http.Request, types []string, arn func(svc, res
 // the request creates or reads; the referenced entities are not derived, and
 // the gate never widens beyond what the request names.
 func iamWAFv2ResourceARNs(r *http.Request, op string, types []string) []string {
-	resourceType := ""
-	for _, candidate := range []struct{ suffix, resource string }{
+	// An ARN names the resource outright, whatever the operation is called. The
+	// suffix matching below exists to pick a type when only a name and scope
+	// are given; it is not a precondition for reading an ARN, and treating it
+	// as one left the operations whose names end in something else —
+	// GetSampledRequests, DeleteFirewallManagerRuleGroups — deriving nothing
+	// from the web ACL ARN they carry.
+	if a := iamFirstJSONField(r, "ARN", "WebACLArn", "WebAclArn"); strings.HasPrefix(a, "arn:") {
+		return []string{a}
+	}
+	// The collection an operation is about is named inside its own name, not
+	// only at the end of it: PutManagedRuleSetVersions and
+	// UpdateManagedRuleSetVersionExpiryDate are both about a managed rule set
+	// and neither ends in one. Exactly one collection may be named, so an
+	// operation mentioning two — there is none today, but the rule must not
+	// invent an answer if one appears — derives nothing rather than pick.
+	collections := []struct{ named, resource string }{
 		{"WebACL", "webacl"},
 		{"IPSet", "ipset"},
 		{"RuleGroup", "rulegroup"},
 		{"RegexPatternSet", "regexpatternset"},
 		{"ManagedRuleSet", "managedruleset"},
-	} {
-		if strings.HasSuffix(op, candidate.suffix) && iamHasType(types, candidate.resource) {
-			resourceType = candidate.resource
-			break
-		}
 	}
-	if resourceType == "" {
+	resourceType, named, matches := "", "", 0
+	for _, candidate := range collections {
+		if !strings.Contains(op, candidate.named) || !iamHasType(types, candidate.resource) {
+			continue
+		}
+		resourceType, named = candidate.resource, candidate.named
+		matches++
+	}
+	if matches > 1 {
 		return nil
 	}
-	if a := iamFirstJSONField(r, "ARN", "WebACLArn"); strings.HasPrefix(a, "arn:") {
-		return []string{a}
+	if resourceType == "" {
+		// An operation whose name says nothing about the collection is still
+		// not ambiguous when the action declares a single type — that type is
+		// what it is about.
+		if len(types) != 1 {
+			return nil
+		}
+		resourceType = types[0]
+		for _, candidate := range collections {
+			if candidate.resource == resourceType {
+				named = candidate.named
+			}
+		}
 	}
-	name, id := iamJSONBodyField(r, "Name"), iamJSONBodyField(r, "Id")
+	// WAFv2 spells the members plainly where the operation is about one
+	// resource, and qualifies them where the request also names another —
+	// GetRateBasedStatementManagedKeys carries WebACLName and WebACLId beside
+	// the rule key it is asking for.
+	name := iamFirstJSONField(r, "Name", named+"Name")
+	id := iamFirstJSONField(r, "Id", named+"Id")
 	if name == "" {
 		return nil
 	}
 	return []string{wafARN(iamJSONBodyField(r, "Scope"), resourceType, name, id)}
+}
+
+// iamGlueDataQualityRulesetARNs resolves the rulesets a data-quality request is
+// about, from the run or result it names.
+//
+// A run that the simulator does not hold names no ruleset, and deriving one
+// anyway would authorize against a ruleset the request never touched.
+func iamGlueDataQualityRulesetARNs(fields map[string][]string, region, account string) []string {
+	arn := func(name string) string {
+		return "arn:aws:glue:" + region + ":" + account + ":dataQualityRuleset/" + name
+	}
+	var out []string
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, dup := seen[name]; dup {
+			return
+		}
+		seen[name] = struct{}{}
+		out = append(out, arn(name))
+	}
+
+	// A ruleset the request names outright — including the one a
+	// recommendation run is being started to create, which the caller names
+	// and so is as derivable as any other name a create supplies.
+	for _, member := range []string{"rulesetname", "rulesetnames", "createdrulesetname"} {
+		for _, name := range fields[member] {
+			add(name)
+		}
+	}
+
+	for _, id := range fields["runid"] {
+		if glueDQEvalRuns != nil {
+			if run, ok := glueDQEvalRuns.Get(id); ok {
+				for _, name := range run.RulesetNames {
+					add(name)
+				}
+			}
+		}
+		// A rule-recommendation run creates a ruleset rather than evaluating
+		// one, and the ruleset it created is what a read of the run is about.
+		if glueDQRecRuns != nil {
+			if run, ok := glueDQRecRuns.Get(id); ok {
+				add(run.CreatedRulesetName)
+			}
+		}
+	}
+	for _, id := range fields["resultid"] {
+		if glueDQResults != nil {
+			if result, ok := glueDQResults.Get(id); ok {
+				add(result.RulesetName)
+			}
+		}
+	}
+	// A data-quality model is asked for by the profile an evaluation wrote its
+	// statistics to, and the profile belongs to the ruleset that produced it —
+	// which the result records. The result is stored under its own id, so the
+	// profile reaches it through an index rather than a scan.
+	for _, id := range fields["profileid"] {
+		if glueDQResults == nil {
+			continue
+		}
+		if result, ok := glueResultForProfile(id); ok {
+			add(result.RulesetName)
+		}
+	}
+	return out
+}
+
+// iamSSMInstanceARNs derives the machines an instance-scoped Systems Manager
+// read is about, from the identifiers it names. An identifier with neither
+// prefix names no machine this can build an ARN for.
+func iamSSMInstanceARNs(fields map[string][]string, region, account string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	add := func(arn string) {
+		if _, dup := seen[arn]; dup {
+			return
+		}
+		seen[arn] = struct{}{}
+		out = append(out, arn)
+	}
+	for _, member := range []string{"instanceid", "instanceids", "target"} {
+		for _, id := range fields[member] {
+			switch {
+			case strings.HasPrefix(id, "i-"):
+				add("arn:aws:ec2:" + region + ":" + account + ":instance/" + id)
+			case strings.HasPrefix(id, "mi-"):
+				add("arn:aws:ssm:" + region + ":" + account + ":managed-instance/" + id)
+			}
+		}
+	}
+	return out
+}
+
+// iamServiceLinkedRoleFromTask is the role a service-linked-role deletion task
+// is deleting, read off the task id. IAM spells it
+// "task/aws-service-role/<service>/<roleName>/<uuid>", so the role is the
+// path between the service and the task's own identifier — and the ARN keeps
+// that path, because a service-linked role lives under /aws-service-role/.
+//
+// A task id in any other shape names no role; building one from a partial
+// match would authorize against a role the request never mentioned.
+func iamServiceLinkedRoleFromTask(task string) string {
+	rest, found := strings.CutPrefix(task, "task/")
+	if !found {
+		return ""
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) < 4 || parts[0] != "aws-service-role" {
+		return ""
+	}
+	// Everything between "aws-service-role" and the trailing task identifier is
+	// the role's own path and name.
+	return strings.Join(parts[:len(parts)-1], "/")
+}
+
+// iamELBv2CreatedResourceARNs derives what a create is about.
+//
+// Every Elastic Load Balancing v2 ARN ends in a name and an identifier the
+// service assigns — "targetgroup/${TargetGroupName}/${TargetGroupId}" — and a
+// create names the first and cannot name the second. So the identifier is the
+// wildcard and the name is not, which is what keeps a grant written for one
+// target group from reaching another.
+//
+// A load balancer's ARN carries its kind as well, and the request states it:
+// an application balancer is "loadbalancer/app/…", a network one "net", a
+// gateway one "gwy". A kind the service does not define derives nothing.
+func iamELBv2CreatedResourceARNs(params map[string][]string, region, account string) []string {
+	first := func(field string) string {
+		if values := params[field]; len(values) > 0 {
+			return values[0]
+		}
+		return ""
+	}
+	name := first("name")
+	if name == "" {
+		return nil
+	}
+	arn := func(resource string) []string {
+		return []string{"arn:aws:elasticloadbalancing:" + region + ":" + account + ":" + resource}
+	}
+	switch first("action") {
+	case "CreateTargetGroup":
+		return arn("targetgroup/" + name + "/*")
+	case "CreateTrustStore":
+		return arn("truststore/" + name + "/*")
+	case "CreateLoadBalancer":
+		kind := map[string]string{
+			"":            "app", // the API defaults an unstated type to application
+			"application": "app",
+			"network":     "net",
+			"gateway":     "gwy",
+		}[first("type")]
+		if kind == "" {
+			return nil
+		}
+		return arn("loadbalancer/" + kind + "/" + name + "/*")
+	}
+	return nil
+}
+
+// iamRDSARNResourceSegment is the resource type an Amazon RDS ARN names —
+// "db", "cluster", "auto-backup" — read from the segment after the account.
+// A value that is not an RDS ARN names no type.
+func iamRDSARNResourceSegment(value string) (string, bool) {
+	if !strings.HasPrefix(value, "arn:") {
+		return "", false
+	}
+	parts := strings.SplitN(value, ":", 7)
+	if len(parts) < 7 || parts[2] != "rds" {
+		return "", false
+	}
+	return parts[5], true
+}
+
+// iamAutoScalingTaggedGroups reads the group names a tagging call carries
+// inside its tags. Only a tag saying it is on an Auto Scaling group counts: the
+// member is generic, and a tag on anything else names something the call is not
+// about.
+func iamAutoScalingTaggedGroups(r *http.Request) []string {
+	_ = r.ParseForm()
+	resourceIDs := map[string]string{}
+	resourceTypes := map[string]string{}
+	for key, values := range r.Form {
+		if len(values) == 0 || values[0] == "" {
+			continue
+		}
+		index, member, found := strings.Cut(strings.TrimPrefix(key, "Tags.member."), ".")
+		if !found || index == "" {
+			continue
+		}
+		switch member {
+		case "ResourceId":
+			resourceIDs[index] = values[0]
+		case "ResourceType":
+			resourceTypes[index] = values[0]
+		}
+	}
+	var out []string
+	for index, name := range resourceIDs {
+		if resourceTypes[index] == "auto-scaling-group" {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// The instance-to-group lookup SetInstanceHealth needs, answered from a
+// generation-keyed index so a per-request derivation never decodes every group.
+var iamAutoScalingGroupsByInstance sim.GenerationIndex[AutoScalingGroup]
+
+// iamAutoScalingGroupInstanceKeys names a group by each machine it holds.
+func iamAutoScalingGroupInstanceKeys(group AutoScalingGroup) []string {
+	keys := make([]string, 0, len(group.InstanceIds))
+	for _, instance := range group.InstanceIds {
+		if instance != "" {
+			keys = append(keys, instance)
+		}
+	}
+	return keys
+}
+
+// iamEC2ElasticIPAddressKeys names an elastic IP by the address it carries,
+// which is what an address transfer names it by.
+func iamEC2ElasticIPAddressKeys(address EC2ElasticIP) []string {
+	if address.PublicIp == "" {
+		return nil
+	}
+	return []string{address.PublicIp}
+}
+
+// iamEC2NestedMembers reads one member out of every entry of a named list in a
+// query request: "<list>.<index>.<member>", which is how Amazon EC2 spells a
+// list of structures.
+func iamEC2NestedMembers(r *http.Request, list, member string) []string {
+	_ = r.ParseForm()
+	var out []string
+	seen := map[string]struct{}{}
+	for key, values := range r.Form {
+		if len(values) == 0 || values[0] == "" {
+			continue
+		}
+		index, rest, found := strings.Cut(strings.TrimPrefix(key, list+"."), ".")
+		if !found || index == "" || rest != member {
+			continue
+		}
+		if _, dup := seen[values[0]]; dup {
+			continue
+		}
+		seen[values[0]] = struct{}{}
+		out = append(out, values[0])
+	}
+	sort.Strings(out)
+	return out
+}
+
+// iamSSMTargetedInstances reads the machines a request's targets name. AWS
+// Systems Manager spells a target as a key and the values it selects, and only
+// a target keyed on the instance id names machines.
+func iamSSMTargetedInstances(r *http.Request) []string {
+	body := iamRequestBody(r)
+	if len(body) == 0 {
+		return nil
+	}
+	var request struct {
+		Targets []struct {
+			Key    string   `json:"Key"`
+			Values []string `json:"Values"`
+		} `json:"Targets"`
+	}
+	if json.Unmarshal(body, &request) != nil {
+		return nil
+	}
+	var out []string
+	for _, target := range request.Targets {
+		if !strings.EqualFold(target.Key, "InstanceIds") &&
+			!strings.EqualFold(target.Key, "InstanceId") {
+			continue
+		}
+		for _, value := range target.Values {
+			if value != "" {
+				out = append(out, value)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// iamCloudTrailQueryFrom finds the event data stores a Lake query reads. A
+// query names its first store after FROM and any others after JOIN, and a store
+// is identified by a UUID — so a FROM naming anything else, a table alias or a
+// subquery, matches nothing and derives nothing.
+var iamCloudTrailQueryFrom = regexp.MustCompile(
+	`(?i)\b(?:from|join)\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+
+// iamStatesMachineOfVersion splits a state machine version ARN into the machine
+// it is a version of and the version itself. A version ARN is the machine's own
+// ARN with ":<version>" appended, so anything without that trailing number is
+// not one.
+func iamStatesMachineOfVersion(arn string) (machine, version string, ok bool) {
+	if !strings.HasPrefix(arn, "arn:") || !strings.Contains(arn, ":stateMachine:") {
+		return "", "", false
+	}
+	cut := strings.LastIndexByte(arn, ':')
+	if cut < 0 {
+		return "", "", false
+	}
+	version = arn[cut+1:]
+	if version == "" || strings.ContainsFunc(version, func(r rune) bool { return r < '0' || r > '9' }) {
+		return "", "", false
+	}
+	return arn[:cut], version, true
+}
+
+// The alarm-to-rule lookup a mute-rule listing needs, answered from a
+// generation-keyed index so a per-request derivation never reads every rule.
+var iamCloudWatchMuteRulesByAlarm sim.GenerationIndex[CWAlarmMuteRule]
+
+// iamCloudWatchMuteRuleAlarmKeys names a mute rule by each alarm it covers.
+func iamCloudWatchMuteRuleAlarmKeys(rule CWAlarmMuteRule) []string {
+	keys := make([]string, 0, len(rule.AlarmNames))
+	for _, alarm := range rule.AlarmNames {
+		if alarm != "" {
+			keys = append(keys, alarm)
+		}
+	}
+	return keys
 }

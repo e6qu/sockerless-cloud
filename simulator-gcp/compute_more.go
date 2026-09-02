@@ -48,7 +48,43 @@ type computeMetaResource struct {
 	// corresponding skip flag is set; the rest are opt-in.
 	skipGet    bool // image GET is owned by the catalog handler
 	skipDelete bool // some collections (e.g. commitments) have no Discovery DELETE
-	patch      bool
+	// skipList suppresses the scoped list for a collection whose document
+	// declares only the aggregated one, so the simulator mounts no route
+	// Google does not publish.
+	skipList bool
+	// skipInsert suppresses the create for a collection the service creates
+	// some other way — a rollout is produced by the change it rolls out, and
+	// the document declares no insert for it.
+	skipInsert bool
+	// iam registers the getIamPolicy / setIamPolicy / testIamPermissions
+	// triple Compute Engine mounts beneath the resource itself, backed by
+	// the same policy store every other Google IAM surface reads.
+	iam bool
+	// testIamOnly registers the permission check alone, for the collections
+	// that declare only that one: mounting the policy reader and writer for
+	// them would publish routes Google does not.
+	testIamOnly bool
+	patch       bool
+	// setVerbs are the "set<Thing>" verbs a collection declares beside its
+	// lifecycle. Each reads one member from its request body, writes it onto
+	// the resource and answers with an Operation, which is the whole of what
+	// Compute Engine's set-verbs do.
+	setVerbs []computeSetVerb
+	// stateVerbs are the verbs that move a resource between the states of its
+	// lifecycle — announcing a prefix, cancelling a reservation. Each refuses
+	// the transition it cannot make, because a no-op would hide the mistake.
+	stateVerbs []computeStateVerb
+	// statusReads are the GET verbs that report what a resource's parts are
+	// doing, derived from the resource rather than stored beside it.
+	statusReads []computeStatusRead
+	// scopeless marks a scoped collection whose resource declares no zone or
+	// region member of its own. Most do, so the registrar stamps one by
+	// default; stamping a resource whose schema has no such member puts a
+	// field on the wire the cloud never sends.
+	scopeless bool
+	// update registers the PUT that replaces the resource whole, for the
+	// collections whose document declares one beside patch.
+	update     bool
 	setLabels  bool
 	aggregated bool
 	// listUsableKind is the `kind` of the listUsable response, set only for the
@@ -112,6 +148,93 @@ func stampComputeScopeURL(m map[string]any, scope computeScopeKind, project stri
 	}
 }
 
+// computeSetVerb describes one "set<Thing>" verb: the member its request body
+// carries, and the member that writes on the resource. The two are the same
+// name almost everywhere — setUrlMap sends urlMap and stores urlMap — and
+// differ only where Compute Engine reuses a request shape, as
+// setEdgeSecurityPolicy does by sending a SecurityPolicyReference.
+type computeSetVerb struct {
+	verb   string
+	member string
+	into   string
+}
+
+// target is the resource member the verb writes.
+func (v computeSetVerb) target() string {
+	if v.into != "" {
+		return v.into
+	}
+	return v.member
+}
+
+// computeStateVerb is a verb that moves a resource's status from one state to
+// another, refusing any other starting state.
+type computeStateVerb struct {
+	verb string
+	from string
+	to   string
+	// done names the transition in the refusal, in the past tense a person
+	// would use: "announced", "withdrawn", "cancelled".
+	done string
+	// initial is the status a resource that has never been moved is in.
+	initial string
+	// at is where the status lives on the resource. Most collections keep it
+	// in a "status" member of their own; a future reservation's is nested
+	// inside its status object, at status.procurementStatus. Empty means
+	// "status".
+	at []string
+}
+
+// read returns the status a resource is currently in, and where it is kept.
+func (v computeStateVerb) read(held map[string]any) string {
+	at := v.at
+	if len(at) == 0 {
+		at = []string{"status"}
+	}
+	node := held
+	for _, step := range at[:len(at)-1] {
+		next, ok := node[step].(map[string]any)
+		if !ok {
+			return ""
+		}
+		node = next
+	}
+	status, _ := node[at[len(at)-1]].(string)
+	return status
+}
+
+// write records the status the verb moves the resource to, creating the
+// intermediate members if the resource has never carried one.
+func (v computeStateVerb) write(held map[string]any, status string) {
+	at := v.at
+	if len(at) == 0 {
+		at = []string{"status"}
+	}
+	node := held
+	for _, step := range at[:len(at)-1] {
+		next, ok := node[step].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			node[step] = next
+		}
+		node = next
+	}
+	node[at[len(at)-1]] = status
+}
+
+// computeStatusRead is a GET verb reporting what a resource's parts are doing.
+// The status is derived from the resource each time rather than stored, so it
+// cannot drift from what the resource says.
+type computeStatusRead struct {
+	verb string
+	// wrap is the member the status sits under in the response.
+	wrap string
+	// status builds it from the stored resource.
+	status func(map[string]any) map[string]any
+	// etag marks the responses whose schema carries one beside the result.
+	etag bool
+}
+
 // register wires the configured verbs onto the mux.
 // computeResourceMetadata builds the standardized ResourceMetadata Compute
 // Engine returns beside a resource, from that resource's own kind. The
@@ -147,42 +270,46 @@ func (res computeMetaResource) register(srv *sim.Server) {
 	}
 
 	// Insert
-	srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		var body map[string]any
-		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		if body == nil {
-			body = map[string]any{}
-		}
-		name, _ := body["name"].(string)
-		if name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
-			return
-		}
-		key := relPath(r, name)
-		if _, exists := res.store.Get(key); computeConflict(w, exists, res.collection, name) {
-			return
-		}
-		body["kind"] = res.kind
-		if res.resourceMetadata {
-			body["resourceMetadata"] = computeResourceMetadata(res.kind)
-		}
-		body["id"] = computeNumericID()
-		body["selfLink"] = computeSelfLink(key)
-		body["creationTimestamp"] = time.Now().UTC().Format(time.RFC3339)
-		if res.setLabels {
-			body["labelFingerprint"] = computeFingerprint()
-		}
-		stampComputeScopeURL(body, res.scope, project, r)
-		res.store.Put(key, body)
-		if res.reconcile != nil {
-			res.reconcile(key)
-		}
-		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), "insert"))
-	})
+	if !res.skipInsert {
+		srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
+			project := sim.PathParam(r, "project")
+			var body map[string]any
+			if err := sim.ReadJSON(r, &body); err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			if body == nil {
+				body = map[string]any{}
+			}
+			name, _ := body["name"].(string)
+			if name == "" {
+				sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+				return
+			}
+			key := relPath(r, name)
+			if _, exists := res.store.Get(key); computeConflict(w, exists, res.collection, name) {
+				return
+			}
+			body["kind"] = res.kind
+			if res.resourceMetadata {
+				body["resourceMetadata"] = computeResourceMetadata(res.kind)
+			}
+			body["id"] = computeNumericID()
+			body["selfLink"] = computeSelfLink(key)
+			body["creationTimestamp"] = time.Now().UTC().Format(time.RFC3339)
+			if res.setLabels {
+				body["labelFingerprint"] = computeFingerprint()
+			}
+			if !res.scopeless {
+				stampComputeScopeURL(body, res.scope, project, r)
+			}
+			res.store.Put(key, body)
+			if res.reconcile != nil {
+				res.reconcile(key)
+			}
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), "insert"))
+		})
+	}
 
 	// Get
 	if !res.skipGet {
@@ -198,31 +325,33 @@ func (res computeMetaResource) register(srv *sim.Server) {
 	}
 
 	// List
-	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		prefix := listPrefix(r)
-		items := res.store.Filter(func(m map[string]any) bool {
-			sl, _ := m["selfLink"].(string)
-			return strings.HasPrefix(sl, prefix)
+	if !res.skipList {
+		srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+			prefix := listPrefix(r)
+			items := res.store.Filter(func(m map[string]any) bool {
+				sl, _ := m["selfLink"].(string)
+				return strings.HasPrefix(sl, prefix)
+			})
+			sort.Slice(items, func(i, j int) bool {
+				ni, _ := items[i]["name"].(string)
+				nj, _ := items[j]["name"].(string)
+				return ni < nj
+			})
+			items = gcpApplyListParams(items, r)
+			page, next, ok := paginateListCompute(w, r, items)
+			if !ok {
+				return
+			}
+			if page == nil {
+				page = []map[string]any{}
+			}
+			resp := map[string]any{"kind": listKind, "items": page}
+			if next != "" {
+				resp["nextPageToken"] = next
+			}
+			sim.WriteJSON(w, http.StatusOK, resp)
 		})
-		sort.Slice(items, func(i, j int) bool {
-			ni, _ := items[i]["name"].(string)
-			nj, _ := items[j]["name"].(string)
-			return ni < nj
-		})
-		items = gcpApplyListParams(items, r)
-		page, next, ok := paginateListCompute(w, r, items)
-		if !ok {
-			return
-		}
-		if page == nil {
-			page = []map[string]any{}
-		}
-		resp := map[string]any{"kind": listKind, "items": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
-	})
+	}
 
 	// listUsable — the subset of the collection the caller may attach to a
 	// load balancer. The caller holds the project, so that is the project's
@@ -254,6 +383,26 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				resp["nextPageToken"] = next
 			}
 			sim.WriteJSON(w, http.StatusOK, resp)
+		})
+	}
+
+	// IAM, where the document declares it: Compute Engine mounts the triple
+	// under the resource rather than through the AIP-151 colon verbs, so the
+	// routes are named here and the policies live in the shared store.
+	if res.iam || res.testIamOnly {
+		policyName := func(r *http.Request) string {
+			return "compute/" + relPath(r, sim.PathParam(r, "resource"))
+		}
+		if res.iam {
+			srv.HandleFunc("GET "+base+"/{resource}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
+				handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "getIamPolicy")
+			})
+			srv.HandleFunc("POST "+base+"/{resource}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
+				handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "setIamPolicy")
+			})
+		}
+		srv.HandleFunc("POST "+base+"/{resource}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
+			handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "testIamPermissions")
 		})
 	}
 
@@ -300,6 +449,119 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				res.reconcile(key)
 			}
 			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), "patch"))
+		})
+	}
+
+	// Update (PUT: replace the resource, keeping only its identity). Compute
+	// Engine declares this beside patch for the collections whose resource a
+	// client is expected to rewrite whole — a URL map's rules, a health
+	// check's probe — and the difference from patch is exactly that a member
+	// the client left out is gone afterwards.
+	if res.update {
+		srv.HandleFunc("PUT "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
+			project := sim.PathParam(r, "project")
+			name := sim.PathParam(r, "name")
+			key := relPath(r, name)
+			var body map[string]any
+			if err := sim.ReadJSON(r, &body); err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			ok := res.store.Update(key, func(m *map[string]any) {
+				cur := *m
+				replaced := map[string]any{}
+				for _, identity := range []string{"kind", "id", "selfLink", "creationTimestamp", "name", "region", "zone"} {
+					if v, held := cur[identity]; held {
+						replaced[identity] = v
+					}
+				}
+				for k, v := range body {
+					switch k {
+					case "kind", "id", "selfLink", "creationTimestamp", "name":
+						continue
+					}
+					replaced[k] = v
+				}
+				*m = replaced
+			})
+			if !ok {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				return
+			}
+			if res.reconcile != nil {
+				res.reconcile(key)
+			}
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), "update"))
+		})
+	}
+
+	for _, verb := range res.setVerbs {
+		verb := verb
+		srv.HandleFunc("POST "+base+"/{name}/"+verb.verb, func(w http.ResponseWriter, r *http.Request) {
+			project := sim.PathParam(r, "project")
+			name := sim.PathParam(r, "name")
+			key := relPath(r, name)
+			var body map[string]any
+			if err := sim.ReadJSON(r, &body); err != nil {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				return
+			}
+			value, sent := body[verb.member]
+			if !sent {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					"%s needs %s in its request body", verb.verb, verb.member)
+				return
+			}
+			if !res.store.Update(key, func(m *map[string]any) { (*m)[verb.target()] = value }) {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				return
+			}
+			if res.reconcile != nil {
+				res.reconcile(key)
+			}
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), verb.verb))
+		})
+	}
+
+	for _, verb := range res.stateVerbs {
+		verb := verb
+		srv.HandleFunc("POST "+base+"/{name}/"+verb.verb, func(w http.ResponseWriter, r *http.Request) {
+			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
+			key := relPath(r, name)
+			held, ok := res.store.Get(key)
+			if !ok {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				return
+			}
+			status := verb.read(held)
+			if status == "" {
+				status = verb.initial
+			}
+			if status != verb.from {
+				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					"a %s in %s cannot be %s", res.collection, status, verb.done)
+				return
+			}
+			verb.write(held, verb.to)
+			res.store.Put(key, held)
+			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), verb.verb))
+		})
+	}
+
+	for _, read := range res.statusReads {
+		read := read
+		srv.HandleFunc("GET "+base+"/{name}/"+read.verb, func(w http.ResponseWriter, r *http.Request) {
+			name := sim.PathParam(r, "name")
+			held, ok := res.store.Get(relPath(r, name))
+			if !ok {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				return
+			}
+			body := map[string]any{read.wrap: read.status(held)}
+			if read.etag {
+				body["etag"] = computeFingerprint()
+			}
+			sim.WriteJSON(w, http.StatusOK, body)
 		})
 	}
 
@@ -388,30 +650,54 @@ func registerComputeMore(srv *sim.Server) {
 	}
 
 	gcpComputeImages = mk("compute_images")
+	gcpComputeTargetHTTPSProxies = mk("compute_target_https_proxies")
+	gcpComputeGlobalAddresses = mk("compute_global_addresses")
 	// A packet mirroring policy's collectorIlb resolves through the regional
 	// backend services to the instances behind it, so the resolver reads them.
 	gcpRegionBackendServices = mk("compute_region_backend_services")
 
+	// Shared so the verbs in the files beside this one write the same records
+	// the lifecycle here serves.
+	gcpComputeTargetPools = mk("compute_target_pools")
+	gcpComputeSnapshots = mk("compute_snapshots")
+	gcpComputeRegionDisks = mk("compute_region_disks")
+
 	resources := []computeMetaResource{
 		// Storage resources.
+		// The image IAM verbs are mounted in compute.go beside the family
+		// lookup: "images/{resource}/getIamPolicy" and
+		// "images/family/{family}" are the same shape to a path router, so
+		// one handler has to serve both and resolve them the way Compute
+		// Engine does.
 		{collection: "images", kind: "compute#image", scope: cScopeGlobal, store: gcpComputeImages, skipGet: true, patch: true, setLabels: true},
-		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeGlobal, store: mk("compute_snapshots"), setLabels: true},
+		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeGlobal, store: gcpComputeSnapshots, setLabels: true},
 		{collection: "machineImages", kind: "compute#machineImage", scope: cScopeGlobal, store: mk("compute_machine_images"), setLabels: true},
-		{collection: "disks", kind: "compute#disk", scope: cScopeRegion, store: mk("compute_region_disks"), patch: true, setLabels: true},
+		{collection: "disks", kind: "compute#disk", scope: cScopeRegion, store: gcpComputeRegionDisks, patch: true, setLabels: true},
 		// Addressing / routing.
-		{collection: "addresses", kind: "compute#address", scope: cScopeGlobal, store: mk("compute_global_addresses"), setLabels: true},
+		{collection: "addresses", kind: "compute#address", scope: cScopeGlobal, store: gcpComputeGlobalAddresses, setLabels: true},
 		{collection: "routes", kind: "compute#route", scope: cScopeGlobal, store: mk("compute_routes")},
 		// Load-balancing resources.
-		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: mk("compute_target_pools"), aggregated: true},
-		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, listUsableKind: "compute#usableBackendServiceList"},
-		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true},
-		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true},
-		{collection: "httpsHealthChecks", kind: "compute#httpsHealthCheck", scope: cScopeGlobal, store: mk("compute_https_health_checks"), patch: true},
-		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps")},
-		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies")},
-		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: mk("compute_target_https_proxies"), aggregated: true},
+		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: gcpComputeTargetPools, aggregated: true},
+		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, update: true, listUsableKind: "compute#usableBackendServiceList",
+			setVerbs: []computeSetVerb{{verb: "setSecurityPolicy", member: "securityPolicy"}}},
+		{collection: "healthChecks", kind: "compute#healthCheck", scope: cScopeRegion, store: mk("compute_region_health_checks"), patch: true, update: true},
+		{collection: "httpHealthChecks", kind: "compute#httpHealthCheck", scope: cScopeGlobal, store: mk("compute_http_health_checks"), patch: true, update: true, testIamOnly: true},
+		{collection: "httpsHealthChecks", kind: "compute#httpsHealthCheck", scope: cScopeGlobal, store: mk("compute_https_health_checks"), patch: true, update: true, testIamOnly: true},
+		{collection: "urlMaps", kind: "compute#urlMap", scope: cScopeRegion, store: mk("compute_region_url_maps"), patch: true, update: true},
+		{collection: "targetHttpProxies", kind: "compute#targetHttpProxy", scope: cScopeRegion, store: mk("compute_region_target_http_proxies"),
+			setVerbs: []computeSetVerb{{verb: "setUrlMap", member: "urlMap"}}},
+		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeGlobal, store: gcpComputeTargetHTTPSProxies, patch: true, aggregated: true,
+			setVerbs: []computeSetVerb{
+				{verb: "setSslPolicy", member: "sslPolicy"},
+				{verb: "setQuicOverride", member: "quicOverride"},
+				{verb: "setCertificateMap", member: "certificateMap"},
+			}},
 		{collection: "sslCertificates", kind: "compute#sslCertificate", scope: cScopeGlobal, store: mk("compute_ssl_certificates"), aggregated: true},
-		{collection: "targetTcpProxies", kind: "compute#targetTcpProxy", scope: cScopeGlobal, store: mk("compute_target_tcp_proxies")},
+		{collection: "targetTcpProxies", kind: "compute#targetTcpProxy", scope: cScopeGlobal, store: mk("compute_target_tcp_proxies"),
+			setVerbs: []computeSetVerb{
+				{verb: "setBackendService", member: "service"},
+				{verb: "setProxyHeader", member: "proxyHeader"},
+			}},
 		{collection: "targetGrpcProxies", kind: "compute#targetGrpcProxy", scope: cScopeGlobal, store: mk("compute_target_grpc_proxies"), patch: true},
 		// Instance templates (regional).
 		{collection: "instanceTemplates", kind: "compute#instanceTemplate", scope: cScopeRegion, store: mk("compute_region_instance_templates")},
@@ -430,15 +716,23 @@ func registerComputeMore(srv *sim.Server) {
 // registerComputeInstanceGroupManagers wires the zonal + regional managed
 // instance group surface. A MIG is metadata: name, instanceTemplate,
 // targetSize, baseInstanceName. resize updates targetSize;
-// setInstanceTemplate swaps the template; listManagedInstances returns the
-// (empty, since this sim provisions no real VMs) managed-instance set.
+// setInstanceTemplate swaps the template; listManagedInstances reports the
+// instances the group actually manages, which the verbs in
+// compute_igm_instances.go create, move between states and remove.
 func registerComputeInstanceGroupManagers(srv *sim.Server) {
 	store := sim.MakeStore[map[string]any](srv.DB(), "compute_instance_group_managers")
+	// A regional instance group is the group a regional manager keeps, so it
+	// is derived from this same store rather than held in one of its own.
+	registerComputeRegionInstanceGroups(srv, store)
 
 	for _, scope := range []computeScopeKind{cScopeZone, cScopeRegion} {
 		scope := scope
 		base := computeScopeMux(scope, "instanceGroupManagers")
-		(computeMetaResource{collection: "instanceGroupManagers", kind: "compute#instanceGroupManager", scope: scope, store: store, patch: true, aggregated: scope == cScopeZone}).register(srv)
+		// The instances the group manages follow its target size, on every
+		// path that can change it — insert, patch, delete, and the resize
+		// below.
+		reconcile := func(key string) { computeReconcileManagedInstances(store, key) }
+		(computeMetaResource{collection: "instanceGroupManagers", kind: "compute#instanceGroupManager", scope: scope, store: store, patch: true, aggregated: scope == cScopeZone, reconcile: reconcile}).register(srv)
 
 		relPath := func(r *http.Request) string {
 			return fmt.Sprintf("projects/%s/%s/instanceGroupManagers/%s", sim.PathParam(r, "project"), computeScopeSegment(scope, r), sim.PathParam(r, "name"))
@@ -459,6 +753,7 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
 				return
 			}
+			reconcile(key)
 			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(scope, r), computeSelfLink(key), "resize"))
 		})
 
@@ -485,13 +780,16 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 		})
 
 		srv.HandleFunc("POST "+base+"/{name}/listManagedInstances", func(w http.ResponseWriter, r *http.Request) {
-			if _, ok := store.Get(relPath(r)); !ok {
+			key := relPath(r)
+			if _, ok := store.Get(key); !ok {
 				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
 				return
 			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{"managedInstances": []map[string]any{}})
+			computeListManagedInstances(w, key)
 		})
 	}
+
+	registerComputeInstanceGroupInstances(srv, store)
 }
 
 // registerComputeCatalogMore adds the read-only catalog collections the

@@ -82,7 +82,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"dns-v1":                  80,
 	"eventarc-v1":             132,
 	"firestore-v1":            120,
-	"iam-v1":                  266,
+	"iam-v1":                  272,
 	"iamcredentials-v1":       14,
 	"logging-v2":              508,
 	"pubsub-v1":               92,
@@ -97,19 +97,30 @@ var gcpDeclaredMethodTotals = map[string]int{
 }
 
 var gcpMethodFloor = map[string]int{
-	// Compute Engine: deliberately the furthest from full — 559 of the
-	// document's 1,007 methods. The served slice is the one the consumers
-	// exercise (instances, disks, networks/subnetworks and the real netns
-	// fabric, firewalls, addresses, routes, NAT, load balancing, instance
-	// groups/templates, project metadata, zones/regions/machine types); the
-	// 448 unserved methods are the long tail of collections nothing here
-	// consumes (commitments, interconnects, node groups, security policies,
-	// TPUs and the rest). There is no per-method enumeration: lower this
-	// floor by one and the gate prints the full unserved list on demand,
-	// which is the work list whenever a slice widens.
-	// Grew by two spellings at the 2026-08-21 revision, both in the unserved
-	// long tail below.
-	"compute-v1":              1118,
+	// Compute Engine serves 2,002 of the document's 2,016 method spellings.
+	// The fourteen that remain are all one situation: a catalogue Google
+	// publishes or hardware reporting on itself, neither of which this
+	// simulator can answer for without inventing the answer. Each is mounted
+	// and answers 501 with that reason, because an empty list would be worse
+	// than no answer — an empty interconnect-locations list states that Google
+	// operates no facilities, and a client cannot tell an invented catalogue
+	// from a real one.
+	//
+	// They are the facilities Cloud Interconnect runs out of and the
+	// third-party ones it peers with (a list and a read each), what
+	// interconnect hardware reports about itself, and the preconfigured WAF
+	// expression sets. Discovery spells most methods twice, so fourteen
+	// spellings are seven methods.
+	//
+	// A licence code is no longer among them. It is not Google's catalogue
+	// when the licence is one this project created: Compute Engine assigns the
+	// code on insert, and reading the code is a read of the licence it was
+	// issued for. A code this project was never issued is not found, which is
+	// what a read of something that does not exist says.
+	//
+	// Lower this floor by one and the gate prints the unserved list, which is
+	// the work list whenever that changes.
+	"compute-v1":              2002,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only
@@ -131,7 +142,7 @@ var gcpMethodFloor = map[string]int{
 	// new surface Google published, not a regression: the served count is
 	// unchanged, and this simulator's Dataflow slice is the job surface its
 	// consumers drive.
-	"dataflow-v1b3": 84,
+	"dataflow-v1b3": 114,
 
 	// Cloud Run Admin v2: builds.submit hands the request to the Cloud Build
 	// this simulator serves, and sourceUploads.upload names the Cloud Storage
@@ -143,7 +154,7 @@ var gcpMethodFloor = map[string]int{
 	// exportImageMetadata, exportMetadata, exportProjectMetadata and the two
 	// exportStatus spellings) reports Google's own image-export pipeline, which
 	// this simulator does not run — there is no export whose status to report.
-	"cloudrun-v2": 104,
+	"cloudrun-v2": 119,
 
 	// BigQuery v2: the whole document is served. jobs.insert declares both a
 	// JSON path and the /upload media path that carries a load job's bytes;
@@ -162,7 +173,7 @@ var gcpMethodFloor = map[string]int{
 	// simulator does not model; the projects colon-verb fan-in rejects them
 	// as unknown verbs. The document grew by two spellings at the 2026-08-14
 	// revision; both belong to that same Key Access Justifications family.
-	"cloudkms-v1": 168,
+	"cloudkms-v1": 174,
 
 	"eventarc-v1":       132,
 	"cloudfunctions-v2": 42,
@@ -238,7 +249,7 @@ var gcpMethodFloor = map[string]int{
 	// control plane only — no Redis runs behind an instance, so there are no
 	// bytes to write out and nothing an import could load. Serving them would
 	// fabricate an RDB.
-	"redis-v1": 90,
+	"redis-v1": 94,
 
 	// Firestore: document CRUD, the transaction verbs, and the custom methods
 	// on a document parent — listCollectionIds, runAggregationQuery and
@@ -251,7 +262,7 @@ var gcpMethodFloor = map[string]int{
 	// get, list, delete) whose deliveries need that same plumbing. REST cannot
 	// carry a bidirectional stream, and a change stream with no listener to
 	// deliver to would be a record nothing reads.
-	"firestore-v1": 108,
+	"firestore-v1": 120,
 
 	// Identity and Access Management: every documented method is served —
 	// service accounts, keys (including upload's caller-supplied public key
@@ -259,7 +270,7 @@ var gcpMethodFloor = map[string]int{
 	// grantable-roles query over the sim's own catalog, the iamPolicies lint
 	// and auditable-services queries, workload/workforce identity pools with
 	// their subjects' delete/undelete pair, and the IAM policy verbs.
-	"iam-v1": 266,
+	"iam-v1": 272,
 
 	// Secret Manager: secrets and versions CRUD, addVersion, access, enable,
 	// disable, destroy and the IAM verbs are served on both the global and the
@@ -312,7 +323,7 @@ var gcpMethodFloor = map[string]int{
 	// The "instances/{rest...}" mount that routes this surface has the shape of
 	// every path in the document, so only its answer — a method-not-found for
 	// each tail it does not route — distinguishes the two.
-	"spanner-v1": 188,
+	"spanner-v1": 198,
 }
 
 // gcpProbePrincipal is the subject of the access token every probe presents.
@@ -336,6 +347,10 @@ type gcpProbeResult struct {
 	// why names the arm of gcpClassifyProbe that decided, with the status
 	// code and the response excerpt it decided on.
 	why string
+	// status is what the simulator answered, which separates the one unserved
+	// answer that is a declaration — a 501 naming what is missing — from a mux
+	// miss, an unknown verb, and a 500.
+	status int
 }
 
 // gcpCoverageProbe drives the in-process simulator.
@@ -421,15 +436,15 @@ func gcpClassifyProbe(status int, body string) gcpProbeResult {
 	}
 	switch {
 	case status == http.StatusNotFound && strings.HasPrefix(body, gcpMuxMissBody):
-		return gcpProbeResult{served: false, why: "mux miss: no pattern matches the URI"}
+		return gcpProbeResult{served: false, status: status, why: "mux miss: no pattern matches the URI"}
 	case status == http.StatusMethodNotAllowed && strings.HasPrefix(body, gcpMuxMethodMissBody):
-		return gcpProbeResult{served: false, why: "mux miss: no pattern for this HTTP method"}
+		return gcpProbeResult{served: false, status: status, why: "mux miss: no pattern for this HTTP method"}
 	case gcpUnknownMethodError.MatchString(body):
-		return gcpProbeResult{served: false, why: "handler reports the method/verb as unknown: " + excerpt}
+		return gcpProbeResult{served: false, status: status, why: "handler reports the method/verb as unknown: " + excerpt}
 	case status >= http.StatusInternalServerError:
-		return gcpProbeResult{served: false, why: "handler failed with " + http.StatusText(status) + ": " + excerpt}
+		return gcpProbeResult{served: false, status: status, why: "handler failed with " + http.StatusText(status) + ": " + excerpt}
 	}
-	return gcpProbeResult{served: true, why: "handler answered " + http.StatusText(status) + ": " + excerpt}
+	return gcpProbeResult{served: true, status: status, why: "handler answered " + http.StatusText(status) + ": " + excerpt}
 }
 
 // probe sends one request through the simulator and classifies the response.
@@ -497,6 +512,19 @@ func gcpParamSamples(name string) []string {
 		return []string{"us-central1-a"}
 	case "billingaccount":
 		return []string{"012345-678901-ABCDEF"}
+	case "association":
+		// Compute Engine's host methods take the association as a path, not a
+		// name: the document spells it "reservations/reservation_name", or that
+		// followed by a block and a sub-block. Discovery declares it without
+		// reserved expansion, so a generated client percent-encodes the
+		// separators and sends the whole path as one segment — which is the
+		// coordinate the simulator must be reachable at, and so the one the
+		// probe sends. A single bare token is a coordinate no client sends.
+		return []string{
+			"reservations%2Fsim-reservation",
+			"reservations%2Fsim-reservation%2FreservationBlocks%2Fsim-block",
+			"reservations%2Fsim-reservation%2FreservationBlocks%2Fsim-block%2FreservationSubBlocks%2Fsim-sub-block",
+		}
 	}
 	return []string{"sim-" + gcpSampleToken(name)}
 }
@@ -585,6 +613,42 @@ func gcpPatternLiterals(seg string) ([]string, bool) {
 // "projects/sim-project/locations/us-central1/secrets/sim-secret"). Index 0 is
 // the primary rendering; later indices vary the segments that offer
 // alternatives.
+// gcpPatternNamesSegments reports whether a path-parameter pattern names at
+// least one literal collection segment, which makes it a shape other
+// parameters of the same collection can be rendered from.
+func gcpPatternNamesSegments(pattern string) bool {
+	pattern = strings.TrimSuffix(strings.TrimPrefix(pattern, "^"), "$")
+	segs := gcpSplitPatternSegments(pattern)
+	if len(segs) < 2 {
+		return false
+	}
+	for _, seg := range segs {
+		if _, ok := gcpPatternLiterals(seg); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// gcpPatternIsShapeless reports whether a pattern permits a multi-segment value
+// while describing none: a single character class that allows "/"
+// ("[a-z](?:[-a-zA-Z0-9/]{0,255}[a-zA-Z0-9])?"). A client fills such a
+// parameter with a resource path, but the pattern gives no way to render one,
+// so the shape has to come from elsewhere. A pattern that splits into segments
+// already describes its shape, whether or not it names literals.
+func gcpPatternIsShapeless(pattern string) bool {
+	pattern = strings.TrimSuffix(strings.TrimPrefix(pattern, "^"), "$")
+	if len(gcpSplitPatternSegments(pattern)) != 1 {
+		return false
+	}
+	for _, class := range regexp.MustCompile(`\[[^]]*]`).FindAllString(pattern, -1) {
+		if strings.Contains(class, "/") && !strings.HasPrefix(class, "[^") {
+			return true
+		}
+	}
+	return false
+}
+
 func gcpPatternSamples(pattern string) []string {
 	pattern = strings.TrimSuffix(strings.TrimPrefix(pattern, "^"), "$")
 	segs := gcpSplitPatternSegments(pattern)
@@ -720,6 +784,13 @@ func (p *gcpCoverageProbe) methodServed(d *discoveryDoc, m discoveryMethod) gcpP
 
 // docCoverage returns the served count for one Discovery document.
 func (p *gcpCoverageProbe) docCoverage(d *discoveryDoc) (served int, unserved []string) {
+	served, unserved, _ = p.docCoverageDetail(d)
+	return served, unserved
+}
+
+// docCoverageDetail also reports the unserved spellings that did not declare
+// themselves with a 501 — a mux miss, an unknown verb, or a 500.
+func (p *gcpCoverageProbe) docCoverageDetail(d *discoveryDoc) (served int, unserved, silent []string) {
 	for _, m := range d.Methods {
 		res := p.methodServed(d, m)
 		if res.served {
@@ -727,9 +798,13 @@ func (p *gcpCoverageProbe) docCoverage(d *discoveryDoc) (served int, unserved []
 			continue
 		}
 		unserved = append(unserved, m.HTTPMethod+" "+m.Path+"  ("+res.why+")")
+		if res.status != http.StatusNotImplemented {
+			silent = append(silent, m.HTTPMethod+" "+m.Path+"  ("+res.why+")")
+		}
 	}
 	sort.Strings(unserved)
-	return served, unserved
+	sort.Strings(silent)
+	return served, unserved, silent
 }
 
 // TestServiceConformance_GCPCoverageProbeIsSound guards the probe itself: a
@@ -816,4 +891,63 @@ func TestServiceConformance_GCPCoverageFloor(t *testing.T) {
 	// total counts spellings, not distinct methods. It is roughly twice the
 	// method count for the documents that declare both.
 	t.Logf("TOTAL: %d/%d GCP Discovery method spellings served", totalServed, totalSpellings)
+}
+
+// The reserved-expansion shape rule, pinned by the three patterns Google
+// writes: one that names its segments, one that constrains a single segment,
+// and one that permits a resource path while describing none of it.
+// Every method spelling this simulator does not serve says so with a 501
+// naming what is missing. The floor counts unserved spellings without caring
+// why, so a gap that stopped declaring itself — a route that went away and now
+// answers the mux's 404, or a verb the dispatcher no longer knows — would hold
+// the count and lose the declaration, and a client cannot tell a routing 404
+// from a resource that does not exist.
+func TestServiceConformance_GCPUnservedMethodsDeclareThemselves(t *testing.T) {
+	p := newGCPCoverageProbe(t)
+	var silent []string
+	for _, d := range loadDiscoveryDocs(t) {
+		_, _, quiet := p.docCoverageDetail(d)
+		for _, m := range quiet {
+			silent = append(silent, strings.TrimSuffix(d.File, ".discovery.json.gz")+": "+m)
+		}
+	}
+	if len(silent) > 0 {
+		sort.Strings(silent)
+		t.Errorf("%d unserved method spelling(s) answered something other than a declared 501:\n  %s",
+			len(silent), strings.Join(silent, "\n  "))
+	}
+}
+
+func TestServiceConformance_GCPShapelessPatternsAreOnlyTheSlashPermittingOnes(t *testing.T) {
+	shapeless := []string{
+		// compute reservationSubBlocks {+parentResource}
+		`[a-z](?:[-a-zA-Z0-9/]{0,255}[a-zA-Z0-9])?`,
+	}
+	shaped := []string{
+		// compute reservationSubBlocks {+parentName}
+		`^reservations/[^/]+/reservationBlocks/[^/]+$`,
+		// bigquery {+tableId}: one segment, no slash
+		`^[^/]+$`,
+		// logging {+parent}: two segments, neither named
+		`^[^/]+/[^/]+$`,
+		"",
+	}
+	for _, pattern := range shapeless {
+		if !gcpPatternIsShapeless(pattern) {
+			t.Errorf("pattern %q describes no shape, but was read as if it did", pattern)
+		}
+	}
+	for _, pattern := range shaped {
+		if gcpPatternIsShapeless(pattern) {
+			t.Errorf("pattern %q describes its own shape, and must not borrow another", pattern)
+		}
+	}
+
+	// Only the one that names literal segments can stand in for another.
+	if !gcpPatternNamesSegments(`^reservations/[^/]+/reservationBlocks/[^/]+$`) {
+		t.Error("a pattern naming its collections is the shape others render from")
+	}
+	if gcpPatternNamesSegments(`^[^/]+/[^/]+$`) {
+		t.Error("a pattern naming no collection cannot stand in for another")
+	}
 }

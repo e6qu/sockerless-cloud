@@ -63,6 +63,18 @@ type AppInsightsDataVolumeCap struct {
 
 var azureAppInsightsComponents sim.Store[AppInsightsComponent]
 
+// A component is stored under its ARM id while the query data plane addresses
+// it by the application id it was issued, so the one reaches the other through
+// an index rather than a walk of every component.
+var azureInsightsByApplicationID sim.GenerationIndex[AppInsightsComponent]
+
+func azureInsightsApplicationIDKeys(c AppInsightsComponent) []string {
+	if c.Properties.ApplicationID == "" {
+		return nil
+	}
+	return []string{strings.ToLower(c.Properties.ApplicationID)}
+}
+
 func registerApplicationInsights(srv *sim.Server) {
 	components := sim.MakeStore[AppInsightsComponent](srv.DB(), "insights_components")
 	azureAppInsightsComponents = components
@@ -307,15 +319,17 @@ func registerApplicationInsights(srv *sim.Server) {
 		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s",
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "componentName"))
 	}
+	registerInsightsFeatures(srv, armBase, billing, defaultBilling, billingKey)
+
 	srv.HandleFunc("GET "+armBase+"/components/{componentName}/currentbillingfeatures", func(w http.ResponseWriter, r *http.Request) {
 		b, ok := billing.Get(billingKey(r))
 		if !ok {
-			b = defaultBilling
+			b = insightsDefaultBilling(defaultBilling)
 		}
 		sim.WriteJSON(w, http.StatusOK, b)
 	})
 	srv.HandleFunc("PUT "+armBase+"/components/{componentName}/currentbillingfeatures", func(w http.ResponseWriter, r *http.Request) {
-		b := defaultBilling
+		b := insightsDefaultBilling(defaultBilling)
 		if err := sim.ReadJSON(r, &b); err != nil {
 			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
@@ -326,33 +340,20 @@ func registerApplicationInsights(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, b)
 	})
 
-	// POST - Query Application Insights (data-plane)
-	srv.HandleFunc("POST /v1/apps/{appId}/query", func(w http.ResponseWriter, r *http.Request) {
-		var req QueryRequest
-		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
+	// The data plane — the application's telemetry, read through the same query
+	// engine Log Analytics uses.
+	registerInsightsDataPlane(srv)
+}
 
-		if req.Query == "" {
-			sim.AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
-			return
-		}
-
-		// Return empty result set matching the query pattern
-		resp := QueryResponse{
-			Tables: []Table{
-				{
-					Name: "PrimaryResult",
-					Columns: []Column{
-						{Name: "TimeGenerated", Type: "datetime"},
-						{Name: "Message", Type: "string"},
-					},
-					Rows: [][]any{},
-				},
-			},
-		}
-
-		sim.WriteJSON(w, http.StatusOK, resp)
-	})
+// insightsDefaultBilling copies the plan a component starts on, slice and all.
+// Assigning the default gives away its backing array, and decoding a request
+// body into the copy writes through it: a PUT naming the Enterprise plan
+// overwrote "Basic" inside the default, so every component created afterwards
+// started on Enterprise without anyone asking. A default is read by every
+// request that has no record of its own, which makes it exactly the value a
+// request must never be able to write to.
+func insightsDefaultBilling(from AppInsightsBillingFeatures) AppInsightsBillingFeatures {
+	out := from
+	out.CurrentBillingFeatures = append([]string(nil), from.CurrentBillingFeatures...)
+	return out
 }

@@ -103,11 +103,6 @@ var modelDriftExemptions = map[string]string{
 	"PutBucketVersioning":                         "s3 ?versioning subresource",
 	"PutBucketWebsite":                            "s3 ?website subresource",
 	"PutPublicAccessBlock":                        "s3 ?publicAccessBlock subresource",
-
-	// BUG-73: the data plane of S3 Object Lambda, whose control plane is the
-	// s3control service — not a vendored slice. Serving the callback without
-	// access points would acknowledge writes nothing can read back.
-	"WriteGetObjectResponse": "BUG-73: S3 Object Lambda's control plane (s3control) is not a vendored slice",
 }
 
 func TestVendoredModelOperationsAreImplementedOrExempt(t *testing.T) {
@@ -119,7 +114,7 @@ func TestVendoredModelOperationsAreImplementedOrExempt(t *testing.T) {
 	var missing []string
 	for _, path := range models {
 		for _, operation := range modelOperations(t, path) {
-			if strings.Contains(source, operation) {
+			if sourceNamesOperation(source, operation) {
 				continue
 			}
 			if _, exempt := modelDriftExemptions[operation]; exempt {
@@ -143,11 +138,42 @@ func TestVendoredModelOperationsAreImplementedOrExempt(t *testing.T) {
 	// The exemption list may only shrink truthfully: an entry whose operation
 	// has since been implemented is stale and hides nothing.
 	for operation := range modelDriftExemptions {
-		if strings.Contains(source, operation) {
+		if sourceNamesOperation(source, operation) {
 			t.Errorf("exemption for %q is stale: the operation now appears in the source; remove the entry",
 				operation)
 		}
 	}
+}
+
+// sourceNamesOperation reports whether the source names an operation. A bare
+// substring search counts a longer name that merely contains a shorter one —
+// DeleteBucketLifecycleConfiguration would mark DeleteBucketLifecycle as
+// implemented — and would silently stop covering the shorter operation, so the
+// name has to end where the operation's name ends. It may be preceded by
+// anything, because handlers are conventionally named for the operation with a
+// prefix (handleS3ListJobs serves ListJobs).
+func sourceNamesOperation(source, operation string) bool {
+	for i := 0; ; {
+		j := strings.Index(source[i:], operation)
+		if j < 0 {
+			return false
+		}
+		end := i + j + len(operation)
+		if !isGoIdentifierRune(source, end) {
+			return true
+		}
+		i = i + j + 1
+	}
+}
+
+// isGoIdentifierRune reports whether the byte at an index continues an
+// identifier, treating an index outside the source as a boundary.
+func isGoIdentifierRune(source string, index int) bool {
+	if index < 0 || index >= len(source) {
+		return false
+	}
+	c := source[index]
+	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // readAllHandwrittenSource returns the handwritten source with comments

@@ -177,8 +177,20 @@ func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
 	if req.MaxCapacity != nil {
 		target.MaxCapacity = *req.MaxCapacity
 	}
-	if req.RoleARN != "" {
+	// The role Application Auto Scaling modifies the target through. The model
+	// marks it required on the ScalableTarget a describe returns, and its own
+	// documentation says why a register may omit it: where the service
+	// supports a service-linked role, Application Auto Scaling uses one and
+	// creates it if it does not yet exist. So this account gets that role —
+	// through IAM, where a caller can then read it — rather than the describe
+	// answering without the member a client dereferences.
+	switch {
+	case req.RoleARN != "":
 		target.RoleARN = req.RoleARN
+	case target.RoleARN == "":
+		target.RoleARN = iamEnsureServiceLinkedRole(
+			target.ServiceNamespace+".application-autoscaling.amazonaws.com",
+			"Service-linked role for Application Auto Scaling")
 	}
 	if req.SuspendedState != nil {
 		target.SuspendedState = req.SuspendedState
@@ -278,9 +290,7 @@ func scalableTargetToJSON(t AppScalableTarget) map[string]any {
 		"CreationTime":      t.CreationTime,
 		"ScalableTargetARN": t.ARN,
 	}
-	if t.RoleARN != "" {
-		m["RoleARN"] = t.RoleARN
-	}
+	m["RoleARN"] = t.RoleARN
 	if t.SuspendedState != nil {
 		m["SuspendedState"] = t.SuspendedState
 	}

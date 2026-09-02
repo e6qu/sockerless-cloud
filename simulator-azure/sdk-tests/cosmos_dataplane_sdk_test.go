@@ -75,6 +75,25 @@ func TestCosmos_RealSDKDataPlane(t *testing.T) {
 	container, err := client.NewContainer("sdkdb", "people")
 	require.NoError(t, err)
 
+	// A database and a container that were created read back; names nobody
+	// created do not. Answering 200 for any name told a caller that every
+	// database it asked about was already there — and contradicted the listing
+	// beside it, which enumerates only what exists.
+	_, err = db.Read(ctx, nil)
+	require.NoError(t, err, "a database that was created must read back")
+	_, err = container.Read(ctx, nil)
+	require.NoError(t, err, "a container that was created must read back")
+
+	absentDB, err := client.NewDatabase("nosuchdb")
+	require.NoError(t, err)
+	_, err = absentDB.Read(ctx, nil)
+	require.Error(t, err, "a database nobody created must not read back")
+
+	absentContainer, err := client.NewContainer("sdkdb", "nosuchcontainer")
+	require.NoError(t, err)
+	_, err = absentContainer.Read(ctx, nil)
+	require.Error(t, err, "a container nobody created must not read back")
+
 	type person struct {
 		ID    string `json:"id"`
 		Team  string `json:"team"`

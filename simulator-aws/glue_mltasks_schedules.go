@@ -1019,6 +1019,37 @@ func handleGlueDescribeConnectionType(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
+// glueSupportedConnectionTypes is the connection-type catalogue AWS Glue
+// publishes, transcribed from the ConnectionType enum the vendored model
+// declares — the same kind of transcription as the AWS Lambda runtime images
+// and the ElastiCache engine versions. It is not invented: the model is where
+// the list comes from, and the list is what ListConnectionTypes returns.
+var glueSupportedConnectionTypes = []string{
+	"ADOBEANALYTICS", "ASANA", "AZURECOSMOS", "AZURESQL",
+	"BIGQUERY", "BLACKBAUD", "BLACKBAUDRAISEREDGENXT", "CIRCLECI",
+	"CLOUDERAHIVE", "CLOUDERAIMPALA", "CLOUDWATCH", "CLOUDWATCHMETRICS",
+	"CMDB", "CUSTOM", "DATADOG", "DATALAKEGEN2",
+	"DB2", "DB2AS400", "DOCUMENTDB", "DOCUSIGNMONITOR",
+	"DOMO", "DYNAMODB", "DYNATRACE", "FACEBOOKADS",
+	"FACEBOOKPAGEINSIGHTS", "FRESHDESK", "FRESHSALES", "GITLAB",
+	"GOOGLEADS", "GOOGLEANALYTICS4", "GOOGLECLOUDSTORAGE", "GOOGLESEARCHCONSOLE",
+	"GOOGLESHEETS", "HBASE", "HUBSPOT", "INSTAGRAMADS",
+	"INTERCOM", "JDBC", "JIRACLOUD", "KAFKA",
+	"KUSTOMER", "LINKEDIN", "MAILCHIMP", "MARKETO",
+	"MARKETPLACE", "MICROSOFTDYNAMIC365FINANCEANDOPS", "MICROSOFTDYNAMICS365CRM", "MICROSOFTTEAMS",
+	"MIXPANEL", "MONDAY", "MONGODB", "MYSQL",
+	"NETSUITEERP", "NETWORK", "OKTA", "OPENSEARCH",
+	"ORACLE", "PAYPAL", "PENDO", "PIPEDIVE",
+	"PIPEDRIVE", "POSTGRESQL", "PRODUCTBOARD", "QUICKBOOKS",
+	"SALESFORCE", "SALESFORCECOMMERCECLOUD", "SALESFORCEMARKETINGCLOUD", "SALESFORCEPARDOT",
+	"SAPCONCUR", "SAPHANA", "SAPODATA", "SENDGRID",
+	"SERVICENOW", "SFTP", "SLACK", "SMARTSHEET",
+	"SNAPCHATADS", "SQLSERVER", "STRIPE", "SYNAPSE",
+	"TERADATA", "TERADATANOS", "TIMESTREAM", "TPCDS",
+	"TWILIO", "VERTICA", "VIEW_VALIDATION_ATHENA", "VIEW_VALIDATION_REDSHIFT",
+	"WOOCOMMERCE", "ZENDESK", "ZOHOCRM", "ZOOM",
+}
+
 func handleGlueListConnectionTypes(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NextToken  string `json:"NextToken"`
@@ -1028,13 +1059,20 @@ func handleGlueListConnectionTypes(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	var briefs []map[string]any
-	for _, ct := range glueConnectionTypes.List() {
-		brief := map[string]any{"ConnectionType": ct.ConnectionType}
-		if ct.Description != "" {
-			brief["Description"] = ct.Description
-		}
-		briefs = append(briefs, brief)
+	// The connection types AWS Glue supports, which is what this operation
+	// lists: ConnectionTypeBrief.ConnectionType is the model's ConnectionType
+	// enum, so a name outside it cannot appear here. Registering a custom
+	// connector takes a free-form NameString and describes back as one, and
+	// those are the caller's own — they are not this catalogue, and listing
+	// them here put a value in a field whose type cannot hold it.
+	//
+	// Only the names are answered. The rest of a brief — the vendor, the
+	// display name, the logo, the categories and capabilities — is AWS's own
+	// catalogue copy, which this simulator does not have and will not invent;
+	// every one of those members is optional.
+	briefs := make([]map[string]any, 0, len(glueSupportedConnectionTypes))
+	for _, name := range glueSupportedConnectionTypes {
+		briefs = append(briefs, map[string]any{"ConnectionType": name})
 	}
 	maxR := 0
 	if req.MaxResults != nil {

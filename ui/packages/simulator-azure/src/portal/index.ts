@@ -11,9 +11,6 @@ export {
 } from "./AzurePortal.js";
 export {
   AzureResourceTable,
-  AzureTableErrorRow,
-  AzureTableLoadingRow,
-  AzureTableEmptyRow,
   type AzureColumn,
 } from "./AzureTable.js";
-export { TagsEditor, type TagsEditorProps } from "./TagsEditor.js";
+export { TagsEditor } from "./TagsEditor.js";

@@ -30,9 +30,9 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
-// DynamoDB — Sockerless's runner workflows often use DynamoDB for
-// Terraform state locking (`backend "s3" { dynamodb_table = "..." }`),
-// runner-job tracking, and shared state across distributed CI tasks.
+// DynamoDB — a table backs Terraform state locking
+// (`backend "s3" { dynamodb_table = "..." }`), job tracking, and shared state
+// across distributed tasks.
 // Without this slice, terraform's state-lock acquire 404s and
 // `aws dynamodb` workflow steps fail.
 //

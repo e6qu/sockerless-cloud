@@ -44,7 +44,10 @@ func startCWAlarmEvaluator(srv *sim.Server) {
 	})
 }
 
-const cwAlarmEvalInterval = 2 * time.Second
+// How often the evaluator re-derives every alarm and dispatches the transitions
+// it finds. A read does not wait on this — it derives the state itself — so the
+// cadence governs only how promptly actions fire.
+const cwAlarmEvalInterval = 250 * time.Millisecond
 
 // cwEvaluateAlarmsOnce is one evaluator pass: snapshot every metric alarm,
 // re-derive its state, and on a transition dispatch actions, record history,
@@ -57,48 +60,56 @@ const cwAlarmEvalInterval = 2 * time.Second
 // silently break action delivery for all other alarms.
 func cwEvaluateAlarmsOnce() {
 	for _, a := range cwAlarms.List() {
-		func(alarm CWAlarm) {
-			defer func() {
-				if r := recover(); r != nil {
-					cwEvalLogger.Error().Str("alarmName", alarm.AlarmName).Interface("recover", r).Msg("CloudWatch alarm evaluator panic recovered")
-				}
-			}()
-			// Evaluate and dispatch under the alarm store lock so a
-			// concurrent PutMetricAlarm replacement cannot race the
-			// state read / dispatch / state write. Without this, a
-			// freshly-recreated alarm could inherit a stale StateValue
-			// from an in-flight evaluator tick and never dispatch.
-			var prev, newState, reason string
-			dispatched := false
-			updated := cwAlarms.Update(alarm.AlarmName, func(x *CWAlarm) {
-				newState, reason = cwEvaluateAlarmState(*x)
-				prev = x.StateValue
-				if prev == "" {
-					prev = "INSUFFICIENT_DATA"
-				}
-				if prev == newState {
-					return
-				}
-				cwDispatchAlarmActions(*x, prev, newState, reason)
-				x.StateValue = newState
-				x.StateReason = reason
-				x.StateUpdatedTimestamp = time.Now().UTC().Unix()
-				dispatched = true
-			})
-			if !updated || !dispatched {
+		cwEvaluateAlarm(a)
+	}
+}
+
+// cwEvaluateAlarm re-derives one alarm's state and, on a transition, dispatches
+// its actions and records the new state. Only the background sweep calls it:
+// dispatching from a read path would make every DescribeAlarms capable of
+// firing alarm actions and the ECS reconciliation behind them.
+func cwEvaluateAlarm(a CWAlarm) {
+	func(alarm CWAlarm) {
+		defer func() {
+			if r := recover(); r != nil {
+				cwEvalLogger.Error().Str("alarmName", alarm.AlarmName).Interface("recover", r).Msg("CloudWatch alarm evaluator panic recovered")
+			}
+		}()
+		// Evaluate and dispatch under the alarm store lock so a
+		// concurrent PutMetricAlarm replacement cannot race the
+		// state read / dispatch / state write. Without this, a
+		// freshly-recreated alarm could inherit a stale StateValue
+		// from an in-flight evaluator tick and never dispatch.
+		var prev, newState, reason string
+		dispatched := false
+		updated := cwAlarms.Update(alarm.AlarmName, func(x *CWAlarm) {
+			newState, reason = cwEvaluateAlarmState(*x)
+			prev = x.StateValue
+			if prev == "" {
+				prev = "INSUFFICIENT_DATA"
+			}
+			if prev == newState {
 				return
 			}
-			cwEvalLogger.Info().Str("alarmName", alarm.AlarmName).Str("oldState", prev).Str("newState", newState).Msg("CloudWatch alarm transitioned")
-			historyData, _ := json.Marshal(map[string]string{
-				"previousState": prev,
-				"newState":      newState,
-				"stateReason":   reason,
-			})
-			cwRecordAlarmHistory(alarm.AlarmName, "MetricAlarm", "StateUpdate",
-				fmt.Sprintf("Alarm updated from %s to %s", prev, newState), string(historyData))
-			ecsRequestServiceReconcileForAlarm(alarm.AlarmName)
-		}(a)
-	}
+			cwDispatchAlarmActions(*x, prev, newState, reason)
+			x.StateValue = newState
+			x.StateReason = reason
+			x.StateUpdatedTimestamp = time.Now().UTC().Unix()
+			dispatched = true
+		})
+		if !updated || !dispatched {
+			return
+		}
+		cwEvalLogger.Info().Str("alarmName", alarm.AlarmName).Str("oldState", prev).Str("newState", newState).Msg("CloudWatch alarm transitioned")
+		historyData, _ := json.Marshal(map[string]string{
+			"previousState": prev,
+			"newState":      newState,
+			"stateReason":   reason,
+		})
+		cwRecordAlarmHistory(alarm.AlarmName, "MetricAlarm", "StateUpdate",
+			fmt.Sprintf("Alarm updated from %s to %s", prev, newState), string(historyData))
+		ecsRequestServiceReconcileForAlarm(alarm.AlarmName)
+	}(a)
 }
 
 // cwDispatchAlarmActions fans the alarm notification out to each configured

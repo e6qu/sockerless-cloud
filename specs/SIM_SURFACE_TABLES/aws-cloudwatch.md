@@ -6,7 +6,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 ## Status legend
 
-- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did
+- ✓ — implemented: the handler reads or writes simulator state, so the operation remembers what it did. It does not follow that the answer is built from what it read: a handler that looks its parent up and then answers a fixed body reaches state and is marked ✓
 - ○ — answers without reaching state. Correct for a published catalog or a computed echo, and the shape a stub has too — read the handler before trusting it
 - ? — the handler is not declared in this package, so the generator cannot say
 - ✗ — missing (paired with an open BUG or issue; never silent)
@@ -36,49 +36,49 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action GraniteServiceVersion20100801.DescribeAlarmHistory` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:177::handleCWJSONDescribeAlarmHistory` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.DescribeAlarmsForMetric` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:178::handleCWJSONDescribeAlarmsForMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.PutCompositeAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:179::handleCWJSONPutCompositeAlarm` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DeleteAlarmMuteRule` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DeleteAlarms` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DeleteAnomalyDetector` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DeleteDashboards` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DeleteInsightRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DeleteMetricStream` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DescribeAlarmHistory` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DescribeAlarms` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DescribeAlarmsForMetric` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DescribeAnomalyDetectors` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DescribeInsightRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DisableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/DisableInsightRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/EnableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/EnableInsightRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/GetAlarmMuteRule` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/GetDashboard` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/GetMetricData` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/GetMetricStream` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/ListAlarmMuteRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/ListDashboards` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/ListMetricStreams` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/ListTagsForResource` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutAlarmMuteRule` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutAnomalyDetector` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutCompositeAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutDashboard` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutInsightRule` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutLogAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutMetricAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutMetricData` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/PutMetricStream` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/SetAlarmState` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/StartMetricStreams` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/StopMetricStreams` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/TagResource` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /service/GraniteServiceVersion20100801/operation/UntagResource` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:394::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action EnableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:595::handleCWQueryEnableAlarmActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DisableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:596::handleCWQueryDisableAlarmActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action SetAlarmState` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:597::handleCWQuerySetAlarmState` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeAlarmHistory` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:598::handleCWQueryDescribeAlarmHistory` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeAlarmsForMetric` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:599::handleCWQueryDescribeAlarmsForMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action PutCompositeAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:600::handleCWQueryPutCompositeAlarm` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DeleteAlarmMuteRule` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DeleteAlarms` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DeleteAnomalyDetector` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DeleteDashboards` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DeleteInsightRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DeleteMetricStream` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DescribeAlarmHistory` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DescribeAlarms` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DescribeAlarmsForMetric` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DescribeAnomalyDetectors` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DescribeInsightRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DisableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/DisableInsightRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/EnableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/EnableInsightRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/GetAlarmMuteRule` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/GetDashboard` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/GetMetricData` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/GetMetricStream` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/ListAlarmMuteRules` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/ListDashboards` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/ListMetricStreams` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/ListTagsForResource` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutAlarmMuteRule` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutAnomalyDetector` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutCompositeAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutDashboard` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutInsightRule` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutLogAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutMetricAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutMetricData` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/PutMetricStream` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/SetAlarmState` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/StartMetricStreams` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/StopMetricStreams` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/TagResource` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /service/GraniteServiceVersion20100801/operation/UntagResource` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:402::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action EnableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:603::handleCWQueryEnableAlarmActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DisableAlarmActions` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:604::handleCWQueryDisableAlarmActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action SetAlarmState` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:605::handleCWQuerySetAlarmState` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAlarmHistory` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:606::handleCWQueryDescribeAlarmHistory` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAlarmsForMetric` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:607::handleCWQueryDescribeAlarmsForMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action PutCompositeAlarm` | ✓ `simulator-aws/cloudwatch_alarm_ops.go:608::handleCWQueryPutCompositeAlarm` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.PutMetricAlarm` | ✓ `simulator-aws/cloudwatch_alarms.go:249::handleCWJSONPutMetricAlarm` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.DescribeAlarms` | ✓ `simulator-aws/cloudwatch_alarms.go:250::handleCWJSONDescribeAlarms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.DeleteAlarms` | ✓ `simulator-aws/cloudwatch_alarms.go:251::handleCWJSONDeleteAlarms` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

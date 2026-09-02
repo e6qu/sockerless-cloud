@@ -20,19 +20,22 @@ import (
 	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
-// Cloud Build v1 slice. Sockerless's GCP backends (`backends/cloudrun/`
-// and `backends/cloudrun-functions/`) submit docker builds via Cloud
-// Build whenever sockerless handles `docker build`. Without this slice
-// the GCP simulator can't cover the image-build path.
+// Cloud Build v1 slice: a client submits a build, the simulator fetches the
+// source, runs each step and reports the build's progress and result the way
+// Cloud Build does.
 //
 // Real API: https://cloud.google.com/build/docs/api/reference/rest
 
 // Build represents a Cloud Build build resource.
 type Build struct {
-	ID               string            `json:"id"`
-	Name             string            `json:"name,omitempty"`
-	ProjectID        string            `json:"projectId"`
-	Status           string            `json:"status"`
+	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
+	ProjectID string `json:"projectId"`
+	// A trigger carries a build template, which has not run and has no status;
+	// omitting it is what the absence means. A build that has run always has
+	// one, so nothing that ran loses it — and "" is a value the enum does not
+	// declare.
+	Status           string            `json:"status,omitempty"`
 	StatusDetail     string            `json:"statusDetail,omitempty"`
 	Source           *BuildSource      `json:"source,omitempty"`
 	Steps            []*BuildStep      `json:"steps,omitempty"`
@@ -82,6 +85,18 @@ type BuildStep struct {
 	Dir        string   `json:"dir,omitempty"`
 	Entrypoint string   `json:"entrypoint,omitempty"`
 	ID         string   `json:"id,omitempty"`
+	// Status and Timing are what the build reports about the step as it runs.
+	// Cloud Build fills both in, and they are the only way a client can tell
+	// which step a running build is on — the build's own status says WORKING
+	// from before the source is fetched until the last step finishes.
+	Status string       `json:"status,omitempty"`
+	Timing *BuildTiming `json:"timing,omitempty"`
+}
+
+// BuildTiming is the interval a step occupied.
+type BuildTiming struct {
+	StartTime string `json:"startTime,omitempty"`
+	EndTime   string `json:"endTime,omitempty"`
 }
 
 // AvailableSecrets binds Secret Manager references to environment
@@ -127,6 +142,7 @@ type BuildTrigger struct {
 	SourceToBuild         map[string]any    `json:"sourceToBuild,omitempty"`
 	RepositoryEventConfig map[string]any    `json:"repositoryEventConfig,omitempty"`
 	Github                map[string]any    `json:"github,omitempty"`
+	WebhookConfig         map[string]any    `json:"webhookConfig,omitempty"`
 	Build                 *Build            `json:"build,omitempty"`
 }
 
@@ -1059,18 +1075,45 @@ func executeBuild(ctx context.Context, b Build) Build {
 	}
 
 	// Execute each build step. Only gcr.io/cloud-builders/docker is
-	// supported — it's the only builder sockerless uses.
+	// implemented.
+	//
+	// A step's status and timing are recorded on the stored build as it runs,
+	// because the build's own status is WORKING from before the source is
+	// fetched until the last step finishes — the step is where a client sees
+	// which part of the build is actually executing.
+	markStep := func(i int, status string, started, finished bool) {
+		stamp := time.Now().UTC().Format(time.RFC3339)
+		cbBuilds.Update(b.ID, func(stored *Build) {
+			if i >= len(stored.Steps) || stored.Steps[i] == nil {
+				return
+			}
+			stored.Steps[i].Status = status
+			if stored.Steps[i].Timing == nil {
+				stored.Steps[i].Timing = &BuildTiming{}
+			}
+			if started {
+				stored.Steps[i].Timing.StartTime = stamp
+			}
+			if finished {
+				stored.Steps[i].Timing.EndTime = stamp
+			}
+		})
+	}
 	for i, step := range b.Steps {
 		if step == nil {
 			continue
 		}
 		if !strings.HasPrefix(step.Name, "gcr.io/cloud-builders/docker") {
+			markStep(i, "FAILURE", false, true)
 			return fail(fmt.Sprintf("step %d: builder %q not supported by this simulator (only gcr.io/cloud-builders/docker)",
 				i, step.Name))
 		}
+		markStep(i, "WORKING", true, false)
 		if err := runDockerStep(ctx, workDir, step, secretValues); err != nil {
+			markStep(i, "FAILURE", false, true)
 			return fail(fmt.Sprintf("step %d (%s %v): %v", i, step.Name, step.Args, err))
 		}
+		markStep(i, "SUCCESS", false, true)
 	}
 
 	b.Status = "SUCCESS"
@@ -1154,7 +1197,7 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 	}
 	if len(step.Args) >= 2 && step.Args[0] == "push" {
 		target := step.Args[1]
-		push := exec.CommandContext(ctx, "docker", "push", target)
+		push := cancellableDockerCommand(ctx, "push", target)
 		push.Env = os.Environ()
 		if out, err := push.CombinedOutput(); err != nil {
 			return fmt.Errorf("docker push %s failed: %w: %s", target, err, strings.TrimSpace(string(out)))
@@ -1162,7 +1205,7 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 		// Drop the local copy so the run pulls from the registry, not the
 		// build host's daemon. Best-effort — a failure here doesn't fail the
 		// build (the push already succeeded).
-		if out, err := exec.CommandContext(ctx, "docker", "rmi", "-f", target).CombinedOutput(); err != nil {
+		if out, err := cancellableDockerCommand(ctx, "rmi", "-f", target).CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "cloudbuild: could not remove local build output %s after push: %v: %s\n",
 				target, err, strings.TrimSpace(string(out)))
 		}
@@ -1182,7 +1225,7 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 		args = append([]string{"buildx", "build", "--load"}, args[1:]...)
 		fmt.Fprintf(os.Stderr, "cloudbuild: building via `docker buildx build --load` (buildx present)\n")
 	}
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := cancellableDockerCommand(ctx, args...)
 	cmd.Dir = workDir
 	if step.Dir != "" {
 		cmd.Dir = filepath.Join(workDir, step.Dir)
@@ -1203,6 +1246,26 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 	}
 	return nil
 }
+
+// cancellableDockerCommand builds a docker invocation a cancelled build can
+// actually stop. Two things have to be true for the cancel to end the work
+// rather than only the client. The build itself runs in the engine, not in the
+// CLI — buildx hands it to buildkit and only tells buildkit to stop when the
+// CLI unwinds, which it does on an interrupt and not on a kill, so the cancel
+// interrupts. And a killed CLI can leave a child holding the write end of the
+// output pipe, which makes Wait block after the process is gone; WaitDelay
+// bounds the unwind and closes those descriptors, so the call that started the
+// build returns instead of hanging for the length of the build.
+func cancellableDockerCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = dockerStepCancelGrace
+	return cmd
+}
+
+// dockerStepCancelGrace is how long an interrupted docker step has to tell the
+// engine to stop before it is killed outright.
+const dockerStepCancelGrace = 10 * time.Second
 
 // structToMap converts a Build to a generic map[string]any for
 // embedding inside the LRO's response envelope. The real API wraps

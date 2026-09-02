@@ -269,6 +269,9 @@ func TestGlue_PartitionLifecycle_CLI(t *testing.T) {
 const glueJobRunCompletionBudget = 4 * time.Minute
 
 func TestGlue_JobCRUD_CLI(t *testing.T) {
+	// The interpreter this job run executes in, fetched before the clock the
+	// run is timed by starts.
+	ensureGluePythonShellImage(t)
 	bucket := "glue-cli-scripts"
 	scriptPath := filepath.Join(tmpDir, "glue-cli-script.py")
 	require.NoError(t, os.WriteFile(scriptPath, []byte("import sys\nprint('glue-cli-ready')\nsys.exit(0)\n"), 0644))

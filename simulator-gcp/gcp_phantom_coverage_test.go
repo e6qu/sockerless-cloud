@@ -63,6 +63,11 @@ func gcpPatternHasLiteral(pattern, literal string) bool {
 // unserved, so the method count stays honest. An entry that merely silences the
 // gate reinstates the blind spot the gate exists to close.
 var gcpFanInPatterns = map[string]string{
+	// The two Compute Engine image methods a path router cannot separate. The
+	// handler routes the family lookup on its literal segment and the IAM read
+	// on its verb, and answers not-found for any other tail — so a method it
+	// does not route still reads as unserved.
+	"GET /compute/v1/projects/{project}/global/images/{first}/{second}": "image family lookup and image IAM policy read",
 	// Cloud Spanner's paths all hang off one instance, and the collections
 	// nest deeper than the mux can name without registering the whole
 	// document. The handler routes on the tail and answers a method-not-found
@@ -84,6 +89,18 @@ var gcpFanInPatterns = map[string]string{
 	"POST /v2/projects/{project}/instances/{instance}/{tablesColl}":                                                                  "Cloud Bigtable table custom methods",
 	"POST /v2/projects/{project}/instances/{instance}/clusters/{cluster}/{backupsColl}":                                              "Cloud Bigtable backup custom methods",
 	"POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/{cryptoKeyVersionsCollectionAction}": "Cloud KMS crypto-key-version custom methods",
+
+	// Compute Engine's host methods address the host through an association
+	// that is a whole path inside one Discovery parameter, declared without
+	// reserved expansion — so a client sends it as one escaped segment, and no
+	// per-segment pattern can name it: a lone wildcard there is ambiguous
+	// against machineTypes/{machineType} and every other zone collection. The
+	// handler routes the tail and answers a method-not-found for every tail it
+	// does not own, which the probe reads as unserved: mounting it moved
+	// compute-v1 by exactly the six host spellings and left every other zone
+	// method where it was.
+	"GET /compute/v1/projects/{project}/zones/{zone}/{rest...}":  "Compute Engine host association subtree",
+	"POST /compute/v1/projects/{project}/zones/{zone}/{rest...}": "Compute Engine host association subtree",
 
 	// objects.compose, objects.copy and objects.rewrite put their verb after
 	// the object name, which may itself hold slashes, so the mux cannot name

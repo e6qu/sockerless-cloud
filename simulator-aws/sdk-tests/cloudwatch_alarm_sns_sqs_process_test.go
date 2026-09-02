@@ -80,9 +80,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Settle window matching the CLI probe. This ensures the test does not
-	// rely on a race between subscription creation and the alarm firing.
-	time.Sleep(3 * time.Second)
+	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
@@ -117,11 +115,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
 
-	// Give the background evaluator time to dispatch the ALARM action.
-	time.Sleep(2 * time.Second)
-
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
+	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "SQS subscriber should receive the alarm notification")
 
 	var env map[string]any
@@ -194,7 +188,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	time.Sleep(3 * time.Second)
+	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
 	putAlarm := func() {
 		_, err := cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
@@ -233,10 +227,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
 
-	time.Sleep(2 * time.Second)
-
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
+	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "first transition should deliver one notification")
 
 	// Re-create the same alarm without deleting it, simulating churn from
@@ -260,10 +251,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "recreated alarm should reach ALARM again")
 
-	time.Sleep(2 * time.Second)
-
-	recv2, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
+	recv2 := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv2.Messages, 1, "recreated alarm must dispatch AlarmActions again")
 
 	var env map[string]any
@@ -333,7 +321,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	time.Sleep(3 * time.Second)
+	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
 	// Create a "bad" alarm whose action target is an ARN the evaluator cannot
 	// resolve to a known SNS topic. Real CloudWatch would silently drop the
@@ -387,10 +375,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "good alarm should reach ALARM")
 
-	time.Sleep(2 * time.Second)
-
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
+	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "good alarm must still deliver even when a sibling alarm has an invalid action target")
 }
 
@@ -437,9 +422,10 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Give the evaluator time to tick over the dangling alarms; any panic in
-	// this window would kill the goroutine and break the subsequent probe.
-	time.Sleep(3 * time.Second)
+	// The evaluator has to survive the dangling alarms: a panic there would
+	// kill its goroutine. Nothing is waited for here, because the probe below
+	// is what proves the goroutine is still running — it would never reach
+	// ALARM otherwise.
 
 	// Now run the standard probe.
 	ns := "Custom/AlarmAfterDanglingRepro"
@@ -480,7 +466,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	time.Sleep(3 * time.Second)
+	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
@@ -518,10 +504,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM after dangling alarms")
 
-	time.Sleep(2 * time.Second)
-
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
+	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "alarm notification must be delivered even after evaluator processed dangling alarms")
 
 	var env map[string]any
@@ -589,7 +572,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	time.Sleep(3 * time.Second)
+	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
 	// First incarnation: create alarm, breach it, receive notification.
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
@@ -621,11 +604,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "first alarm should reach ALARM")
 
-	time.Sleep(2 * time.Second)
-
-	var recv *sqs.ReceiveMessageOutput
-	recv, err = sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
+	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "first incarnation must deliver")
 
 	// Delete the alarm, then recreate it with the same name.
@@ -667,10 +646,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "recreated alarm should reach ALARM")
 
-	time.Sleep(2 * time.Second)
-
-	recv, err = sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
+	recv = awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "recreated alarm must deliver after delete+recreate")
 
 	var env2 map[string]any
@@ -716,9 +692,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_NoSubscription(t *testing.T) {
 		_, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: q.QueueUrl})
 	})
 
-	// Intentionally no subscription.
-
-	time.Sleep(3 * time.Second)
+	// Intentionally no subscription — there is nothing to wait for.
 
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
@@ -752,11 +726,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_NoSubscription(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
 
-	time.Sleep(2 * time.Second)
-
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
-	require.Empty(t, recv.Messages, "alarm with no topic subscriptions must not deliver")
+	requireQueueStaysEmpty(ctx, t, sqsC, q.QueueUrl, "alarm with no topic subscriptions must not deliver")
 }
 
 // TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied verifies that an alarm whose
@@ -814,7 +784,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	time.Sleep(3 * time.Second)
+	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
@@ -848,9 +818,5 @@ func TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied(t *testing.T) {
 		return len(desc.MetricAlarms) == 1 && desc.MetricAlarms[0].StateValue == cwtypes.StateValueAlarm
 	}, 15*time.Second, 500*time.Millisecond, "alarm should reach ALARM")
 
-	time.Sleep(2 * time.Second)
-
-	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: q.QueueUrl})
-	require.NoError(t, err)
-	require.Empty(t, recv.Messages, "alarm with denying queue policy must not deliver")
+	requireQueueStaysEmpty(ctx, t, sqsC, q.QueueUrl, "alarm with denying queue policy must not deliver")
 }

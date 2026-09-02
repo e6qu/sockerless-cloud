@@ -1,1 +1,24 @@
+# Routes the SDK/CLI/terraform testing contract does not apply to. Every entry
+# carries its reason on the line directly above it, which
+# scripts/check-simulator-tests.sh enforces: an exemption whose reason nobody
+# wrote is indistinguishable from a test nobody wrote.
+
+# The run-log body an ACR Tasks log link points at. The SDK's part — that
+# GetLogSasUrl returns a link — is asserted by the ACR Tasks SDK test; fetching
+# the body behind it is a plain HTTP GET, which against the real registry goes
+# to an opaque blob-storage SAS URL rather than to the ACR API at all.
 GET /acr/v1/logs/{runId}
+
+# The registry's properties APIs, all dispatched from one greedy route per
+# method because a repository name may itself contain the separators the
+# suffixes use. They are exercised — acr_dataplane_properties_test.go drives
+# every repository, manifest and tag write through the official
+# azcontainerregistry client — but the contract's matcher resolves a route to
+# an SDK method by walking back to its nearest named segment, and a
+# "{path...}" tail leaves it nothing to walk back to but "v1". The concrete
+# templates each one serves are listed at the top of that test.
+PATCH /acr/v1/{path...}
+
+# The same greedy route for the two deletes — DeleteRepository and DeleteTag —
+# exercised by the same test and unmatchable for the same reason.
+DELETE /acr/v1/{path...}

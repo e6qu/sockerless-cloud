@@ -372,13 +372,17 @@ func cbCompleteBuildBatch(batchID string, exitCode int, reason string) {
 		status = "FAILED"
 	}
 	batch.BuildBatchStatus = status
-	batch.CurrentPhase = "COMPLETED"
+	// A batch's phases are typed by BuildBatchPhaseType, which has no
+	// COMPLETED: where a Build ends on a COMPLETED phase, a batch ends on the
+	// outcome itself — SUCCEEDED, FAILED or STOPPED. Naming the terminal phase
+	// COMPLETED put a value in the field that the type does not have.
+	batch.CurrentPhase = status
 	batch.EndTime = now
 	batch.Complete = true
 	batch.Phases = []CBPhase{
 		{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: batch.StartTime, EndTime: batch.StartTime, DurationInSeconds: 0},
 		{PhaseType: "COMBINE_ARTIFACTS", PhaseStatus: status, StartTime: batch.StartTime, EndTime: now, DurationInSeconds: now - batch.StartTime},
-		{PhaseType: "COMPLETED", PhaseStatus: status, StartTime: now, EndTime: now, DurationInSeconds: 0},
+		{PhaseType: status, PhaseStatus: status, StartTime: now, EndTime: now, DurationInSeconds: 0},
 	}
 	if reason != "" {
 		batch.Phases[1].Contexts = []CBPhaseContext{{StatusCode: "COMMAND_EXECUTION_ERROR", Message: reason}}
@@ -1197,8 +1201,11 @@ func handleCBCreateWebhook(w http.ResponseWriter, r *http.Request) {
 		BranchFilter: req.BranchFilter,
 		BuildType:    req.BuildType,
 		FilterGroups: req.FilterGroups,
-		Status:       "NORMAL",
-		ProjectName:  req.ProjectName,
+		// WebhookStatus is ACTIVE, CREATING, CREATE_FAILED or DELETING. A
+		// webhook this call just created and that is receiving events is
+		// ACTIVE; "NORMAL" is not a status the service has.
+		Status:      "ACTIVE",
+		ProjectName: req.ProjectName,
 	}
 	cbWebhooks.Put(req.ProjectName, hook)
 	cbWriteJSON(w, http.StatusOK, map[string]any{"webhook": hook})

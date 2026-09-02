@@ -1630,13 +1630,12 @@ func aseLookupPEC(w http.ResponseWriter, r *http.Request) (WebSitePrivateEndpoin
 
 // declared gaps
 
-// registerWebEnvironmentDeclaredGaps mounts the five documented operations the
-// simulator does not answer, so a client is told what is missing and why
+// registerWebEnvironmentDeclaredGaps mounts the one documented operation the
+// simulator does not answer, and the pool metric definitions beside it, so a client is told what is missing and why
 // instead of receiving a bare routing 404 from inside a resource whose other
 // operations all work. The reasons are the ones recorded at the top of this
 // file and beside the coverage floor.
 func registerWebEnvironmentDeclaredGaps(ase func(string, string, http.HandlerFunc)) {
-	const metricReason = "the simulator publishes no Microsoft.Insights metric series for an App Service Environment pool, so it has no metric definitions to declare"
 	const outboundReason = "the outbound network dependencies of an App Service Environment are Microsoft's published catalog of platform endpoints and address ranges, which this simulator does not vendor"
 
 	// The gap does not depend on the environment existing: the operation is
@@ -1649,14 +1648,22 @@ func registerWebEnvironmentDeclaredGaps(ase func(string, string, http.HandlerFun
 				"%s is not implemented by the simulator: %s.", operation, reason)
 		}
 	}
-	ase("GET", "/multiRolePools/"+multiRolePoolName+"/metricdefinitions",
-		gap("AppServiceEnvironments_ListMultiRoleMetricDefinitions", metricReason))
-	ase("GET", "/multiRolePools/"+multiRolePoolName+"/instances/{instance}/metricdefinitions",
-		gap("AppServiceEnvironments_ListMultiRolePoolInstanceMetricDefinitions", metricReason))
-	ase("GET", "/workerPools/{workerPoolName}/metricdefinitions",
-		gap("AppServiceEnvironments_ListWebWorkerMetricDefinitions", metricReason))
-	ase("GET", "/workerPools/{workerPoolName}/instances/{instance}/metricdefinitions",
-		gap("AppServiceEnvironments_ListWorkerPoolInstanceMetricDefinitions", metricReason))
+	// A pool's metric definitions are the metric series Microsoft.Insights
+	// publishes about it, and this simulator publishes none for an App Service
+	// Environment pool. There being none is the answer, and an empty collection
+	// is how the document says it — the same reading the recommendation lists
+	// and a stopped site's performance counters already take. Declining to
+	// answer would withhold something the simulator does know.
+	definitions := func(w http.ResponseWriter, r *http.Request) {
+		if webEnvironmentMissing(w, r) {
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+	}
+	ase("GET", "/multiRolePools/"+multiRolePoolName+"/metricdefinitions", definitions)
+	ase("GET", "/multiRolePools/"+multiRolePoolName+"/instances/{instance}/metricdefinitions", definitions)
+	ase("GET", "/workerPools/{workerPoolName}/metricdefinitions", definitions)
+	ase("GET", "/workerPools/{workerPoolName}/instances/{instance}/metricdefinitions", definitions)
 	ase("GET", "/outboundNetworkDependenciesEndpoints",
 		gap("AppServiceEnvironments_GetOutboundNetworkDependenciesEndpoints", outboundReason))
 }

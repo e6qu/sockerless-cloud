@@ -2,6 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -92,13 +98,7 @@ func registerMetadata(srv *sim.Server) {
 	//   - Workloads that read `compute.subscriptionId`, `compute.location`,
 	//     `compute.azEnvironment` for self-discovery.
 	// All reads require `Metadata: true` request header.
-	mustMetadataHeader := func(w http.ResponseWriter, r *http.Request) bool {
-		if r.Header.Get("Metadata") != "true" {
-			http.Error(w, "Required Metadata: true header missing", http.StatusBadRequest)
-			return false
-		}
-		return true
-	}
+	registerAzureInstanceAttestation(srv)
 	srv.HandleFunc("GET /metadata/instance", func(w http.ResponseWriter, r *http.Request) {
 		if !mustMetadataHeader(w, r) {
 			return
@@ -398,4 +398,95 @@ func mergeEnv(base, extra map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// mustMetadataHeader enforces the header every instance-metadata read requires.
+// A request without it is one a browser could have been tricked into making,
+// which is exactly what the header exists to stop.
+func mustMetadataHeader(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get("Metadata") != "true" {
+		http.Error(w, "Required Metadata: true header missing", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+// The two attestation reads the instance metadata service serves beside the
+// instance document.
+//
+// Attested_GetDocument answers with a signed statement of the instance's own
+// identity — the document a workload hands a relying party to prove which
+// machine it is running on. The signature is real: it is made with the
+// simulator's own signing key, the same key it signs its tokens with, so a
+// client that trusts this deployment can verify it. That is the coordinate
+// difference between this and Azure, whose key chains to a Microsoft root.
+//
+// Identity_GetInfo answers with the tenant the instance's managed identity
+// belongs to, which is the directory this simulator issues that identity from.
+func registerAzureInstanceAttestation(srv *sim.Server) {
+	srv.HandleFunc("GET /metadata/attested/document", func(w http.ResponseWriter, r *http.Request) {
+		if !mustMetadataHeader(w, r) {
+			return
+		}
+		// The nonce is the caller's replay protection: it signs what the caller
+		// asked to have signed, so a document minted for one challenge cannot
+		// answer another.
+		nonce := r.URL.Query().Get("nonce")
+		signature, err := azureSignAttestedDocument(r, nonce)
+		if err != nil {
+			sim.AzureError(w, "InternalServerError",
+				"Could not sign the attested document: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"signature": signature,
+			"encoding":  "pkcs7",
+		})
+	})
+
+	srv.HandleFunc("GET /metadata/identity/info", func(w http.ResponseWriter, r *http.Request) {
+		if !mustMetadataHeader(w, r) {
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"tenantId": simTenantID})
+	})
+}
+
+// azureSignAttestedDocument signs the instance's identity, with the caller's
+// nonce inside the signed content so the document answers that challenge only.
+func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
+	key, err := azureSimSigningKey()
+	if err != nil {
+		return "", err
+	}
+	// The instance being attested is the one the request reached, resolved the
+	// same way the instance document resolves it — a document attesting some
+	// other machine would prove nothing about this one.
+	subscription, vmID := "00000000-0000-0000-0000-000000000001", "sim-vm-id-0001"
+	if vmMeta, ok := azureMetadataVMForRequest(r); ok {
+		subscription = azureSubscriptionFromID(vmMeta.VM.ID, subscription)
+		vmID = vmMeta.VM.Name
+	}
+	document, err := json.Marshal(map[string]any{
+		"nonce":          nonce,
+		"plan":           map[string]any{"name": "", "product": "", "publisher": ""},
+		"subscriptionId": subscription,
+		"vmId":           vmID,
+		"timeStamp": map[string]any{
+			"createdOn": time.Now().UTC().Format("01/02/06 15:04:05 -0700"),
+			"expiresOn": time.Now().UTC().Add(24 * time.Hour).Format("01/02/06 15:04:05 -0700"),
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(document)
+	signed, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+	if err != nil {
+		return "", err
+	}
+	// The document travels with its signature, because a verifier needs both:
+	// the statement being attested and the proof it was this deployment that
+	// made it.
+	return base64.StdEncoding.EncodeToString(append(append(document, '.'), signed...)), nil
 }

@@ -108,7 +108,7 @@ func elbv2StartTLSProxy(listener ELBv2Listener) error {
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
 		}
-		simGo(func() {
+		simJoinedGo(func() {
 			_ = p.srv.Serve(tlsListener)
 			close(p.done)
 		})
@@ -303,11 +303,11 @@ func (p *elbv2TLSProxy) handleStream(client net.Conn) {
 	}
 	defer upstream.Close()
 	errs := make(chan error, 2)
-	simGo(func() {
+	simJoinedGo(func() {
 		_, err := io.Copy(upstream, client)
 		errs <- err
 	})
-	simGo(func() {
+	simJoinedGo(func() {
 		_, err := io.Copy(client, upstream)
 		errs <- err
 	})

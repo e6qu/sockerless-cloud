@@ -50,4 +50,65 @@ func TestAzureResources_CompletionSurfaces(t *testing.T) {
 		_, err = client.RegisterAtManagementGroupScope(ctx, "Microsoft.Storage", "mygroup", nil)
 		require.NoError(t, err)
 	})
+
+	// Registering and unregistering a provider have to survive the call. A
+	// client registers precisely so the read that follows says Registered, and
+	// Terraform polls that read — an unregister whose state reverts on the next
+	// GET reports work that did not happen.
+	t.Run("RegistrationStateSurvivesTheCall", func(t *testing.T) {
+		client, err := armresources.NewProvidersClient(subscriptionID, cred, clientOpts())
+		require.NoError(t, err)
+		const ns = "Microsoft.EventGrid"
+
+		unregistered, err := client.Unregister(ctx, ns, nil)
+		require.NoError(t, err)
+		require.NotNil(t, unregistered.RegistrationState)
+		assert.Equal(t, "Unregistered", *unregistered.RegistrationState)
+
+		after, err := client.Get(ctx, ns, nil)
+		require.NoError(t, err)
+		require.NotNil(t, after.RegistrationState)
+		assert.Equal(t, "Unregistered", *after.RegistrationState,
+			"the state a read reports must be the one the unregister left")
+
+		registered, err := client.Register(ctx, ns, nil)
+		require.NoError(t, err)
+		require.NotNil(t, registered.RegistrationState)
+		assert.Equal(t, "Registered", *registered.RegistrationState)
+
+		back, err := client.Get(ctx, ns, nil)
+		require.NoError(t, err)
+		require.NotNil(t, back.RegistrationState)
+		assert.Equal(t, "Registered", *back.RegistrationState)
+
+		// A namespace this subscription never unregistered is registered, and
+		// one subscription's choice is not another's.
+		other, err := client.Get(ctx, "Microsoft.Storage", nil)
+		require.NoError(t, err)
+		require.NotNil(t, other.RegistrationState)
+		assert.Equal(t, "Registered", *other.RegistrationState)
+
+		// The listing reports the same state the single read does. Two reads
+		// of one fact must not disagree — the list built its own answer and
+		// said Registered for a namespace just unregistered.
+		_, err = client.Unregister(ctx, ns, nil)
+		require.NoError(t, err)
+		var listed string
+		pager := client.NewListPager(nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			require.NoError(t, err)
+			for _, provider := range page.Value {
+				if provider != nil && provider.Namespace != nil && *provider.Namespace == ns {
+					require.NotNil(t, provider.RegistrationState)
+					listed = *provider.RegistrationState
+				}
+			}
+		}
+		assert.Equal(t, "Unregistered", listed,
+			"the listing must report what the single read reports")
+
+		_, err = client.Register(ctx, ns, nil)
+		require.NoError(t, err)
+	})
 }

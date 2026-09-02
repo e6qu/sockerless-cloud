@@ -1,0 +1,28 @@
+{
+  "_about": [
+    "Corrections to the vendored Smithy model, for shapes whose declared",
+    "pattern is stricter than the service it describes. A corrected pattern",
+    "keeps the member validated against what AWS really returns; the",
+    "alternative, listing the field as an accepted violation, would stop",
+    "checking the value at all.",
+    "",
+    "Each correction pins the exact upstream pattern it replaces. If a",
+    "re-vendor changes that pattern, the loader fails rather than applying a",
+    "correction to text it was never written against."
+  ],
+  "shapes": {
+    "com.amazonaws.eventbridge#SecretsManagerSecretArn": {
+      "_evidence": [
+        "Amazon EventBridge names the managed secret backing a connection",
+        "\"events!connection/<name>/<uuid>\", and DescribeConnection returns its",
+        "ARN. The declared pattern admits no \"!\", so the ARN the service",
+        "actually returns cannot match it. The correction admits \"!\" in the",
+        "secret-name segment and changes nothing else."
+      ],
+      "pattern": {
+        "replaces": "^arn:aws([a-z]|\\-)*:secretsmanager:([a-z]|\\d|\\-)*:([0-9]{12})?:secret:[\\/_+=\\.@\\-A-Za-z0-9]+$",
+        "with": "^arn:aws([a-z]|\\-)*:secretsmanager:([a-z]|\\d|\\-)*:([0-9]{12})?:secret:[\\/_+=\\.@\\-A-Za-z0-9!]+$"
+      }
+    }
+  }
+}

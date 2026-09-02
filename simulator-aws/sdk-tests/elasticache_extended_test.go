@@ -239,7 +239,12 @@ func TestElastiCache_DescribeReadOnly(t *testing.T) {
 	require.NotEmpty(t, cev.CacheEngineVersions)
 	assert.Equal(t, "redis", aws.ToString(cev.CacheEngineVersions[0].Engine))
 
-	rn, err := c.DescribeReservedCacheNodes(ctx, &elasticache.DescribeReservedCacheNodesInput{})
+	// A reservation nobody bought is not there. Asked by id rather than by
+	// asking for all of them, because another test in this package does buy
+	// one and an empty whole list would then depend on which ran first.
+	rn, err := c.DescribeReservedCacheNodes(ctx, &elasticache.DescribeReservedCacheNodesInput{
+		ReservedCacheNodeId: aws.String("no-such-reservation"),
+	})
 	require.NoError(t, err)
 	assert.Empty(t, rn.ReservedCacheNodes)
 

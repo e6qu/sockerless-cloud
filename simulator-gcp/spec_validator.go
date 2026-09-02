@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -37,11 +38,30 @@ type discoverySchema struct {
 	Properties           map[string]*discoverySchema `json:"properties"`
 	AdditionalProperties *discoverySchema            `json:"additionalProperties"`
 	Pattern              string                      `json:"pattern"`
+	Enum                 []string                    `json:"enum"`
 
 	// compiled memoizes Pattern so the validator does not recompile it on
 	// every response; compileOnce guards it.
 	compiled    *regexp.Regexp
 	compileOnce sync.Once
+}
+
+// discoveryEnumIsExhaustive reports whether a field's declared enum lists every
+// value the service uses. Most do. Cloud Run's condition reasons do not, and
+// the evidence is the real client: gcloud's cancellation poller reads
+// condition["reason"] and compares it to the literal "Cancelled" — and
+// "Stopped" for a stop — neither of which the document lists. Judging that
+// field against the document would fail a response the client requires, so it
+// is left unjudged rather than judged wrongly.
+func discoveryEnumIsExhaustive(fieldPath string) bool {
+	for _, incomplete := range []string{
+		".reason", ".executionReason", ".revisionReason",
+	} {
+		if strings.HasSuffix(fieldPath, incomplete) {
+			return false
+		}
+	}
+	return true
 }
 
 // patternRE returns the compiled form of a schema's declared pattern, or nil
@@ -123,6 +143,55 @@ type discoveryIndex struct {
 	mounted        map[string][]*discoverySpecMethod
 }
 
+// applyDiscoverySupplement merges a document's supplement, if it has one, into
+// the schemas the validator checks against.
+//
+// A supplement declares members the API serves that its published Discovery
+// document does not, each with the evidence for it recorded beside it in the
+// file. Declaring them is what keeps them validated: the alternative — listing
+// each as an accepted violation — tolerates any value at all for the member,
+// including one the real API would never return.
+//
+// A supplement may only ADD. Supplementing a member the document already
+// declares is refused, because that would let a stale supplement quietly
+// override the published truth; when Google publishes a member, the supplement
+// entry has to go, and this is what makes it go loudly.
+func applyDiscoverySupplement(dir string, doc *discoverySpecDoc) error {
+	path := filepath.Join(dir, strings.TrimSuffix(doc.file, ".discovery.json.gz")+".supplement.json")
+	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	var supplement struct {
+		Schemas map[string]struct {
+			Properties map[string]*discoverySchema `json:"properties"`
+		} `json:"schemas"`
+	}
+	if err := json.Unmarshal(body, &supplement); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	for name, extra := range supplement.Schemas {
+		sch, ok := doc.schemas[name]
+		if !ok {
+			return fmt.Errorf("%s: supplements schema %q, which %s does not define", path, name, doc.file)
+		}
+		if sch.Properties == nil {
+			return fmt.Errorf("%s: supplements schema %q, which declares no members of its own — an opaque object needs no supplement", path, name)
+		}
+		for member, declared := range extra.Properties {
+			if _, published := sch.Properties[member]; published {
+				return fmt.Errorf("%s: supplements %s.%s, which %s now declares — delete the supplement entry",
+					path, name, member, doc.file)
+			}
+			sch.Properties[member] = declared
+		}
+	}
+	return nil
+}
+
 func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.discovery.json.gz"))
 	if err != nil || len(paths) == 0 {
@@ -176,6 +245,9 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
 		doc := &discoverySpecDoc{file: filepath.Base(p), schemas: raw.Schemas}
+		if err := applyDiscoverySupplement(dir, doc); err != nil {
+			return nil, err
+		}
 		for name, sch := range raw.Schemas {
 			if err := verifySchemaRefs(doc, sch); err != nil {
 				return nil, fmt.Errorf("%s: schema %s: %w", p, name, err)
@@ -638,6 +710,17 @@ func validateDiscoveryValue(doc *discoverySpecDoc, op string, sch *discoverySche
 		if re := sch.patternRE(); re != nil && !re.MatchString(str) {
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "pattern-mismatch", Field: path,
 				Detail: fmt.Sprintf("spec (%s) requires %s, response has %q", owner, sch.Pattern, str)})
+		}
+		// An enum names every value the service uses for that field, and
+		// Discovery lists them all — including the *_UNSPECIFIED zero value.
+		// A response outside the set is a value the service does not have: a
+		// state invented to fill the field, or a spelling nobody defined. The
+		// type check cannot see it, because an invented value is still a
+		// string.
+		if len(sch.Enum) > 0 && discoveryEnumIsExhaustive(path) && !slices.Contains(sch.Enum, str) {
+			*out = append(*out, sim.SpecViolation{Op: op, Kind: "enum-mismatch", Field: path,
+				Detail: fmt.Sprintf("spec (%s) declares %s, response has %q",
+					owner, strings.Join(sch.Enum, "|"), str)})
 		}
 	case "boolean":
 		if _, ok := v.(bool); !ok {

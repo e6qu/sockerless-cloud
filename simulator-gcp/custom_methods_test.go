@@ -115,10 +115,14 @@ func TestUnservedCustomMethodsAreMethodNotFound(t *testing.T) {
 			body:   `{}`,
 		},
 		{
-			name:   "SpannerAdapter",
+			// sessions:adapter is served now, so an unrouted sibling stands in
+			// its place: the fan-in that routes it must still answer a method
+			// it does not serve with Method not found rather than reporting on
+			// the database.
+			name:   "SpannerUnroutedSessionsMethod",
 			method: http.MethodPost,
 			host:   "spanner.googleapis.com",
-			path:   "/spanner/v1/projects/test-project/instances/inst/databases/db/sessions:adapter",
+			path:   "/spanner/v1/projects/test-project/instances/inst/databases/db/sessions:notAMethod",
 			body:   `{}`,
 		},
 		{

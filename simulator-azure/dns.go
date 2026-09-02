@@ -41,8 +41,8 @@ type RecordSet struct {
 // Azure Private DNS supports A/AAAA/CNAME/MX/PTR/SOA/SRV/TXT records;
 // terraform-provider-azurerm's `azurerm_private_dns_*_record` and the
 // SDK's `armprivatedns.NewRecordSetsClient` round-trip every shape.
-// Sockerless's runner service-discovery flows use CNAME aliases to
-// the cloud-app FQDN; without CNAME the records 501 against the sim.
+// Service discovery reaches a cloud app through a CNAME alias to its FQDN, so
+// the record type has to be served rather than 501.
 type RecordSetProperties struct {
 	TTL              int               `json:"ttl,omitempty"`
 	Fqdn             string            `json:"fqdn,omitempty"`

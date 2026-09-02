@@ -848,8 +848,17 @@ func registerAzureFiles(srv *sim.Server) {
 		if props == nil {
 			props = map[string]any{}
 		}
+		// Blob soft delete is one configuration with two APIs onto it. It
+		// lives in the data-plane service-properties document, which is what
+		// a blob delete consults, so an ARM write goes there rather than into
+		// a second copy that only ARM can see.
+		if policy, ok := blobARMDeleteRetentionPolicy(props); ok {
+			blobSetDeleteRetentionPolicy(account, policy)
+		}
+		delete(props, "deleteRetentionPolicy")
 		blobServiceProps.Put(acctID, props)
-		sim.WriteJSON(w, http.StatusOK, blobServiceResponse(resourceID, props))
+		sim.WriteJSON(w, http.StatusOK,
+			blobServiceResponse(resourceID, blobServicePropsWithSoftDelete(account, props)))
 	})
 	srv.HandleFunc("GET "+blobServicePath, func(w http.ResponseWriter, r *http.Request) {
 		acctID, resourceID, account, rg := blobServiceResourceID(r)
@@ -862,7 +871,8 @@ func registerAzureFiles(srv *sim.Server) {
 		if !ok {
 			props = map[string]any{}
 		}
-		sim.WriteJSON(w, http.StatusOK, blobServiceResponse(resourceID, props))
+		sim.WriteJSON(w, http.StatusOK,
+			blobServiceResponse(resourceID, blobServicePropsWithSoftDelete(account, props)))
 	})
 
 	tableBasePath := armBase + "/storageAccounts/{accountName}/tableServices/default/tables"

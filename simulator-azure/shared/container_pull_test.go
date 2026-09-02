@@ -52,6 +52,9 @@ func TestIsTransientRegistryErr(t *testing.T) {
 		"image pull x: pull access denied",
 		"image pull x: unauthorized: authentication required",
 		"image pull x: malformed pull stream: unexpected EOF",
+		// A data cap wears the rate limit's word and is nothing like it:
+		// waiting does not clear an exhausted allowance.
+		"image pull x: toomanyrequests: Data limit exceeded",
 	}
 	for _, msg := range permanent {
 		if isTransientRegistryErr(errors.New(msg)) {

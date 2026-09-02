@@ -33,10 +33,22 @@
    **Memorystore, 90 of 94** (2026-08-28) — the media upload path, the hosted
    build path routed to real Cloud Build, and rescheduleMaintenance.
 
-   Left, largest first, with the per-document floor comment naming each:
-   Compute Engine's long tail (1,118 of 2,014 spellings; 559 of 1,007
-   methods); then Azure's 31 remaining non-App-Service operations and the implementable part of App Service's 76; then the 230 AWS
-   IAM derivations.
+   Left, measured 2026-09-01 against the ratchets that produce the numbers:
+   **nothing that can be served without inventing the answer.** Google Cloud
+   is 5,466 of 5,480 spellings, and the fourteen are seven methods — Cloud
+   Interconnect's facilities and remote facilities, what interconnect hardware
+   reports about itself, and the preconfigured WAF expression sets. Azure is
+   2,613 of 2,628, and the fifteen are all App Service: Microsoft's runtime
+   stacks, its advisory copy, an App Service Environment's outbound dependency
+   endpoints, the platform php.ini, and a process memory dump. AWS is 1,986 of
+   1,994 IAM derivations, and the eight are requests that name no resource.
+
+   Every one of those answers a declared 501 naming its reason, and that is now
+   a gate rather than an observation:
+   `TestServiceConformance_GCPUnservedMethodsDeclareThemselves` and
+   `TestServiceConformance_AzureUnservedOperationsDeclareThemselves` fail on any
+   unserved operation answering anything else, so a gap cannot quietly become a
+   routing 404 while the count holds.
 
    A Discovery document's field descriptions are worth reading before the
    first implementation, not after: the prewarm family's contract was wrong in
@@ -45,12 +57,128 @@
    where a registry URI belongs, and a `gs://` prefix the member does not
    carry.
 
-   Genuinely blocked, and to be left unserved with the reason recorded rather
-   than answered with invented data: Cloud Spanner's Key Visualizer scans,
-   quorum change and wire-protocol adapter; Cloud KMS' Key Access
-   Justifications; App Service's packet capture and process dump/modules/kill;
-   the Application Insights query data plane; and the two published catalogs
-   declined three times (Microsoft's runtime stacks, Google's SKU list).
+   Genuinely blocked, and left unserved with the reason recorded rather than
+   answered with invented data: Cloud Spanner's Key Visualizer scans, quorum
+   change and wire-protocol adapter; Cloud KMS' Key Access Justifications; App
+   Service's packet capture and process dump; the Application Insights query
+   data plane; and the published catalogs declined more than once (Microsoft's
+   runtime stacks, Google's SKU list and interconnect facilities).
+
+   A licence code stopped being one of them: it is not Google's catalogue when
+   the licence is a project's own. Compute Engine assigns the code on insert,
+   so reading one is a read of the licence it was issued for, and a code this
+   project was never issued is not found. Before declining a surface as a
+   published catalogue, check whether the caller's own resource is what the
+   identifier names — the same question turned three AWS Glue operations from
+   underivable into ordinary reads.
+
+   AWS's own tail closed on 2026-09-01: the vendored models are implemented or
+   exempt in full, with no exemption left for a surface a client can reach.
+   `s3control` is vendored and all 67 of its operations are served, which is
+   what let Amazon S3 Object Lambda run end to end — the transformation
+   function is invoked and its `WriteGetObjectResponse` is what the caller
+   receives. The pattern that unblocked it is the same one the licence code
+   taught: an operation declined because its slice "was not chosen" is not
+   blocked, it is unvendored, and vendoring is ordinary work.
+
+   The handler-state sweep (BUG-2960) is closed: all three clouds' candidate
+   lists were read, the response validators grew the four dimensions they were
+   missing, and the request side got its own gate. What came out of it and is
+   still open is **BUG-2963** — Cloud Build's three webhook receivers accept a
+   delivery and start no build, which is a feature to assemble rather than an
+   answer that misreports.
+
+0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
+   is not.** 2,000 of 2,008 on 2026-09-01, after the refreshed service
+   references widened the corpus.
+   `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
+   IAMResourceDerivationCoverage -v` names every missing operation per service.
+
+   Between 1,792 and 1,936 almost every gain came from the coverage probe
+   addressing an operation the way no client does, so a derivation that already
+   worked measured as absent. Four defects, all closed:
+
+   - Eleven copies of the rule deciding what a probe puts in a request member,
+     so a fix in one reached only the services routed through it. There is one
+     copy now, service-aware, because a member can only be filled correctly if
+     you know whose member it is.
+   - Each service's probe filled its ARN members with one ARN chosen for the
+     whole service, so an action about something else was addressed with an ARN
+     naming a resource it is not about. Every probe now builds that ARN from
+     the action's own declared type.
+   - That ARN was rendered by filling only the first variable a format
+     declares, so a WAFv2 web ACL came out `probe/webacl//`. The whole format
+     is rendered now.
+   - The probe could express a scalar, a list of scalars and a structure, and
+     nothing else — so a list of structures and a map both arrived as bare
+     strings. Those are how a service spells a batch, and the identifier sits
+     inside the element or in the key. Both render faithfully now, and Amazon
+     DynamoDB and Amazon EventBridge went through the shared probe rather than
+     their own flat ones.
+
+   The lesson worth keeping: a wrong probe value shows up as a number that does
+   not move, and a wrong reader shows up as a grant nobody notices. The
+   measurement class was safe to fix in bulk for exactly that reason. What is
+   left is reader work and is not.
+
+   The creates are done. Every one of them now names what it mints: by the
+   type answering to the operation's name, by saying the same words in another
+   order (`RequestSpotFleet`), by being the noun outright where another type is
+   only what the noun ends with (`CreateGlobalReplicationGroup`), or by a
+   reviewed entry in `iamCreatesItsOnlyDeclaredType` where the name says
+   nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
+   an entry at a time when a new create needs it.
+
+   The 8 that remain are one shape: the request names no resource. Every other
+   AWS service derives every operation it declares a type for.
+
+   - **A resource the request does not name at all** (8). CloudWatch's
+     `ListMetrics`, `PutMetricData` and `GetMetricData` declare a dataset and
+     carry no dataset identifier. AWS Glue's `GetMLTransforms`,
+     `ListMLTransforms`, `ListDataQualityResults` and
+     `ListDataQualityRuleRecommendationRuns` carry a filter and a page token,
+     and a filter is not the resource it selects on; reading one as a resource
+     would authorize against something the caller only asked to match.
+     `ListIntegrationResourceProperties` declares four types and its whole
+     input is `Filters`, `Marker` and `MaxRecords`. `"*"` is the honest answer
+     for these and the ratchet counts them as misses.
+
+     Do not try to decide the class by inspecting member names. That was built
+     and measured on 2026-09-01: read the request members out of the Smithy
+     models and call an action "names no instance" when none shares a word with
+     the type or an identifier its ARN format declares. Tightened three times —
+     a bare `Name` always counts, a word inside a run-together type name
+     counts, any member ending in an identifier suffix counts — it still
+     produced dangerous false positives of four kinds, each of which would have
+     widened a real grant: a resource named indirectly by a value whose member
+     name says nothing (`ec2:AcceptAddressTransfer` carries an `Address`), the
+     caller as the resource (`iam:ChangePassword` — widening it would have
+     authorized changing any user's password), an identifier in a map's keys
+     (`dynamodb:BatchWriteItem`), and an identifier resolved through the
+     simulator's own state. Against two operations it would legitimately have
+     gained, that is a bad trade, and it was discarded rather than shipped. The
+     class needs per-action review, which is what
+     `iamCreatesItsOnlyDeclaredType` is.
+
+   The three AWS Glue data-quality model operations were the other shape and
+   are done. They name the profile an evaluation wrote its statistics to, and
+   the ruleset that produced it is what they authorize against. The result rows
+   carried no profile id at all — a member the model declares on
+   `GetDataQualityResult`, and the only place the API hands one out, so those
+   three operations were unreachable as well as underived. The evaluation
+   assigns it, the result returns it, and the derivation resolves it to the
+   ruleset through an index keyed on the profile. Only the identifier is
+   modelled: the profile's statistics would come from analysing the data
+   source, which the evaluation does not read.
+
+   The measurement seam that carried most of this is closed for the readers
+   that existed: `iamSeedDerivationFixtures` creates what a family resolves
+   through by calling the service's own creation handler, and the probe names
+   the resource by the identifier the service assigned. Add creation calls
+   there when a new family needs them, keyed
+   "<service>:<operation>:<member>" — per operation, because two calls can name
+   different things through the same member.
+
 
 0-sync. **All three clouds are in sync.** Measured 2026-08-29: zero drift
    across AWS's 41 Smithy models plus its service references, Azure's 120
@@ -167,15 +295,32 @@
      engine can signal a container's main process, not an arbitrary process
      inside it. Reopen only if the engine gains a real primitive for it.
 
-   - **`resourceHealthMetadata`** (6), **`metricdefinitions`** (4),
-     **`perfcounters`**, **`phplogging`**, **`recommendations`**, `iscloneable`,
-     `migratemysql/status`, and the declined `Provider_*Stacks` — each answers
-     with a series, catalog or telemetry the simulator has no input for, in the
-     same class as the declined catalogs below.
+   - **`metricdefinitions`** (4) and `outboundNetworkDependenciesEndpoints`,
+     the two rule-detail reads of the recommendations family, and the declined
+     `Provider_*Stacks` (6) — each answers with a series or a catalog only the
+     real platform holds, in the same class as the declined catalogs below.
+     Each already answers a declared 501 naming its reason.
 
-   So the honest split is: nothing in the 76 is implementable from what the
-   simulator can observe today. Each family needs either a primitive the
-   container engine does not expose or data only the real platform holds.
+   The blanket claim this item used to make — that *nothing* in the tail was
+   implementable — was wrong, and **`recommendations`** disproved it: 13 of its
+   15 operations were served on 2026-08-31 from what the simulator does hold.
+   No advisory engine runs here, so the lists and histories are honestly empty;
+   the filters are the client's own decisions and are recorded per scope. Only
+   the two rule-detail reads need Microsoft's published copy.
+
+   `iscloneable` (2) was the second: it is computed from the plan the site is
+   placed on and the deployment slots a clone would leave behind, both of
+   which this simulator holds. `resourceHealthMetadata` (6) went the other
+   way on examination — the operation defines its category as the one the
+   resource matches in Microsoft's Resource Health Check policy file — and
+   now answers a declared 501 naming it.
+
+   So the honest split for the 31 App Service operations still unserved is:
+   **`perfcounters`** and **`phplogging`** (4), the `migrate`/`migratemysql`
+   trio and the four process `dump` spellings have not been examined against
+   what the site and its workload container already know, and must be before
+   any of them is called blocked. The rest need a catalog, a metric series or
+   a `/proc` primitive that is not there, and each says so in a declared 501.
 
 5. Cloud Spanner admin is **closed**, not pending. Its measured number counts
    Discovery *method spellings*, not methods — the document declares most

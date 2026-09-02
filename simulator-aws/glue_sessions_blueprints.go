@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -367,10 +369,21 @@ func handleGlueGetSessionEndpoint(w http.ResponseWriter, r *http.Request) {
 	// The live Glue API, botocore, and aws-sdk-go-v2 all read this member as
 	// "SparkConnect" on the wire (the vendored smithy model's jsonName
 	// "SPARK_CONNECT" is not honored by the real service or any real client).
+	// All three members of SessionEndpoint are required, and the token was
+	// missing: a generated client reads it without checking, so leaving it out
+	// breaks the contract the model states. It is the session's own — derived
+	// from the session id and the expiry beside it, so two reads of one
+	// session agree and two sessions never share a token. What it authenticates
+	// against is the endpoint in Url, which this simulator does not serve, and
+	// the URL says so already by naming a host it does not answer on.
+	expires := glueEpochNow() + 3600
+	token := sha256.Sum256([]byte("glue-spark-connect/" + req.SessionId + "/" +
+		strconv.FormatFloat(expires, 'f', -1, 64)))
 	resp := map[string]any{
 		"SparkConnect": map[string]any{
 			"Url":                     "sc://" + req.SessionId + ".glue.amazonaws.com:443",
-			"AuthTokenExpirationTime": glueEpochNow() + 3600,
+			"AuthToken":               hex.EncodeToString(token[:]),
+			"AuthTokenExpirationTime": expires,
 		},
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
@@ -571,7 +584,6 @@ func handleGlueCreateDevEndpoint(w http.ResponseWriter, r *http.Request) {
 		"SubnetId":              de.SubnetId,
 		"RoleArn":               de.RoleArn,
 		"NumberOfNodes":         de.NumberOfNodes,
-		"WorkerType":            de.WorkerType,
 		"GlueVersion":           de.GlueVersion,
 		"ExtraPythonLibsS3Path": de.ExtraPythonLibsS3Path,
 		"ExtraJarsS3Path":       de.ExtraJarsS3Path,
@@ -581,6 +593,12 @@ func handleGlueCreateDevEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	if de.NumberOfWorkers != nil {
 		resp["NumberOfWorkers"] = *de.NumberOfWorkers
+	}
+	// WorkerType is one of a closed set, and an endpoint created without one —
+	// the NumberOfNodes form rather than the worker form — has none. Sending
+	// "" put a value in the field that the type does not have.
+	if de.WorkerType != "" {
+		resp["WorkerType"] = de.WorkerType
 	}
 	glueWriteJSON(w, http.StatusOK, resp)
 }

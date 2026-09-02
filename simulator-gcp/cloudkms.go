@@ -342,6 +342,29 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, kr)
 	})
 
+	// A key ring is deleted only when it holds no keys. Cloud KMS never deletes
+	// key material as a side effect of removing its container, so a ring with
+	// keys in it is refused rather than taking them with it.
+	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}", func(w http.ResponseWriter, r *http.Request) {
+		name := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
+		if _, ok := kmsKeyRings.Get(name); !ok {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "KeyRing %s not found", name)
+			return
+		}
+		held := kmsCryptoKeys.Filter(func(k kmsStoredCryptoKey) bool {
+			return strings.HasPrefix(k.Name, name+"/cryptoKeys/")
+		})
+		if len(held) > 0 {
+			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				"KeyRing %s still holds %d key(s); a key ring is deleted only when it is empty", name, len(held))
+			return
+		}
+		kmsKeyRings.Delete(name)
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"name": name + "/operations/delete", "done": true,
+		})
+	})
+
 	// SetIamPolicy / TestIamPermissions on a keyRing:
 	//   POST .../keyRings/{keyRingAction} where keyRingAction is "{keyRing}:verb".
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRingAction}", func(w http.ResponseWriter, r *http.Request) {
@@ -3025,4 +3048,39 @@ func kmsDecryptBytes(material, blob, aad []byte) ([]byte, error) {
 		return nil, fmt.Errorf("ciphertext too short")
 	}
 	return gcm.Open(nil, blob[:ns], blob[ns:], aad)
+}
+
+// kmsHandleShowEffectiveKajPolicyConfig reports the Key Access Justifications
+// policy in force on a project. The effective policy is the one recorded
+// against the project, and a project with none has the default available to it
+// rather than a policy nobody set.
+func kmsHandleShowEffectiveKajPolicyConfig(w http.ResponseWriter, project string) {
+	name := "projects/" + project + "/kajPolicyConfig"
+	held, ok := kmsKajPolicyConfigs.Get(name)
+	if !ok {
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"effectiveKajPolicy": map[string]any{
+				"name": name, "defaultPolicyAvailable": true,
+			},
+		})
+		return
+	}
+	effective := map[string]any{"name": held.Name, "defaultPolicyAvailable": true}
+	if len(held.DefaultKeyAccessJustifications) > 0 {
+		effective["defaultKeyAccessJustificationPolicy"] = held.DefaultKeyAccessJustifications
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"effectiveKajPolicy": effective})
+}
+
+// kmsHandleShowEffectiveKajEnrollmentConfig reports how a project is enrolled
+// in Key Access Justifications, per protection level. Enrolment is off until
+// something turns it on, and reporting it as on would tell a client its keys
+// are demanding justifications when they are not.
+func kmsHandleShowEffectiveKajEnrollmentConfig(w http.ResponseWriter, project string) {
+	off := func() map[string]any {
+		return map[string]any{"policyEnforcement": false, "auditLogging": false}
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"softwareConfig": off(), "hardwareConfig": off(), "externalConfig": off(),
+	})
 }

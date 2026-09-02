@@ -664,15 +664,25 @@ func handleAPIMCreateSubscription(w http.ResponseWriter, r *http.Request) {
 		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
+	// The contract requires both the scope the subscription is for and its
+	// state. The state has a default the service applies; the scope names what
+	// is being subscribed to and only the caller knows it, so a create without
+	// one is refused rather than stored as a subscription to nothing.
+	if req.Properties == nil {
+		req.Properties = map[string]any{}
+	}
+	if scope, ok := req.Properties["scope"].(string); !ok || scope == "" {
+		sim.AzureErrorf(w, "ValidationError", http.StatusBadRequest,
+			"Property \"scope\" is required for Microsoft.ApiManagement/service/subscriptions.")
+		return
+	}
 	id := parent + "/subscriptions/" + sName
 	s := APIMSubscription{
 		ID: id, Name: sName, Type: "Microsoft.ApiManagement/service/subscriptions",
 		Properties: map[string]any{"state": "active"},
 	}
-	if req.Properties != nil {
-		for k, v := range req.Properties {
-			s.Properties[k] = v
-		}
+	for k, v := range req.Properties {
+		s.Properties[k] = v
 	}
 	apimSubscriptions.Put(id, s)
 	sim.WriteJSON(w, http.StatusOK, s)

@@ -105,6 +105,7 @@ var (
 	cosmosThroughputs sim.Store[CosmosThroughput]
 	cosmosDocs        sim.Store[CosmosDocument]
 	cosmosDataColls   sim.Store[CosmosDataColl]
+	cosmosDataDBs     sim.Store[CosmosDataDB]
 )
 
 func registerCosmosDB(srv *sim.Server) {
@@ -115,6 +116,7 @@ func registerCosmosDB(srv *sim.Server) {
 	cosmosThroughputs = sim.MakeStore[CosmosThroughput](srv.DB(), "cosmos_throughputs")
 	cosmosDocs = sim.MakeStore[CosmosDocument](srv.DB(), "cosmos_documents")
 	cosmosDataColls = sim.MakeStore[CosmosDataColl](srv.DB(), "cosmos_data_collections")
+	cosmosDataDBs = sim.MakeStore[CosmosDataDB](srv.DB(), "cosmos_data_databases")
 
 	cosmosInitSessionState(srv)
 	for _, d := range cosmosDocs.List() {
@@ -789,6 +791,11 @@ func handleCosmosDataCreateDB(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "BadRequest", "id is required", http.StatusBadRequest)
 		return
 	}
+	// The database is recorded, not just described back. A create whose only
+	// trace is its own response leaves the read that follows with nothing to
+	// find, and leaves existence to be guessed from whatever containers happen
+	// to be under it.
+	cosmosDataDBs.Put(cosmosDataDBKey(account, id), CosmosDataDB{Account: account, DB: id})
 	db := cosmosDataDB(account, id)
 	if rid, ok := db["_rid"].(string); ok {
 		cosmosProvisionOfferFromHeaders(r, account, rid)
@@ -799,6 +806,11 @@ func handleCosmosDataCreateDB(w http.ResponseWriter, r *http.Request) {
 func handleCosmosDataListDBs(w http.ResponseWriter, r *http.Request) {
 	account := cosmosDataAccount(r)
 	dbs := map[string]map[string]any{}
+	for _, d := range cosmosDataDBs.List() {
+		if d.Account == account {
+			dbs[d.DB] = cosmosDataDB(account, d.DB)
+		}
+	}
 	for _, c := range cosmosContainers.List() {
 		if acc, db, _, ok := cosmosARMIDNames(c.ID); ok && acc == account {
 			dbs[db] = cosmosDataDB(account, db)
@@ -816,12 +828,47 @@ func handleCosmosDataListDBs(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteData(w, http.StatusOK, map[string]any{"Databases": items, "_count": len(items)})
 }
 
+// cosmosDataDBExists reports whether an account holds a database on the data
+// plane. It is the same derivation the listing uses — a database exists once a
+// container or a document is under it, however that container was created —
+// so a read and a list cannot disagree about what is there.
+func cosmosDataDBExists(account, db string) bool {
+	if _, created := cosmosDataDBs.Get(cosmosDataDBKey(account, db)); created {
+		return true
+	}
+	for _, c := range cosmosContainers.List() {
+		if acc, name, _, ok := cosmosARMIDNames(c.ID); ok && acc == account && name == db {
+			return true
+		}
+	}
+	for _, c := range cosmosDataColls.List() {
+		if c.Account == account && c.DB == db {
+			return true
+		}
+	}
+	for _, d := range cosmosDocs.List() {
+		if d.Account == account && d.DB == db {
+			return true
+		}
+	}
+	return false
+}
+
 func handleCosmosDataGetDB(w http.ResponseWriter, r *http.Request) {
-	cosmosWriteData(w, http.StatusOK, cosmosDataDB(cosmosDataAccount(r), sim.PathParam(r, "database")))
+	account, db := cosmosDataAccount(r), sim.PathParam(r, "database")
+	// A read of a database nobody created is not a database. Answering 200
+	// told a caller that every name it asked about was already there, which
+	// the listing beside it contradicts.
+	if !cosmosDataDBExists(account, db) {
+		cosmosDataError(w, "NotFound", "Owner resource does not exist", http.StatusNotFound)
+		return
+	}
+	cosmosWriteData(w, http.StatusOK, cosmosDataDB(account, db))
 }
 
 func handleCosmosDataDeleteDB(w http.ResponseWriter, r *http.Request) {
 	account, db := cosmosDataAccount(r), sim.PathParam(r, "database")
+	cosmosDataDBs.Delete(cosmosDataDBKey(account, db))
 	for _, d := range cosmosDocs.List() {
 		if d.Account == account && d.DB == db {
 			cosmosDocs.Delete(cosmosStoredDocKey(d))
@@ -874,7 +921,25 @@ func handleCosmosDataListColls(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCosmosDataGetColl(w http.ResponseWriter, r *http.Request) {
-	cosmosWriteData(w, http.StatusOK, cosmosDataColl(cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container")))
+	account, db, coll := cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container")
+	// A container created here, or one created through the management plane —
+	// both are the same container to a data-plane client, and neither is a
+	// name nobody used.
+	_, created := cosmosDataColls.Get(cosmosDataCollKey(account, db, coll))
+	if !created {
+		for _, c := range cosmosContainers.List() {
+			if acc, name, container, ok := cosmosARMIDNames(c.ID); ok &&
+				acc == account && name == db && container == coll {
+				created = true
+				break
+			}
+		}
+	}
+	if !created {
+		cosmosDataError(w, "NotFound", "Owner resource does not exist", http.StatusNotFound)
+		return
+	}
+	cosmosWriteData(w, http.StatusOK, cosmosDataColl(account, db, coll))
 }
 
 func handleCosmosDataDeleteColl(w http.ResponseWriter, r *http.Request) {

@@ -30,6 +30,8 @@ var predefinedTags sim.Store[PredefinedTag]
 
 func registerResourcesARM(srv *sim.Server) {
 	predefinedTags = sim.MakeStore[PredefinedTag](srv.DB(), "azure_predefined_tags")
+	azureUnregisteredProviders = sim.MakeStore[azureProviderRegistration](
+		srv.DB(), "azure_unregistered_providers")
 
 	// Operations metadata (tenant scope, shared by the resources +
 	// subscriptions Swagger documents).
@@ -207,15 +209,38 @@ func handleResourcesOperations(w http.ResponseWriter, _ *http.Request) {
 
 // azureProviderObject builds a Provider wire object. When scope is empty the ID
 // is tenant-scoped (/providers/{ns}); otherwise it is subscription-scoped.
+// azureProviderRegistration records a namespace a subscription has
+// unregistered. Registration is the default and the common case, so the store
+// holds the exception: an entry means Unregistered, and its absence means
+// Registered.
+type azureProviderRegistration struct {
+	Subscription string `json:"subscription"`
+	Namespace    string `json:"namespace"`
+}
+
+var azureUnregisteredProviders sim.Store[azureProviderRegistration]
+
+func azureProviderRegistrationKey(sub, ns string) string {
+	return sub + "|" + strings.ToLower(ns)
+}
+
 func azureProviderObject(sub, ns string) map[string]any {
 	id := "/providers/" + ns
+	state := "Registered"
 	if sub != "" {
 		id = fmt.Sprintf("/subscriptions/%s/providers/%s", sub, ns)
+		// Registration is per subscription, so only a subscription-scoped read
+		// can report one as unregistered. The tenant listing has no
+		// subscription to be registered against.
+		if _, unregistered := azureUnregisteredProviders.Get(
+			azureProviderRegistrationKey(sub, ns)); unregistered {
+			state = "Unregistered"
+		}
 	}
 	return map[string]any{
 		"id":                id,
 		"namespace":         ns,
-		"registrationState": "Registered",
+		"registrationState": state,
 		"resourceTypes":     azureProviderResourceTypeEntries(ns),
 	}
 }
@@ -276,7 +301,12 @@ func handleProviderRegister(w http.ResponseWriter, r *http.Request) {
 		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, azureProviderObject(sim.PathParam(r, "subscriptionId"), ns))
+	// Registering is what makes the state Registered, and the state has to
+	// survive the call: a client registers precisely so the read that follows
+	// says so, and Terraform polls that read.
+	sub := sim.PathParam(r, "subscriptionId")
+	azureUnregisteredProviders.Delete(azureProviderRegistrationKey(sub, ns))
+	sim.WriteJSON(w, http.StatusOK, azureProviderObject(sub, ns))
 }
 
 func handleProviderUnregister(w http.ResponseWriter, r *http.Request) {
@@ -285,9 +315,10 @@ func handleProviderUnregister(w http.ResponseWriter, r *http.Request) {
 		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
-	obj := azureProviderObject(sim.PathParam(r, "subscriptionId"), ns)
-	obj["registrationState"] = "Unregistered"
-	sim.WriteJSON(w, http.StatusOK, obj)
+	sub := sim.PathParam(r, "subscriptionId")
+	azureUnregisteredProviders.Put(azureProviderRegistrationKey(sub, ns),
+		azureProviderRegistration{Subscription: sub, Namespace: ns})
+	sim.WriteJSON(w, http.StatusOK, azureProviderObject(sub, ns))
 }
 
 func handleResourceGroupUpdate(w http.ResponseWriter, r *http.Request) {

@@ -559,7 +559,7 @@ func TestSDK_RunV2REST_Instance_FullBodyRoundTrip(t *testing.T) {
 		EncryptionKey:      "projects/test-project/locations/us-central1/keyRings/kr/cryptoKeys/ck",
 		IapEnabled:         true,
 		InvokerIamDisabled: true,
-		RestartPolicy:      "INSTANCE_RESTART_POLICY_ALWAYS",
+		RestartPolicy:      "ALWAYS",
 		ServiceAccount:     "runner@test-project.iam.gserviceaccount.com",
 		NodeSelector:       &runv2.GoogleCloudRunV2NodeSelector{Accelerator: "nvidia-l4"},
 		Containers: []*runv2.GoogleCloudRunV2Container{{

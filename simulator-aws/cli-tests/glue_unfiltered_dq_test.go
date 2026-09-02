@@ -91,11 +91,42 @@ func TestGlueUnfilteredMetadataCLI(t *testing.T) {
 // put-data-quality-profile-annotation store,
 // list-data-quality-statistic-annotations reads back.
 func TestGlueDQAnnotationsCLI(t *testing.T) {
-	profileID := "glue-dq-profile-cli"
 	statisticID := "glue-dq-stat-cli"
 
+	// The profile an evaluation wrote its statistics to, obtained the only way
+	// a caller can: run one, and read the profile off the result. An
+	// annotation names a profile, and one nothing issued names nothing.
+	const rulesetName = "glue-dq-cli-annotations-ruleset"
+	runCLI(t, awsCLI("glue", "start-data-quality-ruleset-evaluation-run",
+		"--role", "arn:aws:iam::000000000000:role/dq",
+		"--ruleset-names", rulesetName,
+		"--data-source", "{}"))
+	out := runCLI(t, awsCLI("glue", "list-data-quality-results"))
+	var results struct {
+		Results []struct {
+			ResultId string `json:"ResultId"`
+		} `json:"Results"`
+	}
+	parseJSON(t, out, &results)
+	require.NotEmpty(t, results.Results)
+	var profileID string
+	for _, candidate := range results.Results {
+		got := runCLI(t, awsCLI("glue", "get-data-quality-result",
+			"--result-id", candidate.ResultId))
+		var result struct {
+			RulesetName string `json:"RulesetName"`
+			ProfileId   string `json:"ProfileId"`
+		}
+		parseJSON(t, got, &result)
+		if result.RulesetName == rulesetName {
+			profileID = result.ProfileId
+			break
+		}
+	}
+	require.NotEmpty(t, profileID)
+
 	// batch-put: one good entry, one missing StatisticId -> FailedInclusionAnnotations.
-	out := runCLI(t, awsCLI("glue", "batch-put-data-quality-statistic-annotation",
+	out = runCLI(t, awsCLI("glue", "batch-put-data-quality-statistic-annotation",
 		"--inclusion-annotations",
 		`[{"ProfileId":"`+profileID+`","StatisticId":"`+statisticID+`","InclusionAnnotation":"INCLUDE"},{"ProfileId":"`+profileID+`","InclusionAnnotation":"EXCLUDE"}]`))
 	var batch struct {

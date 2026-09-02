@@ -109,14 +109,25 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 		join := func(rel string) string {
 			return "/" + strings.TrimPrefix(strings.TrimSuffix(doc.BasePath, "/")+"/"+strings.TrimPrefix(rel, "/"), "/")
 		}
-		addMethod := func(m rawMethod) {
+		addMethod := func(m rawMethod, parentShape string) {
 			if m.HTTPMethod == "" {
 				return
 			}
 			pathParams := map[string]string{}
 			for name, param := range m.Parameters {
 				if param.Location == "path" {
-					pathParams[name] = param.Pattern
+					pattern := param.Pattern
+					// A reserved-expansion parent whose pattern is a bare
+					// character class ("[a-z](?:[-a-zA-Z0-9/]{0,255}...)")
+					// permits slashes but describes no segments to render.
+					// Its siblings in the same collection denote the same
+					// parent and do name their segments, so the collection's
+					// shape stands in — which is what a client fills the
+					// parameter with.
+					if parentShape != "" && strings.Contains(m.Path, "{+"+name+"}") && gcpPatternIsShapeless(pattern) {
+						pattern = parentShape
+					}
+					pathParams[name] = pattern
 				}
 			}
 			// Both the expanded flatPath and the {+param} template path
@@ -141,15 +152,26 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 		}
 		var walk func(res rawResource)
 		walk = func(res rawResource) {
+			// Every reserved-expansion parent of one collection denotes the
+			// same parent, so the most informative pattern any of its methods
+			// declares is the shape for all of them.
+			parentShape := ""
 			for _, m := range res.Methods {
-				addMethod(m)
+				for _, param := range m.Parameters {
+					if param.Location == "path" && gcpPatternNamesSegments(param.Pattern) {
+						parentShape = param.Pattern
+					}
+				}
+			}
+			for _, m := range res.Methods {
+				addMethod(m, parentShape)
 			}
 			for _, sub := range res.Resources {
 				walk(sub)
 			}
 		}
 		for _, m := range doc.Methods {
-			addMethod(m)
+			addMethod(m, "")
 		}
 		for _, res := range doc.Resources {
 			walk(res)
@@ -199,6 +221,19 @@ var gcpMountPrefixes = map[string]string{
 // document, plus the simulator's own control surface. Each entry MUST be
 // justified — never a place to hide an invented Google path.
 var allowedNonSpecGCPRoutes = map[string]string{
+	// Cloud Run's uploadSource has a media-upload spelling on its own absolute
+	// path, which the document declares as "/upload/v2/{+parent}:uploadSource".
+	// The colon sits on the parent's last segment, so the route that receives
+	// it ends at that segment and the declared path — colon and all — is what
+	// a client sends to it.
+	"POST /upload/v2/projects/{project}/locations/{location}": "Cloud Run uploadSource, media-upload spelling",
+	// Compute Engine describes an image's family lookup and its IAM policy
+	// read as two methods — "images/family/{family}" and
+	// "images/{resource}/getIamPolicy" — that are one shape to a path router,
+	// so a single route serves both and resolves them the way Compute Engine's
+	// own templates do: the literal family segment first. Both documented
+	// spellings are served through it; neither is invented.
+	"GET /compute/v1/projects/{project}/global/images/{first}/{second}": "image family lookup and image IAM policy read, which a path router cannot separate",
 	// OAuth2 token endpoints — real Google auth surface
 	// (oauth2.googleapis.com /token; legacy www.googleapis.com/oauth2/v4/token),
 	// not part of any service Discovery document.

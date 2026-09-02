@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -554,13 +555,40 @@ func handleDataflowLaunchFlexTemplate(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
+// handleDataflowGetTemplate reads the template a caller staged.
+//
+// A template is a file in Cloud Storage, and its metadata is the sibling file
+// Dataflow's own tooling writes beside it — `<template>_metadata`. Both are the
+// caller's, staged before the template is launched, and this simulator serves
+// the bucket they are in. Answering with a fixed "Word Count" for whatever path
+// was asked about described a template nobody staged.
 func handleDataflowGetTemplate(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("gcsPath")
+	bucket, object, found := strings.Cut(strings.TrimPrefix(path, "gs://"), "/")
+	if !found || bucket == "" || object == "" {
+		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"gcsPath must name a Cloud Storage object, got %q", path)
+		return
+	}
+	if _, staged := gcsObjects.Get(bucket + "/" + object); !staged {
+		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			"no template is staged at %q", path)
+		return
+	}
 	resp := map[string]any{
 		"status":       map[string]any{"code": 0},
 		"templateType": "LEGACY",
-		"metadata": map[string]any{
-			"name": "Word Count",
-		},
+	}
+	// The metadata file is optional: a template staged without one is still a
+	// template, and Dataflow answers for it with no metadata rather than
+	// inventing a name for it.
+	if meta, ok := gcsObjects.Get(bucket + "/" + object + "_metadata"); ok {
+		if body, err := gcsObjectBytes(meta, bucket, object+"_metadata"); err == nil {
+			var parsed map[string]any
+			if err := json.Unmarshal(body, &parsed); err == nil {
+				resp["metadata"] = parsed
+			}
+		}
 	}
 	sim.WriteJSON(w, http.StatusOK, resp)
 }

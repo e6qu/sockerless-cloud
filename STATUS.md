@@ -89,25 +89,93 @@ Current state of the sockerless-cloud repository.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
-- **Measured floors** (re-read from the ratchets on 2026-08-27, because the
+- **Measured floors** (re-read from the ratchets on 2026-09-01, because the
   figures written here had drifted from the tests that produce them): IAM
-  resource derivation **1,792 of 1,994** served operations;
+  resource derivation **2,000 of 2,008** served operations, the eight that
+  remain being requests that carry no resource to derive;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
-  catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` 108 of 120;
+  catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` **120 of 120**;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
   revision 20260814, whose declared total fell from 130 when Google withdrew
   the `gitLabConfigs` collection; `cloudrun-v1` 152 of 152;
-  `spanner-v1` 188 of 198; `web-arm-openapi-2025-03-01` 616 of 692 (App
+  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **677 of 692** (App
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
-  configuration references, the complete Static Web Apps family);
-  `containerregistry-dataplane-containerregistry-2021-07-01` 24 of 29;
-  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **4,485 of 5,460**
-  Discovery method spellings; Azure **2,521 of 2,628** operations; the AWS
-  vendored models are implemented or exempt in full, the exemptions being S3
-  Object Lambda's callback and S3 Express One Zone's two off-endpoint
-  operations. VPC networks allocate bridge subnets from a host-side pool with
+  configuration references, the complete Static Web Apps family, App Service
+  Environments, diagnostics, backup and restore, processes, network traces and
+  recommendations, whether an app can be cloned, the site's performance
+  counters, its Resource Health metadata at all four scopes, the migration of
+  its in-app MySQL database, and an environment pool's metric definitions —
+  and with no silent gap left in that document, every one of its 15 unserved
+  operations declaring what is missing);
+  `containerregistry-dataplane-containerregistry-2021-07-01` **29 of 29**;
+  `keyvault-arm-managedhsm-2023-07-01` **16 of 16**. Google Cloud totals **5,466 of 5,480**
+  Discovery method spellings (`compute-v1` **2,002 of 2,016**, with
+  `dataflow-v1b3`, `cloudrun-v2`, `firestore-v1`, `spanner-v1`, `cloudkms-v1`
+  and `redis-v1` each complete); Azure **2,613 of 2,628** operations; the AWS
+  vendored models are implemented or exempt in full, and the S3 Object Lambda
+  exemption is gone — the whole loop is served, control plane and data plane
+  alike, with `s3control` vendored and its 67 operations implemented.
+- **No silent gap in either declared surface, and a gate holds it.** Every one
+  of Google Cloud's 5,480 Discovery method spellings reaches a handler: the
+  probe reports **zero mux misses** across all thirty documents, the last of
+  them closed when Compute Engine's host methods were served. Every one of
+  Azure's 15 unserved operations answers a declared 501 naming what is missing
+  — none answers a routing 404, and none answers with invented data. Both
+  properties are asserted rather than observed:
+  `TestServiceConformance_GCPUnservedMethodsDeclareThemselves` and
+  `TestServiceConformance_AzureUnservedOperationsDeclareThemselves` fail on any
+  unserved operation that answers something other than a 501. The floor alone
+  could not catch it — a route that goes away stays unserved, so the count
+  holds while the declaration is lost. What remains unserved in
+  both is a published catalog or a proprietary dataset: Microsoft's runtime
+  stacks, its Resource Health Check policy, its advisory copy and platform
+  php.ini; Google's interconnect locations, its physical link diagnostics, and
+  preconfigured WAF expression sets. A licence code is no longer among them —
+  Compute Engine assigns the code on insert, so reading one is a read of the
+  licence it was issued for. VPC networks allocate bridge subnets from a host-side pool with
   ENI addresses as real secondary interface addresses, so same-CIDR VPCs
   coexist.
+- **Amazon S3 Object Lambda runs end to end.** A GetObject addressed to an
+  Object Lambda access point hands the transformation function a route token
+  and the URL of the stored object, invokes it over the simulator's own Lambda,
+  and returns what the function posts back through `WriteGetObjectResponse`.
+  Nothing falls back to the stored bytes: a function that returns without
+  writing produces an error, and a write on a route nobody is waiting on is
+  refused. Vendoring `s3control` for the access points brought its whole
+  surface with it — S3 Batch Operations jobs that read their manifest out of S3
+  and really apply their operation to each object, S3 Access Grants down to the
+  credentials `GetDataAccess` vends by assuming the location's role, Storage
+  Lens configurations and groups, Multi-Region Access Points with traffic dials
+  and asynchronous request tokens, access point scopes, and the regional and
+  directory-bucket listings. Every one of those surfaces carries SDK and AWS
+  CLI coverage, and a Terraform fixture applies and destroys the access point,
+  the Object Lambda access point, the Storage Lens dashboard and the Access
+  Grants instance through terraform-provider-aws.
+- **Every dependency class is under one freshness gate**, including the console
+  user interface: `scripts/check-latest-deps.sh` now checks the four
+  `package.json` files against npm's publication metadata under the same
+  24-hour adoption quarantine as the Go, Terraform and GitHub Actions
+  dependencies. Three npm packages are held with their reason printed by the
+  gate and the evidence in `ui/README.md`.
+- **Go 1.26**, which the dependency tree requires: three
+  opentelemetry-operations-go modules reached through `google.golang.org/api`
+  declare it. The workflows, `go.work` and the three simulator container images
+  pin it together, because a module that only builds on a newer toolchain than
+  CI runs only builds on the author's machine.
+- **The request side of a Discovery document is checked too.** Its
+  `annotations.required` is per method — the method ids a property is required
+  *for* — and a gate drives all 73 in the corpus with the property omitted and
+  requires a refusal. It reaches validation for 53 of them; the rest answer 404
+  to a parent the probe does not create, and a floor on the judged count keeps
+  that from quietly growing.
+- **A goroutine the caller joins is never dropped.** `simGo` drops what it is
+  handed once a background drain has begun, which is what makes the drain a
+  barrier. That is right for work outliving its request and wrong for a fan-out
+  the caller waits on: dropping one hangs the caller rather than shortening the
+  drain. `simJoinedGo` is the counted, undroppable form, and every site whose
+  result something waits for uses it — a Step Functions Map's workers and feed
+  and its Task states, the AWS Lambda Runtime API sidecar, the container watch
+  an invoke waits on, and the Elastic Load Balancing TLS proxy's stream copy.
 - **A served count is not proof a handler exists.** The Google Cloud coverage
   probe classifies any handler answer as served, so a collection swallowed by
   a multi-segment wildcard route counts as covered while unimplemented. Cloud

@@ -420,8 +420,16 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	assert.NotEmpty(t, allowed.ScaleUpModifications)
 	assert.NotEmpty(t, allowed.ScaleDownModifications)
 
+	// Buy the offering the service says is on sale, and check that what came
+	// back is that offering's terms rather than a price the simulator chose.
+	offerings, err := c.DescribeReservedCacheNodesOfferings(ctx,
+		&elasticache.DescribeReservedCacheNodesOfferingsInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, offerings.ReservedCacheNodesOfferings)
+	offering := offerings.ReservedCacheNodesOfferings[0]
+
 	purchased, err := c.PurchaseReservedCacheNodesOffering(ctx, &elasticache.PurchaseReservedCacheNodesOfferingInput{
-		ReservedCacheNodesOfferingId: aws.String("649fd0c8-cf6d-47a0-bfa6-060f8e75e95f"),
+		ReservedCacheNodesOfferingId: offering.ReservedCacheNodesOfferingId,
 		ReservedCacheNodeId:          aws.String("my-reservation"),
 		CacheNodeCount:               aws.Int32(1),
 	})
@@ -429,4 +437,24 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	require.NotNil(t, purchased.ReservedCacheNode)
 	assert.Equal(t, "my-reservation", aws.ToString(purchased.ReservedCacheNode.ReservedCacheNodeId))
 	assert.Equal(t, int32(1), aws.ToInt32(purchased.ReservedCacheNode.CacheNodeCount))
+	assert.Equal(t, aws.ToString(offering.CacheNodeType), aws.ToString(purchased.ReservedCacheNode.CacheNodeType))
+	assert.Equal(t, aws.ToString(offering.ProductDescription), aws.ToString(purchased.ReservedCacheNode.ProductDescription))
+	assert.Equal(t, aws.ToInt32(offering.Duration), aws.ToInt32(purchased.ReservedCacheNode.Duration))
+
+	// What was bought can be read back. A purchase the account cannot see
+	// afterwards is a receipt for nothing.
+	held, err := c.DescribeReservedCacheNodes(ctx, &elasticache.DescribeReservedCacheNodesInput{
+		ReservedCacheNodeId: aws.String("my-reservation"),
+	})
+	require.NoError(t, err)
+	require.Len(t, held.ReservedCacheNodes, 1)
+	assert.Equal(t, aws.ToString(offering.ReservedCacheNodesOfferingId),
+		aws.ToString(held.ReservedCacheNodes[0].ReservedCacheNodesOfferingId))
+
+	// An offering nothing sells cannot be bought.
+	_, err = c.PurchaseReservedCacheNodesOffering(ctx, &elasticache.PurchaseReservedCacheNodesOfferingInput{
+		ReservedCacheNodesOfferingId: aws.String("00000000-0000-0000-0000-000000000000"),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ReservedCacheNodesOfferingNotFound")
 }

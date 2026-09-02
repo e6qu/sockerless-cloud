@@ -159,6 +159,9 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// App Service Environments own the placement scope App Service plans and
 	// sites reference, so their stores exist before those slices register.
 	registerWebEnvironments(srv)
+	registerWebRecommendations(srv)
+	registerWebCloneability(srv)
+	registerWebStackCatalogs(srv)
 	registerWebHybridConnections(srv)
 	registerWebPrivateAccess(srv)
 	registerWebSitePrivateEndpoints(srv)

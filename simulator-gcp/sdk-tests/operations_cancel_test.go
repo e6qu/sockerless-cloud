@@ -384,10 +384,15 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	// The build record is written before its steps run and moves to WORKING
 	// when they start, so the client can see the build go live.
 	id := awaitBuildStatus(t, svc, preexisting, "WORKING", 120*time.Second)
-	// Well inside the step's own hour: the build is executing its RUN, so the
-	// cancel below is cancelling work that is genuinely in flight rather than
-	// racing a step that has not begun.
-	time.Sleep(10 * time.Second)
+	// WORKING is recorded before the source is even fetched, so it alone does
+	// not mean a step is executing. The step's own status is what says the RUN
+	// is under way, and it is what makes the cancel below cancel work that is
+	// genuinely in flight rather than race a step that has not begun.
+	require.Eventually(t, func() bool {
+		build, err := svc.Projects.Builds.Get(cancelProject, id).Do()
+		require.NoError(t, err)
+		return len(build.Steps) > 0 && build.Steps[0].Status == "WORKING"
+	}, 120*time.Second, 50*time.Millisecond, "the build's first step never started running")
 	require.Equal(t, "WORKING", buildStatus(t, svc, id), "the build is still running when it is cancelled")
 
 	cancelled, err := svc.Projects.Builds.Cancel(cancelProject, id, &cloudbuild.CancelBuildRequest{}).Do()

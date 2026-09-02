@@ -79,7 +79,7 @@ func NewServer(cfg Config) (*Server, error) {
 	uiAuth, err := uiauth.New(uiauth.Config{
 		Issuer: cfg.UIOIDCIssuer, ClientID: cfg.UIOIDCClientID, ClientSecret: cfg.UIOIDCClientSecret,
 		PublicURL: cfg.UIPublicURL, SessionSecret: cfg.UISessionSecret,
-		CookieName: "sockerless_" + cfg.Provider + "_session", ApplicationName: "Sockerless " + strings.ToUpper(cfg.Provider) + " Simulator",
+		CookieName: "sockerless_" + cfg.Provider + "_session", ApplicationName: "Sockerless Cloud " + strings.ToUpper(cfg.Provider) + " Simulator",
 		ApplicationSlug: "sockerless-" + cfg.Provider, MonitoringToken: cfg.ApplicationMonitoringToken,
 		ReleaseRevision: cfg.ApplicationReleaseRevision,
 		InsecureCookies: cfg.UIOIDCInsecureCookies,
@@ -445,7 +445,7 @@ func spaHandler(fsys fs.FS, pathPrefix string) http.Handler {
 
 func (s *Server) printBanner() {
 	fmt.Fprintf(os.Stderr, "\n")
-	fmt.Fprintf(os.Stderr, "  Sockerless %s Simulator\n", s.config.Provider)
+	fmt.Fprintf(os.Stderr, "  Sockerless Cloud %s Simulator\n", s.config.Provider)
 	fmt.Fprintf(os.Stderr, "  Listening on %s\n", s.config.ListenAddr)
 	switch s.config.Provider {
 	case "aws":

@@ -381,8 +381,8 @@ type ComputeRouter struct {
 }
 
 // ComputeRouterBgp mirrors `compute#router.bgp` — the Border Gateway
-// Protocol settings for the router. Sockerless's Cloud NAT use case
-// doesn't need real BGP routing, just round-trip storage.
+// Protocol settings for the router. The simulator stores them and reports them
+// back; it speaks no BGP.
 type ComputeRouterBgp struct {
 	Asn               int32  `json:"asn,omitempty"`
 	AdvertiseMode     string `json:"advertiseMode,omitempty"`
@@ -465,7 +465,10 @@ type ComputeNetwork struct {
 	Name                  string `json:"name"`
 	SelfLink              string `json:"selfLink"`
 	AutoCreateSubnetworks bool   `json:"autoCreateSubnetworks"`
-	RoutingConfig         struct {
+	// Peerings is the network's peerings, which addPeering and its siblings
+	// write and listPeeringRoutes reads the exchanged ranges from.
+	Peerings      []ComputeNetworkPeering `json:"peerings,omitempty"`
+	RoutingConfig struct {
 		RoutingMode string `json:"routingMode"`
 	} `json:"routingConfig"`
 	// NetworkFirewallPolicyEnforcementOrder defaults to AFTER_CLASSIC_FIREWALL.
@@ -473,6 +476,18 @@ type ComputeNetwork struct {
 	// it makes every refresh plan an in-place update.
 	NetworkFirewallPolicyEnforcementOrder string `json:"networkFirewallPolicyEnforcementOrder,omitempty"`
 	CreationTimestamp                     string `json:"creationTimestamp"`
+}
+
+// ComputeNetworkPeering is one side of a peering between two networks.
+type ComputeNetworkPeering struct {
+	Name                 string `json:"name"`
+	Network              string `json:"network,omitempty"`
+	State                string `json:"state,omitempty"`
+	StateDetails         string `json:"stateDetails,omitempty"`
+	AutoCreateRoutes     bool   `json:"autoCreateRoutes,omitempty"`
+	ExchangeSubnetRoutes bool   `json:"exchangeSubnetRoutes,omitempty"`
+	ImportCustomRoutes   bool   `json:"importCustomRoutes,omitempty"`
+	ExportCustomRoutes   bool   `json:"exportCustomRoutes,omitempty"`
 }
 
 type ComputeSubnetwork struct {
@@ -488,13 +503,11 @@ type ComputeSubnetwork struct {
 	CreationTimestamp     string `json:"creationTimestamp"`
 }
 
-// ComputeDisk mirrors `compute#disk` — the zonal persistent-disk
-// resource. 's `pd-ephemeral` storage driver provisions one
-// disk per runner-task and attaches it to the runner's compute
-// instance for the duration of the task. Field set covers what the Go
-// SDK's `compute.NewDisksRESTClient` round-trips for create / get /
-// list / delete / resize / setLabels — the subset terraform's
-// `google_compute_disk` exercises.
+// ComputeDisk mirrors `compute#disk` — the zonal persistent-disk resource a
+// client creates and attaches to an instance. Field set covers what the Go
+// SDK's `compute.NewDisksRESTClient` round-trips for create / get / list /
+// delete / resize / setLabels — the subset terraform's `google_compute_disk`
+// exercises.
 type ComputeDisk struct {
 	Kind              string `json:"kind,omitempty"`
 	Id                string `json:"id,omitempty"`
@@ -517,6 +530,17 @@ type ComputeDisk struct {
 	Labels            map[string]string `json:"labels,omitempty"`
 	LabelFingerprint  string            `json:"labelFingerprint,omitempty"`
 	PhysicalBlockSize string            `json:"physicalBlockSizeBytes,omitempty"`
+	// StoragePool is the pool the disk draws its capacity from, which is what
+	// storagePools.listDisks reads to find a pool's disks.
+	StoragePool string `json:"storagePool,omitempty"`
+
+	// The members the disk's own verbs write: the schedules attached to it,
+	// the key it is encrypted under, the replication it takes part in and the
+	// state that reports.
+	ResourcePolicies  []string       `json:"resourcePolicies,omitempty"`
+	DiskEncryptionKey map[string]any `json:"diskEncryptionKey,omitempty"`
+	AsyncPrimaryDisk  map[string]any `json:"asyncPrimaryDisk,omitempty"`
+	ResourceStatus    map[string]any `json:"resourceStatus,omitempty"`
 }
 
 // ComputeInstanceStatus is a Compute Engine instance lifecycle status. Using a
@@ -552,6 +576,16 @@ type ComputeInstance struct {
 	CanIpForward      bool                      `json:"canIpForward,omitempty"`
 	Scheduling        map[string]any            `json:"scheduling,omitempty"`
 	ServiceAccounts   []map[string]any          `json:"serviceAccounts,omitempty"`
+
+	// The members the instance's own set-verbs write. Each is stored because
+	// the verb that sets it is only meaningful if a later read returns it.
+	DeletionProtection              bool             `json:"deletionProtection,omitempty"`
+	MinCpuPlatform                  string           `json:"minCpuPlatform,omitempty"`
+	GuestAccelerators               []map[string]any `json:"guestAccelerators,omitempty"`
+	ResourcePolicies                []string         `json:"resourcePolicies,omitempty"`
+	ShieldedInstanceConfig          map[string]any   `json:"shieldedInstanceConfig,omitempty"`
+	ShieldedInstanceIntegrityPolicy map[string]any   `json:"shieldedInstanceIntegrityPolicy,omitempty"`
+	DisplayDevice                   map[string]any   `json:"displayDevice,omitempty"`
 }
 
 type ComputeInstanceTags struct {
@@ -601,6 +635,11 @@ type ComputeAccessConfig struct {
 	Type        string `json:"type,omitempty"`
 	NatIP       string `json:"natIP,omitempty"`
 	NetworkTier string `json:"networkTier,omitempty"`
+	// SecurityPolicy is where an instance records the Cloud Armor policy
+	// applied to its external address. instances.setSecurityPolicy names the
+	// interfaces to apply it to, and this is the member the instance reports it
+	// back on — the Instance schema itself declares no such field.
+	SecurityPolicy string `json:"securityPolicy,omitempty"`
 }
 
 type ComputeHealthCheck struct {
@@ -631,14 +670,20 @@ type ComputeTCPHealthCheck struct {
 }
 
 type ComputeBackendService struct {
-	Kind                string                         `json:"kind,omitempty"`
-	Id                  string                         `json:"id,omitempty"`
-	Name                string                         `json:"name"`
-	SelfLink            string                         `json:"selfLink,omitempty"`
-	CreationTimestamp   string                         `json:"creationTimestamp,omitempty"`
-	Description         string                         `json:"description,omitempty"`
-	Protocol            string                         `json:"protocol,omitempty"`
-	PortName            string                         `json:"portName,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	Id                string `json:"id,omitempty"`
+	Name              string `json:"name"`
+	SelfLink          string `json:"selfLink,omitempty"`
+	CreationTimestamp string `json:"creationTimestamp,omitempty"`
+	Description       string `json:"description,omitempty"`
+	Protocol          string `json:"protocol,omitempty"`
+	PortName          string `json:"portName,omitempty"`
+	// The Cloud Armor policies attached to the service, and the CDN policy the
+	// signed-URL key names live in. setSecurityPolicy, setEdgeSecurityPolicy
+	// and the signing-key verbs each write one of these.
+	SecurityPolicy      string                         `json:"securityPolicy,omitempty"`
+	EdgeSecurityPolicy  string                         `json:"edgeSecurityPolicy,omitempty"`
+	CdnPolicy           map[string]any                 `json:"cdnPolicy,omitempty"`
 	TimeoutSec          int64                          `json:"timeoutSec,omitempty"`
 	LoadBalancingScheme string                         `json:"loadBalancingScheme,omitempty"`
 	HealthChecks        []string                       `json:"healthChecks,omitempty"`
@@ -707,7 +752,17 @@ type ComputeURLMap struct {
 	DefaultService    string                     `json:"defaultService,omitempty"`
 	HostRules         []ComputeURLMapHostRule    `json:"hostRules,omitempty"`
 	PathMatchers      []ComputeURLMapPathMatcher `json:"pathMatchers,omitempty"`
+	Tests             []ComputeURLMapTest        `json:"tests,omitempty"`
 	Fingerprint       string                     `json:"fingerprint,omitempty"`
+}
+
+// ComputeURLMapTest is one of the request-to-service expectations a URL map
+// carries, which urlMaps.validate checks against the map's own routing.
+type ComputeURLMapTest struct {
+	Description string `json:"description,omitempty"`
+	Host        string `json:"host,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Service     string `json:"service,omitempty"`
 }
 
 type ComputeURLMapHostRule struct {
@@ -737,18 +792,21 @@ type ComputeTargetHTTPProxy struct {
 }
 
 type ComputeForwardingRule struct {
-	Kind                string `json:"kind,omitempty"`
-	Id                  string `json:"id,omitempty"`
-	Name                string `json:"name"`
-	SelfLink            string `json:"selfLink,omitempty"`
-	CreationTimestamp   string `json:"creationTimestamp,omitempty"`
-	Description         string `json:"description,omitempty"`
-	IPAddress           string `json:"IPAddress,omitempty"`
-	IPProtocol          string `json:"IPProtocol,omitempty"`
-	PortRange           string `json:"portRange,omitempty"`
-	Target              string `json:"target,omitempty"`
-	LoadBalancingScheme string `json:"loadBalancingScheme,omitempty"`
-	NetworkTier         string `json:"networkTier,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	Id                string `json:"id,omitempty"`
+	Name              string `json:"name"`
+	SelfLink          string `json:"selfLink,omitempty"`
+	CreationTimestamp string `json:"creationTimestamp,omitempty"`
+	Description       string `json:"description,omitempty"`
+	IPAddress         string `json:"IPAddress,omitempty"`
+	IPProtocol        string `json:"IPProtocol,omitempty"`
+	PortRange         string `json:"portRange,omitempty"`
+	// The labels setLabels writes, with the fingerprint that guards them.
+	Labels              map[string]string `json:"labels,omitempty"`
+	LabelFingerprint    string            `json:"labelFingerprint,omitempty"`
+	Target              string            `json:"target,omitempty"`
+	LoadBalancingScheme string            `json:"loadBalancingScheme,omitempty"`
+	NetworkTier         string            `json:"networkTier,omitempty"`
 }
 
 // ComputeInstanceTemplate mirrors `compute#instanceTemplate`. Field set covers
@@ -765,10 +823,16 @@ type ComputeInstanceTemplate struct {
 }
 
 var (
-	gcpSubnetworks       sim.Store[ComputeSubnetwork]
-	gcpAddresses         sim.Store[ComputeAddress]
-	gcpFirewalls         sim.Store[ComputeFirewall]
-	gcpInstances         sim.Store[ComputeInstance]
+	gcpSubnetworks sim.Store[ComputeSubnetwork]
+	gcpAddresses   sim.Store[ComputeAddress]
+	gcpFirewalls   sim.Store[ComputeFirewall]
+	gcpInstances   sim.Store[ComputeInstance]
+	// gcpNormalizeInstance fills an instance the way instances.insert fills
+	// one — identity, zone, disks, and the real network interface it is
+	// attached to. instances.bulkInsert builds its run through the same
+	// function so a bulk-created instance is the same object a singly-created
+	// one is, rather than a record shaped like it.
+	gcpNormalizeInstance func(ctx context.Context, project, zone string, inst *ComputeInstance) error
 	gcpInstanceGroups    sim.Store[storedComputeInstanceGroup]
 	gcpHealthChecks      sim.Store[ComputeHealthCheck]
 	gcpBackendServices   sim.Store[ComputeBackendService]
@@ -782,6 +846,9 @@ func registerCompute(srv *sim.Server) {
 	computeOpRegistry = sim.MakeStore[ComputeOperationRecord](srv.DB(), "compute_operations")
 	networks := sim.MakeStore[ComputeNetwork](srv.DB(), "compute_networks")
 	subnetworks := sim.MakeStore[ComputeSubnetwork](srv.DB(), "compute_subnetworks")
+	// Shared so the peering verbs can read a network and the ranges its peer
+	// exchanges, as gcpFirewalls is shared for the effective-firewalls reads.
+	gcpComputeNetworks, gcpComputeSubnetworks = networks, subnetworks
 	gcpSubnetworks = subnetworks
 	instanceTemplates := sim.MakeStore[ComputeInstanceTemplate](srv.DB(), "compute_instance_templates")
 
@@ -792,7 +859,10 @@ func registerCompute(srv *sim.Server) {
 		var req struct {
 			Name                  string `json:"name"`
 			AutoCreateSubnetworks bool   `json:"autoCreateSubnetworks"`
-			RoutingConfig         struct {
+			// Peerings is the network's peerings, which addPeering and its siblings
+			// write and listPeeringRoutes reads the exchanged ranges from.
+			Peerings      []ComputeNetworkPeering `json:"peerings,omitempty"`
+			RoutingConfig struct {
 				RoutingMode string `json:"routingMode"`
 			} `json:"routingConfig"`
 		}
@@ -801,7 +871,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 
-		selfLink := fmt.Sprintf("projects/%s/global/networks/%s", project, req.Name)
+		selfLink := computeNetworkSelfLink(project, req.Name)
 		net := ComputeNetwork{
 			Kind:                  "compute#network",
 			Id:                    computeNumericID(),
@@ -835,7 +905,7 @@ func registerCompute(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
-		selfLink := fmt.Sprintf("projects/%s/global/networks/%s", project, name)
+		selfLink := computeNetworkSelfLink(project, name)
 
 		net, ok := networks.Get(selfLink)
 		if !ok {
@@ -869,7 +939,7 @@ func registerCompute(srv *sim.Server) {
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
-		selfLink := fmt.Sprintf("projects/%s/global/networks/%s", project, name)
+		selfLink := computeNetworkSelfLink(project, name)
 
 		if computeNotFound(w, networks.Delete(selfLink), "network", name) {
 			return
@@ -889,7 +959,7 @@ func registerCompute(srv *sim.Server) {
 	srv.HandleFunc("PATCH /compute/v1/projects/{project}/global/networks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "name")
-		selfLink := fmt.Sprintf("projects/%s/global/networks/%s", project, name)
+		selfLink := computeNetworkSelfLink(project, name)
 
 		var req struct {
 			RoutingConfig struct {
@@ -1081,6 +1151,85 @@ func registerCompute(srv *sim.Server) {
 	})
 
 	// Delete subnetwork
+	// A subnetwork's range only grows: shrinking it would strand the addresses
+	// already handed out of it, so Compute Engine refuses that and so does
+	// this. The comparison is on the prefix length, where a smaller number is
+	// a larger range.
+	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}/expandIpCidrRange", func(w http.ResponseWriter, r *http.Request) {
+		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
+		var req struct {
+			IpCidrRange string `json:"ipCidrRange"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil || req.IpCidrRange == "" {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"expandIpCidrRange needs the range to expand to")
+			return
+		}
+		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
+		held, ok := subnetworks.Get(selfLink)
+		if !ok {
+			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			return
+		}
+		wider, err := computeRangeIsWider(held.IpCidrRange, req.IpCidrRange)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			return
+		}
+		if !wider {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"a subnetwork range can only expand: %s is not wider than %s", req.IpCidrRange, held.IpCidrRange)
+			return
+		}
+		held.IpCidrRange = req.IpCidrRange
+		subnetworks.Put(selfLink, held)
+		sim.WriteJSON(w, http.StatusOK,
+			newComputeOpWithType(project, "regions/"+region, selfLink, "expandIpCidrRange"))
+	})
+
+	// A subnetwork's patch, which edits the members that can change without
+	// the subnetwork being recreated.
+	srv.HandleFunc("PATCH /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}", func(w http.ResponseWriter, r *http.Request) {
+		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
+		var body map[string]any
+		if err := sim.ReadJSON(r, &body); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
+		found, err := computeTypedWrite(subnetworks, selfLink, body, false)
+		if err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid subnetwork: %v", err)
+			return
+		}
+		if !found {
+			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK,
+			newComputeOpWithType(project, "regions/"+region, selfLink, "patch"))
+	})
+
+	// Private Google Access is a member of the subnetwork, and the verb that
+	// turns it on is how a client changes it without rewriting the resource.
+	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}/setPrivateIpGoogleAccess", func(w http.ResponseWriter, r *http.Request) {
+		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
+		var req struct {
+			PrivateIpGoogleAccess bool `json:"privateIpGoogleAccess"`
+		}
+		if err := sim.ReadJSON(r, &req); err != nil {
+			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
+		if !subnetworks.Update(selfLink, func(s *ComputeSubnetwork) { s.PrivateIpGoogleAccess = req.PrivateIpGoogleAccess }) {
+			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK,
+			newComputeOpWithType(project, "regions/"+region, selfLink, "setPrivateIpGoogleAccess"))
+	})
+
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/regions/{region}/subnetworks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		region := sim.PathParam(r, "region")
@@ -1241,12 +1390,13 @@ func registerCompute(srv *sim.Server) {
 	})
 
 	// Routers + Cloud NAT — `compute#router` is a regional resource;
-	// Cloud NAT configs are embedded in `router.nats[]`. Sockerless's
-	// serverless egress flows (Cloud Run / Cloud Functions reaching
-	// Internet via a VPC connector) provision a Router with a NAT;
+	// Cloud NAT configs are embedded in `router.nats[]`. Serverless egress —
+	// Cloud Run or Cloud Run Functions reaching the Internet through a VPC
+	// connector — is provisioned as a Router carrying a NAT;
 	// without these handlers, terraform's `google_compute_router` and
 	// `google_compute_router_nat` 404.
 	addresses := sim.MakeStore[ComputeAddress](srv.DB(), "compute_addresses")
+	gcpComputeRegionAddresses = addresses
 	routers := sim.MakeStore[ComputeRouter](srv.DB(), "compute_routers")
 	gcpAddresses = addresses
 	gcpRouters = routers
@@ -1726,6 +1876,9 @@ func computeRegionalAddressLink(project, region, name string) string {
 
 func registerComputeInstanceGroups(srv *sim.Server) {
 	groups := sim.MakeStore[storedComputeInstanceGroup](srv.DB(), "compute_instance_groups")
+	// Shared so the instance verbs can report which groups refer to an
+	// instance, as gcpFirewalls is shared for the same reason.
+	gcpComputeInstanceGroups = groups
 	gcpInstanceGroups = groups
 
 	instanceGroupSelfLink := func(project, zone, name string) string {
@@ -1966,7 +2119,7 @@ func normalizeComputeGlobalNetworkRef(project, ref string) string {
 	if strings.Contains(ref, "/") {
 		return ref
 	}
-	return fmt.Sprintf("projects/%s/global/networks/%s", project, ref)
+	return computeNetworkSelfLink(project, ref)
 }
 
 func normalizeComputeSubnetworkRef(project, region, ref string) string {
@@ -2125,20 +2278,7 @@ func registerComputeCatalog(srv *sim.Server) {
 			"selfLink": fmt.Sprintf("projects/%s/zones/%s/diskTypes/%s", project, zone, name),
 		})
 	})
-	imageJSON := func(project, name string) map[string]any {
-		return map[string]any{
-			"kind":              "compute#image",
-			"id":                computeNumericID(),
-			"name":              name,
-			"selfLink":          fmt.Sprintf("projects/%s/global/images/%s", project, name),
-			"status":            "READY",
-			"family":            strings.TrimSuffix(name, "-12"),
-			"archiveSizeBytes":  "1073741824",
-			"diskSizeGb":        "10",
-			"sourceType":        "RAW",
-			"creationTimestamp": time.Now().UTC().Format(time.RFC3339),
-		}
-	}
+	imageJSON := computeImageJSON
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/{image}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "image")
@@ -2150,15 +2290,37 @@ func registerComputeCatalog(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, imageJSON(project, name))
 	})
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/family/{family}", func(w http.ResponseWriter, r *http.Request) {
+	// An image's family lookup and its IAM policy read are the same shape to a
+	// path router — "images/family/{family}" against
+	// "images/{resource}/getIamPolicy" — so one handler serves both. Compute
+	// Engine resolves the overlap by its templates' literal segments, and the
+	// family segment comes first, so a request for the family named
+	// "getIamPolicy" is a family lookup.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/{first}/{second}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
-		family := sim.PathParam(r, "family")
-		name := family
-		if !strings.HasSuffix(name, "-12") {
-			name += "-12"
+		first, second := sim.PathParam(r, "first"), sim.PathParam(r, "second")
+		if first == "family" {
+			name := second
+			if !strings.HasSuffix(name, "-12") {
+				name += "-12"
+			}
+			sim.WriteJSON(w, http.StatusOK, imageJSON(project, name))
+			return
 		}
-		sim.WriteJSON(w, http.StatusOK, imageJSON(project, name))
+		if second != "getIamPolicy" {
+			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no such image method %q", second)
+			return
+		}
+		handleResourceIAM(w, r, gcpResourcePolicies,
+			"compute/"+computeGlobalLink(project, "images", first), "getIamPolicy")
 	})
+	for verb, method := range map[string]string{"setIamPolicy": "POST", "testIamPermissions": "POST"} {
+		verb := verb
+		srv.HandleFunc(method+" /compute/v1/projects/{project}/global/images/{resource}/"+verb, func(w http.ResponseWriter, r *http.Request) {
+			handleResourceIAM(w, r, gcpResourcePolicies,
+				"compute/"+computeGlobalLink(sim.PathParam(r, "project"), "images", sim.PathParam(r, "resource")), verb)
+		})
+	}
 }
 
 // computeZoneOp records and renders a zonal operation whose work is already
@@ -2214,14 +2376,15 @@ func recoverComputeOperations() {
 
 func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork], subnetworks sim.Store[ComputeSubnetwork]) {
 	instances := sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances")
+	registerComputeInstanceVerbs(srv, instances)
 	gcpInstances = instances
 	recoverComputeInstances(instances)
 	recoverComputeOperations()
 	logger := srv.Logger()
 
-	instanceSelfLink := func(project, zone, name string) string {
-		return fmt.Sprintf("projects/%s/zones/%s/instances/%s", project, zone, name)
-	}
+	// One spelling of the instance key, shared with the verbs registered
+	// alongside these handlers: two spellings would read past each other.
+	instanceSelfLink := computeInstanceSelfLink
 
 	normalizeInstance := func(ctx context.Context, project, zone string, inst *ComputeInstance) error {
 		inst.Kind = "compute#instance"
@@ -2339,6 +2502,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		}
 		return nil
 	}
+	gcpNormalizeInstance = normalizeInstance
 
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/instances", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -2598,8 +2762,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 	})
 }
 
-// registerComputeDisks wires the zonal Compute Disks REST surface that
-// 's `pd-ephemeral` storage driver provisions against. Real
+// registerComputeDisks wires the zonal Compute Disks REST surface. Real
 // GCP exposes Disks via `compute#disk` at
 // `/compute/v1/projects/{p}/zones/{z}/disks` plus an aggregated list
 // across zones at `/compute/v1/projects/{p}/aggregated/disks`. The
@@ -2607,6 +2770,8 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 // aggregated-list, all returning zonal operations the SDK polls.
 func registerComputeDisks(srv *sim.Server) {
 	disks := sim.MakeStore[ComputeDisk](srv.DB(), "compute_disks")
+	// Shared so the disk verbs write the same disks the lifecycle serves.
+	gcpComputeZoneDisks = disks
 
 	// Insert (create disk) — POST .../zones/{zone}/disks
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/disks", func(w http.ResponseWriter, r *http.Request) {
@@ -2785,4 +2950,45 @@ func registerComputeDisks(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/operations/{name}/wait", func(w http.ResponseWriter, r *http.Request) {
 		computeWaitOperation(w, r, sim.PathParam(r, "name"))
 	})
+}
+
+// computeImageJSON renders the public-image catalogue entry for a name. Both
+// the image read and the family view answer from it, so a family and the image
+// it resolves to cannot describe the same image differently.
+func computeImageJSON(project, name string) map[string]any {
+	return map[string]any{
+		"kind":              "compute#image",
+		"id":                computeNumericID(),
+		"name":              name,
+		"selfLink":          fmt.Sprintf("projects/%s/global/images/%s", project, name),
+		"status":            "READY",
+		"family":            strings.TrimSuffix(name, "-12"),
+		"archiveSizeBytes":  "1073741824",
+		"diskSizeGb":        "10",
+		"sourceType":        "RAW",
+		"creationTimestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+// computeRangeIsWider reports whether one CIDR range covers more addresses than
+// another. A subnetwork's range only ever grows, and a range grows by taking a
+// shorter prefix — /20 is wider than /24.
+func computeRangeIsWider(current, proposed string) (bool, error) {
+	prefixLength := func(cidr string) (int, error) {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return 0, fmt.Errorf("%q is not a CIDR range", cidr)
+		}
+		ones, _ := network.Mask.Size()
+		return ones, nil
+	}
+	held, err := prefixLength(current)
+	if err != nil {
+		return false, err
+	}
+	wanted, err := prefixLength(proposed)
+	if err != nil {
+		return false, err
+	}
+	return wanted < held, nil
 }

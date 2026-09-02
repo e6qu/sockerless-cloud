@@ -23,7 +23,7 @@ import (
 //	GET  .../hostingEnvironments/{name}/inboundNetworkDependenciesEndpoints
 //	GET  .../hostingEnvironments/{name}/outboundNetworkDependenciesEndpoints (declared gap)
 //	PUT  .../hostingEnvironments/{name}/workerPools/{workerPoolName}
-//	GET  .../hostingEnvironments/{name}/multiRolePools/default/metricdefinitions (declared gap)
+//	GET  .../hostingEnvironments/{name}/multiRolePools/default/metricdefinitions
 //	POST .../hostingEnvironments/{name}/suspend
 //	POST .../hostingEnvironments/{name}/resume
 //	POST .../hostingEnvironments/{name}/changeVirtualNetwork
@@ -127,14 +127,19 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 	assert.Contains(t, announced, `"upgradeAvailability": "Ready"`)
 	runCLI(t, azRest("POST", aseCLIURL("hostingEnvironments/cli-ase/upgrade"), ""))
 
-	// The two declared gaps name themselves rather than 404ing silently.
-	for _, path := range []string{
-		"hostingEnvironments/cli-ase/multiRolePools/default/metricdefinitions",
-		"hostingEnvironments/cli-ase/outboundNetworkDependenciesEndpoints",
-	} {
-		gap := runStorageCLIExpectFailure(t, azRest("GET", aseCLIURL(path), ""))
-		assert.Contains(t, gap, "not implemented by the simulator", path)
-	}
+	// A pool's metric definitions are the metric series Microsoft.Insights
+	// publishes about it, and this simulator publishes none — which is an
+	// answer, and the document spells it as an empty collection.
+	definitions := runCLI(t, azRest("GET",
+		aseCLIURL("hostingEnvironments/cli-ase/multiRolePools/default/metricdefinitions"), ""))
+	assert.Contains(t, definitions, `"value": []`)
+
+	// The outbound dependency catalog stays declared: Microsoft's own list of
+	// platform endpoints and address ranges names itself rather than 404ing
+	// silently.
+	gap := runStorageCLIExpectFailure(t, azRest("GET",
+		aseCLIURL("hostingEnvironments/cli-ase/outboundNetworkDependenciesEndpoints"), ""))
+	assert.Contains(t, gap, "not implemented by the simulator")
 
 	runCLI(t, azRest("DELETE", aseURL, ""))
 	gone := runStorageCLIExpectFailure(t, azRest("GET", aseURL, ""))

@@ -52,6 +52,7 @@ func registerEventGrid(srv *sim.Server) {
 	eventGridDomains = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_domains")
 	eventGridDomainTopics = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_domain_topics")
 	eventGridSystemTopics = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_system_topics")
+	registerEventGridExtensionTopics(srv)
 	eventGridPartnerTopics = sim.MakeStore[EventGridTopic](srv.DB(), "eventgrid_partner_topics")
 	eventGridSubscriptions = sim.MakeStore[EventGridEventSubscription](srv.DB(), "eventgrid_subscriptions")
 
@@ -562,6 +563,14 @@ func handleEventGridListPartnerTopicsBySubscription(w http.ResponseWriter, r *ht
 }
 
 func eventGridCreateARMResource(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, name, resourceType string, mutate func(map[string]any)) {
+	eventGridCreateARMResourceStatus(w, r, store, id, name, resourceType, http.StatusCreated, mutate)
+}
+
+// eventGridCreateARMResourceStatus creates an Event Grid ARM resource and
+// answers with the status that resource's create declares. Most of them answer
+// 201; partner registrations answer 200, which is what their swagger declares
+// and what a client polling the create reads.
+func eventGridCreateARMResourceStatus(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, name, resourceType string, status int, mutate func(map[string]any)) {
 	var req EventGridTopic
 	if err := sim.ReadJSON(r, &req); err != nil && r.ContentLength != 0 {
 		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
@@ -585,7 +594,7 @@ func eventGridCreateARMResource(w http.ResponseWriter, r *http.Request, store si
 		Properties: props,
 	}
 	store.Put(id, resource)
-	sim.WriteJSON(w, http.StatusCreated, resource)
+	sim.WriteJSON(w, status, resource)
 }
 
 func eventGridGetARMResource(w http.ResponseWriter, store sim.Store[EventGridTopic], id, label string) {

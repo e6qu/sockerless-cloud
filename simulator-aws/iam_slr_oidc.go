@@ -110,6 +110,50 @@ func iamSLRName(servicePrincipal, customSuffix string) string {
 	return name
 }
 
+// iamPutServiceLinkedRole records a service-linked role and the IAMRole shadow
+// that GetRole reads, and returns it. A service that creates its own role on a
+// caller's behalf — Application Auto Scaling does, when a register carries no
+// RoleARN — goes through here, so the role it names is one this account's IAM
+// actually holds rather than an ARN assembled for the response.
+func iamPutServiceLinkedRole(name, servicePrincipal, description string) IAMServiceLinkedRole {
+	role := IAMServiceLinkedRole{
+		RoleName:                 name,
+		RoleId:                   iamRandomID("AROA", 16),
+		Arn:                      iamSLRARN(name, servicePrincipal),
+		Path:                     iamSLRPath(servicePrincipal),
+		AssumeRolePolicyDocument: iamSLRAssumeDoc(servicePrincipal),
+		CreateDate:               time.Now().UTC().Format(time.RFC3339),
+		ServicePrincipal:         servicePrincipal,
+		Description:              description,
+	}
+	iamSLRs.Put(name, role)
+	// Real AWS exposes the SLR via GetRole as well. Terraform's
+	// aws_iam_service_linked_role.Read calls GetRole with the full
+	// role name — store an IAMRole shadow in the regular store so
+	// that path finds the same record.
+	iamRoles.Put(name, IAMRole{
+		RoleName:                 role.RoleName,
+		RoleId:                   role.RoleId,
+		Arn:                      role.Arn,
+		Path:                     role.Path,
+		AssumeRolePolicyDocument: role.AssumeRolePolicyDocument,
+		CreateDate:               role.CreateDate,
+		Description:              role.Description,
+	})
+	return role
+}
+
+// iamEnsureServiceLinkedRole returns the ARN of the service-linked role for a
+// principal, creating it if this account does not hold it yet — which is what
+// the services that use one do on the caller's behalf.
+func iamEnsureServiceLinkedRole(servicePrincipal, description string) string {
+	name := iamSLRName(servicePrincipal, "")
+	if existing, ok := iamSLRs.Get(name); ok {
+		return existing.Arn
+	}
+	return iamPutServiceLinkedRole(name, servicePrincipal, description).Arn
+}
+
 func iamRandomID(prefix string, n int) string {
 	buf := make([]byte, n/2)
 	_, _ = rand.Read(buf)
@@ -141,30 +185,7 @@ func handleIAMCreateServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "InvalidInput", "Service role name "+name+" has been taken in this account, please try a different suffix.", http.StatusBadRequest)
 		return
 	}
-	role := IAMServiceLinkedRole{
-		RoleName:                 name,
-		RoleId:                   iamRandomID("AROA", 16),
-		Arn:                      iamSLRARN(name, sp),
-		Path:                     iamSLRPath(sp),
-		AssumeRolePolicyDocument: iamSLRAssumeDoc(sp),
-		CreateDate:               time.Now().UTC().Format(time.RFC3339),
-		ServicePrincipal:         sp,
-		Description:              description,
-	}
-	iamSLRs.Put(name, role)
-	// Real AWS exposes the SLR via GetRole as well. Terraform's
-	// aws_iam_service_linked_role.Read calls GetRole with the full
-	// role name — store an IAMRole shadow in the regular store so
-	// that path finds the same record.
-	iamRoles.Put(name, IAMRole{
-		RoleName:                 role.RoleName,
-		RoleId:                   role.RoleId,
-		Arn:                      role.Arn,
-		Path:                     role.Path,
-		AssumeRolePolicyDocument: role.AssumeRolePolicyDocument,
-		CreateDate:               role.CreateDate,
-		Description:              role.Description,
-	})
+	role := iamPutServiceLinkedRole(name, sp, description)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateServiceLinkedRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <CreateServiceLinkedRoleResult>

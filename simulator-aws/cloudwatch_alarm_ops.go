@@ -369,6 +369,14 @@ func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmAct
 
 // cwAlarmEffectiveState returns a metric alarm's state, preferring a manual
 // SetAlarmState override over the metric-derived evaluation.
+//
+// The read derives the state rather than reporting the one the evaluator
+// recorded, and both go through cwEvaluateAlarmState, so the two never disagree
+// about what the metric data means. What the evaluator's recorded state adds is
+// transition detection: it is the previous state a dispatch is decided against,
+// which is why it is written only there. Evaluating from the read path instead
+// would put action dispatch — and the ECS reconciliation that follows it — on
+// every DescribeAlarms, which is work a read has no business doing.
 func cwAlarmEffectiveState(a CWAlarm) (state, reason string) {
 	if a.ManualState != "" {
 		return a.ManualState, a.ManualStateReason

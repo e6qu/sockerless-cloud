@@ -20,10 +20,10 @@ import (
 // DESTROYED version — real GCP returns FAILED_PRECONDITION (400), not 404.
 var errSecretVersionNotEnabled = errors.New("secret version is not enabled")
 
-// Secret Manager v1 slice. Sockerless's GCP Cloud Build integration
-// references secret versions via `availableSecrets.secretManager
-// [].versionName`; the simulator must return the secret payload so
-// Cloud Build can expand them into env vars before executing the build
+// Secret Manager v1 slice. A build references secret versions through
+// `availableSecrets.secretManager[].versionName`, so the simulator returns the
+// secret payload for Cloud Build to expand into env vars before executing the
+// build
 // step. Real API: https://cloud.google.com/secret-manager/docs/reference/rest
 
 // Secret represents a Cloud Secret Manager secret resource.

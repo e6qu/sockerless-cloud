@@ -221,12 +221,20 @@ func amplifyStopComputeLocked(key string) {
 // amplifyComputeRuntimeImage maps the manifest's runtime ("nodejs18.x") to
 // the node container image (via the ECR Public Docker Hub mirror — repo
 // policy: no direct Docker Hub pulls).
+//
+// The runtimes are listed rather than derived from the name. AWS Amplify
+// Hosting accepts a published set, so composing a tag out of any "nodejsNN.x"
+// would answer for versions the service rejects and name an image the mirror
+// does not carry. Spelling the images out also lets them be read off the
+// source, which is how CI knows what to warm.
 func amplifyComputeRuntimeImage(runtimeName string) (string, error) {
-	m := regexp.MustCompile(`^nodejs(\d+)\.x$`).FindStringSubmatch(runtimeName)
-	if m == nil {
-		return "", fmt.Errorf("compute runtime %q not supported (expected nodejsNN.x)", runtimeName)
+	switch runtimeName {
+	case "nodejs18.x":
+		return "public.ecr.aws/docker/library/node:18-alpine", nil
+	case "nodejs20.x":
+		return "public.ecr.aws/docker/library/node:20-alpine", nil
 	}
-	return "public.ecr.aws/docker/library/node:" + m[1] + "-alpine", nil
+	return "", fmt.Errorf("compute runtime %q not supported (expected nodejs18.x or nodejs20.x)", runtimeName)
 }
 
 // amplifyEnsureCompute returns the host port of the running compute

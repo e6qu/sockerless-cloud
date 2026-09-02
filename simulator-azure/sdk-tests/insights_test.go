@@ -137,3 +137,54 @@ func TestAppInsights_BillingFeatures(t *testing.T) {
 func ptrApplicationType(s armapplicationinsights.ApplicationType) *armapplicationinsights.ApplicationType {
 	return &s
 }
+
+// The plan a component starts on is shared by every component that has no
+// record of its own, so no request may be able to write to it. A PUT naming
+// the Enterprise plan used to decode straight into the default's own slice,
+// and every component created afterwards started on Enterprise.
+func TestAppInsights_OneComponentsPlanIsNotAnothersDefault(t *testing.T) {
+	const rgName = "insights-default-rg"
+	ensureRG(t, rgName)
+
+	comps, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	newComponent := func(name string) {
+		t.Helper()
+		_, err := comps.CreateOrUpdate(ctx, rgName, name, armapplicationinsights.Component{
+			Location: ptrStr("eastus"),
+			Kind:     ptrStr("web"),
+			Properties: &armapplicationinsights.ComponentProperties{
+				ApplicationType: ptrApplicationType(armapplicationinsights.ApplicationTypeWeb),
+			},
+		}, nil)
+		require.NoError(t, err)
+	}
+	newComponent("default-moved")
+	newComponent("default-untouched")
+
+	billing, err := armapplicationinsights.NewComponentCurrentBillingFeaturesClient(
+		subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+
+	enterpriseCap := float32(50)
+	_, err = billing.Update(ctx, rgName, "default-moved",
+		armapplicationinsights.ComponentBillingFeatures{
+			CurrentBillingFeatures: []*string{ptrStr("Application Insights Enterprise")},
+			DataVolumeCap: &armapplicationinsights.ComponentDataVolumeCap{
+				Cap: &enterpriseCap,
+			},
+		}, nil)
+	require.NoError(t, err)
+
+	moved, err := billing.Get(ctx, rgName, "default-moved", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, moved.CurrentBillingFeatures)
+	assert.Equal(t, "Application Insights Enterprise", *moved.CurrentBillingFeatures[0],
+		"the component that was moved is on the plan it was moved to")
+
+	untouched, err := billing.Get(ctx, rgName, "default-untouched", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, untouched.CurrentBillingFeatures)
+	assert.Equal(t, "Basic", *untouched.CurrentBillingFeatures[0],
+		"a component nobody moved is still on the plan every component starts on")
+}

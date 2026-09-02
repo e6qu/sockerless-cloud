@@ -21,6 +21,10 @@ func fsDocumentVerbHandled(w http.ResponseWriter, r *http.Request, parentPath, v
 		fsHandleRunAggregationQuery(w, r, parentPath)
 	case "partitionQuery":
 		fsHandlePartitionQuery(w, r, parentPath)
+	case "listen":
+		fsListen(w, r)
+	case "executePipeline":
+		fsExecutePipeline(w, r)
 	default:
 		return false
 	}

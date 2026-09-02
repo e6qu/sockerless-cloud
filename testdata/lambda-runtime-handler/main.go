@@ -96,6 +96,8 @@ func main() {
 			"body":       string(targetBody),
 		})
 		postResponse(base, requestID, responsePayload)
+	case strings.Contains(payloadStr, `"getObjectContext"`):
+		handleObjectLambda(base, requestID, payload)
 	case strings.Contains(payloadStr, `"cause":"error"`):
 		errPayload := []byte(`{"errorMessage":"test error from handler","errorType":"HandlerError"}`)
 		postError(base, requestID, errPayload)
@@ -147,4 +149,81 @@ func postInitError(base, msg string) {
 		return
 	}
 	defer resp.Body.Close()
+}
+
+// handleObjectLambda serves an Amazon S3 Object Lambda transformation: read the
+// original object from the URL S3 supplied, upper-case it, and post the result
+// back on the route S3 routed this read to. The transformed bytes reach the
+// caller only through that callback, so a handler that returns without making
+// it produces no object at all.
+func handleObjectLambda(base, requestID string, payload []byte) {
+	var event struct {
+		GetObjectContext struct {
+			InputS3URL  string `json:"inputS3Url"`
+			OutputRoute string `json:"outputRoute"`
+			OutputToken string `json:"outputToken"`
+		} `json:"getObjectContext"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		postError(base, requestID, []byte(`{"errorMessage":"malformed Object Lambda event","errorType":"HandlerError"}`))
+		return
+	}
+	ctx := event.GetObjectContext
+
+	original, err := http.Get(ctx.InputS3URL)
+	if err != nil {
+		postObjectLambdaHandlerError(base, requestID, "read the original object: "+err.Error())
+		return
+	}
+	body, readErr := io.ReadAll(original.Body)
+	original.Body.Close()
+	if readErr != nil {
+		postObjectLambdaHandlerError(base, requestID, "read the original object: "+readErr.Error())
+		return
+	}
+	if original.StatusCode != http.StatusOK {
+		postObjectLambdaHandlerError(base, requestID,
+			fmt.Sprintf("the original object returned %d: %s", original.StatusCode, strings.TrimSpace(string(body))))
+		return
+	}
+
+	transformed := []byte(strings.ToUpper(string(body)))
+	if err := writeGetObjectResponse(ctx.OutputRoute, ctx.OutputToken, transformed); err != nil {
+		postObjectLambdaHandlerError(base, requestID, err.Error())
+		return
+	}
+	postResponse(base, requestID, []byte(`{"status_code":200}`))
+}
+
+// writeGetObjectResponse hands the transformed object back to S3 on the route
+// this read was given. The endpoint comes from AWS_ENDPOINT_URL, the same
+// coordinate an SDK client in this function would resolve S3 through.
+func writeGetObjectResponse(route, token string, body []byte) error {
+	endpoint := strings.TrimSuffix(os.Getenv("AWS_ENDPOINT_URL"), "/")
+	if endpoint == "" {
+		return fmt.Errorf("AWS_ENDPOINT_URL is not set, so there is no S3 endpoint to answer on")
+	}
+	request, err := http.NewRequest(http.MethodPost, endpoint+"/WriteGetObjectResponse", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build the WriteGetObjectResponse request: %w", err)
+	}
+	request.Header.Set("x-amz-request-route", route)
+	request.Header.Set("x-amz-request-token", token)
+	request.Header.Set("x-amz-fwd-status", "200")
+	request.Header.Set("x-amz-fwd-header-Content-Type", "text/plain")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("WriteGetObjectResponse: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		detail, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("WriteGetObjectResponse returned %d: %s", response.StatusCode, strings.TrimSpace(string(detail)))
+	}
+	return nil
+}
+
+func postObjectLambdaHandlerError(base, requestID, message string) {
+	body, _ := json.Marshal(map[string]string{"errorMessage": message, "errorType": "HandlerError"})
+	postError(base, requestID, body)
 }

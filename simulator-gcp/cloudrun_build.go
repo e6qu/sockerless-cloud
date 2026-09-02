@@ -21,6 +21,9 @@ func cloudRunLocationVerbHandled(w http.ResponseWriter, r *http.Request, collect
 		cloudRunSubmitBuild(w, r)
 	case verb == "uploadSource":
 		cloudRunUploadSource(w, r)
+	case verb == "exportImage":
+		cloudRunExportImage(w, r, fmt.Sprintf("projects/%s/locations/%s/%s",
+			sim.PathParam(r, "project"), sim.PathParam(r, "location"), collection))
 	default:
 		return false
 	}

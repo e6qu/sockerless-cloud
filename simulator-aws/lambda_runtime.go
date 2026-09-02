@@ -15,6 +15,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -115,7 +116,7 @@ func startRuntimeAPISidecar(inv *lambdaInvocation) (*runtimeAPISidecar, error) {
 		WriteTimeout: 0,
 	}
 
-	simGo(func() {
+	simJoinedGo(func() {
 		_ = s.server.Serve(ln)
 	})
 
@@ -701,6 +702,15 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 		"_HANDLER":                        fn.Handler,
 		"AWS_LAMBDA_INITIALIZATION_TYPE":  "on-demand",
 	}
+	// A function that calls an AWS service uses the SDK, which resolves the
+	// service endpoint from AWS_ENDPOINT_URL when one is configured. In real
+	// Lambda that variable is unset and the SDK resolves to the real regional
+	// host; here the services live in this simulator, so the container is given
+	// the address it can reach the simulator on. The function's own environment
+	// still wins, so a function configured for a specific endpoint keeps it.
+	if endpoint := lambdaWorkloadEndpointURL(); endpoint != "" {
+		cmdEnv["AWS_ENDPOINT_URL"] = endpoint
+	}
 	if fn.Environment != nil {
 		for k, v := range fn.Environment.Variables {
 			cmdEnv[k] = v
@@ -797,7 +807,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	)
 	waitForContainer := make(chan int, 1)
 	watchContainer := func(h *sim.ContainerHandle) {
-		simGo(func() {
+		simJoinedGo(func() {
 			res := h.Wait()
 			waitForContainer <- res.ExitCode
 		})
@@ -1072,4 +1082,20 @@ func lambdaErrorPayload(msg string) []byte {
 		"errorType":    "Runtime.ExitError",
 	})
 	return body
+}
+
+// lambdaWorkloadEndpointURL is the simulator's address as a function container
+// sees it — the same host its Runtime API arrives on, at the simulator's own
+// port. Empty when neither can be determined, in which case the container is
+// left with the SDK's own resolution rather than a wrong address.
+func lambdaWorkloadEndpointURL() string {
+	host, err := runtimeAPIHost()
+	if err != nil {
+		return ""
+	}
+	port, err := simHostMetadataPort()
+	if err != nil {
+		return ""
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 }

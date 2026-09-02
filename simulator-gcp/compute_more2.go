@@ -41,38 +41,75 @@ func registerComputeMore2(srv *sim.Server) {
 	// delete / patch / setLabels. The aggregated flag is set only for
 	// collections whose Discovery document defines an aggregatedList
 	// method, so no invented /aggregated/<collection> route is registered.
+	// Shared so the node verbs in compute_members.go address the same groups,
+	// and the reservation verbs the same reservations.
+	gcpComputeNodeGroups = mk("compute_node_groups")
+	gcpComputeReservations = mk("compute_reservations")
+	gcpComputeRegionalPublicDelegatedPrefixes = mk("compute_region_public_delegated_prefixes")
+	gcpComputeBackendBuckets = mk("compute_backend_buckets")
+
 	families := []computeMetaResource{
 		// Global load-balancing / addressing / policy resources.
-		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: mk("compute_backend_buckets"), patch: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList"},
-		{collection: "externalVpnGateways", kind: "compute#externalVpnGateway", scope: cScopeGlobal, store: mk("compute_external_vpn_gateways"), setLabels: true},
-		{collection: "targetSslProxies", kind: "compute#targetSslProxy", scope: cScopeGlobal, store: mk("compute_target_ssl_proxies")},
+		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: gcpComputeBackendBuckets, patch: true, update: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList",
+			// setEdgeSecurityPolicy sends a SecurityPolicyReference, so its
+			// body member is securityPolicy while the bucket stores it as
+			// edgeSecurityPolicy.
+			setVerbs: []computeSetVerb{{verb: "setEdgeSecurityPolicy", member: "securityPolicy", into: "edgeSecurityPolicy"}}},
+		{collection: "externalVpnGateways", kind: "compute#externalVpnGateway", scope: cScopeGlobal, store: mk("compute_external_vpn_gateways"), setLabels: true, testIamOnly: true},
+		{collection: "targetSslProxies", kind: "compute#targetSslProxy", scope: cScopeGlobal, store: mk("compute_target_ssl_proxies"), testIamOnly: true},
 		{collection: "publicDelegatedPrefixes", kind: "compute#publicDelegatedPrefix", scope: cScopeGlobal, store: mk("compute_public_delegated_prefixes"), patch: true, aggregated: true},
-		{collection: "publicAdvertisedPrefixes", kind: "compute#publicAdvertisedPrefix", scope: cScopeGlobal, store: mk("compute_public_advertised_prefixes"), patch: true},
+		{collection: "publicAdvertisedPrefixes", kind: "compute#publicAdvertisedPrefix", scope: cScopeGlobal, store: mk("compute_public_advertised_prefixes"), patch: true,
+			// A prefix is validated before it goes on the wire, and can be
+			// taken back off it.
+			stateVerbs: []computeStateVerb{
+				{verb: "announce", from: "INITIAL", to: "ANNOUNCED_TO_INTERNET", done: "announced", initial: "INITIAL"},
+				{verb: "withdraw", from: "ANNOUNCED_TO_INTERNET", to: "INITIAL", done: "withdrawn", initial: "INITIAL"},
+			}},
 		{collection: "sslPolicies", kind: "compute#sslPolicy", scope: cScopeGlobal, store: mk("compute_ssl_policies"), patch: true, aggregated: true},
 
 		// Regional resources.
 		{collection: "resourcePolicies", kind: "compute#resourcePolicy", scope: cScopeRegion, store: mk("compute_resource_policies"), patch: true, aggregated: true},
 		{collection: "sslCertificates", kind: "compute#sslCertificate", scope: cScopeRegion, store: mk("compute_region_ssl_certificates")},
-		{collection: "nodeTemplates", kind: "compute#nodeTemplate", scope: cScopeRegion, store: mk("compute_node_templates"), aggregated: true},
-		{collection: "notificationEndpoints", kind: "compute#notificationEndpoint", scope: cScopeRegion, store: mk("compute_notification_endpoints"), aggregated: true},
+		// The regional public delegated prefixes are a separate collection
+		// from the global ones, with announce and withdraw of their own.
+		{collection: "publicDelegatedPrefixes", kind: "compute#publicDelegatedPrefix", scope: cScopeRegion, store: gcpComputeRegionalPublicDelegatedPrefixes, patch: true},
+		{collection: "nodeTemplates", kind: "compute#nodeTemplate", scope: cScopeRegion, store: mk("compute_node_templates"), aggregated: true, iam: true},
+		{collection: "notificationEndpoints", kind: "compute#notificationEndpoint", scope: cScopeRegion, store: mk("compute_notification_endpoints"), aggregated: true, testIamOnly: true},
 		{collection: "targetHttpsProxies", kind: "compute#targetHttpsProxy", scope: cScopeRegion, store: mk("compute_region_target_https_proxies"), patch: true},
 		{collection: "targetVpnGateways", kind: "compute#targetVpnGateway", scope: cScopeRegion, store: mk("compute_target_vpn_gateways"), setLabels: true, aggregated: true},
-		{collection: "vpnGateways", kind: "compute#vpnGateway", scope: cScopeRegion, store: mk("compute_vpn_gateways"), setLabels: true, aggregated: true},
+		{collection: "vpnGateways", kind: "compute#vpnGateway", scope: cScopeRegion, store: mk("compute_vpn_gateways"), setLabels: true, aggregated: true, testIamOnly: true,
+			// What the gateway's tunnels are doing. A gateway with none
+			// reports none, which is the truthful answer rather than an
+			// invented connection.
+			statusReads: []computeStatusRead{{
+				verb: "getStatus", wrap: "result",
+				status: func(map[string]any) map[string]any {
+					return map[string]any{"vpnConnections": []any{}}
+				},
+			}}},
 		{collection: "vpnTunnels", kind: "compute#vpnTunnel", scope: cScopeRegion, store: mk("compute_vpn_tunnels"), setLabels: true, aggregated: true},
 		{collection: "serviceAttachments", kind: "compute#serviceAttachment", scope: cScopeRegion, store: mk("compute_service_attachments"), patch: true, aggregated: true},
 		{collection: "networkAttachments", kind: "compute#networkAttachment", scope: cScopeRegion, store: mk("compute_network_attachments"), patch: true, aggregated: true},
-		{collection: "securityPolicies", kind: "compute#securityPolicy", scope: cScopeRegion, store: mk("compute_region_security_policies"), patch: true, setLabels: true, aggregated: true},
-		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeRegion, store: regionAutoscalers, aggregated: true},
+		// Regional security policies are registered by registerComputePolicies,
+		// which serves their rule verbs alongside the lifecycle.
+		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeRegion, store: regionAutoscalers, aggregated: true, testIamOnly: true},
 		{collection: "instantSnapshots", kind: "compute#instantSnapshot", scope: cScopeRegion, store: mk("compute_region_instant_snapshots"), setLabels: true},
 		{collection: "sslPolicies", kind: "compute#sslPolicy", scope: cScopeRegion, store: mk("compute_region_ssl_policies"), patch: true},
 
 		// Zonal resources.
-		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeZone, store: zoneAutoscalers},
-		{collection: "nodeGroups", kind: "compute#nodeGroup", scope: cScopeZone, store: mk("compute_node_groups"), patch: true, aggregated: true},
-		{collection: "reservations", kind: "compute#reservation", scope: cScopeZone, store: mk("compute_reservations"), patch: true, aggregated: true, resourceMetadata: true},
+		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeZone, store: zoneAutoscalers, testIamOnly: true},
+		{collection: "nodeGroups", kind: "compute#nodeGroup", scope: cScopeZone, store: gcpComputeNodeGroups, patch: true, aggregated: true},
+		{collection: "reservations", kind: "compute#reservation", scope: cScopeZone, store: gcpComputeReservations, patch: true, aggregated: true, resourceMetadata: true},
 		{collection: "storagePools", kind: "compute#storagePool", scope: cScopeZone, store: mk("compute_storage_pools"), patch: true, aggregated: true},
-		{collection: "targetInstances", kind: "compute#targetInstance", scope: cScopeZone, store: mk("compute_target_instances"), aggregated: true},
-		{collection: "futureReservations", kind: "compute#futureReservation", scope: cScopeZone, store: mk("compute_future_reservations"), patch: true, aggregated: true, resourceMetadata: true},
+		{collection: "targetInstances", kind: "compute#targetInstance", scope: cScopeZone, store: mk("compute_target_instances"), aggregated: true, testIamOnly: true,
+			setVerbs: []computeSetVerb{{verb: "setSecurityPolicy", member: "securityPolicy"}}},
+		{collection: "futureReservations", kind: "compute#futureReservation", scope: cScopeZone, store: mk("compute_future_reservations"), patch: true, aggregated: true, resourceMetadata: true,
+			// A future reservation can be cancelled before it starts, and only
+			// once.
+			stateVerbs: []computeStateVerb{
+				{verb: "cancel", from: "DRAFTING", to: "CANCELLED", done: "cancelled", initial: "DRAFTING",
+					at: []string{"status", "procurementStatus"}},
+			}},
 		{collection: "instantSnapshots", kind: "compute#instantSnapshot", scope: cScopeZone, store: mk("compute_zone_instant_snapshots"), setLabels: true, aggregated: true},
 	}
 	for _, res := range families {
@@ -83,7 +120,7 @@ func registerComputeMore2(srv *sim.Server) {
 	// `kind` member (LicensesListResponse), so it cannot ride the shared
 	// list helper (which always stamps kind). Registered with bespoke
 	// handlers that round-trip the stored License faithfully.
-	registerComputeLicenses(srv, mk("compute_licenses"))
+	registerComputeLicenses(srv, mk("compute_licenses"), mk("compute_license_codes"))
 
 	// autoscalers.patch / autoscalers.update are collection-level verbs
 	// (the target is named by the `autoscaler` query parameter, not a path
@@ -134,7 +171,7 @@ func registerComputeMore2(srv *sim.Server) {
 // the LicensesListResponse schema defines no `kind` member (the shared
 // list helper always stamps kind); every verb here emits exactly the
 // documented License / LicensesListResponse / Operation shape.
-func registerComputeLicenses(srv *sim.Server, store sim.Store[map[string]any]) {
+func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]any]) {
 	const collection = "licenses"
 	base := computeScopeMux(cScopeGlobal, collection)
 	relPath := func(r *http.Request, name string) string {
@@ -161,11 +198,82 @@ func registerComputeLicenses(srv *sim.Server, store sim.Store[map[string]any]) {
 		}
 		body["kind"] = "compute#license"
 		body["id"] = computeNumericID()
+		// The code the licence is attached to images and disks by. Compute
+		// Engine assigns it — it is output-only on the License — and it is
+		// what licenseCodes.get is asked for.
+		code := computeNumericID()
+		body["licenseCode"] = code
 		body["selfLink"] = computeSelfLink(key)
 		body["creationTimestamp"] = time.Now().UTC().Format(time.RFC3339)
 		store.Put(key, body)
+		codes.Put(code, map[string]any{"license": key})
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(sim.PathParam(r, "project"), "global", computeSelfLink(key), "insert"))
 	})
+
+	// A licence code is read as a resource of its own, and every field the
+	// LicenseCode schema declares that this simulator knows is the licence's:
+	// the code names the licence it was issued for, and the alias is that
+	// licence's URL and description. The fields a licence here never carries —
+	// the retention and attachment rules Compute Engine's own published
+	// licences set — are left out rather than defaulted, because a licence
+	// this project created declares them or it does not.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{licenseCode}",
+		func(w http.ResponseWriter, r *http.Request) {
+			// The code is its own row, so this is a lookup rather than a walk
+			// of every licence. The row holds the licence's storage key: the
+			// licence stays the one copy of the data, and a code whose licence
+			// has been deleted resolves to nothing, which is the same answer
+			// as a code that was never issued.
+			code := sim.PathParam(r, "licenseCode")
+			notFound := func() {
+				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+					"licenseCode %q not found", code)
+			}
+			row, issued := codes.Get(code)
+			if !issued {
+				notFound()
+				return
+			}
+			key, _ := row["license"].(string)
+			licence, ok := store.Get(key)
+			if key == "" || !ok {
+				notFound()
+				return
+			}
+			out := map[string]any{
+				"kind":     "compute#licenseCode",
+				"id":       code,
+				"name":     code,
+				"selfLink": computeSelfLink("projects/" + sim.PathParam(r, "project") + "/global/licenseCodes/" + code),
+				"state":    "ENABLED",
+			}
+			if v, isSet := licence["creationTimestamp"]; isSet {
+				out["creationTimestamp"] = v
+			}
+			alias := map[string]any{}
+			if v, isSet := licence["selfLink"]; isSet {
+				alias["selfLink"] = v
+			}
+			if v, isSet := licence["description"]; isSet {
+				out["description"] = v
+				alias["description"] = v
+			}
+			if len(alias) > 0 {
+				out["licenseAlias"] = []any{alias}
+			}
+			// The rules the licence itself states, carried through rather than
+			// answered for: each is declared on both resources.
+			for _, field := range []string{
+				"allowedReplacementLicenses", "appendableToDisk", "incompatibleLicenses",
+				"minimumRetention", "multiTenantOnly", "osLicense", "removableFromDisk",
+				"requiredCoattachedLicenses", "soleTenantOnly", "transferable",
+			} {
+				if v, isSet := licence[field]; isSet {
+					out[field] = v
+				}
+			}
+			sim.WriteJSON(w, http.StatusOK, out)
+		})
 
 	srv.HandleFunc("GET "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := store.Get(relPath(r, sim.PathParam(r, "name")))
@@ -208,8 +316,16 @@ func registerComputeLicenses(srv *sim.Server, store sim.Store[map[string]any]) {
 	srv.HandleFunc("DELETE "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		key := relPath(r, sim.PathParam(r, "name"))
+		// Read the code before the licence goes, so the code row goes with it.
+		var code string
+		if licence, ok := store.Get(key); ok {
+			code, _ = licence["licenseCode"].(string)
+		}
 		if computeNotFound(w, store.Delete(key), collection, sim.PathParam(r, "name")) {
 			return
+		}
+		if code != "" {
+			codes.Delete(code)
 		}
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "global", computeSelfLink(key), "delete"))
 	})
@@ -226,7 +342,7 @@ func registerComputeLicenses(srv *sim.Server, store sim.Store[map[string]any]) {
 			cur := *m
 			for k, v := range body {
 				switch k {
-				case "kind", "id", "selfLink", "creationTimestamp", "name":
+				case "kind", "id", "licenseCode", "selfLink", "creationTimestamp", "name":
 					continue
 				}
 				cur[k] = v
