@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.0](https://github.com/e6qu/sockerless-cloud/compare/v0.29.0...v0.30.0) (2026-09-02)
+
+
+### Features
+
+* **sim:** serve the remaining slice surface across the three simulators ([#109](https://github.com/e6qu/sockerless-cloud/issues/109)) ([dc3b702](https://github.com/e6qu/sockerless-cloud/commit/dc3b7026be387e08cfece8abf22c2f302b8c93e8))
+
 ## [0.29.0](https://github.com/e6qu/sockerless-cloud/compare/v0.28.3...v0.29.0) (2026-08-30)
 
 
