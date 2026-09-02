@@ -27,10 +27,26 @@ func OpenDB(dataDir string) (*sql.DB, error) {
 	// ("database is locked") instead of waiting. WAL lets readers and the single
 	// writer (serialized by SQLiteStore.mu) coexist; busy_timeout on every
 	// connection absorbs the brief lock hand-offs under load.
+	//
+	// synchronous=NORMAL, not FULL: FULL fsyncs the WAL on every single commit,
+	// and under concurrent load every write serializes behind that fsync —
+	// measured on a deployed simulator under real client traffic, DynamoDB
+	// Query/PutItem calls that complete in low single-digit milliseconds against
+	// real AWS took 500-1100ms here, because the request volume this simulator
+	// now serves queues every writer behind the previous one's fsync. NORMAL
+	// still fsyncs at every WAL checkpoint and is safe against an application or
+	// process crash (SQLite's own documented guarantee); it only gives up
+	// protection against the specific case of the host losing power between a
+	// commit and its next checkpoint, which does not matter for this
+	// simulator's ephemeral, rebuildable state the way it would for a real
+	// database. A simulator that answers 100-1000x slower than the cloud it
+	// simulates breaks fidelity for any client whose behavior is timing
+	// sensitive — durability the real service's own client contract never
+	// promised was the wrong thing to buy that slowdown for.
 	dsn := dbPath +
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=journal_mode(WAL)" +
-		"&_pragma=synchronous(FULL)"
+		"&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -48,9 +64,9 @@ func OpenDB(dataDir string) (*sql.DB, error) {
 }
 
 // CloseDB checkpoints all committed WAL records into the database before
-// closing it. FULL synchronous mode protects committed transactions when the
-// host loses power; the explicit checkpoint makes an orderly service shutdown
-// leave one self-contained database file for the next process.
+// closing it, so an orderly service shutdown leaves one self-contained
+// database file for the next process rather than relying on that process to
+// find and replay a WAL segment.
 func CloseDB(db *sql.DB) error {
 	if db == nil {
 		return nil

@@ -1,5 +1,30 @@
 # WHAT WE DID
 
+## 2026-09-02 — SQLite synchronous=FULL was serializing every write behind an fsync
+
+A deployed AWS simulator was found pegged at 70-130% CPU for hours under real
+client traffic, with DynamoDB `Query`/`PutItem` calls that complete in
+low-single-digit milliseconds against real AWS taking 500-1100ms here. The
+cause: `shared/db.go` opened its SQLite store with `synchronous=FULL`, which
+fsyncs the WAL on every single commit. Under concurrent load every write
+serialized behind that fsync, and every consumer downstream of a write
+inherited the latency — including, in this instance, a relying party's login
+session check that depends on a just-written DynamoDB item being immediately
+readable. The same pattern, and the same slow-startup workaround (a 120-second
+`waitForHealth` deadline, because registering every persistent store table's
+schema alone had measured ~25 seconds under FULL), was duplicated verbatim
+across all three simulators.
+
+Changed to `synchronous=NORMAL` in `simulator-aws`, `simulator-azure`, and
+`simulator-gcp`. NORMAL still fsyncs at every WAL checkpoint and remains safe
+against an application or process crash — SQLite's own documented guarantee —
+and only gives up protection against the specific case of the host losing
+power between a commit and its next checkpoint, which does not matter for
+this simulator's ephemeral, rebuildable state the way it would for a real
+database. `TestSQLiteDurabilityAndOrderlyCheckpoint` (all three modules) now
+asserts `synchronous=1`, and the `waitForHealth` comments record the previous
+timing rather than restate a startup latency the fix removed the cause of.
+
 ## 2026-09-01, forty-fifth pass — Amazon S3 Object Lambda, control plane and all
 
 Amazon S3's `WriteGetObjectResponse` was the one operation in the vendored S3

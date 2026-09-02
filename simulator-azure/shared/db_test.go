@@ -39,7 +39,7 @@ func TestSQLiteDurabilityAndOrderlyCheckpoint(t *testing.T) {
 		if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&synchronous); err != nil {
 			t.Fatalf("%s connection synchronous mode: %v", name, err)
 		}
-		if journalMode != "wal" || synchronous != 2 {
+		if journalMode != "wal" || synchronous != 1 {
 			t.Fatalf(
 				"%s connection durability = journal_mode %q, synchronous %d",
 				name, journalMode, synchronous,
