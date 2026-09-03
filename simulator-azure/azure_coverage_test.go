@@ -570,7 +570,16 @@ var azureMethodFloor = map[string]int{
 	// this simulator — the cloud its sites call, at the coordinate the caller
 	// reached it on — so the dependency is resolved and connected to, and what
 	// is reported is what happened.
-	"web-arm-openapi-2025-03-01": 684,
+	//
+	// Raised from 684 by the two recommendation-rule reads, which used to
+	// decline on the grounds that a rule's details are Microsoft's published
+	// advisory copy. The listing beside them does not decline: it answers an
+	// empty collection, which states this scope has no recommendations, and it
+	// is right — the simulator raises none. Both cannot be true. A scope with
+	// no recommendations has no rule to read, so the read is not found, and it
+	// reads from the same collection the listing returns so the two cannot
+	// come to disagree.
+	"web-arm-openapi-2025-03-01": 686,
 }
 
 // Route table

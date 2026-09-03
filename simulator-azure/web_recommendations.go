@@ -46,8 +46,6 @@ func registerWebRecommendations(srv *sim.Server) {
 	webRecommendationSuppressions = sim.MakeStore[webRecommendationFilters](
 		srv.DB(), "web_recommendation_filters")
 
-	const ruleReason = "a recommendation rule's details are Microsoft's published advisory copy — its display name, portal message and blade link — which this simulator does not vendor"
-
 	// Subscription scope. There is no resource to look up: the subscription in
 	// the path is the scope itself.
 	sub := webSubscriptionProvider + "/recommendations"
@@ -96,8 +94,12 @@ func registerWebRecommendations(srv *sim.Server) {
 		}
 		webDisableRecommendationRule(w, aseResourceID(r), sim.PathParam(r, "ruleName"))
 	})
-	srv.HandleFunc("GET "+ase+"/recommendations/{ruleName}",
-		webRecommendationRuleGap("Recommendations_GetRuleDetailsByHostingEnvironment", ruleReason))
+	srv.HandleFunc("GET "+ase+"/recommendations/{ruleName}", func(w http.ResponseWriter, r *http.Request) {
+		if webEnvironmentMissing(w, r) {
+			return
+		}
+		webWriteRecommendationRule(w, sim.PathParam(r, "ruleName"))
+	})
 
 	// Site scope. Recommendations are addressed on a production site only —
 	// the document declares no slot spelling for any of them.
@@ -132,8 +134,12 @@ func registerWebRecommendations(srv *sim.Server) {
 		}
 		webDisableRecommendationRule(w, webResourceID(r), sim.PathParam(r, "ruleName"))
 	})
-	srv.HandleFunc("GET "+site+"/recommendations/{ruleName}",
-		webRecommendationRuleGap("Recommendations_GetRuleDetailsByWebApp", ruleReason))
+	srv.HandleFunc("GET "+site+"/recommendations/{ruleName}", func(w http.ResponseWriter, r *http.Request) {
+		if webMissing(w, r) {
+			return
+		}
+		webWriteRecommendationRule(w, sim.PathParam(r, "ruleName"))
+	})
 }
 
 // webEnvironmentMissing writes the canonical ARM 404 when the addressed App
@@ -152,7 +158,17 @@ func webEnvironmentMissing(w http.ResponseWriter, r *http.Request) bool {
 // simulator observes nothing about a running site, so it has recommended
 // nothing now and nothing before.
 func webWriteRecommendations(w http.ResponseWriter) {
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": webRecommendations()})
+}
+
+// webRecommendations is the recommendations this simulator has raised. It
+// raises none: a recommendation is Azure Advisor's judgement about a resource,
+// formed from telemetry this simulator does not collect, so there are none to
+// report and the empty collection says exactly that. Every read of a
+// recommendation — the listings and the rule reads alike — answers from here,
+// so none of them can contradict another.
+func webRecommendations() []map[string]any {
+	return []map[string]any{}
 }
 
 // webDisableRecommendationRule suppresses one rule for a scope.
@@ -206,9 +222,31 @@ func webRecommendationFiltersFor(scope string) webRecommendationFilters {
 // unimplemented whatever it is asked about, and answering a 404 for an absent
 // resource first would report an operation the simulator does not serve as one
 // that it does.
-func webRecommendationRuleGap(operation, reason string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
-			"%s is not implemented by the simulator: %s.", operation, reason)
+// webWriteRecommendationRule answers a read of one recommendation rule out of
+// the same collection the listings beside it return.
+//
+// This used to decline, on the grounds that a rule's details are Microsoft's
+// published advisory copy. The listing next to it does not decline: it answers
+// an empty collection, which states that this scope has no recommendations —
+// and it is right, because the simulator raises none. Those two cannot both be
+// true. A scope with no recommendations has no rule to read, and a read of
+// something that does not exist is not found; declining says the simulator
+// cannot answer a question it has already answered.
+//
+// Reading from the same collection is what keeps them agreeing: a rule the
+// listing does not carry is not found, whatever the listing comes to carry.
+func webWriteRecommendationRule(w http.ResponseWriter, rule string) {
+	if strings.TrimSpace(rule) == "" {
+		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			"A recommendation rule name is required.")
+		return
 	}
+	for _, recommendation := range webRecommendations() {
+		if name, _ := recommendation["name"].(string); strings.EqualFold(name, rule) {
+			sim.WriteJSON(w, http.StatusOK, recommendation)
+			return
+		}
+	}
+	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		"No recommendation named %q has been raised for this resource.", rule)
 }

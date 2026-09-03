@@ -71,11 +71,16 @@ func TestSDK_Recommendations_SubscriptionAndSiteScopes(t *testing.T) {
 	_, err = client.ResetAllFiltersForWebApp(ctx, rg, name, nil)
 	require.NoError(t, err)
 
-	// The rule's details are Microsoft's published advisory copy, which the
-	// simulator does not vendor and says so.
+	// The listing above says this site has no recommendations, so there is no
+	// rule to read and the read says that. It used to decline instead, on the
+	// grounds that a rule's details are Microsoft's advisory copy — which
+	// contradicted the listing beside it, and declined to answer a question
+	// the simulator had already answered.
 	_, err = client.GetRuleDetailsByWebApp(ctx, rg, name, "AppDensity", nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not vendor")
+	assert.Contains(t, err.Error(), "ResourceNotFound",
+		"a rule the listing does not carry is not found, not unimplemented")
+	assert.NotContains(t, err.Error(), "NotImplemented")
 
 	// Every site-scoped operation is addressed at a site, so one that does not
 	// exist is refused rather than answered with an empty list.

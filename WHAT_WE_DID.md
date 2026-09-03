@@ -37,7 +37,16 @@ the opposite reason: it answers an empty list, and Microsoft's own definition
 says "Response for network dependencies, always empty list". That one is
 correct as it stands.
 
-App Service reads **684 of 692**.
+A third pair came from the same reading. `Recommendations_GetRuleDetailsByWebApp`
+and its App Service Environment spelling declined because a rule's details are
+Microsoft's published advisory copy — while the listing beside them answered an
+empty collection, which states the scope has *no* recommendations, and is right,
+because the simulator raises none. Both cannot be true. A scope with no
+recommendations has no rule to read, so the read is not found, and it now reads
+from the same collection the listing returns, so the two cannot come to
+disagree.
+
+App Service reads **686 of 692**.
 
 The App Service process family is read from the process itself. It already was
 for the list — the site's workload is a container and the engine's process table
