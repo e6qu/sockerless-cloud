@@ -1186,6 +1186,13 @@ func siteNetAliases(site *Site) []string {
 func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
 	image := siteContainerImage(site)
 	if image == "" {
+		if stack := siteRuntimeStack(site); stack != "" {
+			return fmt.Errorf(
+				"site %q is configured with the built-in runtime stack %q, and this simulator runs "+
+					"container images: the platform image that stack names is Microsoft's. Configure "+
+					"the site with a container image (linuxFxVersion \"DOCKER|<image>\")",
+				site.Name, stack)
+		}
 		return fmt.Errorf("site %q has no container image", site.Name)
 	}
 	localImage := sim.ResolveLocalImage(image)
@@ -1425,15 +1432,56 @@ func stopAzureFunctionInstance(siteName string) {
 	inst.mu.Unlock()
 }
 
+// siteContainerImage is the container image a site runs, read from its
+// linuxFxVersion.
+//
+// The field names two different things depending on its prefix. "DOCKER|" and
+// the other container prefixes name an image; a built-in runtime stack —
+// "PHP|8.2", "NODE|20-lts", "DOTNETCORE|8.0" — names a version of a platform
+// image App Service supplies. Taking whatever follows the bar as an image
+// treated the second as the first, so a site configured the ordinary way tried
+// to pull an image called "8.2" and failed as if a registry were missing one.
+//
+// A built-in stack has no image here, so this reports none and the callers say
+// what is actually wrong. That is the same fact the stack catalogue states by
+// declining: this simulator runs container images, and the platform images
+// those stack versions name are Microsoft's.
 func siteContainerImage(site *Site) string {
 	if site == nil || site.Properties.SiteConfig == nil {
 		return ""
 	}
-	parts := strings.SplitN(site.Properties.SiteConfig.LinuxFxVersion, "|", 2)
-	if len(parts) == 2 {
-		return parts[1]
+	prefix, value, found := strings.Cut(site.Properties.SiteConfig.LinuxFxVersion, "|")
+	if !found {
+		return ""
 	}
-	return ""
+	if !siteLinuxFxNamesAnImage(prefix) {
+		return ""
+	}
+	return value
+}
+
+// siteLinuxFxNamesAnImage reports whether a linuxFxVersion prefix introduces a
+// container image rather than a built-in runtime stack.
+func siteLinuxFxNamesAnImage(prefix string) bool {
+	switch strings.ToUpper(strings.TrimSpace(prefix)) {
+	case "DOCKER", "COMPOSE", "KUBE":
+		return true
+	}
+	return false
+}
+
+// siteRuntimeStack is the built-in runtime stack a site is configured with, or
+// empty when it names a container image. Callers use it to say why a site with
+// no image has none.
+func siteRuntimeStack(site *Site) string {
+	if site == nil || site.Properties.SiteConfig == nil {
+		return ""
+	}
+	prefix, _, found := strings.Cut(site.Properties.SiteConfig.LinuxFxVersion, "|")
+	if !found || siteLinuxFxNamesAnImage(prefix) {
+		return ""
+	}
+	return site.Properties.SiteConfig.LinuxFxVersion
 }
 
 func siteAppSettings(site *Site) map[string]string {

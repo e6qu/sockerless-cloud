@@ -60,7 +60,7 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 	modules := client.NewListProcessModulesPager(rg, name, itoa(int(pid)), nil)
 	modulePage, modulesErr := modules.NextPage(ctx)
 	if modulesErr != nil {
-		require.Contains(t, modulesErr.Error(), "/proc/<pid>/maps",
+		require.Contains(t, modulesErr.Error(), "does not share a kernel with the container engine",
 			"a host that cannot read the process's mapping table must say that; got: %v", modulesErr)
 	} else {
 		require.NotEmpty(t, modulePage.Value, "a running process has mapped at least its own image")
@@ -95,7 +95,7 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 	// answer and the only other one.
 	dump, dumpErr := client.GetProcessDump(ctx, rg, name, itoa(int(pid)), nil)
 	if dumpErr != nil {
-		require.Contains(t, dumpErr.Error(), "/proc/<pid>/mem",
+		require.Contains(t, dumpErr.Error(), "read from its own", // the message names /proc, whose angle brackets JSON escapes
 			"a host that cannot read the process's memory must say that; got: %v", dumpErr)
 	} else {
 		image, readErr := io.ReadAll(dump.Body)

@@ -46,6 +46,25 @@ recommendations has no rule to read, so the read is not found, and it now reads
 from the same collection the listing returns, so the two cannot come to
 disagree.
 
+Checking the runtime-stack catalogue the same way confirmed its decline instead
+of overturning it, which is the point of checking rather than assuming.
+`StackMajorVersion` carries `isDeprecated`, `isPreview`, `isHidden` and an
+appSettings dictionary — Microsoft's product catalogue of which versions exist
+and which are withdrawn. And unlike "no recommendations have been raised",
+which is true of this deployment, "App Service offers no runtime stacks" would
+be false about the product.
+
+That reading turned up a defect beside it. `linuxFxVersion` names two different
+things depending on its prefix: `DOCKER|` and its siblings name a container
+image, while a built-in stack — `PHP|8.2`, `NODE|20-lts` — names a version of a
+platform image App Service supplies. `siteContainerImage` returned whatever
+followed the bar, so a site configured the ordinary way became an attempt to
+pull an image called `8.2`, and the failure read as a missing image rather than
+as a stack this simulator does not run. It distinguishes them now, and a site
+with a built-in stack is told that this simulator runs container images and the
+platform image its stack names is Microsoft's — the same fact the catalogue
+states by declining.
+
 App Service reads **686 of 692**.
 
 The App Service process family is read from the process itself. It already was

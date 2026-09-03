@@ -115,19 +115,21 @@ func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// PHP error logging reads the worker's effective php.ini, and both halves
-	// of it are out of reach: the master values are the platform image's, and
-	// the local ones come from a .user.ini in the site's content.
+	// PHP error logging and the process dump are read from the site's running
+	// workload, so a site that was never started has no instance to read them
+	// from and both report that. Neither declines any more: the flag is read
+	// out of the site's own PHP, and the dump out of its own process.
 	_, err = client.GetSitePhpErrorLogFlag(ctx, rg, name, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not vendored here")
-	assert.Contains(t, err.Error(), "does not model")
+	assert.Contains(t, err.Error(), "ResourceNotFound",
+		"a site with no running instance has no PHP worker to read a setting from")
+	assert.NotContains(t, err.Error(), "NotImplemented")
 
-	// A dump is written from /proc inside the container, which the engine's
-	// HTTP API does not expose.
 	_, err = client.GetProcessDump(ctx, rg, name, "1", nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "inside the container, which the container engine")
+	assert.Contains(t, err.Error(), "ResourceNotFound",
+		"a site with no running instance has no process to dump")
+	assert.NotContains(t, err.Error(), "NotImplemented")
 
 	// The runtime-stack catalogue is Microsoft's published list of platform
 	// images and their support lifecycle. Every spelling of it says so — the
