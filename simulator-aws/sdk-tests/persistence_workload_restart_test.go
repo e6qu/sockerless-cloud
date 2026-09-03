@@ -124,6 +124,7 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 	require.NoError(t, err)
 	buildID := aws.ToString(build.Build.Id)
 
+	var observed workloadObservation
 	require.Eventually(t, func() bool {
 		tasks, taskErr := ecsAPI.DescribeTasks(testCtx, &ecs.DescribeTasksInput{
 			Cluster: aws.String(clusterName), Tasks: []string{taskARN},
@@ -132,11 +133,13 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 		builds, buildErr := codeBuildAPI.BatchGetBuilds(testCtx, &codebuild.BatchGetBuildsInput{
 			Ids: []string{buildID},
 		})
+		observed = workloadStates(tasks, taskErr, jobs, jobErr, builds, buildErr)
 		return taskErr == nil && jobErr == nil && buildErr == nil &&
 			len(tasks.Tasks) == 1 && aws.ToString(tasks.Tasks[0].LastStatus) == "RUNNING" &&
 			len(jobs.Jobs) == 1 && jobs.Jobs[0].Status == batchtypes.JobStatusRunning &&
 			len(builds.Builds) == 1 && builds.Builds[0].BuildStatus == codebuildtypes.StatusTypeInProgress
-	}, workloadRestartBudget, 100*time.Millisecond)
+	}, workloadRestartBudget, 100*time.Millisecond,
+		"the three workloads never all reached their running state; last seen: %s", &observed)
 
 	shutdownSimulator(cmd)
 	cmd = startPersistentSimulator(t, stateDir, tcpPort, udpPort, "docker")
@@ -152,17 +155,62 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 		builds, buildErr := codeBuildAPI.BatchGetBuilds(testCtx, &codebuild.BatchGetBuildsInput{
 			Ids: []string{buildID},
 		})
+		observed = workloadStates(tasks, taskErr, jobs, jobErr, builds, buildErr)
 		return taskErr == nil && jobErr == nil && buildErr == nil &&
 			len(tasks.Tasks) == 1 && aws.ToString(tasks.Tasks[0].LastStatus) == "STOPPED" &&
 			len(tasks.Tasks[0].Containers) == 1 && aws.ToInt32(tasks.Tasks[0].Containers[0].ExitCode) == 0 &&
 			len(jobs.Jobs) == 1 && jobs.Jobs[0].Status == batchtypes.JobStatusSucceeded &&
 			aws.ToInt32(jobs.Jobs[0].Container.ExitCode) == 0 &&
 			len(builds.Builds) == 1 && builds.Builds[0].BuildStatus == codebuildtypes.StatusTypeSucceeded
-	}, workloadRestartBudget, 100*time.Millisecond)
+	}, workloadRestartBudget, 100*time.Millisecond,
+		"the three workloads never all completed after the restart; last seen: %s", &observed)
 
 	tasks, err := ecsAPI.DescribeTasks(testCtx, &ecs.DescribeTasksInput{
 		Cluster: aws.String(clusterName), Tasks: []string{taskARN},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Essential container in task exited", aws.ToString(tasks.Tasks[0].StoppedReason))
+}
+
+// workloadObservation is the last state the restart test saw from each of the
+// three services, so a wait that runs out of budget says what it was waiting on
+// rather than only that it waited. A timeout here has meant an engine too
+// loaded to start containers as often as it has meant a recovery that failed,
+// and the two read identically without this.
+type workloadObservation struct{ text string }
+
+func (o *workloadObservation) String() string {
+	if o.text == "" {
+		return "nothing — no describe call returned before the budget ran out"
+	}
+	return o.text
+}
+
+func workloadStates(
+	tasks *ecs.DescribeTasksOutput, taskErr error,
+	jobs *batch.DescribeJobsOutput, jobErr error,
+	builds *codebuild.BatchGetBuildsOutput, buildErr error,
+) workloadObservation {
+	describe := func(err error, state string) string {
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if state == "" {
+			return "absent"
+		}
+		return state
+	}
+	task, job, build := "", "", ""
+	if taskErr == nil && len(tasks.Tasks) == 1 {
+		task = aws.ToString(tasks.Tasks[0].LastStatus)
+	}
+	if jobErr == nil && len(jobs.Jobs) == 1 {
+		job = string(jobs.Jobs[0].Status)
+	}
+	if buildErr == nil && len(builds.Builds) == 1 {
+		build = string(builds.Builds[0].BuildStatus)
+	}
+	return workloadObservation{text: fmt.Sprintf(
+		"Amazon ECS task %s, AWS Batch job %s, AWS CodeBuild build %s",
+		describe(taskErr, task), describe(jobErr, job), describe(buildErr, build))}
 }

@@ -95,6 +95,11 @@ Current state of the sockerless-cloud repository.
   zonal endpoints, and session authentication scoped to one bucket, one mode and
   an expiry) are both assembled, so `s3ConformanceMissing` is empty and the two
   model-drift exemptions they held are gone.
+- **Resource-policy principals**: a statement naming the caller grants; one
+  matching only by account delegates to that account's IAM, so the caller is
+  permitted only if an identity policy allows it too. The default AWS KMS key
+  policy is that statement, and reading it as a grant had let any principal in
+  the account use any key whatever its own policies said.
 - **IAM condition context**: the authorizer populates the condition keys the
   request itself settles — the global `aws:` envelope and principal keys, the
   tag keys in both the `aws:` and the `<service>:` spelling, `ec2:Region`,
@@ -105,7 +110,7 @@ Current state of the sockerless-cloud repository.
   AWS Secrets Manager keys read from the secret a request names — so a policy
   that scopes an action through its condition key is evaluated against a context
   that holds it: the actions declaring an action condition key
-  carry every one of theirs — 1,294 of them (BUG-2965 measures the rest). An
+  carry every one of theirs — 1,307 of them (BUG-2965 measures the rest). An
   awsJson denial is written under the member name the service's own model
   declares for it, `message` or `Message`, which half of AWS's services spell
   each way; a table holds each one and a gate reads the models to keep it

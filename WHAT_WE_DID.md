@@ -37,6 +37,31 @@ named the key by, and `organizations:PolicyType` the kind of policy a request is
 about. Coverage moved from 1,216 to 1,277 of the 1,739 actions that declare a
 key.
 
+Amazon DynamoDB's fine-grained access control works: `dynamodb:LeadingKeys`,
+read against the table's own HASH attribute so a policy can hold a principal to
+its own rows, and `dynamodb:Attributes` for the columns it may touch, with
+`ReturnValues`, `ReturnConsumedCapacity` and `EnclosingOperation` beside them.
+`kms:EncryptionContext:<key>` and `kms:EncryptionContextKeys` carry the label a
+request binds into its ciphertext, and `s3:versionid` the object version a
+request names. Coverage reached 1,307 of 1,739.
+
+Proving the encryption-context key found something larger. A grant that should
+have been refused was allowed, and the condition keys were not the cause: the
+simulator read an account-root principal in a resource policy as an outright
+grant. The default AWS KMS key policy is exactly that statement, and AWS's own
+name for it — "Enable IAM User Permissions" — says what it means. It delegates
+to that account's IAM rather than granting anything itself. Read as a grant, it
+let any principal in the account use any key whatever its own policies said,
+which silently defeated every identity-policy condition on every key. A
+statement that names the caller grants; one that matches only by account
+delegates, and IAM decides. That is also how cross-account access is meant to
+work, and the full SDK suite is green on it.
+
+The restart test's timeout now says what it saw. It failed once in a full run
+on a host that had run out of disk, and "Condition never satisfied" reads the
+same whether the engine was too loaded to start containers or the recovery
+genuinely failed; it reports the last state of all three workloads instead.
+
 The access point became a front door rather than a control-plane record. It is
 addressed the way Amazon S3 addresses it — `<name>-<account>.s3-accesspoint.
 <region>` — so the bucket arrives in the hostname and is mapped onto the path

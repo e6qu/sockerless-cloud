@@ -109,40 +109,62 @@ func (p *iamPrincipal) UnmarshalJSON(b []byte) error {
 // account-root principal; a Service principal matches when an AWS service made
 // the call on the principal's behalf (the calling services arrive via
 // ctx["aws:CalledVia"]).
-func iamPrincipalMatches(stmt iamStatement, callerArn string, ctx map[string][]string) bool {
-	matchOne := func(p iamPrincipal) bool {
+// iamPrincipalMatch is how a resource policy's Principal element matched the
+// caller, which decides what the match is worth.
+//
+// AWS draws a line here that a plain boolean loses. A statement naming the
+// caller — its user or role ARN, or "*" — authorizes that caller outright. A
+// statement naming an *account* does not: it delegates to that account's own
+// IAM, and the caller is permitted only if an identity-based policy allows the
+// action too. The default AWS KMS key policy is exactly that statement — root
+// principal, kms:* — and reading it as a grant would let any principal in the
+// account use any key whatever its own policies said, which is the opposite of
+// what the "Enable IAM User Permissions" statement means.
+type iamPrincipalMatch int
+
+const (
+	// iamPrincipalNoMatch: the statement is about somebody else.
+	iamPrincipalNoMatch iamPrincipalMatch = iota
+	// iamPrincipalDelegated: matched by account, so IAM decides.
+	iamPrincipalDelegated
+	// iamPrincipalNamed: the statement names this caller.
+	iamPrincipalNamed
+)
+
+func iamPrincipalMatchKind(stmt iamStatement, callerArn string, ctx map[string][]string) iamPrincipalMatch {
+	matchOne := func(p iamPrincipal) iamPrincipalMatch {
 		if p.Wildcard {
-			return true
+			return iamPrincipalNamed
 		}
 		for _, want := range p.AWS {
 			if want == "*" || iamGlobMatch(want, callerArn) {
-				return true
+				return iamPrincipalNamed
 			}
 			if acct := iamAccountFromArn(want); acct != "" && strings.Contains(callerArn, ":"+acct+":") {
-				return true
+				return iamPrincipalDelegated
 			}
 			// A role principal (…:role/NAME) matches a session assumed from
 			// that role (…:assumed-role/NAME/SESSION).
 			if strings.Contains(want, ":role/") {
 				if rn := iamRoleNameFromArn(want); rn != "" && strings.Contains(callerArn, ":assumed-role/"+rn+"/") {
-					return true
+					return iamPrincipalNamed
 				}
 			}
 		}
 		for _, want := range p.Service {
 			for _, svc := range ctx["aws:CalledVia"] {
 				if want == svc {
-					return true
+					return iamPrincipalNamed
 				}
 			}
 		}
-		return false
+		return iamPrincipalNoMatch
 	}
-	if stmt.NotPrincipal.set && matchOne(stmt.NotPrincipal) {
-		return false
+	if stmt.NotPrincipal.set && matchOne(stmt.NotPrincipal) != iamPrincipalNoMatch {
+		return iamPrincipalNoMatch
 	}
 	if !stmt.Principal.set {
-		return true
+		return iamPrincipalNamed
 	}
 	return matchOne(stmt.Principal)
 }
@@ -582,7 +604,8 @@ func iamEvalDecisionForPrincipal(docs []iamPolicyDoc, action, resource, callerAr
 	allowed := false
 	for _, doc := range docs {
 		for _, stmt := range doc.Statement {
-			if !iamPrincipalMatches(stmt, callerArn, ctx) {
+			match := iamPrincipalMatchKind(stmt, callerArn, ctx)
+			if match == iamPrincipalNoMatch {
 				continue
 			}
 			if !iamActionMatches(stmt, action) || !iamResourceMatches(iamSubstituteVarsStmt(stmt, ctx), resource) {
@@ -597,6 +620,12 @@ func iamEvalDecisionForPrincipal(docs []iamPolicyDoc, action, resource, callerAr
 			case "deny":
 				return "explicitDeny", missing
 			case "allow":
+				// A statement that matched only by account delegates to that
+				// account's IAM rather than granting: the caller is permitted
+				// if its own policies allow the action, and not otherwise.
+				if match == iamPrincipalDelegated {
+					continue
+				}
 				allowed = true
 			}
 		}

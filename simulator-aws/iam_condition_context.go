@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -253,6 +254,11 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 			ctx["s3:signatureAge"] = []string{strconv.FormatInt(age, 10)}
 		}
 		ctx["s3:ResourceAccount"] = []string{awsAccountID()}
+		// s3:versionid is the object version the request names, which is how a
+		// policy grants a read of the current object and not of its history.
+		if version := r.URL.Query().Get("versionId"); version != "" {
+			ctx["s3:versionid"] = []string{version}
+		}
 	}
 
 	// cloudwatch:namespace is the namespace the metrics in the request are
@@ -268,6 +274,13 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	// simulator is the account it serves.
 	if service == "kms" {
 		ctx["kms:CallerAccount"] = []string{awsAccountID()}
+		// The encryption context the request supplied, which is how a policy
+		// grants a decrypt only for data encrypted under one context.
+		iamPopulateKMSEncryptionContext(body, ctx)
+	}
+
+	if service == "dynamodb" {
+		iamPopulateDynamoDBConditionKeys(r, action, body, ctx)
 	}
 
 	// iam:PermissionsBoundary is the boundary policy the request asks to
@@ -461,4 +474,27 @@ func iamSigV4SigningTime(r *http.Request) time.Time {
 		return time.Time{}
 	}
 	return signed
+}
+
+// iamPopulateKMSEncryptionContext adds the AWS KMS encryption context a request
+// supplied: each pair under its own key, and the set of names under
+// kms:EncryptionContextKeys, which is how a policy requires that a key be used
+// only for data labelled a particular way.
+func iamPopulateKMSEncryptionContext(body []byte, ctx map[string][]string) {
+	if len(body) == 0 {
+		return
+	}
+	var request struct {
+		EncryptionContext map[string]string `json:"EncryptionContext"`
+	}
+	if json.Unmarshal(body, &request) != nil || len(request.EncryptionContext) == 0 {
+		return
+	}
+	names := make([]string, 0, len(request.EncryptionContext))
+	for name, value := range request.EncryptionContext {
+		ctx["kms:EncryptionContext:"+name] = []string{value}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	ctx["kms:EncryptionContextKeys"] = names
 }
