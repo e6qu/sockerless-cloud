@@ -101,10 +101,23 @@ var gcpMethodFloor = map[string]int{
 	// The fourteen that remain are all one situation: a catalogue Google
 	// publishes or hardware reporting on itself, neither of which this
 	// simulator can answer for without inventing the answer. Each is mounted
-	// and answers 501 with that reason, because an empty list would be worse
-	// than no answer — an empty interconnect-locations list states that Google
-	// operates no facilities, and a client cannot tell an invented catalogue
-	// from a real one.
+	// and answers 501 with that reason.
+	//
+	// An empty list is the right answer for a catalogue of something this
+	// platform genuinely offers none of — it is what App Service's runtime
+	// stacks, billing meters and App Service Environment regions answer, and
+	// what makes it right there is that the rest of the platform agrees: a
+	// site configured with a built-in stack is refused, so the catalogue and
+	// the behaviour cannot come apart.
+	//
+	// These fourteen fail that test. Compute Engine here accepts an
+	// `interconnects.insert` naming any location and a security-policy rule
+	// naming any preconfigured expression set, so a catalogue answering "none"
+	// would contradict what the same simulator lets a client do. Serving the
+	// real content instead means Google's facility addresses and peering
+	// identifiers, or a WAF rule set's expression ids — data a client cannot
+	// tell from a real catalogue once invented. Between two wrong answers the
+	// declared 501 is the one that misleads nobody.
 	//
 	// They are the facilities Cloud Interconnect runs out of and the
 	// third-party ones it peers with (a list and a read each), what

@@ -257,3 +257,23 @@ repos:
         pass_filenames: false
         files: ^ui/packages/simulator-(aws|gcp|azure)/src/
         always_run: false
+
+      # Reading main's live branch protection needs GitHub admin credentials,
+      # and GITHUB_TOKEN cannot hold them: `administration` is not a permission
+      # a workflow can grant itself, and this repository protects main with
+      # classic branch protection rather than a ruleset, which is the one form
+      # a read-scoped token could see. So the comparison runs here, against the
+      # maintainer's own credentials, on the push that would otherwise carry the
+      # drift to a branch nobody can merge.
+      #
+      # Pre-push rather than pre-commit: branch protection is repository state
+      # that changes without a commit, so checking it per commit would re-read
+      # it dozens of times to learn the same thing, and the push is the moment
+      # it starts to matter.
+      - id: required-status-checks-live
+        name: Required status checks match main's branch protection
+        entry: bash scripts/check-required-status-checks.sh --verify-branch-protection
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

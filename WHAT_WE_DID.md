@@ -24,6 +24,19 @@ Reading the namespace found the protocol had moved underneath the assumption:
 Amazon CloudWatch serves `PutMetricData` over Smithy RPC v2 CBOR, gzip-
 compressed by the SDK, not the Query form the parameter would have been in.
 
+The branch-protection comparison never ran. It was added to the scheduled
+dependency-freshness workflow with `permissions: administration: read`, and
+that is not a permission a workflow can grant itself — GitHub rejected the file
+outright, so the workflow stopped parsing and every push after it reported a
+red "Dependency freshness" run with no jobs in it. Reading classic branch
+protection needs admin credentials that `GITHUB_TOKEN` cannot hold at all, and
+this repository protects `main` with classic protection rather than a ruleset,
+which is the one form a read-scoped token could see. So the comparison runs as
+a pre-push hook against the maintainer's own credentials — pre-push because
+protection changes without a commit, and the push is the moment drift starts to
+matter. A manifest entry no job emits fails it; the manifest as it stands
+matches `main`.
+
 App Service reached the whole of its document. The six runtime-stack catalogs
 — `availableStacks`, `webAppStacks`, `functionAppStacks` and their per-location
 and subscription spellings — declined as Microsoft's published catalog. What

@@ -1886,7 +1886,11 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // Amazon CloudWatch's three metric operations declare the "dataset" type while
 // GetMetricData names metric queries, ListMetrics names a namespace and
 // dimensions, and PutMetricData names a namespace and the data — no dataset in
-// any of them. AWS Glue's five: GetMLTransforms, ListMLTransforms,
+// any of them. That is not a hole in the authorization: AWS scopes exactly
+// these with a condition key rather than a resource, which is why its own
+// service reference lists cloudwatch:namespace against PutMetricData, and the
+// authorizer populates it (iam_condition_context.go). A policy scoping those
+// operations enforces here through the mechanism AWS documents for them. AWS Glue's five: GetMLTransforms, ListMLTransforms,
 // ListDataQualityResults and ListDataQualityRuleRecommendationRuns carry a
 // filter and a page token, and a filter is not the resource it selects on —
 // reading one as a resource would authorize against something the caller only
