@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 2. Resolved: 91.
+Open: 2. Resolved: 92.
 
 ## Open
 
@@ -152,6 +152,27 @@ Open: 2. Resolved: 91.
   coverage exists while this is open.
 
 ## Resolved history
+
+- ~~**BUG-2964 (a required status check named a job that no job emits, so every
+  merge waited on it):**~~ `main`'s branch protection required
+  `sim (azure sdk)`. The workflow shards that job into `sim (azure sdk A)` and
+  `sim (azure sdk B-Z)`, so nothing could ever report the required context and
+  the check sat pending for good. `.github/required-status-checks.txt` had been
+  updated with both shards when the job was sharded; the live protection had
+  not, and nothing compared the two.
+
+  `scripts/check-required-status-checks.sh` already had the comparison behind
+  `--verify-branch-protection`, and it named the disagreement exactly when run.
+  It ran nowhere: CI runs the manifest half, which needs no credentials and can
+  only prove a context is emittable by some job. The live half now runs in the
+  scheduled `deps-freshness` workflow, as its own job with `administration:
+  read`, because branch protection is repository state that drifts on its own
+  rather than with a commit — so no pull request can be blamed for it, and a
+  credential problem shows as that job failing rather than as the dependency
+  signal going quiet.
+
+  Protection is reconciled from the manifest, and the manifest gained
+  `tf (aws S3 control plane)`, the job added with the S3 control-plane slice.
 
 - ~~**BUG-56 (action downloads failed during a GitHub incident, and the fan-out
   is the standing risk):** Filed as "the job fan-out throttles GitHub's own

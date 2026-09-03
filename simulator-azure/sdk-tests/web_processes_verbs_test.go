@@ -1,8 +1,11 @@
 package azure_sdk_test
 
 import (
+	"bytes"
+	"debug/elf"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -45,21 +48,70 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 	require.NotEmpty(t, procs, "a running site has processes")
 	pid := *procs[0].Properties.Identifier
 
-	// The modules a process loaded are reported against the process itself.
+	// The modules a process loaded are read from its own mapping table, so this
+	// asserts they are that and not a placeholder: an absolute path to the file
+	// the process mapped, and a base address that is an address rather than a
+	// number that happens to be to hand. Both were wrong before — the answer
+	// was one module per process whose base_address was the PID in hex.
+	//
+	// A host that does not share the container engine's kernel has no such
+	// mapping table, and says so. Either answer is correct and a third is not,
+	// which is what this checks: a client is never handed an invented module.
 	modules := client.NewListProcessModulesPager(rg, name, itoa(int(pid)), nil)
-	modulePage, err := modules.NextPage(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, modulePage.Value)
-	base := *modulePage.Value[0].Properties.BaseAddress
+	modulePage, modulesErr := modules.NextPage(ctx)
+	if modulesErr != nil {
+		require.Contains(t, modulesErr.Error(), "/proc/<pid>/maps",
+			"a host that cannot read the process's mapping table must say that; got: %v", modulesErr)
+	} else {
+		require.NotEmpty(t, modulePage.Value, "a running process has mapped at least its own image")
+		for _, module := range modulePage.Value {
+			path := *module.Properties.FilePath
+			base := *module.Properties.BaseAddress
+			assert.True(t, strings.HasPrefix(path, "/"),
+				"a module's file path is the file the process mapped: %q", path)
+			assert.True(t, strings.HasPrefix(base, "0x"),
+				"a module's base address is an address: %q", base)
+			address, parseErr := strconv.ParseUint(strings.TrimPrefix(base, "0x"), 16, 64)
+			require.NoError(t, parseErr, "base address %q is not hexadecimal", base)
+			assert.NotEqual(t, uint64(pid), address,
+				"the base address is the module's, not the process's identifier")
+		}
 
-	one, err := client.GetProcessModule(ctx, rg, name, itoa(int(pid)), base, nil)
-	require.NoError(t, err)
-	assert.Equal(t, base, *one.Properties.BaseAddress)
+		base := *modulePage.Value[0].Properties.BaseAddress
+		one, err := client.GetProcessModule(ctx, rg, name, itoa(int(pid)), base, nil)
+		require.NoError(t, err)
+		assert.Equal(t, base, *one.Properties.BaseAddress)
 
-	// A module nothing is mapped at is not found.
-	_, err = client.GetProcessModule(ctx, rg, name, itoa(int(pid)), "0xdeadbeef", nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "No module is mapped")
+		// A module nothing is mapped at is not found.
+		_, err = client.GetProcessModule(ctx, rg, name, itoa(int(pid)), "0xdeadbeef", nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "No module is mapped")
+	}
+
+	// A process dump is the memory image of the process, so this asserts the
+	// bytes are one: an ELF core a debugger opens, with segments carrying the
+	// process's real mappings. A host that will not let the simulator read
+	// another process's memory says so instead, which is the other correct
+	// answer and the only other one.
+	dump, dumpErr := client.GetProcessDump(ctx, rg, name, itoa(int(pid)), nil)
+	if dumpErr != nil {
+		require.Contains(t, dumpErr.Error(), "/proc/<pid>/mem",
+			"a host that cannot read the process's memory must say that; got: %v", dumpErr)
+	} else {
+		image, readErr := io.ReadAll(dump.Body)
+		dump.Body.Close()
+		require.NoError(t, readErr)
+		core, elfErr := elf.NewFile(bytes.NewReader(image))
+		require.NoError(t, elfErr, "the dump is not an ELF image a debugger opens")
+		assert.Equal(t, elf.ET_CORE, core.Type, "a process dump is a core image")
+		loads := 0
+		for _, segment := range core.Progs {
+			if segment.Type == elf.PT_LOAD {
+				loads++
+			}
+		}
+		assert.NotZero(t, loads, "a core with no loadable segment images nothing")
+	}
 
 	// A process the site does not have cannot be killed.
 	_, err = client.DeleteProcess(ctx, rg, name, "999999", nil)

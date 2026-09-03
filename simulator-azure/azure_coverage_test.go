@@ -404,18 +404,30 @@ var azureMethodFloor = map[string]int{
 	// ListProcessThreads are served at both the site and the per-instance
 	// scope, in both the production and the slot spelling (16 operations).
 	//
-	// Three families of that swagger stay unserved for a demonstrated reason
-	// rather than a deferral, and are named here so the gap is visible beside
-	// the number: GetProcessDump, ListProcessModules and GetProcessModule (12
-	// operations across both scopes and both spellings) plus DeleteProcess (4).
-	// The container engine exposes exactly one process-inspection primitive
-	// over its HTTP API — `GET /containers/{id}/top`, the `ps` output for the
-	// container's processes — which reports no loaded modules and no core
-	// dumps, and it can terminate only the container's main process, not an
-	// arbitrary one inside it. Reading modules or writing a dump needs
-	// `/proc/<pid>` from inside the container, which requires either a shell
-	// in the workload image (a scratch image has none) or the engine host's
-	// own `/proc` (unreachable when the engine runs in a virtual machine).
+	// The process-inspection family is served from the process itself. The
+	// engine's HTTP API exposes one primitive — `GET /containers/{id}/top`, the
+	// `ps` output for the container's processes — and it reports them in the
+	// engine host's PID namespace, so where the simulator shares that kernel
+	// `/proc/<pid>` is the process's own. ListProcessModules and
+	// GetProcessModule read `/proc/<pid>/maps`, folding a file's mappings into
+	// one module at the address its lowest mapping begins; GetProcessDump
+	// writes an ELF core from those mappings and `/proc/<pid>/mem`, without
+	// stopping the process, because reading a process's memory needs
+	// permission to trace and not an attach. Both verify the PID against
+	// `/proc/<pid>/cmdline` before reading, so a reused PID cannot be reported
+	// as the site's. Where the simulator does not share the engine's kernel —
+	// the engine in a virtual machine, which is every macOS host — the site's
+	// processes are not in this host's /proc and both declare that.
+	//
+	// The modules read used to answer a fabricated module instead: one entry
+	// per process whose base_address was the PID formatted as hex, which is not
+	// an address of anything. It was counted as served, so the number said
+	// covered while the answer was invented — the shape NoPhantomCoverage
+	// exists to catch, arriving through a handler the probe reaches only far
+	// enough to see a 404.
+	//
+	// DeleteProcess (4) stays unserved: the engine can terminate the
+	// container's main process, not an arbitrary one inside it.
 	//
 	// The Provider_*Stacks operations (availableStacks, webAppStacks,
 	// functionAppStacks and their per-location spellings — 6 in all) stay
@@ -531,18 +543,19 @@ var azureMethodFloor = map[string]int{
 	// nothing and reports no counters, rather than a set of zeroes that would
 	// claim a measurement was taken.
 	//
-	// With that, no App Service operation is a silent gap any more: all 29 that
-	// remain answer a declared 501 naming what is missing. Beside the catalogs
-	// and metric series already listed, those are phplogging (the effective
-	// php.ini of a PHP worker that does not run here, whose master values are
-	// the platform image's own defaults), migrate and migratemysql (there is no
-	// in-app MySQL database and no content share to move), and the four process
-	// dump spellings (written from /proc inside the container, which the
-	// engine's HTTP API does not expose — the limit that already stops the
-	// module reads). The six Provider_*Stacks spellings used to miss the router
-	// outright and answer a bare 404, which reads as "no such API" rather than
-	// "this API exists and its data is not vendored"; they declare it now.
-	"web-arm-openapi-2025-03-01": 677,
+	// No App Service operation is a silent gap: every one that remains answers a
+	// declared 501 naming what is missing. Beside the catalogs and metric series
+	// already listed, those are phplogging (the effective php.ini of a PHP
+	// worker that does not run here, whose master values are the platform
+	// image's own defaults) and migrate and migratemysql (there is no in-app
+	// MySQL database and no content share to move). The six Provider_*Stacks
+	// spellings used to miss the router outright and answer a bare 404, which
+	// reads as "no such API" rather than "this API exists and its data is not
+	// vendored"; they declare it now.
+	//
+	// Raised from 677 by the four process-dump spellings, which are written
+	// from the process's own memory rather than declared.
+	"web-arm-openapi-2025-03-01": 681,
 }
 
 // Route table

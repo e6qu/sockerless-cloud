@@ -98,7 +98,7 @@ Current state of the sockerless-cloud repository.
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
   revision 20260814, whose declared total fell from 130 when Google withdrew
   the `gitLabConfigs` collection; `cloudrun-v1` 152 of 152;
-  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **677 of 692** (App
+  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **681 of 692** (App
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family, App Service
   Environments, diagnostics, backup and restore, processes, network traces and
@@ -162,6 +162,15 @@ Current state of the sockerless-cloud repository.
   declare it. The workflows, `go.work` and the three simulator container images
   pin it together, because a module that only builds on a newer toolchain than
   CI runs only builds on the author's machine.
+- **App Service processes are read from the processes themselves.** The site's
+  workload is a container, the engine reports its processes in its host's PID
+  namespace, and where the simulator shares that kernel `/proc/<pid>` is the
+  process's own: modules come from its mapping table with real base addresses,
+  and a dump is an ELF core written from its memory without stopping it. The
+  modules read used to answer one fabricated module per process whose base
+  address was the PID in hex — counted as served while inventing, which is the
+  shape `NoPhantomCoverage` exists to catch. Azure's App Service reads 681 of
+  692.
 - **The request side of a Discovery document is checked too.** Its
   `annotations.required` is per method — the method ids a property is required
   *for* — and a gate drives all 73 in the corpus with the property omitted and

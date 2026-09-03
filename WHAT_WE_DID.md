@@ -1,5 +1,43 @@
 # WHAT WE DID
 
+## 2026-09-02, forty-sixth pass — the process is the source, and a required check that named nothing
+
+A required status check on `main` named `sim (azure sdk)`, which no job emits:
+the Azure SDK job is sharded into `A` and `B-Z`. Every merge waited on a context
+that could never report. The manifest had both shards; the live protection did
+not, and the script that compares them — `--verify-branch-protection`, which
+names the disagreement exactly — ran nowhere, because CI runs only the half that
+needs no credentials. It runs on a schedule now, in `deps-freshness`, as its own
+job: branch protection drifts with nobody's commit, so it belongs somewhere no
+pull request owns.
+
+The App Service process family is read from the process itself. It already was
+for the list — the site's workload is a container and the engine's process table
+is the site's processes — but `ListProcessModules` and `GetProcessModule`
+answered one module per process whose `base_address` was **the PID formatted as
+hex**. A module's load address is not its process's identifier. That operation
+counted as served, so the number said covered while the answer was invented,
+and the floor comment beside it said modules were unserved — both wrong, in
+opposite directions.
+
+The engine reports processes in its host's PID namespace, so where the simulator
+shares that kernel `/proc/<pid>` is the process's own. Modules are read from
+`/proc/<pid>/maps`, folding a file's mappings into one module at the address its
+lowest mapping begins, with its real size. The dump is an ELF core written from
+those mappings and `/proc/<pid>/mem` — the format a debugger opens, one PT_LOAD
+per readable mapping carrying the bytes actually there — and it is written
+without stopping the process, because reading a process's memory needs
+permission to trace and not an attach. Both check `/proc/<pid>/cmdline` against
+the command line the engine reported before reading, so a reused PID cannot be
+served as the site's. A host that does not share the engine's kernel, or that
+refuses the read, declares that rather than answering.
+
+Azure's App Service ratchets 677 → 681: the four process-dump spellings are
+served from the process's own memory rather than declared. The SDK test accepts
+a real answer or the declared gap and nothing else — it asserts a module's path
+is absolute, its base address parses as an address and is not the PID, and the
+dump is an ELF core with loadable segments.
+
 ## 2026-09-02 — SQLite synchronous=FULL was serializing every write behind an fsync
 
 A deployed AWS simulator was found pegged at 70-130% CPU for hours under real

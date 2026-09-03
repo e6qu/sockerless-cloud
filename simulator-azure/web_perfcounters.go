@@ -49,10 +49,12 @@ func registerWebPerfCounters(both, site func(string, string, http.HandlerFunc)) 
 	const phpReason = "the flag reports the effective php.ini of the site's PHP worker: its master values are the App Service platform image's own defaults, which are not vendored here, and its local values come from a .user.ini in the site's content, which this simulator does not model. Unlike a collection, whose emptiness says none exist, a settings resource with every field left out says the settings are unset rather than unknown — so this declares the gap instead"
 	both("GET", "/phplogging", gap("WebApps_GetSitePhpErrorLogFlag", phpReason))
 
-	const dumpReason = "a process dump is written from /proc/<pid> inside the container, which the container engine's HTTP API does not expose — the same limit that stops the process module reads"
-	both("GET", "/processes/{processId}/dump", gap("WebApps_GetProcessDump", dumpReason))
-	both("GET", "/instances/{instanceId}/processes/{processId}/dump",
-		gap("WebApps_GetInstanceProcessDump", dumpReason))
+	// The process dump is served in web_process_dump.go: the site's processes
+	// are the container's, the engine reports them in its host's PID namespace,
+	// and where the simulator shares that kernel the dump is a real ELF core
+	// written from the process's own memory.
+	both("GET", "/processes/{processId}/dump", webGetProcessDump)
+	both("GET", "/instances/{instanceId}/processes/{processId}/dump", webGetProcessDump)
 }
 
 // webListPerfMonCounters reports the site's resource usage as the counter sets
