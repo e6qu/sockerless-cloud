@@ -611,13 +611,6 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 
-	// The outbound dependency catalog stays declared: it is Microsoft's own
-	// list of platform endpoints and address ranges, not something to invent.
-	_, err = client.NewGetOutboundNetworkDependenciesEndpointsPager(aseRG, aseName, nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "NotImplemented")
-	assert.Contains(t, err.Error(), "not implemented by the simulator")
-
 	// Moving the environment to another subnet re-derives its address. The
 	// apps it hosts come with it, which is the collection the move answers
 	// with.

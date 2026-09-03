@@ -24,6 +24,51 @@ Reading the namespace found the protocol had moved underneath the assumption:
 Amazon CloudWatch serves `PutMetricData` over Smithy RPC v2 CBOR, gzip-
 compressed by the SDK, not the Query form the parameter would have been in.
 
+S3 Express One Zone is assembled, which leaves every operation the vendored
+Amazon S3 model declares served. A directory bucket is its own bucket type,
+named for the Availability Zone it is placed in — the name has to agree with the
+Location that placed it, because the name is what makes the bucket addressable —
+and the two listings are separate surfaces: ListBuckets returns general purpose
+buckets, ListDirectoryBuckets returns these, told apart by the host the client
+reached. CreateSession mints credentials into the same store the AWS Security
+Token Service mints into, so a request signed with them authenticates as the
+caller who asked for them and carries that caller's policies; the session is
+scoped to its one bucket, to the mode it was created in, and until it expires,
+and each of those refusals is exercised. The session token arrives in
+`x-amz-s3session-token` rather than `X-Amz-Security-Token`, which the signature
+gate now reads.
+
+What made it testable was dropping the endpoint override. The SDK derives which
+of two hosts an operation uses from the bucket's name — the regional control
+endpoint for the bucket calls, the bucket's zonal endpoint for the session and
+the object calls — and a BaseEndpoint collapses both onto one host and takes the
+S3 Express auth branch even for CreateBucket, which against Amazon S3 goes to
+the control endpoint with the caller's own credentials and no session at all.
+Left to resolve what it resolves against AWS, with resolution pointed at the
+simulator, the SDK drives the whole flow: it establishes the session itself and
+the object round-trips. ListDirectoryBuckets, which aws-sdk-go-v2 v1.110.0
+cannot call at all through an endpoint override, works the same way. A directory
+bucket is addressed virtual-hosted style, so the simulator maps the bucket out
+of the hostname onto the path its router works in and verifies the signature
+against the path the client actually sent.
+
+Chasing that turned up a hole in the harness: with no endpoint override, a
+client whose coordinate is wrong reaches the real cloud. The suite's dialer now
+refuses any host that is not the simulator, so a mistake is an error naming the
+host instead of a signed request to Amazon.
+
+The Azure race job had been failing on this branch for three runs with the
+runner's shutdown signal, which is what an out-of-memory kill looks like. The
+core-dump test imaged this test process's own memory, and under the race
+detector that includes shadow mappings far larger than a runner has. It dumps a
+child process now — which is what the operation does, a site's workload process
+rather than the simulator — and looks for a marker the child holds in its
+environment.
+
+Three tests still asserted declines this branch had already overturned: the
+recommendation rule read, the environment's outbound dependencies in both the
+SDK and the CLI suite, and the six stack catalogs. They assert what is served.
+
 The branch-protection comparison never ran. It was added to the scheduled
 dependency-freshness workflow with `permissions: administration: read`, and
 that is not a permission a workflow can grant itself — GitHub rejected the file

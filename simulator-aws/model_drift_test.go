@@ -43,14 +43,7 @@ import (
 // registration, and the source scan alone cannot tell the two apart. Scoped
 // entries are therefore also excluded from the staleness sweep — their
 // review lives with the catalogue their reason cites.
-var modelScopedDriftExemptions = map[string]string{
-	// S3 Express One Zone: served from s3express-control / zonal endpoints,
-	// outside the regional s3.<region> surface this simulator hosts, and
-	// meaningless without directory buckets and verifying session-token
-	// auth. Recorded with the same reasoning in s3ConformanceMissing.
-	"s3.smithy.json.gz:CreateSession":        "S3 Express One Zone, off the hosted regional endpoint",
-	"s3.smithy.json.gz:ListDirectoryBuckets": "S3 Express One Zone, off the hosted regional endpoint",
-}
+var modelScopedDriftExemptions = map[string]string{}
 
 var modelDriftExemptions = map[string]string{
 	// S3 routes bucket subresources by query parameter, so these operation

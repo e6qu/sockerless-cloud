@@ -16,7 +16,17 @@ import (
 // subresource matrix and collect the operation names they yield — the REST
 // analogue of reading the awsJson/query routers.
 func s3ImplementedOps() map[string]bool {
-	ops := map[string]bool{"ListBuckets": true}
+	// Three operations are not compositions of the method × subresource matrix
+	// below, so they are named here: ListBuckets and ListDirectoryBuckets are
+	// both GET on the service root and are told apart by the host the client
+	// reached (the S3 endpoint or s3express-control.<region>), and
+	// WriteGetObjectResponse is mounted at its own path for an Object Lambda
+	// function to call back on.
+	ops := map[string]bool{
+		"ListBuckets":            true,
+		"ListDirectoryBuckets":   true,
+		"WriteGetObjectResponse": true,
+	}
 	bucketReq := func(method, rawquery string) string {
 		r := httptest.NewRequest(method, "/bucket?"+rawquery, nil)
 		return s3BucketOperationName(r, nil)
@@ -42,6 +52,7 @@ func s3ImplementedOps() map[string]bool {
 		"uploads", "versions", "location", "policyStatus", "delete",
 		"metadataConfiguration", "metadataTable", "metadataInventoryTable",
 		"metadataJournalTable", "metadataAnnotationTable", "abac",
+		"session",
 	}
 	for _, m := range []string{"GET", "PUT", "DELETE", "HEAD", "POST"} {
 		add(bucketReq(m, ""))
@@ -495,42 +506,30 @@ func TestServiceConformance_Coverage(t *testing.T) {
 // through endpoint rules, so "implement the operation" is really "host another
 // endpoint family and build the feature behind it":
 //
-//   - WriteGetObjectResponse is the S3 Object Lambda callback. A client never
-//     calls it; an Object Lambda *function* calls it, on a per-request
-//     {RequestRoute}.s3-object-lambda.<region> host (the model marks it
-//     UseObjectLambdaEndpoint). Serving it standalone would be a handler with
-//     no caller — the operation only means anything once Object Lambda access
-//     points exist and route GetObject through a Lambda that then calls back.
+// Every operation the S3 model declares is served, including the two features
+// this list was written for.
 //
-//   - CreateSession and ListDirectoryBuckets are S3 Express One Zone
-//     operations, served from s3express-control.<region> and the zonal
-//     bucket endpoints (the model marks them smithy.rules#staticContextParams).
-//     They only mean anything once directory buckets exist as their own bucket
-//     type — distinct naming, zonal endpoints, and session-token authentication
-//     where the credentials CreateSession mints must actually verify on the
-//     requests that follow. A CreateSession that returned credentials nothing
-//     checks would be exactly the kind of fake this project forbids.
+// S3 Object Lambda is assembled: access points, Object Lambda access points,
+// the read path that hands a transformation function a route token and the URL
+// to read the original object from, and the WriteGetObjectResponse callback the
+// function answers on. What the function wrote is what the caller receives.
 //
-// Neither feature has a consumer here. Sockerless assembles the Docker and
-// Podman API from cloud primitives; no backend, agent, runner, console, or test
-// path uses S3 Express or Object Lambda, so building either would add surface
-// for the coverage number alone — and both would add a whole endpoint family
-// plus its feature semantics to keep faithful forever after.
+// S3 Express One Zone is assembled: directory buckets as their own bucket type,
+// named for the zone they are placed in and listed apart from general purpose
+// buckets; the regional control endpoint and the zonal bucket endpoints, which
+// a client reaches by resolving them rather than by overriding an endpoint; and
+// session authentication, where CreateSession mints credentials into the same
+// store the Security Token Service mints into, so a request signed with them
+// authenticates as the caller who asked for them — scoped to the one bucket, to
+// the mode the session was created in, and until it expires.
 //
-// The condition to revisit is a real consumer, not a coverage sweep: a client
-// that stores workload state in a directory bucket, or one that reads through
-// an Object Lambda access point. If that
-// happens, implement the *feature* — the endpoint family, the bucket type or
-// the access point, and the authentication — and remove the entry here; do not
-// mount a bare handler on the regional surface, which no real client would
-// ever reach.
+// The entries this list used to carry said each feature "only means anything
+// once" its endpoint family, bucket type and authentication exist, and that the
+// condition to revisit was building the feature rather than mounting a bare
+// handler. That is what was built.
 //
 // The list is locked by TestServiceConformance_S3Ratchet.
-var s3ConformanceMissing = []string{
-	"WriteGetObjectResponse",
-	"ListDirectoryBuckets",
-	"CreateSession",
-}
+var s3ConformanceMissing = []string{}
 
 // TestServiceConformance_S3Ratchet locks S3's REST operation-coverage gap set,
 // measured by driving the request→operation-name composition over the method ×

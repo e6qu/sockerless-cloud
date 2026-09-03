@@ -17,15 +17,15 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /{$}` | ✓ `simulator-aws/s3.go:200::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /{bucket}` | ✓ `simulator-aws/s3.go:201::s3BucketResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /{bucket}` | ✓ `simulator-aws/s3.go:202::s3BucketResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /{bucket}` | ✓ `simulator-aws/s3.go:203::s3BucketResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /{bucket}/{key...}` | ✓ `simulator-aws/s3.go:204::s3ObjectResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /{bucket}/{key...}` | ✓ `simulator-aws/s3.go:205::s3ObjectResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /{bucket}/{key...}` | ✓ `simulator-aws/s3.go:206::s3ObjectResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /{bucket}/{key...}` | ✓ `simulator-aws/s3.go:211::s3ObjectResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /{bucket}` | ✓ `simulator-aws/s3.go:212::s3BucketResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /{$}` | ✓ `simulator-aws/s3.go:209::nil` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /{bucket}` | ✓ `simulator-aws/s3.go:210::s3BucketResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /{bucket}` | ✓ `simulator-aws/s3.go:211::s3BucketResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /{bucket}` | ✓ `simulator-aws/s3.go:212::s3BucketResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /{bucket}/{key...}` | ✓ `simulator-aws/s3.go:213::s3ObjectResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /{bucket}/{key...}` | ✓ `simulator-aws/s3.go:214::s3ObjectResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /{bucket}/{key...}` | ✓ `simulator-aws/s3.go:215::s3ObjectResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /{bucket}/{key...}` | ✓ `simulator-aws/s3.go:220::s3ObjectResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /{bucket}` | ✓ `simulator-aws/s3.go:221::s3BucketResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

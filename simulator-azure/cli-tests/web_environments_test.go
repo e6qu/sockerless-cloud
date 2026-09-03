@@ -134,12 +134,13 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 		aseCLIURL("hostingEnvironments/cli-ase/multiRolePools/default/metricdefinitions"), ""))
 	assert.Contains(t, definitions, `"value": []`)
 
-	// The outbound dependency catalog stays declared: Microsoft's own list of
-	// platform endpoints and address ranges names itself rather than 404ing
-	// silently.
-	gap := runStorageCLIExpectFailure(t, azRest("GET",
+	// The environment's outbound network dependencies are measured rather than
+	// listed: the dependency is the cloud its sites call, and what comes back
+	// is the address that resolved and whether the connection was made.
+	outbound := runCLI(t, azRest("GET",
 		aseCLIURL("hostingEnvironments/cli-ase/outboundNetworkDependenciesEndpoints"), ""))
-	assert.Contains(t, gap, "not implemented by the simulator")
+	assert.Contains(t, outbound, `"ipAddress"`)
+	assert.Contains(t, outbound, `"isAccessible": true`)
 
 	runCLI(t, azRest("DELETE", aseURL, ""))
 	gone := runStorageCLIExpectFailure(t, azRest("GET", aseURL, ""))

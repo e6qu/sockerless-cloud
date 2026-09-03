@@ -1,6 +1,6 @@
 module github.com/e6qu/sockerless-cloud/simulator-aws/sdk-tests
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.45.1
@@ -23,7 +23,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.85.0
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.76.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.66.0
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.326.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.328.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.63.0
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.94.0
 	github.com/aws/aws-sdk-go-v2/service/efs v1.47.0
@@ -33,9 +33,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/firehose v1.49.0
 	github.com/aws/aws-sdk-go-v2/service/glue v1.156.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.62.0
-	github.com/aws/aws-sdk-go-v2/service/kinesis v1.51.0
+	github.com/aws/aws-sdk-go-v2/service/kinesis v1.52.0
 	github.com/aws/aws-sdk-go-v2/service/kms v1.58.0
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.105.0
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.106.0
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.58.0
 	github.com/aws/aws-sdk-go-v2/service/rds v1.127.0
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.68.0
@@ -53,14 +53,14 @@ require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-jose/go-jose/v4 v4.1.4
-	github.com/go-sql-driver/mysql v1.10.0
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang/snappy v1.0.0
 	github.com/google/go-containerregistry v0.22.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0
 )

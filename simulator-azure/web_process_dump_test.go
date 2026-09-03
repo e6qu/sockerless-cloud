@@ -4,27 +4,60 @@ import (
 	"bytes"
 	"debug/elf"
 	"os"
+	"os/exec"
 	"runtime"
 	"testing"
+	"time"
 )
 
-// TestProcessCoreDumpIsAnELFCoreADebuggerOpens writes a core of this test's own
+// TestProcessCoreDumpIsAnELFCoreADebuggerOpens writes a core of a real running
 // process and reads it back with the standard ELF reader. The point is that the
-// bytes are a real image: the segments are this process's real mappings, and
-// the contents at a known address are the bytes that are actually there.
+// bytes are a real image: the segments are that process's real mappings, and a
+// string the process is known to hold is in them.
+//
+// The subject is a child process rather than this test's own, which is both
+// what the operation does — a site's workload process is dumped, not the
+// simulator — and what keeps the dump bounded: under the race detector this
+// process maps shadow regions far larger than a runner's memory, and imaging
+// them exhausted it.
 func TestProcessCoreDumpIsAnELFCoreADebuggerOpens(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skipf("a process's memory is read from /proc/<pid>, which %s does not have", runtime.GOOS)
 	}
-	pid := os.Getpid()
-	mappings, ok := webProcessMappings(pid)
-	if !ok {
-		t.Fatal("this process's own mapping table could not be read")
+
+	// The marker reaches the child's memory in its environment block, which
+	// lives in the stack mapping the core images.
+	const marker = "sockerless-core-dump-marker-9f13c2"
+	child := exec.Command("/bin/sleep", "30")
+	child.Env = append(os.Environ(), "SOCKERLESS_CORE_DUMP_MARKER="+marker)
+	if err := child.Start(); err != nil {
+		t.Fatalf("start the process to dump: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = child.Process.Kill()
+		_, _ = child.Process.Wait()
+	})
+	pid := child.Process.Pid
+
+	// Wait for the exec to complete: until it does, the mapping table is this
+	// shell's rather than the program's.
+	var mappings []webProcMapping
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		read, ok := webProcessMappings(pid)
+		if ok && len(read) > 0 {
+			mappings = read
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(mappings) == 0 {
+		t.Fatal("the process's mapping table could not be read")
 	}
 
 	var core bytes.Buffer
 	if err := webProcessCoreDump(pid, mappings, &core); err != nil {
-		t.Fatalf("write a core of this process: %v", err)
+		t.Fatalf("write a core of the process: %v", err)
 	}
 
 	file, err := elf.NewFile(bytes.NewReader(core.Bytes()))
@@ -53,9 +86,7 @@ func TestProcessCoreDumpIsAnELFCoreADebuggerOpens(t *testing.T) {
 		t.Fatal("the core carries no PT_LOAD segment, so it images nothing")
 	}
 
-	// The contents are this process's own memory, not zeroes: a known string in
-	// this binary must be findable at the address the mapping table gives it.
-	marker := []byte("sockerless-core-dump-marker-9f13c2")
+	// The contents are the process's own memory, not zeroes.
 	found := false
 	for _, p := range file.Progs {
 		if p.Type != elf.PT_LOAD {
@@ -65,17 +96,12 @@ func TestProcessCoreDumpIsAnELFCoreADebuggerOpens(t *testing.T) {
 		if _, err := p.ReadAt(body, 0); err != nil {
 			continue
 		}
-		if bytes.Contains(body, marker) {
+		if bytes.Contains(body, []byte(marker)) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("the core does not contain a string this process holds in memory, so it is not an image of it")
+		t.Fatal("the core does not contain a string the process holds in memory, so it is not an image of it")
 	}
 }
-
-// coreDumpMarker keeps the marker the test looks for in this binary's memory.
-var coreDumpMarker = "sockerless-core-dump-marker-9f13c2"
-
-func init() { _ = coreDumpMarker }

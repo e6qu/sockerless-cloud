@@ -3,7 +3,7 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp/sdk-tests
 go 1.26.0
 
 require (
-	cloud.google.com/go/bigtable v1.53.0
+	cloud.google.com/go/bigtable v1.54.0
 	cloud.google.com/go/compute/metadata v0.9.0
 	cloud.google.com/go/eventarc v1.25.0
 	cloud.google.com/go/firestore v1.25.0
@@ -17,10 +17,10 @@ require (
 	cloud.google.com/go/storage v1.66.0
 	github.com/e6qu/sockerless-cloud/realexec v0.1.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
-	github.com/go-sql-driver/mysql v1.10.0
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/stretchr/testify v1.12.1
-	google.golang.org/api v0.296.0
+	google.golang.org/api v0.297.0
 	google.golang.org/genproto v0.0.0-20260831171406-18b4a7587f8a
 	google.golang.org/genproto/googleapis/api v0.0.0-20260831171406-18b4a7587f8a
 	google.golang.org/grpc v1.83.2

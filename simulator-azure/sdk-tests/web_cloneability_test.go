@@ -131,40 +131,7 @@ func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
 		"a site with no running instance has no process to dump")
 	assert.NotContains(t, err.Error(), "NotImplemented")
 
-	// The runtime-stack catalogue is Microsoft's published list of platform
-	// images and their support lifecycle. Every spelling of it says so — the
-	// tenant-wide reads, the per-location reads, and the subscription-scoped
-	// one — so none of them is left answering a bare routing 404.
-	provider, err := armappservice.NewProviderClient(subscriptionID, &fakeCredential{}, clientOpts())
-	require.NoError(t, err)
-
-	// GET /providers/Microsoft.Web/availableStacks
-	_, err = provider.NewGetAvailableStacksPager(nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "App Service platform images")
-
-	// GET /providers/Microsoft.Web/webAppStacks
-	_, err = provider.NewGetWebAppStacksPager(nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "App Service platform images")
-
-	// GET /providers/Microsoft.Web/functionAppStacks
-	_, err = provider.NewGetFunctionAppStacksPager(nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "App Service platform images")
-
-	// GET /providers/Microsoft.Web/locations/{location}/webAppStacks
-	_, err = provider.NewGetWebAppStacksForLocationPager("eastus", nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "App Service platform images")
-
-	// GET /providers/Microsoft.Web/locations/{location}/functionAppStacks
-	_, err = provider.NewGetFunctionAppStacksForLocationPager("eastus", nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "App Service platform images")
-
-	// GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/availableStacks
-	_, err = provider.NewGetAvailableStacksOnPremPager(nil).NextPage(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "App Service platform images")
+	// The six runtime-stack catalog spellings are covered by
+	// TestSDK_Web_RuntimeStackCatalogsAreEmptyBecauseThisPlatformSuppliesNoStacks:
+	// they answer what this App Service offers, which is no built-in stack.
 }

@@ -89,6 +89,12 @@ Current state of the sockerless-cloud repository.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
+- **Amazon S3**: every operation the vendored model declares is served. S3
+  Object Lambda (access points, the read path, the WriteGetObjectResponse
+  callback) and S3 Express One Zone (directory buckets, the regional control and
+  zonal endpoints, and session authentication scoped to one bucket, one mode and
+  an expiry) are both assembled, so `s3ConformanceMissing` is empty and the two
+  model-drift exemptions they held are gone.
 - **IAM condition context**: the authorizer populates the condition keys the
   request itself settles — the global `aws:` envelope and principal keys, the
   tag keys in both the `aws:` and the `<service>:` spelling, `ec2:Region`,

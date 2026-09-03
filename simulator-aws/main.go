@@ -84,6 +84,10 @@ type simulatorBuildOptions struct {
 }
 
 func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*sim.Server, *sim.AWSRouter, *sim.AWSQueryRouter, error) {
+	// A directory bucket is addressed virtual-hosted style at its zonal
+	// endpoint, and only that way, so the bucket arrives in the hostname and is
+	// mapped onto the path the router works in.
+	cfg.RewriteRequest = s3RewriteZonalRequest
 	srv, err := sim.NewServer(cfg)
 	if err != nil {
 		return nil, nil, nil, err
@@ -227,6 +231,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerLambda(srv, options.startBackgroundEvaluators)
 	registerS3(srv)
 	registerS3ObjectLambda(srv)
+	registerS3Express(srv)
 	registerS3ControlJobs(srv)
 	registerS3ControlStorageLens(srv)
 	registerS3ControlAccessGrants(srv)

@@ -22,7 +22,7 @@
       "devDependencies": {
         "@testing-library/jest-dom": "^7.0.1",
         "@testing-library/react": "^16.3.3",
-        "@testing-library/user-event": "^14.6.6",
+        "@testing-library/user-event": "^14.6.7",
         "@types/react": "^19.2.18",
         "@types/react-dom": "^19.2.5",
         "jsdom": "^30.0.1",
@@ -34,7 +34,7 @@
       "name": "@sockerless/ui-simulator-aws",
       "version": "0.1.0",
       "dependencies": {
-        "@cloudscape-design/components": "3.0.1357",
+        "@cloudscape-design/components": "3.0.1359",
         "@cloudscape-design/design-tokens": "^3.0.110",
         "@cloudscape-design/global-styles": "^1.0.67",
         "@sockerless/ui-core": "workspace:*",
@@ -135,7 +135,7 @@
 
     "@cloudscape-design/component-toolkit": ["@cloudscape-design/component-toolkit@1.0.0-beta.183", "", { "dependencies": { "tslib": "^2.3.1", "weekstart": "^2.0.0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-gsnvcZo85aJQuEFxvnqQQTzFaA3wd5zyFewHpVFKbteYgSKPSwrWFvSN3aKSrrxC7OckLYZvxGMXsu5Y8qYXvQ=="],
 
-    "@cloudscape-design/components": ["@cloudscape-design/components@3.0.1357", "", { "dependencies": { "@cloudscape-design/collection-hooks": "^1.0.0", "@cloudscape-design/component-toolkit": "^1.0.0-beta", "@cloudscape-design/test-utils-core": "^1.0.0", "@cloudscape-design/theming-runtime": "^1.0.0", "@dnd-kit/core": "^6.0.8", "@dnd-kit/sortable": "^7.0.2", "@dnd-kit/utilities": "^3.2.1", "ace-builds": "^1.34.0", "clsx": "^1.1.0", "d3-shape": "^1.3.7", "date-fns": "^2.25.0", "intl-messageformat": "^10.3.1", "mnth": "^2.0.0", "react-is": "^18.2.0", "react-transition-group": "^4.4.2", "tslib": "^2.4.0", "weekstart": "^1.1.0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-x04+gGdaRf2sbSQ1LxP0OD0Gza4QeSQpTXRw3ZM4Di8OiyBCefPEwR66FL0tP4QXY3uhjoUcwc0BEAcHUeOAqA=="],
+    "@cloudscape-design/components": ["@cloudscape-design/components@3.0.1359", "", { "dependencies": { "@cloudscape-design/collection-hooks": "^1.0.0", "@cloudscape-design/component-toolkit": "^1.0.0-beta", "@cloudscape-design/test-utils-core": "^1.0.0", "@cloudscape-design/theming-runtime": "^1.0.0", "@dnd-kit/core": "^6.0.8", "@dnd-kit/sortable": "^7.0.2", "@dnd-kit/utilities": "^3.2.1", "ace-builds": "^1.34.0", "clsx": "^1.1.0", "d3-shape": "^1.3.7", "date-fns": "^2.25.0", "intl-messageformat": "^10.3.1", "mnth": "^2.0.0", "react-is": "^18.2.0", "react-transition-group": "^4.4.2", "tslib": "^2.4.0", "weekstart": "^1.1.0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-sd6SbIcgXJPifXygxn3kNskF5xwJ7EU0j1APaJWiUCIDawqcPzyAFnyHzENOo1R19DRJkIB7jb4/wUPVWKXgUQ=="],
 
     "@cloudscape-design/design-tokens": ["@cloudscape-design/design-tokens@3.0.110", "", {}, "sha512-bRccdO5Pgds5oFwXIwKkXEXG2uuyAyF/pulJ6zI3T4fKaCO7z3SIYV+q9aDDHM5DuSN5NOS+7J0bh90WsdmAnQ=="],
 
@@ -517,7 +517,7 @@
 
     "@testing-library/react": ["@testing-library/react@16.3.3", "", { "dependencies": { "@babel/runtime": "^7.12.5" }, "peerDependencies": { "@testing-library/dom": "^10.0.0", "@types/react": "^18.0.0 || ^19.0.0", "@types/react-dom": "^18.0.0 || ^19.0.0", "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0" }, "optionalPeers": ["@types/react", "@types/react-dom"] }, "sha512-Uo193NgQbPMz6lrrhtRQQFcMC6Re/ELLFbbuVL30WDlZxlpZf9/lMHTAVxPRLw1q1iu9OJmR1c2BLiENRstdBg=="],
 
-    "@testing-library/user-event": ["@testing-library/user-event@14.6.6", "", { "peerDependencies": { "@testing-library/dom": ">=7.21.4" } }, "sha512-Jbs9FpkkIDw8FgSc6kOVsOv8JuuqGAL7J4X1oot77JxAoDlkNn2GRkd0aYRVuQ+pVQAiHWVkE4rX/dkF5fBiCw=="],
+    "@testing-library/user-event": ["@testing-library/user-event@14.6.7", "", { "peerDependencies": { "@testing-library/dom": ">=7.21.4" } }, "sha512-MPCpX8bxe8zS+JmmTwLp8jd0dy1rAm60Te/SL8JrQM3qvQJcBOs1d7IefJMyZzqM3EWBrDn/LWDt1BCGu4ASfg=="],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.10.12", "", { "os": "darwin", "cpu": "x64" }, "sha512-9nKgKoF6ZOUsM+or0OtNf+TTJSfGvDNP7ZFv/ZGWVwOSCkumyctQiTeHwB4UNljHTnC41AqylgbunLDHoccNrA=="],
 

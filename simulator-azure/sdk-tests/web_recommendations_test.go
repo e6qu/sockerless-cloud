@@ -140,9 +140,12 @@ func TestSDK_Recommendations_HostingEnvironmentScope(t *testing.T) {
 	_, err = client.ResetAllFiltersForHostingEnvironment(ctx, rg, name, name, nil)
 	require.NoError(t, err)
 
+	// The rule read comes from the same collection the listing returns, so a
+	// scope whose listing is empty has no rule to read.
 	_, err = client.GetRuleDetailsByHostingEnvironment(ctx, rg, name, "AppDensity", nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not vendor")
+	assert.Contains(t, err.Error(), "ResourceNotFound")
+	assert.NotContains(t, err.Error(), "NotImplemented")
 
 	// An environment that was never created is refused.
 	_, err = client.NewListHistoryForHostingEnvironmentPager(rg, "sdk-recommendation-ase-absent", nil).NextPage(ctx)
