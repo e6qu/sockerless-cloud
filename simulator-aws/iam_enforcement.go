@@ -188,6 +188,10 @@ func iamRequestConditionContext(
 	// Resource-scoped / service-specific keys (aws:ResourceTag/*, ecs:cluster,
 	// aws:RequestTag/*, aws:TagKeys) from the request's target resource.
 	iamPopulateResourceConditionKeys(r, action, ctx)
+	// Service condition keys the request itself settles (ec2:Region, the Amazon
+	// S3 request-shape keys, cloudwatch:namespace, kms:CallerAccount) — the way
+	// AWS scopes an action whose resource the request never names.
+	iamPopulateServiceConditionKeys(r, action, iamRequestBody(r), ctx)
 	return ctx
 }
 
@@ -257,31 +261,39 @@ func iamEnforceREST(w http.ResponseWriter, r *http.Request, action, resource str
 	return false
 }
 
-// iamAccessKeyIDFromRequest extracts the SigV4 access-key id from the
-// Authorization header (Credential=AKID/date/region/service/aws4_request).
+// iamSigV4CredentialScope returns the credential scope the request was signed
+// under — AKID/date/region/service/aws4_request.
+//
+// SigV4 carries that scope two ways and AWS honours both: in the Authorization
+// header, and, for a presigned URL, in the X-Amz-Credential query parameter.
+// A presigned request is made by the principal who signed it and its policies
+// govern it exactly as they govern a header-signed call, so both forms have to
+// resolve to that principal here.
+func iamSigV4CredentialScope(r *http.Request) string {
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "AWS4-HMAC-SHA256") {
+		if i := strings.Index(auth, "Credential="); i >= 0 {
+			scope := auth[i+len("Credential="):]
+			if end := strings.IndexByte(scope, ','); end >= 0 {
+				scope = scope[:end]
+			}
+			return strings.TrimSpace(scope)
+		}
+	}
+	return r.URL.Query().Get("X-Amz-Credential")
+}
+
+// iamAccessKeyIDFromRequest extracts the SigV4 access-key id the request was
+// signed with.
 func iamAccessKeyIDFromRequest(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "AWS4-HMAC-SHA256") {
-		return ""
-	}
-	i := strings.Index(auth, "Credential=")
-	if i < 0 {
-		return ""
-	}
-	cred := auth[i+len("Credential="):]
-	if s := strings.IndexAny(cred, "/,"); s > 0 {
-		return cred[:s]
+	scope := iamSigV4CredentialScope(r)
+	if s := strings.IndexByte(scope, '/'); s > 0 {
+		return scope[:s]
 	}
 	return ""
 }
 
 func iamRequestedRegion(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	i := strings.Index(auth, "Credential=")
-	if i < 0 {
-		return ""
-	}
-	parts := strings.Split(auth[i+len("Credential="):], "/")
+	parts := strings.Split(iamSigV4CredentialScope(r), "/")
 	if len(parts) >= 3 {
 		return parts[2] // AKID / date / region / service / aws4_request
 	}

@@ -27,6 +27,12 @@ func cwReadBody(r *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return cwDecompress(body)
+}
+
+// cwDecompress unwraps a request body the SDK gzip-compressed, leaving an
+// uncompressed body untouched.
+func cwDecompress(body []byte) ([]byte, error) {
 	if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
 		gz, err := gzip.NewReader(bytes.NewReader(body))
 		if err != nil {

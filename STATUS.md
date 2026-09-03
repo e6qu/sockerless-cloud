@@ -89,6 +89,17 @@ Current state of the sockerless-cloud repository.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
+- **IAM condition context**: the authorizer populates the condition keys the
+  request itself settles — the global `aws:` envelope and principal keys, the
+  tag keys in both the `aws:` and the `<service>:` spelling, `ec2:Region`,
+  `ecs:cluster`, `cloudwatch:namespace`, `kms:CallerAccount`, and the Amazon S3
+  request-shape keys (`authType`, `signatureversion`, `TlsVersion`,
+  `signatureAge`, `x-amz-content-sha256`, `ResourceAccount`) — so a policy that
+  scopes an action through its condition key is evaluated against a context that
+  holds it: 1,216 of the 1,739 actions declaring an action condition key carry
+  every one of theirs (BUG-2965 measures the rest). A SigV4 credential is read
+  from the `Authorization` header and from a presigned URL's `X-Amz-Credential`
+  alike, so a presigned request is authorized as the principal who signed it.
 - **Measured floors** (re-read from the ratchets on 2026-09-01, because the
   figures written here had drifted from the tests that produce them): IAM
   resource derivation **2,000 of 2,008** served operations, the eight that

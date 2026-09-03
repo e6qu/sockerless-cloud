@@ -1,5 +1,38 @@
 # WHAT WE DID
 
+## 2026-09-03, forty-seventh pass — the condition key a policy tests, and the signature it was signed with
+
+A policy scopes an action AWS gives no nameable resource with a condition key,
+and the AWS simulator's authorizer populated only the global `aws:` ones. The
+canonical case is `cloudwatch:PutMetricData`, whose only declared resource type
+is `dataset` — no request names one — so AWS's own service reference lists
+`cloudwatch:namespace` against it and every published policy scopes it that way.
+Evaluated against a context without the key, a `StringEquals` on it matches
+nothing: the grant denied the writes it was written to allow.
+
+The keys the request itself settles are in the context now. `ec2:Region`, which
+the service references declare against 824 actions, more than any other. The
+Amazon S3 request-shape keys — `s3:authType` and `s3:signatureversion` (header-
+signed or presigned), `s3:TlsVersion`, `s3:x-amz-content-sha256`,
+`s3:ResourceAccount`, and `s3:signatureAge`, the milliseconds since signing that
+a policy tests to refuse a stale presigned URL. `cloudwatch:namespace` and
+`kms:CallerAccount`. Counted over the vendored service references, 1,216 of the
+1,739 actions declaring an action condition key now carry every one of theirs;
+the measured remainder is BUG-2965.
+
+Reading the namespace found the protocol had moved underneath the assumption:
+Amazon CloudWatch serves `PutMetricData` over Smithy RPC v2 CBOR, gzip-
+compressed by the SDK, not the Query form the parameter would have been in.
+
+The same work surfaced a bypass. `iamAccessKeyIDFromRequest` read the SigV4
+credential only from the `Authorization` header, so a presigned URL — whose
+credential travels in `X-Amz-Credential` — resolved to no principal at all and
+was never authorized. A presigned request is made by the principal who signed
+it, and its policies govern it exactly as they govern a header-signed call; both
+forms resolve to that principal now, which is also what makes an `s3:authType`
+grant able to tell them apart. `TestS3_AuthTypeConditionKeyScopesTheGrant`
+presigns a read the policy does not cover and holds it to 403.
+
 ## 2026-09-02, forty-sixth pass — the process is the source, and a required check that named nothing
 
 A required status check on `main` named `sim (azure sdk)`, which no job emits:
