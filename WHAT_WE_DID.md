@@ -45,6 +45,12 @@ its own rows, and `dynamodb:Attributes` for the columns it may touch, with
 request binds into its ciphertext, and `s3:versionid` the object version a
 request names. Coverage reached 1,307 of 1,739.
 
+Five more keys are read from what the request names: `ssm:DocumentType` from
+the document, `events:creatorAccount` from the rule, `states:StateMachineQualifier`
+from the version or alias on the ARN, and `ecs:propagate-tags` and
+`rds:ManageMasterUserPassword` from the request's own members. Coverage reached
+1,333 of 1,739.
+
 Proving the encryption-context key found something larger. A grant that should
 have been refused was allowed, and the condition keys were not the cause: the
 simulator read an account-root principal in a resource policy as an outright

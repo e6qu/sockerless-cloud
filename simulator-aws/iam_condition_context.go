@@ -283,6 +283,58 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		iamPopulateDynamoDBConditionKeys(r, action, body, ctx)
 	}
 
+	// ssm:DocumentType is the kind of document the request is about, read from
+	// the document it names — a policy uses it to allow Automation runbooks and
+	// not Command documents, or the reverse.
+	if service == "ssm" {
+		if name := iamRequestParameter(r, body, "Name"); name != "" {
+			if document, ok := ssmDocuments.Get(name); ok && document.DocumentType != "" {
+				ctx["ssm:DocumentType"] = []string{document.DocumentType}
+			}
+		}
+	}
+
+	// events:creatorAccount is the account that created the rule the request
+	// names. Every rule here was created through the account this simulator
+	// serves, so that is the answer for a rule that exists, and there is none
+	// for a rule that does not.
+	if service == "events" {
+		if name := iamRequestParameter(r, body, "Name"); name != "" {
+			// A rule is stored under its bus and its name, and a request that
+			// names no bus is about the default one.
+			key := ebRuleKey(iamRequestParameter(r, body, "EventBusName"), name)
+			if _, ok := ebRules.Get(key); ok {
+				ctx["events:creatorAccount"] = []string{awsAccountID()}
+			}
+		}
+	}
+
+	// states:StateMachineQualifier is the version or alias the request names,
+	// which is what a policy scopes on to allow a call against one published
+	// version and not another.
+	if service == "states" {
+		if qualifier := sfnRequestQualifier(r, body); qualifier != "" {
+			ctx["states:StateMachineQualifier"] = []string{qualifier}
+		}
+	}
+
+	// ecs:propagate-tags is where the request asks Amazon ECS to copy tags
+	// from, which a policy uses to require that they come from the service.
+	if service == "ecs" {
+		if propagate := iamRequestParameter(r, body, "propagateTags"); propagate != "" {
+			ctx["ecs:propagate-tags"] = []string{propagate}
+		}
+	}
+
+	// rds:ManageMasterUserPassword is whether the request asks Amazon RDS to
+	// manage the master password in AWS Secrets Manager, which a policy uses to
+	// require that a password never be supplied by hand.
+	if service == "rds" {
+		if managed := iamRequestParameter(r, body, "ManageMasterUserPassword"); managed != "" {
+			ctx["rds:ManageMasterUserPassword"] = []string{managed}
+		}
+	}
+
 	// iam:PermissionsBoundary is the boundary policy the request asks to
 	// attach, which is how an administrator delegates user creation while
 	// requiring every created principal to carry a boundary.
@@ -497,4 +549,27 @@ func iamPopulateKMSEncryptionContext(body []byte, ctx map[string][]string) {
 	}
 	sort.Strings(names)
 	ctx["kms:EncryptionContextKeys"] = names
+}
+
+// sfnRequestQualifier reads the version or alias an AWS Step Functions request
+// names. A state machine ARN carries it as a final segment after the machine's
+// name — `…:stateMachine:name:2` for a version, `…:stateMachine:name:live` for
+// an alias — and an unqualified ARN carries none.
+func sfnRequestQualifier(r *http.Request, body []byte) string {
+	for _, member := range []string{"stateMachineArn", "stateMachineAliasArn", "resourceArn"} {
+		arn := iamRequestParameter(r, body, member)
+		if arn == "" {
+			continue
+		}
+		machine, found := strings.CutPrefix(arn, "arn:aws:states:")
+		if !found {
+			continue
+		}
+		fields := strings.Split(machine, ":")
+		// region, account, "stateMachine", name[, qualifier]
+		if len(fields) >= 5 && fields[2] == "stateMachine" {
+			return fields[4]
+		}
+	}
+	return ""
 }
