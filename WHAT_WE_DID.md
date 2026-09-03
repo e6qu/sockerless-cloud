@@ -24,6 +24,24 @@ Reading the namespace found the protocol had moved underneath the assumption:
 Amazon CloudWatch serves `PutMetricData` over Smithy RPC v2 CBOR, gzip-
 compressed by the SDK, not the Query form the parameter would have been in.
 
+App Service reached the whole of its document. The six runtime-stack catalogs
+— `availableStacks`, `webAppStacks`, `functionAppStacks` and their per-location
+and subscription spellings — declined as Microsoft's published catalog. What
+they report is which built-in runtime stacks the App Service *offers*, and this
+one offers none: a site here runs the container image its `linuxFxVersion`
+names, and a site configured with `PHP|8.2` cannot start, which is what the
+start path already tells the caller. An empty collection states that, from the
+same fact, so the two cannot disagree — the answer `ListBillingMeters` and
+`ListAseRegions` already give for the surfaces this simulator hosts nothing of.
+Every lifecycle field in those schemas is optional and hangs off a stack entry;
+there are no entries. `web-arm-openapi-2025-03-01` reads 692 of 692.
+
+Three passages in that floor comment still described operations this branch had
+already served — the environment's outbound dependencies and the two
+recommendation-rule reads, each cited as "the same class as the declined
+Provider_*Stacks" — and `DO_NEXT.md` still enumerated a 76-operation App
+Service tail against a document that has none. Both say the merged state now.
+
 The same work surfaced a bypass. `iamAccessKeyIDFromRequest` read the SigV4
 credential only from the `Authorization` header, so a presigned URL — whose
 credential travels in `X-Amz-Credential` — resolved to no principal at all and

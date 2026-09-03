@@ -274,53 +274,26 @@
    convert it to a GenerationIndex rather than writing a new exemption
    paragraph.
 
-4. App Service is at 616 of 692 operations, and the 76 that remain were
-   enumerated rather than left as "the long tail". They are, by family:
+4. App Service is **closed**: all 692 operation spellings of
+   `web-arm-openapi-2025-03-01` are served. This item used to enumerate a tail
+   of 76, each family recorded as needing a catalog, a metric series or a
+   primitive the container engine lacks, and family after family turned out to
+   be answerable from what the site and its workload container already know:
+   network traces, the process family (list, get, threads, modules, dump and a
+   real kill, read from the process's own `/proc` where the simulator shares
+   the engine's kernel), backup and restore, App Service Environments,
+   diagnostics, recommendations, cloneability, performance counters, PHP
+   logging, the in-app MySQL migration, the environment's outbound network
+   dependencies, and last the six runtime-stack catalogs, which report what
+   this App Service offers — no built-in stack, because a site here runs a
+   container image — rather than Microsoft's published list.
 
-   - **Network trace / packet capture** (18 spellings: `networkTrace`,
-     `networkTraces`, `startNetworkTrace`, `stopNetworkTrace`, and their
-     operation-result and slot spellings). Capturing a site's packets is real
-     work the simulator does not do; serving a trace means fabricating one.
-   - **Process control and introspection beyond list and get**: `DELETE
-     .../processes/{id}` (kill), `.../processes/{id}/modules`,
-     `.../processes/{id}/dump`, across the site, instance and slot spellings.
-     Not implementable, for the reason `web_processes.go` already records: the
-     container engine's HTTP API exposes exactly one process primitive,
-     `GET /containers/{id}/top`, and it reports no loaded modules. A module
-     list would have to come from `/proc/<pid>/maps` inside the container,
-     which needs a shell in the workload image (a scratch image has none) or
-     the engine host's own `/proc` (unreachable when the engine runs in a
-     virtual machine, so serving it would work on a Linux engine and not on
-     macOS — a host-dependent API surface). The same limit stops the kill: the
-     engine can signal a container's main process, not an arbitrary process
-     inside it. Reopen only if the engine gains a real primitive for it.
-
-   - **`metricdefinitions`** (4) and `outboundNetworkDependenciesEndpoints`,
-     the two rule-detail reads of the recommendations family, and the declined
-     `Provider_*Stacks` (6) — each answers with a series or a catalog only the
-     real platform holds, in the same class as the declined catalogs below.
-     Each already answers a declared 501 naming its reason.
-
-   The blanket claim this item used to make — that *nothing* in the tail was
-   implementable — was wrong, and **`recommendations`** disproved it: 13 of its
-   15 operations were served on 2026-08-31 from what the simulator does hold.
-   No advisory engine runs here, so the lists and histories are honestly empty;
-   the filters are the client's own decisions and are recorded per scope. Only
-   the two rule-detail reads need Microsoft's published copy.
-
-   `iscloneable` (2) was the second: it is computed from the plan the site is
-   placed on and the deployment slots a clone would leave behind, both of
-   which this simulator holds. `resourceHealthMetadata` (6) went the other
-   way on examination — the operation defines its category as the one the
-   resource matches in Microsoft's Resource Health Check policy file — and
-   now answers a declared 501 naming it.
-
-   So the honest split for the 31 App Service operations still unserved is:
-   **`perfcounters`** and **`phplogging`** (4), the `migrate`/`migratemysql`
-   trio and the four process `dump` spellings have not been examined against
-   what the site and its workload container already know, and must be before
-   any of them is called blocked. The rest need a catalog, a metric series or
-   a `/proc` primitive that is not there, and each says so in a declared 501.
+   The lesson worth keeping is the method, not the tail: the floor comment's
+   own words are not evidence. Open the schema and read what the operation
+   actually asks for. A field that belongs to the vendor and is optional is
+   left absent; a collection that is genuinely empty here says so; only a
+   response whose *required* content the simulator would have to invent is
+   declined, and it declines by naming what is missing.
 
 5. Cloud Spanner admin is **closed**, not pending. Its measured number counts
    Discovery *method spellings*, not methods — the document declares most
@@ -425,9 +398,6 @@ each time; they are recorded here so they stop being re-proposed. Neither
 is a defect — both are surfaces whose only faithful implementation is
 somebody else's published data, and a partial catalog would be fabrication:
 
-- **Microsoft.Web `Provider_*Stacks` (6 operations)** answer with
-  Microsoft's published runtime-stack catalog. Unserved, with the reason
-  recorded beside the `web-arm-openapi-2025-03-01` floor row.
 - **Google Cloud Billing (6 of 36)** — `services.list` and
   `services.skus.list` answer with Google's public SKU catalog. The slice
   stays at its current floor.

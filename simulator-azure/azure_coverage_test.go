@@ -426,14 +426,22 @@ var azureMethodFloor = map[string]int{
 	// exists to catch, arriving through a handler the probe reaches only far
 	// enough to see a 404.
 	//
-	// DeleteProcess (4) stays unserved: the engine can terminate the
-	// container's main process, not an arbitrary one inside it.
+	// DeleteProcess is a real kill against the same process table the reads
+	// beside it return, so a process killed through it is gone from them
+	// afterwards.
 	//
-	// The Provider_*Stacks operations (availableStacks, webAppStacks,
-	// functionAppStacks and their per-location spellings — 6 in all) stay
-	// unserved deliberately: the runtime-stack catalog is Microsoft-published
-	// data that would need a vendored catalog, like the WAF rule sets; the
-	// decision is recorded in DO_NEXT.md.
+	// Raised from 686 to the whole document by the six Provider_*Stacks
+	// spellings (availableStacks, webAppStacks, functionAppStacks and their
+	// per-location and subscription forms). They used to decline as
+	// Microsoft-published catalog data. What the catalogs report is which
+	// built-in runtime stacks the App Service *offers*, and this one offers
+	// none: a site here runs the container image its linuxFxVersion names, and
+	// a site configured with a stack instead cannot start — the platform image
+	// that stack names is Microsoft's, which is what the start path tells the
+	// caller. An empty collection states exactly that, from the same fact the
+	// site path uses, so the two cannot come to disagree. Every lifecycle field
+	// in those schemas (isPreview, isDeprecated, isHidden, endOfLifeDate) hangs
+	// off a stack entry, and there are no entries.
 	//
 	// Raised from 545 by the two families that were the last recorded App
 	// Service deferrals: App Service Environments with Kubernetes Environments
@@ -452,11 +460,9 @@ var azureMethodFloor = map[string]int{
 	// ListMultiRoleMetricDefinitions, ListMultiRolePoolInstanceMetricDefinitions,
 	// ListWebWorkerMetricDefinitions and ListWorkerPoolInstanceMetricDefinitions
 	// would declare Microsoft.Insights metric series for pools the simulator
-	// emits no metrics for, and GetOutboundNetworkDependenciesEndpoints answers
-	// with Microsoft's published catalog of platform endpoints and address
-	// ranges — the same class as the declined Provider_*Stacks. The inbound
-	// half IS served: it is computed from the environment's own addresses,
-	// subnet and feature switches.
+	// emits no metrics for. The inbound network dependencies are computed from
+	// the environment's own addresses, subnet and feature switches, and the
+	// outbound ones are resolved and connected to for real.
 	//
 	// The diagnostics family is served for the measurements the simulator can
 	// actually make about a site: its workload container's terminal state, the
@@ -489,8 +495,7 @@ var azureMethodFloor = map[string]int{
 	// remaining operations, GetRuleDetailsByWebApp and
 	// GetRuleDetailsByHostingEnvironment, answer a declared 501: a
 	// RecommendationRule is Microsoft's published advisory copy (its display
-	// name, portal message and blade link), the same class as the declined
-	// Provider_*Stacks catalog.
+	// name, portal message and blade link).
 	//
 	// Raised from 659 by WebApps_IsCloneable and its slot spelling, which are
 	// computed from the site rather than declared: App Service clones an app
@@ -543,13 +548,11 @@ var azureMethodFloor = map[string]int{
 	// nothing and reports no counters, rather than a set of zeroes that would
 	// claim a measurement was taken.
 	//
-	// No App Service operation is a silent gap: every one that remains answers a
-	// declared 501 naming what is missing. Beside the catalogs and metric series
-	// already listed, those are migrate and migratemysql (there is no in-app
-	// MySQL database and no content share to move). The six Provider_*Stacks
-	// spellings used to miss the router outright and answer a bare 404, which
-	// reads as "no such API" rather than "this API exists and its data is not
-	// vendored"; they declare it now.
+	// Every operation this document declares is served. The declared 501s that
+	// remain are conditions a particular request meets, not operations: a
+	// process whose memory this host cannot read, a site whose container runs
+	// no PHP, a detector whose input does not exist here. Each names what is
+	// missing about that request rather than answering a substitute.
 	//
 	// Raised from 677 by the four process-dump spellings, which are written
 	// from the process's own memory rather than declared, and from 681 by the
@@ -579,7 +582,7 @@ var azureMethodFloor = map[string]int{
 	// no recommendations has no rule to read, so the read is not found, and it
 	// reads from the same collection the listing returns so the two cannot
 	// come to disagree.
-	"web-arm-openapi-2025-03-01": 686,
+	"web-arm-openapi-2025-03-01": 692,
 }
 
 // Route table
