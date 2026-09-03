@@ -252,6 +252,11 @@ func s3Enforced(opName func(*http.Request, []byte) string, h http.HandlerFunc) h
 			if s3EnforceExpressSession(w, r, op, sim.PathParam(r, "bucket")) {
 				return
 			}
+			// An access point narrows what can be done through it, whatever
+			// the caller's own policies allow on the bucket behind it.
+			if s3EnforceAccessPointScope(w, r, op) {
+				return
+			}
 			if !iamEnforceREST(w, r, "s3:"+op, s3RequestResourceARN(r), s3WriteIAMDeny) {
 				return
 			}

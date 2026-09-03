@@ -371,6 +371,11 @@ func s3ZonalHostBucket(host string) string {
 // zonal endpoint onto the path the router works in, and records the path the
 // client signed so the signature is still verified against what was sent.
 func s3RewriteZonalRequest(r *http.Request) {
+	// An access point is addressed virtual-hosted style too, onto the bucket it
+	// fronts.
+	if s3RewriteAccessPointRequest(r) {
+		return
+	}
 	bucket := s3ZonalHostBucket(r.Host)
 	if bucket == "" {
 		return

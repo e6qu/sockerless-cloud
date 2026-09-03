@@ -240,7 +240,7 @@ func simDialContext(ctx context.Context, network, addr string) (net.Conn, error)
 	switch {
 	case isLocalhostName(host):
 		addr = net.JoinHostPort("127.0.0.1", port)
-	case isS3ExpressName(host):
+	case isS3ExpressName(host), isS3AccessPointName(host):
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(simPort))
 	case host == "127.0.0.1" || host == "::1":
 	default:
@@ -267,6 +267,17 @@ func simDialContext(ctx context.Context, network, addr string) (net.Conn, error)
 // session at all. So a client addressing a directory bucket is left to resolve
 // exactly what it resolves against AWS, and resolution — which changes neither
 // the URL, the Host header, nor the signature — points at the simulator.
+// isS3AccessPointName reports whether a hostname addresses an S3 access point
+// — `<name>-<account>.s3-accesspoint.<region>.amazonaws.com`, or an Object
+// Lambda access point at its own host. The SDK derives that host from the
+// access point ARN a caller passes as the bucket, so a client reaching an
+// access point resolves it exactly as it does against Amazon S3, and resolution
+// points at the simulator.
+func isS3AccessPointName(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	return strings.Contains(h, ".s3-accesspoint.") || strings.Contains(h, ".s3-object-lambda.")
+}
+
 func isS3ExpressName(host string) bool {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
 	return strings.HasPrefix(h, "s3express-control.") || strings.Contains(h, ".s3express-")
@@ -276,7 +287,7 @@ func isS3ExpressName(host string) bool {
 // except the `.localhost` family, which resolves to loopback and must never be
 // routed through a proxy Go would otherwise apply to a non-`localhost` name.
 func simProxy(req *http.Request) (*url.URL, error) {
-	if host := req.URL.Hostname(); isLocalhostName(host) || isS3ExpressName(host) {
+	if host := req.URL.Hostname(); isLocalhostName(host) || isS3ExpressName(host) || isS3AccessPointName(host) {
 		return nil, nil
 	}
 	return http.ProxyFromEnvironment(req)

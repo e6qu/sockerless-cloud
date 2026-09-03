@@ -292,6 +292,13 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 
 	if service == "s3" {
 		iamPopulateS3ObjectConditionKeys(r, ctx)
+		// The access point a request was addressed through, which is how a
+		// policy grants a read only when it arrives through one front door.
+		if ap, addressed := s3RequestAccessPoint(r); addressed {
+			ctx["s3:DataAccessPointArn"] = []string{s3AccessPointARN(ap.AccountID, ap.Name)}
+			ctx["s3:DataAccessPointAccount"] = []string{ap.AccountID}
+			ctx["s3:AccessPointNetworkOrigin"] = []string{s3AccessPointNetworkOrigin(ap)}
+		}
 	}
 
 	// kms:RequestAlias is the alias the request named the key by, which is how

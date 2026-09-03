@@ -37,6 +37,23 @@ named the key by, and `organizations:PolicyType` the kind of policy a request is
 about. Coverage moved from 1,216 to 1,277 of the 1,739 actions that declare a
 key.
 
+The access point became a front door rather than a control-plane record. It is
+addressed the way Amazon S3 addresses it — `<name>-<account>.s3-accesspoint.
+<region>` — so the bucket arrives in the hostname and is mapped onto the path
+the router works in, the same rewrite a directory bucket's zonal request takes.
+What makes it more than an alias is enforced: an access point's scope names the
+key prefixes it reaches and the operations it allows, and a request outside
+either is refused however the caller's own policies read, while the bucket
+behind it is unaffected. That also settles three condition keys —
+`s3:DataAccessPointArn`, `s3:DataAccessPointAccount` and
+`s3:AccessPointNetworkOrigin` — so a policy can grant a read only when it
+arrives through one front door and refuse the same read at the bucket. Coverage
+reached 1,294 of 1,739.
+
+The dialer guard earned itself immediately here: the first run of the new test
+failed naming the access point host it would have dialled, instead of quietly
+reaching Amazon.
+
 Proving the last of those found a defect the whole awsJson surface shares. A
 denial reached the AWS SDK for Go with no message at all: the reason was on the
 wire, under `message`, and AWS Organizations' model declares the member
