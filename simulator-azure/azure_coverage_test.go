@@ -545,17 +545,32 @@ var azureMethodFloor = map[string]int{
 	//
 	// No App Service operation is a silent gap: every one that remains answers a
 	// declared 501 naming what is missing. Beside the catalogs and metric series
-	// already listed, those are phplogging (the effective php.ini of a PHP
-	// worker that does not run here, whose master values are the platform
-	// image's own defaults) and migrate and migratemysql (there is no in-app
+	// already listed, those are migrate and migratemysql (there is no in-app
 	// MySQL database and no content share to move). The six Provider_*Stacks
 	// spellings used to miss the router outright and answer a bare 404, which
 	// reads as "no such API" rather than "this API exists and its data is not
 	// vendored"; they declare it now.
 	//
 	// Raised from 677 by the four process-dump spellings, which are written
-	// from the process's own memory rather than declared.
-	"web-arm-openapi-2025-03-01": 681,
+	// from the process's own memory rather than declared, and from 681 by the
+	// two phplogging spellings. That flag reports log_errors and
+	// log_errors_max_len in their local and master forms, and PHP prints
+	// exactly that distinction — `php -i` gives every directive as "name =>
+	// local value => master value" — so a site running PHP is asked rather than
+	// a platform image described. A site whose container has no PHP is running
+	// no PHP worker and has no such setting, which it says: defaulting the four
+	// fields would claim the site is configured that way.
+	//
+	// Raised from 683 by the environment's outbound network dependencies, which
+	// used to be declined as Microsoft's published catalog of platform
+	// endpoints. The document does not ask for a catalog: EndpointDetail
+	// carries the address a domain name currently resolves to, whether a TCP
+	// connection can be made from the environment, and how many milliseconds
+	// making it takes. Those are findings, and an environment here depends on
+	// this simulator — the cloud its sites call, at the coordinate the caller
+	// reached it on — so the dependency is resolved and connected to, and what
+	// is reported is what happened.
+	"web-arm-openapi-2025-03-01": 684,
 }
 
 // Route table

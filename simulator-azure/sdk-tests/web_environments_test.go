@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -659,6 +660,34 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	_, err = client.BeginDelete(ctx, aseRG, aseName, nil)
 	require.Error(t, err, "an environment that still hosts App Service plans must not be deleted")
 	assert.Contains(t, err.Error(), "still deployed in it")
+
+	// The environment's outbound network dependencies are measured, not listed:
+	// the dependency is the cloud its sites call, and what comes back is the
+	// address that resolved, whether the connection was made and how long it
+	// took. This asserts they are measurements — a resolved address and a
+	// latency that was actually spent — rather than a catalogue's constants.
+	outboundPager := client.NewGetOutboundNetworkDependenciesEndpointsPager(aseRG, aseName, nil)
+	outboundPage, err := outboundPager.NextPage(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, outboundPage.Value, "an environment depends on the cloud its sites call")
+	measured := 0
+	for _, dependency := range outboundPage.Value {
+		require.NotEmpty(t, dependency.Endpoints)
+		for _, endpoint := range dependency.Endpoints {
+			assert.NotEmpty(t, *endpoint.DomainName)
+			for _, detail := range endpoint.EndpointDetails {
+				assert.NotNil(t, net.ParseIP(*detail.IPAddress),
+					"an endpoint detail carries the address the name resolved to: %q", *detail.IPAddress)
+				assert.NotZero(t, *detail.Port)
+				assert.True(t, *detail.IsAccessible,
+					"the simulator's own endpoint answered the request being served, so it is reachable")
+				assert.Positive(t, *detail.Latency,
+					"the latency is the time a connection took, which is not zero")
+				measured++
+			}
+		}
+	}
+	assert.NotZero(t, measured, "no dependency was measured")
 
 	_, err = webApps.Delete(ctx, aseRG, "sdk-ase-app", nil)
 	require.NoError(t, err)

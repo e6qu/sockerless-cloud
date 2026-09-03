@@ -32,22 +32,17 @@ import (
 //     the engine's HTTP API does not expose — the same limit that stops the
 //     module reads beside it.
 
-// registerWebPerfCounters mounts the counters and the four declared gaps.
+// registerWebPerfCounters mounts the counters, the PHP error-logging flag and
+// the process dumps. All three read the site's running workload container:
+// nothing here is a declared gap any more.
 func registerWebPerfCounters(both, site func(string, string, http.HandlerFunc)) {
 	both("GET", "/perfcounters", webListPerfMonCounters)
 
-	gap := func(operation, reason string) http.HandlerFunc {
-		// The gap does not depend on the site existing: the operation is
-		// unimplemented whatever it is asked about, and answering a 404 for an
-		// absent site first would report it as one the simulator serves.
-		return func(w http.ResponseWriter, _ *http.Request) {
-			sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
-				"%s is not implemented by the simulator: %s.", operation, reason)
-		}
-	}
-
-	const phpReason = "the flag reports the effective php.ini of the site's PHP worker: its master values are the App Service platform image's own defaults, which are not vendored here, and its local values come from a .user.ini in the site's content, which this simulator does not model. Unlike a collection, whose emptiness says none exist, a settings resource with every field left out says the settings are unset rather than unknown — so this declares the gap instead"
-	both("GET", "/phplogging", gap("WebApps_GetSitePhpErrorLogFlag", phpReason))
+	// The PHP error-logging flag is served in web_php_logging.go, out of the
+	// PHP the site is actually running: `php -i` reports every directive as
+	// "name => local value => master value", which is the distinction this
+	// resource makes.
+	both("GET", "/phplogging", webGetSitePhpErrorLogFlag)
 
 	// The process dump is served in web_process_dump.go: the site's processes
 	// are the container's, the engine reports them in its host's PID namespace,

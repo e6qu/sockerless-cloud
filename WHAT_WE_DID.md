@@ -11,6 +11,34 @@ needs no credentials. It runs on a schedule now, in `deps-freshness`, as its own
 job: branch protection drifts with nobody's commit, so it belongs somewhere no
 pull request owns.
 
+Two more App Service operations were declined on a reading of the document that
+the document does not support, and both are served now.
+
+`WebApps_GetSitePhpErrorLogFlag` reports `log_errors` and `log_errors_max_len`
+in a local and a master form. PHP prints exactly that distinction — `php -i`
+gives every directive as "name => local value => master value" — so a site
+running PHP is asked, in its own container, instead of a platform image being
+described. A site whose container has no PHP runs no PHP worker and has no such
+setting, which it says: defaulting the four fields would claim the site is
+configured that way.
+
+`AppServiceEnvironments_GetOutboundNetworkDependenciesEndpoints` was declined as
+"Microsoft's published catalog of platform endpoints and address ranges". Its
+own schema asks for nothing of the sort: `EndpointDetail` carries the address a
+domain name *currently resolves to*, whether a TCP connection *can be made* from
+the environment, and how many milliseconds making it *takes*. Those are
+findings. An environment here depends on this simulator — the cloud its sites
+call, at the coordinate the caller reached it on — so the dependency is resolved
+and connected to for real, and what is reported is what happened. The SDK test
+asserts the address parses, the latency is non-zero and the endpoint answered.
+
+Checking the neighbouring Azure Container Instances operation was worth it for
+the opposite reason: it answers an empty list, and Microsoft's own definition
+says "Response for network dependencies, always empty list". That one is
+correct as it stands.
+
+App Service reads **684 of 692**.
+
 The App Service process family is read from the process itself. It already was
 for the list — the site's workload is a container and the engine's process table
 is the site's processes — but `ListProcessModules` and `GetProcessModule`
