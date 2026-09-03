@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // Call-time IAM enforcement (GitHub issue #657). The policy evaluator
@@ -503,7 +501,8 @@ func iamWriteDeny(w http.ResponseWriter, r *http.Request, principalArn, action s
 	msg := "User: " + principalArn + " is not authorized to perform: " + action +
 		" because no identity-based policy allows the " + action + " action"
 	if r.Header.Get("X-Amz-Target") != "" {
-		sim.AWSError(w, "AccessDeniedException", msg, http.StatusForbidden)
+		service, _, _ := strings.Cut(action, ":")
+		iamWriteJSONDeny(w, service, "AccessDeniedException", msg)
 		return
 	}
 	if strings.HasPrefix(action, "ec2:") {

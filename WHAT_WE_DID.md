@@ -32,8 +32,21 @@ every created principal to carry one. The AWS Secrets Manager keys are read from
 the secret a request names. `rds:req-tag/${TagKey}` is Amazon RDS's own spelling
 of the tags a request carries, and `s3:ExistingObjectTag/<key>` the tags already
 on the object it targets — the key a policy uses to grant a read of what
-somebody tagged one way and refuse the rest. Coverage moved from 1,216 to 1,260
-of the 1,739 actions that declare a key.
+somebody tagged one way and refuse the rest. `kms:RequestAlias` is the alias a request
+named the key by, and `organizations:PolicyType` the kind of policy a request is
+about. Coverage moved from 1,216 to 1,277 of the 1,739 actions that declare a
+key.
+
+Proving the last of those found a defect the whole awsJson surface shares. A
+denial reached the AWS SDK for Go with no message at all: the reason was on the
+wire, under `message`, and AWS Organizations' model declares the member
+`Message`, so the client read nothing. The two spellings are split almost evenly
+across AWS's models — 765 members spell it one way and 672 the other, and
+several services spell it both ways on different exceptions — so a denial is now
+written under the name the service's own model declares. A table records each
+service's spelling and a gate reads the models to hold it honest; it earned its
+place immediately by catching a speculative entry for AWS Secrets Manager, whose
+model declares no such exception at all.
 
 S3 Express One Zone is assembled, which leaves every operation the vendored
 Amazon S3 model declares served. A directory bucket is its own bucket type,

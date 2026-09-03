@@ -293,6 +293,46 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	if service == "s3" {
 		iamPopulateS3ObjectConditionKeys(r, ctx)
 	}
+
+	// kms:RequestAlias is the alias the request named the key by, which is how
+	// a policy grants use of a key through one alias and not another. It is
+	// absent when the request named the key some other way, which is what AWS
+	// does with a key that does not apply.
+	if service == "kms" {
+		if keyID := iamRequestParameter(r, body, "KeyId"); strings.HasPrefix(keyID, "alias/") {
+			ctx["kms:RequestAlias"] = []string{keyID}
+		}
+	}
+
+	// organizations:PolicyType is the kind of policy the request is about: the
+	// request states it outright where it creates or enables one, and names the
+	// policy whose type it is everywhere else.
+	if service == "organizations" {
+		if policyType := iamOrganizationsRequestPolicyType(r, body); policyType != "" {
+			ctx["organizations:PolicyType"] = []string{policyType}
+		}
+	}
+}
+
+// iamOrganizationsRequestPolicyType reads the policy type an AWS Organizations
+// request is about, either from the type the request states or from the policy
+// it names.
+func iamOrganizationsRequestPolicyType(r *http.Request, body []byte) string {
+	if policyType := iamRequestParameter(r, body, "Type"); policyType != "" {
+		return policyType
+	}
+	if policyType := iamRequestParameter(r, body, "PolicyType"); policyType != "" {
+		return policyType
+	}
+	policyID := iamRequestParameter(r, body, "PolicyId")
+	if policyID == "" {
+		return ""
+	}
+	policy, ok := orgPolicies.Get(policyID)
+	if !ok {
+		return ""
+	}
+	return policy.Type
 }
 
 // iamRequestParameter reads one parameter of a request whichever way the

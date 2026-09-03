@@ -9,6 +9,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
+	orgtypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -265,5 +268,64 @@ func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
 		Description:            aws.String("carries no such tag"),
 	})
 	require.Error(t, err, "a request carrying no such tag is not covered by the grant")
+	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// TestKMS_RequestAliasConditionKeyScopesTheGrant covers kms:RequestAlias — the
+// alias a request named the key by, which is how a policy grants use of a key
+// through one alias and not another.
+func TestKMS_RequestAliasConditionKeyScopesTheGrant(t *testing.T) {
+	admin := kmsClient()
+	key, err := admin.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("alias condition")})
+	require.NoError(t, err)
+	keyID := aws.ToString(key.KeyMetadata.KeyId)
+
+	for _, alias := range []string{"alias/cond-permitted", "alias/cond-refused"} {
+		_, err = admin.CreateAlias(ctx, &kms.CreateAliasInput{
+			AliasName: aws.String(alias), TargetKeyId: aws.String(keyID)})
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = admin.DeleteAlias(ctx, &kms.DeleteAliasInput{AliasName: aws.String(alias)}) })
+	}
+
+	akid, secret := restrictedCredential(t, "kms-one-alias",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"kms:Encrypt","Resource":"*",
+		  "Condition":{"StringEquals":{"kms:RequestAlias":"alias/cond-permitted"}}}]}`)
+	restricted := kms.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
+		func(o *kms.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	_, err = restricted.Encrypt(ctx, &kms.EncryptInput{
+		KeyId: aws.String("alias/cond-permitted"), Plaintext: []byte("secret")})
+	assert.NoError(t, err, "the request names the key by the alias the grant allows")
+
+	_, err = restricted.Encrypt(ctx, &kms.EncryptInput{
+		KeyId: aws.String("alias/cond-refused"), Plaintext: []byte("secret")})
+	require.Error(t, err, "the same key reached through another alias is not covered")
+	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// TestOrganizations_PolicyTypeConditionKeyScopesTheGrant covers
+// organizations:PolicyType, which scopes a grant to one kind of policy — the
+// request states the type where it creates one, and names the policy whose type
+// it is everywhere else.
+func TestOrganizations_PolicyTypeConditionKeyScopesTheGrant(t *testing.T) {
+	akid, secret := restrictedCredential(t, "org-scp-only",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"organizations:CreatePolicy",
+		  "Resource":"*",
+		  "Condition":{"StringEquals":{"organizations:PolicyType":"SERVICE_CONTROL_POLICY"}}}]}`)
+	restricted := organizations.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
+		func(o *organizations.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	const document = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
+	_, err := restricted.CreatePolicy(ctx, &organizations.CreatePolicyInput{
+		Name: aws.String("cond-scp"), Description: aws.String("the type the grant names"),
+		Content: aws.String(document), Type: orgtypes.PolicyTypeServiceControlPolicy})
+	assert.NoError(t, err, "the request creates the policy type the grant names")
+
+	_, err = restricted.CreatePolicy(ctx, &organizations.CreatePolicyInput{
+		Name: aws.String("cond-tag-policy"), Description: aws.String("another type"),
+		Content: aws.String(`{"tags":{}}`), Type: orgtypes.PolicyTypeTagPolicy})
+	require.Error(t, err, "another policy type is not covered by the grant")
 	assert.Contains(t, err.Error(), "not authorized")
 }

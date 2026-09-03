@@ -104,8 +104,12 @@ Current state of the sockerless-cloud repository.
   `ExistingObjectTag/<k>`), `iam:PermissionsBoundary`, `rds:req-tag/<k>` and the
   AWS Secrets Manager keys read from the secret a request names — so a policy
   that scopes an action through its condition key is evaluated against a context
-  that holds it: 1,260 of the 1,739 actions declaring an action condition key
-  carry every one of theirs (BUG-2965 measures the rest). A SigV4 credential is read
+  that holds it: the actions declaring an action condition key
+  carry every one of theirs — 1,277 of them (BUG-2965 measures the rest). An
+  awsJson denial is written under the member name the service's own model
+  declares for it, `message` or `Message`, which half of AWS's services spell
+  each way; a table holds each one and a gate reads the models to keep it
+  honest. A SigV4 credential is read
   from the `Authorization` header and from a presigned URL's `X-Amz-Credential`
   alike, so a presigned request is authorized as the principal who signed it.
 - **Measured floors** (re-read from the ratchets on 2026-09-01, because the
