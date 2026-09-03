@@ -9,7 +9,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/rds"
+	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -127,5 +131,139 @@ func TestS3_SignatureAgeConditionKeyScopesTheGrant(t *testing.T) {
 	// No request is younger than zero milliseconds.
 	err = read("s3-no-signature-age", "0")
 	require.Error(t, err, "a signature age no request can be under refuses every request")
+	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// TestS3_ExistingObjectTagConditionKeyScopesTheGrant covers
+// s3:ExistingObjectTag/<key>: the tags already on the object a request targets,
+// which is how a policy grants a read of the objects somebody tagged one way
+// and refuses the ones tagged another.
+func TestS3_ExistingObjectTagConditionKeyScopesTheGrant(t *testing.T) {
+	bucket := "s3-existing-tag-bucket"
+	admin := s3Client()
+	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+
+	for key, classification := range map[string]string{"open": "public", "closed": "secret"} {
+		_, err = admin.PutObject(ctx, &s3.PutObjectInput{
+			Bucket: aws.String(bucket), Key: aws.String(key), Body: strings.NewReader("v")})
+		require.NoError(t, err)
+		_, err = admin.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{
+			Bucket: aws.String(bucket), Key: aws.String(key),
+			Tagging: &s3types.Tagging{TagSet: []s3types.Tag{
+				{Key: aws.String("classification"), Value: aws.String(classification)}}}})
+		require.NoError(t, err)
+	}
+
+	akid, secret := restrictedCredential(t, "s3-public-objects-only",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject",
+		  "Resource":"arn:aws:s3:::`+bucket+`/*",
+		  "Condition":{"StringEquals":{"s3:ExistingObjectTag/classification":"public"}}}]}`)
+	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
+		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+
+	_, err = restricted.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("open")})
+	assert.NoError(t, err, "the object carries the tag the grant names")
+
+	_, err = restricted.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("closed")})
+	require.Error(t, err, "an object tagged otherwise is not covered by the grant")
+	assert.Equal(t, "AccessDenied", errCodeOf(err))
+}
+
+// TestSecretsManager_SecretIdConditionKeyScopesTheGrant covers
+// secretsmanager:SecretId, which AWS documents for scoping a grant to the one
+// secret a request may name.
+func TestSecretsManager_SecretIdConditionKeyScopesTheGrant(t *testing.T) {
+	admin := secretsmanager.NewFromConfig(sdkConfig(),
+		func(o *secretsmanager.Options) { o.BaseEndpoint = aws.String(baseURL) })
+	permitted, refused := "cond-permitted-secret", "cond-refused-secret"
+	for _, name := range []string{permitted, refused} {
+		_, err := admin.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+			Name: aws.String(name), SecretString: aws.String("value")})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = admin.DeleteSecret(ctx, &secretsmanager.DeleteSecretInput{
+				SecretId: aws.String(name), ForceDeleteWithoutRecovery: aws.Bool(true)})
+		})
+	}
+
+	akid, secret := restrictedCredential(t, "sm-one-secret",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"secretsmanager:GetSecretValue",
+		  "Resource":"*","Condition":{"StringEquals":{"secretsmanager:SecretId":"`+permitted+`"}}}]}`)
+	restricted := secretsmanager.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
+		func(o *secretsmanager.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	_, err := restricted.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId: aws.String(permitted)})
+	assert.NoError(t, err, "the grant names this secret")
+
+	_, err = restricted.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId: aws.String(refused)})
+	require.Error(t, err, "a secret the condition does not name is refused")
+	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant covers
+// iam:PermissionsBoundary, the key an administrator uses to delegate user
+// creation while requiring every created user to carry a boundary.
+func TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant(t *testing.T) {
+	iamc := iamClient()
+	boundary, err := iamc.CreatePolicy(ctx, &iam.CreatePolicyInput{
+		PolicyName: aws.String("cond-boundary"),
+		PolicyDocument: aws.String(
+			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`),
+	})
+	require.NoError(t, err)
+	boundaryARN := aws.ToString(boundary.Policy.Arn)
+	t.Cleanup(func() { _, _ = iamc.DeletePolicy(ctx, &iam.DeletePolicyInput{PolicyArn: aws.String(boundaryARN)}) })
+
+	akid, secretKey := restrictedCredential(t, "iam-delegated-creator",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"iam:CreateUser","Resource":"*",
+		  "Condition":{"StringEquals":{"iam:PermissionsBoundary":"`+boundaryARN+`"}}}]}`)
+	delegated := iam.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secretKey, "")},
+		func(o *iam.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	created, err := delegated.CreateUser(ctx, &iam.CreateUserInput{
+		UserName: aws.String("cond-bounded-user"), PermissionsBoundary: aws.String(boundaryARN)})
+	assert.NoError(t, err, "the request attaches the boundary the grant requires")
+	if err == nil {
+		t.Cleanup(func() {
+			_, _ = iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: created.User.UserName})
+		})
+	}
+
+	_, err = delegated.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String("cond-unbounded-user")})
+	require.Error(t, err, "a user created with no boundary is not covered by the grant")
+	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// TestRDS_RequestTagConditionKeyScopesTheGrant covers rds:req-tag/${TagKey},
+// which is Amazon RDS's own spelling of the tags a request carries — the key a
+// policy uses to require that everything created be labelled.
+func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
+	akid, secret := restrictedCredential(t, "rds-must-tag-env",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"rds:CreateDBParameterGroup",
+		  "Resource":"*","Condition":{"StringEquals":{"rds:req-tag/env":"dev"}}}]}`)
+	restricted := rds.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
+		func(o *rds.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	_, err := restricted.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
+		DBParameterGroupName:   aws.String("cond-tagged-group"),
+		DBParameterGroupFamily: aws.String("postgres17"),
+		Description:            aws.String("carries the tag the grant requires"),
+		Tags:                   []rdstypes.Tag{{Key: aws.String("env"), Value: aws.String("dev")}},
+	})
+	assert.NoError(t, err, "the request carries the tag the grant requires")
+
+	_, err = restricted.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
+		DBParameterGroupName:   aws.String("cond-untagged-group"),
+		DBParameterGroupFamily: aws.String("postgres17"),
+		Description:            aws.String("carries no such tag"),
+	})
+	require.Error(t, err, "a request carrying no such tag is not covered by the grant")
 	assert.Contains(t, err.Error(), "not authorized")
 }

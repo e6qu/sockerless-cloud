@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -267,6 +268,99 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	// simulator is the account it serves.
 	if service == "kms" {
 		ctx["kms:CallerAccount"] = []string{awsAccountID()}
+	}
+
+	// iam:PermissionsBoundary is the boundary policy the request asks to
+	// attach, which is how an administrator delegates user creation while
+	// requiring every created principal to carry a boundary.
+	if service == "iam" {
+		if boundary := iamRequestParameter(r, body, "PermissionsBoundary"); boundary != "" {
+			ctx["iam:PermissionsBoundary"] = []string{boundary}
+		}
+	}
+
+	// The Amazon RDS request tags, in the spelling RDS declares for them.
+	if service == "rds" {
+		for _, tag := range parseIndexedTags(r, "Tags.Tag") {
+			ctx["rds:req-tag/"+tag.Key] = []string{tag.Value}
+		}
+	}
+
+	if service == "secretsmanager" {
+		iamPopulateSecretsManagerConditionKeys(r, body, ctx)
+	}
+
+	if service == "s3" {
+		iamPopulateS3ObjectConditionKeys(r, ctx)
+	}
+}
+
+// iamRequestParameter reads one parameter of a request whichever way the
+// service carries it: a query-protocol form value, or a top-level member of an
+// awsJson body.
+func iamRequestParameter(r *http.Request, body []byte, name string) string {
+	if value := r.FormValue(name); value != "" {
+		return value
+	}
+	if len(body) == 0 {
+		return ""
+	}
+	var document map[string]any
+	if json.Unmarshal(body, &document) != nil {
+		return ""
+	}
+	value, _ := document[name].(string)
+	return value
+}
+
+// iamPopulateSecretsManagerConditionKeys adds the keys AWS Secrets Manager
+// declares against its actions: the identifier the request named, and the
+// facts about the secret it resolves to that a policy scopes on.
+func iamPopulateSecretsManagerConditionKeys(r *http.Request, body []byte, ctx map[string][]string) {
+	secretID := iamRequestParameter(r, body, "SecretId")
+	if secretID == "" {
+		return
+	}
+	ctx["secretsmanager:SecretId"] = []string{secretID}
+
+	name, ok := resolveSecretKeyForRequest(r, secretID)
+	if !ok {
+		return
+	}
+	secret, ok := smSecrets.Get(name)
+	if !ok {
+		return
+	}
+	// resource/Type is the kind of secret, which Secrets Manager derives from
+	// the service that owns it: a secret this project created through the API
+	// belongs to no other service, and "other" is what that is.
+	ctx["secretsmanager:resource/Type"] = []string{"other"}
+	if secret.RotationLambdaARN != "" {
+		ctx["secretsmanager:resource/AllowRotationLambdaArn"] = []string{secret.RotationLambdaARN}
+	}
+	primary := secret.PrimaryRegion
+	if primary == "" {
+		primary = awsRegion()
+	}
+	ctx["secretsmanager:SecretPrimaryRegion"] = []string{primary}
+}
+
+// iamPopulateS3ObjectConditionKeys adds s3:ExistingObjectTag/<key> — the tags
+// already on the object the request targets, which is how a policy grants a
+// read of objects somebody tagged one way and not another. The tags are the
+// object's own, read at the time of the question.
+func iamPopulateS3ObjectConditionKeys(r *http.Request, ctx map[string][]string) {
+	bucket := sim.PathParam(r, "bucket")
+	key := sim.PathParam(r, "key")
+	if bucket == "" || key == "" {
+		return
+	}
+	tags, ok := s3ObjectTags.Get(bucket + "/" + key)
+	if !ok {
+		return
+	}
+	for tagKey, tagValue := range tags {
+		ctx["s3:ExistingObjectTag/"+tagKey] = []string{tagValue}
 	}
 }
 

@@ -24,6 +24,17 @@ Reading the namespace found the protocol had moved underneath the assumption:
 Amazon CloudWatch serves `PutMetricData` over Smithy RPC v2 CBOR, gzip-
 compressed by the SDK, not the Query form the parameter would have been in.
 
+A second block of condition keys followed the same rule — a key whose value the
+request or the simulator's own state settles is populated, and one that would
+have to be invented is not. `iam:PermissionsBoundary` is the boundary a request
+attaches, which is how an administrator delegates user creation while requiring
+every created principal to carry one. The AWS Secrets Manager keys are read from
+the secret a request names. `rds:req-tag/${TagKey}` is Amazon RDS's own spelling
+of the tags a request carries, and `s3:ExistingObjectTag/<key>` the tags already
+on the object it targets — the key a policy uses to grant a read of what
+somebody tagged one way and refuse the rest. Coverage moved from 1,216 to 1,260
+of the 1,739 actions that declare a key.
+
 S3 Express One Zone is assembled, which leaves every operation the vendored
 Amazon S3 model declares served. A directory bucket is its own bucket type,
 named for the Availability Zone it is placed in — the name has to agree with the

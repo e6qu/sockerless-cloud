@@ -100,10 +100,12 @@ Current state of the sockerless-cloud repository.
   tag keys in both the `aws:` and the `<service>:` spelling, `ec2:Region`,
   `ecs:cluster`, `cloudwatch:namespace`, `kms:CallerAccount`, and the Amazon S3
   request-shape keys (`authType`, `signatureversion`, `TlsVersion`,
-  `signatureAge`, `x-amz-content-sha256`, `ResourceAccount`) — so a policy that
-  scopes an action through its condition key is evaluated against a context that
-  holds it: 1,216 of the 1,739 actions declaring an action condition key carry
-  every one of theirs (BUG-2965 measures the rest). A SigV4 credential is read
+  `signatureAge`, `x-amz-content-sha256`, `ResourceAccount`,
+  `ExistingObjectTag/<k>`), `iam:PermissionsBoundary`, `rds:req-tag/<k>` and the
+  AWS Secrets Manager keys read from the secret a request names — so a policy
+  that scopes an action through its condition key is evaluated against a context
+  that holds it: 1,260 of the 1,739 actions declaring an action condition key
+  carry every one of theirs (BUG-2965 measures the rest). A SigV4 credential is read
   from the `Authorization` header and from a presigned URL's `X-Amz-Credential`
   alike, so a presigned request is authorized as the principal who signed it.
 - **Measured floors** (re-read from the ratchets on 2026-09-01, because the
