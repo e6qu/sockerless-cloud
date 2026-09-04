@@ -37,13 +37,17 @@ any `<store>.mu.Lock()` receiver, because the stores here are named for what
 they hold — `ecsTasks`, `azureSites` — and the inherited pattern only knew
 `st` and `*store`.
 
-A Cloud Build test flaked in the same pass, and the harness had predicted it in
-its own words. `TestSDK_CloudBuild_CancelStopsARunningBuild` builds
-`FROM alpine:latest` and cancels the running step; the image was fetched by a
-single-attempt pre-pull that, on failure, logged `Warning: docker pull
-alpine:latest failed (Cloud Build tests may flake)` and continued — leaving the
-pull to happen inside the timed build step, where a throttled Docker Hub
-surfaced as a build that failed on its own before the cancel could stop it.
+A degraded pre-pull was found in the same pass. The harness fetched
+`alpine:latest` with a single attempt and, on failure, logged `Warning: docker
+pull alpine:latest failed (Cloud Build tests may flake)` and carried on —
+leaving the pull to happen inside a timed build step, where a throttled Docker
+Hub would surface as a workload that failed rather than as a pull error. That
+is a flake source and it is gone, but it is not the cause of BUG-2969, the
+recorded flake in `TestSDK_CloudBuild_CancelStopsARunningBuild`: that failure
+had the built image *present*, and a build whose pull failed leaves no image.
+The bug stays open, and the assertion now reports the image's id, creation time
+and size together with the build's final status and each step's timing, so a
+recurrence carries its own evidence.
 The three Cloud Build sources still on Docker Hub now build from the pinned
 Amazon ECR Public Gallery base the rest of the file already used, and the
 `alpine:latest` the Cloud Run job tests run as their workload is acquired
@@ -67,6 +71,17 @@ shards run 815s of tests inside 2706s of wall time, so most of a shard is
 setup it pays alone — loading the base-image tarball, pre-building the test
 binary, restoring caches. The split is now even; the duplicated fixed cost is
 what remains.
+
+Chasing that flake turned up a real fidelity defect through the new
+diagnostic: settling a finished build wrote back the copy of its steps taken
+before any of them ran, so a cancelled build reported a step with no status and
+no timing — one that, on the record, had never started. The run's own step
+state is now carried through, and the step the cancel interrupted reports
+CANCELLED with the times it started and stopped, which is what Cloud Build
+reports. The killed process's own FAILURE is discarded for the reason the
+build's verdict already was: CancelBuild only moves a build that has not
+settled, so a step that had really failed would have settled the build before
+the cancel could land.
 
 `createBucket` also treats a 409 as "the bucket is there", which is what Cloud
 Storage answers and what lets a test in that package be re-run in one process:

@@ -956,12 +956,43 @@ func executeCancellableBuild(ctx context.Context, b Build) Build {
 	// already settled keeps the cancel's verdict, and the step's own failure —
 	// which is what a terminated step reports — never overwrites it.
 	cbBuilds.Update(b.ID, func(stored *Build) {
-		if stored.Status == "CANCELLED" {
+		// The step statuses and timings were recorded on the stored build as
+		// its steps ran. result is the copy taken before any of them did, so
+		// the run's own step state is carried over rather than written out —
+		// a cancelled build reported a step that had never started otherwise.
+		steps := stored.Steps
+		cancelled := stored.Status == "CANCELLED"
+		if cancelled {
 			result.Status = stored.Status
 			result.StatusDetail = stored.StatusDetail
 			result.FinishTime = stored.FinishTime
 		}
 		*stored = result
+		stored.Steps = steps
+		if cancelled {
+			// A step the cancel terminated reports CANCELLED — not the
+			// failure its killed process returned, and not the WORKING it was
+			// interrupted in. The failure is an artifact of the kill for the
+			// same reason the build's own is: a step that had really failed
+			// would have settled the build before a cancel could land, and
+			// CancelBuild only moves a build that has not settled.
+			stamp := time.Now().UTC().Format(time.RFC3339)
+			for _, step := range stored.Steps {
+				if step == nil {
+					continue
+				}
+				switch step.Status {
+				case "", "PENDING", "QUEUED", "WORKING", "FAILURE":
+					step.Status = "CANCELLED"
+					if step.Timing == nil {
+						step.Timing = &BuildTiming{}
+					}
+					if step.Timing.EndTime == "" {
+						step.Timing.EndTime = stamp
+					}
+				}
+			}
+		}
 	})
 	return result
 }
