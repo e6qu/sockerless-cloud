@@ -510,6 +510,39 @@ exposed the carrier/provider primitives needed for faithful delivery.
 - BUG-2523 and BUG-2441 remained owned by the external Bleephub repository,
   which was not present in this workspace.
 
+## The branch that is waiting
+
+`gate-integrity-and-casefold-panics` is pushed with its work complete and has
+no pull request. It could not have one: the one-open-pull-request gate counts
+every pull request in the repository, a sibling worktree's was open throughout,
+and opening a second fails that gate on *its* commits as well as this branch's.
+Open it the moment the repository has none open:
+
+```
+gh pr create --head gate-integrity-and-casefold-panics
+```
+
+What it carries, and what was run for it — `ci.yml` is pull-request-only, so
+none of this came from CI:
+
+- Two quality gates that could not fail, dead since the extraction because they
+  named the monorepo's directories, and the two live `slice bounds out of
+  range` panics one of them was hiding.
+- A phantom-coverage detector for Azure, which had none, with its 34 fan-ins
+  documented by the mechanism that legitimises each.
+- The 46 AWS S3 exemptions verified against the table that claims to route
+  them, rather than trusted.
+- The AWS SDK shard rebalance, and the Cloud Build step-state repair.
+- The Google Cloud CLI suite's workload image, which was pulled inside a timed
+  test and failed that suite until it moved to the warmed gallery image.
+
+Suites run locally in place of CI: GCP unit/SDK/CLI, Azure unit/SDK/CLI, AWS
+unit and all four SDK shards under CI's own regexes and 600-second budget — all
+green. The Azure Terraform leg is the exception and stays unverified for this
+change: it reached none of the code the branch touches before Firecracker
+failed to boot for want of nested KVM (BUG-2764), so CI's Linux cell is the
+only thing that can cover it.
+
 ## CI and Gate Follow-ups
 
 1. **The AWS SDK shards were rebalanced, and the next lever is not the split.**
