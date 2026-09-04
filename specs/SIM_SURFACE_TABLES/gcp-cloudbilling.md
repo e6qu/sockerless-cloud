@@ -31,6 +31,17 @@ The extractor reads the route out of a single string literal, so a registration 
 | `PUT /v1/projects/{project}/billingInfo` | ✓ `simulator-gcp/cloudbilling.go:201::handleBillingUpdateProjectInfo` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/services` | ○ `simulator-gcp/cloudbilling.go:204::handleBillingListServices` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/services/{service}/skus` | ○ `simulator-gcp/cloudbilling.go:205::handleBillingListSkus` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tasks/{tasksAction}` | 501 `simulator-gcp/cloudbilling.go:242::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/tasks/{tasksAction}` | 501 `simulator-gcp/cloudbilling.go:254::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tasks/{tasksId}/pushNotificationConfigs` | 501 `simulator-gcp/cloudbilling.go:262::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/tasks/{tasksId}/pushNotificationConfigs` | 501 `simulator-gcp/cloudbilling.go:263::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}` | 501 `simulator-gcp/cloudbilling.go:264::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}` | 501 `simulator-gcp/cloudbilling.go:265::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/card` | 501 `simulator-gcp/cloudbilling.go:266::cardWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/message:send` | 501 `simulator-gcp/cloudbilling.go:267::messageWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/message:stream` | 501 `simulator-gcp/cloudbilling.go:268::messageWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/{name...}` | 501 `simulator-gcp/cloudbilling.go:270::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/{name...}` | 501 `simulator-gcp/cloudbilling.go:285::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
