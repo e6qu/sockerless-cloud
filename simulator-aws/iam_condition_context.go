@@ -337,6 +337,29 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		}
 	}
 
+	// servicediscovery:ServiceCreatedByAccount is the account that created the
+	// AWS Cloud Map service the request names. Every service here was created
+	// through the account this simulator serves, and a service that does not
+	// exist settles no key.
+	if service == "servicediscovery" {
+		if id := iamRequestParameter(r, body, "Id"); id != "" {
+			if _, ok := cmServices.Get(id); ok {
+				ctx["servicediscovery:ServiceCreatedByAccount"] = []string{awsAccountID()}
+			}
+		}
+	}
+
+	// The AWS Organizations account transfer a request is about: which way it
+	// moves and what kind it is, both stated by the request.
+	if service == "organizations" {
+		if direction := iamRequestParameter(r, body, "TransferDirection"); direction != "" {
+			ctx["organizations:TransferDirection"] = []string{direction}
+		}
+		if kind := iamRequestParameter(r, body, "TransferType"); kind != "" {
+			ctx["organizations:TransferType"] = []string{kind}
+		}
+	}
+
 	// ssm:DocumentType is the kind of document the request is about, read from
 	// the document it names — a policy uses it to allow Automation runbooks and
 	// not Command documents, or the reverse.

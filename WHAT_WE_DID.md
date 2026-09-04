@@ -81,6 +81,20 @@ AWS Auto Scaling target pair, `iam:PolicyARN` and `lambda:FunctionUrlAuthType`
 came with them. Coverage reached 1,383 of 1,739 — the policy an administrator
 actually writes, refusing an unencrypted or public write, now enforces.
 
+`servicediscovery:ServiceCreatedByAccount` is read from the AWS Cloud Map
+service a request names, and the AWS Organizations transfer pair from the
+request itself, taking coverage past four in five at 1,393 of 1,739.
+
+Checking whether the other slices carry the same surface turned up a fake in
+the Google Cloud one, filed as BUG-2966: six implementations of
+`testIamPermissions` answer with the question, echoing back the permission set
+they were asked about as granted, whatever the stored policy says — the comment
+in the source says exactly that. It is filed rather than fixed because the
+correct answer has a boundary inside one operation: a caller matching no binding
+holds none of what it asked for, and a caller bound to a custom role is decided
+by that role's own `includedPermissions`, but whether a *predefined* role
+includes a permission is Google's published catalog.
+
 Proving the encryption-context key found something larger. A grant that should
 have been refused was allowed, and the condition keys were not the cause: the
 simulator read an account-root principal in a resource policy as an outright

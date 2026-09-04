@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
+	"github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
@@ -218,4 +219,47 @@ func lambdaConditionFunction(t *testing.T, client *lambda.Client, name string) s
 		_, _ = client.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(name)})
 	})
 	return aws.ToString(created.FunctionArn)
+}
+
+// TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant covers
+// servicediscovery:ServiceCreatedByAccount, the account that created the AWS
+// Cloud Map service a request names.
+func TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant(t *testing.T) {
+	admin := cmClient()
+	namespace, err := admin.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{
+		Name: aws.String("cond-created-ns")})
+	require.NoError(t, err)
+	operation, err := admin.GetOperation(ctx, &servicediscovery.GetOperationInput{
+		OperationId: namespace.OperationId})
+	require.NoError(t, err)
+	namespaceID, ok := operation.Operation.Targets["NAMESPACE"]
+	require.True(t, ok, "the create operation names the namespace it made")
+
+	created, err := admin.CreateService(ctx, &servicediscovery.CreateServiceInput{
+		Name: aws.String("cond-created-svc"), NamespaceId: aws.String(namespaceID)})
+	require.NoError(t, err)
+	serviceID := aws.ToString(created.Service.Id)
+	t.Cleanup(func() {
+		_, _ = admin.DeleteService(ctx, &servicediscovery.DeleteServiceInput{Id: aws.String(serviceID)})
+	})
+
+	client := func(user, account string) *servicediscovery.Client {
+		akid, secret := restrictedCredential(t, user,
+			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"servicediscovery:GetService",
+			  "Resource":"*",
+			  "Condition":{"StringEquals":{"servicediscovery:ServiceCreatedByAccount":"`+account+`"}}}]}`)
+		return servicediscovery.NewFromConfig(aws.Config{Region: "us-east-1",
+			Credentials: credentials.NewStaticCredentialsProvider(akid, secret, ""),
+			HTTPClient:  simHTTPClient},
+			func(o *servicediscovery.Options) { o.BaseEndpoint = aws.String(simEndpoint("servicediscovery")) })
+	}
+
+	_, err = client("cm-own-account", s3ObjectLambdaAccount).GetService(ctx,
+		&servicediscovery.GetServiceInput{Id: aws.String(serviceID)})
+	assert.NoError(t, err, "the service was created by the account the grant names")
+
+	_, err = client("cm-other-account", "999999999999").GetService(ctx,
+		&servicediscovery.GetServiceInput{Id: aws.String(serviceID)})
+	require.Error(t, err, "a service created by another account is not covered by the grant")
+	assert.Contains(t, err.Error(), "not authorized")
 }
