@@ -19,9 +19,25 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 
 pattern='(strings|bytes)\.(Last)?Index([A-Za-z]*)?\([^)]*\.To(Lower|Upper)\('
 
+# The Go source this repository owns. The filter is anchored so a match under
+# specs/, testdata/ or a vendored tree is not reported, and it names the
+# directories this repository actually has: the sockerless monorepo's
+# simulators/, backends/, agent/ and core/ are not among them, and a filter
+# naming those matched nothing here.
+readonly SCAN_DIRS='simulator-aws|simulator-azure|simulator-gcp|realexec|testutil|ui-auth'
+
+# A gate that scans nothing passes for the wrong reason. Prove the scan set is
+# non-empty before trusting a clean result.
+scanned="$(git grep -lE '^package ' -- '*.go' 2>/dev/null | grep -cE "^($SCAN_DIRS)/" || true)"
+if [ "${scanned:-0}" -eq 0 ]; then
+  echo "check-casefold-slice: no Go files under ($SCAN_DIRS) — the scan set is empty," >&2
+  echo "so a clean result would prove nothing. Fix the scan set." >&2
+  exit 2
+fi
+
 hits="$(git grep -nE "$pattern" -- '*.go' 2>/dev/null \
   | grep -vE '_test\.go:' \
-  | grep -E '^(simulators|backends|agent|core)/' || true)"
+  | grep -E "^($SCAN_DIRS)/" || true)"
 
 if [ -n "$hits" ]; then
   echo "Forbidden case-fold-then-index pattern (slice-bounds panic class):"

@@ -510,6 +510,23 @@ exposed the carrier/provider primitives needed for faithful delivery.
 - BUG-2523 and BUG-2441 remained owned by the external Bleephub repository,
   which was not present in this workspace.
 
+## CI and Gate Follow-ups
+
+1. **Rebalance the AWS SDK shards.** `sim (aws sdk compute)` was killed at the
+   15-minute job cap on 2026-09-03 — GitHub reports a timeout kill as
+   "cancelled", not "timed_out", which is what made it read as infrastructure
+   noise — and the rerun that passed still took 14m12s. The `data` shard
+   finishes in about 452s against the same cap while three shards sit at
+   650-720s, so the split has room to even out without adding a runner.
+
+2. **Keep the negative control when a gate is added or moved.** Every gate has
+   now been shown to fail on a planted violation of its own declared shape, and
+   the two that could not fail had been dead since the extraction because they
+   named directories this repository does not have. A gate whose scan set can
+   go empty now exits 2 instead of green, but that guard only covers the shape
+   the rot took here: a new gate still earns its place by being watched to fail
+   once.
+
 ## Durable Validation Contract
 
 - Simulator endpoints were exercised through official SDK, vendor CLI, and

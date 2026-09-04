@@ -38,6 +38,18 @@ Current state of the sockerless-cloud repository.
   `Branch rebased on origin/main` jobs, and the nightly fuzz workflow (aws in
   three shards; `run-fuzz.sh` requalifies Go's fuzztime-boundary shutdown
   race and nothing else).
+- **Every quality gate has been shown to fail.** Each one was put through a
+  negative control — a violation of the shape it declares it rejects, planted
+  and then removed — so a green tick means the gate looked and found nothing,
+  not that it never looked. Two were vacuous and are not any more:
+  `check-casefold-slice.sh` and `check-locked-helpers.sh` still named the
+  sockerless monorepo's `simulators/`, `backends/`, `agent/`, `core/` and
+  `cmd/`, which this repository does not have, so one filtered every match
+  away and the other scanned no files from the day of the extraction. Both now
+  scan this repository's directories and exit 2 rather than green when their
+  scan set is empty, so the same rot cannot recur silently. The case-fold gate
+  was hiding two live instances of its own class, both fixed with the
+  byte-length-preserving helpers.
 - **Branch protection**: `main` requires the contexts mirrored in
   `.github/required-status-checks.txt` (strict, linear history), and the live
   setting matches the manifest — synced after the Azure CLI split merged, which

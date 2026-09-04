@@ -5,12 +5,14 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 
 	"cloud.google.com/go/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
@@ -285,4 +287,22 @@ func TestGCS_DeleteObject(t *testing.T) {
 
 	// A second delete has nothing left to remove.
 	assert.ErrorIs(t, object.Delete(ctx), storage.ErrObjectNotExist)
+}
+
+// TestGCS_CreateBucketTwiceConflicts pins the answer Cloud Storage gives when a
+// bucket is created a second time: 409 ALREADY_EXISTS, not a silent success.
+// The build helpers treat that conflict as "the bucket is there", so the
+// simulator has to keep reporting it for that reading to stay true.
+func TestGCS_CreateBucketTwiceConflicts(t *testing.T) {
+	client := storageClient(t)
+	defer client.Close()
+
+	const name = "sdk-duplicate-bucket"
+	require.NoError(t, client.Bucket(name).Create(ctx, "test-project", nil))
+
+	err := client.Bucket(name).Create(ctx, "test-project", nil)
+	require.Error(t, err, "creating an existing bucket conflicts")
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusConflict, apiErr.Code)
 }

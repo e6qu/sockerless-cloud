@@ -41,3 +41,11 @@ func ASCIIFold(s string) string {
 func CaseInsensitiveIndex(s, sub string) int {
 	return strings.Index(ASCIIFold(s), ASCIIFold(sub))
 }
+
+// CaseInsensitiveLastIndex returns the byte index of the LAST
+// ASCII-case-insensitive occurrence of sub in s, or -1. Like
+// CaseInsensitiveIndex, the index it returns is valid for slicing the
+// ORIGINAL s.
+func CaseInsensitiveLastIndex(s, sub string) int {
+	return strings.LastIndex(ASCIIFold(s), ASCIIFold(sub))
+}

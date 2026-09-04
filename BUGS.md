@@ -105,6 +105,17 @@ Open: 9. Resolved: 73.
   time can still fail for reasons unrelated to the change under test, and a red
   run has to be read before it is believed.
 
+  The Google Cloud SDK suite no longer asks Docker Hub for anything. Its Cloud
+  Build sources build from the gallery base the rest of that file already used,
+  its Cloud Run job tests run the same image as their workload, and the
+  harness-wide pre-pull that used to fetch `alpine:latest` — logging a warning
+  and continuing when it failed, which left the pull to happen inside a timed
+  build step — now acquires the gallery image through the retrying, fail-loud
+  helper. Because `scripts/base-images-for.sh` derives the warm set by scanning
+  these sources for gallery references, that image was already cached and no
+  new fetch was added. Verified by deleting `alpine:latest` from the host and
+  running the suite: it passed, and the run never named the image.
+
 
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|

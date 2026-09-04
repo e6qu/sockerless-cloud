@@ -1,5 +1,59 @@
 # WHAT WE DID
 
+## 2026-09-04, forty-eighth pass — the gates that could not fail, and the crash two of them hid
+
+A gate is only worth its green tick if it can go red. Every quality gate was
+put through a negative control: a violation of exactly the shape the gate
+declares it rejects, planted in the tree, with the gate expected to fail and
+then to pass again once the plant was removed. Seven bit as designed —
+store-scans, tool-absent-skips, fake-tests, lock-pairing, gh-api-params,
+readonly-locks and the copy-paste detector. Two could not fail at all.
+
+Both had been dead since the repository was extracted from the sockerless
+monorepo, and for the same reason: they named the monorepo's directories.
+`check-casefold-slice.sh` filtered its matches to `^(simulators|backends|agent|core)/`
+and `check-locked-helpers.sh` ran `find backends agent simulators core cmd`,
+whose error went to `/dev/null`. This repository has none of those
+directories, so one gate filtered every match away and the other scanned no
+files, and both reported success on every run.
+
+Behind the case-fold gate sat two live instances of the class it exists to
+stop. `strings.ToLower` is Unicode-aware and grows invalid UTF-8 — each bad
+byte becomes a 3-byte U+FFFD — so an index taken from the folded copy can point
+past the end of the original, and slicing the original with it panics.
+`canonicalServerFarmID` and `moveAzureResources` each took an index that way
+and sliced the caller's own string with it, both from client-supplied input: a
+`serverFarmId` of `/subscriptions/\xff\xfe/providers/microsoft.web/serverfarms/p`
+crashed the handler with `slice bounds out of range [58:55]`. Both now use the
+byte-length-preserving helpers, `CaseInsensitiveIndex` and a new
+`CaseInsensitiveLastIndex`, and a test at each site drives the invalid-UTF-8
+input that used to panic.
+
+Both gates now scan this repository's directories, and each one refuses to
+report success when its scan set is empty: a gate that examines no files exits
+2 rather than green, which is what would have caught this rot on the day of the
+extraction rather than a fortnight later. The locked-helper scan also matches
+any `<store>.mu.Lock()` receiver, because the stores here are named for what
+they hold — `ecsTasks`, `azureSites` — and the inherited pattern only knew
+`st` and `*store`.
+
+A Cloud Build test flaked in the same pass, and the harness had predicted it in
+its own words. `TestSDK_CloudBuild_CancelStopsARunningBuild` builds
+`FROM alpine:latest` and cancels the running step; the image was fetched by a
+single-attempt pre-pull that, on failure, logged `Warning: docker pull
+alpine:latest failed (Cloud Build tests may flake)` and continued — leaving the
+pull to happen inside the timed build step, where a throttled Docker Hub
+surfaced as a build that failed on its own before the cancel could stop it.
+The three Cloud Build sources still on Docker Hub now build from the pinned
+Amazon ECR Public Gallery base the rest of the file already used, and the
+`alpine:latest` the Cloud Run job tests run as their workload is acquired
+through the retrying, fail-loud helper that sat directly beneath the warning.
+
+`createBucket` also treats a 409 as "the bucket is there", which is what Cloud
+Storage answers and what lets a test in that package be re-run in one process:
+stressing a flaky test with `-count` previously failed on the second iteration
+for a reason that had nothing to do with the test. A new test pins the 409 so
+the tolerance cannot mask a regression.
 ## 2026-09-04 — the login callback waited on a client with no timeout
 
 The Azure simulator's `/auth/oidc/callback` was observed in production taking

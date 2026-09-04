@@ -33,7 +33,7 @@ func webPlanID(r *http.Request) string {
 // clients send) to the canonical lowercase spelling plan state is keyed by.
 func canonicalServerFarmID(id string) string {
 	const marker = "/providers/microsoft.web/serverfarms/"
-	i := strings.Index(strings.ToLower(id), marker)
+	i := sim.CaseInsensitiveIndex(id, marker)
 	if i < 0 {
 		return id
 	}

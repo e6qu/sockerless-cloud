@@ -60,7 +60,7 @@ func createCloudRunV2JobLRO(t *testing.T, jobID string) string {
 func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 	svc := newRunV1(t)
 	const jobID = "v1-proj-job"
-	execName := createAndRunJobWithImageAndCommand(t, jobID, "alpine:latest", []string{"true"}, "30s")
+	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s")
 	execID := execName[strings.LastIndex(execName, "/")+1:]
 
 	execution, err := svc.Namespaces.Executions.Get(
@@ -79,7 +79,7 @@ func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 	require.NotNil(t, execution.Spec.Template)
 	require.NotNil(t, execution.Spec.Template.Spec)
 	require.Len(t, execution.Spec.Template.Spec.Containers, 1)
-	assert.Equal(t, "alpine:latest", execution.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, simWorkloadImage, execution.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, int64(30), execution.Spec.Template.Spec.TimeoutSeconds,
 		"the v2 google-duration timeout renders as the Knative int64 seconds count")
 	require.NotNil(t, execution.Status)
@@ -119,7 +119,7 @@ func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 	assert.Equal(t, task.Metadata.Name, got.Metadata.Name)
 	require.NotNil(t, got.Spec)
 	require.Len(t, got.Spec.Containers, 1)
-	assert.Equal(t, "alpine:latest", got.Spec.Containers[0].Image)
+	assert.Equal(t, simWorkloadImage, got.Spec.Containers[0].Image)
 }
 
 // TestCloudRunV1_ExecutionAndTaskNotFound pins the answer for names that were
@@ -142,7 +142,7 @@ func TestCloudRunV1_ExecutionAndTaskNotFound(t *testing.T) {
 func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 	svc := newRunV1(t)
 	const jobID = "v1-paging-job"
-	first := createAndRunJobWithImageAndCommand(t, jobID, "alpine:latest", []string{"true"}, "30s")
+	first := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s")
 	require.NotEmpty(t, first)
 	runURL := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs/%s:run", baseURL, cloudRunV1Namespace, jobID)
 	req, err := http.NewRequestWithContext(ctx, "POST", runURL, strings.NewReader("{}"))

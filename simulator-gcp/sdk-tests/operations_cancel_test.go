@@ -354,7 +354,8 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	object := "source.tar.gz"
 	// A Dockerfile whose only instruction takes an hour: the build cannot
 	// finish on its own inside this test.
-	uploadBuildSource(t, bucket, object, "FROM alpine:latest\nRUN sleep 3600\n")
+	pullImageWithRetry(t, cbBaseImage)
+	uploadBuildSource(t, bucket, object, "FROM "+cbBaseImage+"\nRUN sleep 3600\n")
 
 	build := &cloudbuild.Build{
 		Source: &cloudbuild.Source{
@@ -517,7 +518,8 @@ func TestSDK_CloudBuild_OperationsCancel(t *testing.T) {
 
 	bucket := "cloudbuild-cancel-op-src"
 	object := "source.tar.gz"
-	uploadBuildSource(t, bucket, object, "FROM alpine:latest\n")
+	pullImageWithRetry(t, cbBaseImage)
+	uploadBuildSource(t, bucket, object, "FROM "+cbBaseImage+"\n")
 
 	op, err := svc.Projects.Builds.Create(cancelProject, &cloudbuild.Build{
 		Source: &cloudbuild.Source{
