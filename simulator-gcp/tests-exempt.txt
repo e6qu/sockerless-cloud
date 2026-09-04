@@ -86,10 +86,10 @@ POST /v1/message:stream
 # The generic AIP-127 resource-name spelling of tasks.get /
 # tasks.pushNotificationConfigs.get ({+name}); same SDK gap, and the contract
 # reader has no method name to match a wildcard tail against regardless.
-GET /v1/{name...}
+GET /v1/tasks/{rest...}
 # The generic AIP-127 resource-name spelling of
 # tasks.pushNotificationConfigs.delete ({+name}); same reasoning.
-DELETE /v1/{name...}
+DELETE /v1/tasks/{rest...}
 
 # Compute Engine's regional project view, added in the same refresh and
 # declared unserved in compute_catalogs.go: the vendored google-api-go-client's

@@ -40,8 +40,8 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /v1/card` | 501 `simulator-gcp/cloudbilling.go:266::cardWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/message:send` | 501 `simulator-gcp/cloudbilling.go:267::messageWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v1/message:stream` | 501 `simulator-gcp/cloudbilling.go:268::messageWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/{name...}` | 501 `simulator-gcp/cloudbilling.go:270::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/{name...}` | 501 `simulator-gcp/cloudbilling.go:285::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/tasks/{rest...}` | 501 `simulator-gcp/cloudbilling.go:278::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/tasks/{rest...}` | 501 `simulator-gcp/cloudbilling.go:293::taskWhy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

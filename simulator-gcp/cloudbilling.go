@@ -267,8 +267,16 @@ func registerCloudBillingTaskAPI(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/message:send", unimplemented("message.send", messageWhy))
 	srv.HandleFunc("POST /v1/message:stream", unimplemented("message.stream", messageWhy))
 
-	srv.HandleFunc("GET /v1/{name...}", func(w http.ResponseWriter, r *http.Request) {
-		name, verb, _ := strings.Cut(sim.PathParam(r, "name"), ":")
+	// The mux pattern itself, not just the handler body, has to stay scoped
+	// to the tasks collection: the data-plane auth middleware
+	// (bearerAuthMiddleware in token_signing.go) decides whether a request
+	// needs a credential by asking Go's own mux whether any pattern matches
+	// it at all, before this handler ever runs. A bare "/v1/{name...}" would
+	// match every GET under /v1/, including paths no method publishes, and
+	// the middleware would demand a token for them instead of leaving them
+	// to fail closed with 404.
+	srv.HandleFunc("GET /v1/tasks/{rest...}", func(w http.ResponseWriter, r *http.Request) {
+		name, verb, _ := strings.Cut("tasks/"+sim.PathParam(r, "rest"), ":")
 		switch verb {
 		case "subscribe":
 			unimplemented("tasks.subscribe", taskWhy)(w, r)
@@ -282,7 +290,7 @@ func registerCloudBillingTaskAPI(srv *sim.Server) {
 			gcpMethodNotFound(w)
 		}
 	})
-	srv.HandleFunc("DELETE /v1/{name...}", unimplemented("tasks.pushNotificationConfigs.delete", taskWhy))
+	srv.HandleFunc("DELETE /v1/tasks/{rest...}", unimplemented("tasks.pushNotificationConfigs.delete", taskWhy))
 	// The POST /v1/{resource...} spelling is the AIP-141 IAM catch-all
 	// dispatcher's route (iam.go); it falls through to
 	// cloudBillingUnimplementedTaskWrite for the two cases here.
