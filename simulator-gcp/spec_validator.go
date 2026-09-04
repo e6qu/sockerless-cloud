@@ -294,8 +294,23 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 				})
 			}
 			// Both the expanded flatPath and the {+param} template path
-			// are real, equivalent spellings of the method URI.
-			for _, rel := range []string{m.FlatPath, m.Path} {
+			// are real, equivalent spellings of the method URI. But a {+param}
+			// template that is a single unconstrained greedy wildcard scores
+			// zero and matches every path under it — cloudbilling's
+			// tasks.pushNotificationConfigs.create declares exactly that path
+			// ("v1/{+parent}", the "pushNotificationConfigs" suffix living only
+			// in the parent parameter's own regex pattern, which this indexer
+			// does not evaluate) and it matched POST /v1/token, an unrelated
+			// STS request whose response was then checked against the wrong
+			// schema. When flatPath already gives that same method a template
+			// with real literal structure, the bare wildcard adds no coverage
+			// flatPath doesn't already provide, so it is dropped; keep it only
+			// when it is the method's sole spelling.
+			rels := []string{m.FlatPath, m.Path}
+			if m.Path != "" && m.FlatPath != "" && m.Path != m.FlatPath && isBareGreedyWildcard(m.Path) {
+				rels = []string{m.FlatPath}
+			}
+			for _, rel := range rels {
 				if rel == "" {
 					continue
 				}
@@ -409,6 +424,22 @@ func splitSpecSegs(p string) []specSeg {
 		})
 	}
 	return segs
+}
+
+// isBareGreedyWildcard reports whether rel (a method's "path" field) ends in
+// an unconstrained greedy parameter — no literal prefix or suffix on that
+// parameter itself. Such a segment consumes every remaining path element no
+// matter what they are, so once any literal segments before it match, the
+// whole template matches any request under that prefix. It carries no
+// matching information a sibling flatPath template, whose literal structure
+// continues past that point, does not already carry more precisely.
+func isBareGreedyWildcard(rel string) bool {
+	segs := splitSpecSegs(rel)
+	if len(segs) == 0 {
+		return false
+	}
+	last := segs[len(segs)-1]
+	return last.isParam && last.greedy && last.prefix == "" && last.suffix == ""
 }
 
 // templateScore counts literal characters: when several templates match
