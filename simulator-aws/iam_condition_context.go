@@ -333,6 +333,7 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		if propagate := iamRequestParameter(r, body, "propagateTags"); propagate != "" {
 			ctx["ecs:propagate-tags"] = []string{propagate}
 		}
+		iamPopulateECSConditionKeys(r, body, ctx)
 	}
 
 	// rds:ManageMasterUserPassword is whether the request asks Amazon RDS to

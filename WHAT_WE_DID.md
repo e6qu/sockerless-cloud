@@ -60,6 +60,16 @@ keeping: the refused call is made by the same role under the same policy holding
 credentials from a plain AssumeRole, so nothing differs but how they were
 obtained — which is exactly what the key describes. Coverage reached 1,344.
 
+The Amazon ECS request-shape family followed: the capacity provider a request
+places on, the task's CPU and memory — read from the task definition it names
+unless the request overrides them, which is the order ECS resolves them in — the
+subnets, the task definition, the service and namespace, and the managed-tags,
+exec and EBS-volume switches. A policy holds callers to a shape with these, and
+writing the test taught the shape a real one takes: exec is refused with a Deny
+on the key being true, not an Allow on it being false, because a request that
+does not ask for exec carries no such member and settles no key. Coverage
+reached 1,353.
+
 Proving the encryption-context key found something larger. A grant that should
 have been refused was allowed, and the condition keys were not the cause: the
 simulator read an account-root principal in a resource policy as an outright
