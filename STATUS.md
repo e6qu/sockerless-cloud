@@ -59,6 +59,15 @@ Current state of the sockerless-cloud repository.
   the service on the shared data-plane route, and Azure RBAC reads served by
   middleware ahead of the mux. Each ratchet was watched to fail on a route
   removed from the simulator.
+
+  The AWS count needs no such detector, and the reason is worth stating so it
+  is not asked again: it is not measured by probing paths and asking whether
+  something answered. An operation counts when a router registers it by name
+  (`restRegisteredOps`, or the awsJson/awsQuery routers `serviceCoverage`
+  reads), so no subtree owner can answer on a sibling's behalf and inflate it.
+  What that method can admit instead is a registration with nothing behind it,
+  and the testing contract is what holds it: every new `Register(...)` must be
+  referenced by a test in the same commit.
 - **Branch protection**: `main` requires the contexts mirrored in
   `.github/required-status-checks.txt` (strict, linear history), and the live
   setting matches the manifest — synced after the Azure CLI split merged, which
