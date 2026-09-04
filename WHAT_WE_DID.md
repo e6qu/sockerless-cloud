@@ -1,5 +1,499 @@
 # WHAT WE DID
 
+## 2026-09-03, forty-seventh pass — the condition key a policy tests, and the signature it was signed with
+
+A policy scopes an action AWS gives no nameable resource with a condition key,
+and the AWS simulator's authorizer populated only the global `aws:` ones. The
+canonical case is `cloudwatch:PutMetricData`, whose only declared resource type
+is `dataset` — no request names one — so AWS's own service reference lists
+`cloudwatch:namespace` against it and every published policy scopes it that way.
+Evaluated against a context without the key, a `StringEquals` on it matches
+nothing: the grant denied the writes it was written to allow.
+
+The keys the request itself settles are in the context now. `ec2:Region`, which
+the service references declare against 824 actions, more than any other. The
+Amazon S3 request-shape keys — `s3:authType` and `s3:signatureversion` (header-
+signed or presigned), `s3:TlsVersion`, `s3:x-amz-content-sha256`,
+`s3:ResourceAccount`, and `s3:signatureAge`, the milliseconds since signing that
+a policy tests to refuse a stale presigned URL. `cloudwatch:namespace` and
+`kms:CallerAccount`. Counted over the vendored service references, 1,216 of the
+1,739 actions declaring an action condition key now carry every one of theirs;
+the measured remainder is BUG-2965.
+
+Reading the namespace found the protocol had moved underneath the assumption:
+Amazon CloudWatch serves `PutMetricData` over Smithy RPC v2 CBOR, gzip-
+compressed by the SDK, not the Query form the parameter would have been in.
+
+A second block of condition keys followed the same rule — a key whose value the
+request or the simulator's own state settles is populated, and one that would
+have to be invented is not. `iam:PermissionsBoundary` is the boundary a request
+attaches, which is how an administrator delegates user creation while requiring
+every created principal to carry one. The AWS Secrets Manager keys are read from
+the secret a request names. `rds:req-tag/${TagKey}` is Amazon RDS's own spelling
+of the tags a request carries, and `s3:ExistingObjectTag/<key>` the tags already
+on the object it targets — the key a policy uses to grant a read of what
+somebody tagged one way and refuse the rest. `kms:RequestAlias` is the alias a request
+named the key by, and `organizations:PolicyType` the kind of policy a request is
+about. Coverage moved from 1,216 to 1,277 of the 1,739 actions that declare a
+key.
+
+Amazon DynamoDB's fine-grained access control works: `dynamodb:LeadingKeys`,
+read against the table's own HASH attribute so a policy can hold a principal to
+its own rows, and `dynamodb:Attributes` for the columns it may touch, with
+`ReturnValues`, `ReturnConsumedCapacity` and `EnclosingOperation` beside them.
+`kms:EncryptionContext:<key>` and `kms:EncryptionContextKeys` carry the label a
+request binds into its ciphertext, and `s3:versionid` the object version a
+request names. Coverage reached 1,307 of 1,739.
+
+Five more keys are read from what the request names: `ssm:DocumentType` from
+the document, `events:creatorAccount` from the rule, `states:StateMachineQualifier`
+from the version or alias on the ARN, and `ecs:propagate-tags` and
+`rds:ManageMasterUserPassword` from the request's own members. Coverage reached
+1,333 of 1,739.
+
+`lambda:FunctionArn` names the function an event-source mapping or function URL
+is about, resolved through the mapping where the request names only its id.
+`s3:AccessGrantsInstanceArn` names the S3 Access Grants instance that issued the
+credentials a request is signed with, which is a fact about the credential, so
+it is recorded with it when the grant is redeemed. Its test is the one worth
+keeping: the refused call is made by the same role under the same policy holding
+credentials from a plain AssumeRole, so nothing differs but how they were
+obtained — which is exactly what the key describes. Coverage reached 1,344.
+
+The Amazon ECS request-shape family followed: the capacity provider a request
+places on, the task's CPU and memory — read from the task definition it names
+unless the request overrides them, which is the order ECS resolves them in — the
+subnets, the task definition, the service and namespace, and the managed-tags,
+exec and EBS-volume switches. A policy holds callers to a shape with these, and
+writing the test taught the shape a real one takes: exec is refused with a Deny
+on the key being true, not an Allow on it being false, because a request that
+does not ask for exec carries no such member and settles no key. Coverage
+reached 1,353.
+
+The Amazon S3 request-header family is the canonical way a policy constrains
+how an object is written rather than which object it is, and it is now read from
+the request verbatim: the canned ACL and the five grant headers, the three
+server-side-encryption headers, the storage class, the copy source, the metadata
+directive, the website redirect, a listing's prefix, delimiter and max-keys, the
+conditional If-Match, the tags a write puts on its object, and the location a
+CreateBucket asks for. `kms:EncryptionAlgorithm`, `rds:PubliclyAccessible`, the
+AWS Auto Scaling target pair, `iam:PolicyARN` and `lambda:FunctionUrlAuthType`
+came with them. Coverage reached 1,383 of 1,739 — the policy an administrator
+actually writes, refusing an unencrypted or public write, now enforces.
+
+`servicediscovery:ServiceCreatedByAccount` is read from the AWS Cloud Map
+service a request names, and the AWS Organizations transfer pair from the
+request itself, taking coverage past four in five at 1,393 of 1,739.
+
+`servicediscovery:ServiceArn`, `dynamodb:Select` and
+`acm:CertificateKeyPairOrigin` — the last read from whether the certificate was
+imported or issued here — took coverage to 1,406 of 1,739. Two large groups in
+what remains are correctly absent rather than missing: `kms:ViaService`, set
+only when another service makes the call on the caller's behalf, and the
+`kms:RecipientAttestation:*` measurements, which are the PCRs of a Nitro Enclave
+attestation document that no request reaching this simulator carries.
+
+A push failed partway through this pass with a pre-commit stack trace ending in
+`fatal: this operation must be run in a work tree`. This checkout's
+`.git/config` had acquired `core.bare = true` despite having a work tree, and
+its commit identity had been replaced by the one
+`scripts/test-latest-deps-*.sh` give their throwaway fixtures. Neither is
+reachable through this repository's tooling — those scripts build fixtures under
+`mktemp -d` and address them with `git -C` — so the cause is outside it and was
+not attributable. The checkout is repaired and verified (`git fsck` clean,
+nothing lost, the identity back to the one every commit here carries, which
+matters because the global fallback holds a malformed address), and
+`scripts/check-repo-config-sane.sh` now names both signatures at commit time
+instead of leaving them to surface as a stack trace or, in the identity's case,
+not at all. Recorded as BUG-2967.
+
+The colocation-facility catalogue is served, and it is vendored the way this
+project vendors a published catalogue: `scripts/fetch-gcp-interconnect-locations.sh`
+fetches Google's own documentation with curl and parses it into
+`compute_interconnect_locations_vendored.json` — 321 facilities, the source URL
+and retrieval date in the file, the counts locked by a test so a partial vendor
+fails loudly. Every field served is one the page states; the street address, the
+facility provider, the continent and the link types are absent, because the page
+gives a geographic grouping and a link-speed column whose mapping onto Compute
+Engine's enums is a judgement, and a field the source does not state is left out
+rather than inferred. Both the SDK and CLI tests assert that absence, so an
+operator cannot mistake an omission for a fact. `compute-v1` reads 2,008 of
+2,016.
+
+The parser verifies its own alignment, and that is not decoration: the first
+attempt recovered 237 of 321 rows because the cell pattern did not allow
+attributes, the second missed one because it matched `<tr>` literally, and the
+row it missed — Cape Town — has no `<tr>` tag at all in Google's markup. It now
+chunks cells five at a time, the count the table's header declares, requires a
+location name in the second cell of every chunk, and requires the names
+recovered to equal the names anywhere on the page. It exits rather than emitting
+a short catalogue.
+
+A quality gate that could not fail was fixed, and it was found by chasing a CI
+job whose "cancelled" verdict had twice been written off as infrastructure. The
+job declares an eight-minute budget and both cancellations landed at exactly
+496 seconds, which is a timeout kill reported as a cancellation. The cost was
+`npx --yes jscpd`, resolved from the network once per cloud: 5m03s of wall clock
+for 1.69s of CPU at 0% utilisation. jscpd is a pinned devDependency of the UI
+workspace now, invoked from the install the job already performs, and the gate
+runs in 0.19s with no network at all.
+
+The negative control on the repaired gate is what mattered. Run at a twenty-token
+threshold, against a tree holding 539 clones, it reported OK — because two
+independent faults made it unfailable. It matched `^Clone found`, and jscpd
+prefixes every such line with an ANSI bold escape, so the anchor never matched;
+and jscpd exits 0 for clones unless `--threshold` is given. The test-file
+exclusion was passed to `--ignore-pattern`, which in jscpd 5 takes code-level
+regexes rather than file globs, so it excluded nothing — a fault only visible
+once detection worked. Both are fixed, and the gate is now verified in three
+directions: clean at its real threshold with tests excluded, failing at twenty
+tokens where clones exist, and failing on a duplicate planted above the
+threshold.
+
+The eight AWS operations that authorize against "*" were re-checked against the
+vendored models rather than taken on trust, and their input members are recorded
+beside the floor: not one carries an identifier for any resource type it
+declares, and every one of those types has an ARN format that requires one.
+Synthesising a collection ARN would invent a resource the request does not name.
+
+The Cloud Armor preconfigured expression sets are served, which closes Google
+Cloud at 5,486 of 5,486. The catalogue is vendored from Google's documentation:
+70 sets carrying 953 signature slots, signatures joined to their set by the
+identifier — which names both the CRS release and the category — with the
+generator exiting if any set the status tables declare fails to come out of that
+derivation. All 68 declared sets do.
+
+The identifier this was blocked on was on the page the whole time. An earlier
+pass looked only at tables whose ids matched the versioned pattern and so
+skipped the one table that gives `owasp-crs-id942550-sqli`, the JSON SQLi set's
+single signature, which carries no CRS-version segment. The evidence that
+composing it by analogy would be wrong had already been found — the composed
+form appears in no repository anywhere — and was used to stop rather than to
+look harder. Both it and cve-canary's six signatures are read from the page and
+asserted by name.
+
+Writing the lock caught a distinction that had been assumed: every stable set is
+in sync with its canary, but the two vulnerability sets are canary-only, so the
+pairing is checked where the source has a pair and the number of pairs is
+locked.
+
+The Cross-Cloud Interconnect remote locations are served too, from the four
+"Choose your locations" pages Google publishes, one per cloud provider — 74
+locations. The obstacle there was never the enumeration but the association: the
+tables lean on rowspans and the markup drops rows, and a content-shaped parse
+recovered every entry while filing `aws-lgknx` under no city at all, because
+Seoul is rowspanned from the entry above it. That is the one corruption a count
+check cannot see. `scripts/lib/html_table_grid.py` builds the grid a browser
+would, carrying spans down and across and tolerating a missing `<tr>`, and the
+generator reads its columns by their heading so a column added upstream fails
+loudly rather than shifting every field by one, and exits if any entry lands
+without a city. Both entries that broke the naive parse — `aws-lgknx` and
+`aws-eqse2-eq`, whose name carries a sublocation suffix — are asserted by name
+rather than trusted, and the SDK test checks the two catalogues agree: a remote
+location's permitted connections name colocation facilities the other one
+serves, in the same city.
+
+With both catalogues vendored, the declining helper in `compute_catalogs.go` has
+no users, its header no longer claims these have nothing to derive them from,
+and `TestCompute_GooglePublishedCatalogsAreDeclaredGaps` is deleted — with every
+case served it looped over an empty list and proved nothing. `compute-v1` reads
+2,012 of 2,016.
+
+`interconnects.getDiagnostics` is served, and the reason it was not is the same
+mistake: it was recorded as hardware reporting on itself, and most of what it
+reports is on the interconnect's own record — whether the bundle is up, whether
+its links are aggregated, the circuit and demarcation identifiers assigned to
+each link, and whether MACsec is operating and under which key, derived by the
+same function `getMacsecConfig` answers with so the two cannot disagree. Only
+the optical power, the negotiated LACP state and the ARP caches are off the
+equipment, and the schema requires none of them. `compute-v1` reads 2,004 of
+2,016.
+
+One test still asserted the decline it replaced —
+`TestCompute_GooglePublishedCatalogsAreDeclaredGaps` listed the diagnostics
+among the reads that answer 501 — and CI caught it, because serving the
+operation was verified with the new test and the unit tests rather than with
+the slice's full SDK suite. Changing what a route answers is exactly the change
+that invalidates a test asserting the old answer. The declared-gaps test keeps
+the two location catalogues, which still decline.
+
+The twelve that remain are two published catalogues, and the floor comment now
+says what is actually true of them rather than that they cannot be answered.
+This project vendors a published catalogue when it can — the Azure managed WAF
+rule-set catalog is embedded JSON with its sources cited and a test locking the
+counts — so the honest statement is that the vendoring has not been done. For
+the Cloud Armor expression sets the catalogue turned out to be fully readable:
+Google's documentation carries it in HTML tables that parse deterministically —
+fetched with curl and read with a regular expression, no summarising in between
+— giving 477 distinct signature rows across 35 groups of CRS version and
+category, and a status table naming all 72 sets with each stable one declared
+"In sync with" its canary. An earlier note here declined on a one-signature
+disagreement between a reconstruction and the documentation; that 59 came from a
+summary of the page rather than the page, and the page says 60, which is what
+the rule files say too. There was no disagreement.
+
+One set of the seventy-two stops it, and it is worth recording how close the
+wrong answer came. `json-sqli-canary` is described in prose naming its signature
+as "942550-sqli" rather than as a full identifier. The composition every id in
+the tables suggests is `owasp-crs-v030001-id942550-sqli`, and a code search
+finds that string in no repository anywhere; the spelling that does occur — five
+repositories, Google's own terraform-google-waap among them — is
+`owasp-crs-id942550-sqli`, with no CRS-version segment at all. Both forms
+coexist and the tables' form is not universal, which is precisely what a
+recorded response settles and an analogy does not. None of the five is an API
+response, so the set stays unoffered until its contents are known rather than
+guessed, and the floor comment carries the parse, the counts and both candidate
+spellings.
+
+Checking whether the other slices carry the same surface turned up a fake in
+the Google Cloud one, and it is fixed (BUG-2966). Six implementations of
+`testIamPermissions` — API Gateway, Cloud KMS, the Cloud Bigtable instance and
+table admins, Secret Manager, and the generic IAM verb — answered with the
+question, returning the permission set they were handed unchanged, so a caller
+bound to nothing got the same reply as a project owner and the answer carried no
+information at all.
+
+The boundary this was first written up as having did not exist. The simulator
+already vendors the curated roles it serves at `roles.get`, with their
+`includedPermissions`, and holds custom roles with theirs, so a role resolves to
+permissions without anything being invented. The policy `setIamPolicy` stored is
+there, and so is the principal, because the bearer token the request carries is
+one the simulator minted and signed.
+
+It answers from those now: a binding whose members name the caller contributes
+its role's permissions, and the reply is the requested set filtered to what is
+held. A caller presenting no simulator-issued token is the operator of the
+account the simulator serves and holds what it asks about, which is what real
+Google answers for an owner and the same rule the AWS slice applies to a
+credential no IAM user registered. The test binds a service account to
+`roles/storage.objectViewer` and holds all three cases apart: the bound account
+gets the two permissions that role includes and not the two it does not, an
+unbound account gets none, and the operator gets what it asked for.
+
+Proving the encryption-context key found something larger. A grant that should
+have been refused was allowed, and the condition keys were not the cause: the
+simulator read an account-root principal in a resource policy as an outright
+grant. The default AWS KMS key policy is exactly that statement, and AWS's own
+name for it — "Enable IAM User Permissions" — says what it means. It delegates
+to that account's IAM rather than granting anything itself. Read as a grant, it
+let any principal in the account use any key whatever its own policies said,
+which silently defeated every identity-policy condition on every key. A
+statement that names the caller grants; one that matches only by account
+delegates, and IAM decides. That is also how cross-account access is meant to
+work, and the full SDK suite is green on it.
+
+The restart test's timeout now says what it saw. It failed once in a full run
+on a host that had run out of disk, and "Condition never satisfied" reads the
+same whether the engine was too loaded to start containers or the recovery
+genuinely failed; it reports the last state of all three workloads instead.
+
+The access point became a front door rather than a control-plane record. It is
+addressed the way Amazon S3 addresses it — `<name>-<account>.s3-accesspoint.
+<region>` — so the bucket arrives in the hostname and is mapped onto the path
+the router works in, the same rewrite a directory bucket's zonal request takes.
+What makes it more than an alias is enforced: an access point's scope names the
+key prefixes it reaches and the operations it allows, and a request outside
+either is refused however the caller's own policies read, while the bucket
+behind it is unaffected. That also settles three condition keys —
+`s3:DataAccessPointArn`, `s3:DataAccessPointAccount` and
+`s3:AccessPointNetworkOrigin` — so a policy can grant a read only when it
+arrives through one front door and refuse the same read at the bucket. Coverage
+reached 1,294 of 1,739.
+
+The dialer guard earned itself immediately here: the first run of the new test
+failed naming the access point host it would have dialled, instead of quietly
+reaching Amazon.
+
+Proving the last of those found a defect the whole awsJson surface shares. A
+denial reached the AWS SDK for Go with no message at all: the reason was on the
+wire, under `message`, and AWS Organizations' model declares the member
+`Message`, so the client read nothing. The two spellings are split almost evenly
+across AWS's models — 765 members spell it one way and 672 the other, and
+several services spell it both ways on different exceptions — so a denial is now
+written under the name the service's own model declares. A table records each
+service's spelling and a gate reads the models to hold it honest; it earned its
+place immediately by catching a speculative entry for AWS Secrets Manager, whose
+model declares no such exception at all.
+
+S3 Express One Zone is assembled, which leaves every operation the vendored
+Amazon S3 model declares served. A directory bucket is its own bucket type,
+named for the Availability Zone it is placed in — the name has to agree with the
+Location that placed it, because the name is what makes the bucket addressable —
+and the two listings are separate surfaces: ListBuckets returns general purpose
+buckets, ListDirectoryBuckets returns these, told apart by the host the client
+reached. CreateSession mints credentials into the same store the AWS Security
+Token Service mints into, so a request signed with them authenticates as the
+caller who asked for them and carries that caller's policies; the session is
+scoped to its one bucket, to the mode it was created in, and until it expires,
+and each of those refusals is exercised. The session token arrives in
+`x-amz-s3session-token` rather than `X-Amz-Security-Token`, which the signature
+gate now reads.
+
+What made it testable was dropping the endpoint override. The SDK derives which
+of two hosts an operation uses from the bucket's name — the regional control
+endpoint for the bucket calls, the bucket's zonal endpoint for the session and
+the object calls — and a BaseEndpoint collapses both onto one host and takes the
+S3 Express auth branch even for CreateBucket, which against Amazon S3 goes to
+the control endpoint with the caller's own credentials and no session at all.
+Left to resolve what it resolves against AWS, with resolution pointed at the
+simulator, the SDK drives the whole flow: it establishes the session itself and
+the object round-trips. ListDirectoryBuckets, which aws-sdk-go-v2 v1.110.0
+cannot call at all through an endpoint override, works the same way. A directory
+bucket is addressed virtual-hosted style, so the simulator maps the bucket out
+of the hostname onto the path its router works in and verifies the signature
+against the path the client actually sent.
+
+Chasing that turned up a hole in the harness: with no endpoint override, a
+client whose coordinate is wrong reaches the real cloud. The suite's dialer now
+refuses any host that is not the simulator, so a mistake is an error naming the
+host instead of a signed request to Amazon.
+
+The Azure race job had been failing on this branch for three runs with the
+runner's shutdown signal, which is what an out-of-memory kill looks like. The
+core-dump test imaged this test process's own memory, and under the race
+detector that includes shadow mappings far larger than a runner has. It dumps a
+child process now — which is what the operation does, a site's workload process
+rather than the simulator — and looks for a marker the child holds in its
+environment.
+
+Three tests still asserted declines this branch had already overturned: the
+recommendation rule read, the environment's outbound dependencies in both the
+SDK and the CLI suite, and the six stack catalogs. They assert what is served.
+
+The branch-protection comparison never ran. It was added to the scheduled
+dependency-freshness workflow with `permissions: administration: read`, and
+that is not a permission a workflow can grant itself — GitHub rejected the file
+outright, so the workflow stopped parsing and every push after it reported a
+red "Dependency freshness" run with no jobs in it. Reading classic branch
+protection needs admin credentials that `GITHUB_TOKEN` cannot hold at all, and
+this repository protects `main` with classic protection rather than a ruleset,
+which is the one form a read-scoped token could see. So the comparison runs as
+a pre-push hook against the maintainer's own credentials — pre-push because
+protection changes without a commit, and the push is the moment drift starts to
+matter. A manifest entry no job emits fails it; the manifest as it stands
+matches `main`.
+
+App Service reached the whole of its document. The six runtime-stack catalogs
+— `availableStacks`, `webAppStacks`, `functionAppStacks` and their per-location
+and subscription spellings — declined as Microsoft's published catalog. What
+they report is which built-in runtime stacks the App Service *offers*, and this
+one offers none: a site here runs the container image its `linuxFxVersion`
+names, and a site configured with `PHP|8.2` cannot start, which is what the
+start path already tells the caller. An empty collection states that, from the
+same fact, so the two cannot disagree — the answer `ListBillingMeters` and
+`ListAseRegions` already give for the surfaces this simulator hosts nothing of.
+Every lifecycle field in those schemas is optional and hangs off a stack entry;
+there are no entries. `web-arm-openapi-2025-03-01` reads 692 of 692.
+
+Three passages in that floor comment still described operations this branch had
+already served — the environment's outbound dependencies and the two
+recommendation-rule reads, each cited as "the same class as the declined
+Provider_*Stacks" — and `DO_NEXT.md` still enumerated a 76-operation App
+Service tail against a document that has none. Both say the merged state now.
+
+The same work surfaced a bypass. `iamAccessKeyIDFromRequest` read the SigV4
+credential only from the `Authorization` header, so a presigned URL — whose
+credential travels in `X-Amz-Credential` — resolved to no principal at all and
+was never authorized. A presigned request is made by the principal who signed
+it, and its policies govern it exactly as they govern a header-signed call; both
+forms resolve to that principal now, which is also what makes an `s3:authType`
+grant able to tell them apart. `TestS3_AuthTypeConditionKeyScopesTheGrant`
+presigns a read the policy does not cover and holds it to 403.
+
+## 2026-09-02, forty-sixth pass — the process is the source, and a required check that named nothing
+
+A required status check on `main` named `sim (azure sdk)`, which no job emits:
+the Azure SDK job is sharded into `A` and `B-Z`. Every merge waited on a context
+that could never report. The manifest had both shards; the live protection did
+not, and the script that compares them — `--verify-branch-protection`, which
+names the disagreement exactly — ran nowhere, because CI runs only the half that
+needs no credentials. It runs on a schedule now, in `deps-freshness`, as its own
+job: branch protection drifts with nobody's commit, so it belongs somewhere no
+pull request owns.
+
+Two more App Service operations were declined on a reading of the document that
+the document does not support, and both are served now.
+
+`WebApps_GetSitePhpErrorLogFlag` reports `log_errors` and `log_errors_max_len`
+in a local and a master form. PHP prints exactly that distinction — `php -i`
+gives every directive as "name => local value => master value" — so a site
+running PHP is asked, in its own container, instead of a platform image being
+described. A site whose container has no PHP runs no PHP worker and has no such
+setting, which it says: defaulting the four fields would claim the site is
+configured that way.
+
+`AppServiceEnvironments_GetOutboundNetworkDependenciesEndpoints` was declined as
+"Microsoft's published catalog of platform endpoints and address ranges". Its
+own schema asks for nothing of the sort: `EndpointDetail` carries the address a
+domain name *currently resolves to*, whether a TCP connection *can be made* from
+the environment, and how many milliseconds making it *takes*. Those are
+findings. An environment here depends on this simulator — the cloud its sites
+call, at the coordinate the caller reached it on — so the dependency is resolved
+and connected to for real, and what is reported is what happened. The SDK test
+asserts the address parses, the latency is non-zero and the endpoint answered.
+
+Checking the neighbouring Azure Container Instances operation was worth it for
+the opposite reason: it answers an empty list, and Microsoft's own definition
+says "Response for network dependencies, always empty list". That one is
+correct as it stands.
+
+A third pair came from the same reading. `Recommendations_GetRuleDetailsByWebApp`
+and its App Service Environment spelling declined because a rule's details are
+Microsoft's published advisory copy — while the listing beside them answered an
+empty collection, which states the scope has *no* recommendations, and is right,
+because the simulator raises none. Both cannot be true. A scope with no
+recommendations has no rule to read, so the read is not found, and it now reads
+from the same collection the listing returns, so the two cannot come to
+disagree.
+
+Checking the runtime-stack catalogue the same way confirmed its decline instead
+of overturning it, which is the point of checking rather than assuming.
+`StackMajorVersion` carries `isDeprecated`, `isPreview`, `isHidden` and an
+appSettings dictionary — Microsoft's product catalogue of which versions exist
+and which are withdrawn. And unlike "no recommendations have been raised",
+which is true of this deployment, "App Service offers no runtime stacks" would
+be false about the product.
+
+That reading turned up a defect beside it. `linuxFxVersion` names two different
+things depending on its prefix: `DOCKER|` and its siblings name a container
+image, while a built-in stack — `PHP|8.2`, `NODE|20-lts` — names a version of a
+platform image App Service supplies. `siteContainerImage` returned whatever
+followed the bar, so a site configured the ordinary way became an attempt to
+pull an image called `8.2`, and the failure read as a missing image rather than
+as a stack this simulator does not run. It distinguishes them now, and a site
+with a built-in stack is told that this simulator runs container images and the
+platform image its stack names is Microsoft's — the same fact the catalogue
+states by declining.
+
+App Service reads **686 of 692**.
+
+The App Service process family is read from the process itself. It already was
+for the list — the site's workload is a container and the engine's process table
+is the site's processes — but `ListProcessModules` and `GetProcessModule`
+answered one module per process whose `base_address` was **the PID formatted as
+hex**. A module's load address is not its process's identifier. That operation
+counted as served, so the number said covered while the answer was invented,
+and the floor comment beside it said modules were unserved — both wrong, in
+opposite directions.
+
+The engine reports processes in its host's PID namespace, so where the simulator
+shares that kernel `/proc/<pid>` is the process's own. Modules are read from
+`/proc/<pid>/maps`, folding a file's mappings into one module at the address its
+lowest mapping begins, with its real size. The dump is an ELF core written from
+those mappings and `/proc/<pid>/mem` — the format a debugger opens, one PT_LOAD
+per readable mapping carrying the bytes actually there — and it is written
+without stopping the process, because reading a process's memory needs
+permission to trace and not an attach. Both check `/proc/<pid>/cmdline` against
+the command line the engine reported before reading, so a reused PID cannot be
+served as the site's. A host that does not share the engine's kernel, or that
+refuses the read, declares that rather than answering.
+
+Azure's App Service ratchets 677 → 681: the four process-dump spellings are
+served from the process's own memory rather than declared. The SDK test accepts
+a real answer or the declared gap and nothing else — it asserts a module's path
+is absolute, its base address parses as an address and is not the PID, and the
+dump is an ELF core with loadable segments.
+
 ## 2026-09-02 — SQLite synchronous=FULL was serializing every write behind an fsync
 
 A deployed AWS simulator was found pegged at 70-130% CPU for hours under real

@@ -44,7 +44,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azqueue v1.0.1
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.9.0
 	github.com/coder/websocket v1.8.15
-	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/realexec v0.1.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-jose/go-jose/v4 v4.1.4

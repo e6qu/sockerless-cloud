@@ -17,27 +17,27 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `DELETE /v20180820/accessgrantsinstance/resourcepolicy` | ✓ `simulator-aws/s3control_access_grants.go:100::handleS3DeleteAccessGrantsInstanceResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v20180820/accessgrantsinstance/location` | ✓ `simulator-aws/s3control_access_grants.go:102::handleS3CreateAccessGrantsLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance/location/{locationId}` | ✓ `simulator-aws/s3control_access_grants.go:103::handleS3GetAccessGrantsLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v20180820/accessgrantsinstance/location/{locationId}` | ✓ `simulator-aws/s3control_access_grants.go:104::handleS3UpdateAccessGrantsLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v20180820/accessgrantsinstance/location/{locationId}` | ✓ `simulator-aws/s3control_access_grants.go:105::handleS3DeleteAccessGrantsLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance/locations` | ✓ `simulator-aws/s3control_access_grants.go:106::handleS3ListAccessGrantsLocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v20180820/accessgrantsinstance/grant` | ✓ `simulator-aws/s3control_access_grants.go:108::handleS3CreateAccessGrant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance/grant/{grantId}` | ✓ `simulator-aws/s3control_access_grants.go:109::handleS3GetAccessGrant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v20180820/accessgrantsinstance/grant/{grantId}` | ✓ `simulator-aws/s3control_access_grants.go:110::handleS3DeleteAccessGrant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance/grants` | ✓ `simulator-aws/s3control_access_grants.go:111::handleS3ListAccessGrants` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance/caller/grants` | ✓ `simulator-aws/s3control_access_grants.go:112::handleS3ListCallerAccessGrants` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance/dataaccess` | ✓ `simulator-aws/s3control_access_grants.go:113::handleS3GetDataAccess` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v20180820/accessgrantsinstance` | ✓ `simulator-aws/s3control_access_grants.go:89::handleS3CreateAccessGrantsInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance` | ✓ `simulator-aws/s3control_access_grants.go:90::handleS3GetAccessGrantsInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v20180820/accessgrantsinstance` | ✓ `simulator-aws/s3control_access_grants.go:91::handleS3DeleteAccessGrantsInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstances` | ✓ `simulator-aws/s3control_access_grants.go:92::handleS3ListAccessGrantsInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance/prefix` | ✓ `simulator-aws/s3control_access_grants.go:93::handleS3GetAccessGrantsInstanceForPrefix` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v20180820/accessgrantsinstance/identitycenter` | ✓ `simulator-aws/s3control_access_grants.go:95::handleS3AssociateAccessGrantsIdentityCenter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v20180820/accessgrantsinstance/identitycenter` | ✓ `simulator-aws/s3control_access_grants.go:96::handleS3DissociateAccessGrantsIdentityCenter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v20180820/accessgrantsinstance/resourcepolicy` | ✓ `simulator-aws/s3control_access_grants.go:98::handleS3PutAccessGrantsInstanceResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v20180820/accessgrantsinstance/resourcepolicy` | ✓ `simulator-aws/s3control_access_grants.go:99::handleS3GetAccessGrantsInstanceResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v20180820/accessgrantsinstance` | ✓ `simulator-aws/s3control_access_grants.go:100::handleS3CreateAccessGrantsInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance` | ✓ `simulator-aws/s3control_access_grants.go:101::handleS3GetAccessGrantsInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v20180820/accessgrantsinstance` | ✓ `simulator-aws/s3control_access_grants.go:102::handleS3DeleteAccessGrantsInstance` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstances` | ✓ `simulator-aws/s3control_access_grants.go:103::handleS3ListAccessGrantsInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance/prefix` | ✓ `simulator-aws/s3control_access_grants.go:104::handleS3GetAccessGrantsInstanceForPrefix` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v20180820/accessgrantsinstance/identitycenter` | ✓ `simulator-aws/s3control_access_grants.go:106::handleS3AssociateAccessGrantsIdentityCenter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v20180820/accessgrantsinstance/identitycenter` | ✓ `simulator-aws/s3control_access_grants.go:107::handleS3DissociateAccessGrantsIdentityCenter` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v20180820/accessgrantsinstance/resourcepolicy` | ✓ `simulator-aws/s3control_access_grants.go:109::handleS3PutAccessGrantsInstanceResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance/resourcepolicy` | ✓ `simulator-aws/s3control_access_grants.go:110::handleS3GetAccessGrantsInstanceResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v20180820/accessgrantsinstance/resourcepolicy` | ✓ `simulator-aws/s3control_access_grants.go:111::handleS3DeleteAccessGrantsInstanceResourcePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v20180820/accessgrantsinstance/location` | ✓ `simulator-aws/s3control_access_grants.go:113::handleS3CreateAccessGrantsLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance/location/{locationId}` | ✓ `simulator-aws/s3control_access_grants.go:114::handleS3GetAccessGrantsLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v20180820/accessgrantsinstance/location/{locationId}` | ✓ `simulator-aws/s3control_access_grants.go:115::handleS3UpdateAccessGrantsLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v20180820/accessgrantsinstance/location/{locationId}` | ✓ `simulator-aws/s3control_access_grants.go:116::handleS3DeleteAccessGrantsLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance/locations` | ✓ `simulator-aws/s3control_access_grants.go:117::handleS3ListAccessGrantsLocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v20180820/accessgrantsinstance/grant` | ✓ `simulator-aws/s3control_access_grants.go:119::handleS3CreateAccessGrant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance/grant/{grantId}` | ✓ `simulator-aws/s3control_access_grants.go:120::handleS3GetAccessGrant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v20180820/accessgrantsinstance/grant/{grantId}` | ✓ `simulator-aws/s3control_access_grants.go:121::handleS3DeleteAccessGrant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance/grants` | ✓ `simulator-aws/s3control_access_grants.go:122::handleS3ListAccessGrants` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance/caller/grants` | ✓ `simulator-aws/s3control_access_grants.go:123::handleS3ListCallerAccessGrants` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v20180820/accessgrantsinstance/dataaccess` | ✓ `simulator-aws/s3control_access_grants.go:124::handleS3GetDataAccess` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

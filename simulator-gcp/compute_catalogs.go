@@ -10,36 +10,26 @@ import (
 // caller's.
 //
 // Every other collection in this simulator answers from what a client put
-// there. These do not: an interconnect location is a building Google operates,
-// a licence code identifies an image Google publishes, a preview feature is one
-// Google has opened, and a reliability risk is Google's assessment of a
-// project's exposure. There is nothing for the simulator to derive them from,
-// and a list of them would be a list Google never published — which is worse
-// than no answer, because a client cannot tell an invented catalogue from a
-// real one.
+// there. These do not: a licence code identifies an image Google publishes, and
+// a reliability risk is Google's assessment of a project's exposure.
 //
-// So each is declared and answers 501 with the reason, which is a fact a client
-// can act on. An empty list would not be: an empty interconnect locations list
-// says Google operates no facilities, which is false.
+// The interconnect locations were described here as having nothing to derive
+// them from. That was wrong twice over, and the correction is the reason this
+// comment is shorter than it was: the catalogue is published, and a published
+// catalogue is vendored here rather than declined — with its source cited, its
+// counts locked by a test, and every field the source does not state left
+// absent. Both interconnect catalogues are served that way now.
 //
-// Each is mounted at a literal path rather than through a loop, so the surface
-// tables show the gap where a reader looks for the surface.
+// What is left is the observational case, which is a different thing from a
+// catalogue: the simulator runs no reliability analysis, so it has detected no
+// risks, and an empty collection states that truthfully.
 func registerComputeCatalogs(srv *sim.Server) {
-	catalog := func(what string) http.HandlerFunc {
-		return func(w http.ResponseWriter, _ *http.Request) {
-			sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
-				"the simulator serves no %s: the catalogue is Google's own, and neither an empty list nor an invented one is what the API returns", what)
-		}
-	}
-
 	// The facilities Google operates Cloud Interconnect out of, and the
-	// third-party facilities it peers with.
-	locations := catalog("Cloud Interconnect locations")
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectLocations", locations)
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectLocations/{interconnectLocation}", locations)
-	remote := catalog("Cloud Interconnect remote locations")
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectRemoteLocations", remote)
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectRemoteLocations/{interconnectRemoteLocation}", remote)
+	// third-party ones it peers with, were the declared gaps here. Both are
+	// vendored from Google's own documentation now and served in
+	// compute_interconnect_locations.go and
+	// compute_interconnect_remote_locations.go, which leaves this file the
+	// observational cases below rather than any catalogue.
 
 	// A reliability risk is something Google's analysis detected about a
 	// project, not a set it publishes: the resource carries the type of risk
@@ -83,11 +73,6 @@ func registerComputeCatalogs(srv *sim.Server) {
 			handleResourceIAM(w, r, gcpResourcePolicies, licenceIAM(r), "testIamPermissions")
 		})
 
-	// What an interconnect's hardware reports about itself: link status,
-	// circuit identifiers and LACP state, read off the physical equipment at
-	// both ends, which the simulator does not have. Its MACsec configuration is
-	// a different thing — the caller's own keychain — and is served in
-	// compute_interconnect_macsec.go.
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics",
-		catalog("interconnect diagnostics"))
+	// interconnects.getDiagnostics reports from the interconnect's own record
+	// and is served in compute_interconnect_diagnostics.go.
 }

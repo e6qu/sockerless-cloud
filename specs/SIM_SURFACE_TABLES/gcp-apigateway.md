@@ -32,7 +32,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /v1/projects/{project}/locations/{location}/gateways` | ✓ `simulator-gcp/apigateway.go:74::handleGCPAPIGWListGateways` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /v1/projects/{project}/locations/{location}/gateways/{gw}` | ✓ `simulator-gcp/apigateway.go:75::handleGCPAPIGWPatchGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /v1/projects/{project}/locations/{location}/gateways/{gw}` | ✓ `simulator-gcp/apigateway.go:76::handleGCPAPIGWDeleteGateway` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/gateways/{gwAction}` | ✓ `simulator-gcp/apigateway.go:84::handleGCPAPIGWIamAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/gateways/{gwAction}` | ✓ `simulator-gcp/apigateway.go:83::handleGCPAPIGWIamAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

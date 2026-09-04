@@ -75,9 +75,8 @@ func registerGCPAPIGateway(srv *sim.Server) {
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/gateways/{gw}", handleGCPAPIGWPatchGateway)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/gateways/{gw}", handleGCPAPIGWDeleteGateway)
 
-	// IAM v1 per AIP-130. Empty default policy until setIamPolicy
-	// lands a real one; testIamPermissions returns the permission set
-	// as-allowed (sim doesn't model authorization).
+	// IAM v1 per AIP-130. Empty default policy until setIamPolicy lands a real
+	// one; testIamPermissions answers from that policy.
 	//
 	// Go ServeMux can't parse `{gw}:getIamPolicy`; capture the action
 	// suffix in a single wildcard and split on `:` in the handler.
@@ -146,7 +145,7 @@ func handleGCPAPIGWSetIamPolicy(w http.ResponseWriter, r *http.Request, gw strin
 	sim.WriteJSON(w, http.StatusOK, req.Policy)
 }
 
-func handleGCPAPIGWTestIamPermissions(w http.ResponseWriter, r *http.Request, _ string) {
+func handleGCPAPIGWTestIamPermissions(w http.ResponseWriter, r *http.Request, gw string) {
 	var req struct {
 		Permissions []string `json:"permissions"`
 	}
@@ -154,8 +153,15 @@ func handleGCPAPIGWTestIamPermissions(w http.ResponseWriter, r *http.Request, _ 
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
 		return
 	}
-	// Sim doesn't model authorization; echo the requested set as allowed.
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"permissions": req.Permissions})
+	stored, _ := apigwIamPolicies.Get(
+		apigwIamPolicyKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), gw))
+	policy := IAMPolicy{Version: stored.Version, Etag: stored.Etag}
+	for _, binding := range stored.Bindings {
+		policy.Bindings = append(policy.Bindings,
+			IAMBinding{Role: binding.Role, Members: binding.Members})
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions)})
 }
 
 func handleGCPAPIGWCreateApi(w http.ResponseWriter, r *http.Request) {

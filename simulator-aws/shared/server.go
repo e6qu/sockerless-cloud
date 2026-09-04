@@ -136,6 +136,13 @@ func NewServer(cfg Config) (*Server, error) {
 	// unless main.go calls InitObservability with OTEL_EXPORTER_OTLP_ENDPOINT
 	// set in the env.
 	var routed http.Handler = mux
+	if rewrite := cfg.RewriteRequest; rewrite != nil {
+		inner := routed
+		routed = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rewrite(r)
+			inner.ServeHTTP(w, r)
+		})
+	}
 	routed = AuthPassthroughMiddleware(cfg.Provider)(routed)
 	// Outside the auth passthrough so the registry sees every request, and so a
 	// request that hangs is attributable while it is still hanging rather than

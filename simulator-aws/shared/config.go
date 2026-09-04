@@ -6,7 +6,10 @@
 // and provider-specific error formatting.
 package simulator
 
-import "os"
+import (
+	"net/http"
+	"os"
+)
 
 // Config holds the simulator server configuration.
 type Config struct {
@@ -28,6 +31,13 @@ type Config struct {
 	// DataDir is the directory for persistent storage (SQLite database, PID files).
 	// Set via SIM_DATA_DIR. Empty uses a temp directory.
 	DataDir string
+
+	// RewriteRequest, when set, runs on every request before routing. It
+	// exists for virtual-hosted addressing, where the cloud carries part of the
+	// resource identity in the hostname and the router works on paths: the hook
+	// maps the one onto the other, and records what the client actually sent so
+	// the signature is still verified against that.
+	RewriteRequest func(*http.Request)
 
 	// Persist enables SQLite-backed state persistence.
 	// Set via SIM_PERSIST=true. Default false (in-memory only).

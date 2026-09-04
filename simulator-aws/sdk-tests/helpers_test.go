@@ -233,17 +233,61 @@ var simHTTPClient = awshttp.NewBuildableClient().WithTransportOptions(func(tr *h
 var simDialer = &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
 
 func simDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	if host, port, err := net.SplitHostPort(addr); err == nil && isLocalhostName(host) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case isLocalhostName(host):
 		addr = net.JoinHostPort("127.0.0.1", port)
+	case isS3ExpressName(host), isS3AccessPointName(host):
+		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(simPort))
+	case host == "127.0.0.1" || host == "::1":
+	default:
+		// Every client in this suite addresses the simulator. A host that is
+		// not the simulator is a test whose endpoint coordinate is wrong, and
+		// dialing it would send a request — signed with this suite's
+		// credentials — to the real cloud. Refusing here turns that into an
+		// error naming the host instead.
+		return nil, fmt.Errorf("refusing to dial %q: this suite addresses the simulator, and that host is not it", host)
 	}
 	return simDialer.DialContext(ctx, network, addr)
+}
+
+// isS3ExpressName reports whether a hostname belongs to S3 Express One Zone —
+// the regional control endpoint `s3express-control.<region>.amazonaws.com` or a
+// directory bucket's zonal endpoint
+// `<bucket>.s3express-<zone-id>.<region>.amazonaws.com`.
+//
+// Those two hosts are a coordinate like any other, but they cannot be supplied
+// as a BaseEndpoint: the SDK derives which of them an operation uses from the
+// bucket's name, and an endpoint override collapses both onto one host and
+// takes the S3 Express auth branch even for CreateBucket, which against Amazon
+// S3 goes to the control endpoint with the caller's own credentials and no
+// session at all. So a client addressing a directory bucket is left to resolve
+// exactly what it resolves against AWS, and resolution — which changes neither
+// the URL, the Host header, nor the signature — points at the simulator.
+// isS3AccessPointName reports whether a hostname addresses an S3 access point
+// — `<name>-<account>.s3-accesspoint.<region>.amazonaws.com`, or an Object
+// Lambda access point at its own host. The SDK derives that host from the
+// access point ARN a caller passes as the bucket, so a client reaching an
+// access point resolves it exactly as it does against Amazon S3, and resolution
+// points at the simulator.
+func isS3AccessPointName(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	return strings.Contains(h, ".s3-accesspoint.") || strings.Contains(h, ".s3-object-lambda.")
+}
+
+func isS3ExpressName(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	return strings.HasPrefix(h, "s3express-control.") || strings.Contains(h, ".s3express-")
 }
 
 // simProxy keeps the SDK's environment-driven proxy behaviour for every host
 // except the `.localhost` family, which resolves to loopback and must never be
 // routed through a proxy Go would otherwise apply to a non-`localhost` name.
 func simProxy(req *http.Request) (*url.URL, error) {
-	if isLocalhostName(req.URL.Hostname()) {
+	if host := req.URL.Hostname(); isLocalhostName(host) || isS3ExpressName(host) || isS3AccessPointName(host) {
 		return nil, nil
 	}
 	return http.ProxyFromEnvironment(req)

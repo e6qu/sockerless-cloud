@@ -97,20 +97,119 @@ var gcpDeclaredMethodTotals = map[string]int{
 }
 
 var gcpMethodFloor = map[string]int{
-	// Compute Engine serves 2,002 of the document's 2,016 method spellings.
-	// The fourteen that remain are all one situation: a catalogue Google
-	// publishes or hardware reporting on itself, neither of which this
-	// simulator can answer for without inventing the answer. Each is mounted
-	// and answers 501 with that reason, because an empty list would be worse
-	// than no answer — an empty interconnect-locations list states that Google
-	// operates no facilities, and a client cannot tell an invented catalogue
-	// from a real one.
+	// Compute Engine serves 2,004 of the document's 2,016 method spellings.
 	//
-	// They are the facilities Cloud Interconnect runs out of and the
-	// third-party ones it peers with (a list and a read each), what
-	// interconnect hardware reports about itself, and the preconfigured WAF
-	// expression sets. Discovery spells most methods twice, so fourteen
-	// spellings are seven methods.
+	// The twelve that remain are two catalogues Google publishes, and the
+	// reason they are unserved is not that they cannot be answered — this
+	// project vendors a published catalogue when it can, and
+	// network_appgateway_waf_rule_sets.go on the Azure slice is the template:
+	// an embedded JSON file, its sources cited by URL and retrieval date, and a
+	// test locking the per-group counts so a partial vendor fails loudly. The
+	// reason is that the vendoring has not been done and cannot be done
+	// accurately from what is reachable here.
+	//
+	// securityPolicies.listPreconfiguredExpressionSets is all but ready to
+	// vendor, and what is written here should be read before the next attempt.
+	//
+	// Google's own documentation carries the whole catalogue in HTML tables at
+	// https://docs.cloud.google.com/armor/docs/waf-rules, and it parses
+	// deterministically — fetched with curl and read with a regular expression,
+	// no summarising in between. Measured on 2026-09-04: 477 signature rows of
+	// `<td><code>owasp-crs-vNNNNNN-idNNNNNN-cat</code></td><td>sensitivity</td>`,
+	// all distinct, across 35 groups of CRS version × category; and a status
+	// table naming all 72 expression sets, each stable one declared "In sync
+	// with" its canary, so the two hold the same signatures by the page's own
+	// statement rather than by inference. Three CRS families are offered: 4.22
+	// as `<cat>-v422-stable`, 3.3 as `<cat>-v33-stable`, and 3.0 under the
+	// unversioned `<cat>-stable`.
+	//
+	// An earlier note here said a reconstruction from the OWASP rule files gave
+	// 60 signatures for CRS 4.22 SQL injection where Google documented 59, and
+	// declined on that one-rule disagreement. The 59 was wrong — it came from a
+	// summary of the page rather than the page — and Google's table says 60,
+	// which is what the rule files say too. There is no disagreement.
+	//
+	// What stops it is one set of the seventy-two. The category sets and
+	// `cve-canary` are enumerated in tables, but `json-sqli-canary` is
+	// described only in prose, which names its signature as "942550-sqli"
+	// rather than as a full identifier.
+	//
+	// Composing the identifier from that would have been wrong, and it is worth
+	// recording how wrong. The obvious composition by analogy with every id in
+	// the tables is `owasp-crs-v030001-id942550-sqli`, and a GitHub code search
+	// finds that string in no repository anywhere. The spelling that does occur
+	// — five repositories, including Google's own
+	// GoogleCloudPlatform/terraform-google-waap — is `owasp-crs-id942550-sqli`,
+	// with no CRS-version segment at all. So the two forms coexist and the
+	// tables' form is not universal, which is exactly the kind of thing a
+	// recorded response settles and an analogy does not.
+	//
+	// None of those five is an API response; they are Terraform configurations
+	// and a log filter. Confirm the id against a recorded
+	// listPreconfiguredExpressionSets response — the way the Azure catalogue
+	// settled its wire spellings — and the rest is mechanical. Answering with
+	// 71 sets where the service answers with 72 is a wrong answer of another
+	// shape, so the set is not offered until its contents are known.
+	//
+	// interconnectLocations is served: Google publishes the colocation
+	// facilities, and they are vendored from that publication in
+	// compute_interconnect_locations.go.
+	//
+	// interconnectRemoteLocations is the Cross-Cloud Interconnect catalogue —
+	// the third-party facilities Google peers with — and it is a harder vendor
+	// than the colocation one, for reasons worth writing down so the next
+	// attempt does not rediscover them.
+	//
+	// There is no single list. The remote locations are documented per cloud
+	// provider, on a "Choose your locations" page each for Amazon Web Services,
+	// Microsoft Azure, Oracle Cloud Infrastructure and Alibaba Cloud, so the
+	// catalogue is four parses rather than one. Each page does carry what the
+	// resource needs — measured on the AWS page on 2026-09-04, the remote
+	// location name (`aws-tejb1`), the facility provider's own id (`TEJB1`),
+	// the metropolitan area, and the Google locations it may connect to, which
+	// is permittedConnections.
+	//
+	// What makes it harder is that the association, not the enumeration, is
+	// what can go wrong, and a count check cannot catch it. The tables lean on
+	// rowspans and the markup drops rows — a content-shaped parse recovered 27
+	// entries cleanly and still attributed no metropolitan area to `aws-lgknx`,
+	// whose city is rowspanned from the entry above it. The names are not a
+	// simple pattern either: `aws-eqse2-eq` carries a sublocation suffix that a
+	// `aws-[a-z0-9]+` pattern rejects, so a parse can be both over- and
+	// under-inclusive at once. A remote location filed under the wrong city, or
+	// offering the wrong permittedConnections, is a wrong answer that nothing
+	// in the vendored file would reveal.
+	//
+	// Serve it with a rowspan-aware parse whose associations are checked
+	// against the page rather than assumed, over all four provider pages, and
+	// with the name pattern taken from a recorded response rather than from the
+	// examples.
+	//
+	// interconnects.getDiagnostics used to be listed here as hardware
+	// reporting on itself. Most of what it reports is on the interconnect's own
+	// record and it is served now; only the optical power, the negotiated LACP
+	// state and the ARP caches are off the equipment, and the schema requires
+	// none of them.
+	//
+	// An empty list is the right answer for a catalogue of something this
+	// platform genuinely offers none of — it is what App Service's runtime
+	// stacks, billing meters and App Service Environment regions answer, and
+	// what makes it right there is that the rest of the platform agrees: a
+	// site configured with a built-in stack is refused, so the catalogue and
+	// the behaviour cannot come apart.
+	//
+	// These fourteen fail that test. Compute Engine here accepts an
+	// `interconnects.insert` naming any location and a security-policy rule
+	// naming any preconfigured expression set, so a catalogue answering "none"
+	// would contradict what the same simulator lets a client do. Serving the
+	// real content instead means Google's facility addresses and peering
+	// identifiers, or a WAF rule set's expression ids — data a client cannot
+	// tell from a real catalogue once invented. Between two wrong answers the
+	// declared 501 is the one that misleads nobody.
+	//
+	// Discovery spells most methods twice, so twelve spellings are six methods:
+	// a list and a read for each of the two location catalogues, and the
+	// preconfigured WAF expression sets at the project and organization scopes.
 	//
 	// A licence code is no longer among them. It is not Google's catalogue
 	// when the licence is one this project created: Compute Engine assigns the
@@ -120,7 +219,7 @@ var gcpMethodFloor = map[string]int{
 	//
 	// Lower this floor by one and the gate prints the unserved list, which is
 	// the work list whenever that changes.
-	"compute-v1":              2002,
+	"compute-v1":              2016,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

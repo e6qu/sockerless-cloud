@@ -89,16 +89,55 @@ Current state of the sockerless-cloud repository.
 - **Container client**: the simulators use `github.com/moby/moby/client` +
   `github.com/moby/moby/api` (no `github.com/docker/docker` anywhere in the
   module graphs; govulncheck clean).
+- **Amazon S3**: every operation the vendored model declares is served. S3
+  Object Lambda (access points, the read path, the WriteGetObjectResponse
+  callback) and S3 Express One Zone (directory buckets, the regional control and
+  zonal endpoints, and session authentication scoped to one bucket, one mode and
+  an expiry) are both assembled, so `s3ConformanceMissing` is empty and the two
+  model-drift exemptions they held are gone.
+- **`testIamPermissions` (Google Cloud)**: answers from the stored policy — the
+  requested permissions filtered to the ones the caller's bindings grant,
+  resolved through the curated and custom roles the simulator holds. A caller
+  presenting no simulator-issued token is the account's operator and holds what
+  it asks about.
+- **Resource-policy principals**: a statement naming the caller grants; one
+  matching only by account delegates to that account's IAM, so the caller is
+  permitted only if an identity policy allows it too. The default AWS KMS key
+  policy is that statement, and reading it as a grant had let any principal in
+  the account use any key whatever its own policies said.
+- **IAM condition context**: the authorizer populates the condition keys the
+  request itself settles — the global `aws:` envelope and principal keys, the
+  tag keys in both the `aws:` and the `<service>:` spelling, `ec2:Region`,
+  `ecs:cluster`, `cloudwatch:namespace`, `kms:CallerAccount`, and the Amazon S3
+  request-shape keys (`authType`, `signatureversion`, `TlsVersion`,
+  `signatureAge`, `x-amz-content-sha256`, `ResourceAccount`,
+  `ExistingObjectTag/<k>`), `iam:PermissionsBoundary`, `rds:req-tag/<k>` and the
+  AWS Secrets Manager keys read from the secret a request names — so a policy
+  that scopes an action through its condition key is evaluated against a context
+  that holds it: the actions declaring an action condition key
+  carry every one of theirs — 1,406 of them (BUG-2965 measures the rest). An
+  awsJson denial is written under the member name the service's own model
+  declares for it, `message` or `Message`, which half of AWS's services spell
+  each way; a table holds each one and a gate reads the models to keep it
+  honest. A SigV4 credential is read
+  from the `Authorization` header and from a presigned URL's `X-Amz-Credential`
+  alike, so a presigned request is authorized as the principal who signed it.
 - **Measured floors** (re-read from the ratchets on 2026-09-01, because the
   figures written here had drifted from the tests that produce them): IAM
   resource derivation **2,000 of 2,008** served operations, the eight that
   remain being requests that carry no resource to derive;
+  `compute-v1` **2,016 of 2,016**, which closes the Google Cloud slice at
+  **5,486 of 5,486**: the two interconnect catalogues and the Cloud Armor
+  expression sets are all vendored from Google's own documentation — 321
+  colocation facilities, 74 Cross-Cloud Interconnect remote locations, and 70
+  expression sets carrying 953 signature slots — read through a rowspan-aware
+  grid and locked by their own tests;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
   catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` **120 of 120**;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery
   revision 20260814, whose declared total fell from 130 when Google withdrew
   the `gitLabConfigs` collection; `cloudrun-v1` 152 of 152;
-  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **677 of 692** (App
+  `spanner-v1` **198 of 198**; `web-arm-openapi-2025-03-01` **692 of 692** (App
   Service Stages 1-5: child resources, site-scoped workflows, Key Vault
   configuration references, the complete Static Web Apps family, App Service
   Environments, diagnostics, backup and restore, processes, network traces and
@@ -162,6 +201,15 @@ Current state of the sockerless-cloud repository.
   declare it. The workflows, `go.work` and the three simulator container images
   pin it together, because a module that only builds on a newer toolchain than
   CI runs only builds on the author's machine.
+- **App Service processes are read from the processes themselves.** The site's
+  workload is a container, the engine reports its processes in its host's PID
+  namespace, and where the simulator shares that kernel `/proc/<pid>` is the
+  process's own: modules come from its mapping table with real base addresses,
+  and a dump is an ELF core written from its memory without stopping it. The
+  modules read used to answer one fabricated module per process whose base
+  address was the PID in hex — counted as served while inventing, which is the
+  shape `NoPhantomCoverage` exists to catch. Azure's App Service reads all 692
+  of its declared operation spellings.
 - **The request side of a Discovery document is checked too.** Its
   `annotations.required` is per method — the method ids a property is required
   *for* — and a gate drives all 73 in the corpus with the property omitted and

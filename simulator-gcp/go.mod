@@ -3,7 +3,7 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp
 go 1.25.8
 
 require (
-	cloud.google.com/go/bigtable v1.53.0
+	cloud.google.com/go/bigtable v1.54.0
 	cloud.google.com/go/firestore v1.25.0
 	cloud.google.com/go/iam v1.13.0
 	cloud.google.com/go/kms v1.33.0
@@ -12,11 +12,11 @@ require (
 	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/secretmanager v1.21.0
 	cloud.google.com/go/spanner v1.95.0
-	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/realexec v0.1.0
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260828135648-2834ff5ae633
-	github.com/moby/moby/api v1.55.0
-	github.com/moby/moby/client v0.5.1
+	github.com/moby/moby/api v1.56.0
+	github.com/moby/moby/client v0.6.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/rs/zerolog v1.35.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
@@ -29,12 +29,12 @@ require (
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/sdk/log v0.22.0
 	go.opentelemetry.io/otel/sdk/metric v1.46.0
-	google.golang.org/genproto v0.0.0-20260825221802-da73d73af1c5
-	google.golang.org/genproto/googleapis/api v0.0.0-20260825221802-da73d73af1c5
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5
+	google.golang.org/genproto v0.0.0-20260831171406-18b4a7587f8a
+	google.golang.org/genproto/googleapis/api v0.0.0-20260831171406-18b4a7587f8a
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260831171406-18b4a7587f8a
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.57.0
+	modernc.org/sqlite v1.58.0
 )
 
 require (
@@ -49,7 +49,7 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -70,7 +70,7 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	modernc.org/libc v1.75.6 // indirect
+	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )

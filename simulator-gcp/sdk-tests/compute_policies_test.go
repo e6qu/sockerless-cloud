@@ -171,13 +171,17 @@ func TestCompute_OrganizationFirewallPolicyClonesAnotherPolicysRules(t *testing.
 	require.Error(t, err)
 }
 
-// The preconfigured WAF expression sets are Google's own catalogue, which this
-// simulator has no basis for. It answers a declared NotImplemented rather than
-// letting the read beside it swallow the path and report the method as a
-// policy that does not exist.
-func TestCompute_PreconfiguredExpressionSetsAreADeclaredGap(t *testing.T) {
+// The preconfigured WAF expression sets are Google's own catalogue, and it is
+// published, so it is vendored from that publication and served — see
+// TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog. What this keeps
+// is the routing half the declared gap also guarded: the read must not be
+// swallowed by the {policy} read beside it and reported as a policy that does
+// not exist, which is a gap disguised as a served read.
+func TestCompute_PreconfiguredExpressionSetsAreNotSwallowedByThePolicyRead(t *testing.T) {
 	svc := computeService(t)
-	_, err := svc.SecurityPolicies.ListPreconfiguredExpressionSets("expr-project").Do()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "501")
+	response, err := svc.SecurityPolicies.ListPreconfiguredExpressionSets("expr-project").Do()
+	require.NoError(t, err, "the catalogue answers rather than being read as a policy name")
+	require.NotNil(t, response.PreconfiguredExpressionSets)
+	require.NotNil(t, response.PreconfiguredExpressionSets.WafRules)
+	assert.NotEmpty(t, response.PreconfiguredExpressionSets.WafRules.ExpressionSets)
 }

@@ -123,7 +123,7 @@ func sigv4VerifyHeader(r *http.Request, auth string, body []byte, doubleEncodePa
 	if !ok {
 		return sigv4NoCredential, &sigv4Error{sigErrSignatureMismatch, sigMsgMismatch}
 	}
-	secret, serr := sigv4SecretFor(cred.accessKeyID, r.Header.Get("X-Amz-Security-Token"))
+	secret, serr := sigv4SecretFor(cred.accessKeyID, sigv4PresentedSessionToken(r))
 	if serr != nil {
 		return sigv4NoCredential, serr
 	}
@@ -256,6 +256,12 @@ func sigv4CanonicalRequest(r *http.Request, signedHeaders []string, canonicalQue
 // or other reserved character the wire path carried unescaped becomes %3A
 // exactly as the client's second signer pass computed it.
 func sigv4CanonicalURI(r *http.Request, doubleEncodePath bool) string {
+	// A virtual-hosted request on a directory bucket's zonal endpoint was
+	// rewritten onto a path the router works in; the client signed the path it
+	// sent, and that is the one the signature has to be verified against.
+	if signed, ok := s3SignedPath(r); ok {
+		return awsURIEncode(signed, false)
+	}
 	if doubleEncodePath {
 		path := r.URL.EscapedPath()
 		if path == "" {
@@ -490,4 +496,16 @@ func sigv4WriteS3Error(w http.ResponseWriter, r *http.Request, serr *sigv4Error)
 		sim.S3ErrorXML(w, "SignatureDoesNotMatch", serr.message,
 			resource, generateUUID(), http.StatusForbidden)
 	}
+}
+
+// sigv4PresentedSessionToken is the session token the request carries. Amazon
+// S3 Express One Zone puts it in its own header rather than in
+// X-Amz-Security-Token: a Zonal endpoint request is signed with the temporary
+// credentials CreateSession returned and carries the token in
+// x-amz-s3session-token, which is what the SDKs send.
+func sigv4PresentedSessionToken(r *http.Request) string {
+	if token := r.Header.Get(s3ExpressSessionTokenHeader); token != "" {
+		return token
+	}
+	return r.Header.Get("X-Amz-Security-Token")
 }

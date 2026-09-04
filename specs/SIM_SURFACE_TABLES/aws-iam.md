@@ -68,8 +68,8 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action ListRoles` | ✓ `simulator-aws/iam_lists.go:29::handleIAMListRoles` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ListRoleTags` | ✓ `simulator-aws/iam_lists.go:30::handleIAMListRoleTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ListPolicyTags` | ✓ `simulator-aws/iam_lists.go:31::handleIAMListPolicyTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action SimulateCustomPolicy` | ○ `simulator-aws/iam_policy_sim.go:751::handleIAMSimulateCustomPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action SimulatePrincipalPolicy` | ✓ `simulator-aws/iam_policy_sim.go:752::handleIAMSimulatePrincipalPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action SimulateCustomPolicy` | ○ `simulator-aws/iam_policy_sim.go:780::handleIAMSimulateCustomPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action SimulatePrincipalPolicy` | ✓ `simulator-aws/iam_policy_sim.go:781::handleIAMSimulatePrincipalPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateServiceLinkedRole` | ✓ `simulator-aws/iam_slr_oidc.go:61::handleIAMCreateServiceLinkedRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteServiceLinkedRole` | ✓ `simulator-aws/iam_slr_oidc.go:62::handleIAMDeleteServiceLinkedRole` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetServiceLinkedRoleDeletionStatus` | ✓ `simulator-aws/iam_slr_oidc.go:63::handleIAMGetSLRDeletionStatus` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

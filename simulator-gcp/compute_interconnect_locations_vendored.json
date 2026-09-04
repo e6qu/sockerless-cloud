@@ -1,0 +1,3211 @@
+{
+ "source": "https://docs.cloud.google.com/network-connectivity/docs/interconnect/concepts/choosing-colocation-facilities",
+ "retrieved": "2026-09-04",
+ "note": "Every field here is stated by the source. The street address, the facility provider, the continent and the available link types are not: the page gives a geographic grouping and a link-speed column whose mapping onto the enums Compute Engine declares is a judgement, and a field the source does not state is left absent rather than inferred.",
+ "locations": [
+  {
+   "name": "akl-zone1-1353",
+   "city": "Auckland",
+   "description": "Vocus Auckland - Albany",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1353"
+  },
+  {
+   "name": "akl-zone2-1353",
+   "city": "Auckland",
+   "description": "Vocus Auckland - Albany",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1353"
+  },
+  {
+   "name": "ams-zone1-1236",
+   "city": "Amsterdam",
+   "description": "Equinix Amsterdam Schepenbergweg (AM5) (formerly Telecity AMS5)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1236",
+   "regionInfos": [
+    {
+     "region": "europe-west4"
+    }
+   ]
+  },
+  {
+   "name": "ams-zone1-1320",
+   "city": "Amsterdam",
+   "description": "Equinix Amsterdam (AM3)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1320",
+   "regionInfos": [
+    {
+     "region": "europe-west4"
+    }
+   ]
+  },
+  {
+   "name": "ams-zone2-1236",
+   "city": "Amsterdam",
+   "description": "Equinix Amsterdam Schepenbergweg (AM5) (formerly Telecity AMS5)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1236",
+   "regionInfos": [
+    {
+     "region": "europe-west4"
+    }
+   ]
+  },
+  {
+   "name": "ams-zone2-1320",
+   "city": "Amsterdam",
+   "description": "Equinix Amsterdam (AM3)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1320",
+   "regionInfos": [
+    {
+     "region": "europe-west4"
+    }
+   ]
+  },
+  {
+   "name": "arn-zone1-156",
+   "city": "Stockholm",
+   "description": "Equinix Stockholm Bromma (SK1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "156",
+   "regionInfos": [
+    {
+     "region": "europe-north2"
+    }
+   ]
+  },
+  {
+   "name": "arn-zone1-208",
+   "city": "Stockholm",
+   "description": "Digital Realty Stockholm STO1-6",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "208",
+   "regionInfos": [
+    {
+     "region": "europe-north2"
+    }
+   ]
+  },
+  {
+   "name": "arn-zone2-156",
+   "city": "Stockholm",
+   "description": "Equinix Stockholm Bromma (SK1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "156",
+   "regionInfos": [
+    {
+     "region": "europe-north2"
+    }
+   ]
+  },
+  {
+   "name": "arn-zone2-208",
+   "city": "Stockholm",
+   "description": "Digital Realty Stockholm STO1-6",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "208",
+   "regionInfos": [
+    {
+     "region": "europe-north2"
+    }
+   ]
+  },
+  {
+   "name": "ath-zone1-1949",
+   "city": "Athens",
+   "description": "Digital Realty Athens Campus (ATH1, ATH2, ATH3)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1949"
+  },
+  {
+   "name": "ath-zone2-1949",
+   "city": "Athens",
+   "description": "Digital Realty Athens Campus (ATH1, ATH2, ATH3)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1949"
+  },
+  {
+   "name": "atl-zone1-3725",
+   "city": "Atlanta",
+   "description": "Digital Realty ATL",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3725"
+  },
+  {
+   "name": "atl-zone1-3853",
+   "city": "Atlanta",
+   "description": "zColo Atlanta - 1100 White SW",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3853"
+  },
+  {
+   "name": "atl-zone1-940",
+   "city": "Atlanta",
+   "description": "Equinix AT1 - Atlanta",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "940"
+  },
+  {
+   "name": "atl-zone2-3725",
+   "city": "Atlanta",
+   "description": "Digital Realty ATL",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3725"
+  },
+  {
+   "name": "atl-zone2-3853",
+   "city": "Atlanta",
+   "description": "zColo Atlanta - 1100 White SW",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3853"
+  },
+  {
+   "name": "atl-zone2-940",
+   "city": "Atlanta",
+   "description": "Equinix AT1 - Atlanta",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "940"
+  },
+  {
+   "name": "aus-zone1-1483",
+   "city": "Austin",
+   "description": "CyrusOne Austin (Met 2)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1483"
+  },
+  {
+   "name": "aus-zone2-1483",
+   "city": "Austin",
+   "description": "CyrusOne Austin (Met 2)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1483"
+  },
+  {
+   "name": "auz-zone1-3143",
+   "city": "Aurora",
+   "description": "CyrusOne Aurora",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3143"
+  },
+  {
+   "name": "auz-zone2-3143",
+   "city": "Aurora",
+   "description": "CyrusOne Aurora",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3143"
+  },
+  {
+   "name": "bcn-zone1-122",
+   "city": "Barcelona",
+   "description": "Equinix BA1 - Barcelona",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "122"
+  },
+  {
+   "name": "bcn-zone2-122",
+   "city": "Barcelona",
+   "description": "Equinix BA1 - Barcelona",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "122"
+  },
+  {
+   "name": "ber-zone1-331",
+   "city": "Berlin",
+   "description": "Level(3) Berlin",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "331",
+   "regionInfos": [
+    {
+     "region": "europe-west10"
+    }
+   ]
+  },
+  {
+   "name": "ber-zone1-478",
+   "city": "Berlin",
+   "description": "NTT Berlin 1 Data Center (BER1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "478",
+   "regionInfos": [
+    {
+     "region": "europe-west10"
+    }
+   ]
+  },
+  {
+   "name": "ber-zone2-331",
+   "city": "Berlin",
+   "description": "Level(3) Berlin",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "331",
+   "regionInfos": [
+    {
+     "region": "europe-west10"
+    }
+   ]
+  },
+  {
+   "name": "ber-zone2-478",
+   "city": "Berlin",
+   "description": "NTT Berlin 1 Data Center (BER1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "478",
+   "regionInfos": [
+    {
+     "region": "europe-west10"
+    }
+   ]
+  },
+  {
+   "name": "bkk-zone1-4001",
+   "city": "Bangkok",
+   "description": "CS LoxInfo Data Center - The Cloud",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "4001",
+   "regionInfos": [
+    {
+     "region": "asia-southeast3"
+    }
+   ]
+  },
+  {
+   "name": "bkk-zone1-6323",
+   "city": "Bangkok",
+   "description": "True IDC - North Muang Thong, Thailand",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "6323",
+   "regionInfos": [
+    {
+     "region": "asia-southeast3"
+    }
+   ]
+  },
+  {
+   "name": "bkk-zone2-4001",
+   "city": "Bangkok",
+   "description": "CS LoxInfo Data Center - The Cloud",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "4001",
+   "regionInfos": [
+    {
+     "region": "asia-southeast3"
+    }
+   ]
+  },
+  {
+   "name": "bkk-zone2-6323",
+   "city": "Bangkok",
+   "description": "True IDC - North Muang Thong, Thailand",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "6323",
+   "regionInfos": [
+    {
+     "region": "asia-southeast3"
+    }
+   ]
+  },
+  {
+   "name": "bne-zone1-4688",
+   "city": "Brisbane",
+   "description": "NEXTDC B2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "4688"
+  },
+  {
+   "name": "bne-zone2-4688",
+   "city": "Brisbane",
+   "description": "NEXTDC B2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "4688"
+  },
+  {
+   "name": "bog-zone1-10902",
+   "city": "Bogota",
+   "description": "Odata DC BG01",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "10902"
+  },
+  {
+   "name": "bog-zone1-1354",
+   "city": "Bogota",
+   "description": "Equinix Bogota (BG1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1354"
+  },
+  {
+   "name": "bog-zone2-10902",
+   "city": "Bogota",
+   "description": "Odata DC BG01",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "10902"
+  },
+  {
+   "name": "bog-zone2-1354",
+   "city": "Bogota",
+   "description": "Equinix Bogota (BG1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1354"
+  },
+  {
+   "name": "bom-zone1-2310",
+   "city": "Mumbai",
+   "description": "Equinix MB1 - Mumbai (GPX Mumbai 1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "2310",
+   "regionInfos": [
+    {
+     "region": "asia-south1"
+    }
+   ]
+  },
+  {
+   "name": "bom-zone1-554",
+   "city": "Mumbai",
+   "description": "Tata Mumbai IDC",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "554",
+   "regionInfos": [
+    {
+     "region": "asia-south1"
+    }
+   ]
+  },
+  {
+   "name": "bom-zone2-2310",
+   "city": "Mumbai",
+   "description": "Equinix MB1 - Mumbai (GPX Mumbai 1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "2310",
+   "regionInfos": [
+    {
+     "region": "asia-south1"
+    }
+   ]
+  },
+  {
+   "name": "bom-zone2-554",
+   "city": "Mumbai",
+   "description": "Tata Mumbai IDC",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "554",
+   "regionInfos": [
+    {
+     "region": "asia-south1"
+    }
+   ]
+  },
+  {
+   "name": "bos-zone1-219",
+   "city": "Boston",
+   "description": "Markley Group Boston - One Summer Street",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "219"
+  },
+  {
+   "name": "bos-zone2-219",
+   "city": "Boston",
+   "description": "Markley Group Boston - One Summer Street",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "219"
+  },
+  {
+   "name": "bru-zone1-68",
+   "city": "Brussels",
+   "description": "Digital Realty Brussels (BRU1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "68",
+   "regionInfos": [
+    {
+     "region": "europe-west1"
+    }
+   ]
+  },
+  {
+   "name": "bru-zone2-68",
+   "city": "Brussels",
+   "description": "Digital Realty Brussels (BRU1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "68",
+   "regionInfos": [
+    {
+     "region": "europe-west1"
+    }
+   ]
+  },
+  {
+   "name": "cbf-zone1-575",
+   "city": "Council Bluffs",
+   "description": "Nebraska Data Centers (1623 Farnam)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "575",
+   "regionInfos": [
+    {
+     "region": "us-central1"
+    }
+   ]
+  },
+  {
+   "name": "cbf-zone2-575",
+   "city": "Council Bluffs",
+   "description": "Nebraska Data Centers (1623 Farnam)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "575",
+   "regionInfos": [
+    {
+     "region": "us-central1"
+    }
+   ]
+  },
+  {
+   "name": "cbr-zone1-9378",
+   "city": "Canberra",
+   "description": "Equinix CA1 - Canberra",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "9378"
+  },
+  {
+   "name": "cbr-zone2-9378",
+   "city": "Canberra",
+   "description": "Equinix CA1 - Canberra",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "9378"
+  },
+  {
+   "name": "cdg-zone1-1536",
+   "city": "Paris",
+   "description": "Digital Realty Paris PAR7",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1536",
+   "regionInfos": [
+    {
+     "region": "europe-west9"
+    }
+   ]
+  },
+  {
+   "name": "cdg-zone1-181",
+   "city": "Paris",
+   "description": "Global Switch (Paris)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "181",
+   "regionInfos": [
+    {
+     "region": "europe-west9"
+    }
+   ]
+  },
+  {
+   "name": "cdg-zone1-3342",
+   "city": "Paris",
+   "description": "DATA4 Paris Marcoussis",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3342",
+   "regionInfos": [
+    {
+     "region": "europe-west9"
+    }
+   ]
+  },
+  {
+   "name": "cdg-zone1-53",
+   "city": "Paris",
+   "description": "Telehouse - Paris 2 (Voltaire - L\u00e9on Frot)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "53",
+   "regionInfos": [
+    {
+     "region": "europe-west9"
+    }
+   ]
+  },
+  {
+   "name": "cdg-zone2-1536",
+   "city": "Paris",
+   "description": "Digital Realty Paris PAR7",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1536",
+   "regionInfos": [
+    {
+     "region": "europe-west9"
+    }
+   ]
+  },
+  {
+   "name": "cdg-zone2-181",
+   "city": "Paris",
+   "description": "Global Switch (Paris)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "181",
+   "regionInfos": [
+    {
+     "region": "europe-west9"
+    }
+   ]
+  },
+  {
+   "name": "cdg-zone2-3342",
+   "city": "Paris",
+   "description": "DATA4 Paris Marcoussis",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3342",
+   "regionInfos": [
+    {
+     "region": "europe-west9"
+    }
+   ]
+  },
+  {
+   "name": "cdg-zone2-53",
+   "city": "Paris",
+   "description": "Telehouse - Paris 2 (Voltaire - L\u00e9on Frot)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "53",
+   "regionInfos": [
+    {
+     "region": "europe-west9"
+    }
+   ]
+  },
+  {
+   "name": "cgk-zone1-5865",
+   "city": "Jakarta",
+   "description": "NTT Com Jakarta",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "5865",
+   "regionInfos": [
+    {
+     "region": "asia-southeast2"
+    }
+   ]
+  },
+  {
+   "name": "cgk-zone1-8168",
+   "city": "Jakarta",
+   "description": "DCI Indonesia",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "8168",
+   "regionInfos": [
+    {
+     "region": "asia-southeast2"
+    }
+   ]
+  },
+  {
+   "name": "cgk-zone2-5865",
+   "city": "Jakarta",
+   "description": "NTT Com Jakarta",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "5865",
+   "regionInfos": [
+    {
+     "region": "asia-southeast2"
+    }
+   ]
+  },
+  {
+   "name": "cgk-zone2-8168",
+   "city": "Jakarta",
+   "description": "DCI Indonesia",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "8168",
+   "regionInfos": [
+    {
+     "region": "asia-southeast2"
+    }
+   ]
+  },
+  {
+   "name": "cmh-zone1-2377",
+   "city": "Columbus",
+   "description": "Cologix COL1-3",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3313",
+   "regionInfos": [
+    {
+     "region": "us-east5"
+    }
+   ]
+  },
+  {
+   "name": "cmh-zone2-2377",
+   "city": "Columbus",
+   "description": "Cologix COL1-3",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3313",
+   "regionInfos": [
+    {
+     "region": "us-east5"
+    }
+   ]
+  },
+  {
+   "name": "cph-zone1-148",
+   "city": "Copenhagen",
+   "description": "Digital Realty Copenhagen CPH1-3",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "148"
+  },
+  {
+   "name": "cph-zone2-148",
+   "city": "Copenhagen",
+   "description": "Digital Realty Copenhagen CPH1-3",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "148"
+  },
+  {
+   "name": "cpt-zone1-99025",
+   "city": "Cape Town",
+   "description": "Teraco Cape Town, South Africa",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1225"
+  },
+  {
+   "name": "cpt-zone2-99025",
+   "city": "Cape Town",
+   "description": "Teraco Cape Town, South Africa",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1225"
+  },
+  {
+   "name": "del-zone1-1622",
+   "city": "Delhi",
+   "description": "TATA Communications Delhi",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1622",
+   "regionInfos": [
+    {
+     "region": "asia-south2"
+    }
+   ]
+  },
+  {
+   "name": "del-zone1-2411",
+   "city": "Delhi",
+   "description": "Sify Greenfort - Noida",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "2411",
+   "regionInfos": [
+    {
+     "region": "asia-south2"
+    }
+   ]
+  },
+  {
+   "name": "del-zone2-2411",
+   "city": "Delhi",
+   "description": "Sify Greenfort - Noida",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "2411",
+   "regionInfos": [
+    {
+     "region": "asia-south2"
+    }
+   ]
+  },
+  {
+   "name": "den-zone1-389",
+   "city": "Denver",
+   "description": "Coresite Denver",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "389"
+  },
+  {
+   "name": "den-zone2-389",
+   "city": "Denver",
+   "description": "Coresite Denver",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "389"
+  },
+  {
+   "name": "dfw-zone1-4",
+   "city": "Dallas",
+   "description": "Equinix Dallas (DA1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "4",
+   "regionInfos": [
+    {
+     "region": "us-south1"
+    }
+   ]
+  },
+  {
+   "name": "dfw-zone2-4",
+   "city": "Dallas",
+   "description": "Equinix Dallas (DA1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "4",
+   "regionInfos": [
+    {
+     "region": "us-south1"
+    }
+   ]
+  },
+  {
+   "name": "dia-zone1-99011",
+   "city": "Doha",
+   "description": "Ooredoo QDC5 (Qatar Data Center Ooredoo)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "13248",
+   "regionInfos": [
+    {
+     "region": "me-central1"
+    }
+   ]
+  },
+  {
+   "name": "dia-zone1-99036",
+   "city": "Doha",
+   "description": "Quantum Switch (QSDC) DOA A",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "13363",
+   "regionInfos": [
+    {
+     "region": "me-central1"
+    }
+   ]
+  },
+  {
+   "name": "dia-zone2-99011",
+   "city": "Doha",
+   "description": "Ooredoo QDC5 (Qatar Data Center Ooredoo)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "13248",
+   "regionInfos": [
+    {
+     "region": "me-central1"
+    }
+   ]
+  },
+  {
+   "name": "dia-zone2-99036",
+   "city": "Doha",
+   "description": "Quantum Switch (QSDC) DOA A",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "13363",
+   "regionInfos": [
+    {
+     "region": "me-central1"
+    }
+   ]
+  },
+  {
+   "name": "dmm-zone1-99049",
+   "city": "Dammam",
+   "description": "Quantum Switch DMM A",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "13364",
+   "regionInfos": [
+    {
+     "region": "me-central2"
+    }
+   ]
+  },
+  {
+   "name": "dmm-zone1-99055",
+   "city": "Dammam",
+   "description": "Saudi Telecom Company (STC) DMM52",
+   "availabilityZone": "zone1",
+   "regionInfos": [
+    {
+     "region": "me-central2"
+    }
+   ]
+  },
+  {
+   "name": "dmm-zone2-99049",
+   "city": "Dammam",
+   "description": "Quantum Switch DMM A",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "13364",
+   "regionInfos": [
+    {
+     "region": "me-central2"
+    }
+   ]
+  },
+  {
+   "name": "dmm-zone2-99055",
+   "city": "Dammam",
+   "description": "Saudi Telecom Company (STC) DMM52",
+   "availabilityZone": "zone2",
+   "regionInfos": [
+    {
+     "region": "me-central2"
+    }
+   ]
+  },
+  {
+   "name": "dub-zone1-4484",
+   "city": "Dublin",
+   "description": "Keppel Data Centre Dublin 1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "4484"
+  },
+  {
+   "name": "dub-zone2-4484",
+   "city": "Dublin",
+   "description": "Keppel Data Centre Dublin 1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "4484"
+  },
+  {
+   "name": "dus-zone1-106",
+   "city": "Dusseldorf",
+   "description": "Digital Realty Duesseldorf DUS1-2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "106"
+  },
+  {
+   "name": "dus-zone2-106",
+   "city": "Dusseldorf",
+   "description": "Digital Realty Duesseldorf DUS1-2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "106"
+  },
+  {
+   "name": "dxb-zone1-1355",
+   "city": "Dubai",
+   "description": "Equinix DX1 - Dubai",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1355"
+  },
+  {
+   "name": "dxb-zone2-1355",
+   "city": "Dubai",
+   "description": "Equinix DX1 - Dubai",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1355"
+  },
+  {
+   "name": "eze-zone1-1550",
+   "city": "Buenos Aires",
+   "description": "Cirion Buenos Aires - BUE1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1550"
+  },
+  {
+   "name": "eze-zone2-1550",
+   "city": "Buenos Aires",
+   "description": "Cirion Buenos Aires - BUE1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1550"
+  },
+  {
+   "name": "fra-zone1-277",
+   "city": "Frankfurt",
+   "description": "e-shelter Frankfurt (FRA1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "277",
+   "regionInfos": [
+    {
+     "region": "europe-west3"
+    }
+   ]
+  },
+  {
+   "name": "fra-zone1-58",
+   "city": "Frankfurt",
+   "description": "Digital Realty Frankfurt FRA1-16",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "58",
+   "regionInfos": [
+    {
+     "region": "europe-west3"
+    }
+   ]
+  },
+  {
+   "name": "fra-zone1-683",
+   "city": "Frankfurt",
+   "description": "Equinix Frankfurt West (FR4)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "683",
+   "regionInfos": [
+    {
+     "region": "europe-west3"
+    }
+   ]
+  },
+  {
+   "name": "fra-zone2-277",
+   "city": "Frankfurt",
+   "description": "e-shelter Frankfurt (FRA1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "277",
+   "regionInfos": [
+    {
+     "region": "europe-west3"
+    }
+   ]
+  },
+  {
+   "name": "fra-zone2-58",
+   "city": "Frankfurt",
+   "description": "Digital Realty Frankfurt FRA1-16",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "58",
+   "regionInfos": [
+    {
+     "region": "europe-west3"
+    }
+   ]
+  },
+  {
+   "name": "fra-zone2-683",
+   "city": "Frankfurt",
+   "description": "Equinix Frankfurt West (FR4)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "683",
+   "regionInfos": [
+    {
+     "region": "europe-west3"
+    }
+   ]
+  },
+  {
+   "name": "gru-zone1-1057",
+   "city": "Sao Paulo",
+   "description": "Cirion S\u00e3o Paulo - SAO1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1057",
+   "regionInfos": [
+    {
+     "region": "southamerica-east1"
+    }
+   ]
+  },
+  {
+   "name": "gru-zone1-165",
+   "city": "Sao Paulo",
+   "description": "Equinix S\u00e3o Paulo (SP4)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "165",
+   "regionInfos": [
+    {
+     "region": "southamerica-east1"
+    }
+   ]
+  },
+  {
+   "name": "gru-zone1-7580",
+   "city": "Sao Paulo",
+   "description": "Ascenty - Sao Paulo 2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7580",
+   "regionInfos": [
+    {
+     "region": "southamerica-east1"
+    }
+   ]
+  },
+  {
+   "name": "gru-zone2-1057",
+   "city": "Sao Paulo",
+   "description": "Cirion S\u00e3o Paulo - SAO1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1057",
+   "regionInfos": [
+    {
+     "region": "southamerica-east1"
+    }
+   ]
+  },
+  {
+   "name": "gru-zone2-165",
+   "city": "Sao Paulo",
+   "description": "Equinix S\u00e3o Paulo (SP4)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "165",
+   "regionInfos": [
+    {
+     "region": "southamerica-east1"
+    }
+   ]
+  },
+  {
+   "name": "gru-zone2-7580",
+   "city": "Sao Paulo",
+   "description": "Ascenty - Sao Paulo 2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7580",
+   "regionInfos": [
+    {
+     "region": "southamerica-east1"
+    }
+   ]
+  },
+  {
+   "name": "gva-zone1-826",
+   "city": "Geneva",
+   "description": "Equinix GV2 - Geneva, West",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "826"
+  },
+  {
+   "name": "gva-zone2-826",
+   "city": "Geneva",
+   "description": "Equinix GV2 - Geneva, West",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "826"
+  },
+  {
+   "name": "ham-zone1-1686",
+   "city": "Hamburg",
+   "description": "GlobalConnect Hamburg (HAM1) (was Telia)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1686"
+  },
+  {
+   "name": "ham-zone1-427",
+   "city": "Hamburg",
+   "description": "CenturyLink Hamburg (was Level 3)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "427"
+  },
+  {
+   "name": "ham-zone2-1686",
+   "city": "Hamburg",
+   "description": "GlobalConnect Hamburg (HAM1) (was Telia)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1686"
+  },
+  {
+   "name": "ham-zone2-427",
+   "city": "Hamburg",
+   "description": "CenturyLink Hamburg (was Level 3)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "427"
+  },
+  {
+   "name": "hem-zone1-7098",
+   "city": "Helsinki",
+   "description": "Equinix HE7 Helsinki Sinim\u00e4ki",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7098",
+   "regionInfos": [
+    {
+     "region": "europe-north1"
+    }
+   ]
+  },
+  {
+   "name": "hem-zone1-8128",
+   "city": "Helsinki",
+   "description": "Telia Helsinki Datacenter",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "8128",
+   "regionInfos": [
+    {
+     "region": "europe-north1"
+    }
+   ]
+  },
+  {
+   "name": "hem-zone2-7098",
+   "city": "Helsinki",
+   "description": "Equinix HE7 Helsinki Sinim\u00e4ki",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7098",
+   "regionInfos": [
+    {
+     "region": "europe-north1"
+    }
+   ]
+  },
+  {
+   "name": "hem-zone2-8128",
+   "city": "Helsinki",
+   "description": "Telia Helsinki Datacenter",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "8128",
+   "regionInfos": [
+    {
+     "region": "europe-north1"
+    }
+   ]
+  },
+  {
+   "name": "hkg-zone1-1118",
+   "city": "Hong Kong",
+   "description": "Equinix Hong Kong (HK2)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1118",
+   "regionInfos": [
+    {
+     "region": "asia-east2"
+    }
+   ]
+  },
+  {
+   "name": "hkg-zone1-225",
+   "city": "Hong Kong",
+   "description": "MEGA-i (iAdvantage Hong Kong)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "225",
+   "regionInfos": [
+    {
+     "region": "asia-east2"
+    }
+   ]
+  },
+  {
+   "name": "hkg-zone1-7911",
+   "city": "Hong Kong",
+   "description": "China Mobile International - GNC Hong Kong",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7911",
+   "regionInfos": [
+    {
+     "region": "asia-east2"
+    }
+   ]
+  },
+  {
+   "name": "hkg-zone2-1118",
+   "city": "Hong Kong",
+   "description": "Equinix Hong Kong (HK2)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1118",
+   "regionInfos": [
+    {
+     "region": "asia-east2"
+    }
+   ]
+  },
+  {
+   "name": "hkg-zone2-225",
+   "city": "Hong Kong",
+   "description": "MEGA-i (iAdvantage Hong Kong)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "225",
+   "regionInfos": [
+    {
+     "region": "asia-east2"
+    }
+   ]
+  },
+  {
+   "name": "hkg-zone2-7911",
+   "city": "Hong Kong",
+   "description": "China Mobile International - GNC Hong Kong",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7911",
+   "regionInfos": [
+    {
+     "region": "asia-east2"
+    }
+   ]
+  },
+  {
+   "name": "hou-zone1-1476",
+   "city": "Houston",
+   "description": "Databank Houston West",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1476"
+  },
+  {
+   "name": "hou-zone2-1476",
+   "city": "Houston",
+   "description": "Databank Houston West",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1476"
+  },
+  {
+   "name": "hsz-zone1-10843",
+   "city": "Hsinchu",
+   "description": "CHT Zhubei IDC",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "10843"
+  },
+  {
+   "name": "hsz-zone2-10843",
+   "city": "Hsinchu",
+   "description": "CHT Zhubei IDC",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "10843"
+  },
+  {
+   "name": "hyd-zone1-6781",
+   "city": "Hyderabad",
+   "description": "STT Hyderabad 1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "6781"
+  },
+  {
+   "name": "hyd-zone2-6781",
+   "city": "Hyderabad",
+   "description": "STT Hyderabad 1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "6781"
+  },
+  {
+   "name": "iad-zone1-1",
+   "city": "Ashburn",
+   "description": "Equinix DC1-DC15, DC21 - Ashburn",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1",
+   "regionInfos": [
+    {
+     "region": "us-east4"
+    }
+   ]
+  },
+  {
+   "name": "iad-zone1-5467",
+   "city": "Ashburn",
+   "description": "CoreSite - Reston (VA3)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "5467",
+   "regionInfos": [
+    {
+     "region": "us-east4"
+    }
+   ]
+  },
+  {
+   "name": "iad-zone2-1",
+   "city": "Ashburn",
+   "description": "Equinix DC1-DC15, DC21 - Ashburn",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1",
+   "regionInfos": [
+    {
+     "region": "us-east4"
+    }
+   ]
+  },
+  {
+   "name": "iad-zone2-5467",
+   "city": "Ashburn",
+   "description": "CoreSite - Reston (VA3)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "5467",
+   "regionInfos": [
+    {
+     "region": "us-east4"
+    }
+   ]
+  },
+  {
+   "name": "icn-zone1-3829",
+   "city": "Seoul",
+   "description": "Sejong IX Center",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3829",
+   "regionInfos": [
+    {
+     "region": "asia-northeast3"
+    }
+   ]
+  },
+  {
+   "name": "icn-zone1-7573",
+   "city": "Seoul",
+   "description": "LG Uplus Pyeongchon IDC",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7573",
+   "regionInfos": [
+    {
+     "region": "asia-northeast3"
+    }
+   ]
+  },
+  {
+   "name": "icn-zone1-7574",
+   "city": "Seoul",
+   "description": "LG Uplus SEOCHO1 IDC",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7574",
+   "regionInfos": [
+    {
+     "region": "asia-northeast3"
+    }
+   ]
+  },
+  {
+   "name": "icn-zone1-7674",
+   "city": "Seoul",
+   "description": "KINX Gasan",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7674",
+   "regionInfos": [
+    {
+     "region": "asia-northeast3"
+    }
+   ]
+  },
+  {
+   "name": "icn-zone2-3829",
+   "city": "Seoul",
+   "description": "Sejong IX Center",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3829",
+   "regionInfos": [
+    {
+     "region": "asia-northeast3"
+    }
+   ]
+  },
+  {
+   "name": "icn-zone2-7573",
+   "city": "Seoul",
+   "description": "LG Uplus Pyeongchon IDC",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7573",
+   "regionInfos": [
+    {
+     "region": "asia-northeast3"
+    }
+   ]
+  },
+  {
+   "name": "icn-zone2-7574",
+   "city": "Seoul",
+   "description": "LG Uplus SEOCHO1 IDC",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7574",
+   "regionInfos": [
+    {
+     "region": "asia-northeast3"
+    }
+   ]
+  },
+  {
+   "name": "icn-zone2-7674",
+   "city": "Seoul",
+   "description": "KINX Gasan",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7674",
+   "regionInfos": [
+    {
+     "region": "asia-northeast3"
+    }
+   ]
+  },
+  {
+   "name": "jnb-zone1-850",
+   "city": "Johannesburg",
+   "description": "Teraco Johannesburg Campus, South Africa",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "850",
+   "regionInfos": [
+    {
+     "region": "africa-south1"
+    }
+   ]
+  },
+  {
+   "name": "jnb-zone1-9338",
+   "city": "Johannesburg",
+   "description": "Africa Data Centres, Johannesburg JHB2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "9338",
+   "regionInfos": [
+    {
+     "region": "africa-south1"
+    }
+   ]
+  },
+  {
+   "name": "jnb-zone2-850",
+   "city": "Johannesburg",
+   "description": "Teraco Johannesburg Campus, South Africa",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "850",
+   "regionInfos": [
+    {
+     "region": "africa-south1"
+    }
+   ]
+  },
+  {
+   "name": "jnb-zone2-9338",
+   "city": "Johannesburg",
+   "description": "Africa Data Centres, Johannesburg JHB2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "9338",
+   "regionInfos": [
+    {
+     "region": "africa-south1"
+    }
+   ]
+  },
+  {
+   "name": "kix-zone1-1791",
+   "city": "Osaka",
+   "description": "Equinix Osaka (OS1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1791",
+   "regionInfos": [
+    {
+     "region": "asia-northeast2"
+    }
+   ]
+  },
+  {
+   "name": "kix-zone1-2072",
+   "city": "Osaka",
+   "description": "NTT Telepark Dojima Building 2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1002",
+   "regionInfos": [
+    {
+     "region": "asia-northeast2"
+    }
+   ]
+  },
+  {
+   "name": "kix-zone2-1791",
+   "city": "Osaka",
+   "description": "Equinix Osaka (OS1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1791",
+   "regionInfos": [
+    {
+     "region": "asia-northeast2"
+    }
+   ]
+  },
+  {
+   "name": "kix-zone2-2072",
+   "city": "Osaka",
+   "description": "NTT Telepark Dojima Building 2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1002",
+   "regionInfos": [
+    {
+     "region": "asia-northeast2"
+    }
+   ]
+  },
+  {
+   "name": "kul-zone1-1514",
+   "city": "Kuala Lumpur",
+   "description": "CSF CX2 Cyberjaya",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1514"
+  },
+  {
+   "name": "kul-zone1-460",
+   "city": "Kuala Lumpur",
+   "description": "AIMS Kuala Lumpur",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "460"
+  },
+  {
+   "name": "kul-zone2-1514",
+   "city": "Kuala Lumpur",
+   "description": "CSF CX2 Cyberjaya",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1514"
+  },
+  {
+   "name": "kul-zone2-460",
+   "city": "Kuala Lumpur",
+   "description": "AIMS Kuala Lumpur",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "460"
+  },
+  {
+   "name": "las-zone1-770",
+   "city": "Las Vegas",
+   "description": "Switch Las Vegas",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "770",
+   "regionInfos": [
+    {
+     "region": "us-west4"
+    }
+   ]
+  },
+  {
+   "name": "las-zone2-770",
+   "city": "Las Vegas",
+   "description": "Switch Las Vegas",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "770",
+   "regionInfos": [
+    {
+     "region": "us-west4"
+    }
+   ]
+  },
+  {
+   "name": "lax-zone1-19",
+   "city": "Los Angeles",
+   "description": "CoreSite - LA1 - One Wilshire",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "19",
+   "regionInfos": [
+    {
+     "region": "us-west2"
+    }
+   ]
+  },
+  {
+   "name": "lax-zone1-333",
+   "city": "Los Angeles",
+   "description": "Equinix LA3/LA4 - Los Angeles, El Segundo",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "333",
+   "regionInfos": [
+    {
+     "region": "us-west2"
+    }
+   ]
+  },
+  {
+   "name": "lax-zone1-403",
+   "city": "Los Angeles",
+   "description": "Digital Realty LAX (600 West 7th)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "403",
+   "regionInfos": [
+    {
+     "region": "us-west2"
+    }
+   ]
+  },
+  {
+   "name": "lax-zone1-8",
+   "city": "Los Angeles",
+   "description": "Equinix Los Angeles (LA1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "8",
+   "regionInfos": [
+    {
+     "region": "us-west2"
+    }
+   ]
+  },
+  {
+   "name": "lax-zone2-19",
+   "city": "Los Angeles",
+   "description": "CoreSite - LA1 - One Wilshire",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "19",
+   "regionInfos": [
+    {
+     "region": "us-west2"
+    }
+   ]
+  },
+  {
+   "name": "lax-zone2-333",
+   "city": "Los Angeles",
+   "description": "Equinix LA3/LA4 - Los Angeles, El Segundo",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "333",
+   "regionInfos": [
+    {
+     "region": "us-west2"
+    }
+   ]
+  },
+  {
+   "name": "lax-zone2-403",
+   "city": "Los Angeles",
+   "description": "Digital Realty LAX (600 West 7th)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "403",
+   "regionInfos": [
+    {
+     "region": "us-west2"
+    }
+   ]
+  },
+  {
+   "name": "lax-zone2-8",
+   "city": "Los Angeles",
+   "description": "Equinix Los Angeles (LA1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "8",
+   "regionInfos": [
+    {
+     "region": "us-west2"
+    }
+   ]
+  },
+  {
+   "name": "lga-zone1-1422",
+   "city": "New York",
+   "description": "DataBank New York (LGA1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1422"
+  },
+  {
+   "name": "lga-zone1-16",
+   "city": "New York",
+   "description": "Digital Realty | Telx New York (111 8th Ave)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "16"
+  },
+  {
+   "name": "lga-zone1-36",
+   "city": "New York",
+   "description": "Equinix NY5 - New York, Secaucus",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "36"
+  },
+  {
+   "name": "lga-zone1-9",
+   "city": "New York",
+   "description": "165 Halsey - 9th Floor MMR",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "350"
+  },
+  {
+   "name": "lga-zone2-1422",
+   "city": "New York",
+   "description": "DataBank New York (LGA1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1422"
+  },
+  {
+   "name": "lga-zone2-16",
+   "city": "New York",
+   "description": "Digital Realty | Telx New York (111 8th Ave)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "16"
+  },
+  {
+   "name": "lga-zone2-36",
+   "city": "New York",
+   "description": "Equinix NY5 - New York, Secaucus",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "36"
+  },
+  {
+   "name": "lga-zone2-9",
+   "city": "New York",
+   "description": "165 Halsey - 9th Floor MMR",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "350"
+  },
+  {
+   "name": "lhr-zone1-2262",
+   "city": "London",
+   "description": "Equinix London Slough (LD6)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "2262",
+   "regionInfos": [
+    {
+     "region": "europe-west2"
+    }
+   ]
+  },
+  {
+   "name": "lhr-zone1-47",
+   "city": "London",
+   "description": "Global Switch (London 2)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "47",
+   "regionInfos": [
+    {
+     "region": "europe-west2"
+    }
+   ]
+  },
+  {
+   "name": "lhr-zone1-832",
+   "city": "London",
+   "description": "Equinix London Slough (LD5-LD6)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "832",
+   "regionInfos": [
+    {
+     "region": "europe-west2"
+    }
+   ]
+  },
+  {
+   "name": "lhr-zone2-2262",
+   "city": "London",
+   "description": "Equinix London Slough (LD6)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "2262",
+   "regionInfos": [
+    {
+     "region": "europe-west2"
+    }
+   ]
+  },
+  {
+   "name": "lhr-zone2-47",
+   "city": "London",
+   "description": "Global Switch (London 2)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "47",
+   "regionInfos": [
+    {
+     "region": "europe-west2"
+    }
+   ]
+  },
+  {
+   "name": "lhr-zone2-832",
+   "city": "London",
+   "description": "Equinix London Slough (LD5-LD6)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "832",
+   "regionInfos": [
+    {
+     "region": "europe-west2"
+    }
+   ]
+  },
+  {
+   "name": "lis-zone1-126",
+   "city": "Lisbon",
+   "description": "Equinix LS1 - Lisbon",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "126"
+  },
+  {
+   "name": "lis-zone2-126",
+   "city": "Lisbon",
+   "description": "Equinix LS1 - Lisbon",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "126"
+  },
+  {
+   "name": "maa-zone1-4701",
+   "city": "Chennai",
+   "description": "Netmagic Chennai",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "4701"
+  },
+  {
+   "name": "maa-zone1-552",
+   "city": "Chennai",
+   "description": "TATA Communications Chennai",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "552"
+  },
+  {
+   "name": "maa-zone2-4701",
+   "city": "Chennai",
+   "description": "Netmagic Chennai",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "4701"
+  },
+  {
+   "name": "maa-zone2-552",
+   "city": "Chennai",
+   "description": "TATA Communications Chennai",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "552"
+  },
+  {
+   "name": "mad-zone1-127",
+   "city": "Madrid",
+   "description": "Equinix MD2 - Madrid",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "127",
+   "regionInfos": [
+    {
+     "region": "europe-southwest1"
+    }
+   ]
+  },
+  {
+   "name": "mad-zone1-130",
+   "city": "Madrid",
+   "description": "Digital Realty Madrid MAD1-2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "130",
+   "regionInfos": [
+    {
+     "region": "europe-southwest1"
+    }
+   ]
+  },
+  {
+   "name": "mad-zone1-99037",
+   "city": "Madrid",
+   "description": "Telef\u00f3nica Nabiax Alcala datacentre",
+   "availabilityZone": "zone1",
+   "regionInfos": [
+    {
+     "region": "europe-southwest1"
+    }
+   ]
+  },
+  {
+   "name": "mad-zone1-99038",
+   "city": "Madrid",
+   "description": "Telef\u00f3nica Juli\u00e1n Camarillo",
+   "availabilityZone": "zone1",
+   "regionInfos": [
+    {
+     "region": "europe-southwest1"
+    }
+   ]
+  },
+  {
+   "name": "mad-zone2-127",
+   "city": "Madrid",
+   "description": "Equinix MD2 - Madrid",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "127",
+   "regionInfos": [
+    {
+     "region": "europe-southwest1"
+    }
+   ]
+  },
+  {
+   "name": "mad-zone2-130",
+   "city": "Madrid",
+   "description": "Digital Realty Madrid MAD1-2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "130",
+   "regionInfos": [
+    {
+     "region": "europe-southwest1"
+    }
+   ]
+  },
+  {
+   "name": "mad-zone2-99037",
+   "city": "Madrid",
+   "description": "Telef\u00f3nica Nabiax Alcala datacentre",
+   "availabilityZone": "zone2",
+   "regionInfos": [
+    {
+     "region": "europe-southwest1"
+    }
+   ]
+  },
+  {
+   "name": "mad-zone2-99038",
+   "city": "Madrid",
+   "description": "Telef\u00f3nica Juli\u00e1n Camarillo",
+   "availabilityZone": "zone2",
+   "regionInfos": [
+    {
+     "region": "europe-southwest1"
+    }
+   ]
+  },
+  {
+   "name": "man-zone1-1403",
+   "city": "Manchester",
+   "description": "Equinix MA3 - Manchester, Joule House",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1403"
+  },
+  {
+   "name": "man-zone2-1403",
+   "city": "Manchester",
+   "description": "Equinix MA3 - Manchester, Joule House",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1403"
+  },
+  {
+   "name": "mci-zone1-435",
+   "city": "Kansas City",
+   "description": "Netrality Kansas City - 1102 Grand",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "435"
+  },
+  {
+   "name": "mci-zone2-435",
+   "city": "Kansas City",
+   "description": "Netrality Kansas City - 1102 Grand",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "435"
+  },
+  {
+   "name": "mel-zone1-1988",
+   "city": "Melbourne",
+   "description": "Equinix ME1/ME2 - Melbourne",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1988",
+   "regionInfos": [
+    {
+     "region": "australia-southeast2"
+    }
+   ]
+  },
+  {
+   "name": "mel-zone1-4843",
+   "city": "Melbourne",
+   "description": "NEXTDC M2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "4843",
+   "regionInfos": [
+    {
+     "region": "australia-southeast2"
+    }
+   ]
+  },
+  {
+   "name": "mel-zone2-1988",
+   "city": "Melbourne",
+   "description": "Equinix ME1/ME2 - Melbourne",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1988",
+   "regionInfos": [
+    {
+     "region": "australia-southeast2"
+    }
+   ]
+  },
+  {
+   "name": "mel-zone2-4843",
+   "city": "Melbourne",
+   "description": "NEXTDC M2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "4843",
+   "regionInfos": [
+    {
+     "region": "australia-southeast2"
+    }
+   ]
+  },
+  {
+   "name": "mia-zone1-15",
+   "city": "Miami",
+   "description": "Equinix Miami (MI1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "15"
+  },
+  {
+   "name": "mia-zone2-15",
+   "city": "Miami",
+   "description": "Equinix Miami (MI1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "15"
+  },
+  {
+   "name": "mil-zone1-1974",
+   "city": "Milan",
+   "description": "IRIDEOS Avalon Campus",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1974",
+   "regionInfos": [
+    {
+     "region": "europe-west8"
+    }
+   ]
+  },
+  {
+   "name": "mil-zone1-3348",
+   "city": "Milan",
+   "description": "DATA4 Milan-Cornaredo",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3348",
+   "regionInfos": [
+    {
+     "region": "europe-west8"
+    }
+   ]
+  },
+  {
+   "name": "mil-zone1-99013",
+   "city": "Milan",
+   "description": "Telecom Italia Sparkle Milano Data Center",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "6513",
+   "regionInfos": [
+    {
+     "region": "europe-west8"
+    }
+   ]
+  },
+  {
+   "name": "mil-zone1-99034",
+   "city": "Milan",
+   "description": "Telecom Italia Rozzano Data Center",
+   "availabilityZone": "zone1",
+   "regionInfos": [
+    {
+     "region": "europe-west8"
+    }
+   ]
+  },
+  {
+   "name": "mil-zone2-1974",
+   "city": "Milan",
+   "description": "IRIDEOS Avalon Campus",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1974",
+   "regionInfos": [
+    {
+     "region": "europe-west8"
+    }
+   ]
+  },
+  {
+   "name": "mil-zone2-3348",
+   "city": "Milan",
+   "description": "DATA4 Milan-Cornaredo",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3348",
+   "regionInfos": [
+    {
+     "region": "europe-west8"
+    }
+   ]
+  },
+  {
+   "name": "mil-zone2-99013",
+   "city": "Milan",
+   "description": "Telecom Italia Sparkle Milano Data Center",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "6513",
+   "regionInfos": [
+    {
+     "region": "europe-west8"
+    }
+   ]
+  },
+  {
+   "name": "mil-zone2-99034",
+   "city": "Milan",
+   "description": "Telecom Italia Rozzano Data Center",
+   "availabilityZone": "zone2",
+   "regionInfos": [
+    {
+     "region": "europe-west8"
+    }
+   ]
+  },
+  {
+   "name": "mnl-zone1-99027",
+   "city": "Manila",
+   "description": "ePLDT Vitro Makati",
+   "availabilityZone": "zone1"
+  },
+  {
+   "name": "mnl-zone1-99028",
+   "city": "Manila",
+   "description": "Globe Roosevelt (QC2)",
+   "availabilityZone": "zone1"
+  },
+  {
+   "name": "mnl-zone2-99027",
+   "city": "Manila",
+   "description": "ePLDT Vitro Makati",
+   "availabilityZone": "zone2"
+  },
+  {
+   "name": "mnl-zone2-99028",
+   "city": "Manila",
+   "description": "Globe Roosevelt (QC2)",
+   "availabilityZone": "zone2"
+  },
+  {
+   "name": "mrs-zone1-226",
+   "city": "Marseille",
+   "description": "Digital Realty Marseille MRS1-3",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "226"
+  },
+  {
+   "name": "mrs-zone2-226",
+   "city": "Marseille",
+   "description": "Digital Realty Marseille MRS1-3",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "226"
+  },
+  {
+   "name": "msp-zone1-3312",
+   "city": "Minneapolis",
+   "description": "Cologix MIN3",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3312"
+  },
+  {
+   "name": "msp-zone2-3312",
+   "city": "Minneapolis",
+   "description": "Cologix MIN3",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3312"
+  },
+  {
+   "name": "muc-zone1-480",
+   "city": "Munich",
+   "description": "Equinix Munich (MU1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "480"
+  },
+  {
+   "name": "muc-zone2-480",
+   "city": "Munich",
+   "description": "Equinix Munich (MU1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "480"
+  },
+  {
+   "name": "nbo-zone1-99029",
+   "city": "Nairobi",
+   "description": "Africa Data Centres, Nairobi NBO1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1964"
+  },
+  {
+   "name": "nbo-zone2-99029",
+   "city": "Nairobi",
+   "description": "Africa Data Centres, Nairobi NBO1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1964"
+  },
+  {
+   "name": "nrt-zone1-1893",
+   "city": "Tokyo",
+   "description": "Equinix Tokyo (TY4)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1893",
+   "regionInfos": [
+    {
+     "region": "asia-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "nrt-zone1-452",
+   "city": "Tokyo",
+   "description": "Equinix Tokyo (TY2)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "452",
+   "regionInfos": [
+    {
+     "region": "asia-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "nrt-zone1-599",
+   "city": "Tokyo",
+   "description": "ComSpace I",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "599",
+   "regionInfos": [
+    {
+     "region": "asia-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "nrt-zone1-738",
+   "city": "Tokyo",
+   "description": "AT Tokyo CC2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "738",
+   "regionInfos": [
+    {
+     "region": "asia-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "nrt-zone2-1893",
+   "city": "Tokyo",
+   "description": "Equinix Tokyo (TY4)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1893",
+   "regionInfos": [
+    {
+     "region": "asia-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "nrt-zone2-452",
+   "city": "Tokyo",
+   "description": "Equinix Tokyo (TY2)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "452",
+   "regionInfos": [
+    {
+     "region": "asia-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "nrt-zone2-599",
+   "city": "Tokyo",
+   "description": "ComSpace I",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "599",
+   "regionInfos": [
+    {
+     "region": "asia-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "nrt-zone2-738",
+   "city": "Tokyo",
+   "description": "AT Tokyo CC2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "738",
+   "regionInfos": [
+    {
+     "region": "asia-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "ord-zone1-440",
+   "city": "Chicago",
+   "description": "CoreSite - Chicago (CH1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "440"
+  },
+  {
+   "name": "ord-zone1-7",
+   "city": "Chicago",
+   "description": "Equinix Chicago (CH1/CH2/CH4)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7"
+  },
+  {
+   "name": "ord-zone2-440",
+   "city": "Chicago",
+   "description": "CoreSite - Chicago (CH1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "440"
+  },
+  {
+   "name": "ord-zone2-7",
+   "city": "Chicago",
+   "description": "Equinix Chicago (CH1/CH2/CH4)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7"
+  },
+  {
+   "name": "osl-zone1-5518",
+   "city": "Oslo",
+   "description": "Bulk Oslo Internet Exchange - OS-IX",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "5518",
+   "regionInfos": [
+    {
+     "region": "europe-north3"
+    }
+   ]
+  },
+  {
+   "name": "osl-zone2-5518",
+   "city": "Oslo",
+   "description": "Bulk Oslo Internet Exchange - OS-IX",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "5518",
+   "regionInfos": [
+    {
+     "region": "europe-north3"
+    }
+   ]
+  },
+  {
+   "name": "otp-zone1-99039",
+   "city": "Bucharest",
+   "description": "NXDATA-1 Bucharest Romania (BU1)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "439"
+  },
+  {
+   "name": "otp-zone2-99039",
+   "city": "Bucharest",
+   "description": "NXDATA-1 Bucharest Romania (BU1)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "439"
+  },
+  {
+   "name": "pdx-zone1-1922",
+   "city": "Portland",
+   "description": "EdgeConneX Portland (EDCPOR01)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1922",
+   "regionInfos": [
+    {
+     "region": "us-west1"
+    }
+   ]
+  },
+  {
+   "name": "pdx-zone2-1922",
+   "city": "Portland",
+   "description": "EdgeConneX Portland (EDCPOR01)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1922",
+   "regionInfos": [
+    {
+     "region": "us-west1"
+    }
+   ]
+  },
+  {
+   "name": "per-zone1-5749",
+   "city": "Perth",
+   "description": "Equinix PE2 - Perth (formerly Metronode Perth 2)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "11851"
+  },
+  {
+   "name": "per-zone2-5749",
+   "city": "Perth",
+   "description": "Equinix PE2 - Perth (formerly Metronode Perth 2)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "11851"
+  },
+  {
+   "name": "phl-zone1-146",
+   "city": "Philadelphia",
+   "description": "Equinix PH1 - Philadelphia",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "146"
+  },
+  {
+   "name": "phl-zone2-146",
+   "city": "Philadelphia",
+   "description": "Equinix PH1 - Philadelphia",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "146"
+  },
+  {
+   "name": "phx-zone1-1488",
+   "city": "Phoenix",
+   "description": "CyrusOne Phoenix",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1488"
+  },
+  {
+   "name": "phx-zone1-917",
+   "city": "Phoenix",
+   "description": "PhoenixNAP",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "917"
+  },
+  {
+   "name": "phx-zone2-1488",
+   "city": "Phoenix",
+   "description": "CyrusOne Phoenix",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1488"
+  },
+  {
+   "name": "phx-zone2-917",
+   "city": "Phoenix",
+   "description": "PhoenixNAP",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "917"
+  },
+  {
+   "name": "prg-zone1-214",
+   "city": "Prague",
+   "description": "CE Colo Prague",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "214"
+  },
+  {
+   "name": "prg-zone2-214",
+   "city": "Prague",
+   "description": "CE Colo Prague",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "214"
+  },
+  {
+   "name": "qro-zone1-1778",
+   "city": "Queretaro",
+   "description": "KIO Networks QRO/1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1778",
+   "regionInfos": [
+    {
+     "region": "northamerica-south1"
+    }
+   ]
+  },
+  {
+   "name": "qro-zone1-99009",
+   "city": "Queretaro",
+   "description": "TRIARA QUER\u00c9TARO",
+   "availabilityZone": "zone1",
+   "regionInfos": [
+    {
+     "region": "northamerica-south1"
+    }
+   ]
+  },
+  {
+   "name": "qro-zone2-1778",
+   "city": "Queretaro",
+   "description": "KIO Networks QRO/1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1778",
+   "regionInfos": [
+    {
+     "region": "northamerica-south1"
+    }
+   ]
+  },
+  {
+   "name": "qro-zone2-99009",
+   "city": "Queretaro",
+   "description": "TRIARA QUER\u00c9TARO",
+   "availabilityZone": "zone2",
+   "regionInfos": [
+    {
+     "region": "northamerica-south1"
+    }
+   ]
+  },
+  {
+   "name": "rio-zone1-1374",
+   "city": "Rio de Janeiro",
+   "description": "Cirion Rio de Janeiro - RIO1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1374"
+  },
+  {
+   "name": "rio-zone1-1899",
+   "city": "Rio de Janeiro",
+   "description": "Equinix RJ2 - Rio de Janeiro",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1899"
+  },
+  {
+   "name": "rio-zone2-1374",
+   "city": "Rio de Janeiro",
+   "description": "Cirion Rio de Janeiro - RIO1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1374"
+  },
+  {
+   "name": "rio-zone2-1899",
+   "city": "Rio de Janeiro",
+   "description": "Equinix RJ2 - Rio de Janeiro",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1899"
+  },
+  {
+   "name": "sat-zone1-1484",
+   "city": "San Antonio",
+   "description": "CyrusOne San Antonio",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1484"
+  },
+  {
+   "name": "sat-zone2-1484",
+   "city": "San Antonio",
+   "description": "CyrusOne San Antonio",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1484"
+  },
+  {
+   "name": "scl-zone1-1779",
+   "city": "Santiago",
+   "description": "Cirion Santiago de Chile - SAN1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "2093",
+   "regionInfos": [
+    {
+     "region": "southamerica-west1"
+    }
+   ]
+  },
+  {
+   "name": "scl-zone1-7594",
+   "city": "Santiago",
+   "description": "Ascenty - Chile 1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7594",
+   "regionInfos": [
+    {
+     "region": "southamerica-west1"
+    }
+   ]
+  },
+  {
+   "name": "scl-zone1-99014",
+   "city": "Santiago",
+   "description": "GTD Panamericana",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "12865",
+   "regionInfos": [
+    {
+     "region": "southamerica-west1"
+    }
+   ]
+  },
+  {
+   "name": "scl-zone2-1779",
+   "city": "Santiago",
+   "description": "Cirion Santiago de Chile - SAN1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "2093",
+   "regionInfos": [
+    {
+     "region": "southamerica-west1"
+    }
+   ]
+  },
+  {
+   "name": "scl-zone2-7594",
+   "city": "Santiago",
+   "description": "Ascenty - Chile 1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7594",
+   "regionInfos": [
+    {
+     "region": "southamerica-west1"
+    }
+   ]
+  },
+  {
+   "name": "scl-zone2-99014",
+   "city": "Santiago",
+   "description": "GTD Panamericana",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "12865",
+   "regionInfos": [
+    {
+     "region": "southamerica-west1"
+    }
+   ]
+  },
+  {
+   "name": "sea-zone1-86",
+   "city": "Seattle",
+   "description": "Equinix Seattle (SE2/3)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "86"
+  },
+  {
+   "name": "sea-zone2-86",
+   "city": "Seattle",
+   "description": "Equinix Seattle (SE2/3)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "86"
+  },
+  {
+   "name": "sfo-zone1-1619",
+   "city": "San Francisco Bay Area",
+   "description": "CoreSite - Santa Clara (SV4)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1619"
+  },
+  {
+   "name": "sfo-zone2-1619",
+   "city": "San Francisco Bay Area",
+   "description": "CoreSite - Santa Clara (SV4)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1619"
+  },
+  {
+   "name": "sin-zone1-2260",
+   "city": "Singapore",
+   "description": "Equinix Singapore (SG3)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "2260",
+   "regionInfos": [
+    {
+     "region": "asia-southeast1"
+    }
+   ]
+  },
+  {
+   "name": "sin-zone1-388",
+   "city": "Singapore",
+   "description": "Global Switch Singapore",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "388",
+   "regionInfos": [
+    {
+     "region": "asia-southeast1"
+    }
+   ]
+  },
+  {
+   "name": "sin-zone2-2260",
+   "city": "Singapore",
+   "description": "Equinix Singapore (SG3)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "2260",
+   "regionInfos": [
+    {
+     "region": "asia-southeast1"
+    }
+   ]
+  },
+  {
+   "name": "sin-zone2-388",
+   "city": "Singapore",
+   "description": "Global Switch Singapore",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "388",
+   "regionInfos": [
+    {
+     "region": "asia-southeast1"
+    }
+   ]
+  },
+  {
+   "name": "sjc-zone1-6",
+   "city": "San Francisco Bay Area",
+   "description": "Equinix SV1/SV5/SV10 - Silicon Valley, San Jose",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "6"
+  },
+  {
+   "name": "sjc-zone2-6",
+   "city": "San Francisco Bay Area",
+   "description": "Equinix SV1/SV5/SV10 - Silicon Valley, San Jose",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "6"
+  },
+  {
+   "name": "slc-zone1-10938",
+   "city": "Salt Lake City",
+   "description": "DataBank Salt Lake City (SLC5)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "10938",
+   "regionInfos": [
+    {
+     "region": "us-west3"
+    }
+   ]
+  },
+  {
+   "name": "slc-zone1-99001",
+   "city": "Salt Lake City",
+   "description": "Aligned Salt Lake (SLC-01)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7865",
+   "regionInfos": [
+    {
+     "region": "us-west3"
+    }
+   ]
+  },
+  {
+   "name": "slc-zone2-10938",
+   "city": "Salt Lake City",
+   "description": "DataBank Salt Lake City (SLC5)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "10938",
+   "regionInfos": [
+    {
+     "region": "us-west3"
+    }
+   ]
+  },
+  {
+   "name": "slc-zone2-99001",
+   "city": "Salt Lake City",
+   "description": "Aligned Salt Lake (SLC-01)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7865",
+   "regionInfos": [
+    {
+     "region": "us-west3"
+    }
+   ]
+  },
+  {
+   "name": "sof-zone1-663",
+   "city": "Sofia",
+   "description": "TELEPOINT Sofia Centre",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "663"
+  },
+  {
+   "name": "sof-zone1-7097",
+   "city": "Sofia",
+   "description": "Equinix SO2 - Sofia",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "7097"
+  },
+  {
+   "name": "sof-zone2-663",
+   "city": "Sofia",
+   "description": "TELEPOINT Sofia Centre",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "663"
+  },
+  {
+   "name": "sof-zone2-7097",
+   "city": "Sofia",
+   "description": "Equinix SO2 - Sofia",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "7097"
+  },
+  {
+   "name": "syd-zone1-1605",
+   "city": "Sydney",
+   "description": "Equinix Sydney (SY3)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1605",
+   "regionInfos": [
+    {
+     "region": "australia-southeast1"
+    }
+   ]
+  },
+  {
+   "name": "syd-zone1-1660",
+   "city": "Sydney",
+   "description": "NEXTDC S1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1660",
+   "regionInfos": [
+    {
+     "region": "australia-southeast1"
+    }
+   ]
+  },
+  {
+   "name": "syd-zone2-1605",
+   "city": "Sydney",
+   "description": "Equinix Sydney (SY3)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1605",
+   "regionInfos": [
+    {
+     "region": "australia-southeast1"
+    }
+   ]
+  },
+  {
+   "name": "syd-zone2-1660",
+   "city": "Sydney",
+   "description": "NEXTDC S1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1660",
+   "regionInfos": [
+    {
+     "region": "australia-southeast1"
+    }
+   ]
+  },
+  {
+   "name": "tlv-zone1-99030",
+   "city": "Tel Aviv",
+   "description": "TIS Tel Aviv Burla Hub and Data Center",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "12921",
+   "regionInfos": [
+    {
+     "region": "me-west1"
+    }
+   ]
+  },
+  {
+   "name": "tlv-zone1-99047",
+   "city": "Tel Aviv",
+   "description": "SDS1 Modiin",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "12993",
+   "regionInfos": [
+    {
+     "region": "me-west1"
+    }
+   ]
+  },
+  {
+   "name": "tlv-zone2-99030",
+   "city": "Tel Aviv",
+   "description": "TIS Tel Aviv Burla Hub and Data Center",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "12921",
+   "regionInfos": [
+    {
+     "region": "me-west1"
+    }
+   ]
+  },
+  {
+   "name": "tlv-zone2-99047",
+   "city": "Tel Aviv",
+   "description": "SDS1 Modiin",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "12993",
+   "regionInfos": [
+    {
+     "region": "me-west1"
+    }
+   ]
+  },
+  {
+   "name": "trn-zone1-99032",
+   "city": "Turin",
+   "description": "Telecom Italia Cebrosa Campus",
+   "availabilityZone": "zone1",
+   "regionInfos": [
+    {
+     "region": "europe-west12"
+    }
+   ]
+  },
+  {
+   "name": "trn-zone1-99033",
+   "city": "Turin",
+   "description": "Telecom Italia Moncalieri Campus",
+   "availabilityZone": "zone1",
+   "regionInfos": [
+    {
+     "region": "europe-west12"
+    }
+   ]
+  },
+  {
+   "name": "trn-zone2-99032",
+   "city": "Turin",
+   "description": "Telecom Italia Cebrosa Campus",
+   "availabilityZone": "zone2",
+   "regionInfos": [
+    {
+     "region": "europe-west12"
+    }
+   ]
+  },
+  {
+   "name": "trn-zone2-99033",
+   "city": "Turin",
+   "description": "Telecom Italia Moncalieri Campus",
+   "availabilityZone": "zone2",
+   "regionInfos": [
+    {
+     "region": "europe-west12"
+    }
+   ]
+  },
+  {
+   "name": "tsa-zone1-2886",
+   "city": "Taipei",
+   "description": "CHT Taipei-Aikuo IDC",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "5904",
+   "regionInfos": [
+    {
+     "region": "asia-east1"
+    }
+   ]
+  },
+  {
+   "name": "tsa-zone1-456",
+   "city": "Taipei",
+   "description": "Chief LY Building Taipei",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "456",
+   "regionInfos": [
+    {
+     "region": "asia-east1"
+    }
+   ]
+  },
+  {
+   "name": "tsa-zone1-99004",
+   "city": "Taipei",
+   "description": "Asia Pacific Telecom Co., Ltd.",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "9009",
+   "regionInfos": [
+    {
+     "region": "asia-east1"
+    }
+   ]
+  },
+  {
+   "name": "tsa-zone2-2886",
+   "city": "Taipei",
+   "description": "CHT Taipei-Aikuo IDC",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "5904",
+   "regionInfos": [
+    {
+     "region": "asia-east1"
+    }
+   ]
+  },
+  {
+   "name": "tsa-zone2-456",
+   "city": "Taipei",
+   "description": "Chief LY Building Taipei",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "456",
+   "regionInfos": [
+    {
+     "region": "asia-east1"
+    }
+   ]
+  },
+  {
+   "name": "tsa-zone2-99004",
+   "city": "Taipei",
+   "description": "Asia Pacific Telecom Co., Ltd.",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "9009",
+   "regionInfos": [
+    {
+     "region": "asia-east1"
+    }
+   ]
+  },
+  {
+   "name": "vie-zone1-67",
+   "city": "Vienna",
+   "description": "Digital Realty Vienna VIE1-2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "67"
+  },
+  {
+   "name": "vie-zone2-67",
+   "city": "Vienna",
+   "description": "Digital Realty Vienna VIE1-2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "67"
+  },
+  {
+   "name": "waw-zone1-2570",
+   "city": "Warsaw",
+   "description": "Atman Data Center Warsaw-1 (waw-1, Grochowska)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "2570",
+   "regionInfos": [
+    {
+     "region": "europe-central2"
+    }
+   ]
+  },
+  {
+   "name": "waw-zone1-509",
+   "city": "Warsaw",
+   "description": "Equinix WA1 - Warsaw, Centrum LIM",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "509",
+   "regionInfos": [
+    {
+     "region": "europe-central2"
+    }
+   ]
+  },
+  {
+   "name": "waw-zone2-2570",
+   "city": "Warsaw",
+   "description": "Atman Data Center Warsaw-1 (waw-1, Grochowska)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "2570",
+   "regionInfos": [
+    {
+     "region": "europe-central2"
+    }
+   ]
+  },
+  {
+   "name": "waw-zone2-509",
+   "city": "Warsaw",
+   "description": "Equinix WA1 - Warsaw, Centrum LIM",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "509",
+   "regionInfos": [
+    {
+     "region": "europe-central2"
+    }
+   ]
+  },
+  {
+   "name": "yul-zone1-1944",
+   "city": "Montr\u00e9al",
+   "description": "Cologix MTL3",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1944",
+   "regionInfos": [
+    {
+     "region": "northamerica-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "yul-zone1-99002",
+   "city": "Montr\u00e9al",
+   "description": "Cologix MTL10-H",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "11631",
+   "regionInfos": [
+    {
+     "region": "northamerica-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "yul-zone2-1944",
+   "city": "Montr\u00e9al",
+   "description": "Cologix MTL3",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1944",
+   "regionInfos": [
+    {
+     "region": "northamerica-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "yul-zone2-99002",
+   "city": "Montr\u00e9al",
+   "description": "Cologix MTL10-H",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "11631",
+   "regionInfos": [
+    {
+     "region": "northamerica-northeast1"
+    }
+   ]
+  },
+  {
+   "name": "yvr-zone1-1881",
+   "city": "Vancouver",
+   "description": "Cologix VAN2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1881"
+  },
+  {
+   "name": "yvr-zone2-1881",
+   "city": "Vancouver",
+   "description": "Cologix VAN2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1881"
+  },
+  {
+   "name": "yyc-zone1-3251",
+   "city": "Calgary",
+   "description": "Equinix CL3 - Calgary (formerly Q9 Calgary Three)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "3251"
+  },
+  {
+   "name": "yyc-zone2-3251",
+   "city": "Calgary",
+   "description": "Equinix CL3 - Calgary (formerly Q9 Calgary Three)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "3251"
+  },
+  {
+   "name": "yyz-zone1-2206",
+   "city": "Toronto",
+   "description": "Equinix Toronto (TR2)",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "2206",
+   "regionInfos": [
+    {
+     "region": "northamerica-northeast2"
+    }
+   ]
+  },
+  {
+   "name": "yyz-zone1-392",
+   "city": "Toronto",
+   "description": "151 Front Street West",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "392",
+   "regionInfos": [
+    {
+     "region": "northamerica-northeast2"
+    }
+   ]
+  },
+  {
+   "name": "yyz-zone2-2206",
+   "city": "Toronto",
+   "description": "Equinix Toronto (TR2)",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "2206",
+   "regionInfos": [
+    {
+     "region": "northamerica-northeast2"
+    }
+   ]
+  },
+  {
+   "name": "yyz-zone2-392",
+   "city": "Toronto",
+   "description": "151 Front Street West",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "392",
+   "regionInfos": [
+    {
+     "region": "northamerica-northeast2"
+    }
+   ]
+  },
+  {
+   "name": "zrh-zone1-1086",
+   "city": "Zurich",
+   "description": "greenDatacenter Lupfig",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "1086",
+   "regionInfos": [
+    {
+     "region": "europe-west6"
+    }
+   ]
+  },
+  {
+   "name": "zrh-zone1-81",
+   "city": "Zurich",
+   "description": "Digital Realty Zurich ZUR1",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "81",
+   "regionInfos": [
+    {
+     "region": "europe-west6"
+    }
+   ]
+  },
+  {
+   "name": "zrh-zone1-83",
+   "city": "Zurich",
+   "description": "Equinix ZH2",
+   "availabilityZone": "zone1",
+   "peeringdbFacilityId": "83",
+   "regionInfos": [
+    {
+     "region": "europe-west6"
+    }
+   ]
+  },
+  {
+   "name": "zrh-zone2-1086",
+   "city": "Zurich",
+   "description": "greenDatacenter Lupfig",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "1086",
+   "regionInfos": [
+    {
+     "region": "europe-west6"
+    }
+   ]
+  },
+  {
+   "name": "zrh-zone2-81",
+   "city": "Zurich",
+   "description": "Digital Realty Zurich ZUR1",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "81",
+   "regionInfos": [
+    {
+     "region": "europe-west6"
+    }
+   ]
+  },
+  {
+   "name": "zrh-zone2-83",
+   "city": "Zurich",
+   "description": "Equinix ZH2",
+   "availabilityZone": "zone2",
+   "peeringdbFacilityId": "83",
+   "regionInfos": [
+    {
+     "region": "europe-west6"
+    }
+   ]
+  }
+ ]
+}

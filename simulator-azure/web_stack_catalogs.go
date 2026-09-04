@@ -8,38 +8,40 @@ import (
 
 // App Service's runtime-stack catalogs.
 //
-// These list the language runtimes App Service offers and the versions of each
-// that are current, deprecated or retired, per region — Microsoft's published
-// catalog of its own platform images, revised as runtimes ship and reach end of
-// life. It is not derivable from anything this simulator holds, and a partial
-// or invented list is worse than none: a client would deploy against a runtime
-// version that does not exist, or refuse one that does.
+// These list the built-in language runtimes an App Service offers — the
+// platform images it supplies and the versions of each it will run. This one
+// supplies none. A site here runs the container image its linuxFxVersion names,
+// and a site configured with a built-in stack instead ("PHP|8.2", "NODE|20-lts")
+// cannot start: the platform image that stack names is Microsoft's, and
+// `startRawServiceLocked` refuses the site saying exactly that.
 //
-// So each spelling declares that. They used to miss the mux entirely and answer
-// a bare routing 404, which reads as "no such API" rather than "this API exists
-// and the simulator does not vendor the data behind it".
+// So the catalogs answer an empty collection, which states that: this App
+// Service offers no built-in runtime stack. That is the same answer the site
+// path gives, from the same fact, and the two cannot come to disagree. The
+// alternative a caller would face — a partial list of runtimes assembled from
+// Microsoft's published lifecycle data — would have them deploy against a stack
+// no site here can run.
+//
+// Every lifecycle field in these schemas (isPreview, isDeprecated, isHidden,
+// endOfLifeDate) hangs off a stack entry, and there are no entries; the
+// collections require only `value`.
 
-// registerWebStackCatalogs mounts the six spellings as declared gaps.
+// webStackCollection is the shape all four collections share: a required value
+// array and an optional nextLink, which a single page omits.
+type webStackCollection struct {
+	Value []struct{} `json:"value"`
+}
+
+// registerWebStackCatalogs mounts the six spellings of the four catalog reads.
 func registerWebStackCatalogs(srv *sim.Server) {
-	const reason = "the runtime-stack catalog is Microsoft's published list of App Service platform images and their support lifecycle, which this simulator does not vendor and cannot derive"
-
-	gap := func(operation string) http.HandlerFunc {
-		return func(w http.ResponseWriter, _ *http.Request) {
-			sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
-				"%s is not implemented by the simulator: %s.", operation, reason)
-		}
+	empty := func(w http.ResponseWriter, _ *http.Request) {
+		sim.WriteJSON(w, http.StatusOK, webStackCollection{Value: []struct{}{}})
 	}
 
-	srv.HandleFunc("GET /providers/Microsoft.Web/availableStacks",
-		gap("Provider_GetAvailableStacks"))
-	srv.HandleFunc("GET /providers/Microsoft.Web/webAppStacks",
-		gap("Provider_GetWebAppStacks"))
-	srv.HandleFunc("GET /providers/Microsoft.Web/functionAppStacks",
-		gap("Provider_GetFunctionAppStacks"))
-	srv.HandleFunc("GET /providers/Microsoft.Web/locations/{location}/webAppStacks",
-		gap("Provider_GetWebAppStacksForLocation"))
-	srv.HandleFunc("GET /providers/Microsoft.Web/locations/{location}/functionAppStacks",
-		gap("Provider_GetFunctionAppStacksForLocation"))
-	srv.HandleFunc("GET "+webSubscriptionProvider+"/availableStacks",
-		gap("Provider_GetAvailableStacksOnPrem"))
+	srv.HandleFunc("GET /providers/Microsoft.Web/availableStacks", empty)
+	srv.HandleFunc("GET /providers/Microsoft.Web/webAppStacks", empty)
+	srv.HandleFunc("GET /providers/Microsoft.Web/functionAppStacks", empty)
+	srv.HandleFunc("GET /providers/Microsoft.Web/locations/{location}/webAppStacks", empty)
+	srv.HandleFunc("GET /providers/Microsoft.Web/locations/{location}/functionAppStacks", empty)
+	srv.HandleFunc("GET "+webSubscriptionProvider+"/availableStacks", empty)
 }

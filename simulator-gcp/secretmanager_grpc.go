@@ -752,13 +752,13 @@ func (s *secretManagerGRPC) GetIamPolicy(ctx context.Context, req *iampb.GetIamP
 func (s *secretManagerGRPC) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
 	resource := smNormalizeName(req.GetResource())
 	// Real GCP: TestIamPermissions on a missing secret returns an empty
-	// permission set, NOT a NOT_FOUND error. The sim models no
-	// authorization; every caller is effectively a project admin, so the
-	// requested set is echoed back in full.
+	// permission set, NOT a NOT_FOUND error.
 	if _, ok := smSecrets.Get(resource); !ok {
 		return &iampb.TestIamPermissionsResponse{}, nil
 	}
-	return &iampb.TestIamPermissionsResponse{Permissions: append([]string(nil), req.GetPermissions()...)}, nil
+	policy, _ := gcpResourceIAMStore().Get(resource)
+	return &iampb.TestIamPermissionsResponse{
+		Permissions: gcpAnswerTestIamPermissionsForContext(ctx, policy, req.GetPermissions())}, nil
 }
 
 // smPolicyToProto converts the REST-store IAMPolicy into the proto Policy,

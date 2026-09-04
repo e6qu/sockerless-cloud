@@ -712,8 +712,13 @@ func webListProcessModules(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	modules, readable := webProcessModules(proc)
+	if !readable {
+		webProcessModulesUnreadable(w, "WebApps_ListProcessModules")
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"value": webProcessModuleDocs(webResourceID(r), webInstanceSegment(r), proc),
+		"value": webProcessModuleDocs(webResourceID(r), webInstanceSegment(r), proc, modules),
 	})
 }
 
@@ -723,8 +728,13 @@ func webGetProcessModule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	modules, readable := webProcessModules(proc)
+	if !readable {
+		webProcessModulesUnreadable(w, "WebApps_GetProcessModule")
+		return
+	}
 	wanted := sim.PathParam(r, "baseAddress")
-	for _, entry := range webProcessModuleDocs(webResourceID(r), webInstanceSegment(r), proc) {
+	for _, entry := range webProcessModuleDocs(webResourceID(r), webInstanceSegment(r), proc, modules) {
 		module, ok := entry.(map[string]any)
 		if !ok {
 			continue
@@ -767,24 +777,36 @@ func webResolveProcess(w http.ResponseWriter, r *http.Request) (webProcess, stri
 // process is running is the one module every process has, and it is the one the
 // container can name — the rest are shared objects the kernel maps, which this
 // engine's process table does not expose.
-func webProcessModuleDocs(base, instanceID string, proc webProcess) []any {
-	command := strings.Fields(proc.CommandLine)
-	if len(command) == 0 {
-		return []any{}
+func webProcessModuleDocs(base, instanceID string, proc webProcess, modules []webProcModule) []any {
+	docs := make([]any, 0, len(modules))
+	for _, module := range modules {
+		address := webProcModuleAddress(module.BaseAddress)
+		name := module.Path[strings.LastIndex(module.Path, "/")+1:]
+		docs = append(docs, map[string]any{
+			"id":   webProcessResourceID(base, instanceID, proc.PID) + "/modules/" + address,
+			"name": name,
+			"type": "Microsoft.Web/sites/processes/modules",
+			"properties": map[string]any{
+				"base_address":       address,
+				"file_name":          name,
+				"file_path":          module.Path,
+				"href":               webProcessResourceID(base, instanceID, proc.PID) + "/modules/" + address,
+				"module_memory_size": module.Size,
+			},
+		})
 	}
-	image := command[0]
-	name := image[strings.LastIndex(image, "/")+1:]
-	address := fmt.Sprintf("0x%08x", proc.PID)
-	return []any{map[string]any{
-		"id":   webProcessResourceID(base, instanceID, proc.PID) + "/modules/" + address,
-		"name": name,
-		"type": "Microsoft.Web/sites/processes/modules",
-		"properties": map[string]any{
-			"base_address": address,
-			"file_name":    name,
-			"file_path":    image,
-			"href":         webProcessResourceID(base, instanceID, proc.PID) + "/modules/" + address,
-			"is_debug":     false,
-		},
-	}}
+	return docs
+}
+
+// webProcessModulesUnreadable answers the module reads on a host that cannot
+// see the site's processes. The engine reports them in its own host's PID
+// namespace, so /proc holds them only where the simulator shares that kernel;
+// where it does not — the engine in a virtual machine, which is every macOS
+// host — there is no mapping table to read and no honest answer but this one.
+func webProcessModulesUnreadable(w http.ResponseWriter, operation string) {
+	sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+		"%s is not implemented by the simulator: a process's loaded modules and "+
+			"their base addresses are read from its own /proc/<pid>/maps, and this "+
+			"host does not share a kernel with the container engine, so the site's "+
+			"processes are not in its /proc.", operation)
 }

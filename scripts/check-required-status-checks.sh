@@ -260,11 +260,27 @@ if [[ "${1:-}" == "--verify-branch-protection" ]]; then
 	fi
 	origin="$(git -C "$root" remote get-url origin)"
 	slug="$(sed -E 's#^.*github\.com[:/]+##; s#\.git$##' <<<"$origin")"
-	if ! live="$(gh api "repos/$slug/branches/main/protection/required_status_checks" --jq '.contexts[]' 2>/dev/null)"; then
-		echo "check-required-status-checks: could not read branch protection for $slug" >&2
-		echo "(needs GitHub admin credentials — this mode is for maintainers, not the default gate)." >&2
+	if ! live="$(gh api "repos/$slug/branches/main/protection/required_status_checks" --jq '.contexts[]' 2>/tmp/rsc-read-error)"; then
+		# The read failing and the manifest disagreeing are different findings,
+		# and a message that conflates them sends a reader looking for drift
+		# that is not there. The commonest cause by far is the API's own rate
+		# limit, which this says outright.
+		if grep -qi 'rate limit' /tmp/rsc-read-error; then
+			reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || true)"
+			wait_for="the limit resets shortly"
+			if [[ -n "$reset" ]]; then
+				wait_for="the limit resets in $(( reset - $(date +%s) ))s"
+			fi
+			echo "check-required-status-checks: could not read branch protection for $slug — the GitHub API rate limit is exhausted, so this proved nothing either way ($wait_for)." >&2
+		else
+			echo "check-required-status-checks: could not read branch protection for $slug" >&2
+			echo "(needs GitHub admin credentials — this mode is for maintainers, not the default gate)." >&2
+			sed 's/^/  /' /tmp/rsc-read-error >&2 || true
+		fi
+		rm -f /tmp/rsc-read-error
 		exit 1
 	fi
+	rm -f /tmp/rsc-read-error
 	manifest_sorted="$(read_manifest | sort -u)"
 	live_sorted="$(sort -u <<<"$live")"
 	if ! diff <(printf '%s\n' "$manifest_sorted") <(printf '%s\n' "$live_sorted") >/dev/null; then

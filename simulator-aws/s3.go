@@ -19,6 +19,15 @@ import (
 type S3Bucket struct {
 	Name         string `xml:"Name"`
 	CreationDate string `xml:"CreationDate"`
+
+	// DirectoryZone is the Availability Zone id a directory bucket is placed
+	// in, empty for a general purpose bucket. It is what separates the two
+	// listings — ListBuckets returns general purpose buckets and
+	// ListDirectoryBuckets returns these — and it is not part of either
+	// response body, which is why it carries no XML name.
+	DirectoryZone string `xml:"-"`
+	// DataRedundancy is how many zones a directory bucket's data is held in.
+	DataRedundancy string `xml:"-"`
 }
 
 type S3Object struct {
@@ -237,6 +246,17 @@ func s3Enforced(opName func(*http.Request, []byte) string, h http.HandlerFunc) h
 			return
 		}
 		if op := opName(r, nil); op != "" {
+			// A request signed with a session credential is authorized by that
+			// session first: it opens one directory bucket, in one mode, until
+			// it expires.
+			if s3EnforceExpressSession(w, r, op, sim.PathParam(r, "bucket")) {
+				return
+			}
+			// An access point narrows what can be done through it, whatever
+			// the caller's own policies allow on the bucket behind it.
+			if s3EnforceAccessPointScope(w, r, op) {
+				return
+			}
 			if !iamEnforceREST(w, r, "s3:"+op, s3RequestResourceARN(r), s3WriteIAMDeny) {
 				return
 			}
@@ -319,6 +339,8 @@ func s3BucketOperationName(r *http.Request, _ []byte) string {
 		}
 	case http.MethodGet:
 		switch {
+		case q.Has("session"):
+			return "CreateSession"
 		case q.Has("metadataConfiguration"):
 			return "GetBucketMetadataConfiguration"
 		case q.Has("metadataTable"):
@@ -530,9 +552,16 @@ func handleS3GetOrHeadObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
-	buckets := s3Buckets_.List()
-	if buckets == nil {
-		buckets = []S3Bucket{}
+	if s3ServeListDirectoryBuckets(w, r) {
+		return
+	}
+	// A directory bucket is returned by ListDirectoryBuckets and not by this
+	// listing, which is what separates the two surfaces.
+	buckets := []S3Bucket{}
+	for _, b := range s3Buckets_.List() {
+		if b.DirectoryZone == "" {
+			buckets = append(buckets, b)
+		}
 	}
 
 	result := s3ListAllMyBucketsResult{
@@ -579,6 +608,14 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 			Key   string `xml:"Key"`
 			Value string `xml:"Value"`
 		} `xml:"Tags>Tag"`
+		Location struct {
+			Type string `xml:"Type"`
+			Name string `xml:"Name"`
+		} `xml:"Location"`
+		Bucket struct {
+			Type           string `xml:"Type"`
+			DataRedundancy string `xml:"DataRedundancy"`
+		} `xml:"Bucket"`
 	}
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -590,6 +627,12 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 		if err := xml.Unmarshal(bodyBytes, &createConfig); err != nil {
 			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed",
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
+			return
+		}
+	}
+	if createConfig.Bucket.Type == "Directory" {
+		if !s3ApplyDirectoryBucketConfiguration(w, r, &b, createConfig.Location.Type,
+			createConfig.Location.Name, createConfig.Bucket.DataRedundancy) {
 			return
 		}
 	}
@@ -696,6 +739,9 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 	// `r.URL.Query().Has(...)` is the right check, not value-based.
 	q := r.URL.Query()
 	switch {
+	case q.Has("session"):
+		handleS3CreateSession(w, r)
+		return
 	case q.Has("metadataConfiguration"):
 		handleS3GetBucketMetadataConfiguration(w, r)
 		return

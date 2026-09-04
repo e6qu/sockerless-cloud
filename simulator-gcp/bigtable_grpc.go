@@ -1680,11 +1680,13 @@ func bigtableSetIamPolicy(req *iampb.SetIamPolicyRequest) (*iampb.Policy, error)
 // so the whole requested set is the truthful answer. A resource that does not
 // exist grants nothing, which real GCP reports as an empty set rather than an
 // error.
-func bigtableTestIamPermissions(req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
+func bigtableTestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
 	if !bigtableIAMResourceExists(req.GetResource()) {
 		return &iampb.TestIamPermissionsResponse{}, nil
 	}
-	return &iampb.TestIamPermissionsResponse{Permissions: append([]string(nil), req.GetPermissions()...)}, nil
+	policy, _ := gcpResourceIAMStore().Get(req.GetResource())
+	return &iampb.TestIamPermissionsResponse{
+		Permissions: gcpAnswerTestIamPermissionsForContext(ctx, policy, req.GetPermissions())}, nil
 }
 
 func (s *bigtableInstanceAdminGRPC) GetIamPolicy(_ context.Context, req *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
@@ -1695,8 +1697,8 @@ func (s *bigtableInstanceAdminGRPC) SetIamPolicy(_ context.Context, req *iampb.S
 	return bigtableSetIamPolicy(req)
 }
 
-func (s *bigtableInstanceAdminGRPC) TestIamPermissions(_ context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
-	return bigtableTestIamPermissions(req)
+func (s *bigtableInstanceAdminGRPC) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
+	return bigtableTestIamPermissions(ctx, req)
 }
 
 func (s *bigtableTableAdminGRPC) GetIamPolicy(_ context.Context, req *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
@@ -1707,6 +1709,6 @@ func (s *bigtableTableAdminGRPC) SetIamPolicy(_ context.Context, req *iampb.SetI
 	return bigtableSetIamPolicy(req)
 }
 
-func (s *bigtableTableAdminGRPC) TestIamPermissions(_ context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
-	return bigtableTestIamPermissions(req)
+func (s *bigtableTableAdminGRPC) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
+	return bigtableTestIamPermissions(ctx, req)
 }

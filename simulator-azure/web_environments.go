@@ -450,7 +450,7 @@ func registerWebEnvironments(srv *sim.Server) {
 	registerWebEnvironmentInventory(ase)
 	registerWebEnvironmentLifecycle(ase)
 	registerWebEnvironmentPrivateEndpoints(ase)
-	registerWebEnvironmentDeclaredGaps(ase)
+	registerWebEnvironmentPoolMetrics(ase)
 	registerWebEnvironmentDiagnostics(ase)
 	registerWebKubeEnvironments(srv)
 }
@@ -1628,26 +1628,15 @@ func aseLookupPEC(w http.ResponseWriter, r *http.Request) (WebSitePrivateEndpoin
 	return conn, true
 }
 
-// declared gaps
+// pool metric definitions
 
-// registerWebEnvironmentDeclaredGaps mounts the one documented operation the
-// simulator does not answer, and the pool metric definitions beside it, so a client is told what is missing and why
-// instead of receiving a bare routing 404 from inside a resource whose other
-// operations all work. The reasons are the ones recorded at the top of this
-// file and beside the coverage floor.
-func registerWebEnvironmentDeclaredGaps(ase func(string, string, http.HandlerFunc)) {
-	const outboundReason = "the outbound network dependencies of an App Service Environment are Microsoft's published catalog of platform endpoints and address ranges, which this simulator does not vendor"
-
-	// The gap does not depend on the environment existing: the operation is
-	// unimplemented whatever it is asked about, and answering a 404 for an
-	// absent environment first would report the operation as one the
-	// simulator serves.
-	gap := func(operation, reason string) http.HandlerFunc {
-		return func(w http.ResponseWriter, _ *http.Request) {
-			sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
-				"%s is not implemented by the simulator: %s.", operation, reason)
-		}
-	}
+// registerWebEnvironmentPoolMetrics mounts the metric definitions of an App
+// Service Environment's pools. No operation of this resource is a declared gap
+// any more: the outbound network dependencies, which used to be one on the
+// grounds that they are Microsoft's published catalog, are measured instead —
+// the document asks what an address resolves to, whether a connection can be
+// made and how long making it takes, which are findings rather than a list.
+func registerWebEnvironmentPoolMetrics(ase func(string, string, http.HandlerFunc)) {
 	// A pool's metric definitions are the metric series Microsoft.Insights
 	// publishes about it, and this simulator publishes none for an App Service
 	// Environment pool. There being none is the answer, and an empty collection
@@ -1664,8 +1653,8 @@ func registerWebEnvironmentDeclaredGaps(ase func(string, string, http.HandlerFun
 	ase("GET", "/multiRolePools/"+multiRolePoolName+"/instances/{instance}/metricdefinitions", definitions)
 	ase("GET", "/workerPools/{workerPoolName}/metricdefinitions", definitions)
 	ase("GET", "/workerPools/{workerPoolName}/instances/{instance}/metricdefinitions", definitions)
-	ase("GET", "/outboundNetworkDependenciesEndpoints",
-		gap("AppServiceEnvironments_GetOutboundNetworkDependenciesEndpoints", outboundReason))
+	// Measured, not catalogued — see web_environment_outbound.go.
+	ase("GET", "/outboundNetworkDependenciesEndpoints", handleASEOutboundNetworkDependencies)
 }
 
 // Kubernetes environments
