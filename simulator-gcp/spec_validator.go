@@ -294,20 +294,30 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 				})
 			}
 			// Both the expanded flatPath and the {+param} template path
-			// are real, equivalent spellings of the method URI. But a {+param}
-			// template that is a single unconstrained greedy wildcard scores
-			// zero and matches every path under it — cloudbilling's
-			// tasks.pushNotificationConfigs.create declares exactly that path
-			// ("v1/{+parent}", the "pushNotificationConfigs" suffix living only
+			// are real, equivalent spellings of the method URI. But a param
+			// segment with no literal prefix or suffix of its own consumes
+			// whatever request segment(s) land there unconstrained, no matter
+			// what they are -- and flatPath, being Discovery's own no-wildcard
+			// spelling of the identical operation, is always at least as
+			// discriminating wherever path carries one. cloudbilling's
+			// tasks.pushNotificationConfigs.create declares exactly a bare
+			// "v1/{+parent}" (the "pushNotificationConfigs" suffix lives only
 			// in the parent parameter's own regex pattern, which this indexer
 			// does not evaluate) and it matched POST /v1/token, an unrelated
-			// STS request whose response was then checked against the wrong
-			// schema. When flatPath already gives that same method a template
-			// with real literal structure, the bare wildcard adds no coverage
-			// flatPath doesn't already provide, so it is dropped; keep it only
-			// when it is the method's sole spelling.
+			// STS request. Firestore's documents.list declares
+			// "v1/{+parent}/{collectionId}" -- {collectionId} is a plain,
+			// non-greedy param, but still carries no prefix or suffix of its
+			// own -- and it matched operations.get requests once that
+			// method's own bare wildcard was excluded by an earlier, narrower
+			// version of this check that only looked at total literal-
+			// character score, which counts a shared literal prefix segment
+			// ({+parent}'s "v1") the same for every operation in the document
+			// and so does not by itself say anything discriminates. When
+			// flatPath already covers the method, an unconstrained-param path
+			// adds no coverage flatPath doesn't already provide, so it is
+			// dropped; keep it only when it is the method's sole spelling.
 			rels := []string{m.FlatPath, m.Path}
-			if m.Path != "" && m.FlatPath != "" && m.Path != m.FlatPath && isBareGreedyWildcard(m.Path) {
+			if m.Path != "" && m.FlatPath != "" && m.Path != m.FlatPath && hasUnconstrainedParam(splitSpecSegs(m.Path)) {
 				rels = []string{m.FlatPath}
 			}
 			for _, rel := range rels {
@@ -426,20 +436,19 @@ func splitSpecSegs(p string) []specSeg {
 	return segs
 }
 
-// isBareGreedyWildcard reports whether rel (a method's "path" field) ends in
-// an unconstrained greedy parameter — no literal prefix or suffix on that
-// parameter itself. Such a segment consumes every remaining path element no
-// matter what they are, so once any literal segments before it match, the
-// whole template matches any request under that prefix. It carries no
-// matching information a sibling flatPath template, whose literal structure
-// continues past that point, does not already carry more precisely.
-func isBareGreedyWildcard(rel string) bool {
-	segs := splitSpecSegs(rel)
-	if len(segs) == 0 {
-		return false
+// hasUnconstrainedParam reports whether segs contains a param segment (plain
+// or greedy) with no literal prefix or suffix of its own. Such a segment
+// consumes whatever request segment(s) land there regardless of their
+// content; a literal segment elsewhere in the same template does not offset
+// that. flatPath, Discovery's own no-wildcard spelling of the identical
+// operation, already covers every request such a template can match.
+func hasUnconstrainedParam(segs []specSeg) bool {
+	for _, s := range segs {
+		if s.isParam && s.prefix == "" && s.suffix == "" {
+			return true
+		}
 	}
-	last := segs[len(segs)-1]
-	return last.isParam && last.greedy && last.prefix == "" && last.suffix == ""
+	return false
 }
 
 // templateScore counts literal characters: when several templates match
