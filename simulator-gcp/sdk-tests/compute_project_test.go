@@ -135,6 +135,11 @@ func TestCompute_SharedVPCHostAndServiceProjects(t *testing.T) {
 // The surfaces that would have to be invented to be served answer with the
 // reason instead. An empty list would be a false statement about Google's own
 // catalogue, and a client cannot tell one from a real answer.
+//
+// interconnects.getDiagnostics was here and is not any more: most of what it
+// reports is on the interconnect's own record, and it is served from there —
+// see TestCompute_InterconnectDiagnosticsComeFromTheInterconnect, which also
+// holds the measurements that genuinely are off the equipment to being absent.
 func TestCompute_GooglePublishedCatalogsAreDeclaredGaps(t *testing.T) {
 	svc := computeService(t)
 	const project = "catalog-project"
@@ -149,10 +154,6 @@ func TestCompute_GooglePublishedCatalogsAreDeclaredGaps(t *testing.T) {
 		}},
 		{"interconnect remote locations", func() error {
 			_, err := svc.InterconnectRemoteLocations.List(project).Do()
-			return err
-		}},
-		{"interconnect diagnostics", func() error {
-			_, err := svc.Interconnects.GetDiagnostics(project, "link-1").Do()
 			return err
 		}},
 	} {

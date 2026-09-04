@@ -117,6 +117,14 @@ the optical power, the negotiated LACP state and the ARP caches are off the
 equipment, and the schema requires none of them. `compute-v1` reads 2,004 of
 2,016.
 
+One test still asserted the decline it replaced —
+`TestCompute_GooglePublishedCatalogsAreDeclaredGaps` listed the diagnostics
+among the reads that answer 501 — and CI caught it, because serving the
+operation was verified with the new test and the unit tests rather than with
+the slice's full SDK suite. Changing what a route answers is exactly the change
+that invalidates a test asserting the old answer. The declared-gaps test keeps
+the two location catalogues, which still decline.
+
 The twelve that remain are two published catalogues, and the floor comment now
 says what is actually true of them rather than that they cannot be answered.
 This project vendors a published catalogue when it can — the Azure managed WAF
