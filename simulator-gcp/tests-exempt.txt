@@ -59,3 +59,44 @@ GET /compute/v1/projects/{project}/regions/{region}/healthSources/{name}/getHeal
 # google-api-go-client predates the method and its KeyRingsService wraps no
 # Delete, so no SDK test can reach it.
 DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}
+
+# Cloud Billing's conversational agent task surface, added in the 2026-09-04
+# spec refresh and declared unserved in cloudbilling.go. The vendored
+# google-api-go-client (google.golang.org/api/cloudbilling/v1) predates all
+# ten of these methods and wraps none of them, so no SDK test can reach any
+# of them — not even to assert the 501. tasks.get / tasks.subscribe, the
+# {tasksAction} colon-verb spelling.
+GET /v1/tasks/{tasksAction}
+# tasks.cancel, the {tasksAction} colon-verb spelling.
+POST /v1/tasks/{tasksAction}
+# tasks.pushNotificationConfigs.list.
+GET /v1/tasks/{tasksId}/pushNotificationConfigs
+# tasks.pushNotificationConfigs.create.
+POST /v1/tasks/{tasksId}/pushNotificationConfigs
+# tasks.pushNotificationConfigs.get.
+GET /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}
+# tasks.pushNotificationConfigs.delete.
+DELETE /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}
+# v1.getCard, the payment card read.
+GET /v1/card
+# message.send.
+POST /v1/message:send
+# message.stream.
+POST /v1/message:stream
+# The generic AIP-127 resource-name spelling of tasks.get /
+# tasks.pushNotificationConfigs.get ({+name}); same SDK gap, and the contract
+# reader has no method name to match a wildcard tail against regardless.
+GET /v1/tasks/{rest...}
+# The generic AIP-127 resource-name spelling of
+# tasks.pushNotificationConfigs.delete ({+name}); same reasoning.
+DELETE /v1/tasks/{rest...}
+
+# Compute Engine's regional project view, added in the same refresh and
+# declared unserved in compute_catalogs.go: the vendored google-api-go-client's
+# RegionsService wraps no ProjectViews method.
+GET /compute/v1/projects/{project}/regions/{region}/projectViews
+# regions.advice.capacity: AdviceService wraps only CalendarMode, not
+# Capacity — the client library has not caught up to the spec either.
+POST /compute/v1/projects/{project}/regions/{region}/advice/capacity
+# regions.advice.capacityHistory: same AdviceService gap.
+POST /compute/v1/projects/{project}/regions/{region}/advice/capacityHistory

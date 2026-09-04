@@ -1,5 +1,26 @@
 # WHAT WE DID
 
+## 2026-09-04 — the login callback waited on a client with no timeout
+
+The Azure simulator's `/auth/oidc/callback` was observed in production taking
+83 to 240 seconds to complete, some of those runs surfacing to the browser as
+a 502. `ui-auth`'s `callback` handler exchanges the authorization code and
+verifies the ID token's key set on `r.Context()` with no HTTP client attached,
+so both calls fell back to `http.DefaultClient`'s zero timeout — the same
+hazard `oidcDiscoveryClient` already exists to close for provider discovery,
+three lines above `callback` in the same file, just never extended to the two
+network calls `callback` itself makes. A slow or unreachable issuer could hold
+the callback, and the browser's pending redirect, open indefinitely instead of
+failing into the 502 the handler already codes for.
+
+`callback` now runs both calls through `oidc.ClientContext(r.Context(),
+oidcDiscoveryClient)`, the same context wrapper `providerFor` already uses —
+go-oidc and golang.org/x/oauth2 read the client from the same context key, so
+one bounded client now covers discovery, the token exchange, and the key-set
+fetch. `TestCallbackBoundsTheTokenExchangeAgainstAnUnresponsiveIssuer` stands
+up a real HTTP server whose token endpoint never responds and asserts the
+callback returns 502 within the client's timeout rather than hanging past it.
+
 ## 2026-09-03, forty-seventh pass — the condition key a policy tests, and the signature it was signed with
 
 A policy scopes an action AWS gives no nameable resource with a condition key,

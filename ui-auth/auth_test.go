@@ -92,6 +92,80 @@ func TestValidationRequiresSessionAndExposesExactContract(t *testing.T) {
 	}
 }
 
+func TestCallbackBoundsTheTokenExchangeAgainstAnUnresponsiveIssuer(t *testing.T) {
+	tokenRequested := make(chan struct{})
+	mux := http.NewServeMux()
+	var issuer string
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"issuer": issuer, "authorization_endpoint": issuer + "/authorize",
+			"token_endpoint": issuer + "/token", "jwks_uri": issuer + "/keys",
+		})
+	})
+	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+	})
+	unblockToken := make(chan struct{})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		close(tokenRequested)
+		// The real issuer never responds; only oidcDiscoveryClient's Timeout
+		// ends the client's wait. The handler itself waits on a test-owned
+		// channel rather than r.Context().Done(), so server.Close() cannot
+		// block on this connection regardless of how promptly the Go
+		// runtime propagates the client's cancellation to this goroutine.
+		<-unblockToken
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	defer close(unblockToken) // must run before server.Close() above; defers are LIFO
+	issuer = server.URL
+
+	config := testConfig()
+	config.Issuer = issuer
+	config.InsecureCookies = true
+	auth, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx := transaction{State: "state-1", Nonce: "nonce-1", Verifier: "verifier-1", ReturnTo: "/ui/", Expires: time.Now().Add(time.Minute).Unix()}
+	value, err := auth.sign(tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, CallbackPath+"?state=state-1&code=auth-code-1", nil)
+	request.AddCookie(&http.Cookie{Name: auth.transactionCookieName(), Value: value})
+	recorder := httptest.NewRecorder()
+
+	done := make(chan time.Time)
+	started := time.Now()
+	go func() {
+		auth.callback(recorder, request)
+		done <- time.Now()
+	}()
+
+	select {
+	case <-tokenRequested:
+	case <-time.After(5 * time.Second):
+		t.Fatal("callback never reached the token endpoint")
+	}
+
+	const wantBound = 20 * time.Second // oidcDiscoveryClient's 10s per-request Timeout, plus slack
+	select {
+	case finished := <-done:
+		if elapsed := finished.Sub(started); elapsed > wantBound {
+			t.Fatalf("callback took %s against an unresponsive issuer, want bounded well under %s", elapsed, wantBound)
+		}
+	case <-time.After(wantBound):
+		t.Fatal("callback hung past oidcDiscoveryClient's timeout against an unresponsive issuer")
+	}
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("callback status against an unresponsive issuer = %d, want 502", recorder.Code)
+	}
+}
+
 func TestURLOriginDropsIssuerPath(t *testing.T) {
 	if got := urlOrigin("https://auth.example.test/tenant/"); got != "https://auth.example.test" {
 		t.Fatalf("OpenID Connect issuer origin = %q", got)

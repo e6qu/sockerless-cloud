@@ -899,6 +899,9 @@ func registerIAM(srv *sim.Server) {
 			}
 		}
 		if action == "" {
+			if cloudBillingUnimplementedTaskWrite(w, r, resource) {
+				return
+			}
 			http.NotFound(w, r)
 			return
 		}

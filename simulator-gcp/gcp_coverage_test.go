@@ -68,7 +68,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"artifactregistry-v1":     147,
 	"bigquery-v2":             95,
 	"bigtableadmin-v2":        164,
-	"cloudbilling-v1":         36,
+	"cloudbilling-v1":         56,
 	"cloudbuild-v1":           114,
 	"cloudfunctions-v2":       42,
 	"cloudkms-v1":             174,
@@ -77,7 +77,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"cloudresourcemanager-v3": 126,
 	"cloudrun-v1":             152,
 	"cloudrun-v2":             119,
-	"compute-v1":              2016,
+	"compute-v1":              2022,
 	"dataflow-v1b3":           114,
 	"dns-v1":                  80,
 	"eventarc-v1":             132,
@@ -217,6 +217,16 @@ var gcpMethodFloor = map[string]int{
 	// issued for. A code this project was never issued is not found, which is
 	// what a read of something that does not exist says.
 	//
+	// A re-vendor on 2026-09-04 added regions.projectViews.get and
+	// regions.advice.capacity/capacityHistory (three methods, six spellings):
+	// a regional read-replica of project metadata whose only reason to exist
+	// is the asynchronous lag behind the canonical write path this simulator
+	// does not model, and Google's own capacity forecast and observed
+	// history for a region, which is an analysis this simulator does not
+	// run. Declared unserved in compute_catalogs.go for the same reason as
+	// the catalogues above: the alternative is inventing exactly what a
+	// client cannot tell from the real thing.
+	//
 	// Lower this floor by one and the gate prints the unserved list, which is
 	// the work list whenever that changes.
 	"compute-v1":              2016,
@@ -288,12 +298,21 @@ var gcpMethodFloor = map[string]int{
 	// what proves the split works.
 	"logging-v2": 508,
 
-	// Cloud Billing: every documented method is served. The account
-	// collection, its sub-accounts, the organization-scoped spellings, the
-	// project links (updateBillingInfo writing the store getBillingInfo
-	// reads), the IAM triple, and the installation's own service catalog —
-	// whose SKU lists are empty because this deployment publishes no price
-	// sheet, which is that catalog's truth.
+	// Cloud Billing: the account collection, its sub-accounts, the
+	// organization-scoped spellings, the project links (updateBillingInfo
+	// writing the store getBillingInfo reads), the IAM triple, and the
+	// installation's own service catalog — whose SKU lists are empty because
+	// this deployment publishes no price sheet, which is that catalog's
+	// truth — are served.
+	//
+	// A re-vendor on 2026-09-04 added a conversational agent task surface
+	// (tasks, their push notification configs, message send/stream) and a
+	// payment card read: twenty spellings across ten methods, all declared
+	// unserved in cloudbilling.go. A task's state is that agent's own
+	// tracking of work it is doing, sending or streaming a message hands the
+	// call to the LLM-backed agent behind it, and the card is a real
+	// financial instrument on file with Google — none of it state this
+	// simulator holds or could honestly invent.
 	"cloudbilling-v1": 36,
 
 	// Cloud Resource Manager v1: every documented method is served — the

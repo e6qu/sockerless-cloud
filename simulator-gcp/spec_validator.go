@@ -294,8 +294,33 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 				})
 			}
 			// Both the expanded flatPath and the {+param} template path
-			// are real, equivalent spellings of the method URI.
-			for _, rel := range []string{m.FlatPath, m.Path} {
+			// are real, equivalent spellings of the method URI. But a param
+			// segment with no literal prefix or suffix of its own consumes
+			// whatever request segment(s) land there unconstrained, no matter
+			// what they are -- and flatPath, being Discovery's own no-wildcard
+			// spelling of the identical operation, is always at least as
+			// discriminating wherever path carries one. cloudbilling's
+			// tasks.pushNotificationConfigs.create declares exactly a bare
+			// "v1/{+parent}" (the "pushNotificationConfigs" suffix lives only
+			// in the parent parameter's own regex pattern, which this indexer
+			// does not evaluate) and it matched POST /v1/token, an unrelated
+			// STS request. Firestore's documents.list declares
+			// "v1/{+parent}/{collectionId}" -- {collectionId} is a plain,
+			// non-greedy param, but still carries no prefix or suffix of its
+			// own -- and it matched operations.get requests once that
+			// method's own bare wildcard was excluded by an earlier, narrower
+			// version of this check that only looked at total literal-
+			// character score, which counts a shared literal prefix segment
+			// ({+parent}'s "v1") the same for every operation in the document
+			// and so does not by itself say anything discriminates. When
+			// flatPath already covers the method, an unconstrained-param path
+			// adds no coverage flatPath doesn't already provide, so it is
+			// dropped; keep it only when it is the method's sole spelling.
+			rels := []string{m.FlatPath, m.Path}
+			if m.Path != "" && m.FlatPath != "" && m.Path != m.FlatPath && hasUnconstrainedParam(splitSpecSegs(m.Path)) {
+				rels = []string{m.FlatPath}
+			}
+			for _, rel := range rels {
 				if rel == "" {
 					continue
 				}
@@ -409,6 +434,21 @@ func splitSpecSegs(p string) []specSeg {
 		})
 	}
 	return segs
+}
+
+// hasUnconstrainedParam reports whether segs contains a param segment (plain
+// or greedy) with no literal prefix or suffix of its own. Such a segment
+// consumes whatever request segment(s) land there regardless of their
+// content; a literal segment elsewhere in the same template does not offset
+// that. flatPath, Discovery's own no-wildcard spelling of the identical
+// operation, already covers every request such a template can match.
+func hasUnconstrainedParam(segs []specSeg) bool {
+	for _, s := range segs {
+		if s.isParam && s.prefix == "" && s.suffix == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // templateScore counts literal characters: when several templates match

@@ -203,6 +203,120 @@ func registerCloudBilling(srv *sim.Server, resourcePolicies sim.Store[IAMPolicy]
 	// The installation's service catalog.
 	srv.HandleFunc("GET /v1/services", handleBillingListServices)
 	srv.HandleFunc("GET /v1/services/{service}/skus", handleBillingListSkus)
+
+	registerCloudBillingTaskAPI(srv)
+}
+
+// registerCloudBillingTaskAPI declares Cloud Billing's conversational agent
+// task surface — tasks, their push notification configs, message send and
+// stream, and the on-file payment card — as unserved. It is Google's own
+// agent protocol layered onto billing, not billing-account control plane: a
+// task's state is that agent's own tracking of work it is doing, a message
+// send or stream hands the call to the LLM-backed agent behind it, and the
+// payment card is a real financial instrument on file with Google. None of
+// that is state this simulator holds or could honestly invent, the same
+// reasoning that already declares a licence code or a console screenshot
+// unserved elsewhere in this deployment.
+//
+// The Discovery document spells four of the task operations twice: once as
+// the flat "tasks/{tasksId}"-shaped paths registered above the wildcards
+// below, and once as generic AIP-127 resource names ({+name}, {+parent})
+// that this deployment's own task IDs also satisfy. The wildcard routes
+// below answer that second spelling; Go's ServeMux prefers the more
+// specific literal routes when both could match the same request.
+func registerCloudBillingTaskAPI(srv *sim.Server) {
+	unimplemented := func(what, why string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no %s: %s", what, why)
+		}
+	}
+	const taskWhy = "a task's state is Cloud Billing's own conversational agent tracking work it is doing, and an invented status would not be that tracking"
+	const cardWhy = "the payment card is a real financial instrument on file with Google, and no card was ever issued to this project"
+	const messageWhy = "sending or streaming a message hands it to Cloud Billing's own LLM-backed agent, which this simulator does not run"
+
+	// {tasksAction} carries an optional ":subscribe" colon verb in the same
+	// segment: Go's ServeMux requires a wildcard to be the whole segment, so
+	// "{tasksId}:subscribe" (id and verb as separate pattern pieces) is not a
+	// legal pattern — the same reason billingAccounts above uses
+	// {accountAction} rather than a bare {account} for its colon verbs.
+	srv.HandleFunc("GET /v1/tasks/{tasksAction}", func(w http.ResponseWriter, r *http.Request) {
+		_, verb, hasVerb := strings.Cut(sim.PathParam(r, "tasksAction"), ":")
+		if hasVerb && verb != "subscribe" {
+			gcpMethodNotFound(w)
+			return
+		}
+		what := "tasks.get"
+		if verb == "subscribe" {
+			what = "tasks.subscribe"
+		}
+		unimplemented(what, taskWhy)(w, r)
+	})
+	srv.HandleFunc("POST /v1/tasks/{tasksAction}", func(w http.ResponseWriter, r *http.Request) {
+		_, verb, hasVerb := strings.Cut(sim.PathParam(r, "tasksAction"), ":")
+		if !hasVerb || verb != "cancel" {
+			gcpMethodNotFound(w)
+			return
+		}
+		unimplemented("tasks.cancel", taskWhy)(w, r)
+	})
+	srv.HandleFunc("GET /v1/tasks/{tasksId}/pushNotificationConfigs", unimplemented("tasks.pushNotificationConfigs.list", taskWhy))
+	srv.HandleFunc("POST /v1/tasks/{tasksId}/pushNotificationConfigs", unimplemented("tasks.pushNotificationConfigs.create", taskWhy))
+	srv.HandleFunc("GET /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}", unimplemented("tasks.pushNotificationConfigs.get", taskWhy))
+	srv.HandleFunc("DELETE /v1/tasks/{tasksId}/pushNotificationConfigs/{pushNotificationConfigsId}", unimplemented("tasks.pushNotificationConfigs.delete", taskWhy))
+	srv.HandleFunc("GET /v1/card", unimplemented("v1.getCard", cardWhy))
+	srv.HandleFunc("POST /v1/message:send", unimplemented("message.send", messageWhy))
+	srv.HandleFunc("POST /v1/message:stream", unimplemented("message.stream", messageWhy))
+
+	// The mux pattern itself, not just the handler body, has to stay scoped
+	// to the tasks collection: the data-plane auth middleware
+	// (bearerAuthMiddleware in token_signing.go) decides whether a request
+	// needs a credential by asking Go's own mux whether any pattern matches
+	// it at all, before this handler ever runs. A bare "/v1/{name...}" would
+	// match every GET under /v1/, including paths no method publishes, and
+	// the middleware would demand a token for them instead of leaving them
+	// to fail closed with 404.
+	srv.HandleFunc("GET /v1/tasks/{rest...}", func(w http.ResponseWriter, r *http.Request) {
+		name, verb, _ := strings.Cut("tasks/"+sim.PathParam(r, "rest"), ":")
+		switch verb {
+		case "subscribe":
+			unimplemented("tasks.subscribe", taskWhy)(w, r)
+		case "":
+			what := "tasks.get"
+			if strings.Contains(name, "/pushNotificationConfigs/") {
+				what = "tasks.pushNotificationConfigs.get"
+			}
+			unimplemented(what, taskWhy)(w, r)
+		default:
+			gcpMethodNotFound(w)
+		}
+	})
+	srv.HandleFunc("DELETE /v1/tasks/{rest...}", unimplemented("tasks.pushNotificationConfigs.delete", taskWhy))
+	// The POST /v1/{resource...} spelling is the AIP-141 IAM catch-all
+	// dispatcher's route (iam.go); it falls through to
+	// cloudBillingUnimplementedTaskWrite for the two cases here.
+}
+
+// cloudBillingUnimplementedTaskWrite answers the resource-name-form writes
+// (POST /v1/{+parent} for tasks.pushNotificationConfigs.create, POST
+// /v1/{+name}:cancel for tasks.cancel) that the AIP-141 IAM catch-all
+// dispatcher in iam.go falls through to once resource carries no recognized
+// IAM colon verb. It reports false for anything else, matching that
+// dispatcher's existing "not a recognized verb" contract.
+func cloudBillingUnimplementedTaskWrite(w http.ResponseWriter, r *http.Request, resource string) bool {
+	name, verb, hasVerb := strings.Cut(resource, ":")
+	if !strings.HasPrefix(name, "tasks/") {
+		return false
+	}
+	const why = "a task's state is Cloud Billing's own conversational agent tracking work it is doing, and an invented status would not be that tracking"
+	switch {
+	case !hasVerb:
+		sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no tasks.pushNotificationConfigs.create: %s", why)
+	case verb == "cancel":
+		sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no tasks.cancel: %s", why)
+	default:
+		return false
+	}
+	return true
 }
 
 func billingAccountNotFound(w http.ResponseWriter, name string) {

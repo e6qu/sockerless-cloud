@@ -75,4 +75,34 @@ func registerComputeCatalogs(srv *sim.Server) {
 
 	// interconnects.getDiagnostics reports from the interconnect's own record
 	// and is served in compute_interconnect_diagnostics.go.
+
+	// regions.projectViews.get reads project metadata from a regional
+	// read-only replica, and its whole documented reason to exist is that
+	// replica's asynchronous lag behind the canonical write path. This
+	// simulator holds one canonical copy of a project and replicates nothing
+	// regionally, so serving it the same data a global read returns would
+	// misrepresent the one thing this endpoint is for.
+	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/projectViews",
+		func(w http.ResponseWriter, r *http.Request) {
+			sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
+				"the simulator serves no regional project view: it holds one canonical "+
+					"copy of a project and runs no regional replication to lag behind")
+		})
+
+	// regions.advice.capacity and .capacityHistory are Google's own capacity
+	// forecasting and observed history for obtaining machine types in a
+	// region — an analysis this simulator does not run, so any answer would
+	// be invented, the same reasoning the reliability risk collection above
+	// already applies to Google's own risk assessment of a project.
+	adviceUnimplemented := func(what string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
+				"the simulator serves no %s: it runs no capacity forecasting or "+
+					"observation to answer from", what)
+		}
+	}
+	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/advice/capacity",
+		adviceUnimplemented("regions.advice.capacity"))
+	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/advice/capacityHistory",
+		adviceUnimplemented("regions.advice.capacityHistory"))
 }
