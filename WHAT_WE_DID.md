@@ -130,12 +130,22 @@ says what is actually true of them rather than that they cannot be answered.
 This project vendors a published catalogue when it can — the Azure managed WAF
 rule-set catalog is embedded JSON with its sources cited and a test locking the
 counts — so the honest statement is that the vendoring has not been done. For
-the Cloud Armor expression sets the identifiers are the OWASP Core Rule Set's
-own, so a tagged CRS release gives the ids and each rule's paranoia-level tag
-gives the sensitivity; what is missing is Google's inclusion list, and the best
-reconstruction from the rule files yields 60 signatures for CRS 4.22 SQL
-injection where Google's documentation says 59. One rule apart is one rule
-invented, so that path is recorded rather than taken.
+the Cloud Armor expression sets the catalogue turned out to be fully readable:
+Google's documentation carries it in HTML tables that parse deterministically —
+fetched with curl and read with a regular expression, no summarising in between
+— giving 477 distinct signature rows across 35 groups of CRS version and
+category, and a status table naming all 72 sets with each stable one declared
+"In sync with" its canary. An earlier note here declined on a one-signature
+disagreement between a reconstruction and the documentation; that 59 came from a
+summary of the page rather than the page, and the page says 60, which is what
+the rule files say too. There was no disagreement.
+
+One set of the seventy-two stops it. `json-sqli-canary` is described in prose
+naming its signature as "942550-sqli" rather than as a full identifier, and
+composing the identifier from that is the one invented id this exercise exists
+to avoid — while answering with 71 sets where the service answers with 72 is a
+wrong answer of another shape. The floor comment records the parse, the counts
+and that single open identifier, so the next attempt is mechanical.
 
 Checking whether the other slices carry the same surface turned up a fake in
 the Google Cloud one, and it is fixed (BUG-2966). Six implementations of

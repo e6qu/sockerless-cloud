@@ -108,18 +108,36 @@ var gcpMethodFloor = map[string]int{
 	// reason is that the vendoring has not been done and cannot be done
 	// accurately from what is reachable here.
 	//
-	// securityPolicies.listPreconfiguredExpressionSets is the closer of the
-	// two. The expression identifiers are the OWASP Core Rule Set's own — an id
-	// reads `owasp-crs-v030301-id942100-sqli` — so the rule files at a tagged
-	// CRS release give the ids exactly, and each rule's `paranoia-level/N` tag
-	// gives the sensitivity. What is missing is Google's inclusion list: its
-	// sets are a subset of CRS, and the best reconstruction from the rule files
-	// (every rule carrying a paranoia-level tag, from id 942100 up) yields 60
-	// signatures for CRS 4.22 SQL injection where Google's documentation says
-	// 59. One rule apart is one rule invented, and a client cannot tell a
-	// catalogue that is wrong by one from a right one. Serve it by vendoring
-	// against a recorded response of the real service, the way the Azure
-	// catalogue settled its wire spellings, not by inferring the list.
+	// securityPolicies.listPreconfiguredExpressionSets is all but ready to
+	// vendor, and what is written here should be read before the next attempt.
+	//
+	// Google's own documentation carries the whole catalogue in HTML tables at
+	// https://docs.cloud.google.com/armor/docs/waf-rules, and it parses
+	// deterministically — fetched with curl and read with a regular expression,
+	// no summarising in between. Measured on 2026-09-04: 477 signature rows of
+	// `<td><code>owasp-crs-vNNNNNN-idNNNNNN-cat</code></td><td>sensitivity</td>`,
+	// all distinct, across 35 groups of CRS version × category; and a status
+	// table naming all 72 expression sets, each stable one declared "In sync
+	// with" its canary, so the two hold the same signatures by the page's own
+	// statement rather than by inference. Three CRS families are offered: 4.22
+	// as `<cat>-v422-stable`, 3.3 as `<cat>-v33-stable`, and 3.0 under the
+	// unversioned `<cat>-stable`.
+	//
+	// An earlier note here said a reconstruction from the OWASP rule files gave
+	// 60 signatures for CRS 4.22 SQL injection where Google documented 59, and
+	// declined on that one-rule disagreement. The 59 was wrong — it came from a
+	// summary of the page rather than the page — and Google's table says 60,
+	// which is what the rule files say too. There is no disagreement.
+	//
+	// What stops it is one set of the seventy-two. The category sets and
+	// `cve-canary` are enumerated in tables, but `json-sqli-canary` is
+	// described only in prose, which names its signature as "942550-sqli"
+	// rather than as a full identifier. Composing `owasp-crs-v030001-id942550-sqli`
+	// from that is the one invented identifier this whole exercise is about
+	// avoiding, and answering with 71 sets where the service answers with 72 is
+	// a wrong answer of a different shape. Confirm that one id — a recorded
+	// response of the real service settles it, which is how the Azure catalogue
+	// settled its wire spellings — and the rest is mechanical.
 	//
 	// interconnectLocations and interconnectRemoteLocations are the facilities
 	// Google runs Cloud Interconnect out of and the third-party ones it peers
