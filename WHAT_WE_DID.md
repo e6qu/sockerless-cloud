@@ -140,12 +140,18 @@ disagreement between a reconstruction and the documentation; that 59 came from a
 summary of the page rather than the page, and the page says 60, which is what
 the rule files say too. There was no disagreement.
 
-One set of the seventy-two stops it. `json-sqli-canary` is described in prose
-naming its signature as "942550-sqli" rather than as a full identifier, and
-composing the identifier from that is the one invented id this exercise exists
-to avoid — while answering with 71 sets where the service answers with 72 is a
-wrong answer of another shape. The floor comment records the parse, the counts
-and that single open identifier, so the next attempt is mechanical.
+One set of the seventy-two stops it, and it is worth recording how close the
+wrong answer came. `json-sqli-canary` is described in prose naming its signature
+as "942550-sqli" rather than as a full identifier. The composition every id in
+the tables suggests is `owasp-crs-v030001-id942550-sqli`, and a code search
+finds that string in no repository anywhere; the spelling that does occur — five
+repositories, Google's own terraform-google-waap among them — is
+`owasp-crs-id942550-sqli`, with no CRS-version segment at all. Both forms
+coexist and the tables' form is not universal, which is precisely what a
+recorded response settles and an analogy does not. None of the five is an API
+response, so the set stays unoffered until its contents are known rather than
+guessed, and the floor comment carries the parse, the counts and both candidate
+spellings.
 
 Checking whether the other slices carry the same surface turned up a fake in
 the Google Cloud one, and it is fixed (BUG-2966). Six implementations of

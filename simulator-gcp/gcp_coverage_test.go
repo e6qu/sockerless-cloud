@@ -132,12 +132,24 @@ var gcpMethodFloor = map[string]int{
 	// What stops it is one set of the seventy-two. The category sets and
 	// `cve-canary` are enumerated in tables, but `json-sqli-canary` is
 	// described only in prose, which names its signature as "942550-sqli"
-	// rather than as a full identifier. Composing `owasp-crs-v030001-id942550-sqli`
-	// from that is the one invented identifier this whole exercise is about
-	// avoiding, and answering with 71 sets where the service answers with 72 is
-	// a wrong answer of a different shape. Confirm that one id — a recorded
-	// response of the real service settles it, which is how the Azure catalogue
-	// settled its wire spellings — and the rest is mechanical.
+	// rather than as a full identifier.
+	//
+	// Composing the identifier from that would have been wrong, and it is worth
+	// recording how wrong. The obvious composition by analogy with every id in
+	// the tables is `owasp-crs-v030001-id942550-sqli`, and a GitHub code search
+	// finds that string in no repository anywhere. The spelling that does occur
+	// — five repositories, including Google's own
+	// GoogleCloudPlatform/terraform-google-waap — is `owasp-crs-id942550-sqli`,
+	// with no CRS-version segment at all. So the two forms coexist and the
+	// tables' form is not universal, which is exactly the kind of thing a
+	// recorded response settles and an analogy does not.
+	//
+	// None of those five is an API response; they are Terraform configurations
+	// and a log filter. Confirm the id against a recorded
+	// listPreconfiguredExpressionSets response — the way the Azure catalogue
+	// settled its wire spellings — and the rest is mechanical. Answering with
+	// 71 sets where the service answers with 72 is a wrong answer of another
+	// shape, so the set is not offered until its contents are known.
 	//
 	// interconnectLocations and interconnectRemoteLocations are the facilities
 	// Google runs Cloud Interconnect out of and the third-party ones it peers
