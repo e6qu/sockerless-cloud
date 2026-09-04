@@ -65,6 +65,19 @@ subresource, and with the verb the operation needs. Removing `acl` from the
 table fails GetBucketAcl and PutBucketAcl by name; taking DELETE off `tagging`
 fails DeleteBucketTagging.
 
+Refreshing the vendored specifications to today's upstream brought one new
+Amazon EC2 operation with it, and it is served rather than exempted.
+`ValidateSecurityGroupQuotasForInterface` answers whether a set of security
+groups could all attach to one network interface, which is a real computation
+over the groups the simulator already holds: it counts each permission's
+sources the way AWS counts rules — a permission naming three CIDRs is three
+rules — against the two Amazon VPC quotas AWS publishes, sixty rules per group
+and five groups per interface. A group the request names that does not exist is
+`InvalidGroup.NotFound`, as it is for every other operation that resolves one.
+The pinned aws-sdk-go-v2 release predates the operation, so the test signs and
+posts the ec2Query request the generated client would, and drives both refusals
+as well as the pass. Amazon EC2 now reads 802 of 802.
+
 The three coverage ratchets were themselves put through negative controls,
 because a number is only as good as the gate that holds it. Deleting two
 Compute Engine routes dropped compute-v1 from 2,016/2,016 to 2,012/2,016 and

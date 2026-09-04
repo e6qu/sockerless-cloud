@@ -626,6 +626,7 @@ func registerEC2(r *sim.AWSQueryRouter, srv *sim.Server) {
 	// Security Group
 	r.Register("CreateSecurityGroup", handleCreateSecurityGroup)
 	r.Register("DescribeSecurityGroups", handleDescribeSecurityGroups)
+	r.Register("ValidateSecurityGroupQuotasForInterface", handleValidateSecurityGroupQuotasForInterface)
 	r.Register("DescribeSecurityGroupRules", handleDescribeSecurityGroupRules)
 	r.Register("ModifySecurityGroupRules", handleModifySecurityGroupRules)
 	r.Register("DeleteSecurityGroup", handleDeleteSecurityGroup)
