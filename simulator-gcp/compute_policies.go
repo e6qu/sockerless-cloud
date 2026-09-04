@@ -21,12 +21,11 @@ import (
 // code that serves the rest.
 //
 // listPreconfiguredExpressionSets returns Google's own catalogue of WAF
-// expression sets, which this simulator has no basis for: an empty answer is
-// not what the service returns, and a populated one would be invented. It is
-// answered as a declared NotImplemented rather than left unmounted, because the
-// `{policy}` read beside it would otherwise swallow the path and report the
-// method as a policy that does not exist — a gap disguised as a served read,
-// which is what TestServiceConformance_GCPNoPhantomCoverage exists to catch.
+// expression sets. It is published, so it is vendored from that publication and
+// served — see compute_waf_expression_sets.go. It stays mounted before the
+// `{policy}` read, which would otherwise swallow the path and report the method
+// as a policy that does not exist: a gap disguised as a served read, which is
+// what TestServiceConformance_GCPNoPhantomCoverage exists to catch.
 
 // computePolicyFamily describes one policy collection's declared surface. Each
 // toggle mirrors a method the Discovery document declares for that collection
@@ -141,12 +140,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 
 	// Named before the {policy} read so the catalogue path is not taken for a
 	// policy name.
-	srv.HandleFunc("GET "+f.base+"/listPreconfiguredExpressionSets", func(w http.ResponseWriter, r *http.Request) {
-		sim.GCPError(w, http.StatusNotImplemented,
-			"The simulator serves no preconfigured WAF expression sets: the catalogue is Google's own, "+
-				"and neither an empty list nor an invented one is what this method returns.",
-			"UNIMPLEMENTED")
-	})
+	srv.HandleFunc("GET "+f.base+"/listPreconfiguredExpressionSets", handleWafPreconfiguredExpressionSets)
 
 	// The policy itself.
 	srv.HandleFunc("POST "+f.base, func(w http.ResponseWriter, r *http.Request) {

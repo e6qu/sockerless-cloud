@@ -126,11 +126,12 @@ Current state of the sockerless-cloud repository.
   figures written here had drifted from the tests that produce them): IAM
   resource derivation **2,000 of 2,008** served operations, the eight that
   remain being requests that carry no resource to derive;
-  `compute-v1` **2,012 of 2,016** (both interconnect catalogues are vendored from
-  Google's own documentation — 321 colocation facilities and 74 Cross-Cloud
-  Interconnect remote locations — read through a rowspan-aware grid and locked
-  by their own tests), the four that remain being the Cloud Armor expression
-  sets;
+  `compute-v1` **2,016 of 2,016**, which closes the Google Cloud slice at
+  **5,486 of 5,486**: the two interconnect catalogues and the Cloud Armor
+  expression sets are all vendored from Google's own documentation — 321
+  colocation facilities, 74 Cross-Cloud Interconnect remote locations, and 70
+  expression sets carrying 953 signature slots — read through a rowspan-aware
+  grid and locked by their own tests;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
   catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` **120 of 120**;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery

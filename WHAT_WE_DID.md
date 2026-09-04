@@ -129,6 +129,27 @@ location name in the second cell of every chunk, and requires the names
 recovered to equal the names anywhere on the page. It exits rather than emitting
 a short catalogue.
 
+The Cloud Armor preconfigured expression sets are served, which closes Google
+Cloud at 5,486 of 5,486. The catalogue is vendored from Google's documentation:
+70 sets carrying 953 signature slots, signatures joined to their set by the
+identifier — which names both the CRS release and the category — with the
+generator exiting if any set the status tables declare fails to come out of that
+derivation. All 68 declared sets do.
+
+The identifier this was blocked on was on the page the whole time. An earlier
+pass looked only at tables whose ids matched the versioned pattern and so
+skipped the one table that gives `owasp-crs-id942550-sqli`, the JSON SQLi set's
+single signature, which carries no CRS-version segment. The evidence that
+composing it by analogy would be wrong had already been found — the composed
+form appears in no repository anywhere — and was used to stop rather than to
+look harder. Both it and cve-canary's six signatures are read from the page and
+asserted by name.
+
+Writing the lock caught a distinction that had been assumed: every stable set is
+in sync with its canary, but the two vulnerability sets are canary-only, so the
+pairing is checked where the source has a pair and the number of pairs is
+locked.
+
 The Cross-Cloud Interconnect remote locations are served too, from the four
 "Choose your locations" pages Google publishes, one per cloud provider — 74
 locations. The obstacle there was never the enumeration but the association: the
