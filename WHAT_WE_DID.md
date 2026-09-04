@@ -119,6 +119,20 @@ build's verdict already was: CancelBuild only moves a build that has not
 settled, so a step that had really failed would have settled the build before
 the cancel could land.
 
+The Google Cloud CLI suite had the same defect and no pre-pull at all. Its
+Cloud Build cancel test builds `FROM alpine:latest` and waits 120 seconds for
+the first step to start, so the pull happened inside that window; the suite
+failed exactly that way — "the build's first step never started running" —
+when the image was not already on the host. Its four workload sites now use
+the pinned Amazon ECR Public Gallery image, and `TestMain` acquires it with
+retries and fails the run when it cannot, the way the SDK harness does. No
+`alpine:latest` reference remains in the suite, so it cannot reach Docker Hub
+whether or not the image happens to be cached.
+
+This surfaced only because the branch has no continuous-integration run behind
+it — `ci.yml` is pull-request-only and no pull request is open — so the
+per-suite jobs were run locally instead. The Azure CLI suite passes too.
+
 `createBucket` also treats a 409 as "the bucket is there", which is what Cloud
 Storage answers and what lets a test in that package be re-run in one process:
 stressing a flaky test with `-count` previously failed on the second iteration

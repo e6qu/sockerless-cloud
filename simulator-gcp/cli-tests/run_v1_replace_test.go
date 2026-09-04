@@ -127,7 +127,7 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	// execution except the cancel the CLI sends.
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId="+jobID, `{
 		"template": {"template": {"containers": [
-			{"image": "alpine:latest", "command": ["sleep"], "args": ["3600"]}
+			{"image": "`+cliWorkloadImage+`", "command": ["sleep"], "args": ["3600"]}
 		]}}
 	}`)
 	t.Cleanup(func() {

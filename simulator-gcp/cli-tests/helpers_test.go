@@ -64,6 +64,30 @@ func mintSimAccessToken(base string) (string, error) {
 	return body.AccessToken, nil
 }
 
+// cliWorkloadImage is the base image this suite runs as a container workload
+// and builds from. It is served from the Amazon ECR Public Gallery, which is
+// the registry CI warms from a cached tarball — scripts/base-images-for.sh
+// derives that set by scanning these sources for gallery references — while
+// Docker Hub is not warmed and caps anonymous pulls.
+const cliWorkloadImage = "public.ecr.aws/docker/library/alpine:3.20"
+
+// pullWorkloadImage acquires the image before m.Run, with retries, and fails
+// the run when it cannot. Fetching it lazily instead leaves the pull to happen
+// inside a timed test, where a slow or throttled registry surfaces as a
+// workload that never started rather than as a pull error.
+func pullWorkloadImage(image string) {
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		if out, err := exec.Command("docker", "pull", image).CombinedOutput(); err == nil {
+			return
+		} else {
+			lastErr = fmt.Errorf("%w\n%s", err, out)
+		}
+		time.Sleep(time.Duration(attempt*attempt) * time.Second)
+	}
+	log.Fatalf("Failed to pull %s after retries: %v", image, lastErr)
+}
+
 func TestMain(m *testing.M) {
 	// A simulator this process starts must not outlive it. The cleanup
 	// below stops each one, and a killed `go test` never reaches it — so
@@ -81,6 +105,8 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command(gcloudPath, "version").CombinedOutput(); err != nil {
 		log.Fatalf("gcloud CLI is not runnable after setup: %v\n%s", err, out)
 	}
+
+	pullWorkloadImage(cliWorkloadImage)
 
 	// Build simulator
 	// Each suite builds the simulator it runs into a path of its own. The
