@@ -50,10 +50,18 @@ Current state of the sockerless-cloud repository.
   scan set is empty, so the same rot cannot recur silently. The case-fold gate
   was hiding two live instances of its own class, both fixed with the
   byte-length-preserving helpers.
+- **The declared surface is served or declared, at the 2026-09-04 revisions.**
+  GCP reads 5,486 of 5,512 method spellings and Azure 2,628 of 2,628. The
+  twenty-six unserved are Compute Engine's capacity advice and its regional
+  project view, and Cloud Billing's Agent-to-Agent billing agent — each
+  answering a declared 501 that names what is missing, because each needs
+  something only Google has: the free capacity in its fleet, a regional replica
+  that lags the canonical write path, and the model that answers the agent's
+  messages.
 - **Both declared-surface ratchets are held to routes that name the operation.**
   Google Cloud's phantom-coverage detector has an Azure counterpart, so neither
-  5,486/5,486 nor 2,628/2,628 can be met by a subtree owner answering for a
-  sibling nobody implemented. The routes that legitimately dispatch inside the
+  5,486 of 5,512 nor 2,628 of 2,628 can be met by a subtree owner answering
+  for a sibling nobody implemented. The routes that legitimately dispatch inside the
   handler are listed with the reason each one does: repository names carrying
   slashes on the two container-registry data planes, a Host header selecting
   the service on the shared data-plane route, and Azure RBAC reads served by
