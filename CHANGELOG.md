@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.2](https://github.com/e6qu/sockerless-cloud/compare/v0.30.1...v0.30.2) (2026-09-04)
+
+
+### Bug Fixes
+
+* bound the OIDC token exchange and ID-token verification in callback ([#115](https://github.com/e6qu/sockerless-cloud/issues/115)) ([937177a](https://github.com/e6qu/sockerless-cloud/commit/937177a4bcc4db42b06b855b7101b8415ae39718))
+
 ## [0.30.1](https://github.com/e6qu/sockerless-cloud/compare/v0.30.0...v0.30.1) (2026-09-04)
 
 
