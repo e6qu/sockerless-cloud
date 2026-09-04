@@ -199,10 +199,15 @@ func (a *Auth) Protect(next http.Handler) http.Handler {
 	})
 }
 
-// oidcDiscoveryClient bounds the issuer discovery and key-set fetches.
-// go-oidc otherwise uses http.DefaultClient, whose zero timeout would hold
-// providerMu — and with it every login, logout, and back-channel logout —
-// for as long as a slow or unreachable issuer keeps the connection open.
+// oidcDiscoveryClient bounds every call this package makes to the issuer:
+// discovery and key-set fetches through providerFor, and, via callback's
+// oidc.ClientContext, the token exchange and ID-token key-set verification
+// too. go-oidc and golang.org/x/oauth2 both read the same http.Client out of
+// the context (oidc.ClientContext sets the same key oauth2 checks); without
+// it they fall back to http.DefaultClient's zero timeout, and a slow or
+// unreachable issuer can then hold providerMu, or hang callback and the
+// browser's pending redirect, for as long as it keeps the connection open
+// instead of failing fast into the 502 responses already coded for that.
 var oidcDiscoveryClient = &http.Client{Timeout: 10 * time.Second}
 
 func (a *Auth) providerFor() (*oidc.Provider, error) {
@@ -292,8 +297,9 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "OIDC discovery failed", http.StatusBadGateway)
 		return
 	}
+	ctx := oidc.ClientContext(r.Context(), oidcDiscoveryClient)
 	oauthConfig := a.oauthConfig(provider)
-	tokens, err := oauthConfig.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(tx.Verifier))
+	tokens, err := oauthConfig.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(tx.Verifier))
 	if err != nil {
 		http.Error(w, "OIDC token exchange failed", http.StatusBadGateway)
 		return
@@ -303,7 +309,7 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "OIDC response did not contain an ID token", http.StatusBadGateway)
 		return
 	}
-	idToken, err := provider.Verifier(&oidc.Config{ClientID: a.config.ClientID}).Verify(r.Context(), rawIDToken)
+	idToken, err := provider.Verifier(&oidc.Config{ClientID: a.config.ClientID}).Verify(ctx, rawIDToken)
 	if err != nil {
 		http.Error(w, "OIDC ID token validation failed", http.StatusForbidden)
 		return

@@ -19,6 +19,17 @@
 # of the cases below proves that clamp holds.
 set -euo pipefail
 
+# Running as a pre-commit hook, this script inherits GIT_DIR and
+# GIT_INDEX_FILE pointing at the real repository's git-dir and index.
+# new_repo() below does its own `git init` in a throwaway fixture directory,
+# and with those variables still set, every one of its nested git commands
+# operates on the real repository instead of the fresh fixture one --
+# corrupting the real index with the fixture's tiny, unrelated tree instead
+# of ever touching the fixture's own .git. Only a real `git commit` sets
+# these, so `pre-commit run` and running this script directly both hide the
+# bug; unset them before any fixture repo exists.
+unset -v GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX
+
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 fixture="$(mktemp -d)"
 # Go's module cache is written read-only, so the fixture has to be made
