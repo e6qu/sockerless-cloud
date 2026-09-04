@@ -53,6 +53,18 @@ Amazon ECR Public Gallery base the rest of the file already used, and the
 `alpine:latest` the Cloud Run job tests run as their workload is acquired
 through the retrying, fail-loud helper that sat directly beneath the warning.
 
+The AWS clause of the ratchet reads "implemented **or exempt**", and the
+exemption list is 46 operations — every one an Amazon S3 bucket subresource.
+Their reason is sound: S3 routes those by query parameter, so the operation
+name never appears in the source and each is served by the bucket-subresource
+table. But a blanket exemption cannot tell "routed by query parameter" from
+"not served at all": delete an entry from that table and its operations stay
+exempted, unserved, with nothing to say so. Each exemption's reason names its
+subresource, so that claim is now checked — the table must route the
+subresource, and with the verb the operation needs. Removing `acl` from the
+table fails GetBucketAcl and PutBucketAcl by name; taking DELETE off `tagging`
+fails DeleteBucketTagging.
+
 The three coverage ratchets were themselves put through negative controls,
 because a number is only as good as the gate that holds it. Deleting two
 Compute Engine routes dropped compute-v1 from 2,016/2,016 to 2,012/2,016 and

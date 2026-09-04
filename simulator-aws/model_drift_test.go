@@ -236,3 +236,43 @@ func modelOperations(t *testing.T, path string) []string {
 	sort.Strings(operations)
 	return operations
 }
+
+// TestS3SubresourceExemptionsAreRouted holds the S3 exemptions to their stated
+// reason. Each one claims the operation is served by the bucket-subresource
+// table rather than by a handler naming it, which is true of S3's
+// query-parameter routing — but a blanket exemption cannot tell "routed by
+// query parameter" from "not served at all", so an entry deleted from the
+// table would leave its operations exempted and unserved with nothing to say
+// so. The reason string names the subresource, and this checks the table
+// actually routes it, with the verb the operation needs.
+func TestS3SubresourceExemptionsAreRouted(t *testing.T) {
+	for operation, reason := range modelDriftExemptions {
+		sub, ok := strings.CutPrefix(reason, "s3 ?")
+		if !ok {
+			t.Errorf("%s: exemption reason %q is not an S3 subresource claim; this test only "+
+				"knows how to verify those, so either state the subresource or verify the new class",
+				operation, reason)
+			continue
+		}
+		sub, ok = strings.CutSuffix(sub, " subresource")
+		if !ok {
+			t.Errorf("%s: exemption reason %q does not end in \" subresource\"", operation, reason)
+			continue
+		}
+		spec, routed := bucketSubresourceHandlers[sub]
+		if !routed {
+			t.Errorf("%s: exempted as the %q subresource, but the bucket-subresource table does "+
+				"not route %q — the operation is unserved, not routed by query parameter",
+				operation, sub, sub)
+			continue
+		}
+		switch {
+		case strings.HasPrefix(operation, "Put") && spec.putStatus == 0:
+			t.Errorf("%s: the %q subresource has no PUT shape, so the exemption's claim that this "+
+				"operation is routed there is false", operation, sub)
+		case strings.HasPrefix(operation, "Delete") && !spec.hasDelete:
+			t.Errorf("%s: the %q subresource does not accept DELETE, so the exemption's claim that "+
+				"this operation is routed there is false", operation, sub)
+		}
+	}
+}
