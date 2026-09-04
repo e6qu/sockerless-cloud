@@ -136,6 +136,11 @@ func TestCompute_SharedVPCHostAndServiceProjects(t *testing.T) {
 // reason instead. An empty list would be a false statement about Google's own
 // catalogue, and a client cannot tell one from a real answer.
 //
+// interconnectLocations was here and is not any more: Google publishes the
+// catalogue and it is vendored from that publication, so it is served — see
+// TestCompute_InterconnectLocationsAreTheVendoredCatalog, which also holds the
+// fields the page does not state to being absent.
+//
 // interconnects.getDiagnostics was here and is not any more: most of what it
 // reports is on the interconnect's own record, and it is served from there —
 // see TestCompute_InterconnectDiagnosticsComeFromTheInterconnect, which also
@@ -148,10 +153,6 @@ func TestCompute_GooglePublishedCatalogsAreDeclaredGaps(t *testing.T) {
 		what string
 		call func() error
 	}{
-		{"interconnect locations", func() error {
-			_, err := svc.InterconnectLocations.List(project).Do()
-			return err
-		}},
 		{"interconnect remote locations", func() error {
 			_, err := svc.InterconnectRemoteLocations.List(project).Do()
 			return err

@@ -17,8 +17,6 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /compute/v1/projects/{project}/global/interconnectLocations` | ? `simulator-gcp/compute_catalogs.go:38::locations` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/interconnectLocations/{interconnectLocation}` | ? `simulator-gcp/compute_catalogs.go:39::locations` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/global/interconnectRemoteLocations` | ? `simulator-gcp/compute_catalogs.go:41::remote` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/global/interconnectRemoteLocations/{interconnectRemoteLocation}` | ? `simulator-gcp/compute_catalogs.go:42::remote` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/global/reliabilityRisks` | ○ `simulator-gcp/compute_catalogs.go:51::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |

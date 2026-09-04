@@ -107,6 +107,28 @@ matters because the global fallback holds a malformed address), and
 instead of leaving them to surface as a stack trace or, in the identity's case,
 not at all. Recorded as BUG-2967.
 
+The colocation-facility catalogue is served, and it is vendored the way this
+project vendors a published catalogue: `scripts/fetch-gcp-interconnect-locations.sh`
+fetches Google's own documentation with curl and parses it into
+`compute_interconnect_locations_vendored.json` — 321 facilities, the source URL
+and retrieval date in the file, the counts locked by a test so a partial vendor
+fails loudly. Every field served is one the page states; the street address, the
+facility provider, the continent and the link types are absent, because the page
+gives a geographic grouping and a link-speed column whose mapping onto Compute
+Engine's enums is a judgement, and a field the source does not state is left out
+rather than inferred. Both the SDK and CLI tests assert that absence, so an
+operator cannot mistake an omission for a fact. `compute-v1` reads 2,008 of
+2,016.
+
+The parser verifies its own alignment, and that is not decoration: the first
+attempt recovered 237 of 321 rows because the cell pattern did not allow
+attributes, the second missed one because it matched `<tr>` literally, and the
+row it missed — Cape Town — has no `<tr>` tag at all in Google's markup. It now
+chunks cells five at a time, the count the table's header declares, requires a
+location name in the second cell of every chunk, and requires the names
+recovered to equal the names anywhere on the page. It exits rather than emitting
+a short catalogue.
+
 `interconnects.getDiagnostics` is served, and the reason it was not is the same
 mistake: it was recorded as hardware reporting on itself, and most of what it
 reports is on the interconnect's own record — whether the bundle is up, whether

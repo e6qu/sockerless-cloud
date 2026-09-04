@@ -162,6 +162,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerComputeProject(srv)
 	registerComputeCatalogs(srv)
 	registerComputeInterconnectDiagnostics(srv)
+	registerComputeInterconnectLocations(srv)
 	registerComputeRouterNamedSets(srv)
 	registerComputeOrganizationOperations(srv)
 	computeSignedURLKeys(srv, "backendBuckets", gcpComputeBackendBuckets)

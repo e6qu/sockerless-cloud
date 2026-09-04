@@ -206,7 +206,7 @@ var gcpMethodFloor = map[string]int{
 	//
 	// Lower this floor by one and the gate prints the unserved list, which is
 	// the work list whenever that changes.
-	"compute-v1":              2004,
+	"compute-v1":              2008,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

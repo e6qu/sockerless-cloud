@@ -32,11 +32,11 @@ func registerComputeCatalogs(srv *sim.Server) {
 		}
 	}
 
-	// The facilities Google operates Cloud Interconnect out of, and the
-	// third-party facilities it peers with.
-	locations := catalog("Cloud Interconnect locations")
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectLocations", locations)
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectLocations/{interconnectLocation}", locations)
+	// The facilities Google operates Cloud Interconnect out of are vendored
+	// from its own documentation and served in
+	// compute_interconnect_locations.go. The third-party facilities it peers
+	// with for Cross-Cloud Interconnect are a separate catalogue on a separate
+	// page and are not vendored yet.
 	remote := catalog("Cloud Interconnect remote locations")
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectRemoteLocations", remote)
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectRemoteLocations/{interconnectRemoteLocation}", remote)
