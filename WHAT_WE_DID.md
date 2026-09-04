@@ -129,6 +129,18 @@ location name in the second cell of every chunk, and requires the names
 recovered to equal the names anywhere on the page. It exits rather than emitting
 a short catalogue.
 
+The Cross-Cloud Interconnect remote locations were probed the same way and are
+a harder vendor, which is recorded rather than guessed at. There is no single
+list — the remote locations are documented per cloud provider, four pages — and
+the association rather than the enumeration is what can go wrong there: the
+tables lean on rowspans and the markup drops rows, so a content-shaped parse
+recovered 27 entries cleanly while attributing no metropolitan area to
+`aws-lgknx`, whose city is rowspanned from the entry above. The names are not a
+simple pattern either, `aws-eqse2-eq` carrying a sublocation suffix that the
+obvious one rejects. A remote location filed under the wrong city is a wrong
+answer no count check reveals, so the floor comment carries what the pages do
+give and what a correct parse has to handle.
+
 `interconnects.getDiagnostics` is served, and the reason it was not is the same
 mistake: it was recorded as hardware reporting on itself, and most of what it
 reports is on the interconnect's own record — whether the bundle is up, whether

@@ -151,26 +151,39 @@ var gcpMethodFloor = map[string]int{
 	// 71 sets where the service answers with 72 is a wrong answer of another
 	// shape, so the set is not offered until its contents are known.
 	//
-	// interconnectLocations and interconnectRemoteLocations are the facilities
-	// Google runs Cloud Interconnect out of and the third-party ones it peers
-	// with. An earlier note here said no machine-readable source was found; it
-	// was not looked for. Google's colocation-facility documentation at
-	// https://docs.cloud.google.com/network-connectivity/docs/interconnect/concepts/choosing-colocation-facilities
-	// parses the same way the WAF page does — measured on 2026-09-04, 320 table
-	// rows carrying 321 location names — and each row gives the metropolitan
-	// area, the location name (`ams-zone1-1236`, which encodes both the
-	// availability zone and the peeringdb facility id), a peeringdb link and
-	// the facility's display name, and the low-latency region. The section
-	// headings give the continent.
+	// interconnectLocations is served: Google publishes the colocation
+	// facilities, and they are vendored from that publication in
+	// compute_interconnect_locations.go.
 	//
-	// That covers name, city, continent, peeringdbFacilityId, availabilityZone,
-	// description and regionInfos. It does not cover the street address, and
-	// facilityProvider would have to be read out of the facility's display
-	// name ("Equinix Amsterdam Schepenbergweg (AM5)"), which is an inference
-	// rather than a field — the two places this one needs care that the WAF
-	// catalogue did not. Omitting a field the document does not require is
-	// fine, as the App Service and interconnect-diagnostics reads already do;
-	// inferring one is not.
+	// interconnectRemoteLocations is the Cross-Cloud Interconnect catalogue —
+	// the third-party facilities Google peers with — and it is a harder vendor
+	// than the colocation one, for reasons worth writing down so the next
+	// attempt does not rediscover them.
+	//
+	// There is no single list. The remote locations are documented per cloud
+	// provider, on a "Choose your locations" page each for Amazon Web Services,
+	// Microsoft Azure, Oracle Cloud Infrastructure and Alibaba Cloud, so the
+	// catalogue is four parses rather than one. Each page does carry what the
+	// resource needs — measured on the AWS page on 2026-09-04, the remote
+	// location name (`aws-tejb1`), the facility provider's own id (`TEJB1`),
+	// the metropolitan area, and the Google locations it may connect to, which
+	// is permittedConnections.
+	//
+	// What makes it harder is that the association, not the enumeration, is
+	// what can go wrong, and a count check cannot catch it. The tables lean on
+	// rowspans and the markup drops rows — a content-shaped parse recovered 27
+	// entries cleanly and still attributed no metropolitan area to `aws-lgknx`,
+	// whose city is rowspanned from the entry above it. The names are not a
+	// simple pattern either: `aws-eqse2-eq` carries a sublocation suffix that a
+	// `aws-[a-z0-9]+` pattern rejects, so a parse can be both over- and
+	// under-inclusive at once. A remote location filed under the wrong city, or
+	// offering the wrong permittedConnections, is a wrong answer that nothing
+	// in the vendored file would reveal.
+	//
+	// Serve it with a rowspan-aware parse whose associations are checked
+	// against the page rather than assumed, over all four provider pages, and
+	// with the name pattern taken from a recorded response rather than from the
+	// examples.
 	//
 	// interconnects.getDiagnostics used to be listed here as hardware
 	// reporting on itself. Most of what it reports is on the interconnect's own
