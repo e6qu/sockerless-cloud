@@ -1,10 +1,20 @@
 package aws_sdk_test
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/acm"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
@@ -261,5 +271,89 @@ func TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant(t *testing.T
 	_, err = client("cm-other-account", "999999999999").GetService(ctx,
 		&servicediscovery.GetServiceInput{Id: aws.String(serviceID)})
 	require.Error(t, err, "a service created by another account is not covered by the grant")
+	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// TestDynamoDB_SelectConditionKeyScopesTheGrant covers dynamodb:Select, how
+// much of a matched item a read returns — the key a policy pins so a caller can
+// count rows without reading them.
+func TestDynamoDB_SelectConditionKeyScopesTheGrant(t *testing.T) {
+	admin := ddbClient()
+	const table = "cond-select-table"
+	_, err := admin.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: aws.String(table),
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeS}},
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash}},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = admin.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(table)}) })
+
+	akid, secret := restrictedCredential(t, "ddb-counts-only",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:Scan","Resource":"*",
+		  "Condition":{"StringEquals":{"dynamodb:Select":"COUNT"}}}]}`)
+	restricted := dynamodb.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
+		func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	_, err = restricted.Scan(ctx, &dynamodb.ScanInput{
+		TableName: aws.String(table), Select: ddbtypes.SelectCount})
+	assert.NoError(t, err, "counting is what the grant allows")
+
+	_, err = restricted.Scan(ctx, &dynamodb.ScanInput{
+		TableName: aws.String(table), Select: ddbtypes.SelectAllAttributes})
+	require.Error(t, err, "reading the attributes is not covered by the grant")
+	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// TestACM_CertificateKeyPairOriginConditionKeyScopesTheGrant covers
+// acm:CertificateKeyPairOrigin, which says who made a certificate's key pair —
+// the caller, for one it imported, or AWS, for one this service issued. A
+// policy uses it to keep operators away from certificates whose private key
+// came from outside.
+func TestACM_CertificateKeyPairOriginConditionKeyScopesTheGrant(t *testing.T) {
+	admin := acmClient()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(4242),
+		Subject:      pkix.Name{CommonName: "origin.example.com"},
+		DNSNames:     []string{"origin.example.com"},
+		NotBefore:    now.Add(-time.Hour), NotAfter: now.AddDate(1, 0, 0),
+		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	require.NoError(t, err)
+	imported, err := admin.ImportCertificate(ctx, &acm.ImportCertificateInput{
+		Certificate: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		PrivateKey: pem.EncodeToMemory(&pem.Block{
+			Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)}),
+	})
+	require.NoError(t, err)
+
+	issued, err := admin.RequestCertificate(ctx, &acm.RequestCertificateInput{
+		DomainName: aws.String("issued.example.com")})
+	require.NoError(t, err)
+
+	akid, secret := restrictedCredential(t, "acm-imported-only",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"acm:DescribeCertificate",
+		  "Resource":"*",
+		  "Condition":{"StringEquals":{"acm:CertificateKeyPairOrigin":"IMPORTED"}}}]}`)
+	restricted := acm.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
+		func(o *acm.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	_, err = restricted.DescribeCertificate(ctx, &acm.DescribeCertificateInput{
+		CertificateArn: imported.CertificateArn})
+	assert.NoError(t, err, "the caller imported this certificate's key pair, which the grant names")
+
+	_, err = restricted.DescribeCertificate(ctx, &acm.DescribeCertificateInput{
+		CertificateArn: issued.CertificateArn})
+	require.Error(t, err, "a certificate this service issued is not covered by the grant")
 	assert.Contains(t, err.Error(), "not authorized")
 }

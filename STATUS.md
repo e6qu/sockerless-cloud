@@ -110,7 +110,7 @@ Current state of the sockerless-cloud repository.
   AWS Secrets Manager keys read from the secret a request names — so a policy
   that scopes an action through its condition key is evaluated against a context
   that holds it: the actions declaring an action condition key
-  carry every one of theirs — 1,393 of them (BUG-2965 measures the rest). An
+  carry every one of theirs — 1,406 of them (BUG-2965 measures the rest). An
   awsJson denial is written under the member name the service's own model
   declares for it, `message` or `Message`, which half of AWS's services spell
   each way; a table holds each one and a gate reads the models to keep it

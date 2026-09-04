@@ -343,8 +343,29 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 	// exist settles no key.
 	if service == "servicediscovery" {
 		if id := iamRequestParameter(r, body, "Id"); id != "" {
-			if _, ok := cmServices.Get(id); ok {
+			if found, ok := cmServices.Get(id); ok {
 				ctx["servicediscovery:ServiceCreatedByAccount"] = []string{awsAccountID()}
+				ctx["servicediscovery:ServiceArn"] = []string{found.Arn}
+			}
+		}
+	}
+
+	// acm:CertificateKeyPairOrigin says who made the certificate's key pair:
+	// AWS, for one this service issued, or the caller, for one it imported —
+	// which the certificate's own record settles.
+	if service == "acm" {
+		if arn := iamRequestParameter(r, body, "CertificateArn"); arn != "" {
+			// The store is keyed by the certificate's id, which is the last
+			// segment of its ARN.
+			if stored, ok := acmCertificates.Get(acmARNToID(arn)); ok {
+				// The certificate's own type says who made its key pair: one
+				// the caller imported came with its key, and one this service
+				// issued was made here.
+				origin := "AWS_ISSUED"
+				if stored.Cert.Type == "IMPORTED" {
+					origin = "IMPORTED"
+				}
+				ctx["acm:CertificateKeyPairOrigin"] = []string{origin}
 			}
 		}
 	}

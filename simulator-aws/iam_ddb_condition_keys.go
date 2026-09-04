@@ -37,6 +37,11 @@ func iamPopulateDynamoDBConditionKeys(r *http.Request, action string, body []byt
 	if values, ok := request["ReturnValues"].(string); ok && values != "" {
 		ctx["dynamodb:ReturnValues"] = []string{values}
 	}
+	// dynamodb:Select is how much of the matched items a read returns, which a
+	// policy pins so a caller can count rows without reading them.
+	if selection, ok := request["Select"].(string); ok && selection != "" {
+		ctx["dynamodb:Select"] = []string{selection}
+	}
 	// An operation that carries other operations names itself as the enclosing
 	// one for the requests inside it.
 	switch operation {

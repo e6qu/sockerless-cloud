@@ -85,6 +85,14 @@ actually writes, refusing an unencrypted or public write, now enforces.
 service a request names, and the AWS Organizations transfer pair from the
 request itself, taking coverage past four in five at 1,393 of 1,739.
 
+`servicediscovery:ServiceArn`, `dynamodb:Select` and
+`acm:CertificateKeyPairOrigin` — the last read from whether the certificate was
+imported or issued here — took coverage to 1,406 of 1,739. Two large groups in
+what remains are correctly absent rather than missing: `kms:ViaService`, set
+only when another service makes the call on the caller's behalf, and the
+`kms:RecipientAttestation:*` measurements, which are the PCRs of a Nitro Enclave
+attestation document that no request reaching this simulator carries.
+
 Checking whether the other slices carry the same surface turned up a fake in
 the Google Cloud one, filed as BUG-2966: six implementations of
 `testIamPermissions` answer with the question, echoing back the permission set
