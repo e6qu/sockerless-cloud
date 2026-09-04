@@ -51,6 +51,15 @@ from the version or alias on the ARN, and `ecs:propagate-tags` and
 `rds:ManageMasterUserPassword` from the request's own members. Coverage reached
 1,333 of 1,739.
 
+`lambda:FunctionArn` names the function an event-source mapping or function URL
+is about, resolved through the mapping where the request names only its id.
+`s3:AccessGrantsInstanceArn` names the S3 Access Grants instance that issued the
+credentials a request is signed with, which is a fact about the credential, so
+it is recorded with it when the grant is redeemed. Its test is the one worth
+keeping: the refused call is made by the same role under the same policy holding
+credentials from a plain AssumeRole, so nothing differs but how they were
+obtained — which is exactly what the key describes. Coverage reached 1,344.
+
 Proving the encryption-context key found something larger. A grant that should
 have been refused was allowed, and the condition keys were not the cause: the
 simulator read an account-root principal in a resource policy as an outright

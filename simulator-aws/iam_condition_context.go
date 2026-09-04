@@ -283,6 +283,15 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		iamPopulateDynamoDBConditionKeys(r, action, body, ctx)
 	}
 
+	// lambda:FunctionArn is the function an event-source mapping or a function
+	// URL is about — the request names it directly where it creates one, and
+	// names the mapping whose function it is everywhere else.
+	if service == "lambda" {
+		if arn := iamLambdaRequestFunctionARN(r, body); arn != "" {
+			ctx["lambda:FunctionArn"] = []string{arn}
+		}
+	}
+
 	// ssm:DocumentType is the kind of document the request is about, read from
 	// the document it names — a policy uses it to allow Automation runbooks and
 	// not Command documents, or the reverse.
@@ -359,6 +368,12 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		iamPopulateS3ObjectConditionKeys(r, ctx)
 		// The access point a request was addressed through, which is how a
 		// policy grants a read only when it arrives through one front door.
+		// A request signed with credentials S3 Access Grants issued names the
+		// instance that issued them, which is how a policy grants access only
+		// to callers who came through Access Grants.
+		if issued, ok := s3AccessGrantsCredentials.Get(iamAccessKeyIDFromRequest(r)); ok {
+			ctx["s3:AccessGrantsInstanceArn"] = []string{issued.InstanceARN}
+		}
 		if ap, addressed := s3RequestAccessPoint(r); addressed {
 			ctx["s3:DataAccessPointArn"] = []string{s3AccessPointARN(ap.AccountID, ap.Name)}
 			ctx["s3:DataAccessPointAccount"] = []string{ap.AccountID}
@@ -569,6 +584,31 @@ func sfnRequestQualifier(r *http.Request, body []byte) string {
 		// region, account, "stateMachine", name[, qualifier]
 		if len(fields) >= 5 && fields[2] == "stateMachine" {
 			return fields[4]
+		}
+	}
+	return ""
+}
+
+// iamLambdaRequestFunctionARN is the function an AWS Lambda request is about,
+// for the operations that carry one: the function URL routes name it in the
+// path, an event-source mapping create names it in the body, and the reads and
+// writes of an existing mapping name the mapping, whose record holds it.
+func iamLambdaRequestFunctionARN(r *http.Request, body []byte) string {
+	if name := sim.PathParam(r, "name"); name != "" {
+		if strings.HasPrefix(name, "arn:") {
+			return name
+		}
+		return lambdaArn(name)
+	}
+	if name := iamRequestParameter(r, body, "FunctionName"); name != "" {
+		if strings.HasPrefix(name, "arn:") {
+			return name
+		}
+		return lambdaArn(name)
+	}
+	if uuid := sim.PathParam(r, "uuid"); uuid != "" {
+		if mapping, ok := lambdaESMs.Get(uuid); ok {
+			return mapping.FunctionArn
 		}
 	}
 	return ""

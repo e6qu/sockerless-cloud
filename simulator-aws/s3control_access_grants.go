@@ -65,6 +65,16 @@ var (
 	s3AccessGrants          sim.Store[S3AccessGrant]
 )
 
+// S3AccessGrantsCredential records that one credential was issued by an S3
+// Access Grants instance, so a request signed with it can say which.
+type S3AccessGrantsCredential struct {
+	AccessKeyID string `json:"accessKeyId"`
+	InstanceARN string `json:"instanceArn"`
+	GrantScope  string `json:"grantScope"`
+}
+
+var s3AccessGrantsCredentials sim.Store[S3AccessGrantsCredential]
+
 func s3AccessGrantsInstanceARN(account string) string {
 	return fmt.Sprintf("arn:aws:s3:%s:%s:access-grants/default", awsRegion(), account)
 }
@@ -85,6 +95,7 @@ func registerS3ControlAccessGrants(srv *sim.Server) {
 	s3AccessGrantsInstances = sim.MakeStore[S3AccessGrantsInstance](srv.DB(), "s3_access_grants_instances")
 	s3AccessGrantsLocations = sim.MakeStore[S3AccessGrantsLocation](srv.DB(), "s3_access_grants_locations")
 	s3AccessGrants = sim.MakeStore[S3AccessGrant](srv.DB(), "s3_access_grants")
+	s3AccessGrantsCredentials = sim.MakeStore[S3AccessGrantsCredential](srv.DB(), "s3_access_grants_credentials")
 
 	srv.HandleFunc("POST /v20180820/accessgrantsinstance", handleS3CreateAccessGrantsInstance)
 	srv.HandleFunc("GET /v20180820/accessgrantsinstance", handleS3GetAccessGrantsInstance)
@@ -802,6 +813,14 @@ func handleS3GetDataAccess(w http.ResponseWriter, r *http.Request) {
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
 		RoleName: role.RoleName, PrincipalArn: assumedArn,
 		Expiration: expiration.Format(time.RFC3339),
+	})
+	// A request made with these credentials was authorized through S3 Access
+	// Grants, and s3:AccessGrantsInstanceArn names the instance that issued
+	// them. It is a fact about the credential, so it is recorded with it.
+	s3AccessGrantsCredentials.Put(akid, S3AccessGrantsCredential{
+		AccessKeyID: akid,
+		InstanceARN: s3AccessGrantsInstanceARN(account),
+		GrantScope:  grant.GrantScope,
 	})
 	type credentials struct {
 		AccessKeyID     string `xml:"AccessKeyId"`

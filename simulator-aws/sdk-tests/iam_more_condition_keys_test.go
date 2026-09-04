@@ -8,6 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -174,4 +176,46 @@ func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
 		StateMachineArn: machine.StateMachineArn})
 	require.Error(t, err, "the unqualified state machine carries no qualifier, so the grant does not match")
 	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// TestLambda_FunctionArnConditionKeyScopesTheGrant covers lambda:FunctionArn,
+// the function an event-source mapping or a function URL is about — the key a
+// policy uses to let a principal wire up one function and not another.
+func TestLambda_FunctionArnConditionKeyScopesTheGrant(t *testing.T) {
+	admin := lambdaClient()
+	permitted := lambdaConditionFunction(t, admin, "cond-url-permitted")
+	refused := lambdaConditionFunction(t, admin, "cond-url-refused")
+
+	akid, secret := restrictedCredential(t, "lambda-one-function",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"lambda:CreateFunctionUrlConfig",
+		  "Resource":"*","Condition":{"StringEquals":{"lambda:FunctionArn":"`+permitted+`"}}}]}`)
+	restricted := lambda.NewFromConfig(aws.Config{Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
+		func(o *lambda.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	_, err := restricted.CreateFunctionUrlConfig(ctx, &lambda.CreateFunctionUrlConfigInput{
+		FunctionName: aws.String("cond-url-permitted"), AuthType: lambdatypes.FunctionUrlAuthTypeNone})
+	assert.NoError(t, err, "the grant names this function")
+
+	_, err = restricted.CreateFunctionUrlConfig(ctx, &lambda.CreateFunctionUrlConfigInput{
+		FunctionName: aws.String("cond-url-refused"), AuthType: lambdatypes.FunctionUrlAuthTypeNone})
+	require.Error(t, err, "another function is not covered by the grant: %s", refused)
+	assert.Contains(t, err.Error(), "not authorized")
+}
+
+// lambdaConditionFunction creates a function for the condition-key tests and
+// returns its ARN.
+func lambdaConditionFunction(t *testing.T, client *lambda.Client, name string) string {
+	t.Helper()
+	created, err := client.CreateFunction(ctx, &lambda.CreateFunctionInput{
+		FunctionName: aws.String(name),
+		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
+		PackageType:  lambdatypes.PackageTypeImage,
+		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("public.ecr.aws/docker/library/busybox:latest")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(name)})
+	})
+	return aws.ToString(created.FunctionArn)
 }
