@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.1](https://github.com/e6qu/sockerless-cloud/compare/v0.30.0...v0.30.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* **azure:** read App Service process modules from the process, not from its PID ([#113](https://github.com/e6qu/sockerless-cloud/issues/113)) ([c7d17b9](https://github.com/e6qu/sockerless-cloud/commit/c7d17b93f87ae815bf8c5244eb999fd3629eb2ac))
+
 ## [0.30.0](https://github.com/e6qu/sockerless-cloud/compare/v0.29.0...v0.30.0) (2026-09-02)
 
 
