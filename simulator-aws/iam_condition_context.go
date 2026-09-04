@@ -254,6 +254,8 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 			ctx["s3:signatureAge"] = []string{strconv.FormatInt(age, 10)}
 		}
 		ctx["s3:ResourceAccount"] = []string{awsAccountID()}
+		iamPopulateS3RequestConditionKeys(r, ctx)
+		iamPopulateS3LocationConstraint(body, ctx)
 		// s3:versionid is the object version the request names, which is how a
 		// policy grants a read of the current object and not of its history.
 		if version := r.URL.Query().Get("versionId"); version != "" {
@@ -281,6 +283,49 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 
 	if service == "dynamodb" {
 		iamPopulateDynamoDBConditionKeys(r, action, body, ctx)
+	}
+
+	// kms:EncryptionAlgorithm is the algorithm the request asks the key to use,
+	// which a policy pins so a key is never used with a weaker one.
+	if service == "kms" {
+		if algorithm := iamRequestParameter(r, body, "EncryptionAlgorithm"); algorithm != "" {
+			ctx["kms:EncryptionAlgorithm"] = []string{algorithm}
+		}
+	}
+
+	// rds:PubliclyAccessible is whether the request asks for an instance
+	// reachable from the internet, which a policy refuses outright.
+	if service == "rds" {
+		if public := iamRequestParameter(r, body, "PubliclyAccessible"); public != "" {
+			ctx["rds:PubliclyAccessible"] = []string{public}
+		}
+	}
+
+	// The AWS Auto Scaling target a request is about: which service's resource
+	// it scales, and which dimension of it.
+	if service == "application-autoscaling" {
+		if namespace := iamRequestParameter(r, body, "ServiceNamespace"); namespace != "" {
+			ctx["application-autoscaling:service-namespace"] = []string{namespace}
+		}
+		if dimension := iamRequestParameter(r, body, "ScalableDimension"); dimension != "" {
+			ctx["application-autoscaling:scalable-dimension"] = []string{dimension}
+		}
+	}
+
+	// iam:PolicyARN is the managed policy a request attaches or detaches, which
+	// is how an administrator delegates policy attachment for one policy only.
+	if service == "iam" {
+		if arn := iamRequestParameter(r, body, "PolicyArn"); arn != "" {
+			ctx["iam:PolicyARN"] = []string{arn}
+		}
+	}
+
+	// lambda:FunctionUrlAuthType is the authentication a function URL is
+	// configured with, which a policy pins so no URL is ever left open.
+	if service == "lambda" {
+		if authType := iamRequestParameter(r, body, "AuthType"); authType != "" {
+			ctx["lambda:FunctionUrlAuthType"] = []string{authType}
+		}
 	}
 
 	// lambda:FunctionArn is the function an event-source mapping or a function

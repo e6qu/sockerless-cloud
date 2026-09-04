@@ -70,6 +70,17 @@ on the key being true, not an Allow on it being false, because a request that
 does not ask for exec carries no such member and settles no key. Coverage
 reached 1,353.
 
+The Amazon S3 request-header family is the canonical way a policy constrains
+how an object is written rather than which object it is, and it is now read from
+the request verbatim: the canned ACL and the five grant headers, the three
+server-side-encryption headers, the storage class, the copy source, the metadata
+directive, the website redirect, a listing's prefix, delimiter and max-keys, the
+conditional If-Match, the tags a write puts on its object, and the location a
+CreateBucket asks for. `kms:EncryptionAlgorithm`, `rds:PubliclyAccessible`, the
+AWS Auto Scaling target pair, `iam:PolicyARN` and `lambda:FunctionUrlAuthType`
+came with them. Coverage reached 1,383 of 1,739 — the policy an administrator
+actually writes, refusing an unencrypted or public write, now enforces.
+
 Proving the encryption-context key found something larger. A grant that should
 have been refused was allowed, and the condition keys were not the cause: the
 simulator read an account-root principal in a resource policy as an outright
