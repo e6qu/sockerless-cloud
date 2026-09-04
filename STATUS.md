@@ -50,6 +50,15 @@ Current state of the sockerless-cloud repository.
   scan set is empty, so the same rot cannot recur silently. The case-fold gate
   was hiding two live instances of its own class, both fixed with the
   byte-length-preserving helpers.
+- **Both declared-surface ratchets are held to routes that name the operation.**
+  Google Cloud's phantom-coverage detector has an Azure counterpart, so neither
+  5,486/5,486 nor 2,628/2,628 can be met by a subtree owner answering for a
+  sibling nobody implemented. The routes that legitimately dispatch inside the
+  handler are listed with the reason each one does: repository names carrying
+  slashes on the two container-registry data planes, a Host header selecting
+  the service on the shared data-plane route, and Azure RBAC reads served by
+  middleware ahead of the mux. Each ratchet was watched to fail on a route
+  removed from the simulator.
 - **Branch protection**: `main` requires the contexts mirrored in
   `.github/required-status-checks.txt` (strict, linear history), and the live
   setting matches the manifest — synced after the Azure CLI split merged, which

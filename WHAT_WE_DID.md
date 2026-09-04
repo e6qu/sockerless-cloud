@@ -53,6 +53,30 @@ Amazon ECR Public Gallery base the rest of the file already used, and the
 `alpine:latest` the Cloud Run job tests run as their workload is acquired
 through the retrying, fail-loud helper that sat directly beneath the warning.
 
+The three coverage ratchets were themselves put through negative controls,
+because a number is only as good as the gate that holds it. Deleting two
+Compute Engine routes dropped compute-v1 from 2,016/2,016 to 2,012/2,016 and
+failed, naming them. Removing both spellings of an Azure operation — the
+simulator registers `serverfarms` and `serverFarms` because different clients
+send different casing, so removing one leaves the other serving — failed the
+Azure floor. Breaking one service's resource derivation took the AWS figure
+from 2,004 to 1,972 and failed. `TestRoutesExistInDiscoveryDocs` rejects a
+route the Discovery documents do not declare.
+
+That pass found Azure had no counterpart to the Google Cloud phantom-coverage
+detector, so nothing held its 2,628 to operations reached by a route that
+names them. It has one now, and its first run reported 34. All 34 are
+legitimate, and the value is that they are now written down with the mechanism
+that makes each one legitimate: the OCI distribution and Azure Container
+Registry data planes, whose repository names carry slashes so the mux cannot
+name the segments after them; the data-plane fan-in where the Host header
+selects between Key Vault, Cosmos DB Table and Service Bus; and Azure RBAC's
+scope-generic reads, which are answered by middleware that runs ahead of the
+mux, so the pattern the detector reports is not the code that answered. A
+swallow that is not one of those now fails the build. The detector carries its
+own soundness test, as the Google Cloud one does, and was watched to report
+five operations when a single fan-in was left undocumented.
+
 The AWS SDK shards were rebalanced on measured time rather than test count.
 `sim (aws sdk compute)` had been killed at the 15-minute cap — a timeout kill
 is reported as "cancelled", which is what made it read as infrastructure noise
