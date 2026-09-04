@@ -93,6 +93,20 @@ only when another service makes the call on the caller's behalf, and the
 `kms:RecipientAttestation:*` measurements, which are the PCRs of a Nitro Enclave
 attestation document that no request reaching this simulator carries.
 
+A push failed partway through this pass with a pre-commit stack trace ending in
+`fatal: this operation must be run in a work tree`. This checkout's
+`.git/config` had acquired `core.bare = true` despite having a work tree, and
+its commit identity had been replaced by the one
+`scripts/test-latest-deps-*.sh` give their throwaway fixtures. Neither is
+reachable through this repository's tooling — those scripts build fixtures under
+`mktemp -d` and address them with `git -C` — so the cause is outside it and was
+not attributable. The checkout is repaired and verified (`git fsck` clean,
+nothing lost, the identity back to the one every commit here carries, which
+matters because the global fallback holds a malformed address), and
+`scripts/check-repo-config-sane.sh` now names both signatures at commit time
+instead of leaving them to surface as a stack trace or, in the identity's case,
+not at all. Recorded as BUG-2967.
+
 `interconnects.getDiagnostics` is served, and the reason it was not is the same
 mistake: it was recorded as hardware reporting on itself, and most of what it
 reports is on the interconnect's own record — whether the bundle is up, whether

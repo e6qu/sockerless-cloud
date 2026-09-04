@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 7. Resolved: 72.
+Open: 7. Resolved: 73.
 
 ## Open
 
@@ -153,6 +153,34 @@ Open: 7. Resolved: 72.
   coverage exists while this is open.
 
 ## Resolved history
+
+- ~~**BUG-2967 (this checkout's git configuration was corrupted mid-session):**~~
+  A push failed with a pre-commit stack trace ending in `fatal: this operation
+  must be run in a work tree`. `.git/config` had acquired `core.bare = true` on
+  a checkout that plainly has a work tree, so every work-tree command failed,
+  and the local commit identity had been replaced by
+  `latest deps fixture <latest-deps@example.invalid>` — the identity
+  `scripts/test-latest-deps-*.sh` give their throwaway repositories.
+
+  Neither is reachable through this repository's own tooling: both of those
+  scripts build their fixtures under `mktemp -d` and address them with
+  `git -C "$dir"`, and nothing here runs `git init --bare` or sets `GIT_DIR`.
+  The cause was not attributable from the evidence, so it may recur.
+
+  Repaired and verified: `core.bare` false, work tree intact, `git fsck` clean,
+  no working-tree changes lost, and the identity restored to the `e6qu
+  <adi11235@gmail.com>` every commit in this repository carries — the global
+  fallback would have authored commits under a malformed address
+  (`adi11235 at gmail.com`).
+
+  What made it expensive was the shape of the failure. The bare flag surfaced
+  several layers below anything naming git configuration, and the fixture
+  identity would not have surfaced at all — it would simply have authored
+  commits as a test fixture until a reviewer noticed.
+  `scripts/check-repo-config-sane.sh` names both outright, and runs as a
+  pre-commit hook so a recurrence is caught at the commit rather than at the
+  push. Verified against a fixture repository in both directions: it passes a
+  clean checkout and fails each corruption with the message that names it.
 
 - ~~**BUG-2966 (`testIamPermissions` answered with its own question):**~~ Six
   implementations on the Google Cloud slice — API Gateway, Cloud KMS, the Cloud
