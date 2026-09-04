@@ -1881,7 +1881,26 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // a profile no evaluation wrote names no ruleset.
 //
 // What is left is eight operations across two services, and both are the
-// request naming no resource rather than a reader that cannot read one.
+// request naming no resource rather than a reader that cannot read one. That
+// was re-checked against the vendored models on 2026-09-04 rather than taken on
+// trust, and the evidence is the input members themselves:
+//
+//	GetMLTransforms                       NextToken MaxResults Filter Sort
+//	ListMLTransforms                      NextToken MaxResults Filter Sort Tags
+//	ListDataQualityResults                Filter NextToken MaxResults
+//	ListDataQualityRuleRecommendationRuns Filter NextToken MaxResults Tags
+//	ListIntegrationResourceProperties     Marker Filters MaxRecords
+//	GetMetricData                         MetricDataQueries StartTime EndTime …
+//	ListMetrics                           Namespace MetricName Dimensions …
+//	PutMetricData                         Namespace MetricData EntityMetricData …
+//
+// None carries an identifier for any type it declares, and every one of those
+// types has an ARN format that requires one — mlTransform/${TransformId},
+// dataQualityRuleset/${RulesetName}, dataset/${DatasetId}. Synthesising a
+// collection ARN to make the ratio read even would be inventing a resource the
+// request does not name, and it would change what a policy matches on a guess.
+// The eight authorize against "*", which is what AWS does with them, so 2,004
+// of 2,012 is this measurement's ceiling and not a shortfall to burn down.
 //
 // Amazon CloudWatch's three metric operations declare the "dataset" type while
 // GetMetricData names metric queries, ListMetrics names a namespace and

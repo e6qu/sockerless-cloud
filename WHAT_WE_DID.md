@@ -129,6 +129,33 @@ location name in the second cell of every chunk, and requires the names
 recovered to equal the names anywhere on the page. It exits rather than emitting
 a short catalogue.
 
+A quality gate that could not fail was fixed, and it was found by chasing a CI
+job whose "cancelled" verdict had twice been written off as infrastructure. The
+job declares an eight-minute budget and both cancellations landed at exactly
+496 seconds, which is a timeout kill reported as a cancellation. The cost was
+`npx --yes jscpd`, resolved from the network once per cloud: 5m03s of wall clock
+for 1.69s of CPU at 0% utilisation. jscpd is a pinned devDependency of the UI
+workspace now, invoked from the install the job already performs, and the gate
+runs in 0.19s with no network at all.
+
+The negative control on the repaired gate is what mattered. Run at a twenty-token
+threshold, against a tree holding 539 clones, it reported OK — because two
+independent faults made it unfailable. It matched `^Clone found`, and jscpd
+prefixes every such line with an ANSI bold escape, so the anchor never matched;
+and jscpd exits 0 for clones unless `--threshold` is given. The test-file
+exclusion was passed to `--ignore-pattern`, which in jscpd 5 takes code-level
+regexes rather than file globs, so it excluded nothing — a fault only visible
+once detection worked. Both are fixed, and the gate is now verified in three
+directions: clean at its real threshold with tests excluded, failing at twenty
+tokens where clones exist, and failing on a duplicate planted above the
+threshold.
+
+The eight AWS operations that authorize against "*" were re-checked against the
+vendored models rather than taken on trust, and their input members are recorded
+beside the floor: not one carries an identifier for any resource type it
+declares, and every one of those types has an ARN format that requires one.
+Synthesising a collection ARN would invent a resource the request does not name.
+
 The Cloud Armor preconfigured expression sets are served, which closes Google
 Cloud at 5,486 of 5,486. The catalogue is vendored from Google's documentation:
 70 sets carrying 953 signature slots, signatures joined to their set by the
