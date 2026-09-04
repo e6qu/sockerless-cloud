@@ -83,11 +83,6 @@ func registerComputeCatalogs(srv *sim.Server) {
 			handleResourceIAM(w, r, gcpResourcePolicies, licenceIAM(r), "testIamPermissions")
 		})
 
-	// What an interconnect's hardware reports about itself: link status,
-	// circuit identifiers and LACP state, read off the physical equipment at
-	// both ends, which the simulator does not have. Its MACsec configuration is
-	// a different thing — the caller's own keychain — and is served in
-	// compute_interconnect_macsec.go.
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics",
-		catalog("interconnect diagnostics"))
+	// interconnects.getDiagnostics reports from the interconnect's own record
+	// and is served in compute_interconnect_diagnostics.go.
 }

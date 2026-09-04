@@ -126,6 +126,8 @@ Current state of the sockerless-cloud repository.
   figures written here had drifted from the tests that produce them): IAM
   resource derivation **2,000 of 2,008** served operations, the eight that
   remain being requests that carry no resource to derive;
+  `compute-v1` **2,004 of 2,016**, the twelve that remain being two catalogues
+  Google publishes that this project has not vendored;
   `network-arm-applicationgateway-2025-03-01` 22 of 22 (managed WAF rule-set
   catalog vendored); `storage-v1` **89 of 89**; `logging-v2` **508 of 508**; `firestore-v1` **120 of 120**;
   `artifactregistry-v1` **147 of 147**; `cloudbuild-v1` **114 of 114** at Discovery

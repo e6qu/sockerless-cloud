@@ -97,11 +97,40 @@ var gcpDeclaredMethodTotals = map[string]int{
 }
 
 var gcpMethodFloor = map[string]int{
-	// Compute Engine serves 2,002 of the document's 2,016 method spellings.
-	// The fourteen that remain are all one situation: a catalogue Google
-	// publishes or hardware reporting on itself, neither of which this
-	// simulator can answer for without inventing the answer. Each is mounted
-	// and answers 501 with that reason.
+	// Compute Engine serves 2,004 of the document's 2,016 method spellings.
+	//
+	// The twelve that remain are two catalogues Google publishes, and the
+	// reason they are unserved is not that they cannot be answered — this
+	// project vendors a published catalogue when it can, and
+	// network_appgateway_waf_rule_sets.go on the Azure slice is the template:
+	// an embedded JSON file, its sources cited by URL and retrieval date, and a
+	// test locking the per-group counts so a partial vendor fails loudly. The
+	// reason is that the vendoring has not been done and cannot be done
+	// accurately from what is reachable here.
+	//
+	// securityPolicies.listPreconfiguredExpressionSets is the closer of the
+	// two. The expression identifiers are the OWASP Core Rule Set's own — an id
+	// reads `owasp-crs-v030301-id942100-sqli` — so the rule files at a tagged
+	// CRS release give the ids exactly, and each rule's `paranoia-level/N` tag
+	// gives the sensitivity. What is missing is Google's inclusion list: its
+	// sets are a subset of CRS, and the best reconstruction from the rule files
+	// (every rule carrying a paranoia-level tag, from id 942100 up) yields 60
+	// signatures for CRS 4.22 SQL injection where Google's documentation says
+	// 59. One rule apart is one rule invented, and a client cannot tell a
+	// catalogue that is wrong by one from a right one. Serve it by vendoring
+	// against a recorded response of the real service, the way the Azure
+	// catalogue settled its wire spellings, not by inferring the list.
+	//
+	// interconnectLocations and interconnectRemoteLocations are the facilities
+	// Google runs Cloud Interconnect out of and the third-party ones it peers
+	// with — addresses, facility providers and peeringdb identifiers. Same
+	// shape of work, no machine-readable source found.
+	//
+	// interconnects.getDiagnostics used to be listed here as hardware
+	// reporting on itself. Most of what it reports is on the interconnect's own
+	// record and it is served now; only the optical power, the negotiated LACP
+	// state and the ARP caches are off the equipment, and the schema requires
+	// none of them.
 	//
 	// An empty list is the right answer for a catalogue of something this
 	// platform genuinely offers none of — it is what App Service's runtime
@@ -119,11 +148,9 @@ var gcpMethodFloor = map[string]int{
 	// tell from a real catalogue once invented. Between two wrong answers the
 	// declared 501 is the one that misleads nobody.
 	//
-	// They are the facilities Cloud Interconnect runs out of and the
-	// third-party ones it peers with (a list and a read each), what
-	// interconnect hardware reports about itself, and the preconfigured WAF
-	// expression sets. Discovery spells most methods twice, so fourteen
-	// spellings are seven methods.
+	// Discovery spells most methods twice, so twelve spellings are six methods:
+	// a list and a read for each of the two location catalogues, and the
+	// preconfigured WAF expression sets at the project and organization scopes.
 	//
 	// A licence code is no longer among them. It is not Google's catalogue
 	// when the licence is one this project created: Compute Engine assigns the
@@ -133,7 +160,7 @@ var gcpMethodFloor = map[string]int{
 	//
 	// Lower this floor by one and the gate prints the unserved list, which is
 	// the work list whenever that changes.
-	"compute-v1":              2002,
+	"compute-v1":              2004,
 	"cloudresourcemanager-v3": 126,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

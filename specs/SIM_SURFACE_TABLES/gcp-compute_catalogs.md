@@ -26,7 +26,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /compute/v1/projects/{project}/global/licenseCodes/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:73::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_catalogs.go:77::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_catalogs.go:81::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getDiagnostics` | 501 `simulator-gcp/compute_catalogs.go:91::catalog` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -93,6 +93,28 @@ only when another service makes the call on the caller's behalf, and the
 `kms:RecipientAttestation:*` measurements, which are the PCRs of a Nitro Enclave
 attestation document that no request reaching this simulator carries.
 
+`interconnects.getDiagnostics` is served, and the reason it was not is the same
+mistake: it was recorded as hardware reporting on itself, and most of what it
+reports is on the interconnect's own record — whether the bundle is up, whether
+its links are aggregated, the circuit and demarcation identifiers assigned to
+each link, and whether MACsec is operating and under which key, derived by the
+same function `getMacsecConfig` answers with so the two cannot disagree. Only
+the optical power, the negotiated LACP state and the ARP caches are off the
+equipment, and the schema requires none of them. `compute-v1` reads 2,004 of
+2,016.
+
+The twelve that remain are two published catalogues, and the floor comment now
+says what is actually true of them rather than that they cannot be answered.
+This project vendors a published catalogue when it can — the Azure managed WAF
+rule-set catalog is embedded JSON with its sources cited and a test locking the
+counts — so the honest statement is that the vendoring has not been done. For
+the Cloud Armor expression sets the identifiers are the OWASP Core Rule Set's
+own, so a tagged CRS release gives the ids and each rule's paranoia-level tag
+gives the sensitivity; what is missing is Google's inclusion list, and the best
+reconstruction from the rule files yields 60 signatures for CRS 4.22 SQL
+injection where Google's documentation says 59. One rule apart is one rule
+invented, so that path is recorded rather than taken.
+
 Checking whether the other slices carry the same surface turned up a fake in
 the Google Cloud one, and it is fixed (BUG-2966). Six implementations of
 `testIamPermissions` — API Gateway, Cloud KMS, the Cloud Bigtable instance and
