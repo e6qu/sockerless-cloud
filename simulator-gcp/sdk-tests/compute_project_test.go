@@ -132,38 +132,17 @@ func TestCompute_SharedVPCHostAndServiceProjects(t *testing.T) {
 	assert.NotEqual(t, "HOST", got.XpnProjectStatus)
 }
 
-// The surfaces that would have to be invented to be served answer with the
-// reason instead. An empty list would be a false statement about Google's own
-// catalogue, and a client cannot tell one from a real answer.
-//
-// interconnectLocations was here and is not any more: Google publishes the
-// catalogue and it is vendored from that publication, so it is served — see
-// TestCompute_InterconnectLocationsAreTheVendoredCatalog, which also holds the
-// fields the page does not state to being absent.
-//
-// interconnects.getDiagnostics was here and is not any more: most of what it
-// reports is on the interconnect's own record, and it is served from there —
-// see TestCompute_InterconnectDiagnosticsComeFromTheInterconnect, which also
-// holds the measurements that genuinely are off the equipment to being absent.
-func TestCompute_GooglePublishedCatalogsAreDeclaredGaps(t *testing.T) {
-	svc := computeService(t)
-	const project = "catalog-project"
-
-	for _, read := range []struct {
-		what string
-		call func() error
-	}{
-		{"interconnect remote locations", func() error {
-			_, err := svc.InterconnectRemoteLocations.List(project).Do()
-			return err
-		}},
-	} {
-		err := read.call()
-		require.Error(t, err, "%s must not answer with an invented catalogue", read.what)
-		assert.Contains(t, err.Error(), "501")
-		assert.Contains(t, err.Error(), "catalogue is Google's own")
-	}
-}
+// TestCompute_GooglePublishedCatalogsAreDeclaredGaps stood here and is gone:
+// every read it guarded is served now. Two of them — the colocation facilities
+// and the Cross-Cloud Interconnect remote locations — are catalogues Google
+// publishes, and a published catalogue is vendored here rather than declined;
+// the third, interconnects.getDiagnostics, turned out to report mostly from the
+// interconnect's own record. Their tests are
+// TestCompute_InterconnectLocationsAreTheVendoredCatalog,
+// TestCompute_InterconnectRemoteLocationsAreTheVendoredCatalog and
+// TestCompute_InterconnectDiagnosticsComeFromTheInterconnect, and each holds
+// the fields its source does not state to being absent rather than invented. A
+// loop over an empty list of cases proves nothing, so it is not kept for shape.
 
 // A move re-homes a resource onto another zone. It is the same resource
 // afterwards — same name, same contents — so it has to be gone from the zone it

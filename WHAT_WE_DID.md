@@ -129,17 +129,27 @@ location name in the second cell of every chunk, and requires the names
 recovered to equal the names anywhere on the page. It exits rather than emitting
 a short catalogue.
 
-The Cross-Cloud Interconnect remote locations were probed the same way and are
-a harder vendor, which is recorded rather than guessed at. There is no single
-list — the remote locations are documented per cloud provider, four pages — and
-the association rather than the enumeration is what can go wrong there: the
-tables lean on rowspans and the markup drops rows, so a content-shaped parse
-recovered 27 entries cleanly while attributing no metropolitan area to
-`aws-lgknx`, whose city is rowspanned from the entry above. The names are not a
-simple pattern either, `aws-eqse2-eq` carrying a sublocation suffix that the
-obvious one rejects. A remote location filed under the wrong city is a wrong
-answer no count check reveals, so the floor comment carries what the pages do
-give and what a correct parse has to handle.
+The Cross-Cloud Interconnect remote locations are served too, from the four
+"Choose your locations" pages Google publishes, one per cloud provider — 74
+locations. The obstacle there was never the enumeration but the association: the
+tables lean on rowspans and the markup drops rows, and a content-shaped parse
+recovered every entry while filing `aws-lgknx` under no city at all, because
+Seoul is rowspanned from the entry above it. That is the one corruption a count
+check cannot see. `scripts/lib/html_table_grid.py` builds the grid a browser
+would, carrying spans down and across and tolerating a missing `<tr>`, and the
+generator reads its columns by their heading so a column added upstream fails
+loudly rather than shifting every field by one, and exits if any entry lands
+without a city. Both entries that broke the naive parse — `aws-lgknx` and
+`aws-eqse2-eq`, whose name carries a sublocation suffix — are asserted by name
+rather than trusted, and the SDK test checks the two catalogues agree: a remote
+location's permitted connections name colocation facilities the other one
+serves, in the same city.
+
+With both catalogues vendored, the declining helper in `compute_catalogs.go` has
+no users, its header no longer claims these have nothing to derive them from,
+and `TestCompute_GooglePublishedCatalogsAreDeclaredGaps` is deleted — with every
+case served it looped over an empty list and proved nothing. `compute-v1` reads
+2,012 of 2,016.
 
 `interconnects.getDiagnostics` is served, and the reason it was not is the same
 mistake: it was recorded as hardware reporting on itself, and most of what it

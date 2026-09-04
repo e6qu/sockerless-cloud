@@ -123,6 +123,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-compute_interconnect_diagnostics`](gcp-compute_interconnect_diagnostics.md)
 - [`gcp-compute_interconnect_locations`](gcp-compute_interconnect_locations.md)
 - [`gcp-compute_interconnect_macsec`](gcp-compute_interconnect_macsec.md)
+- [`gcp-compute_interconnect_remote_locations`](gcp-compute_interconnect_remote_locations.md)
 - [`gcp-compute_last_verbs`](gcp-compute_last_verbs.md)
 - [`gcp-compute_lb_more_verbs`](gcp-compute_lb_more_verbs.md)
 - [`gcp-compute_lb_verbs`](gcp-compute_lb_verbs.md)

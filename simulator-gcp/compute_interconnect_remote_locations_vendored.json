@@ -1,0 +1,974 @@
+{
+ "sources": {
+  "aws": "https://docs.cloud.google.com/network-connectivity/docs/interconnect/how-to/cci/aws/choose-locations",
+  "azure": "https://docs.cloud.google.com/network-connectivity/docs/interconnect/how-to/cci/azure/choose-locations",
+  "oci": "https://docs.cloud.google.com/network-connectivity/docs/interconnect/how-to/cci/oci/choose-locations",
+  "alibaba": "https://docs.cloud.google.com/network-connectivity/docs/interconnect/how-to/cci/alibaba/choose-locations"
+ },
+ "retrieved": "2026-09-04",
+ "note": "Every field here is stated by the source pages. The continent, the street address, the facility provider, the remote service, the LAG sizes and the LACP support are not, and are left absent rather than inferred.",
+ "remoteLocations": [
+  {
+   "name": "alibaba-ap-sg-singapore-a",
+   "city": "Singapore",
+   "facilityProviderFacilityId": "Singapore-A",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sin-zone1-2260"
+    },
+    {
+     "interconnectLocation": "sin-zone2-2260"
+    }
+   ]
+  },
+  {
+   "name": "alibaba-germany-frankfurt-b",
+   "city": "Frankfurt",
+   "facilityProviderFacilityId": "Germany-Frankfurt-B",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "fra-zone1-683"
+    },
+    {
+     "interconnectLocation": "fra-zone2-683"
+    }
+   ]
+  },
+  {
+   "name": "alibaba-hk-kwaichung-a",
+   "city": "Hong Kong",
+   "facilityProviderFacilityId": "HK-KwaiChung-A",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "hkg-zone1-1118"
+    },
+    {
+     "interconnectLocation": "hkg-zone2-1118"
+    }
+   ]
+  },
+  {
+   "name": "alibaba-us-ashburn-a",
+   "city": "Washington D.C.",
+   "facilityProviderFacilityId": "US-Ashburn-A",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-1"
+    },
+    {
+     "interconnectLocation": "iad-zone2-1"
+    }
+   ]
+  },
+  {
+   "name": "alibaba-us-virginia-d",
+   "city": "Virginia",
+   "facilityProviderFacilityId": "US-Virginia-D",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-5467"
+    },
+    {
+     "interconnectLocation": "iad-zone2-5467"
+    }
+   ]
+  },
+  {
+   "name": "aws-cgm60",
+   "city": "Montr\u00e9al",
+   "facilityProviderFacilityId": "CGM60",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "yul-zone1-1944"
+    },
+    {
+     "interconnectLocation": "yul-zone2-1944"
+    }
+   ]
+  },
+  {
+   "name": "aws-col67",
+   "city": "Ohio",
+   "facilityProviderFacilityId": "COL67",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "cmh-zone1-2377"
+    },
+    {
+     "interconnectLocation": "cmh-zone2-2377"
+    }
+   ]
+  },
+  {
+   "name": "aws-csva1",
+   "city": "Washington D.C.",
+   "facilityProviderFacilityId": "CSVA1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-5467"
+    },
+    {
+     "interconnectLocation": "iad-zone2-5467"
+    }
+   ]
+  },
+  {
+   "name": "aws-dcij3",
+   "city": "Jakarta",
+   "facilityProviderFacilityId": "DCIJ3",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "cgk-zone1-8168"
+    },
+    {
+     "interconnectLocation": "cgk-zone2-8168"
+    }
+   ]
+  },
+  {
+   "name": "aws-ecpo1",
+   "city": "Portland, Oregon",
+   "facilityProviderFacilityId": "ECPO1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "pdx-zone1-1922"
+    },
+    {
+     "interconnectLocation": "pdx-zone2-1922"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqc50",
+   "city": "Chicago",
+   "facilityProviderFacilityId": "EQC50",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "ord-zone1-7"
+    },
+    {
+     "interconnectLocation": "ord-zone2-7"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqda2",
+   "city": "Dallas, Texas",
+   "facilityProviderFacilityId": "Equinix EqDA2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "dfw-zone1-4"
+    },
+    {
+     "interconnectLocation": "dfw-zone2-4"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqdc2",
+   "city": "Washington D.C.",
+   "facilityProviderFacilityId": "EqDC2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-1"
+    },
+    {
+     "interconnectLocation": "iad-zone2-1"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqfa5",
+   "city": "Frankfurt",
+   "facilityProviderFacilityId": "EqFA5",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "fra-zone1-683"
+    },
+    {
+     "interconnectLocation": "fra-zone2-683"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqhk1",
+   "city": "Hong Kong",
+   "facilityProviderFacilityId": "EQHK1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "hkg-zone1-1118"
+    },
+    {
+     "interconnectLocation": "hkg-zone2-1118"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqld5",
+   "city": "London",
+   "facilityProviderFacilityId": "EqLD5",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "lhr-zone1-832"
+    },
+    {
+     "interconnectLocation": "lhr-zone2-832"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqos1",
+   "city": "Osaka",
+   "facilityProviderFacilityId": "EqOS1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "kix-zone1-1791"
+    },
+    {
+     "interconnectLocation": "kix-zone2-1791"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqse2-eq",
+   "city": "Seattle",
+   "facilityProviderFacilityId": "EqSe2-EQ, sublocation Equinix SE2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sea-zone1-86"
+    },
+    {
+     "interconnectLocation": "sea-zone2-86"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqsk1",
+   "city": "Stockholm",
+   "facilityProviderFacilityId": "EQSK1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "arn-zone1-156"
+    },
+    {
+     "interconnectLocation": "arn-zone2-156"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqsv5",
+   "city": "San Francisco",
+   "facilityProviderFacilityId": "EqSV5",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sjc-zone1-6"
+    },
+    {
+     "interconnectLocation": "sjc-zone2-6"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqsvg",
+   "city": "San Francisco",
+   "facilityProviderFacilityId": "GovCloud EqSvG",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sjc-zone1-6"
+    },
+    {
+     "interconnectLocation": "sjc-zone2-6"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqsy3",
+   "city": "Sydney",
+   "facilityProviderFacilityId": "EqSY3",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "syd-zone1-1605"
+    },
+    {
+     "interconnectLocation": "syd-zone2-1605"
+    }
+   ]
+  },
+  {
+   "name": "aws-eqty2",
+   "city": "Tokyo",
+   "facilityProviderFacilityId": "EqTY2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "nrt-zone1-452"
+    },
+    {
+     "interconnectLocation": "nrt-zone2-452"
+    }
+   ]
+  },
+  {
+   "name": "aws-gpx51",
+   "city": "Mumbai",
+   "facilityProviderFacilityId": "GPX51",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "bom-zone1-2310"
+    },
+    {
+     "interconnectLocation": "bom-zone2-2310"
+    }
+   ]
+  },
+  {
+   "name": "aws-gss52",
+   "city": "Singapore",
+   "facilityProviderFacilityId": "GSS52",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sin-zone1-388"
+    },
+    {
+     "interconnectLocation": "sin-zone2-388"
+    }
+   ]
+  },
+  {
+   "name": "aws-inx6",
+   "city": "Frankfurt",
+   "facilityProviderFacilityId": "INX6",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "fra-zone1-58"
+    },
+    {
+     "interconnectLocation": "fra-zone2-58"
+    }
+   ]
+  },
+  {
+   "name": "aws-itcm2",
+   "city": "Madrid",
+   "facilityProviderFacilityId": "ITCM2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "mad-zone1-127"
+    },
+    {
+     "interconnectLocation": "mad-zone2-127"
+    }
+   ]
+  },
+  {
+   "name": "aws-itxp7",
+   "city": "Paris",
+   "facilityProviderFacilityId": "ITXP7",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "cdg-zone1-1536"
+    },
+    {
+     "interconnectLocation": "cdg-zone2-1536"
+    }
+   ]
+  },
+  {
+   "name": "aws-lgknx",
+   "city": "Seoul",
+   "facilityProviderFacilityId": "LGKNX",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "icn-zone1-7674"
+    },
+    {
+     "interconnectLocation": "icn-zone2-7674"
+    }
+   ]
+  },
+  {
+   "name": "aws-lgu57",
+   "city": "Seoul",
+   "facilityProviderFacilityId": "LGU57",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "icn-zone1-7573"
+    },
+    {
+     "interconnectLocation": "icn-zone2-7573"
+    }
+   ]
+  },
+  {
+   "name": "aws-tejb1",
+   "city": "Johannesburg",
+   "facilityProviderFacilityId": "TEJB1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "jnb-zone1-850"
+    },
+    {
+     "interconnectLocation": "jnb-zone2-850"
+    }
+   ]
+  },
+  {
+   "name": "aws-thv52",
+   "city": "Paris",
+   "facilityProviderFacilityId": "THV52",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "cdg-zone1-53"
+    },
+    {
+     "interconnectLocation": "cdg-zone2-53"
+    }
+   ]
+  },
+  {
+   "name": "aws-tndb",
+   "city": "S\u00e3o Paulo",
+   "facilityProviderFacilityId": "TNDB",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "gru-zone1-165"
+    },
+    {
+     "interconnectLocation": "gru-zone2-165"
+    }
+   ]
+  },
+  {
+   "name": "azure-cologix-montreal-mtl3",
+   "city": "Montr\u00e9al",
+   "facilityProviderFacilityId": "Cologix-Montreal-MTL3",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "yul-zone1-1944"
+    },
+    {
+     "interconnectLocation": "yul-zone2-1944"
+    }
+   ]
+  },
+  {
+   "name": "azure-cologix-toronto-tor1",
+   "city": "Toronto",
+   "facilityProviderFacilityId": "Cologix-Toronto-TOR1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "yyz-zone1-392"
+    },
+    {
+     "interconnectLocation": "yyz-zone2-392"
+    }
+   ]
+  },
+  {
+   "name": "azure-coresite-reston-va2",
+   "city": "Washington D.C.",
+   "facilityProviderFacilityId": "CoreSite-Reston-VA2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-5467"
+    },
+    {
+     "interconnectLocation": "iad-zone2-5467"
+    }
+   ]
+  },
+  {
+   "name": "azure-coresite-reston-va3",
+   "city": "Washington D.C.",
+   "facilityProviderFacilityId": "CoreSite-Reston-VA3",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-5467"
+    },
+    {
+     "interconnectLocation": "iad-zone2-5467"
+    }
+   ]
+  },
+  {
+   "name": "azure-coresite-santa-clara-sv7",
+   "city": "San Francisco",
+   "facilityProviderFacilityId": "CoreSite-Santa-Clara-SV7",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sfo-zone1-1619"
+    },
+    {
+     "interconnectLocation": "sfo-zone2-1619"
+    }
+   ]
+  },
+  {
+   "name": "azure-cyrusone-san-antonio-1",
+   "city": "San Antonio, Texas",
+   "facilityProviderFacilityId": "CyrusOne-San-Antonio-1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sat-zone1-1484"
+    },
+    {
+     "interconnectLocation": "sat-zone2-1484"
+    }
+   ]
+  },
+  {
+   "name": "azure-edgeconnex-portland-por01",
+   "city": "Portland",
+   "facilityProviderFacilityId": "EdgeConneX-Portland-POR01",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "pdx-zone1-1922"
+    },
+    {
+     "interconnectLocation": "pdx-zone2-1922"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-amsterdam-am5",
+   "city": "Amsterdam",
+   "facilityProviderFacilityId": "Equinix-Amsterdam-AM5",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "ams-zone1-1236"
+    },
+    {
+     "interconnectLocation": "ams-zone2-1236"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-ashburn-dc2",
+   "city": "Washington D.C.",
+   "facilityProviderFacilityId": "Equinix-Ashburn-DC2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-1"
+    },
+    {
+     "interconnectLocation": "iad-zone2-1"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-ashburn-dc6",
+   "city": "Washington D.C.",
+   "facilityProviderFacilityId": "Equinix-Ashburn-DC6",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-1"
+    },
+    {
+     "interconnectLocation": "iad-zone2-1"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-chicago-ch1",
+   "city": "Chicago",
+   "facilityProviderFacilityId": "Equinix-Chicago-CH1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "ord-zone1-7"
+    },
+    {
+     "interconnectLocation": "ord-zone2-7"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-dallas-da3",
+   "city": "Dallas",
+   "facilityProviderFacilityId": "Equinix-Dallas-DA3",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "dfw-zone1-4"
+    },
+    {
+     "interconnectLocation": "dfw-zone2-4"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-frankfurt-fr7",
+   "city": "Frankfurt",
+   "facilityProviderFacilityId": "Equinix-Frankfurt-FR7",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "fra-zone1-683"
+    },
+    {
+     "interconnectLocation": "fra-zone2-683"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-hong-kong-hk1",
+   "city": "Hong Kong",
+   "facilityProviderFacilityId": "Equinix-Hong-Kong-HK1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "hkg-zone1-1118"
+    },
+    {
+     "interconnectLocation": "hkg-zone2-1118"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-london-ld5",
+   "city": "London",
+   "facilityProviderFacilityId": "Equinix-London-LD5",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "lhr-zone1-832"
+    },
+    {
+     "interconnectLocation": "lhr-zone2-832"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-osaka-os1",
+   "city": "Osaka",
+   "facilityProviderFacilityId": "Equinix-Osaka-OS1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "kix-zone1-1791"
+    },
+    {
+     "interconnectLocation": "kix-zone2-1791"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-seattle-se2",
+   "city": "Seattle",
+   "facilityProviderFacilityId": "Equinix-Seattle-SE2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sea-zone1-86"
+    },
+    {
+     "interconnectLocation": "sea-zone2-86"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-singapore-sg1",
+   "city": "Singapore",
+   "facilityProviderFacilityId": "Equinix-Singapore-SG1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sin-zone1-2260"
+    },
+    {
+     "interconnectLocation": "sin-zone2-2260"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-sydney-sy2",
+   "city": "Sydney",
+   "facilityProviderFacilityId": "Equinix-Sydney-SY2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "syd-zone1-1605"
+    },
+    {
+     "interconnectLocation": "syd-zone2-1605"
+    }
+   ]
+  },
+  {
+   "name": "azure-equinix-tokyo-ty4",
+   "city": "Tokyo",
+   "facilityProviderFacilityId": "Equinix-Tokyo-TY4",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "nrt-zone1-1893"
+    },
+    {
+     "interconnectLocation": "nrt-zone2-1893"
+    }
+   ]
+  },
+  {
+   "name": "azure-global-switch-singapore",
+   "city": "Singapore",
+   "facilityProviderFacilityId": "Global-Switch-Singapore",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sin-zone1-388"
+    },
+    {
+     "interconnectLocation": "sin-zone2-388"
+    }
+   ]
+  },
+  {
+   "name": "azure-interxion-paris-par5",
+   "city": "Paris",
+   "facilityProviderFacilityId": "Interxion-Paris-PAR5",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "cdg-zone1-1536"
+    },
+    {
+     "interconnectLocation": "cdg-zone2-1536"
+    }
+   ]
+  },
+  {
+   "name": "azure-interxion-zurich-zur2",
+   "city": "Zurich",
+   "facilityProviderFacilityId": "Interxion-Zurich-ZUR2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "zrh-zone1-81"
+    },
+    {
+     "interconnectLocation": "zrh-zone2-81"
+    }
+   ]
+  },
+  {
+   "name": "azure-kinx-seoul-gasan",
+   "city": "Seoul",
+   "facilityProviderFacilityId": "KINX-Seoul-Gasan",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "icn-zone1-7674"
+    },
+    {
+     "interconnectLocation": "icn-zone2-7674"
+    }
+   ]
+  },
+  {
+   "name": "azure-nextdc-sydney-s1",
+   "city": "Sydney",
+   "facilityProviderFacilityId": "NextDC-Sydney-S1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "syd-zone1-1660"
+    },
+    {
+     "interconnectLocation": "syd-zone2-1660"
+    }
+   ]
+  },
+  {
+   "name": "azure-switch-las-vegas",
+   "city": "Las Vegas",
+   "facilityProviderFacilityId": "Switch-Las-Vegas",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "las-zone1-770"
+    },
+    {
+     "interconnectLocation": "las-zone2-770"
+    }
+   ]
+  },
+  {
+   "name": "azure-tata-mumbai-lvsb",
+   "city": "Mumbai",
+   "facilityProviderFacilityId": "Tata-Mumbai-LVSB",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "bom-zone1-554"
+    },
+    {
+     "interconnectLocation": "bom-zone2-554"
+    }
+   ]
+  },
+  {
+   "name": "oci-cologix-mtl3",
+   "city": "Montr\u00e9al",
+   "facilityProviderFacilityId": "Cologix MTL3",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "yul-zone1-1944"
+    },
+    {
+     "interconnectLocation": "yul-zone2-1944"
+    }
+   ]
+  },
+  {
+   "name": "oci-cologix-tor1",
+   "city": "Toronto",
+   "facilityProviderFacilityId": "Cologix TOR1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "yyz-zone1-392"
+    },
+    {
+     "interconnectLocation": "yyz-zone2-392"
+    }
+   ]
+  },
+  {
+   "name": "oci-coresite-ch1",
+   "city": "Chicago",
+   "facilityProviderFacilityId": "Coresite CH1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "ord-zone1-440"
+    },
+    {
+     "interconnectLocation": "ord-zone2-440"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-am4",
+   "city": "Amsterdam",
+   "facilityProviderFacilityId": "Equinix AM4",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "ams-zone1-1320"
+    },
+    {
+     "interconnectLocation": "ams-zone2-1320"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-dc6",
+   "city": "Washington D.C.",
+   "facilityProviderFacilityId": "Equinix DC6",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "iad-zone1-1"
+    },
+    {
+     "interconnectLocation": "iad-zone2-1"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-fr5",
+   "city": "Frankfurt",
+   "facilityProviderFacilityId": "Equinix FR5",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "fra-zone1-683"
+    },
+    {
+     "interconnectLocation": "fra-zone2-683"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-ld6",
+   "city": "London",
+   "facilityProviderFacilityId": "Equinix LD6",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "lhr-zone1-2262"
+    },
+    {
+     "interconnectLocation": "lhr-zone2-2262"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-mb1",
+   "city": "Mumbai",
+   "facilityProviderFacilityId": "Equinix MB1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "bom-zone1-2310"
+    },
+    {
+     "interconnectLocation": "bom-zone2-2310"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-me1",
+   "city": "Melbourne",
+   "facilityProviderFacilityId": "Equinix ME1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "mel-zone1-1988"
+    },
+    {
+     "interconnectLocation": "mel-zone2-1988"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-sg1",
+   "city": "Singapore",
+   "facilityProviderFacilityId": "Equinix SG1",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sin-zone1-2260"
+    },
+    {
+     "interconnectLocation": "sin-zone2-2260"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-sp4",
+   "city": "S\u00e3o Paulo",
+   "facilityProviderFacilityId": "Equinix SP4",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "gru-zone1-165"
+    },
+    {
+     "interconnectLocation": "gru-zone2-165"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-sv10",
+   "city": "San Francisco",
+   "facilityProviderFacilityId": "Equinix SV10",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "sjc-zone1-6"
+    },
+    {
+     "interconnectLocation": "sjc-zone2-6"
+    }
+   ]
+  },
+  {
+   "name": "oci-equinix-ty4",
+   "city": "Tokyo",
+   "facilityProviderFacilityId": "Equinix TY4",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "nrt-zone1-1893"
+    },
+    {
+     "interconnectLocation": "nrt-zone2-1893"
+    }
+   ]
+  },
+  {
+   "name": "oci-interxion-mad2",
+   "city": "Madrid",
+   "facilityProviderFacilityId": "Interxion MAD2",
+   "permittedConnections": [
+    {
+     "interconnectLocation": "mad-zone1-130"
+    },
+    {
+     "interconnectLocation": "mad-zone2-130"
+    }
+   ]
+  }
+ ]
+}
