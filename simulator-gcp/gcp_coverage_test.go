@@ -153,8 +153,24 @@ var gcpMethodFloor = map[string]int{
 	//
 	// interconnectLocations and interconnectRemoteLocations are the facilities
 	// Google runs Cloud Interconnect out of and the third-party ones it peers
-	// with — addresses, facility providers and peeringdb identifiers. Same
-	// shape of work, no machine-readable source found.
+	// with. An earlier note here said no machine-readable source was found; it
+	// was not looked for. Google's colocation-facility documentation at
+	// https://docs.cloud.google.com/network-connectivity/docs/interconnect/concepts/choosing-colocation-facilities
+	// parses the same way the WAF page does — measured on 2026-09-04, 320 table
+	// rows carrying 321 location names — and each row gives the metropolitan
+	// area, the location name (`ams-zone1-1236`, which encodes both the
+	// availability zone and the peeringdb facility id), a peeringdb link and
+	// the facility's display name, and the low-latency region. The section
+	// headings give the continent.
+	//
+	// That covers name, city, continent, peeringdbFacilityId, availabilityZone,
+	// description and regionInfos. It does not cover the street address, and
+	// facilityProvider would have to be read out of the facility's display
+	// name ("Equinix Amsterdam Schepenbergweg (AM5)"), which is an inference
+	// rather than a field — the two places this one needs care that the WAF
+	// catalogue did not. Omitting a field the document does not require is
+	// fine, as the App Service and interconnect-diagnostics reads already do;
+	// inferring one is not.
 	//
 	// interconnects.getDiagnostics used to be listed here as hardware
 	// reporting on itself. Most of what it reports is on the interconnect's own
