@@ -512,12 +512,22 @@ exposed the carrier/provider primitives needed for faithful delivery.
 
 ## CI and Gate Follow-ups
 
-1. **Rebalance the AWS SDK shards.** `sim (aws sdk compute)` was killed at the
-   15-minute job cap on 2026-09-03 — GitHub reports a timeout kill as
-   "cancelled", not "timed_out", which is what made it read as infrastructure
-   noise — and the rerun that passed still took 14m12s. The `data` shard
-   finishes in about 452s against the same cap while three shards sit at
-   650-720s, so the split has room to even out without adding a runner.
+1. **The AWS SDK shards were rebalanced, and the next lever is not the split.**
+   `sim (aws sdk compute)` was killed at the 15-minute cap on 2026-09-03 —
+   GitHub reports a timeout kill as "cancelled", not "timed_out", which is what
+   made it read as infrastructure noise. Amazon ECS, at 204s the largest block
+   in the suite, sat in the same shard that installs Firecracker; it moved to
+   the `data` shard, whose own tests ran in 4s, and the module unit tests moved
+   off `services-n-z`, which was running level with the slowest shard while
+   carrying them. Measured test time per shard is now 196s/209s/194s/216s and
+   the slowest job projects to about 742s against the 900s cap, from 852s.
+
+   What the measurement also showed: tests are the minority of a job. The four
+   shards spend about 815s running tests and 2706s of wall time, because each
+   pays its own setup — 155-202s loading the base-image tarball, 169-184s
+   pre-building the SDK test binary, 43-45s restoring the cache. Four shards
+   duplicate that four times, so if the cap gets tight again the split is the
+   wrong thing to touch: the fixed per-job cost is.
 
 2. **Keep the negative control when a gate is added or moved.** Every gate has
    now been shown to fail on a planted violation of its own declared shape, and

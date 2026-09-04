@@ -2,12 +2,16 @@
 # check-sdk-shard-coverage.sh
 #
 # The AWS SDK test job in .github/workflows/ci.yml fans out across parallel
-# shards, each selected by a `-test.run` regex in the character-class form
-# `run: '^Test[...]'` (the AWS CLI shards use the alternation form
-# `run: '^Test(...)'`; the two coverage gates key on those distinct shapes so
-# each reads only its own shard set). A test whose name matches NO shard regex
-# silently never runs in CI; one matching MORE THAN ONE runs twice. This guard
-# asserts every AWS SDK test function is covered by exactly one shard regex.
+# shards, each selected by a `-test.run` regex — either the character-class
+# form `run: '^Test[...]'` or the alternation form `run: '^Test(...)'`. Both
+# are read, because a shard boundary that falls inside a name rather than on
+# its first letter (Amazon ECS split away from the rest of the E tests, to
+# even out the two shards that were running against the job budget) cannot be
+# written as a character class. Reading only this job's block is what keeps
+# another matrix's regexes out; the shape is not what distinguishes them.
+# A test whose name matches NO shard regex silently never runs in CI; one
+# matching MORE THAN ONE runs twice. This guard asserts every AWS SDK test
+# function is covered by exactly one shard regex.
 #
 # Portable: POSIX-ish, runs the same under bash and zsh on macOS and Linux.
 set -euo pipefail
@@ -20,14 +24,14 @@ regex_file=$(mktemp)
 test_file=$(mktemp)
 trap 'rm -f "$regex_file" "$test_file"' EXIT
 
-# Every `run: '^Test[...]'` shard regex declared in the workflow.
-# Only this job's shards. Another job's matrix may declare regexes in the
-# same shape — the Azure CLI suite does — and reading those as this suite's
-# would make every test here match several shards at once.
+# Every shard regex declared in this job, in either form. Only this job's
+# shards: another job's matrix declares regexes in the same shapes — the Azure
+# CLI suite does — and reading those as this suite's would make every test here
+# match several shards at once.
 job_block=$(awk '/^  sim-aws-sdk:$/{inside=1; next} /^  [a-z][a-z0-9-]*:$/{inside=0} inside' "$ci")
-grep -oE "run: '\^Test\[[^']*'" <<<"$job_block" | sed -E "s/^run: '//; s/'\$//" > "$regex_file"
+grep -oE "run: '\^Test[\[(][^']*'" <<<"$job_block" | sed -E "s/^run: '//; s/'\$//" > "$regex_file"
 if [ ! -s "$regex_file" ]; then
-  echo "FAIL: no AWS SDK shard regexes (run: '^Test[...]') found in $ci" >&2
+  echo "FAIL: no AWS SDK shard regexes (run: '^Test[...]' or '^Test(...)') found in $ci" >&2
   exit 1
 fi
 

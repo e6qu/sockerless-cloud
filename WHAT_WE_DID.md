@@ -49,6 +49,25 @@ Amazon ECR Public Gallery base the rest of the file already used, and the
 `alpine:latest` the Cloud Run job tests run as their workload is acquired
 through the retrying, fail-loud helper that sat directly beneath the warning.
 
+The AWS SDK shards were rebalanced on measured time rather than test count.
+`sim (aws sdk compute)` had been killed at the 15-minute cap — a timeout kill
+is reported as "cancelled", which is what made it read as infrastructure noise
+— and its rerun still took 14m12s. Amazon ECS was the largest block in the
+suite at 204s and sat in the shard that also installs Firecracker; it now runs
+in the `data` shard, whose own tests took 4s, and the module unit tests, which
+run once per workflow on whichever shard carries them, moved off the shard that
+was running level with the slowest. Per-shard test time is 196s/209s/194s/216s,
+and the slowest job projects to about 742s against the 900s cap. The shard
+regexes could no longer all be character classes — a boundary inside a name
+cannot be one — so the coverage gate reads the alternation form too, and still
+holds every one of the 1338 tests to exactly one shard.
+
+The same measurement corrected the premise behind the rebalance: the four
+shards run 815s of tests inside 2706s of wall time, so most of a shard is
+setup it pays alone — loading the base-image tarball, pre-building the test
+binary, restoring caches. The split is now even; the duplicated fixed cost is
+what remains.
+
 `createBucket` also treats a 409 as "the bucket is there", which is what Cloud
 Storage answers and what lets a test in that package be re-run in one process:
 stressing a flaky test with `-count` previously failed on the second iteration
