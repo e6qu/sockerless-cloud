@@ -95,6 +95,11 @@ Current state of the sockerless-cloud repository.
   zonal endpoints, and session authentication scoped to one bucket, one mode and
   an expiry) are both assembled, so `s3ConformanceMissing` is empty and the two
   model-drift exemptions they held are gone.
+- **`testIamPermissions` (Google Cloud)**: answers from the stored policy — the
+  requested permissions filtered to the ones the caller's bindings grant,
+  resolved through the curated and custom roles the simulator holds. A caller
+  presenting no simulator-issued token is the account's operator and holds what
+  it asks about.
 - **Resource-policy principals**: a statement naming the caller grants; one
   matching only by account delegates to that account's IAM, so the caller is
   permitted only if an identity policy allows it too. The default AWS KMS key

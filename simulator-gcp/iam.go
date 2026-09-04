@@ -162,6 +162,9 @@ var (
 	iamSAKeys          sim.Store[GCPServiceAccountKey]
 	iamSAKeyPublics    sim.Store[GCPServiceAccountKeyMaterial]
 	iamSASystemKeys    sim.Store[serviceAccountSystemKey]
+	// iamCustomRoles is read outside registerIAM by the permission check, which
+	// resolves a binding's role to the permissions it includes.
+	iamCustomRoles sim.Store[GCPCustomRole]
 )
 
 func registerIAM(srv *sim.Server) {
@@ -176,6 +179,7 @@ func registerIAM(srv *sim.Server) {
 	gcpResourcePolicies = sim.MakeStore[IAMPolicy](srv.DB(), "iam_resource_policies")
 	resourcePolicies := gcpResourcePolicies
 	customRoles := sim.MakeStore[GCPCustomRole](srv.DB(), "iam_custom_roles")
+	iamCustomRoles = customRoles
 	if iamLROs == nil {
 		iamLROs = sim.MakeStore[Operation](srv.DB(), "iam_lro_operations")
 	}
@@ -2835,13 +2839,9 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		// Sim doesn't model authorization; echo the requested set as
-		// allowed. Real GCP filters to the subset the caller actually
-		// has — but every caller in the sim is effectively a project
-		// admin, so the full echo is the truthful response. A real-subset
-		// evaluation against an authz model is a staged epic; the
-		// admin-echo behavior is intentionally unchanged here.
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"permissions": req.Permissions})
+		policy, _ := store.Get(resource)
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions)})
 	default:
 		http.NotFound(w, r)
 	}

@@ -1849,9 +1849,14 @@ func kmsHandleTestIamPermissions(w http.ResponseWriter, r *http.Request, resourc
 		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
-	// The sim grants all queried permissions (no deny model); this mirrors the
-	// real response shape (a subset of the requested permissions).
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"permissions": req.Permissions})
+	stored, _ := kmsIamPolicies.Get(resource)
+	policy := IAMPolicy{Version: stored.Version, Etag: stored.Etag}
+	for _, binding := range stored.Bindings {
+		policy.Bindings = append(policy.Bindings,
+			IAMBinding{Role: binding.Role, Members: binding.Members})
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions)})
 }
 
 // kmsHandleGenerateRandomBytes returns cryptographically-random bytes from

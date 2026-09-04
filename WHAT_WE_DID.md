@@ -94,14 +94,29 @@ only when another service makes the call on the caller's behalf, and the
 attestation document that no request reaching this simulator carries.
 
 Checking whether the other slices carry the same surface turned up a fake in
-the Google Cloud one, filed as BUG-2966: six implementations of
-`testIamPermissions` answer with the question, echoing back the permission set
-they were asked about as granted, whatever the stored policy says — the comment
-in the source says exactly that. It is filed rather than fixed because the
-correct answer has a boundary inside one operation: a caller matching no binding
-holds none of what it asked for, and a caller bound to a custom role is decided
-by that role's own `includedPermissions`, but whether a *predefined* role
-includes a permission is Google's published catalog.
+the Google Cloud one, and it is fixed (BUG-2966). Six implementations of
+`testIamPermissions` — API Gateway, Cloud KMS, the Cloud Bigtable instance and
+table admins, Secret Manager, and the generic IAM verb — answered with the
+question, returning the permission set they were handed unchanged, so a caller
+bound to nothing got the same reply as a project owner and the answer carried no
+information at all.
+
+The boundary this was first written up as having did not exist. The simulator
+already vendors the curated roles it serves at `roles.get`, with their
+`includedPermissions`, and holds custom roles with theirs, so a role resolves to
+permissions without anything being invented. The policy `setIamPolicy` stored is
+there, and so is the principal, because the bearer token the request carries is
+one the simulator minted and signed.
+
+It answers from those now: a binding whose members name the caller contributes
+its role's permissions, and the reply is the requested set filtered to what is
+held. A caller presenting no simulator-issued token is the operator of the
+account the simulator serves and holds what it asks about, which is what real
+Google answers for an owner and the same rule the AWS slice applies to a
+credential no IAM user registered. The test binds a service account to
+`roles/storage.objectViewer` and holds all three cases apart: the bound account
+gets the two permissions that role includes and not the two it does not, an
+unbound account gets none, and the operator gets what it asked for.
 
 Proving the encryption-context key found something larger. A grant that should
 have been refused was allowed, and the condition keys were not the cause: the
