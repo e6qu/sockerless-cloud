@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon Kinesis Data Streams channels: a managed delivery of one or more
@@ -43,7 +43,7 @@ type KinesisChannelStream struct {
 
 var kinesisChannels sim.Store[KinesisChannel]
 
-func registerKinesisChannels(r *sim.AWSRouter, srv *sim.Server) {
+func registerKinesisChannels(r *AWSRouter, srv *sim.Server) {
 	kinesisChannels = sim.MakeStore[KinesisChannel](srv.DB(), "kinesis_channels")
 
 	r.Register("Kinesis_20131202.CreateChannel", handleKinesisCreateChannel)
@@ -90,11 +90,11 @@ func handleKinesisCreateChannel(w http.ResponseWriter, r *http.Request) {
 		Tags                             map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ChannelName == "" || req.ServiceExecutionRoleARN == "" || len(req.StreamConfigurationList) == 0 {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"ChannelName, ServiceExecutionRoleARN and StreamConfigurationList are required",
 			http.StatusBadRequest)
 		return
@@ -102,19 +102,19 @@ func handleKinesisCreateChannel(w http.ResponseWriter, r *http.Request) {
 	// A channel delivers to exactly one destination; neither and both are
 	// requests the service rejects rather than a channel that writes nowhere.
 	if (req.S3DestinationConfiguration == nil) == (req.S3TablesDestinationConfiguration == nil) {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"exactly one of S3DestinationConfiguration and S3TablesDestinationConfiguration is required",
 			http.StatusBadRequest)
 		return
 	}
 	if _, ok := iamRoles.Get(iamRoleNameFromArn(req.ServiceExecutionRoleARN)); !ok {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"The service execution role "+req.ServiceExecutionRoleARN+" does not exist",
 			http.StatusBadRequest)
 		return
 	}
 	if _, exists := kinesisChannels.Get(req.ChannelName); exists {
-		sim.AWSError(w, "ResourceInUseException", "Channel already exists", http.StatusBadRequest)
+		AWSError(w, "ResourceInUseException", "Channel already exists", http.StatusBadRequest)
 		return
 	}
 
@@ -125,12 +125,12 @@ func handleKinesisCreateChannel(w http.ResponseWriter, r *http.Request) {
 	for _, cfg := range req.StreamConfigurationList {
 		stream, ok := kinesisStreams.Get(kinesisChannelStreamName(cfg.StreamARN))
 		if !ok {
-			sim.AWSError(w, "ResourceNotFoundException",
+			AWSError(w, "ResourceNotFoundException",
 				"Stream "+cfg.StreamARN+" not found", http.StatusBadRequest)
 			return
 		}
 		if cfg.RecordConfiguration == nil {
-			sim.AWSError(w, "ValidationException",
+			AWSError(w, "ValidationException",
 				"each StreamConfiguration must carry a RecordConfiguration", http.StatusBadRequest)
 			return
 		}
@@ -237,16 +237,16 @@ func kinesisChannelForRequest(w http.ResponseWriter, r *http.Request) (KinesisCh
 		ChannelARN string `json:"ChannelARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return KinesisChannel{}, false
 	}
 	if req.ChannelARN == "" {
-		sim.AWSError(w, "ValidationException", "ChannelARN is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ChannelARN is required", http.StatusBadRequest)
 		return KinesisChannel{}, false
 	}
 	channel, ok := kinesisChannels.Get(kinesisChannelNameFromARN(req.ChannelARN))
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException",
+		AWSError(w, "ResourceNotFoundException",
 			"Channel "+req.ChannelARN+" not found", http.StatusBadRequest)
 		return KinesisChannel{}, false
 	}
@@ -280,17 +280,17 @@ func handleKinesisUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		LoggingConfiguration             map[string]any `json:"LoggingConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ChannelARN == "" {
-		sim.AWSError(w, "ValidationException", "ChannelARN is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ChannelARN is required", http.StatusBadRequest)
 		return
 	}
 	name := kinesisChannelNameFromARN(req.ChannelARN)
 	channel, ok := kinesisChannels.Get(name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException",
+		AWSError(w, "ResourceNotFoundException",
 			"Channel "+req.ChannelARN+" not found", http.StatusBadRequest)
 		return
 	}
@@ -299,7 +299,7 @@ func handleKinesisUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	// change a destination this channel does not deliver to.
 	if req.S3DestinationConfiguration != nil {
 		if channel.S3Destination == nil {
-			sim.AWSError(w, "ValidationException",
+			AWSError(w, "ValidationException",
 				"the channel does not deliver to Amazon S3", http.StatusBadRequest)
 			return
 		}
@@ -309,7 +309,7 @@ func handleKinesisUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.S3TablesDestinationConfiguration != nil {
 		if channel.S3TablesDestination == nil {
-			sim.AWSError(w, "ValidationException",
+			AWSError(w, "ValidationException",
 				"the channel does not deliver to Amazon S3 Tables", http.StatusBadRequest)
 			return
 		}

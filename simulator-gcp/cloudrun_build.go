@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Run v2's hosted build path. Both verbs ride the /v2 locations segment
@@ -50,20 +50,20 @@ func cloudRunSubmitBuild(w http.ResponseWriter, r *http.Request) {
 		} `json:"buildpackBuild"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid submitBuild body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid submitBuild body: %v", err)
 		return
 	}
 	if req.ImageURI == "" {
-		sim.GCPError(w, http.StatusBadRequest, "imageUri is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "imageUri is required", "INVALID_ARGUMENT")
 		return
 	}
 	if req.StorageSource == nil || req.StorageSource.Bucket == "" || req.StorageSource.Object == "" {
-		sim.GCPError(w, http.StatusBadRequest,
+		GCPError(w, http.StatusBadRequest,
 			"storageSource.bucket and storageSource.object are required", "INVALID_ARGUMENT")
 		return
 	}
 	if _, ok := gcsObjects.Get(req.StorageSource.Bucket + "/" + req.StorageSource.Object); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"source object %q not found in bucket %q", req.StorageSource.Object, req.StorageSource.Bucket)
 		return
 	}

@@ -3,8 +3,6 @@ package main
 import (
 	"net/http"
 	"strings"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
 // AIP-136 custom methods ("POST .../secrets/{secret}:addVersion") carry the
@@ -37,5 +35,5 @@ func gcpCustomMethod(segment string) (id, verb string, found bool) {
 // learns the simulator has no implementation instead of being told a story
 // about the resource.
 func gcpMethodNotFound(w http.ResponseWriter) {
-	sim.GCPError(w, http.StatusNotFound, "Method not found.", "NOT_FOUND")
+	GCPError(w, http.StatusNotFound, "Method not found.", "NOT_FOUND")
 }

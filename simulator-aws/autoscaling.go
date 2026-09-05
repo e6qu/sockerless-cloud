@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type ASLaunchConfiguration struct {
@@ -103,7 +103,7 @@ var (
 	asLifecycleHooks       sim.Store[ASLifecycleHook]
 )
 
-func registerAutoScaling(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerAutoScaling(r *AWSQueryRouter, srv *sim.Server) {
 	asLaunchConfigurations = sim.MakeStore[ASLaunchConfiguration](srv.DB(), "autoscaling_launch_configurations")
 	autoScalingGroups = sim.MakeStore[AutoScalingGroup](srv.DB(), "autoscaling_groups")
 	scalingActivities = sim.MakeStore[ScalingActivity](srv.DB(), "autoscaling_activities")

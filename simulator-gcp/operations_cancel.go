@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // google.longrunning.Operations.CancelOperation — the AIP-151 custom method
@@ -73,7 +73,7 @@ func gcpLookupOperation(name string) (Operation, bool) {
 // silently getting a no-op cancel here.
 func handleGCPCancelOperation(w http.ResponseWriter, name string) {
 	if _, ok := gcpLookupOperation(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -93,7 +93,7 @@ func registerOperationsCancel(srv *sim.Server) {
 		opAction := sim.PathParam(r, "opAction")
 		tail, verb := splitColonVerb(opAction)
 		if verb != "cancel" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)
 			return
 		}
 		name := "operations/" + tail

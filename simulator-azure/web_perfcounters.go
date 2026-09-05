@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A site's performance counters, and the four platform reads beside them that

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon EC2 Reachability Analyzer (Network Insights), Network Access Analyzer
@@ -149,7 +149,7 @@ var (
 	ec2LocalGatewayRoutes           sim.Store[EC2LocalGatewayRoute]
 )
 
-func registerEC2NetworkInsights(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2NetworkInsights(r *AWSQueryRouter, srv *sim.Server) {
 	ec2NetworkInsightsPaths = sim.MakeStore[EC2NetworkInsightsPath](srv.DB(), "ec2_network_insights_paths")
 	ec2NetworkInsightsAnalyses = sim.MakeStore[EC2NetworkInsightsAnalysis](srv.DB(), "ec2_network_insights_analyses")
 	ec2NetworkInsightsAccessScopes = sim.MakeStore[EC2NetworkInsightsAccessScope](srv.DB(), "ec2_network_insights_access_scopes")

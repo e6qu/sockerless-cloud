@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements the EC2 Capacity Reservations, EC2 Fleets, and Spot
@@ -203,7 +203,7 @@ var (
 	ec2HostReservations          sim.Store[EC2HostReservation]
 )
 
-func registerEC2CapacityFleet(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2CapacityFleet(r *AWSQueryRouter, srv *sim.Server) {
 	ec2CapacityReservations = sim.MakeStore[EC2CapacityReservation](srv.DB(), "ec2_capacity_reservations")
 	ec2CapacityReservationFleets = sim.MakeStore[EC2CapacityReservationFleet](srv.DB(), "ec2_capacity_reservation_fleets")
 	ec2Fleets = sim.MakeStore[EC2Fleet](srv.DB(), "ec2_fleets")

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS Service family — terraform-provider-aws declares `aws_ecs_service` for
@@ -89,7 +89,7 @@ type ECSDeployment struct {
 
 var ecsServices sim.Store[ECSService]
 
-func registerECSServices(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSServices(r *AWSRouter, srv *sim.Server) {
 	ecsServices = sim.MakeStore[ECSService](srv.DB(), "ecs_services")
 	ecsServiceSchedulerStates = sim.MakeStore[ECSServiceSchedulerState](srv.DB(), "ecs_service_scheduler_states")
 
@@ -125,7 +125,7 @@ func handleECSDescribeCapacityProviders(w http.ResponseWriter, r *http.Request) 
 		CapacityProviders []string `json:"capacityProviders"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -204,7 +204,7 @@ func handleECSListTaskDefinitionFamilies(w http.ResponseWriter, r *http.Request)
 		NextToken    string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -347,40 +347,40 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 		Tags                          []ECSTag        `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if code, message := validateECSServiceRegistries(req.ServiceRegistries); code != "" {
-		sim.AWSError(w, code, message, http.StatusBadRequest)
+		AWSError(w, code, message, http.StatusBadRequest)
 		return
 	}
 	if req.ServiceName == "" {
-		sim.AWSError(w, "InvalidParameterException", "serviceName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "serviceName is required", http.StatusBadRequest)
 		return
 	}
 	if req.TaskDefinition == "" {
-		sim.AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecsServiceTaskDefinition(req.TaskDefinition); !ok {
-		sim.AWSErrorf(w, "ClientException", http.StatusBadRequest,
+		AWSErrorf(w, "ClientException", http.StatusBadRequest,
 			"Unable to describe task definition: %s", req.TaskDefinition)
 		return
 	}
 	if code, message := validateECSServiceLoadBalancers(req.LoadBalancers, req.TaskDefinition); code != "" {
-		sim.AWSError(w, code, message, http.StatusBadRequest)
+		AWSError(w, code, message, http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	cluster, ok := ecsClusters.Get(clusterName)
 	if !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
 			"Cluster not found: %s", clusterName)
 		return
 	}
 	key := ecsServiceKey(clusterName, req.ServiceName)
 	if existing, ok := ecsServices.Get(key); ok && existing.Status == "ACTIVE" {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Creating a service named %q in cluster %q is not permitted while a service of the same name already exists.",
 			req.ServiceName, clusterName)
 		return
@@ -495,12 +495,12 @@ func handleECSDescribeServices(w http.ResponseWriter, r *http.Request) {
 		Services []string `json:"services"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	if _, ok := ecsClusters.Get(clusterName); !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
 			"Cluster not found: %s", clusterName)
 		return
 	}
@@ -531,7 +531,7 @@ func handleECSListServices(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
@@ -556,7 +556,7 @@ func handleECSListClusters(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := make([]string, 0)
@@ -581,7 +581,7 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 		NextToken    string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// status selects the lifecycle state; real AWS defaults to ACTIVE (INACTIVE
@@ -664,18 +664,18 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 		ForceNewDeployment            bool            `json:"forceNewDeployment"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if code, message := validateECSServiceRegistries(req.ServiceRegistries); code != "" {
-		sim.AWSError(w, code, message, http.StatusBadRequest)
+		AWSError(w, code, message, http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	key := ecsServiceKey(clusterName, ecsServiceNameFromRef(req.Service))
 	svc, ok := ecsServices.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
 			"Service not found: %s", req.Service)
 		return
 	}
@@ -689,7 +689,7 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 		targetLoadBalancers = req.LoadBalancers
 	}
 	if code, message := validateECSServiceLoadBalancers(targetLoadBalancers, targetTaskDefinition); code != "" {
-		sim.AWSError(w, code, message, http.StatusBadRequest)
+		AWSError(w, code, message, http.StatusBadRequest)
 		return
 	}
 	deploymentRequired := req.ForceNewDeployment ||
@@ -801,14 +801,14 @@ func handleECSDeleteService(w http.ResponseWriter, r *http.Request) {
 		Force   bool   `json:"force"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	key := ecsServiceKey(clusterName, ecsServiceNameFromRef(req.Service))
 	_, ok := ecsServices.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
 			"Service not found: %s", req.Service)
 		return
 	}
@@ -817,7 +817,7 @@ func handleECSDeleteService(w http.ResponseWriter, r *http.Request) {
 	defer lock.Unlock()
 	svc, ok := ecsServices.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
 			"Service not found: %s", req.Service)
 		return
 	}
@@ -827,7 +827,7 @@ func handleECSDeleteService(w http.ResponseWriter, r *http.Request) {
 	// caller relying on the rejection — the usual scale-down-then-delete
 	// sequence — was never told it had skipped a step.
 	if !req.Force && svc.DesiredCount > 0 {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The service cannot be stopped while it is scaled above 0.")
 		return
 	}
@@ -855,13 +855,13 @@ func handleECSPutClusterCapacityProviders(w http.ResponseWriter, r *http.Request
 		DefaultCapacityProviderStrategy json.RawMessage `json:"defaultCapacityProviderStrategy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	cluster, ok := ecsClusters.Get(clusterName)
 	if !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
 			"Cluster not found: %s", clusterName)
 		return
 	}

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A Log Analytics workspace's shared keys.
@@ -68,13 +68,13 @@ func monitorRequireWorkspace(w http.ResponseWriter, r *http.Request) (string, bo
 		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s",
 		sub, rg, name)
 	if monitorWorkspaces == nil {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.OperationalInsights/workspaces/%s' under resource group '%s' was not found.",
 			name, rg)
 		return "", false
 	}
 	if _, ok := monitorWorkspaces.Get(resourceID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.OperationalInsights/workspaces/%s' under resource group '%s' was not found.",
 			name, rg)
 		return "", false

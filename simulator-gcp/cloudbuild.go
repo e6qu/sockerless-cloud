@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Build v1 slice: a client submits a build, the simulator fetches the
@@ -218,7 +218,7 @@ func registerCloudBuild(srv *sim.Server) {
 
 		var build Build
 		if err := sim.ReadJSON(r, &build); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
 			return
 		}
 		build.ID = generateUUID()
@@ -281,7 +281,7 @@ func registerCloudBuild(srv *sim.Server) {
 		id := sim.PathParam(r, "id")
 		build, ok := cbBuilds.Get(id)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, build)
@@ -299,12 +299,12 @@ func registerCloudBuild(srv *sim.Server) {
 			return
 		}
 		if !found || action != "cancel" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown build action %q", idAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown build action %q", idAction)
 			return
 		}
 		build, ok := cancelCloudBuild(id)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, build)
@@ -319,7 +319,7 @@ func registerCloudBuild(srv *sim.Server) {
 		id := sim.PathParam(r, "id")
 		build, ok := cbBuilds.Get(id)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
 			return
 		}
 		op := CloudBuildOperation{
@@ -363,7 +363,7 @@ func registerCloudBuild(srv *sim.Server) {
 		id := sim.PathParam(r, "id")
 		build, ok := cbBuilds.Get(id)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, build)
@@ -453,7 +453,7 @@ func handleCloudBuildGetOperation(w http.ResponseWriter, r *http.Request) {
 		id := parts[3]
 		build, ok := cbBuilds.Get(id)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
 			return
 		}
 		op := CloudBuildOperation{
@@ -490,7 +490,7 @@ func handleCreateWorkerPool(w http.ResponseWriter, r *http.Request) {
 	}
 	var pool WorkerPool
 	if err := sim.ReadJSON(r, &pool); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid workerPool body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid workerPool body: %v", err)
 		return
 	}
 	pool.Name = fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, id)
@@ -511,7 +511,7 @@ func handleGetWorkerPool(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "pool"))
 	pool, ok := cbWorkerPools.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "workerPool %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "workerPool %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, pool)
@@ -537,12 +537,12 @@ func handlePatchWorkerPool(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "pool"))
 	prior, ok := cbWorkerPools.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "workerPool %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "workerPool %s not found", key)
 		return
 	}
 	var update WorkerPool
 	if err := sim.ReadJSON(r, &update); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid workerPool body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid workerPool body: %v", err)
 		return
 	}
 	mask := r.URL.Query().Get("updateMask")
@@ -574,7 +574,7 @@ func handleDeleteWorkerPool(w http.ResponseWriter, r *http.Request) {
 			sim.WriteJSON(w, http.StatusOK, CloudBuildOperation{Name: key, Done: true})
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "workerPool %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "workerPool %s not found", key)
 		return
 	}
 	cbWorkerPools.Delete(key)
@@ -593,7 +593,7 @@ func handleCreateGHEConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	var cfg GitHubEnterpriseConfig
 	if err := sim.ReadJSON(r, &cfg); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid githubEnterpriseConfig body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid githubEnterpriseConfig body: %v", err)
 		return
 	}
 	cfg.Name = cbConfigKey(project, location, "githubEnterpriseConfigs", id)
@@ -609,7 +609,7 @@ func handleGetGHEConfig(w http.ResponseWriter, r *http.Request) {
 	key := cbConfigKey(sim.PathParam(r, "project"), buildTriggerLocation(r), "githubEnterpriseConfigs", sim.PathParam(r, "config"))
 	cfg, ok := cbGHEConfigs.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "githubEnterpriseConfig %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "githubEnterpriseConfig %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, cfg)
@@ -626,12 +626,12 @@ func handlePatchGHEConfig(w http.ResponseWriter, r *http.Request) {
 	key := cbConfigKey(sim.PathParam(r, "project"), buildTriggerLocation(r), "githubEnterpriseConfigs", sim.PathParam(r, "config"))
 	prior, ok := cbGHEConfigs.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "githubEnterpriseConfig %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "githubEnterpriseConfig %s not found", key)
 		return
 	}
 	var update GitHubEnterpriseConfig
 	if err := sim.ReadJSON(r, &update); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid githubEnterpriseConfig body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid githubEnterpriseConfig body: %v", err)
 		return
 	}
 	mask := r.URL.Query().Get("updateMask")
@@ -676,7 +676,7 @@ func handleCreateBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	var cfg BitbucketServerConfig
 	if err := sim.ReadJSON(r, &cfg); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bitbucketServerConfig body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bitbucketServerConfig body: %v", err)
 		return
 	}
 	cfg.Name = cbConfigKey(project, location, "bitbucketServerConfigs", id)
@@ -692,7 +692,7 @@ func handleGetBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 	key := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "bitbucketServerConfigs", sim.PathParam(r, "config"))
 	cfg, ok := cbBitbucketConfigs.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bitbucketServerConfig %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bitbucketServerConfig %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, cfg)
@@ -717,12 +717,12 @@ func handlePatchBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 	key := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "bitbucketServerConfigs", sim.PathParam(r, "config"))
 	prior, ok := cbBitbucketConfigs.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bitbucketServerConfig %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bitbucketServerConfig %s not found", key)
 		return
 	}
 	var update BitbucketServerConfig
 	if err := sim.ReadJSON(r, &update); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bitbucketServerConfig body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bitbucketServerConfig body: %v", err)
 		return
 	}
 	mask := r.URL.Query().Get("updateMask")
@@ -759,7 +759,7 @@ func handleDeleteBitbucketConfig(w http.ResponseWriter, r *http.Request) {
 func handleListBitbucketRepos(w http.ResponseWriter, r *http.Request) {
 	key := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "bitbucketServerConfigs", sim.PathParam(r, "config"))
 	if _, ok := cbBitbucketConfigs.Get(key); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bitbucketServerConfig %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bitbucketServerConfig %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"bitbucketServerRepositories": []any{}})
@@ -810,7 +810,7 @@ func handleCreateBuildTrigger(w http.ResponseWriter, r *http.Request) {
 	location := buildTriggerLocation(r)
 	var trigger BuildTrigger
 	if err := sim.ReadJSON(r, &trigger); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid trigger body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid trigger body: %v", err)
 		return
 	}
 	trigger = normalizeBuildTrigger(project, location, trigger)
@@ -841,7 +841,7 @@ func handleGetBuildTrigger(w http.ResponseWriter, r *http.Request) {
 	key := buildTriggerKey(sim.PathParam(r, "project"), buildTriggerLocation(r), sim.PathParam(r, "trigger"))
 	trigger, ok := cbTriggers.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, trigger)
@@ -854,7 +854,7 @@ func handleUpdateBuildTrigger(w http.ResponseWriter, r *http.Request) {
 	key := buildTriggerKey(project, location, id)
 	var trigger BuildTrigger
 	if err := sim.ReadJSON(r, &trigger); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid trigger body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid trigger body: %v", err)
 		return
 	}
 	// Honor updateMask (a documented triggers.patch query param): real Cloud Build
@@ -1029,7 +1029,7 @@ func cancelCloudBuild(id string) (Build, bool) {
 // google.longrunning CancelOperation answers google.protobuf.Empty.
 func handleCloudBuildCancelOperation(w http.ResponseWriter, id string) {
 	if _, ok := cancelCloudBuild(id); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation for build %s not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})

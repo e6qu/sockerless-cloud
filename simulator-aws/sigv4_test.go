@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // resetCredentialStores re-creates the in-memory credential stores the SigV4

@@ -41,9 +41,7 @@ jobs:
           # roughly half of all targets, and one job running all of them takes
           # about 21 minutes even with a warm cache. Two shards fit but with
           # only about a minute of margin (13m48s and 11m41s observed), so aws
-          # runs as three shards to keep real headroom under the limit. The
-          # shared/ framework packages live inside each cloud module, so
-          # passing the module root covers them.
+          # runs as three shards to keep real headroom under the limit.
           - group: aws-1of3
             modules: simulator-aws
             shard_index: 1
@@ -60,6 +58,8 @@ jobs:
             modules: simulator-gcp
           - group: azure
             modules: simulator-azure
+          - group: sim
+            modules: sim
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0

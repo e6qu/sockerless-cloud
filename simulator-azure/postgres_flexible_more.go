@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Additional Microsoft.DBforPostgreSQL/flexibleServers control-plane
@@ -113,7 +113,7 @@ func pgServerAction(finalState string) http.HandlerFunc {
 		sub := sim.PathParam(r, "subscriptionId")
 		id := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 		if _, ok := pgServers.Get(id); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
 			return
 		}
 		location := pgServerLocation(id)
@@ -147,7 +147,7 @@ func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	id := pgServerID(sub, rg, name)
 	if _, ok := pgServers.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
 		return
 	}
 	var req struct {
@@ -156,7 +156,7 @@ func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any    `json:"properties,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	// administratorLoginPassword is write-only (x-ms-secret): a PATCH that
@@ -174,7 +174,7 @@ func handlePGUpdateServer(w http.ResponseWriter, r *http.Request) {
 	if rotate {
 		sealed, err := azurePGSealSecret(rotatedPassword)
 		if err != nil {
-			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 				"seal administrator credential: %v", err)
 			return
 		}
@@ -218,7 +218,7 @@ func handlePGCheckNameAvailability(w http.ResponseWriter, r *http.Request) {
 		Type string `json:"type"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	available := true
@@ -250,14 +250,14 @@ func handlePGPatchConfiguration(w http.ResponseWriter, r *http.Request) {
 	cfgName := sim.PathParam(r, "cfg")
 	serverID := pgServerID(sub, rg, server)
 	if _, ok := pgServers.Get(serverID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Flexible server %q not found", server)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Flexible server %q not found", server)
 		return
 	}
 	var req struct {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	c := PGConfiguration{
@@ -291,7 +291,7 @@ func handlePGGetAdministrator(w http.ResponseWriter, r *http.Request) {
 	id := pgAdminID(serverID, sim.PathParam(r, "objectId"))
 	a, ok := pgAdministrators.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "administrator not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "administrator not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, a)
@@ -301,7 +301,7 @@ func handlePGCreateAdministrator(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	serverID := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := pgServers.Get(serverID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	objectID := sim.PathParam(r, "objectId")
@@ -309,7 +309,7 @@ func handlePGCreateAdministrator(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	props := map[string]any{"objectId": objectID}
@@ -331,7 +331,7 @@ func handlePGDeleteAdministrator(w http.ResponseWriter, r *http.Request) {
 	serverID := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	id := pgAdminID(serverID, sim.PathParam(r, "objectId"))
 	if !pgAdministrators.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "administrator not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "administrator not found")
 		return
 	}
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), issueAzureAsyncOperation(nil))
@@ -358,7 +358,7 @@ func handlePGGetBackup(w http.ResponseWriter, r *http.Request) {
 	id := pgBackupID(serverID, sim.PathParam(r, "backupName"))
 	b, ok := pgBackups.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "backup not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "backup not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, b)
@@ -370,7 +370,7 @@ func handlePGCreateBackup(w http.ResponseWriter, r *http.Request) {
 	serverName := sim.PathParam(r, "name")
 	serverID := pgServerID(sub, rg, serverName)
 	if _, ok := pgServers.Get(serverID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	backupName := sim.PathParam(r, "backupName")
@@ -418,7 +418,7 @@ func handlePGDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	backupName := sim.PathParam(r, "backupName")
 	id := pgBackupID(serverID, backupName)
 	if !pgBackups.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "backup not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "backup not found")
 		return
 	}
 	azurePGRemoveBackupVolume(azurePGBackupVolume(rg, serverName, backupName))
@@ -472,7 +472,7 @@ func handlePGGetVirtualEndpoint(w http.ResponseWriter, r *http.Request) {
 	id := pgVirtualEndpointID(serverID, sim.PathParam(r, "ve"))
 	v, ok := pgVirtualEndpoints.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "virtual endpoint not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "virtual endpoint not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, v)
@@ -482,7 +482,7 @@ func pgPutVirtualEndpoint(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	serverID := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := pgServers.Get(serverID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	veName := sim.PathParam(r, "ve")
@@ -490,7 +490,7 @@ func pgPutVirtualEndpoint(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := pgVirtualEndpointID(serverID, veName)
@@ -530,7 +530,7 @@ func handlePGDeleteVirtualEndpoint(w http.ResponseWriter, r *http.Request) {
 	serverID := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	id := pgVirtualEndpointID(serverID, sim.PathParam(r, "ve"))
 	if !pgVirtualEndpoints.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "virtual endpoint not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "virtual endpoint not found")
 		return
 	}
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(serverID), issueAzureAsyncOperation(nil))

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS container instances — the EC2 hosts an ECS agent registers into a
@@ -55,7 +55,7 @@ type ECSAttribute struct {
 
 var ecsContainerInstances sim.Store[ECSContainerInstance]
 
-func registerECSContainerInstances(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSContainerInstances(r *AWSRouter, srv *sim.Server) {
 	ecsContainerInstances = sim.MakeStore[ECSContainerInstance](srv.DB(), "ecs_container_instances")
 
 	r.Register("AmazonEC2ContainerServiceV20141113.RegisterContainerInstance", handleECSRegisterContainerInstance)
@@ -92,12 +92,12 @@ func handleECSRegisterContainerInstance(w http.ResponseWriter, r *http.Request) 
 		InstanceIdentityDoc string          `json:"instanceIdentityDocument"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	if _, ok := ecsClusters.Get(clusterName); !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
 		return
 	}
 	// The instance identity document is how an EC2 instance identifies itself
@@ -133,7 +133,7 @@ func handleECSDescribeContainerInstances(w http.ResponseWriter, r *http.Request)
 		ContainerInstances []string `json:"containerInstances"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -168,7 +168,7 @@ func handleECSListContainerInstances(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -201,14 +201,14 @@ func handleECSUpdateContainerInstancesState(w http.ResponseWriter, r *http.Reque
 		Status             string   `json:"status"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
 		return
 	}
 	if req.Status != "ACTIVE" && req.Status != "DRAINING" {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The container instance state '%s' is invalid. Valid states are ACTIVE and DRAINING.", req.Status)
 		return
 	}
@@ -242,7 +242,7 @@ func handleECSUpdateContainerAgent(w http.ResponseWriter, r *http.Request) {
 		ContainerInstance string `json:"containerInstance"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -253,7 +253,7 @@ func handleECSUpdateContainerAgent(w http.ResponseWriter, r *http.Request) {
 	key := ecsContainerInstanceKey(clusterName, id)
 	ci, ok := ecsContainerInstances.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Could not find container instance '%s'.", req.ContainerInstance)
 		return
 	}
@@ -269,7 +269,7 @@ func handleECSDeregisterContainerInstance(w http.ResponseWriter, r *http.Request
 		Force             bool   `json:"force"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -280,7 +280,7 @@ func handleECSDeregisterContainerInstance(w http.ResponseWriter, r *http.Request
 	key := ecsContainerInstanceKey(clusterName, id)
 	ci, ok := ecsContainerInstances.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Could not find container instance '%s'.", req.ContainerInstance)
 		return
 	}
@@ -289,7 +289,7 @@ func handleECSDeregisterContainerInstance(w http.ResponseWriter, r *http.Request
 	// instance went away underneath its own tasks.
 	if !req.Force {
 		if running := ecsRunningTasksOnContainerInstance(ci.ContainerInstanceArn); running > 0 {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 				"You cannot deregister a container instance while it has running tasks. "+
 					"Stop the %d task(s) or use the force flag.", running)
 			return
@@ -333,12 +333,12 @@ func handleECSSubmitContainerStateChange(w http.ResponseWriter, r *http.Request)
 		} `json:"networkBindings"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	taskID, task, ok := ecsTaskFromAgentReference(req.Task, req.Cluster)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Could not find task: %s", req.Task)
 		return
 	}
@@ -371,7 +371,7 @@ func handleECSSubmitContainerStateChange(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	if !found {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Could not find container %q in task %s", req.ContainerName, req.Task)
 		return
 	}
@@ -405,12 +405,12 @@ func handleECSSubmitTaskStateChange(w http.ResponseWriter, r *http.Request) {
 		} `json:"attachments"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	taskID, task, ok := ecsTaskFromAgentReference(req.Task, req.Cluster)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Could not find task: %s", req.Task)
 		return
 	}
@@ -526,11 +526,11 @@ func handleECSSubmitAttachmentStateChanges(w http.ResponseWriter, r *http.Reques
 		} `json:"attachments"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.Attachments) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "attachments is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "attachments is required", http.StatusBadRequest)
 		return
 	}
 	// An attachment names no task, so the task that owns it is the one holding
@@ -552,7 +552,7 @@ func handleECSSubmitAttachmentStateChanges(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if applied == 0 {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"no task holds the attachments reported", http.StatusBadRequest)
 		return
 	}
@@ -574,7 +574,7 @@ func handleECSDiscoverPollEndpoint(w http.ResponseWriter, r *http.Request) {
 		Cluster           string `json:"cluster"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// The agent polls whatever this returns, so it has to be this simulator.

@@ -14,7 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Elastic Load Balancing health-checks registered targets continuously, on the

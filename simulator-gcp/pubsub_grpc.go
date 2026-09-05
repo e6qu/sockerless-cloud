@@ -11,7 +11,7 @@ import (
 	"time"
 
 	pspb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

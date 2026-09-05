@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Organizations — a faithful slice of the real service's resource tree:
@@ -170,7 +170,7 @@ var (
 
 const orgSingletonKey = "default"
 
-func registerOrganizations(r *sim.AWSRouter, srv *sim.Server) {
+func registerOrganizations(r *AWSRouter, srv *sim.Server) {
 	orgOrg = sim.MakeStore[OrgOrganization](srv.DB(), "org_organization")
 	orgAccounts = sim.MakeStore[OrgAccount](srv.DB(), "org_accounts")
 	orgRoots = sim.MakeStore[OrgRoot](srv.DB(), "org_roots")
@@ -480,7 +480,7 @@ func orgCreateStatusToMap(s OrgCreateAccountStatus) map[string]any {
 func orgRequireOrg(w http.ResponseWriter) (OrgOrganization, bool) {
 	o, ok := orgOrg.Get(orgSingletonKey)
 	if !ok {
-		sim.AWSError(w, "AWSOrganizationsNotInUseException", "Your account is not a member of an organization.", http.StatusBadRequest)
+		AWSError(w, "AWSOrganizationsNotInUseException", "Your account is not a member of an organization.", http.StatusBadRequest)
 		return OrgOrganization{}, false
 	}
 	return o, true
@@ -493,12 +493,12 @@ func handleOrgCreateOrganization(w http.ResponseWriter, r *http.Request) {
 		FeatureSet string `json:"FeatureSet"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "The request body is not valid JSON.", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "The request body is not valid JSON.", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgOrg.Get(orgSingletonKey); ok {
 		// Real service raises this when the account already runs an org.
-		sim.AWSError(w, "AlreadyInOrganizationException", "The provided account is already a member of an organization.", http.StatusBadRequest)
+		AWSError(w, "AlreadyInOrganizationException", "The provided account is already a member of an organization.", http.StatusBadRequest)
 		return
 	}
 	feature := req.FeatureSet
@@ -562,11 +562,11 @@ func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
 		RoleName    string `json:"RoleName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AccountName == "" || req.Email == "" {
-		sim.AWSError(w, "InvalidInputException", "AccountName and Email are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "AccountName and Email are required", http.StatusBadRequest)
 		return
 	}
 	now := orgEpoch()
@@ -600,12 +600,12 @@ func handleOrgDescribeAccount(w http.ResponseWriter, r *http.Request) {
 		AccountId string `json:"AccountId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := orgAccounts.Get(req.AccountId)
 	if !ok {
-		sim.AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
+		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Account": orgAccountToMap(a)})
@@ -616,12 +616,12 @@ func handleOrgDescribeCreateAccountStatus(w http.ResponseWriter, r *http.Request
 		CreateAccountRequestId string `json:"CreateAccountRequestId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	s, ok := orgCreateStatuses.Get(req.CreateAccountRequestId)
 	if !ok {
-		sim.AWSError(w, "CreateAccountStatusNotFoundException", "We can't find a create account request with the specified id.", http.StatusBadRequest)
+		AWSError(w, "CreateAccountStatusNotFoundException", "We can't find a create account request with the specified id.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"CreateAccountStatus": orgCreateStatusToMap(s)})
@@ -655,11 +655,11 @@ func handleOrgListAccountsForParent(w http.ResponseWriter, r *http.Request) {
 		ParentId string `json:"ParentId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ParentId == "" {
-		sim.AWSError(w, "InvalidInputException", "ParentId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "ParentId is required", http.StatusBadRequest)
 		return
 	}
 	accts := orgAccounts.Filter(func(a OrgAccount) bool { return a.ParentId == req.ParentId })
@@ -678,20 +678,20 @@ func handleOrgMoveAccount(w http.ResponseWriter, r *http.Request) {
 		DestinationParentId string `json:"DestinationParentId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := orgAccounts.Get(req.AccountId)
 	if !ok {
-		sim.AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
+		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
 	if !orgParentExists(req.DestinationParentId) {
-		sim.AWSError(w, "DestinationParentNotFoundException", "We can't find the destination container (a root or OU) with the specified parent ID.", http.StatusBadRequest)
+		AWSError(w, "DestinationParentNotFoundException", "We can't find the destination container (a root or OU) with the specified parent ID.", http.StatusBadRequest)
 		return
 	}
 	if a.ParentId != req.SourceParentId {
-		sim.AWSError(w, "SourceParentNotFoundException", "We can't find a source root or OU with the specified parent ID.", http.StatusBadRequest)
+		AWSError(w, "SourceParentNotFoundException", "We can't find a source root or OU with the specified parent ID.", http.StatusBadRequest)
 		return
 	}
 	a.ParentId = req.DestinationParentId
@@ -704,15 +704,15 @@ func handleOrgRemoveAccountFromOrganization(w http.ResponseWriter, r *http.Reque
 		AccountId string `json:"AccountId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AccountId == awsAccountID() {
-		sim.AWSError(w, "MasterCannotLeaveOrganizationException", "You can't remove the management account from the organization.", http.StatusBadRequest)
+		AWSError(w, "MasterCannotLeaveOrganizationException", "You can't remove the management account from the organization.", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgAccounts.Get(req.AccountId); !ok {
-		sim.AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
+		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
 	orgAccounts.Delete(req.AccountId)
@@ -724,16 +724,16 @@ func handleOrgCloseAccount(w http.ResponseWriter, r *http.Request) {
 		AccountId string `json:"AccountId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := orgAccounts.Get(req.AccountId)
 	if !ok {
-		sim.AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
+		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
 	if req.AccountId == awsAccountID() {
-		sim.AWSError(w, "ConstraintViolationException", "You can't close the management account.", http.StatusBadRequest)
+		AWSError(w, "ConstraintViolationException", "You can't close the management account.", http.StatusBadRequest)
 		return
 	}
 	a.Status = "SUSPENDED"
@@ -763,15 +763,15 @@ func handleOrgCreateOU(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.ParentId == "" {
-		sim.AWSError(w, "InvalidInputException", "Name and ParentId are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Name and ParentId are required", http.StatusBadRequest)
 		return
 	}
 	if !orgParentExists(req.ParentId) {
-		sim.AWSError(w, "ParentNotFoundException", "We can't find a root or OU with the ParentId that you specified.", http.StatusBadRequest)
+		AWSError(w, "ParentNotFoundException", "We can't find a root or OU with the ParentId that you specified.", http.StatusBadRequest)
 		return
 	}
 	ou := OrgOU{
@@ -789,16 +789,16 @@ func handleOrgDeleteOU(w http.ResponseWriter, r *http.Request) {
 		OrganizationalUnitId string `json:"OrganizationalUnitId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgOUs.Get(req.OrganizationalUnitId); !ok {
-		sim.AWSError(w, "OrganizationalUnitNotFoundException", "We can't find an OU with the OrganizationalUnitId that you specified.", http.StatusBadRequest)
+		AWSError(w, "OrganizationalUnitNotFoundException", "We can't find an OU with the OrganizationalUnitId that you specified.", http.StatusBadRequest)
 		return
 	}
 	// Reject deletion of a non-empty OU like the real service.
 	if orgOUHasChildren(req.OrganizationalUnitId) {
-		sim.AWSError(w, "OrganizationalUnitNotEmptyException", "The specified OU is not empty.", http.StatusBadRequest)
+		AWSError(w, "OrganizationalUnitNotEmptyException", "The specified OU is not empty.", http.StatusBadRequest)
 		return
 	}
 	orgOUs.Delete(req.OrganizationalUnitId)
@@ -824,12 +824,12 @@ func handleOrgDescribeOU(w http.ResponseWriter, r *http.Request) {
 		OrganizationalUnitId string `json:"OrganizationalUnitId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	ou, ok := orgOUs.Get(req.OrganizationalUnitId)
 	if !ok {
-		sim.AWSError(w, "OrganizationalUnitNotFoundException", "We can't find an OU with the OrganizationalUnitId that you specified.", http.StatusBadRequest)
+		AWSError(w, "OrganizationalUnitNotFoundException", "We can't find an OU with the OrganizationalUnitId that you specified.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"OrganizationalUnit": orgOUToMap(ou)})
@@ -841,12 +841,12 @@ func handleOrgUpdateOU(w http.ResponseWriter, r *http.Request) {
 		Name                 string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	ou, ok := orgOUs.Get(req.OrganizationalUnitId)
 	if !ok {
-		sim.AWSError(w, "OrganizationalUnitNotFoundException", "We can't find an OU with the OrganizationalUnitId that you specified.", http.StatusBadRequest)
+		AWSError(w, "OrganizationalUnitNotFoundException", "We can't find an OU with the OrganizationalUnitId that you specified.", http.StatusBadRequest)
 		return
 	}
 	if req.Name != "" {
@@ -861,11 +861,11 @@ func handleOrgListOUsForParent(w http.ResponseWriter, r *http.Request) {
 		ParentId string `json:"ParentId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ParentId == "" {
-		sim.AWSError(w, "InvalidInputException", "ParentId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "ParentId is required", http.StatusBadRequest)
 		return
 	}
 	ous := orgOUs.Filter(func(o OrgOU) bool { return o.ParentId == req.ParentId })
@@ -898,11 +898,11 @@ func handleOrgListChildren(w http.ResponseWriter, r *http.Request) {
 		ChildType string `json:"ChildType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ParentId == "" || req.ChildType == "" {
-		sim.AWSError(w, "InvalidInputException", "ParentId and ChildType are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "ParentId and ChildType are required", http.StatusBadRequest)
 		return
 	}
 	out := []map[string]any{}
@@ -920,7 +920,7 @@ func handleOrgListChildren(w http.ResponseWriter, r *http.Request) {
 			out = append(out, map[string]any{"Id": o.Id, "Type": "ORGANIZATIONAL_UNIT"})
 		}
 	default:
-		sim.AWSError(w, "InvalidInputException", "ChildType must be ACCOUNT or ORGANIZATIONAL_UNIT", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "ChildType must be ACCOUNT or ORGANIZATIONAL_UNIT", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Children": out})
@@ -931,7 +931,7 @@ func handleOrgListParents(w http.ResponseWriter, r *http.Request) {
 		ChildId string `json:"ChildId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var parentID string
@@ -940,7 +940,7 @@ func handleOrgListParents(w http.ResponseWriter, r *http.Request) {
 	} else if o, ok := orgOUs.Get(req.ChildId); ok {
 		parentID = o.ParentId
 	} else {
-		sim.AWSError(w, "ChildNotFoundException", "We can't find an organizational unit (OU) or account with the ChildId that you specified.", http.StatusBadRequest)
+		AWSError(w, "ChildNotFoundException", "We can't find an organizational unit (OU) or account with the ChildId that you specified.", http.StatusBadRequest)
 		return
 	}
 	out := []map[string]any{
@@ -962,11 +962,11 @@ func handleOrgCreatePolicy(w http.ResponseWriter, r *http.Request) {
 		Type        string `json:"Type"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Type == "" || req.Content == "" {
-		sim.AWSError(w, "InvalidInputException", "Name, Type and Content are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Name, Type and Content are required", http.StatusBadRequest)
 		return
 	}
 	p := OrgPolicy{
@@ -987,20 +987,20 @@ func handleOrgDeletePolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyId string `json:"PolicyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	p, ok := orgPolicies.Get(req.PolicyId)
 	if !ok {
-		sim.AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
+		AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
 		return
 	}
 	if p.AwsManaged {
-		sim.AWSError(w, "ConstraintViolationException", "You can't delete an AWS managed policy.", http.StatusBadRequest)
+		AWSError(w, "ConstraintViolationException", "You can't delete an AWS managed policy.", http.StatusBadRequest)
 		return
 	}
 	if orgPolicyHasTargets(req.PolicyId) {
-		sim.AWSError(w, "PolicyInUseException", "The policy is attached to one or more entities. Detach it first.", http.StatusBadRequest)
+		AWSError(w, "PolicyInUseException", "The policy is attached to one or more entities. Detach it first.", http.StatusBadRequest)
 		return
 	}
 	orgPolicies.Delete(req.PolicyId)
@@ -1021,12 +1021,12 @@ func handleOrgDescribePolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyId string `json:"PolicyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	p, ok := orgPolicies.Get(req.PolicyId)
 	if !ok {
-		sim.AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
+		AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Policy": orgPolicyToMap(p)})
@@ -1040,12 +1040,12 @@ func handleOrgUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		Content     *string `json:"Content"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	p, ok := orgPolicies.Get(req.PolicyId)
 	if !ok {
-		sim.AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
+		AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
 		return
 	}
 	if req.Name != nil {
@@ -1086,15 +1086,15 @@ func handleOrgAttachPolicy(w http.ResponseWriter, r *http.Request) {
 		TargetId string `json:"TargetId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgPolicies.Get(req.PolicyId); !ok {
-		sim.AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
+		AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
 		return
 	}
 	if !orgTargetExists(req.TargetId) {
-		sim.AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
+		AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
 		return
 	}
 	// A policy governs a target only if its type is enabled in the root, so
@@ -1104,12 +1104,12 @@ func handleOrgAttachPolicy(w http.ResponseWriter, r *http.Request) {
 	// made. Service control policies are enabled in every root by default.
 	policy, _ := orgPolicies.Get(req.PolicyId)
 	if !orgPolicyTypeEnabled(policy.Type) {
-		sim.AWSError(w, "PolicyTypeNotEnabledException", "The specified policy type isn't currently enabled in this root.", http.StatusBadRequest)
+		AWSError(w, "PolicyTypeNotEnabledException", "The specified policy type isn't currently enabled in this root.", http.StatusBadRequest)
 		return
 	}
 	key := orgAttachmentKey(req.PolicyId, req.TargetId)
 	if _, ok := orgPolicyAttachments.Get(key); ok {
-		sim.AWSError(w, "DuplicatePolicyAttachmentException", "The selected policy is already attached to the specified target.", http.StatusBadRequest)
+		AWSError(w, "DuplicatePolicyAttachmentException", "The selected policy is already attached to the specified target.", http.StatusBadRequest)
 		return
 	}
 	orgPolicyAttachments.Put(key, OrgPolicyAttachment{PolicyId: req.PolicyId, TargetId: req.TargetId})
@@ -1130,12 +1130,12 @@ func handleOrgDetachPolicy(w http.ResponseWriter, r *http.Request) {
 		TargetId string `json:"TargetId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := orgAttachmentKey(req.PolicyId, req.TargetId)
 	if _, ok := orgPolicyAttachments.Get(key); !ok {
-		sim.AWSError(w, "PolicyNotAttachedException", "The policy isn't attached to the specified target.", http.StatusBadRequest)
+		AWSError(w, "PolicyNotAttachedException", "The policy isn't attached to the specified target.", http.StatusBadRequest)
 		return
 	}
 	orgPolicyAttachments.Delete(key)
@@ -1150,11 +1150,11 @@ func handleOrgListPolicies(w http.ResponseWriter, r *http.Request) {
 		Filter string `json:"Filter"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Filter == "" {
-		sim.AWSError(w, "InvalidInputException", "Filter is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Filter is required", http.StatusBadRequest)
 		return
 	}
 	pols := orgPolicies.Filter(func(p OrgPolicy) bool { return p.Type == req.Filter })
@@ -1172,15 +1172,15 @@ func handleOrgListPoliciesForTarget(w http.ResponseWriter, r *http.Request) {
 		Filter   string `json:"Filter"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TargetId == "" || req.Filter == "" {
-		sim.AWSError(w, "InvalidInputException", "TargetId and Filter are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "TargetId and Filter are required", http.StatusBadRequest)
 		return
 	}
 	if !orgTargetExists(req.TargetId) {
-		sim.AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
+		AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
 		return
 	}
 	matched := []OrgPolicy{}
@@ -1207,11 +1207,11 @@ func handleOrgListTargetsForPolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyId string `json:"PolicyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgPolicies.Get(req.PolicyId); !ok {
-		sim.AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
+		AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
 		return
 	}
 	targetIDs := []string{}
@@ -1263,17 +1263,17 @@ func handleOrgEnablePolicyType(w http.ResponseWriter, r *http.Request) {
 		PolicyType string `json:"PolicyType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	root, ok := orgRoots.Get(req.RootId)
 	if !ok {
-		sim.AWSError(w, "RootNotFoundException", "We can't find a root with the RootId that you specified.", http.StatusBadRequest)
+		AWSError(w, "RootNotFoundException", "We can't find a root with the RootId that you specified.", http.StatusBadRequest)
 		return
 	}
 	for _, t := range root.EnabledPolicyTypes {
 		if t == req.PolicyType {
-			sim.AWSError(w, "PolicyTypeAlreadyEnabledException", "The specified policy type is already enabled.", http.StatusBadRequest)
+			AWSError(w, "PolicyTypeAlreadyEnabledException", "The specified policy type is already enabled.", http.StatusBadRequest)
 			return
 		}
 	}
@@ -1288,12 +1288,12 @@ func handleOrgDisablePolicyType(w http.ResponseWriter, r *http.Request) {
 		PolicyType string `json:"PolicyType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	root, ok := orgRoots.Get(req.RootId)
 	if !ok {
-		sim.AWSError(w, "RootNotFoundException", "We can't find a root with the RootId that you specified.", http.StatusBadRequest)
+		AWSError(w, "RootNotFoundException", "We can't find a root with the RootId that you specified.", http.StatusBadRequest)
 		return
 	}
 	found := false
@@ -1306,7 +1306,7 @@ func handleOrgDisablePolicyType(w http.ResponseWriter, r *http.Request) {
 		kept = append(kept, t)
 	}
 	if !found {
-		sim.AWSError(w, "PolicyTypeNotEnabledException", "The specified policy type isn't currently enabled in this root.", http.StatusBadRequest)
+		AWSError(w, "PolicyTypeNotEnabledException", "The specified policy type isn't currently enabled in this root.", http.StatusBadRequest)
 		return
 	}
 	root.EnabledPolicyTypes = kept
@@ -1320,11 +1320,11 @@ func handleOrgDescribeEffectivePolicy(w http.ResponseWriter, r *http.Request) {
 		TargetId   string `json:"TargetId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PolicyType == "" {
-		sim.AWSError(w, "InvalidInputException", "PolicyType is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "PolicyType is required", http.StatusBadRequest)
 		return
 	}
 	if !orgEffectivePolicyTypes[req.PolicyType] {
@@ -1333,7 +1333,7 @@ func handleOrgDescribeEffectivePolicy(w http.ResponseWriter, r *http.Request) {
 		// intersection along the path at authorization time rather than merged
 		// into one document — so asking for one is a validation failure, not an
 		// empty answer.
-		sim.AWSErrorf(w, "InvalidInputException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidInputException", http.StatusBadRequest,
 			"1 validation error detected: Value '%s' at 'policyType' failed to satisfy constraint: Member must satisfy enum value set: [%s]",
 			req.PolicyType, strings.Join(orgEffectivePolicyTypeNames, ", "))
 		return
@@ -1343,7 +1343,7 @@ func handleOrgDescribeEffectivePolicy(w http.ResponseWriter, r *http.Request) {
 		targetID = awsAccountID()
 	}
 	if !orgTargetExists(targetID) {
-		sim.AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
+		AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
 		return
 	}
 	// The effective policy is the one this type resolves to for the target:
@@ -1352,7 +1352,7 @@ func handleOrgDescribeEffectivePolicy(w http.ResponseWriter, r *http.Request) {
 	// policy at all, which is its own error below.
 	content := orgEffectivePolicyContent(targetID, req.PolicyType)
 	if content == "" {
-		sim.AWSError(w, "EffectivePolicyNotFoundException", "If you ran this action on the management account, this policy type is not enabled. If you ran the action on a member account, the account doesn't have an effective policy of this type.", http.StatusBadRequest)
+		AWSError(w, "EffectivePolicyNotFoundException", "If you ran this action on the management account, this policy type is not enabled. If you ran the action on a member account, the account doesn't have an effective policy of this type.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1446,11 +1446,11 @@ func handleOrgInviteAccount(w http.ResponseWriter, r *http.Request) {
 		Notes string `json:"Notes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Target.Id == "" || req.Target.Type == "" {
-		sim.AWSError(w, "InvalidInputException", "Target Id and Type are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Target Id and Type are required", http.StatusBadRequest)
 		return
 	}
 	now := orgEpoch()
@@ -1475,12 +1475,12 @@ func orgHandshakeTransition(w http.ResponseWriter, r *http.Request, newState str
 		HandshakeId string `json:"HandshakeId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	h, ok := orgHandshakes.Get(req.HandshakeId)
 	if !ok {
-		sim.AWSError(w, "HandshakeNotFoundException", "We can't find a handshake with the HandshakeId that you specified.", http.StatusBadRequest)
+		AWSError(w, "HandshakeNotFoundException", "We can't find a handshake with the HandshakeId that you specified.", http.StatusBadRequest)
 		return
 	}
 	h.State = newState
@@ -1503,12 +1503,12 @@ func handleOrgDescribeHandshake(w http.ResponseWriter, r *http.Request) {
 		HandshakeId string `json:"HandshakeId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	h, ok := orgHandshakes.Get(req.HandshakeId)
 	if !ok {
-		sim.AWSError(w, "HandshakeNotFoundException", "We can't find a handshake with the HandshakeId that you specified.", http.StatusBadRequest)
+		AWSError(w, "HandshakeNotFoundException", "We can't find a handshake with the HandshakeId that you specified.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshake": orgHandshakeToMap(h)})
@@ -1547,20 +1547,20 @@ func handleOrgRegisterDelegatedAdmin(w http.ResponseWriter, r *http.Request) {
 		ServicePrincipal string `json:"ServicePrincipal"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AccountId == "" || req.ServicePrincipal == "" {
-		sim.AWSError(w, "InvalidInputException", "AccountId and ServicePrincipal are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "AccountId and ServicePrincipal are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgAccounts.Get(req.AccountId); !ok {
-		sim.AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
+		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
 	key := orgDelegatedAdminKey(req.AccountId, req.ServicePrincipal)
 	if _, ok := orgDelegatedAdmins.Get(key); ok {
-		sim.AWSError(w, "AccountAlreadyRegisteredException", "The specified account is already a delegated administrator for this AWS service.", http.StatusBadRequest)
+		AWSError(w, "AccountAlreadyRegisteredException", "The specified account is already a delegated administrator for this AWS service.", http.StatusBadRequest)
 		return
 	}
 	orgDelegatedAdmins.Put(key, OrgDelegatedAdmin{
@@ -1577,12 +1577,12 @@ func handleOrgDeregisterDelegatedAdmin(w http.ResponseWriter, r *http.Request) {
 		ServicePrincipal string `json:"ServicePrincipal"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := orgDelegatedAdminKey(req.AccountId, req.ServicePrincipal)
 	if _, ok := orgDelegatedAdmins.Get(key); !ok {
-		sim.AWSError(w, "AccountNotRegisteredException", "The specified account is not a delegated administrator for this AWS service.", http.StatusBadRequest)
+		AWSError(w, "AccountNotRegisteredException", "The specified account is not a delegated administrator for this AWS service.", http.StatusBadRequest)
 		return
 	}
 	orgDelegatedAdmins.Delete(key)
@@ -1594,7 +1594,7 @@ func handleOrgListDelegatedAdmins(w http.ResponseWriter, r *http.Request) {
 		ServicePrincipal string `json:"ServicePrincipal"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "The request body is not valid JSON.", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "The request body is not valid JSON.", http.StatusBadRequest)
 		return
 	}
 	seen := map[string]bool{}
@@ -1632,11 +1632,11 @@ func handleOrgListDelegatedServices(w http.ResponseWriter, r *http.Request) {
 		AccountId string `json:"AccountId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgAccounts.Get(req.AccountId); !ok {
-		sim.AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
+		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
 	out := []map[string]any{}
@@ -1656,11 +1656,11 @@ func handleOrgEnableServiceAccess(w http.ResponseWriter, r *http.Request) {
 		ServicePrincipal string `json:"ServicePrincipal"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServicePrincipal == "" {
-		sim.AWSError(w, "InvalidInputException", "ServicePrincipal is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "ServicePrincipal is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgServiceAccess.Get(req.ServicePrincipal); !ok {
@@ -1677,7 +1677,7 @@ func handleOrgDisableServiceAccess(w http.ResponseWriter, r *http.Request) {
 		ServicePrincipal string `json:"ServicePrincipal"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	orgServiceAccess.Delete(req.ServicePrincipal)
@@ -1710,11 +1710,11 @@ func handleOrgPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"Content"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Content == "" {
-		sim.AWSError(w, "InvalidInputException", "Content is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Content is required", http.StatusBadRequest)
 		return
 	}
 	rp, ok := orgResourcePolicies.Get(orgSingletonKey)
@@ -1739,7 +1739,7 @@ func handleOrgDeleteResourcePolicy(w http.ResponseWriter, _ *http.Request) {
 	}
 	rp, ok := orgResourcePolicies.Get(orgSingletonKey)
 	if !ok {
-		sim.AWSError(w, "ResourcePolicyNotFoundException", "We can't find a resource policy request with the parameter that you specified.", http.StatusBadRequest)
+		AWSError(w, "ResourcePolicyNotFoundException", "We can't find a resource policy request with the parameter that you specified.", http.StatusBadRequest)
 		return
 	}
 	iamDeleteResourcePolicy(rp.Arn)
@@ -1753,7 +1753,7 @@ func handleOrgDescribeResourcePolicy(w http.ResponseWriter, _ *http.Request) {
 	}
 	rp, ok := orgResourcePolicies.Get(orgSingletonKey)
 	if !ok {
-		sim.AWSError(w, "ResourcePolicyNotFoundException", "We can't find a resource policy request with the parameter that you specified.", http.StatusBadRequest)
+		AWSError(w, "ResourcePolicyNotFoundException", "We can't find a resource policy request with the parameter that you specified.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1775,11 +1775,11 @@ func handleOrgTagResource(w http.ResponseWriter, r *http.Request) {
 		} `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceId == "" {
-		sim.AWSError(w, "InvalidInputException", "ResourceId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "ResourceId is required", http.StatusBadRequest)
 		return
 	}
 	t, ok := orgTags.Get(req.ResourceId)
@@ -1802,7 +1802,7 @@ func handleOrgUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys    []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if t, ok := orgTags.Get(req.ResourceId); ok {
@@ -1819,7 +1819,7 @@ func handleOrgListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceId string `json:"ResourceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	out := []map[string]any{}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Compute Engine collections whose whole documented surface is the standard

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type IAMRole struct {
@@ -68,7 +68,7 @@ var (
 	iamInstanceProfiles sim.Store[IAMInstanceProfile]
 )
 
-func registerIAM(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
 	registerIAMAccountProperties(r, srv)
 	iamRoles = sim.MakeStore[IAMRole](srv.DB(), "iam_roles")
 	iamRolePolicies = sim.MakeStore[IAMRolePolicy](srv.DB(), "iam_role_policies")

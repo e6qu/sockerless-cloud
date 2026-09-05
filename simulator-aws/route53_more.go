@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Route 53 — remaining operation slices: reusable delegation sets, CIDR

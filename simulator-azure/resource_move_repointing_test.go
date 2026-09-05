@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The families that joined the cross-resource-group move dispatch alongside

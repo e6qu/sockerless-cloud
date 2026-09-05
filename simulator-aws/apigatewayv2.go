@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // API Gateway v2 (HTTP API + WebSocket) — restJson1 protocol, REST
@@ -249,7 +249,7 @@ func handleAPIGWv2CreateApi(w http.ResponseWriter, r *http.Request) {
 		Tags                      map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ApiKeySelectionExpression == "" {
@@ -284,7 +284,7 @@ func handleAPIGWv2GetApi(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	api, ok := apigwv2Apis.Get(apiId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, api)
@@ -293,7 +293,7 @@ func handleAPIGWv2GetApi(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2DeleteApi(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	if !apigwv2Apis.Delete(apiId) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	// Cascade-delete children.
@@ -323,7 +323,7 @@ func handleAPIGWv2DeleteApi(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2CreateRoute(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	if _, ok := apigwv2Apis.Get(apiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	var req struct {
@@ -334,7 +334,7 @@ func handleAPIGWv2CreateRoute(w http.ResponseWriter, r *http.Request) {
 		OperationName     string `json:"OperationName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	route := APIGWv2Route{
@@ -369,7 +369,7 @@ func handleAPIGWv2GetRoute(w http.ResponseWriter, r *http.Request) {
 	routeId := sim.PathParam(r, "routeId")
 	route, ok := apigwv2Routes.Get(apigwv2StoreKey(apiId, routeId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Route identifier specified %s", routeId)
 		return
 	}
@@ -381,7 +381,7 @@ func handleAPIGWv2UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	routeId := sim.PathParam(r, "routeId")
 	route, ok := apigwv2Routes.Get(apigwv2StoreKey(apiId, routeId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Route identifier specified %s", routeId)
 		return
 	}
@@ -395,7 +395,7 @@ func handleAPIGWv2UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		OperationName     *string `json:"OperationName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.RouteKey != nil {
@@ -421,7 +421,7 @@ func handleAPIGWv2DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	routeId := sim.PathParam(r, "routeId")
 	if !apigwv2Routes.Delete(apigwv2StoreKey(apiId, routeId)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Route identifier specified %s", routeId)
 		return
 	}
@@ -431,7 +431,7 @@ func handleAPIGWv2DeleteRoute(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2CreateIntegration(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	if _, ok := apigwv2Apis.Get(apiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	var req struct {
@@ -443,7 +443,7 @@ func handleAPIGWv2CreateIntegration(w http.ResponseWriter, r *http.Request) {
 		TimeoutInMillis      int    `json:"TimeoutInMillis"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.ConnectionType == "" {
@@ -468,7 +468,7 @@ func handleAPIGWv2UpdateIntegration(w http.ResponseWriter, r *http.Request) {
 	integrationId := sim.PathParam(r, "integrationId")
 	integration, ok := apigwv2Integrations.Get(apigwv2StoreKey(apiId, integrationId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Integration identifier specified %s", integrationId)
 		return
 	}
@@ -481,7 +481,7 @@ func handleAPIGWv2UpdateIntegration(w http.ResponseWriter, r *http.Request) {
 		TimeoutInMillis      *int    `json:"TimeoutInMillis"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.ConnectionType != nil {
@@ -525,7 +525,7 @@ func handleAPIGWv2GetIntegration(w http.ResponseWriter, r *http.Request) {
 	integrationId := sim.PathParam(r, "integrationId")
 	in, ok := apigwv2Integrations.Get(apigwv2StoreKey(apiId, integrationId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Integration identifier specified %s", integrationId)
 		return
 	}
@@ -536,7 +536,7 @@ func handleAPIGWv2DeleteIntegration(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	integrationId := sim.PathParam(r, "integrationId")
 	if !apigwv2Integrations.Delete(apigwv2StoreKey(apiId, integrationId)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Integration identifier specified %s", integrationId)
 		return
 	}
@@ -546,7 +546,7 @@ func handleAPIGWv2DeleteIntegration(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2CreateStage(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	if _, ok := apigwv2Apis.Get(apiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	var req struct {
@@ -557,7 +557,7 @@ func handleAPIGWv2CreateStage(w http.ResponseWriter, r *http.Request) {
 		Tags         map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	s := APIGWv2Stage{
@@ -578,7 +578,7 @@ func handleAPIGWv2UpdateStage(w http.ResponseWriter, r *http.Request) {
 	stageName := sim.PathParam(r, "stageName")
 	stage, ok := apigwv2Stages.Get(apigwv2StoreKey(apiId, stageName))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Stage identifier specified %s", stageName)
 		return
 	}
@@ -588,7 +588,7 @@ func handleAPIGWv2UpdateStage(w http.ResponseWriter, r *http.Request) {
 		AutoDeploy   *bool   `json:"AutoDeploy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Description != nil {
@@ -623,7 +623,7 @@ func handleAPIGWv2GetStage(w http.ResponseWriter, r *http.Request) {
 	stageName := sim.PathParam(r, "stageName")
 	stage, ok := apigwv2Stages.Get(apigwv2StoreKey(apiId, stageName))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Stage identifier specified %s", stageName)
 		return
 	}
@@ -634,7 +634,7 @@ func handleAPIGWv2DeleteStage(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	stageName := sim.PathParam(r, "stageName")
 	if !apigwv2Stages.Delete(apigwv2StoreKey(apiId, stageName)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Stage identifier specified %s", stageName)
 		return
 	}
@@ -644,7 +644,7 @@ func handleAPIGWv2DeleteStage(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	if _, ok := apigwv2Apis.Get(apiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	var req struct {
@@ -652,7 +652,7 @@ func handleAPIGWv2CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		StageName   string `json:"StageName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	d := APIGWv2Deployment{
@@ -685,7 +685,7 @@ func handleAPIGWv2GetDeployment(w http.ResponseWriter, r *http.Request) {
 	deploymentId := sim.PathParam(r, "deploymentId")
 	d, ok := apigwv2Deployments.Get(apigwv2StoreKey(apiId, deploymentId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Deployment identifier specified %s", deploymentId)
 		return
 	}
@@ -696,7 +696,7 @@ func handleAPIGWv2DeleteDeployment(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	deploymentId := sim.PathParam(r, "deploymentId")
 	if !apigwv2Deployments.Delete(apigwv2StoreKey(apiId, deploymentId)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Deployment identifier specified %s", deploymentId)
 		return
 	}
@@ -706,7 +706,7 @@ func handleAPIGWv2DeleteDeployment(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2CreateAuthorizer(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	if _, ok := apigwv2Apis.Get(apiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	var req struct {
@@ -722,7 +722,7 @@ func handleAPIGWv2CreateAuthorizer(w http.ResponseWriter, r *http.Request) {
 		JwtConfiguration               *APIGWv2JWTConfig `json:"JwtConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	a := APIGWv2Authorizer{
@@ -762,7 +762,7 @@ func handleAPIGWv2GetAuthorizer(w http.ResponseWriter, r *http.Request) {
 	authorizerId := sim.PathParam(r, "authorizerId")
 	a, ok := apigwv2Authorizers.Get(apigwv2StoreKey(apiId, authorizerId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Authorizer identifier specified %s", authorizerId)
 		return
 	}
@@ -774,7 +774,7 @@ func handleAPIGWv2UpdateAuthorizer(w http.ResponseWriter, r *http.Request) {
 	authorizerId := sim.PathParam(r, "authorizerId")
 	a, ok := apigwv2Authorizers.Get(apigwv2StoreKey(apiId, authorizerId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Authorizer identifier specified %s", authorizerId)
 		return
 	}
@@ -792,7 +792,7 @@ func handleAPIGWv2UpdateAuthorizer(w http.ResponseWriter, r *http.Request) {
 		JwtConfiguration               *APIGWv2JWTConfig `json:"JwtConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Name != nil {
@@ -833,7 +833,7 @@ func handleAPIGWv2DeleteAuthorizer(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	authorizerId := sim.PathParam(r, "authorizerId")
 	if !apigwv2Authorizers.Delete(apigwv2StoreKey(apiId, authorizerId)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Authorizer identifier specified %s", authorizerId)
 		return
 	}
@@ -843,7 +843,7 @@ func handleAPIGWv2DeleteAuthorizer(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2CreateModel(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	if _, ok := apigwv2Apis.Get(apiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	var req struct {
@@ -853,7 +853,7 @@ func handleAPIGWv2CreateModel(w http.ResponseWriter, r *http.Request) {
 		ContentType string `json:"ContentType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	m := APIGWv2Model{
@@ -887,7 +887,7 @@ func handleAPIGWv2GetModel(w http.ResponseWriter, r *http.Request) {
 	modelId := sim.PathParam(r, "modelId")
 	m, ok := apigwv2Models.Get(apigwv2StoreKey(apiId, modelId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Model identifier specified %s", modelId)
 		return
 	}
@@ -898,7 +898,7 @@ func handleAPIGWv2DeleteModel(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	modelId := sim.PathParam(r, "modelId")
 	if !apigwv2Models.Delete(apigwv2StoreKey(apiId, modelId)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Model identifier specified %s", modelId)
 		return
 	}
@@ -912,15 +912,15 @@ func handleAPIGWv2CreateDomainName(w http.ResponseWriter, r *http.Request) {
 		Tags                     map[string]string         `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DomainName == "" {
-		sim.AWSError(w, "BadRequestException", "DomainName is required", http.StatusBadRequest)
+		AWSError(w, "BadRequestException", "DomainName is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := apigwv2DomainNames.Get(req.DomainName); ok {
-		sim.AWSErrorf(w, "ConflictException", http.StatusConflict,
+		AWSErrorf(w, "ConflictException", http.StatusConflict,
 			"The domain name you provided already exists.")
 		return
 	}
@@ -955,7 +955,7 @@ func handleAPIGWv2ListDomainNames(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2GetDomainName(w http.ResponseWriter, r *http.Request) {
 	d, ok := apigwv2DomainNames.Get(sim.PathParam(r, "domainName"))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, d)
@@ -964,7 +964,7 @@ func handleAPIGWv2GetDomainName(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2DeleteDomainName(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	if !apigwv2DomainNames.Delete(domainName) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
 	for _, m := range apigwv2ApiMappings.List() {
@@ -978,7 +978,7 @@ func handleAPIGWv2DeleteDomainName(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2CreateApiMapping(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
 	var req struct {
@@ -987,11 +987,11 @@ func handleAPIGWv2CreateApiMapping(w http.ResponseWriter, r *http.Request) {
 		Stage         string `json:"Stage"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if _, ok := apigwv2Apis.Get(req.ApiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	m := APIGWv2ApiMapping{
@@ -1008,7 +1008,7 @@ func handleAPIGWv2CreateApiMapping(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2ListApiMappings(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
 	var out []APIGWv2ApiMapping
@@ -1028,7 +1028,7 @@ func handleAPIGWv2GetApiMapping(w http.ResponseWriter, r *http.Request) {
 	apiMappingId := sim.PathParam(r, "apiMappingId")
 	m, ok := apigwv2ApiMappings.Get(domainName + "/" + apiMappingId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid API mapping identifier specified %s", apiMappingId)
 		return
 	}
@@ -1039,7 +1039,7 @@ func handleAPIGWv2DeleteApiMapping(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	apiMappingId := sim.PathParam(r, "apiMappingId")
 	if !apigwv2ApiMappings.Delete(domainName + "/" + apiMappingId) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid API mapping identifier specified %s", apiMappingId)
 		return
 	}
@@ -1054,7 +1054,7 @@ func handleAPIGWv2CreateVpcLink(w http.ResponseWriter, r *http.Request) {
 		Tags             map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	v := APIGWv2VpcLink{
@@ -1082,7 +1082,7 @@ func handleAPIGWv2ListVpcLinks(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2GetVpcLink(w http.ResponseWriter, r *http.Request) {
 	v, ok := apigwv2VpcLinks.Get(sim.PathParam(r, "vpcLinkId"))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid VPC link identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid VPC link identifier specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, v)
@@ -1090,7 +1090,7 @@ func handleAPIGWv2GetVpcLink(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIGWv2DeleteVpcLink(w http.ResponseWriter, r *http.Request) {
 	if !apigwv2VpcLinks.Delete(sim.PathParam(r, "vpcLinkId")) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid VPC link identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid VPC link identifier specified")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)

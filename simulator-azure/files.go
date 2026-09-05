@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // azureFilesHostRoot returns the on-disk backing directory for every
@@ -400,12 +400,12 @@ func registerAzureFiles(srv *sim.Server) {
 
 		var req StorageAccount
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if req.Location == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 
@@ -485,7 +485,7 @@ func registerAzureFiles(srv *sim.Server) {
 			Properties map[string]any     `json:"properties,omitempty"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Sku != nil && req.Sku.Tier == "" {
@@ -546,7 +546,7 @@ func registerAzureFiles(srv *sim.Server) {
 			applyStorageAccountEndpoints(r, acct)
 		})
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -564,7 +564,7 @@ func registerAzureFiles(srv *sim.Server) {
 
 		acct, ok := storageAccounts.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -604,14 +604,14 @@ func registerAzureFiles(srv *sim.Server) {
 
 		var req FileShare
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		// Verify storage account exists
 		acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, account)
 		if _, ok := storageAccounts.Get(acctID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
 			return
 		}
@@ -662,7 +662,7 @@ func registerAzureFiles(srv *sim.Server) {
 		// share's backing directory — the directory a Container Apps workload
 		// mounting this share reads.
 		if err := upsertFileShareDataPlaneProjection(account, shareName, quota, req.Properties.Metadata); err != nil {
-			sim.AzureErrorf(w, "InternalError", http.StatusInternalServerError,
+			AzureErrorf(w, "InternalError", http.StatusInternalServerError,
 				"Failed to materialize file share %q: %v", shareName, err)
 			return
 		}
@@ -686,7 +686,7 @@ func registerAzureFiles(srv *sim.Server) {
 
 		share, ok := fileShares.Get(shareID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The file share '%s' was not found.", shareName)
 			return
 		}
@@ -706,7 +706,7 @@ func registerAzureFiles(srv *sim.Server) {
 
 		if fileShares.Delete(shareID) {
 			if err := deleteFileShareDataPlaneProjection(account, shareName); err != nil {
-				sim.AzureErrorf(w, "InternalError", http.StatusInternalServerError,
+				AzureErrorf(w, "InternalError", http.StatusInternalServerError,
 					"Failed to delete file share %q contents: %v", shareName, err)
 				return
 			}
@@ -742,7 +742,7 @@ func registerAzureFiles(srv *sim.Server) {
 
 		acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, name)
 		if _, ok := storageAccounts.Get(acctID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -771,7 +771,7 @@ func registerAzureFiles(srv *sim.Server) {
 
 			acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, name)
 			if _, ok := storageAccounts.Get(acctID); !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", name, rg)
 				return
 			}
@@ -800,7 +800,7 @@ func registerAzureFiles(srv *sim.Server) {
 		account := sim.PathParam(r, "accountName")
 		acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, account)
 		if _, ok := storageAccounts.Get(acctID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
 			return
 		}
@@ -833,7 +833,7 @@ func registerAzureFiles(srv *sim.Server) {
 	srv.HandleFunc("PUT "+blobServicePath, func(w http.ResponseWriter, r *http.Request) {
 		acctID, resourceID, account, rg := blobServiceResourceID(r)
 		if _, ok := storageAccounts.Get(acctID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
 			return
 		}
@@ -841,7 +841,7 @@ func registerAzureFiles(srv *sim.Server) {
 			Properties map[string]any `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		props := req.Properties
@@ -863,7 +863,7 @@ func registerAzureFiles(srv *sim.Server) {
 	srv.HandleFunc("GET "+blobServicePath, func(w http.ResponseWriter, r *http.Request) {
 		acctID, resourceID, account, rg := blobServiceResourceID(r)
 		if _, ok := storageAccounts.Get(acctID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
 			return
 		}
@@ -878,7 +878,7 @@ func registerAzureFiles(srv *sim.Server) {
 	tableBasePath := armBase + "/storageAccounts/{accountName}/tableServices/default/tables"
 
 	writeStorageTableNotFound := func(w http.ResponseWriter, table, account string) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Storage table %q not found in storage account %q", table, account)
 	}
 	readStorageTableBody := func(r *http.Request) (StorageTable, error) {
@@ -899,13 +899,13 @@ func registerAzureFiles(srv *sim.Server) {
 		table := sim.PathParam(r, "tableName")
 		acctID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", sub, rg, account)
 		if _, ok := storageAccounts.Get(acctID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
 			return
 		}
 		req, err := readStorageTableBody(r)
 		if err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		resourceID := storageTableResourceID(sub, rg, account, table)
@@ -986,7 +986,7 @@ func registerAzureFiles(srv *sim.Server) {
 
 		var req BlobContainer
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 
@@ -1032,7 +1032,7 @@ func registerAzureFiles(srv *sim.Server) {
 			sub, rg, acct, name)
 		container, ok := blobContainers.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Blob container %q not found in storage account %q", name, acct)
 			return
 		}

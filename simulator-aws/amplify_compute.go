@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amplify Hosting SSR (WEB_COMPUTE) execution, per the published Amplify
@@ -291,7 +291,7 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 			"sockerless-amplify-bundle-dir": bundleDir,
 		},
 		PublishPorts: map[int]int{amplifyComputePort: hostPort},
-		Sandbox:      sim.SandboxFargate,
+		Sandbox:      SandboxFargate,
 	}, sim.NoopSink{})
 	if err != nil {
 		_ = os.RemoveAll(bundleDir)

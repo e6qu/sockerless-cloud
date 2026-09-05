@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EventBridge uses the AWS JSON protocol with X-Amz-Target:
@@ -113,7 +113,7 @@ var (
 	ebReplays  sim.Store[EBReplay]
 )
 
-func registerEventBridge(r *sim.AWSRouter, srv *sim.Server) {
+func registerEventBridge(r *AWSRouter, srv *sim.Server) {
 	ebBuses = sim.MakeStore[EBEventBus](srv.DB(), "eventbridge_buses")
 	ebRules = sim.MakeStore[EBRule](srv.DB(), "eventbridge_rules")
 	ebTargets = sim.MakeStore[[]EBTarget](srv.DB(), "eventbridge_targets")
@@ -242,15 +242,15 @@ func handleEBCreateEventBus(w http.ResponseWriter, r *http.Request) {
 		Tags             []struct{ Key, Value string } `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Name == "default" {
-		sim.AWSError(w, "ValidationException", "custom event bus name is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "custom event bus name is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ebBuses.Get(req.Name); ok {
-		sim.AWSError(w, "ResourceAlreadyExistsException", "Event bus already exists", http.StatusConflict)
+		AWSError(w, "ResourceAlreadyExistsException", "Event bus already exists", http.StatusConflict)
 		return
 	}
 	tags := map[string]string{}
@@ -279,7 +279,7 @@ func handleEBDescribeEventBus(w http.ResponseWriter, r *http.Request) {
 	_ = sim.ReadJSON(r, &req)
 	bus, ok := ebGetBus(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, bus)
@@ -314,15 +314,15 @@ func handleEBDeleteEventBus(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Name == "default" {
-		sim.AWSError(w, "ValidationException", "default event bus cannot be deleted", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "default event bus cannot be deleted", http.StatusBadRequest)
 		return
 	}
 	if !ebBuses.Delete(req.Name) {
-		sim.AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
 		return
 	}
 	for _, rule := range ebRules.List() {
@@ -345,18 +345,18 @@ func handleEBPutPermission(w http.ResponseWriter, r *http.Request) {
 		Condition    map[string]any `json:"Condition"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	bus, ok := ebGetBus(req.EventBusName)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
 		return
 	}
 	if req.Policy != "" {
 		var doc map[string]any
 		if err := json.Unmarshal([]byte(req.Policy), &doc); err != nil {
-			sim.AWSError(w, "ValidationException", "Policy is not valid JSON: "+err.Error(), http.StatusBadRequest)
+			AWSError(w, "ValidationException", "Policy is not valid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		bus.Policy = req.Policy
@@ -365,12 +365,12 @@ func handleEBPutPermission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.StatementID == "" || req.Action == "" || req.Principal == "" {
-		sim.AWSError(w, "ValidationException", "StatementId, Action, and Principal are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "StatementId, Action, and Principal are required", http.StatusBadRequest)
 		return
 	}
 	policy, err := ebPolicyDocument(bus.Policy)
 	if err != nil {
-		sim.AWSError(w, "InternalException", "Stored resource policy is not valid JSON: "+err.Error(), http.StatusInternalServerError)
+		AWSError(w, "InternalException", "Stored resource policy is not valid JSON: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	statements := ebPolicyStatements(policy)
@@ -409,12 +409,12 @@ func handleEBRemovePermission(w http.ResponseWriter, r *http.Request) {
 		RemoveAllPermissions bool   `json:"RemoveAllPermissions"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	bus, ok := ebGetBus(req.EventBusName)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
 		return
 	}
 	if req.RemoveAllPermissions {
@@ -425,7 +425,7 @@ func handleEBRemovePermission(w http.ResponseWriter, r *http.Request) {
 	}
 	policy, err := ebPolicyDocument(bus.Policy)
 	if err != nil {
-		sim.AWSError(w, "InternalException", "Stored resource policy is not valid JSON: "+err.Error(), http.StatusInternalServerError)
+		AWSError(w, "InternalException", "Stored resource policy is not valid JSON: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	filtered := make([]map[string]any, 0)
@@ -497,15 +497,15 @@ func handleEBPutRule(w http.ResponseWriter, r *http.Request) {
 		Tags               []struct{ Key, Value string } `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ebGetBus(req.EventBusName); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
 		return
 	}
 	state := req.State
@@ -544,12 +544,12 @@ func handleEBDescribeRule(w http.ResponseWriter, r *http.Request) {
 		EventBusName string `json:"EventBusName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	rule, ok := ebRules.Get(ebRuleKey(req.EventBusName, req.Name))
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, rule)
@@ -595,11 +595,11 @@ func handleEBListRuleNamesByTarget(w http.ResponseWriter, r *http.Request) {
 		NextToken    string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TargetArn == "" {
-		sim.AWSError(w, "ValidationException", "TargetArn is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "TargetArn is required", http.StatusBadRequest)
 		return
 	}
 	bus := ebBusName(req.EventBusName)
@@ -635,19 +635,19 @@ func handleEBTestEventPattern(w http.ResponseWriter, r *http.Request) {
 		Event        string `json:"Event"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.EventPattern == "" {
-		sim.AWSError(w, "ValidationException", "EventPattern is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "EventPattern is required", http.StatusBadRequest)
 		return
 	}
 	if req.Event == "" {
-		sim.AWSError(w, "ValidationException", "Event is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Event is required", http.StatusBadRequest)
 		return
 	}
 	if err := ebValidateEventPattern(req.EventPattern); err != nil {
-		sim.AWSError(w, "InvalidEventPatternException", "Event pattern is not valid. Reason: "+err.Error(), http.StatusBadRequest)
+		AWSError(w, "InvalidEventPatternException", "Event pattern is not valid. Reason: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	var event struct {
@@ -656,7 +656,7 @@ func handleEBTestEventPattern(w http.ResponseWriter, r *http.Request) {
 		Detail     json.RawMessage `json:"detail"`
 	}
 	if err := json.Unmarshal([]byte(req.Event), &event); err != nil {
-		sim.AWSError(w, "InvalidEventPatternException", "Event is not valid JSON: "+err.Error(), http.StatusBadRequest)
+		AWSError(w, "InvalidEventPatternException", "Event is not valid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	result := ebEventPatternMatches(req.EventPattern, event.Source, event.DetailType, string(event.Detail))
@@ -708,12 +708,12 @@ func handleEBUpdateEventBus(w http.ResponseWriter, r *http.Request) {
 		DeadLetterConfig json.RawMessage `json:"DeadLetterConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	bus, ok := ebGetBus(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
 		return
 	}
 	if req.Description != nil {
@@ -749,16 +749,16 @@ func handleEBDeleteRule(w http.ResponseWriter, r *http.Request) {
 		Force        bool   `json:"Force"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ebRuleKey(req.EventBusName, req.Name)
 	if _, ok := ebRules.Get(key); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
 		return
 	}
 	if targets, ok := ebTargets.Get(key); ok && len(targets) > 0 && !req.Force {
-		sim.AWSError(w, "ConcurrentModificationException", "Rule has targets", http.StatusConflict)
+		AWSError(w, "ConcurrentModificationException", "Rule has targets", http.StatusConflict)
 		return
 	}
 	ebRules.Delete(key)
@@ -775,12 +775,12 @@ func ebSetRuleState(w http.ResponseWriter, r *http.Request, state string) {
 		EventBusName string `json:"EventBusName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ebRuleKey(req.EventBusName, req.Name)
 	if !ebRules.Update(key, func(rule *EBRule) { rule.State = state }) {
-		sim.AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
@@ -793,12 +793,12 @@ func handleEBPutTargets(w http.ResponseWriter, r *http.Request) {
 		Targets      []EBTarget `json:"Targets"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ebRuleKey(req.EventBusName, req.Rule)
 	if _, ok := ebRules.Get(key); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
 		return
 	}
 	existing, _ := ebTargets.Get(key)
@@ -836,12 +836,12 @@ func handleEBListTargetsByRule(w http.ResponseWriter, r *http.Request) {
 		NextToken    string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ebRuleKey(req.EventBusName, req.Rule)
 	if _, ok := ebRules.Get(key); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Rule does not exist", http.StatusNotFound)
 		return
 	}
 	targets, _ := ebTargets.Get(key)
@@ -864,7 +864,7 @@ func handleEBRemoveTargets(w http.ResponseWriter, r *http.Request) {
 		Ids          []string `json:"Ids"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ebRuleKey(req.EventBusName, req.Rule)
@@ -895,7 +895,7 @@ func handleEBPutEvents(w http.ResponseWriter, r *http.Request) {
 		} `json:"Entries"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	entries := make([]map[string]string, 0, len(req.Entries))
@@ -1459,19 +1459,19 @@ func handleEBCreateArchive(w http.ResponseWriter, r *http.Request) {
 		KmsKeyIdentifier string `json:"KmsKeyIdentifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ArchiveName == "" || req.EventSourceArn == "" {
-		sim.AWSError(w, "ValidationException", "ArchiveName and EventSourceArn are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ArchiveName and EventSourceArn are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ebArchives.Get(req.ArchiveName); ok {
-		sim.AWSError(w, "ResourceAlreadyExistsException", "Archive already exists", http.StatusConflict)
+		AWSError(w, "ResourceAlreadyExistsException", "Archive already exists", http.StatusConflict)
 		return
 	}
 	if _, ok := ebBusByARN(req.EventSourceArn); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event source bus does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event source bus does not exist", http.StatusNotFound)
 		return
 	}
 	now := time.Now().Unix()
@@ -1499,12 +1499,12 @@ func handleEBDescribeArchive(w http.ResponseWriter, r *http.Request) {
 		ArchiveName string `json:"ArchiveName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	archive, ok := ebArchives.Get(req.ArchiveName)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Archive does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Archive does not exist", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, archive)
@@ -1569,11 +1569,11 @@ func handleEBDeleteArchive(w http.ResponseWriter, r *http.Request) {
 		ArchiveName string `json:"ArchiveName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ebArchives.Delete(req.ArchiveName) {
-		sim.AWSError(w, "ResourceNotFoundException", "Archive does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Archive does not exist", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
@@ -1593,22 +1593,22 @@ func handleEBUpdateArchive(w http.ResponseWriter, r *http.Request) {
 		KmsKeyIdentifier *string `json:"KmsKeyIdentifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ArchiveName == "" {
-		sim.AWSError(w, "ValidationException", "ArchiveName is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ArchiveName is required", http.StatusBadRequest)
 		return
 	}
 	if req.EventPattern != nil && *req.EventPattern != "" {
 		if err := ebValidateEventPattern(*req.EventPattern); err != nil {
-			sim.AWSError(w, "InvalidEventPatternException", "Event pattern is not valid. Reason: "+err.Error(), http.StatusBadRequest)
+			AWSError(w, "InvalidEventPatternException", "Event pattern is not valid. Reason: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
 	archive, ok := ebArchives.Get(req.ArchiveName)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Archive does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Archive does not exist", http.StatusNotFound)
 		return
 	}
 	if req.Description != nil {
@@ -1645,26 +1645,26 @@ func handleEBStartReplay(w http.ResponseWriter, r *http.Request) {
 		Destination    map[string]any  `json:"Destination"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ReplayName == "" || req.EventSourceArn == "" || req.Destination == nil {
-		sim.AWSError(w, "ValidationException", "ReplayName, EventSourceArn, and Destination are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ReplayName, EventSourceArn, and Destination are required", http.StatusBadRequest)
 		return
 	}
 	archive, ok := ebArchiveByARN(req.EventSourceArn)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Archive does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Archive does not exist", http.StatusNotFound)
 		return
 	}
 	startTime, err := ebParseJSONTime(req.EventStartTime)
 	if err != nil {
-		sim.AWSError(w, "ValidationException", "EventStartTime is invalid", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "EventStartTime is invalid", http.StatusBadRequest)
 		return
 	}
 	endTime, err := ebParseJSONTime(req.EventEndTime)
 	if err != nil {
-		sim.AWSError(w, "ValidationException", "EventEndTime is invalid", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "EventEndTime is invalid", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().Unix()
@@ -1697,12 +1697,12 @@ func handleEBDescribeReplay(w http.ResponseWriter, r *http.Request) {
 		ReplayName string `json:"ReplayName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	replay, ok := ebReplays.Get(req.ReplayName)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Replay does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Replay does not exist", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, replay)
@@ -1750,12 +1750,12 @@ func handleEBCancelReplay(w http.ResponseWriter, r *http.Request) {
 		ReplayName string `json:"ReplayName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	replay, ok := ebReplays.Get(req.ReplayName)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Replay does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Replay does not exist", http.StatusNotFound)
 		return
 	}
 	switch replay.State {
@@ -1770,7 +1770,7 @@ func handleEBCancelReplay(w http.ResponseWriter, r *http.Request) {
 			"StateReason": replay.StateReason,
 		})
 	default:
-		sim.AWSError(w, "IllegalStatusException",
+		AWSError(w, "IllegalStatusException",
 			fmt.Sprintf("Replay %s is not in a state from which it can be cancelled.", replay.ReplayName),
 			http.StatusBadRequest)
 	}
@@ -1855,7 +1855,7 @@ func handleEBTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags        []struct{ Key, Value string } `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if ebBusByARNUpdate(req.ResourceARN, func(bus *EBEventBus) {
@@ -1877,7 +1877,7 @@ func handleEBTagResource(w http.ResponseWriter, r *http.Request) {
 			rule.Tags[tag.Key] = tag.Value
 		}
 	}) {
-		sim.AWSError(w, "ResourceNotFoundException", "Resource does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Resource does not exist", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
@@ -1889,7 +1889,7 @@ func handleEBUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys     []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if ebBusByARNUpdate(req.ResourceARN, func(bus *EBEventBus) {
@@ -1905,7 +1905,7 @@ func handleEBUntagResource(w http.ResponseWriter, r *http.Request) {
 			delete(rule.Tags, key)
 		}
 	}) {
-		sim.AWSError(w, "ResourceNotFoundException", "Resource does not exist", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Resource does not exist", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
@@ -1916,7 +1916,7 @@ func handleEBListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceARN string `json:"ResourceARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	for _, bus := range ebBuses.List() {
@@ -1933,7 +1933,7 @@ func handleEBListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		writeEBJSON(w, http.StatusOK, map[string]any{"Tags": ebTagsList(rule.Tags)})
 		return
 	}
-	sim.AWSError(w, "ResourceNotFoundException", "Resource does not exist", http.StatusNotFound)
+	AWSError(w, "ResourceNotFoundException", "Resource does not exist", http.StatusNotFound)
 }
 
 func ebTagsList(tags map[string]string) []map[string]string {

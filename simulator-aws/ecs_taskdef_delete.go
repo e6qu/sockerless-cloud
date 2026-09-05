@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // DeleteTaskDefinitions permanently removes (up to 10) task-definition
@@ -17,15 +17,15 @@ func handleECSDeleteTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 		TaskDefinitions []string `json:"taskDefinitions"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.TaskDefinitions) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "taskDefinitions cannot be empty", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "taskDefinitions cannot be empty", http.StatusBadRequest)
 		return
 	}
 	if len(req.TaskDefinitions) > 10 {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"taskDefinitions cannot have more than 10 elements", http.StatusBadRequest)
 		return
 	}

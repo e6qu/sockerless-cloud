@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Application security groups (Microsoft.Network/applicationSecurityGroups)

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The hosts a reservation's capacity is held on.
@@ -124,7 +124,7 @@ func computeHostAssociation(
 	if len(parts) < 2 || parts[0] != "reservations" ||
 		(len(parts) > 2 && (len(parts)%2 != 0 || parts[2] != "reservationBlocks")) ||
 		(len(parts) > 4 && parts[4] != "reservationSubBlocks") || len(parts) > 6 {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"association %q is not a reservation, reservation block or reservation sub-block", association)
 		return "", "", 0, false
 	}
@@ -133,7 +133,7 @@ func computeHostAssociation(
 	key = "projects/" + project + "/zones/" + zone + "/reservations/" + name
 	held, found := reservations.Get(key)
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation %q not found", name)
 		return "", "", 0, false
 	}
 	blocks := computeReservationBlocks(held, name)
@@ -162,10 +162,10 @@ func computeHostAssociation(
 			size, _ := sub["count"].(int)
 			return key, parts[5], size, true
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation sub-block %q not found", parts[5])
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation sub-block %q not found", parts[5])
 		return "", "", 0, false
 	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation block %q not found", parts[3])
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation block %q not found", parts[3])
 	return "", "", 0, false
 }
 
@@ -200,7 +200,7 @@ func computeHostGet(
 			return
 		}
 	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "host %q not found", wanted)
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "host %q not found", wanted)
 }
 
 // The document declares getVersion returning an Operation rather than a version
@@ -222,5 +222,5 @@ func computeHostGetVersion(
 			computeSelfLink(key), "getVersion"))
 		return
 	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "host %q not found", wanted)
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "host %q not found", wanted)
 }

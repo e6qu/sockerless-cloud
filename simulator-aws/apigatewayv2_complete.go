@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // API Gateway v2 — developer-portal, portal-product, product-page,
@@ -183,7 +183,7 @@ func handleAPIGWv2CreatePortal(w http.ResponseWriter, r *http.Request) {
 		Tags                      map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	portalID := generateUUID()[:10]
@@ -218,7 +218,7 @@ func handleAPIGWv2ListPortals(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2GetPortal(w http.ResponseWriter, r *http.Request) {
 	p, ok := apigwv2Portals.Get(sim.PathParam(r, "portalId"))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, p)
@@ -228,7 +228,7 @@ func handleAPIGWv2UpdatePortal(w http.ResponseWriter, r *http.Request) {
 	portalID := sim.PathParam(r, "portalId")
 	p, ok := apigwv2Portals.Get(portalID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
 		return
 	}
 	var req struct {
@@ -238,7 +238,7 @@ func handleAPIGWv2UpdatePortal(w http.ResponseWriter, r *http.Request) {
 		RumAppMonitorName         *string         `json:"rumAppMonitorName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Authorization != nil {
@@ -260,7 +260,7 @@ func handleAPIGWv2UpdatePortal(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIGWv2DeletePortal(w http.ResponseWriter, r *http.Request) {
 	if !apigwv2Portals.Delete(sim.PathParam(r, "portalId")) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -268,7 +268,7 @@ func handleAPIGWv2DeletePortal(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIGWv2PreviewPortal(w http.ResponseWriter, r *http.Request) {
 	if _, ok := apigwv2Portals.Get(sim.PathParam(r, "portalId")); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
 		return
 	}
 	// PreviewPortalResponse has zero modeled members — empty body, 202.
@@ -279,7 +279,7 @@ func handleAPIGWv2PublishPortal(w http.ResponseWriter, r *http.Request) {
 	portalID := sim.PathParam(r, "portalId")
 	p, ok := apigwv2Portals.Get(portalID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
 		return
 	}
 	p.PublishStatus = "PUBLISHED"
@@ -293,7 +293,7 @@ func handleAPIGWv2DisablePortal(w http.ResponseWriter, r *http.Request) {
 	portalID := sim.PathParam(r, "portalId")
 	p, ok := apigwv2Portals.Get(portalID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Portal identifier specified")
 		return
 	}
 	p.PublishStatus = "DISABLED"
@@ -308,7 +308,7 @@ func handleAPIGWv2CreatePortalProduct(w http.ResponseWriter, r *http.Request) {
 		Tags        map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	productID := generateUUID()[:10]
@@ -335,7 +335,7 @@ func handleAPIGWv2ListPortalProducts(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2GetPortalProduct(w http.ResponseWriter, r *http.Request) {
 	p, ok := apigwv2PortalProducts.Get(sim.PathParam(r, "portalProductId"))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, p)
@@ -345,7 +345,7 @@ func handleAPIGWv2UpdatePortalProduct(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
 	p, ok := apigwv2PortalProducts.Get(productID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	var req struct {
@@ -353,7 +353,7 @@ func handleAPIGWv2UpdatePortalProduct(w http.ResponseWriter, r *http.Request) {
 		Description *string `json:"description"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DisplayName != nil {
@@ -370,7 +370,7 @@ func handleAPIGWv2UpdatePortalProduct(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2DeletePortalProduct(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
 	if !apigwv2PortalProducts.Delete(productID) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	// Cascade-delete the product's pages.
@@ -391,7 +391,7 @@ func handleAPIGWv2GetPortalProductSharingPolicy(w http.ResponseWriter, r *http.R
 	productID := sim.PathParam(r, "portalProductId")
 	p, ok := apigwv2PortalProducts.Get(productID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	out := map[string]any{"portalProductId": productID}
@@ -405,14 +405,14 @@ func handleAPIGWv2PutPortalProductSharingPolicy(w http.ResponseWriter, r *http.R
 	productID := sim.PathParam(r, "portalProductId")
 	p, ok := apigwv2PortalProducts.Get(productID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	var req struct {
 		PolicyDocument string `json:"policyDocument"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	p.SharingPolicy = req.PolicyDocument
@@ -425,7 +425,7 @@ func handleAPIGWv2DeletePortalProductSharingPolicy(w http.ResponseWriter, r *htt
 	productID := sim.PathParam(r, "portalProductId")
 	p, ok := apigwv2PortalProducts.Get(productID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	p.SharingPolicy = ""
@@ -436,14 +436,14 @@ func handleAPIGWv2DeletePortalProductSharingPolicy(w http.ResponseWriter, r *htt
 func handleAPIGWv2CreateProductPage(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
 	if _, ok := apigwv2PortalProducts.Get(productID); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	var req struct {
 		DisplayContent json.RawMessage `json:"displayContent"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	pageID := generateUUID()[:10]
@@ -461,7 +461,7 @@ func handleAPIGWv2CreateProductPage(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2ListProductPages(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
 	if _, ok := apigwv2PortalProducts.Get(productID); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	// ProductPageSummaryNoBody: lastModified, pageTitle, productPageArn, productPageId.
@@ -506,7 +506,7 @@ func handleAPIGWv2GetProductPage(w http.ResponseWriter, r *http.Request) {
 	pageID := sim.PathParam(r, "productPageId")
 	pg, ok := apigwv2ProductPages.Get(apigwv2ChildKey(productID, pageID))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductPage identifier specified %s", pageID)
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductPage identifier specified %s", pageID)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, pg)
@@ -517,14 +517,14 @@ func handleAPIGWv2UpdateProductPage(w http.ResponseWriter, r *http.Request) {
 	pageID := sim.PathParam(r, "productPageId")
 	pg, ok := apigwv2ProductPages.Get(apigwv2ChildKey(productID, pageID))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductPage identifier specified %s", pageID)
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductPage identifier specified %s", pageID)
 		return
 	}
 	var req struct {
 		DisplayContent json.RawMessage `json:"displayContent"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DisplayContent != nil {
@@ -539,7 +539,7 @@ func handleAPIGWv2DeleteProductPage(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
 	pageID := sim.PathParam(r, "productPageId")
 	if !apigwv2ProductPages.Delete(apigwv2ChildKey(productID, pageID)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductPage identifier specified %s", pageID)
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductPage identifier specified %s", pageID)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -548,7 +548,7 @@ func handleAPIGWv2DeleteProductPage(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2CreateProductRestEndpointPage(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
 	if _, ok := apigwv2PortalProducts.Get(productID); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	var req struct {
@@ -557,7 +557,7 @@ func handleAPIGWv2CreateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 		TryItState             string          `json:"tryItState"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	pageID := generateUUID()[:10]
@@ -616,7 +616,7 @@ func apigwv2RestEndpointDisplayResponse(raw json.RawMessage) json.RawMessage {
 func handleAPIGWv2ListProductRestEndpointPages(w http.ResponseWriter, r *http.Request) {
 	productID := sim.PathParam(r, "portalProductId")
 	if _, ok := apigwv2PortalProducts.Get(productID); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid PortalProduct identifier specified")
 		return
 	}
 	// ProductRestEndpointPageSummaryNoBody.
@@ -652,7 +652,7 @@ func handleAPIGWv2GetProductRestEndpointPage(w http.ResponseWriter, r *http.Requ
 	pageID := sim.PathParam(r, "productRestEndpointPageId")
 	pg, ok := apigwv2ProductRestEndpointPages.Get(apigwv2ChildKey(productID, pageID))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductRestEndpointPage identifier specified %s", pageID)
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductRestEndpointPage identifier specified %s", pageID)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, pg)
@@ -663,7 +663,7 @@ func handleAPIGWv2UpdateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 	pageID := sim.PathParam(r, "productRestEndpointPageId")
 	pg, ok := apigwv2ProductRestEndpointPages.Get(apigwv2ChildKey(productID, pageID))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductRestEndpointPage identifier specified %s", pageID)
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductRestEndpointPage identifier specified %s", pageID)
 		return
 	}
 	var req struct {
@@ -671,7 +671,7 @@ func handleAPIGWv2UpdateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 		TryItState     *string         `json:"tryItState"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DisplayContent != nil {
@@ -691,7 +691,7 @@ func handleAPIGWv2DeleteProductRestEndpointPage(w http.ResponseWriter, r *http.R
 	productID := sim.PathParam(r, "portalProductId")
 	pageID := sim.PathParam(r, "productRestEndpointPageId")
 	if !apigwv2ProductRestEndpointPages.Delete(apigwv2ChildKey(productID, pageID)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductRestEndpointPage identifier specified %s", pageID)
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid ProductRestEndpointPage identifier specified %s", pageID)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -700,7 +700,7 @@ func handleAPIGWv2DeleteProductRestEndpointPage(w http.ResponseWriter, r *http.R
 func handleAPIGWv2CreateRoutingRule(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
 	var req struct {
@@ -709,7 +709,7 @@ func handleAPIGWv2CreateRoutingRule(w http.ResponseWriter, r *http.Request) {
 		Priority   int             `json:"priority"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	ruleID := generateUUID()[:10]
@@ -728,7 +728,7 @@ func handleAPIGWv2CreateRoutingRule(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2ListRoutingRules(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
 	out := []APIGWv2RoutingRule{}
@@ -745,7 +745,7 @@ func handleAPIGWv2GetRoutingRule(w http.ResponseWriter, r *http.Request) {
 	ruleID := sim.PathParam(r, "routingRuleId")
 	rr, ok := apigwv2RoutingRules.Get(apigwv2ChildKey(domainName, ruleID))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid RoutingRule identifier specified %s", ruleID)
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid RoutingRule identifier specified %s", ruleID)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, rr)
@@ -755,7 +755,7 @@ func handleAPIGWv2PutRoutingRule(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	ruleID := sim.PathParam(r, "routingRuleId")
 	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
 	var req struct {
@@ -764,7 +764,7 @@ func handleAPIGWv2PutRoutingRule(w http.ResponseWriter, r *http.Request) {
 		Priority   int             `json:"priority"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	rr := APIGWv2RoutingRule{
@@ -783,7 +783,7 @@ func handleAPIGWv2DeleteRoutingRule(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	ruleID := sim.PathParam(r, "routingRuleId")
 	if !apigwv2RoutingRules.Delete(apigwv2ChildKey(domainName, ruleID)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid RoutingRule identifier specified %s", ruleID)
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid RoutingRule identifier specified %s", ruleID)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -793,7 +793,7 @@ func handleAPIGWv2UpdateApi(w http.ResponseWriter, r *http.Request) {
 	apiID := sim.PathParam(r, "apiId")
 	api, ok := apigwv2Apis.Get(apiID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	var req struct {
@@ -803,7 +803,7 @@ func handleAPIGWv2UpdateApi(w http.ResponseWriter, r *http.Request) {
 		RouteSelectionExpression  *string `json:"routeSelectionExpression"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Name != nil {
@@ -824,7 +824,7 @@ func handleAPIGWv2UpdateApiMapping(w http.ResponseWriter, r *http.Request) {
 	apiMappingID := sim.PathParam(r, "apiMappingId")
 	m, ok := apigwv2ApiMappings.Get(domainName + "/" + apiMappingID)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid API mapping identifier specified %s", apiMappingID)
 		return
 	}
@@ -834,7 +834,7 @@ func handleAPIGWv2UpdateApiMapping(w http.ResponseWriter, r *http.Request) {
 		Stage         *string `json:"stage"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.ApiId != nil {
@@ -854,7 +854,7 @@ func handleAPIGWv2ResetAuthorizersCache(w http.ResponseWriter, r *http.Request) 
 	apiID := sim.PathParam(r, "apiId")
 	stageName := sim.PathParam(r, "stageName")
 	if _, ok := apigwv2Stages.Get(apigwv2StoreKey(apiID, stageName)); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Stage identifier specified %s", stageName)
 		return
 	}

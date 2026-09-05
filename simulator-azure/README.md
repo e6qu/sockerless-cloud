@@ -300,30 +300,15 @@ $ az rest --method POST --url "http://localhost:4568/v1/workspaces/default/query
 
 ## Project structure
 
-```
-azure/
-├── main.go                 Entry point, middleware setup, service registration
-├── auth.go                 OAuth2 tokens, OpenID discovery, path cleanup (102 lines)
-├── authorization.go        Role definitions + assignments (263 lines)
-├── metadata.go             Cloud metadata endpoint (69 lines)
-├── subscription.go         Subscription + providers (65 lines)
-├── resourcegroups.go       Resource group CRUD (103 lines)
-├── network.go              VNets, subnets, NSGs (336 lines)
-├── managedidentity.go      User-assigned identities (102 lines)
-├── containerappsenv.go     Container App Environments (139 lines)
-├── containerapps.go        Container App Jobs + executions (479 lines)
-├── appserviceplan.go       App Service Plans (132 lines)
-├── functions.go            Function Apps + invoke (312 lines)
-├── acr.go                  Container Registry + OCI Distribution (491 lines)
-├── files.go                Storage accounts, file shares, data-plane (481 lines)
-├── monitor.go              Log Analytics, log ingestion, KQL query (348 lines)
-├── insights.go             Application Insights (169 lines)
-├── dns.go                  Private DNS zones, A records, VNet links (406 lines)
-├── shared/                 Shared simulator framework
-├── sdk-tests/              SDK integration tests (31 tests)
-├── cli-tests/              CLI integration tests (17 tests)
-└── terraform-tests/        Terraform apply/destroy tests (TLS; Docker delegation on macOS)
-```
+One Go file per service family at the module root (`containerapps.go`,
+`functions.go`, `acr.go`, `keyvault.go`, `cosmos*.go`, `network*.go`, …),
+each registering its routes in `buildSimulator` in `main.go`. The framework —
+server, container-engine layer, durable state, OCI data plane — is the
+[`sim`](../sim/README.md) module; the Azure-specific pieces of it (the ARM error
+shape, the sandbox profiles, the CORS surfaces, the path case-folding and the
+Microsoft Entra federation broker) live here. `sdk-tests/`, `cli-tests/` and
+`terraform-tests/` are separate Go modules driving the real Azure SDK, the az
+CLI and terraform-provider-azurerm against a running simulator.
 
 ## Testing
 
@@ -340,7 +325,7 @@ cd terraform-tests && go test -v ./...
 
 ## Execution model
 
-Container Apps job executions honor the `replicaTimeout` configuration (in seconds). Given a command, the simulator executes it as a real process and streams output to Log Analytics. When a replica timeout is configured and no command is present, the execution auto-completes with `Succeeded` status after that duration. When no timeout and no command are set, the execution stays running until explicitly stopped. Azure Functions invocations are synchronous and inject AppTraces entries queryable via KQL.
+Every Container Apps job execution and replica, Container Instance, Azure Functions site and App Service site runs as a real container on the engine the simulator started against, under the Container Apps or Azure Functions sandbox profile, with its output streamed into Log Analytics as it is produced. A job execution runs until its container exits, is stopped, or reaches the job's `replicaTimeout`, which the simulator enforces; a stopped execution's container gets SIGTERM and then SIGKILL. Function apps and sites are invoked over HTTP against the container's own listener, and their traces land in Application Insights and Log Analytics, queryable through the KQL subset below.
 
 ## Known issues
 
@@ -348,12 +333,11 @@ Active Azure simulator bugs live in [BUGS.md](../BUGS.md). On macOS the Terrafor
 
 ## What's out of scope
 
-- **Full KQL parser**: the parser handles only `where` + `take` + `limit` and simple `==` / `>=` predicates.
+- **Full KQL**: the query engine handles `where` with `==`, `>` and `>=` predicates (including `datetime()` bounds), `project`, `take` and `limit`; `order by` is accepted and ignored.
 - **gRPC for Application Insights ingestion**: REST only.
 - **Multi-region replication / availability zones**.
-- **Real authentication**: the simulator accepts tokens without verifying them cryptographically.
 - **Cost / billing surfaces**.
-- **Azure AD identity flows beyond OAuth2 token issuance** (the simulator serves `/.well-known/openid-configuration` + JWKS so SDK validators pass; user / group / app management is not modelled).
+- **Identity providers outside the simulator**: Microsoft Entra issues and verifies its own tokens, and the Microsoft Graph `v1.0` and `beta` surfaces serve users, groups, applications, service principals and directory objects; federating an external identity provider into it is a coordinate a deployment supplies.
 
 ## Extended examples
 

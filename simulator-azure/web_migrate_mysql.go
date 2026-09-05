@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Migrating a site's in-app MySQL database to a remote one, and its content
@@ -72,20 +72,20 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		// Both are required by the document, and a migration with neither a
 		// destination nor a type is not a migration.
 		if request.Properties.ConnectionString == "" || request.Properties.MigrationType == "" {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"connectionString and migrationType are both required to migrate a MySQL database.")
 			return
 		}
 
 		id := webResourceID(r)
 		if !webSiteInAppMySQLEnabled(id) {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"The app '%s' does not have in-app MySQL enabled, so it has no database to migrate.",
 				sim.PathParam(r, "siteName"))
 			return
@@ -136,13 +136,13 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		// The document requires both, and a migration with no share to move
 		// into is not a migration.
 		if request.Properties.AzurefilesConnectionString == "" || request.Properties.AzurefilesShare == "" {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"azurefilesConnectionString and azurefilesShare are both required to migrate a site's content.")
 			return
 		}

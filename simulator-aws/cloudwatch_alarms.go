@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -245,7 +245,7 @@ func cwListAlarms(names []string) []CWAlarm {
 
 // ── awsJson1.0 surface (aws CLI) ───────────────────────────────────────────
 
-func registerCloudWatchAlarmsJSON(r *sim.AWSRouter) {
+func registerCloudWatchAlarmsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutMetricAlarm", handleCWJSONPutMetricAlarm)
 	r.Register("GraniteServiceVersion20100801.DescribeAlarms", handleCWJSONDescribeAlarms)
 	r.Register("GraniteServiceVersion20100801.DeleteAlarms", handleCWJSONDeleteAlarms)
@@ -273,19 +273,19 @@ func handleCWJSONPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		Tags                    []cwTagKV     `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AlarmName == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter AlarmName is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter AlarmName is required.", http.StatusBadRequest)
 		return
 	}
 	if req.ComparisonOperator == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter ComparisonOperator is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter ComparisonOperator is required.", http.StatusBadRequest)
 		return
 	}
 	if code, msg, ok := cwValidateMetricAlarm(req.MetricName, req.Period, req.EvaluationPeriods); !ok {
-		sim.AWSError(w, code, msg, http.StatusBadRequest)
+		AWSError(w, code, msg, http.StatusBadRequest)
 		return
 	}
 	actionsEnabled := true
@@ -326,7 +326,7 @@ func handleCWJSONDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 		AlarmTypes []string `json:"AlarmTypes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UTC()
@@ -390,12 +390,12 @@ func handleCWJSONDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 		AlarmNames []string `json:"AlarmNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	for _, n := range req.AlarmNames {
 		if !cwAlarmExists(n) {
-			sim.AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", n)
+			AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", n)
 			return
 		}
 	}
@@ -417,7 +417,7 @@ func registerCloudWatchAlarmsCBOR(srv *sim.Server) {
 func cwWriteCBOR(w http.ResponseWriter, v any) {
 	data, err := cwEncMode.Marshal(v)
 	if err != nil {
-		sim.AWSError(w, "InternalFailure", "Failed to encode response", http.StatusInternalServerError)
+		AWSError(w, "InternalFailure", "Failed to encode response", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/cbor")
@@ -430,11 +430,11 @@ func cwWriteCBOR(w http.ResponseWriter, v any) {
 // response to a cbor request that lacks the `Smithy-Protocol: rpc-v2-cbor`
 // header, and reads the error code from the cbor body's `__type` and the message
 // from `message` (verified against aws-sdk-go-v2 cloudwatch's getProtocolErrorInfo).
-// The plain JSON `sim.AWSError` shape is only valid for the awsJson surfaces.
+// The plain JSON `AWSError` shape is only valid for the awsJson surfaces.
 func cwWriteCBORError(w http.ResponseWriter, code, message string, status int) {
 	data, err := cwEncMode.Marshal(map[string]any{"__type": code, "message": message})
 	if err != nil {
-		sim.AWSError(w, "InternalFailure", "Failed to encode error", http.StatusInternalServerError)
+		AWSError(w, "InternalFailure", "Failed to encode error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/cbor")
@@ -444,7 +444,7 @@ func cwWriteCBORError(w http.ResponseWriter, code, message string, status int) {
 }
 
 // cwWriteCBORErrorf is the formatted-message form of cwWriteCBORError (argument
-// order mirrors sim.AWSErrorf: code, status, format, args).
+// order mirrors AWSErrorf: code, status, format, args).
 func cwWriteCBORErrorf(w http.ResponseWriter, code string, status int, format string, args ...any) {
 	cwWriteCBORError(w, code, fmt.Sprintf(format, args...), status)
 }
@@ -816,7 +816,7 @@ func cwDeleteAlarms(names []string) {
 
 // ── query surface (botocore / older aws CLI) ───────────────────────────────
 
-func registerCloudWatchAlarmsQuery(r *sim.AWSQueryRouter) {
+func registerCloudWatchAlarmsQuery(r *AWSQueryRouter) {
 	r.Register("PutMetricAlarm", handleCWQueryPutMetricAlarm)
 	r.Register("DescribeAlarms", handleCWQueryDescribeAlarms)
 	r.Register("DeleteAlarms", handleCWQueryDeleteAlarms)

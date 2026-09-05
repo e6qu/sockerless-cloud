@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // elbv2NLBProxies tracks one real TCP proxy per Network Load Balancer listener

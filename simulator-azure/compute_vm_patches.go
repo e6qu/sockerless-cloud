@@ -8,7 +8,7 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Patch assessment and installation, and capturing an image from a machine.
@@ -31,12 +31,12 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 		}
 		guest, err := azureGuestFor(r.Context(), vm.ID)
 		if err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
 		}
 		result, err := azureAssessGuestPatches(r.Context(), guest, id)
 		if err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, result)
@@ -57,18 +57,18 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 			} `json:"linuxParameters"`
 		}
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		if request.RebootSetting == "" {
-			sim.AzureError(w, "InvalidParameter",
+			AzureError(w, "InvalidParameter",
 				"rebootSetting is required: it decides what happens when a patch needs a restart.",
 				http.StatusBadRequest)
 			return
 		}
 		guest, err := azureGuestFor(r.Context(), vm.ID)
 		if err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
 		}
 
@@ -79,7 +79,7 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 		}
 		result, err := azureInstallGuestPatches(r.Context(), guest, id, include, exclude, request.RebootSetting)
 		if err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, result)
@@ -96,11 +96,11 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 			OverwriteVhds            *bool  `json:"overwriteVhds"`
 		}
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		if request.VhdPrefix == "" || request.DestinationContainerName == "" {
-			sim.AzureError(w, "InvalidParameter",
+			AzureError(w, "InvalidParameter",
 				"vhdPrefix and destinationContainerName are required to name the captured image.",
 				http.StatusBadRequest)
 			return
@@ -109,13 +109,13 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 		// a capture of a specialized machine would carry its host name, its
 		// keys and its logs into every machine created from it.
 		if generalized, _ := azureVMGeneralized.Get(id); !generalized {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"Capture is not allowed on VM %q because it has not been generalized.", id)
 			return
 		}
 		result, err := azureCaptureVMImage(r.Context(), vm, request.VhdPrefix, request.DestinationContainerName)
 		if err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, result)

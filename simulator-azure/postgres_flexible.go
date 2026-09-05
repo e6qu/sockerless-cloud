@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.DBforPostgreSQL/flexibleServers ARM control plane.
@@ -124,7 +124,7 @@ func handlePGGetConfiguration(w http.ResponseWriter, r *http.Request) {
 	cfgName := sim.PathParam(r, "cfg")
 	c, ok := pgConfigurations.Get(pgConfigKey(sub, rg, server, cfgName))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Configuration %q not found on server %q", cfgName, server)
 		return
 	}
@@ -137,7 +137,7 @@ func handlePGUpdateConfiguration(w http.ResponseWriter, r *http.Request) {
 	server := sim.PathParam(r, "name")
 	cfgName := sim.PathParam(r, "cfg")
 	if _, ok := pgServers.Get(pgServerID(sub, rg, server)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Flexible server %q not found", server)
 		return
 	}
@@ -145,7 +145,7 @@ func handlePGUpdateConfiguration(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	c := PGConfiguration{
@@ -168,7 +168,7 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	var req PGFlexibleServer
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := pgServerID(sub, rg, name)
@@ -226,7 +226,7 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		// there is nothing to update, and Azure Resource Manager refuses the
 		// request rather than creating a server the caller said it had.
 		if _, exists := pgServers.Get(id); !exists {
-			sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 				"createMode \"Update\" requires an existing server, and server %q does not exist", name)
 			return
 		}
@@ -238,7 +238,7 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		pointInTimeRaw, _ := s.Properties["pointInTimeUTC"].(string)
 		pointInTime, err := time.Parse(time.RFC3339Nano, pointInTimeRaw)
 		if err != nil {
-			sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 				"pointInTimeUTC %q is not an ISO8601 timestamp", pointInTimeRaw)
 			return
 		}
@@ -295,11 +295,11 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 		// Deleting a server removes its volume and its backups' volumes with
 		// it, so there is no dropped server's data left to revive; refusing
 		// is the truth, where a plain create would serve an empty impostor.
-		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 			"createMode \"ReviveDropped\" cannot be served: the simulator retains no dropped server to revive; deleted servers' volumes are removed on delete")
 		return
 	default:
-		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 			"createMode %q is not a creation mode the service defines", createMode)
 		return
 	}
@@ -307,7 +307,7 @@ func handlePGCreateServer(w http.ResponseWriter, r *http.Request) {
 	if restore == nil && adminPassword != "" {
 		sealed, err := azurePGSealSecret(adminPassword)
 		if err != nil {
-			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 				"seal administrator credential: %v", err)
 			return
 		}
@@ -367,13 +367,13 @@ func pgCreateSourceServer(w http.ResponseWriter, props map[string]any, rg, name 
 	sourceID, _ := props["sourceServerResourceId"].(string)
 	sourceSub, sourceRG, sourceName, parsed := pgParseServerResourceID(sourceID)
 	if !parsed {
-		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 			"sourceServerResourceId %q is not a flexible-server resource ID", sourceID)
 		return "", "", "", false
 	}
 	source, found := pgServers.Get(pgServerID(sourceSub, sourceRG, sourceName))
 	if !found {
-		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 			"source server %q not found", sourceID)
 		return "", "", "", false
 	}
@@ -410,7 +410,7 @@ func handlePGGetServer(w http.ResponseWriter, r *http.Request) {
 	id := pgServerID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	s, ok := pgServers.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, s)
@@ -424,7 +424,7 @@ func handlePGDeleteServer(w http.ResponseWriter, r *http.Request) {
 	location := pgServerLocation(id)
 	s, existed := pgServers.Get(id)
 	if !existed || !pgServers.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
 		return
 	}
 	// Tear down the data plane: stop the engine, close the listener, remove
@@ -483,13 +483,13 @@ func handlePGListServersByRG(w http.ResponseWriter, r *http.Request) {
 func handlePGCreateDatabase(w http.ResponseWriter, r *http.Request) {
 	parent := pgServerID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := pgServers.Get(parent); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	dbName := sim.PathParam(r, "db")
 	var req PGDatabase
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := parent + "/databases/" + dbName
@@ -527,7 +527,7 @@ func handlePGGetDatabase(w http.ResponseWriter, r *http.Request) {
 		"/databases/" + sim.PathParam(r, "db")
 	d, ok := pgDatabases.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "database not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "database not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, d)
@@ -541,7 +541,7 @@ func handlePGDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	dbName := sim.PathParam(r, "db")
 	id := parent + "/databases/" + dbName
 	if !pgDatabases.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "database not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "database not found")
 		return
 	}
 	// A running engine drops the database now; a cold data directory keeps
@@ -573,13 +573,13 @@ func handlePGListDatabases(w http.ResponseWriter, r *http.Request) {
 func handlePGCreateFirewallRule(w http.ResponseWriter, r *http.Request) {
 	parent := pgServerID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := pgServers.Get(parent); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	ruleName := sim.PathParam(r, "rule")
 	var req PGFirewallRule
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := parent + "/firewallRules/" + ruleName
@@ -598,7 +598,7 @@ func handlePGGetFirewallRule(w http.ResponseWriter, r *http.Request) {
 		"/firewallRules/" + sim.PathParam(r, "rule")
 	fr, ok := pgFirewallRules.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "firewall rule not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "firewall rule not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, fr)
@@ -609,7 +609,7 @@ func handlePGDeleteFirewallRule(w http.ResponseWriter, r *http.Request) {
 	parent := pgServerID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	id := parent + "/firewallRules/" + sim.PathParam(r, "rule")
 	if !pgFirewallRules.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "firewall rule not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "firewall rule not found")
 		return
 	}
 	pgWriteAsyncAccepted(w, r, sub, pgServerLocation(parent), issueAzureAsyncOperation(nil))

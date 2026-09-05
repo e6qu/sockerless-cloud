@@ -19,7 +19,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // crmV2FolderMsg mirrors the cloudresourcemanager#Folder (v2) resource.
@@ -66,7 +66,7 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 	srv.HandleFunc("POST /v2/folders", func(w http.ResponseWriter, r *http.Request) {
 		var req crmV2FolderMsg
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// v2 takes the parent as a query parameter, not a body field.
@@ -75,7 +75,7 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 			parent = req.Parent
 		}
 		if req.DisplayName == "" {
-			sim.GCPError(w, http.StatusBadRequest, "Folder display name is required.", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "Folder display name is required.", "INVALID_ARGUMENT")
 			return
 		}
 		f := CRMFolder{
@@ -110,7 +110,7 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 			PageToken string `json:"pageToken"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		rows := crmFolders.Filter(func(f CRMFolder) bool { return crmV2FolderMatch(f, req.Query) })
@@ -148,7 +148,7 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 		}
 		var req crmV2FolderMsg
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// displayName is the only field v2 documents as updatable.
@@ -156,7 +156,7 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 			switch strings.TrimSpace(path) {
 			case "", "displayName", "display_name":
 			default:
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"Field %q is not updatable; only display_name can be updated.", strings.TrimSpace(path))
 				return
 			}
@@ -207,7 +207,7 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 				DestinationParent string `json:"destinationParent"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			f.Parent = req.DestinationParent
@@ -228,7 +228,7 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 // crmFolderNotFound writes the response Cloud Resource Manager returns for a
 // folder the caller cannot read.
 func crmFolderNotFound(w http.ResponseWriter) {
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
 }
 
 // crmWriteV2FolderPage paginates and writes a v2 folder collection.

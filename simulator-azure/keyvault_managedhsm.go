@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.KeyVault/managedHSMs — the Managed HSM pool ARM resource, the
@@ -77,18 +77,18 @@ func registerKeyVaultManagedHSM(srv *sim.Server) {
 
 		var req ManagedHSM
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		existing, exists := managedHSMs.Get(id)
 		if r.Method == http.MethodPatch && !exists {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Managed HSM %q not found in resource group %q.", name, rg)
 			return
 		}
 		if r.Method == http.MethodPut && req.Location == "" {
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
@@ -151,7 +151,7 @@ func registerKeyVaultManagedHSM(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		hsm, ok := managedHSMs.Get(managedHSMID(sub, rg, name))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Managed HSM %q not found in resource group %q.", name, rg)
 			return
 		}

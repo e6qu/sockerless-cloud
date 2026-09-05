@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A storage account has six data planes, and its ARM response advertises all

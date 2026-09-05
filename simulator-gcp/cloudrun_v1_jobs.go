@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Run Admin v1 (Knative) surface for the Cloud Run Jobs family:
@@ -121,7 +121,7 @@ func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T) (
 	if token := r.URL.Query().Get("continue"); token != "" {
 		n, err := strconv.Atoi(token)
 		if err != nil || n < 0 || n > len(items) {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid continue token %q", token)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid continue token %q", token)
 			return nil, "", false
 		}
 		start = n
@@ -130,7 +130,7 @@ func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T) (
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid limit %q", raw)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid limit %q", raw)
 			return nil, "", false
 		}
 		if n > 0 && start+n < end {
@@ -198,16 +198,16 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		}
 		var body CRJob
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
 			return
 		}
 		if body.Metadata.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
 			return
 		}
 		name := cloudRunV1JobsPrefix(namespace) + body.Metadata.Name
 		if _, exists := crjJobs.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"job %q already exists in namespace %q", body.Metadata.Name, namespace)
 			return
 		}
@@ -244,7 +244,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		id := sim.PathParam(r, "name")
 		job, ok := crjJobs.Get(cloudRunV1JobsPrefix(namespace) + id)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"job %q not found in namespace %q", id, namespace)
 			return
 		}
@@ -284,13 +284,13 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		name := cloudRunV1JobsPrefix(namespace) + id
 		existing, found := crjJobs.Get(name)
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"job %q not found in namespace %q", id, namespace)
 			return
 		}
 		var body CRJob
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
 			return
 		}
 		if !knativeReplaceAllowed(w, "job", id, namespace,
@@ -339,7 +339,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		}
 		name := cloudRunV1JobsPrefix(namespace) + id
 		if _, found := crjJobs.Get(name); !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"job %q not found in namespace %q", id, namespace)
 			return
 		}
@@ -356,25 +356,25 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		namespace := sim.PathParam(r, "namespace")
 		id, action, found := strings.Cut(sim.PathParam(r, "nameAction"), ":")
 		if !found || action != "run" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, id)
 			return
 		}
 		job, ok := crjJobs.Get(cloudRunV1JobsPrefix(namespace) + id)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"job %q not found in namespace %q", id, namespace)
 			return
 		}
 		var request CRRunJobRequest
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid run request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid run request body: %v", err)
 			return
 		}
 		execution := runCloudRunJob(namespace, cloudRunDefaultLocation, id, job,
 			cloudRunV1OverridesToV2(request.Overrides))
 		projected, ok := cloudRunV2ExecutionToV1(execution)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 				"execution %q has an unreadable resource name", execution.Name)
 			return
 		}
@@ -386,13 +386,13 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		execution, ok := cloudRunV1FindExecution(namespace, name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"execution %q not found in namespace %q", name, namespace)
 			return
 		}
 		projected, ok := cloudRunV2ExecutionToV1(execution)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 				"execution %q has an unreadable resource name", execution.Name)
 			return
 		}
@@ -429,7 +429,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		execution, ok := cloudRunV1FindExecution(namespace, name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"execution %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -446,30 +446,30 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		namespace := sim.PathParam(r, "namespace")
 		id, action, found := strings.Cut(sim.PathParam(r, "nameAction"), ":")
 		if !found || action != "cancel" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on execution %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on execution %q", action, id)
 			return
 		}
 		execution, ok := cloudRunV1FindExecution(namespace, id)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"execution %q not found in namespace %q", id, namespace)
 			return
 		}
 		_, _, jobID, executionID, ok := parseCloudRunV2ExecutionName(execution.Name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 				"execution %q has an unreadable resource name", execution.Name)
 			return
 		}
 		cancelled, ok := cancelCloudRunExecution(namespace, cloudRunDefaultLocation, jobID, executionID)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"execution %q not found in namespace %q", id, namespace)
 			return
 		}
 		projected, ok := cloudRunV2ExecutionToV1(cancelled)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 				"execution %q has an unreadable resource name", cancelled.Name)
 			return
 		}
@@ -481,13 +481,13 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		task, ok := cloudRunV1FindTask(namespace, name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"task %q not found in namespace %q", name, namespace)
 			return
 		}
 		projected, ok := cloudRunV2TaskToV1(task)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 				"task %q has an unreadable resource name", task.Name)
 			return
 		}
@@ -538,7 +538,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			// getIamPolicy is the whole of the Cloud Run Admin v1 jobs GET
 			// surface: anything else on that path is a method
 			// run.googleapis.com does not publish.
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, id)
 			return
 		}
 		cloudRunV1JobIAM(w, r, project, location, id, action)
@@ -548,7 +548,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 func writeCloudRunV1Job(w http.ResponseWriter, job Job) {
 	projected, ok := cloudRunV2JobToV1(job)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 			"job %q has an unreadable resource name", job.Name)
 		return
 	}
@@ -587,7 +587,7 @@ func deleteCloudRunExecutionCascade(name string) {
 func cloudRunV1JobIAM(w http.ResponseWriter, r *http.Request, project, location, id, action string) {
 	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, id)
 	if _, ok := crjJobs.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), name, action)

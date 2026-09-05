@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Firestore transactions: beginTransaction / commit (with a transaction) /
@@ -46,7 +46,7 @@ func handleFSBeginTransaction(w http.ResponseWriter, r *http.Request) {
 	// The options object is optional (an absent body defaults to a read-write
 	// transaction); a present-but-malformed body is rejected.
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid beginTransaction body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid beginTransaction body: %v", err)
 		return
 	}
 	readTime := fsNow()
@@ -64,15 +64,15 @@ func handleFSRollback(w http.ResponseWriter, r *http.Request) {
 		Transaction string `json:"transaction"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rollback body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rollback body: %v", err)
 		return
 	}
 	if req.Transaction == "" {
-		sim.GCPError(w, http.StatusBadRequest, "Transaction is required.", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "Transaction is required.", "INVALID_ARGUMENT")
 		return
 	}
 	if _, ok := fsTransactions.Get(req.Transaction); !ok {
-		sim.GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
 		return
 	}
 	fsTransactions.Delete(req.Transaction)

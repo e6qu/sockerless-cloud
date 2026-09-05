@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS Express Mode (Express Gateway services) — launched 2025-11-21. An Express
@@ -121,7 +121,7 @@ type ECSExpressService struct {
 
 var ecsExpressServices sim.Store[ECSExpressService]
 
-func registerECSExpress(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSExpress(r *AWSRouter, srv *sim.Server) {
 	ecsExpressServices = sim.MakeStore[ECSExpressService](srv.DB(), "ecs_express_services")
 	expressRebuildLoadBalancerRefs()
 
@@ -161,12 +161,12 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 		TaskDefinitionArn     string                       `json:"taskDefinitionArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.InfrastructureRoleArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "infrastructureRoleArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "infrastructureRoleArn is required", http.StatusBadRequest)
 		return
 	}
 
@@ -174,7 +174,7 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	// the managed task definition derives.
 	if req.TaskDefinitionArn != "" {
 		if req.PrimaryContainer != nil || req.ExecutionRoleArn != "" || req.TaskRoleArn != "" || req.Cpu != "" || req.Memory != "" {
-			sim.AWSError(w, "InvalidParameterException",
+			AWSError(w, "InvalidParameterException",
 				"taskDefinitionArn cannot be specified with primaryContainer, executionRoleArn, taskRoleArn, cpu, or memory",
 				http.StatusBadRequest)
 			return
@@ -184,7 +184,7 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	cluster, ok := ecsClusters.Get(clusterName)
 	if !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
 			"Cluster not found: %s", clusterName)
 		return
 	}
@@ -195,7 +195,7 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	}
 	serviceArn := ecsExpressArn(clusterName, serviceName)
 	if existing, ok := ecsExpressServices.Get(serviceArn); ok && existing.Status.StatusCode != "INACTIVE" {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"An Express service named %q already exists in cluster %q.", serviceName, clusterName)
 		return
 	}
@@ -229,7 +229,7 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	if len(netCfg.Subnets) == 0 {
 		defaultSubnet := defaultVPCSubnetID()
 		if defaultSubnet == "" {
-			sim.AWSError(w, "InvalidParameterException",
+			AWSError(w, "InvalidParameterException",
 				"No default VPC subnet is available for the Express service.", http.StatusBadRequest)
 			return
 		}
@@ -320,16 +320,16 @@ func handleECSDescribeExpressGatewayService(w http.ResponseWriter, r *http.Reque
 		Include    []string `json:"include"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "serviceArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "serviceArn is required", http.StatusBadRequest)
 		return
 	}
 	svc, ok := ecsExpressServices.Get(req.ServiceArn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Express service not found: %s", req.ServiceArn)
 		return
 	}
@@ -360,16 +360,16 @@ func handleECSUpdateExpressGatewayService(w http.ResponseWriter, r *http.Request
 		TaskDefinitionArn    string                       `json:"taskDefinitionArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "serviceArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "serviceArn is required", http.StatusBadRequest)
 		return
 	}
 	if req.TaskDefinitionArn != "" {
 		if req.PrimaryContainer != nil || req.ExecutionRoleArn != "" || req.TaskRoleArn != "" || req.Cpu != "" || req.Memory != "" {
-			sim.AWSError(w, "InvalidParameterException",
+			AWSError(w, "InvalidParameterException",
 				"taskDefinitionArn cannot be specified with primaryContainer, executionRoleArn, taskRoleArn, cpu, or memory",
 				http.StatusBadRequest)
 			return
@@ -377,18 +377,18 @@ func handleECSUpdateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	}
 	svc, ok := ecsExpressServices.Get(req.ServiceArn)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
 			"Express service not found: %s", req.ServiceArn)
 		return
 	}
 	if svc.Status.StatusCode != "ACTIVE" {
-		sim.AWSErrorf(w, "ServiceNotActiveException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotActiveException", http.StatusBadRequest,
 			"Express service %s is not active", req.ServiceArn)
 		return
 	}
 	if req.TaskDefinitionArn != "" {
 		if _, ok := ecsServiceTaskDefinition(req.TaskDefinitionArn); !ok {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 				"Unable to describe task definition: %s", req.TaskDefinitionArn)
 			return
 		}
@@ -516,21 +516,21 @@ func handleECSDeleteExpressGatewayService(w http.ResponseWriter, r *http.Request
 		ServiceArn string `json:"serviceArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "serviceArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "serviceArn is required", http.StatusBadRequest)
 		return
 	}
 	svc, ok := ecsExpressServices.Get(req.ServiceArn)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
 			"Express service not found: %s", req.ServiceArn)
 		return
 	}
 	if svc.Status.StatusCode != "ACTIVE" {
-		sim.AWSErrorf(w, "ServiceNotActiveException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotActiveException", http.StatusBadRequest,
 			"Express service %s is not active", req.ServiceArn)
 		return
 	}

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Run Jobs v2 types
@@ -70,7 +70,7 @@ func cloudRunEtagOK(w http.ResponseWriter, kind, name, current, supplied string)
 	if supplied == "" || supplied == current {
 		return true
 	}
-	sim.GCPErrorf(w, http.StatusConflict, "ABORTED",
+	GCPErrorf(w, http.StatusConflict, "ABORTED",
 		"etag %q does not match the current etag of %s %q", supplied, kind, name)
 	return false
 }
@@ -524,7 +524,7 @@ func stopCloudRunJobProcesses(p *cloudRunJobProcesses) {
 		return
 	}
 	if p.Main != nil {
-		sim.StopContainer(p.Main.ContainerID)
+		sim.StopContainer(p.Main.ContainerID, 10*time.Second)
 		p.Main.Cancel()
 	}
 	for _, h := range p.Sidecars {
@@ -630,19 +630,19 @@ func registerCloudRunJobs(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		jobID := r.URL.Query().Get("jobId")
 		if jobID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "jobId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "jobId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 
 		var job Job
 		if err := sim.ReadJSON(r, &job); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 		if _, exists := jobs.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "job %q already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "job %q already exists", name)
 			return
 		}
 
@@ -712,14 +712,14 @@ func registerCloudRunJobs(srv *sim.Server) {
 					fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, id), action)
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, id)
 			return
 		}
 
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 		job, ok := jobs.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, job)
@@ -759,7 +759,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 
 		job, ok := jobs.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
 			return
 		}
 		if !cloudRunJobEtagOK(w, job, r.URL.Query().Get("etag")) {
@@ -794,7 +794,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		jobAction := sim.PathParam(r, "jobAction")
 		jobID, action, found := strings.Cut(jobAction, ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on job %q", jobAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on job %q", jobAction)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
@@ -805,19 +805,19 @@ func registerCloudRunJobs(srv *sim.Server) {
 			return
 		case "run":
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, jobID)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, jobID)
 			return
 		}
 
 		job, ok := jobs.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
 			return
 		}
 
 		var request RunJobRequest
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if !cloudRunJobEtagOK(w, job, request.Etag) {
@@ -847,7 +847,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 
 		exec, ok := executions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, exec)
@@ -891,7 +891,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		switch action {
 		case "cancel":
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"unknown action %q on execution %q", action, execID)
 			return
 		}
@@ -899,12 +899,12 @@ func registerCloudRunJobs(srv *sim.Server) {
 
 		var request CancelExecutionRequest
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		existing, ok := executions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
 			return
 		}
 		if !cloudRunEtagOK(w, "execution", existing.Name, existing.Etag, request.Etag) {
@@ -920,7 +920,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 
 		exec, ok := cancelCloudRunExecution(project, location, jobID, execID)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
 			return
 		}
 		lro := newLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
@@ -935,12 +935,12 @@ func registerCloudRunJobs(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, jobID)
 		existing, ok := jobs.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", name)
 			return
 		}
 		var update Job
 		if err := sim.ReadJSON(r, &update); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if !cloudRunJobEtagOK(w, existing, update.Etag) {
@@ -991,7 +991,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/executions/%s", project, location, jobID, execID)
 		exec, ok := executions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
 			return
 		}
 		if !cloudRunEtagOK(w, "execution", exec.Name, exec.Etag, r.URL.Query().Get("etag")) {
@@ -1016,7 +1016,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/executions/%s/tasks/%s", project, location, jobID, execID, taskID)
 		task, ok := tasks.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "task %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "task %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, task)
@@ -1407,20 +1407,21 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 		return nil, nil, fmt.Errorf("resolve main container %q image platform: %w", main.Name, err)
 	}
 	mainHandle, err := sim.StartContainerSync(sim.ContainerConfig{
-		Image:        mainImage,
-		Architecture: mainPlatform,
-		Command:      main.Command,
-		Args:         main.Args,
-		Env:          envFor(main),
-		Timeout:      timeout,
-		Name:         fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort),
+		CancelGracePeriod: 5 * time.Second,
+		Image:             mainImage,
+		Architecture:      mainPlatform,
+		Command:           main.Command,
+		Args:              main.Args,
+		Env:               envFor(main),
+		Timeout:           timeout,
+		Name:              fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort),
 		Labels: map[string]string{
 			"sockerless-sim-execution":           execID,
 			"sockerless-sim-execution-container": main.Name,
 		},
 		Binds:      bindsFor(main),
 		ExtraHosts: hostMetadataExtraHosts(),
-		Sandbox:    sim.SandboxCloudRun,
+		Sandbox:    SandboxCloudRun,
 	}, sink)
 	if err != nil {
 		return nil, nil, fmt.Errorf("start main container %q: %w", main.Name, err)
@@ -1438,20 +1439,21 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 			return nil, nil, fmt.Errorf("resolve sidecar container %q image platform: %w", c.Name, err)
 		}
 		handle, err := sim.StartContainerSync(sim.ContainerConfig{
-			Image:        sidecarImage,
-			Architecture: sidecarPlatform,
-			Command:      c.Command,
-			Args:         c.Args,
-			Env:          envFor(c),
-			Timeout:      timeout,
-			Name:         fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i),
+			CancelGracePeriod: 5 * time.Second,
+			Image:             sidecarImage,
+			Architecture:      sidecarPlatform,
+			Command:           c.Command,
+			Args:              c.Args,
+			Env:               envFor(c),
+			Timeout:           timeout,
+			Name:              fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i),
 			Labels: map[string]string{
 				"sockerless-sim-execution":           execID,
 				"sockerless-sim-execution-container": c.Name,
 			},
 			NetworkMode: "container:" + mainHandle.ContainerID,
 			Binds:       bindsFor(c),
-			Sandbox:     sim.SandboxCloudRun,
+			Sandbox:     SandboxCloudRun,
 		}, sink)
 		if err != nil {
 			mainHandle.Cancel()

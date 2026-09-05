@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,32 +35,33 @@ var execCallForms = []string{
 // Firecracker/Linux-networking real-execution substrate described in
 // specs/SIMULATOR_REAL_EXECUTION.md and feedback_sim_host_model.md.
 //
-// The scan walks every non-test Go file of the simulator module, `shared/`
-// included, so a subpackage cannot host what the top level forbids. The three
+// The scan walks every non-test Go file of the simulator module and of the
+// framework module `sim/` it is built on, so the framework cannot host what
+// the handlers forbid; paths are repository-relative. The three
 // test-suite modules (sdk-tests, cli-tests, terraform-tests) are their own
 // modules of test drivers — they shell out to `gcloud`, `terraform` and the
 // simulator binary by design — and are outside the invariant.
 func TestNoOsExecOfWorkloads(t *testing.T) {
 	allowed := []execCallSite{
 		{
-			file: "cloudbuild.go",
+			file: filepath.Join("simulator-gcp", "cloudbuild.go"),
 			call: `exec.CommandContext(ctx, "docker", "buildx", "version")`,
 			why:  "probes the docker CLI's buildx driver; runs no workload",
 		},
 		{
-			file: "cloudbuild.go",
+			file: filepath.Join("simulator-gcp", "cloudbuild.go"),
 			call: `exec.LookPath("docker")`,
 			why:  "reports whether the docker CLI Cloud Build steps need is installed",
 		},
 		{
-			file: "cloudbuild.go",
+			file: filepath.Join("simulator-gcp", "cloudbuild.go"),
 			call: `exec.CommandContext(ctx, "docker", args...)`,
 			why: "the one docker invocation every Cloud Build step goes through — the build itself, " +
 				"the push of its image, and the drop of the local tag afterwards — dispatched to the " +
 				"Docker host by the docker CLI, and interruptible so a cancelled build stops the engine's work",
 		},
 		{
-			file: filepath.Join("shared", "container_reaper.go"),
+			file: filepath.Join("sim", "container_reaper.go"),
 			call: "exec.Command(executable, containerReaperArgument, provider, runID, strconv.Itoa(os.Getpid()))",
 			why:  "re-executes the simulator's own binary in reaper mode to reap orphaned containers; the child is the simulator, not a workload",
 		},
@@ -75,22 +77,23 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 		"docs":            true,
 	}
 
-	simDir, err := filepath.Abs("..")
+	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
-		t.Fatalf("resolve sim dir: %v", err)
+		t.Fatalf("resolve repository root: %v", err)
 	}
+	roots := []string{filepath.Join(repoRoot, "simulator-gcp"), filepath.Join(repoRoot, "sim")}
 
 	var scanned int
-	walkErr := filepath.WalkDir(simDir, func(path string, d fs.DirEntry, err error) error {
+	walk := func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, relErr := filepath.Rel(simDir, path)
+		rel, relErr := filepath.Rel(repoRoot, path)
 		if relErr != nil {
 			return relErr
 		}
 		if d.IsDir() {
-			if path != simDir && (skipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
+			if !slices.Contains(roots, path) && (skipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -147,9 +150,11 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 			}
 		}
 		return nil
-	})
-	if walkErr != nil {
-		t.Fatalf("walk sim module: %v", walkErr)
+	}
+	for _, root := range roots {
+		if walkErr := filepath.WalkDir(root, walk); walkErr != nil {
+			t.Fatalf("walk %s: %v", root, walkErr)
+		}
 	}
 
 	// A scan that reached nothing proves nothing: the allowlist names files that

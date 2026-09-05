@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -194,7 +194,7 @@ func glueHashID() string {
 	return strings.ReplaceAll(uuid.New().String(), "-", "")
 }
 
-func registerGlueMLDataQuality(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlueMLDataQuality(r *AWSRouter, srv *sim.Server) {
 	glueMLTransforms = sim.MakeStore[GlueMLTransform](srv.DB(), "glue_ml_transforms")
 	glueDQRulesets = sim.MakeStore[GlueDataQualityRuleset](srv.DB(), "glue_dq_rulesets")
 	glueDQEvalRuns = sim.MakeStore[GlueDQRulesetEvaluationRun](srv.DB(), "glue_dq_eval_runs")

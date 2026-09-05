@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // RDS — awsQuery protocol. Surface scoped to the 90th-percentile
@@ -278,7 +278,7 @@ var (
 // services in the AWSQueryRouter dispatch.
 const rdsAPIVersion = "2014-10-31"
 
-func registerRDS(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	rdsInstances = sim.MakeStore[RDSInstance](srv.DB(), "rds_instances")
 	rdsSnapshots = sim.MakeStore[RDSSnapshot](srv.DB(), "rds_snapshots")
 	r.RegisterVersioned(rdsAPIVersion, "CreateDBInstance", handleRDSCreate)

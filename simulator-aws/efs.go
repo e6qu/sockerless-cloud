@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // efsHostRoot returns the on-disk backing directory for the whole
@@ -335,7 +335,7 @@ func efsMergeTags(existing, incoming []EFSTag) []EFSTag {
 func handleEFSPutFileSystemPolicy(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -344,11 +344,11 @@ func handleEFSPutFileSystemPolicy(w http.ResponseWriter, r *http.Request) {
 		BypassPolicyLockoutSafetyCheck bool   `json:"BypassPolicyLockoutSafetyCheck"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Policy == "" {
-		sim.AWSError(w, "InvalidPolicyException", "Policy is required", http.StatusBadRequest)
+		AWSError(w, "InvalidPolicyException", "Policy is required", http.StatusBadRequest)
 		return
 	}
 	efsFileSystemPolicies.Put(fsId, req.Policy)
@@ -361,13 +361,13 @@ func handleEFSPutFileSystemPolicy(w http.ResponseWriter, r *http.Request) {
 func handleEFSDescribeFileSystemPolicy(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
 	policy, ok := efsFileSystemPolicies.Get(fsId)
 	if !ok {
-		sim.AWSErrorf(w, "PolicyNotFound", http.StatusNotFound,
+		AWSErrorf(w, "PolicyNotFound", http.StatusNotFound,
 			"Policy not found for file system '%s'", fsId)
 		return
 	}
@@ -380,7 +380,7 @@ func handleEFSDescribeFileSystemPolicy(w http.ResponseWriter, r *http.Request) {
 func handleEFSDeleteFileSystemPolicy(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -391,7 +391,7 @@ func handleEFSDeleteFileSystemPolicy(w http.ResponseWriter, r *http.Request) {
 func handleEFSPutBackupPolicy(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -401,11 +401,11 @@ func handleEFSPutBackupPolicy(w http.ResponseWriter, r *http.Request) {
 		} `json:"BackupPolicy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.BackupPolicy.Status == "" {
-		sim.AWSError(w, "BadRequest", "BackupPolicy.Status is required", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "BackupPolicy.Status is required", http.StatusBadRequest)
 		return
 	}
 	efsBackupPolicies.Put(fsId, req.BackupPolicy.Status)
@@ -417,7 +417,7 @@ func handleEFSPutBackupPolicy(w http.ResponseWriter, r *http.Request) {
 func handleEFSDescribeBackupPolicy(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -435,12 +435,12 @@ func handleEFSCreateReplicationConfiguration(w http.ResponseWriter, r *http.Requ
 	srcId := sim.PathParam(r, "id")
 	src, ok := efsFileSystems.Get(srcId)
 	if !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", srcId)
 		return
 	}
 	if _, exists := efsReplications.Get(srcId); exists {
-		sim.AWSErrorf(w, "ReplicationAlreadyExists", http.StatusConflict,
+		AWSErrorf(w, "ReplicationAlreadyExists", http.StatusConflict,
 			"File system '%s' already has a replication configuration", srcId)
 		return
 	}
@@ -454,11 +454,11 @@ func handleEFSCreateReplicationConfiguration(w http.ResponseWriter, r *http.Requ
 		} `json:"Destinations"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.Destinations) == 0 {
-		sim.AWSError(w, "BadRequest", "Destinations is required", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Destinations is required", http.StatusBadRequest)
 		return
 	}
 
@@ -542,12 +542,12 @@ func handleEFSDescribeReplicationConfigurations(w http.ResponseWriter, r *http.R
 func handleEFSDeleteReplicationConfiguration(w http.ResponseWriter, r *http.Request) {
 	srcId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(srcId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", srcId)
 		return
 	}
 	if !efsReplications.Delete(srcId) {
-		sim.AWSErrorf(w, "ReplicationNotFound", http.StatusNotFound,
+		AWSErrorf(w, "ReplicationNotFound", http.StatusNotFound,
 			"File system '%s' does not have a replication configuration", srcId)
 		return
 	}
@@ -559,11 +559,11 @@ func handleEFSPutAccountPreferences(w http.ResponseWriter, r *http.Request) {
 		ResourceIdType string `json:"ResourceIdType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceIdType != "LONG_ID" && req.ResourceIdType != "SHORT_ID" {
-		sim.AWSError(w, "BadRequest", "ResourceIdType must be LONG_ID or SHORT_ID", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "ResourceIdType must be LONG_ID or SHORT_ID", http.StatusBadRequest)
 		return
 	}
 	efsAccountPref.Put(awsAccountID(), req.ResourceIdType)
@@ -592,7 +592,7 @@ func handleEFSTagResource(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "id")
 	get, set, ok := efsResourceTags(id)
 	if !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"Resource '%s' does not exist", id)
 		return
 	}
@@ -600,7 +600,7 @@ func handleEFSTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags []EFSTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	set(efsMergeTags(get(), req.Tags))
@@ -611,7 +611,7 @@ func handleEFSListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "id")
 	get, _, ok := efsResourceTags(id)
 	if !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"Resource '%s' does not exist", id)
 		return
 	}
@@ -631,7 +631,7 @@ func handleEFSUntagResource(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "id")
 	get, set, ok := efsResourceTags(id)
 	if !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"Resource '%s' does not exist", id)
 		return
 	}
@@ -652,7 +652,7 @@ func handleEFSUntagResource(w http.ResponseWriter, r *http.Request) {
 func handleEFSCreateTags(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -660,7 +660,7 @@ func handleEFSCreateTags(w http.ResponseWriter, r *http.Request) {
 		Tags []EFSTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	efsFileSystems.Update(fsId, func(fs *EFSFileSystem) {
@@ -673,7 +673,7 @@ func handleEFSDescribeTags(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	fs, ok := efsFileSystems.Get(fsId)
 	if !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -692,7 +692,7 @@ func handleEFSDescribeTags(w http.ResponseWriter, r *http.Request) {
 func handleEFSDeleteTags(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -700,7 +700,7 @@ func handleEFSDeleteTags(w http.ResponseWriter, r *http.Request) {
 		TagKeys []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	remove := map[string]bool{}
@@ -727,7 +727,7 @@ func handleEFSCreateFileSystem(w http.ResponseWriter, r *http.Request) {
 		Tags            []EFSTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.CreationToken == "" {
@@ -824,7 +824,7 @@ func handleEFSDescribeFileSystems(w http.ResponseWriter, r *http.Request) {
 func handleEFSDeleteFileSystem(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "id")
 	if !efsFileSystems.Delete(id) {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", id)
 		return
 	}
@@ -839,7 +839,7 @@ func handleEFSDeleteFileSystem(w http.ResponseWriter, r *http.Request) {
 func handleEFSUpdateFileSystem(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -848,11 +848,11 @@ func handleEFSUpdateFileSystem(w http.ResponseWriter, r *http.Request) {
 		ProvisionedThroughputInMibps *float64 `json:"ProvisionedThroughputInMibps"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ThroughputMode == "provisioned" && req.ProvisionedThroughputInMibps == nil {
-		sim.AWSError(w, "BadRequest",
+		AWSError(w, "BadRequest",
 			"ProvisionedThroughputInMibps is required when ThroughputMode is provisioned",
 			http.StatusBadRequest)
 		return
@@ -884,7 +884,7 @@ func handleEFSUpdateFileSystem(w http.ResponseWriter, r *http.Request) {
 func handleEFSUpdateFileSystemProtection(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -892,12 +892,12 @@ func handleEFSUpdateFileSystemProtection(w http.ResponseWriter, r *http.Request)
 		ReplicationOverwriteProtection string `json:"ReplicationOverwriteProtection"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	status := req.ReplicationOverwriteProtection
 	if status != "ENABLED" && status != "DISABLED" {
-		sim.AWSError(w, "BadRequest",
+		AWSError(w, "BadRequest",
 			"ReplicationOverwriteProtection must be ENABLED or DISABLED", http.StatusBadRequest)
 		return
 	}
@@ -910,7 +910,7 @@ func handleEFSUpdateFileSystemProtection(w http.ResponseWriter, r *http.Request)
 func handleEFSPutLifecycleConfiguration(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -919,7 +919,7 @@ func handleEFSPutLifecycleConfiguration(w http.ResponseWriter, r *http.Request) 
 		LifecyclePolicies []EFSLifecyclePolicy `json:"LifecyclePolicies"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -936,7 +936,7 @@ func handleEFSPutLifecycleConfiguration(w http.ResponseWriter, r *http.Request) 
 func handleEFSDescribeLifecycleConfiguration(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", fsId)
 		return
 	}
@@ -959,16 +959,16 @@ func handleEFSCreateMountTarget(w http.ResponseWriter, r *http.Request) {
 		SecurityGroups []string `json:"SecurityGroups"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.FileSystemId == "" || req.SubnetId == "" {
-		sim.AWSError(w, "BadRequest", "FileSystemId and SubnetId are required", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "FileSystemId and SubnetId are required", http.StatusBadRequest)
 		return
 	}
 
 	if _, ok := efsFileSystems.Get(req.FileSystemId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", req.FileSystemId)
 		return
 	}
@@ -978,7 +978,7 @@ func handleEFSCreateMountTarget(w http.ResponseWriter, r *http.Request) {
 		// block — not from a global counter. Match that contract.
 		ip, ipErr := AllocateSubnetIP(req.SubnetId)
 		if ipErr != nil {
-			sim.AWSError(w, "SubnetNotFound", ipErr.Error(), http.StatusBadRequest)
+			AWSError(w, "SubnetNotFound", ipErr.Error(), http.StatusBadRequest)
 			return
 		}
 		req.IpAddress = ip
@@ -1060,16 +1060,16 @@ func handleEFSCreateAccessPoint(w http.ResponseWriter, r *http.Request) {
 		Tags          []EFSTag          `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.FileSystemId == "" {
-		sim.AWSError(w, "BadRequest", "FileSystemId is required", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "FileSystemId is required", http.StatusBadRequest)
 		return
 	}
 
 	if _, ok := efsFileSystems.Get(req.FileSystemId); !ok {
-		sim.AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
+		AWSErrorf(w, "FileSystemNotFound", http.StatusNotFound,
 			"File system '%s' does not exist", req.FileSystemId)
 		return
 	}
@@ -1122,7 +1122,7 @@ func handleEFSDeleteAccessPoint(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !efsAccessPoints.Delete(id) {
-		sim.AWSErrorf(w, "AccessPointNotFound", http.StatusNotFound,
+		AWSErrorf(w, "AccessPointNotFound", http.StatusNotFound,
 			"Access point '%s' does not exist", id)
 		return
 	}
@@ -1133,7 +1133,7 @@ func handleEFSDescribeMountTargetSecurityGroups(w http.ResponseWriter, r *http.R
 	mtId := sim.PathParam(r, "id")
 	mt, ok := efsMountTargets.Get(mtId)
 	if !ok {
-		sim.AWSErrorf(w, "MountTargetNotFound", http.StatusNotFound,
+		AWSErrorf(w, "MountTargetNotFound", http.StatusNotFound,
 			"Mount target '%s' does not exist", mtId)
 		return
 	}
@@ -1151,7 +1151,7 @@ func handleEFSDescribeMountTargetSecurityGroups(w http.ResponseWriter, r *http.R
 func handleEFSModifyMountTargetSecurityGroups(w http.ResponseWriter, r *http.Request) {
 	mtId := sim.PathParam(r, "id")
 	if _, ok := efsMountTargets.Get(mtId); !ok {
-		sim.AWSErrorf(w, "MountTargetNotFound", http.StatusNotFound,
+		AWSErrorf(w, "MountTargetNotFound", http.StatusNotFound,
 			"Mount target '%s' does not exist", mtId)
 		return
 	}
@@ -1160,7 +1160,7 @@ func handleEFSModifyMountTargetSecurityGroups(w http.ResponseWriter, r *http.Req
 		SecurityGroups []string `json:"SecurityGroups"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "BadRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -1174,7 +1174,7 @@ func handleEFSModifyMountTargetSecurityGroups(w http.ResponseWriter, r *http.Req
 func handleEFSDeleteMountTarget(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "id")
 	if !efsMountTargets.Delete(id) {
-		sim.AWSErrorf(w, "MountTargetNotFound", http.StatusNotFound,
+		AWSErrorf(w, "MountTargetNotFound", http.StatusNotFound,
 			"Mount target '%s' does not exist", id)
 		return
 	}

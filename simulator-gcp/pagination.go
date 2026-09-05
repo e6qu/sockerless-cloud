@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"time"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
 // nowTimestamp returns a protobuf JSON Timestamp-compatible UTC value.
@@ -43,7 +41,7 @@ func paginateListParam[T any](w http.ResponseWriter, r *http.Request, items []T,
 	if token := r.URL.Query().Get("pageToken"); token != "" {
 		n, err := strconv.Atoi(token)
 		if err != nil || n < 0 || n > len(items) {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
 			return nil, "", false
 		}
 		start = n
@@ -53,7 +51,7 @@ func paginateListParam[T any](w http.ResponseWriter, r *http.Request, items []T,
 	if raw := r.URL.Query().Get(sizeParam); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s %q", sizeParam, raw)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s %q", sizeParam, raw)
 			return nil, "", false
 		}
 		if n > 0 && n < pageSize {

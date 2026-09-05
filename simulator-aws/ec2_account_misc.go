@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements the EC2 account-settings, ID-format, EIP
@@ -113,7 +113,7 @@ var ec2IdFormatResources = []string{
 	"vpc-endpoint", "vpc-peering-connection", "vpn-connection", "vpn-gateway",
 }
 
-func registerEC2AccountMisc(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2AccountMisc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2IdFormatSettings = sim.MakeStore[EC2IdFormatSetting](srv.DB(), "ec2_id_format_settings")
 	ec2AddressAttributes = sim.MakeStore[EC2AddressAttribute](srv.DB(), "ec2_address_attributes")
 	ec2ClassicLinks = sim.MakeStore[EC2ClassicLink](srv.DB(), "ec2_classic_links")

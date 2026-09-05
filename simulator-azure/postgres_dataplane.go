@@ -24,7 +24,7 @@ import (
 
 	dockerclient "github.com/moby/moby/client"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Azure Database for PostgreSQL flexible server data plane.
@@ -354,7 +354,7 @@ func azurePGAdoptEngine(rg, name string) error {
 	if err != nil {
 		return fmt.Errorf("resolve database engine platform: %w", err)
 	}
-	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{Architecture: platform}, sim.NoopSink{})
+	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{Architecture: platform, CancelGracePeriod: 5 * time.Second}, sim.NoopSink{})
 	if err != nil {
 		return err
 	}
@@ -411,8 +411,9 @@ func (runtime *azurePGDataPlaneRuntime) startEngine() error {
 		return fmt.Errorf("resolve database engine platform: %w", err)
 	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		Image:        azurePGEngineImage,
-		Architecture: platform,
+		CancelGracePeriod: 5 * time.Second,
+		Image:             azurePGEngineImage,
+		Architecture:      platform,
 		Env: map[string]string{
 			"POSTGRES_USER":     login,
 			"POSTGRES_PASSWORD": password,
@@ -426,7 +427,7 @@ func (runtime *azurePGDataPlaneRuntime) startEngine() error {
 		PublishPorts: map[int]int{azurePGPort: backendPort},
 		Binds:        []string{azurePGServerVolume(runtime.rg, runtime.name) + ":/var/lib/postgresql/data"},
 		Labels:       map[string]string{azurePGEngineContainerLabel: azurePGServerKey(runtime.rg, runtime.name)},
-		Sandbox:      sim.SandboxACA,
+		Sandbox:      SandboxACA,
 	}, sim.NoopSink{})
 	if err != nil {
 		return fmt.Errorf("start PostgreSQL database engine: %w", err)

@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	dockerclient "github.com/moby/moby/client"
 )
 
@@ -201,11 +201,35 @@ func registerArtifactRegistry(srv *sim.Server) {
 		Uploads:   sim.MakeStore[sim.OCIUpload](srv.DB(), "ar_uploads"),
 		SkipPath:  func(path string) bool { return strings.HasPrefix(path, "/v2/projects/") },
 		Authorize: arAuthorizeV2,
-		OnManifestPut: func(repo, ref, contentType string, data []byte) {
+		// Google Artifact Registry answers the authorized ping with status 200,
+		// `content-length: 0`, an empty body, and — the part no client would
+		// guess — `content-type: text/html; charset=UTF-8`. Captured from
+		// `us-docker.pkg.dev/v2/` with a token from its own token service;
+		// `gcr.io/v2/` answers identically.
+		BaseResponse: func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+			w.Header().Set("Content-Length", "0")
+			w.WriteHeader(http.StatusOK)
+		},
+		// "Artifact Registry doesn't support Docker chunked uploads. … You must
+		// use monolithic uploads when you push container images to Artifact
+		// Registry" ("Support for the Docker Registry API"). A second write into
+		// an upload session is the chunking Google names, refused with the
+		// Docker Registry HTTP API v2 code for an operation a registry does not
+		// implement — `UNSUPPORTED`, "the operation is unsupported". Google
+		// documents the limitation but not the response, so the code and status
+		// are the specification's rather than a capture.
+		RefuseChunkedUpload: func(w http.ResponseWriter) {
+			w.Header().Set("Allow", "POST, PUT, GET, DELETE")
+			sim.OCIError(w, "UNSUPPORTED",
+				"Artifact Registry does not support chunked uploads; send the blob in a single monolithic upload",
+				http.StatusMethodNotAllowed)
+		},
+		OnManifestPut: func(_, repo, ref, contentType string, data []byte) {
 			registerDockerImageFromManifest(dockerImagesForHooks, repo, ref, contentType, data)
 		},
-		HydrateManifest: func(reg *sim.OCIRegistry, repo, ref string) bool {
-			if err := hydrateOCIImageFromLocalDocker(reg, dockerImagesForHooks, repo, ref); err != nil {
+		HydrateManifest: func(reg *sim.OCIRegistry, scope, repo, ref string) bool {
+			if err := hydrateOCIImageFromLocalDocker(reg, scope, dockerImagesForHooks, repo, ref); err != nil {
 				fmt.Fprintf(os.Stderr, "[sim-gcp-ar] local docker cache miss for %s:%s: %v\n", repo, ref, err)
 				return false
 			}
@@ -225,19 +249,19 @@ func registerArtifactRegistry(srv *sim.Server) {
 			repoID = r.URL.Query().Get("repository_id")
 		}
 		if repoID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "repositoryId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "repositoryId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 
 		var repo Repository
 		if err := sim.ReadJSON(r, &repo); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
 		name := fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID)
 		if _, exists := repos.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "repository %q already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "repository %q already exists", name)
 			return
 		}
 
@@ -281,7 +305,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID)
 		repo, ok := repos.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, repo)
@@ -340,7 +364,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 
 		repo, ok := repos.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
 			return
 		}
 		repos.Delete(name)
@@ -365,7 +389,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 		repoName := fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID)
 
 		if _, ok := repos.Get(repoName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", repoName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", repoName)
 			return
 		}
 
@@ -432,7 +456,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 	repoExists := func(w http.ResponseWriter, r *http.Request) (string, bool) {
 		name := repoName(r)
 		if _, ok := repos.Get(name); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
 			return "", false
 		}
 		return name, true
@@ -469,7 +493,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/packages/" + sim.PathParam(r, "pkg")
 		pkg, ok := packages.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "package %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "package %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, pkg)
@@ -483,12 +507,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/packages/" + sim.PathParam(r, "pkg")
 		pkg, ok := packages.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "package %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "package %q not found", name)
 			return
 		}
 		var patch ARPackage
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.Annotations != nil {
@@ -507,7 +531,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/packages/" + sim.PathParam(r, "pkg")
 		pkg, ok := packages.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "package %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "package %q not found", name)
 			return
 		}
 		packages.Delete(name)
@@ -553,7 +577,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/packages/" + sim.PathParam(r, "pkg") + "/versions/" + sim.PathParam(r, "version")
 		v, ok := versions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "version %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "version %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, v)
@@ -567,12 +591,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/packages/" + sim.PathParam(r, "pkg") + "/versions/" + sim.PathParam(r, "version")
 		v, ok := versions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "version %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "version %q not found", name)
 			return
 		}
 		var patch ARVersion
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.Annotations != nil {
@@ -594,7 +618,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/packages/" + sim.PathParam(r, "pkg") + "/versions/" + sim.PathParam(r, "version")
 		v, ok := versions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "version %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "version %q not found", name)
 			return
 		}
 		versions.Delete(name)
@@ -612,7 +636,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 			ValidateOnly bool     `json:"validateOnly"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if !req.ValidateOnly {
@@ -656,7 +680,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/packages/" + sim.PathParam(r, "pkg") + "/tags/" + sim.PathParam(r, "tag")
 		t, ok := tags.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, t)
@@ -669,12 +693,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		tagID := r.URL.Query().Get("tagId")
 		if tagID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "tagId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "tagId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 		var t ARTag
 		if err := sim.ReadJSON(r, &t); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		t.Name = repo + "/packages/" + sim.PathParam(r, "pkg") + "/tags/" + tagID
@@ -690,12 +714,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/packages/" + sim.PathParam(r, "pkg") + "/tags/" + sim.PathParam(r, "tag")
 		t, ok := tags.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag %q not found", name)
 			return
 		}
 		var patch ARTag
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.Version != "" {
@@ -712,7 +736,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		name := repo + "/packages/" + sim.PathParam(r, "pkg") + "/tags/" + sim.PathParam(r, "tag")
 		if _, ok := tags.Get(name); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag %q not found", name)
 			return
 		}
 		tags.Delete(name)
@@ -753,7 +777,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		if base, action, ok := strings.Cut(fileID, ":"); ok && action == "download" {
 			name := repo + "/files/" + base
 			if _, ok := files.Get(name); !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -762,7 +786,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/files/" + fileID
 		f, ok := files.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, f)
@@ -776,12 +800,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/files/" + sim.PathParam(r, "file")
 		f, ok := files.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
 			return
 		}
 		var patch ARFile
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.Annotations != nil {
@@ -800,7 +824,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/files/" + sim.PathParam(r, "file")
 		f, ok := files.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
 			return
 		}
 		files.Delete(name)
@@ -822,7 +846,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		name := repo + "/files/" + fileID
 		if _, ok := files.Get(name); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "file %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -838,7 +862,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read upload body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read upload body: %v", err)
 			return
 		}
 		fileID := digestBytes(body)
@@ -887,7 +911,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/rules/" + sim.PathParam(r, "rule")
 		ru, ok := rules.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, ru)
@@ -900,12 +924,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		ruleID := r.URL.Query().Get("ruleId")
 		if ruleID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "ruleId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "ruleId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 		var ru ARRule
 		if err := sim.ReadJSON(r, &ru); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ru.Name = repo + "/rules/" + ruleID
@@ -921,12 +945,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/rules/" + sim.PathParam(r, "rule")
 		ru, ok := rules.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", name)
 			return
 		}
 		var patch ARRule
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.Action != "" {
@@ -952,7 +976,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		name := repo + "/rules/" + sim.PathParam(r, "rule")
 		if _, ok := rules.Get(name); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", name)
 			return
 		}
 		rules.Delete(name)
@@ -990,7 +1014,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/attachments/" + sim.PathParam(r, "attachment")
 		a, ok := attachments.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "attachment %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "attachment %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, a)
@@ -1003,12 +1027,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		attachmentID := r.URL.Query().Get("attachmentId")
 		if attachmentID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "attachmentId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "attachmentId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 		var a ARAttachment
 		if err := sim.ReadJSON(r, &a); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		a.Name = repo + "/attachments/" + attachmentID
@@ -1027,7 +1051,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/attachments/" + sim.PathParam(r, "attachment")
 		a, ok := attachments.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "attachment %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "attachment %q not found", name)
 			return
 		}
 		attachments.Delete(name)
@@ -1081,7 +1105,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repo + "/dockerImages/" + sim.PathParam(r, "image")
 		img, ok := dockerImages.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "docker image %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "docker image %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, img)
@@ -1097,7 +1121,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		if _, ok := repoExists(w, r); !ok {
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "maven artifact %q not found", sim.PathParam(r, "artifact"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "maven artifact %q not found", sim.PathParam(r, "artifact"))
 	})
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/npmPackages", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := repoExists(w, r); !ok {
@@ -1109,7 +1133,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		if _, ok := repoExists(w, r); !ok {
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "npm package %q not found", sim.PathParam(r, "npmPackage"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "npm package %q not found", sim.PathParam(r, "npmPackage"))
 	})
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/pythonPackages", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := repoExists(w, r); !ok {
@@ -1121,7 +1145,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		if _, ok := repoExists(w, r); !ok {
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "python package %q not found", sim.PathParam(r, "pythonPackage"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "python package %q not found", sim.PathParam(r, "pythonPackage"))
 	})
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := repoExists(w, r)
@@ -1139,12 +1163,12 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		name := repoName(r)
 		repo, ok := repos.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", name)
 			return
 		}
 		var patch Repository
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.Description != "" {
@@ -1186,7 +1210,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		var patch ARProjectSettings
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.LegacyRedirectionState != "" {
@@ -1217,7 +1241,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		var patch ARVPCSCConfig
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.VPCSCPolicy != "" {
@@ -1245,7 +1269,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		var patch ARProjectConfig
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if patch.PlatformLogsConfig != nil {
@@ -1260,7 +1284,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 // hydrateOCIImageFromLocalDocker is the AR pull-through cache: on a manifest
 // miss for a docker-hub remote repo it saves the image from the local Docker
 // daemon and populates the shared registry's blobs + manifest.
-func hydrateOCIImageFromLocalDocker(reg *sim.OCIRegistry, dockerImages sim.Store[DockerImage], imageName, reference string) error {
+func hydrateOCIImageFromLocalDocker(reg *sim.OCIRegistry, scope string, dockerImages sim.Store[DockerImage], imageName, reference string) error {
 	// Map the AR remote-repo path back to the local Docker daemon ref it
 	// proxies, mirroring the backend's image rewrite (gcp-common
 	// image_resolve.go): `docker-hub` proxies Docker Hub, `gitlab-registry`
@@ -1317,7 +1341,7 @@ func hydrateOCIImageFromLocalDocker(reg *sim.OCIRegistry, dockerImages sim.Store
 	// Docker-config image is rejected by docker build's FROM parsing
 	// ("invalid mixed OCI image with Docker v2s2 config").
 	configDigest := digestBytes(configData)
-	reg.PutBlob(imageName, configDigest, "application/vnd.oci.image.config.v1+json", configData)
+	reg.PutBlob(scope, imageName, configDigest, "application/vnd.oci.image.config.v1+json", configData)
 
 	type descriptor struct {
 		MediaType string `json:"mediaType"`
@@ -1331,7 +1355,7 @@ func hydrateOCIImageFromLocalDocker(reg *sim.OCIRegistry, dockerImages sim.Store
 			return fmt.Errorf("docker save layer %q missing", layerPath)
 		}
 		layerDigest := digestBytes(layerData)
-		reg.PutBlob(imageName, layerDigest, "application/vnd.oci.image.layer.v1.tar", layerData)
+		reg.PutBlob(scope, imageName, layerDigest, "application/vnd.oci.image.layer.v1.tar", layerData)
 		layerDescriptors = append(layerDescriptors, descriptor{
 			MediaType: "application/vnd.oci.image.layer.v1.tar",
 			Size:      int64(len(layerData)),
@@ -1353,7 +1377,7 @@ func hydrateOCIImageFromLocalDocker(reg *sim.OCIRegistry, dockerImages sim.Store
 	if err != nil {
 		return fmt.Errorf("encode OCI manifest: %w", err)
 	}
-	reg.PutManifest(imageName, reference, "application/vnd.oci.image.manifest.v1+json", ociManifest)
+	reg.PutManifest(scope, imageName, reference, "application/vnd.oci.image.manifest.v1+json", ociManifest)
 	registerDockerImageFromManifest(dockerImages, imageName, reference, "application/vnd.oci.image.manifest.v1+json", ociManifest)
 	return nil
 }

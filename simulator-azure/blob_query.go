@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Query Blob Contents (`POST ?comp=query`). The operation runs a SQL-shaped

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure Storage Files / Queues / Tables data planes.
@@ -372,7 +372,7 @@ func handleFilesShareACL(w http.ResponseWriter, r *http.Request, account, share 
 		w.Header().Set("ETag", data.ETag)
 		w.Header().Set("Last-Modified", data.Created)
 		if err := xml.NewEncoder(w).Encode(TableSignedIdentifiers{Items: data.ACLs}); err != nil {
-			sim.AzureError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		}
 	case http.MethodPut:
 		if !filesRequireLease(w, r, account, share, "", "share") {
@@ -1647,7 +1647,7 @@ func handleTableACL(w http.ResponseWriter, r *http.Request, account, table strin
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/xml")
 		if err := xml.NewEncoder(w).Encode(TableSignedIdentifiers{Items: t.ACLs}); err != nil {
-			sim.AzureError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		}
 	case http.MethodPut:
 		var body TableSignedIdentifiers

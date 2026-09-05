@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EC2 Launch Templates. A launch template is a versioned,
@@ -129,7 +129,7 @@ type EC2LTPlacement struct {
 
 var ec2LaunchTemplates sim.Store[EC2LaunchTemplate]
 
-func registerEC2LaunchTemplates(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2LaunchTemplates(r *AWSQueryRouter, srv *sim.Server) {
 	ec2LaunchTemplates = sim.MakeStore[EC2LaunchTemplate](srv.DB(), "ec2_launch_templates")
 	r.Register("CreateLaunchTemplate", handleCreateLaunchTemplate)
 	r.Register("DescribeLaunchTemplates", handleDescribeLaunchTemplates)

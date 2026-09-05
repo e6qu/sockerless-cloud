@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS service deployments + service revisions — the newer rollout-tracking
@@ -55,7 +55,7 @@ var (
 	ecsServiceRevisions   sim.Store[ECSServiceRevisionRec]
 )
 
-func registerECSServiceDeployments(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSServiceDeployments(r *AWSRouter, srv *sim.Server) {
 	ecsServiceDeployments = sim.MakeStore[ECSServiceDeploymentRec](srv.DB(), "ecs_service_deployments")
 	ecsServiceRevisions = sim.MakeStore[ECSServiceRevisionRec](srv.DB(), "ecs_service_revisions")
 
@@ -137,7 +137,7 @@ func handleECSDescribeServiceDeployments(w http.ResponseWriter, r *http.Request)
 		ServiceDeploymentArns []string `json:"serviceDeploymentArns"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var found []map[string]any
@@ -213,16 +213,16 @@ func handleECSListServiceDeployments(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Service == "" {
-		sim.AWSError(w, "InvalidParameterException", "service is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "service is required", http.StatusBadRequest)
 		return
 	}
 	_, svc, ok := ecsResolveService(req.Cluster, req.Service)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
 			"The service %s does not exist.", req.Service)
 		return
 	}
@@ -263,7 +263,7 @@ func handleECSDescribeServiceRevisions(w http.ResponseWriter, r *http.Request) {
 		ServiceRevisionArns []string `json:"serviceRevisionArns"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var found []ECSServiceRevisionRec
@@ -288,12 +288,12 @@ func handleECSStopServiceDeployment(w http.ResponseWriter, r *http.Request) {
 		StopType             string `json:"stopType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	dep, ok := ecsServiceDeployments.Get(req.ServiceDeploymentArn)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceDeploymentNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceDeploymentNotFoundException", http.StatusBadRequest,
 			"The service deployment %s does not exist.", req.ServiceDeploymentArn)
 		return
 	}
@@ -314,12 +314,12 @@ func handleECSContinueServiceDeployment(w http.ResponseWriter, r *http.Request) 
 		Action               string `json:"action"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	dep, ok := ecsServiceDeployments.Get(req.ServiceDeploymentArn)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceDeploymentNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceDeploymentNotFoundException", http.StatusBadRequest,
 			"The service deployment %s does not exist.", req.ServiceDeploymentArn)
 		return
 	}
@@ -329,7 +329,7 @@ func handleECSContinueServiceDeployment(w http.ResponseWriter, r *http.Request) 
 	// which would be guessing.
 	code, message, ok := ecsContinueDeploymentHook(&dep, req.HookId, req.Action)
 	if !ok {
-		sim.AWSError(w, code, message, http.StatusBadRequest)
+		AWSError(w, code, message, http.StatusBadRequest)
 		return
 	}
 	if req.Action == "ROLLBACK" {
@@ -354,11 +354,11 @@ func handleECSListServicesByNamespace(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Namespace == "" {
-		sim.AWSError(w, "InvalidParameterException", "namespace is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "namespace is required", http.StatusBadRequest)
 		return
 	}
 	seen := map[string]bool{}

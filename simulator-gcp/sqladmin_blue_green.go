@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud SQL blue-green deployment: a green copy of a running instance that
@@ -86,29 +86,29 @@ func handleSQLCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 	project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 	var body SQLBlueGreenDeployment
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	id := r.URL.Query().Get("blueGreenDeploymentId")
 	if id == "" {
-		sim.GCPError(w, http.StatusBadRequest, "blueGreenDeploymentId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "blueGreenDeploymentId is required", "INVALID_ARGUMENT")
 		return
 	}
 	if body.SourceInstance == "" {
-		sim.GCPError(w, http.StatusBadRequest, "sourceInstance is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "sourceInstance is required", "INVALID_ARGUMENT")
 		return
 	}
 	// The source is named by instance id; Cloud SQL rejects a deployment whose
 	// source does not exist rather than provisioning an empty green.
 	source, ok := sqlInstances.Get(sqlInstanceKey(project, sqlBlueGreenSourceID(body.SourceInstance)))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"Cloud SQL instance %q not found", body.SourceInstance)
 		return
 	}
 	key := sqlBlueGreenKey(project, location, id)
 	if _, exists := sqlBlueGreenDeployments.Get(key); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 			"blue-green deployment %q already exists", id)
 		return
 	}
@@ -158,7 +158,7 @@ func handleSQLGetBlueGreenDeployment(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "deployment")
 	deployment, ok := sqlBlueGreenDeployments.Get(sqlBlueGreenKey(project, location, id))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "blue-green deployment %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "blue-green deployment %q not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, deployment)
@@ -182,7 +182,7 @@ func handleSQLDeleteBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 	key := sqlBlueGreenKey(project, location, id)
 	deployment, ok := sqlBlueGreenDeployments.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "blue-green deployment %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "blue-green deployment %q not found", id)
 		return
 	}
 	// deleteOldSource retires the instance the switchover replaced; without it
@@ -203,22 +203,22 @@ func handleSQLBlueGreenDeploymentAction(w http.ResponseWriter, r *http.Request) 
 	project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 	id, action, found := strings.Cut(sim.PathParam(r, "deploymentAction"), ":")
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "method not found")
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "method not found")
 		return
 	}
 	if action != "switchover" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"unknown blue-green deployment action %q", action)
 		return
 	}
 	key := sqlBlueGreenKey(project, location, id)
 	deployment, ok := sqlBlueGreenDeployments.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "blue-green deployment %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "blue-green deployment %q not found", id)
 		return
 	}
 	if deployment.State != "SWITCHOVER_READY" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 			"blue-green deployment %q is %s, not SWITCHOVER_READY", id, deployment.State)
 		return
 	}
@@ -231,7 +231,7 @@ func handleSQLBlueGreenDeploymentAction(w http.ResponseWriter, r *http.Request) 
 	green, greenOK := sqlInstances.Get(sqlInstanceKey(project, greenID))
 	source, sourceOK := sqlInstances.Get(sqlInstanceKey(project, sourceID))
 	if !greenOK || !sourceOK {
-		sim.GCPErrorf(w, http.StatusFailedDependency, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusFailedDependency, "FAILED_PRECONDITION",
 			"blue-green deployment %q has no instance pair to switch over", id)
 		return
 	}

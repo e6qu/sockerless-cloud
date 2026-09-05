@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements the EC2 AMI / image-management family on top of the
@@ -145,7 +145,7 @@ var (
 // emits for MillisecondDateTime members (e.g. 2024-01-01T00:00:00.000Z).
 func ec2NowMillisXML() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
 
-func registerEC2ImageMgmt(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2ImageMgmt(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ImageWatermarks = sim.MakeStore[EC2ImageWatermark](srv.DB(), "ec2_image_watermarks")
 	ec2ImageUsageReports = sim.MakeStore[EC2ImageUsageReport](srv.DB(), "ec2_image_usage_reports")
 	ec2ExportImageTasks = sim.MakeStore[EC2ExportImageTask](srv.DB(), "ec2_export_image_tasks")

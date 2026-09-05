@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -85,10 +85,10 @@ var (
 	sfnExecutions    sim.Store[SFNExecution]
 	sfnCancels       sync.Map
 	sfnMu            sync.Mutex
-	sfnAWSRouter     *sim.AWSRouter
+	sfnAWSRouter     *AWSRouter
 )
 
-func registerStepFunctions(r *sim.AWSRouter, srv *sim.Server) {
+func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	sfnAWSRouter = r
 	sfnAWSServer = srv
 	sfnStateMachines = sim.MakeStore[SFNStateMachine](srv.DB(), "sfn_state_machines")

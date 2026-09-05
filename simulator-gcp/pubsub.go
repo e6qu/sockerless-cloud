@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Pub/Sub v1 — REST surface scoped to topic + subscription
@@ -213,7 +213,7 @@ func handlePSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		Labels       map[string]string `json:"labels,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
 		return
 	}
 	// Real Pub/Sub validates the subscription exists; sim defers
@@ -258,7 +258,7 @@ func handlePSGetSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	s, ok := psSnapshots.Get(psSnapshotKey(project, snap))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"snapshot %q not found", snap)
 		return
 	}
@@ -280,7 +280,7 @@ func handlePSDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	snap := sim.PathParam(r, "snap")
 	if !psSnapshots.Delete(psSnapshotKey(project, snap)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"snapshot %q not found", snap)
 		return
 	}

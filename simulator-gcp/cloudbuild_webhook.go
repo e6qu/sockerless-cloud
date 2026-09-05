@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Cloud Build webhook receivers. A delivery arrives from a source host,
@@ -252,18 +252,18 @@ func cbTriggerProject(trigger BuildTrigger) string {
 func cbHandleSharedWebhook(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("webhookKey")
 	if !cbWebhookKeyOwner(key) {
-		sim.GCPErrorf(w, http.StatusUnauthorized, "UNAUTHENTICATED",
+		GCPErrorf(w, http.StatusUnauthorized, "UNAUTHENTICATED",
 			"the webhookKey does not belong to a configured source host")
 		return
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "could not read the delivery: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "could not read the delivery: %v", err)
 		return
 	}
 	delivery, ok := cbReadWebhookDelivery(body)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"the delivery names no repository, so it is for no trigger")
 		return
 	}

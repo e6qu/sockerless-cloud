@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Private endpoint connections on a Cosmos DB account
@@ -51,7 +51,7 @@ func cosmosPECAccountID(r *http.Request) string {
 
 func handleCosmosListPECs(w http.ResponseWriter, r *http.Request) {
 	if _, ok := cosmosAccounts.Get(cosmosPECAccountID(r)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", cosmosPECAccountID(r))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", cosmosPECAccountID(r))
 		return
 	}
 	prefix := r.URL.Path + "/"
@@ -68,7 +68,7 @@ func handleCosmosListPECs(w http.ResponseWriter, r *http.Request) {
 func handleCosmosGetPEC(w http.ResponseWriter, r *http.Request) {
 	pec, ok := cosmosPECs.Get(r.URL.Path)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found: %s", r.URL.Path)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found: %s", r.URL.Path)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, pec)
@@ -76,12 +76,12 @@ func handleCosmosGetPEC(w http.ResponseWriter, r *http.Request) {
 
 func handleCosmosPutPEC(w http.ResponseWriter, r *http.Request) {
 	if _, ok := cosmosAccounts.Get(cosmosPECAccountID(r)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", cosmosPECAccountID(r))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", cosmosPECAccountID(r))
 		return
 	}
 	var req CosmosPrivateEndpointConnection
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid private endpoint connection body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid private endpoint connection body: %v", err)
 		return
 	}
 	id := r.URL.Path
@@ -112,7 +112,7 @@ func handleCosmosPutPEC(w http.ResponseWriter, r *http.Request) {
 
 func handleCosmosDeletePEC(w http.ResponseWriter, r *http.Request) {
 	if !cosmosPECs.Delete(r.URL.Path) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found: %s", r.URL.Path)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found: %s", r.URL.Path)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

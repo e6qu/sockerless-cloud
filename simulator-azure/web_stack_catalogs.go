@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // App Service's runtime-stack catalogs.

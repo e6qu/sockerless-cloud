@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // IAM list ops + tag reads.
@@ -24,7 +22,7 @@ type IAMTag struct {
 
 const iamXmlns = `xmlns="https://iam.amazonaws.com/doc/2010-05-08/"`
 
-func registerIAMLists(r *sim.AWSQueryRouter) {
+func registerIAMLists(r *AWSQueryRouter) {
 	r.Register("ListPolicyVersions", handleIAMListPolicyVersions)
 	r.Register("ListRoles", handleIAMListRoles)
 	r.Register("ListRoleTags", handleIAMListRoleTags)

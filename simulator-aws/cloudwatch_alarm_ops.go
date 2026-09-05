@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -170,7 +170,7 @@ func cwAlarmHistoryFor(name, itemType, scanBy string) []CWAlarmHistoryItem {
 
 // ── awsJson1.0 surface ──────────────────────────────────────────────────────
 
-func registerCloudWatchAlarmOpsJSON(r *sim.AWSRouter) {
+func registerCloudWatchAlarmOpsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.EnableAlarmActions", handleCWJSONEnableAlarmActions)
 	r.Register("GraniteServiceVersion20100801.DisableAlarmActions", handleCWJSONDisableAlarmActions)
 	r.Register("GraniteServiceVersion20100801.SetAlarmState", handleCWJSONSetAlarmState)
@@ -184,7 +184,7 @@ func handleCWJSONEnableAlarmActions(w http.ResponseWriter, r *http.Request) {
 		AlarmNames []string `json:"AlarmNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	cwSetAlarmActionsEnabled(req.AlarmNames, true)
@@ -196,7 +196,7 @@ func handleCWJSONDisableAlarmActions(w http.ResponseWriter, r *http.Request) {
 		AlarmNames []string `json:"AlarmNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	cwSetAlarmActionsEnabled(req.AlarmNames, false)
@@ -211,15 +211,15 @@ func handleCWJSONSetAlarmState(w http.ResponseWriter, r *http.Request) {
 		StateReasonData string `json:"StateReasonData"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AlarmName == "" || req.StateValue == "" || req.StateReason == "" {
-		sim.AWSError(w, "MissingParameter", "AlarmName, StateValue and StateReason are required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "AlarmName, StateValue and StateReason are required.", http.StatusBadRequest)
 		return
 	}
 	if !cwSetAlarmState(req.AlarmName, req.StateValue, req.StateReason, req.StateReasonData) {
-		sim.AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", req.AlarmName)
+		AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", req.AlarmName)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -232,7 +232,7 @@ func handleCWJSONDescribeAlarmHistory(w http.ResponseWriter, r *http.Request) {
 		ScanBy          string `json:"ScanBy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	items := cwAlarmHistoryFor(req.AlarmName, req.HistoryItemType, req.ScanBy)
@@ -257,11 +257,11 @@ func handleCWJSONDescribeAlarmsForMetric(w http.ResponseWriter, r *http.Request)
 		Dimensions []CWDimension `json:"Dimensions"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Namespace == "" || req.MetricName == "" {
-		sim.AWSError(w, "MissingParameter", "Namespace and MetricName are required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "Namespace and MetricName are required.", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UTC()
@@ -284,15 +284,15 @@ func handleCWJSONPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 		Tags                    []cwTagKV `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AlarmName == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter AlarmName is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter AlarmName is required.", http.StatusBadRequest)
 		return
 	}
 	if req.AlarmRule == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter AlarmRule is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter AlarmRule is required.", http.StatusBadRequest)
 		return
 	}
 	cwPutCompositeAlarm(req.AlarmName, req.AlarmRule, req.AlarmDescription, req.ActionsEnabled,
@@ -599,7 +599,7 @@ func handleCWCBORPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 
 // ── query surface (older aws CLI) ───────────────────────────────────────────
 
-func registerCloudWatchAlarmOpsQuery(r *sim.AWSQueryRouter) {
+func registerCloudWatchAlarmOpsQuery(r *AWSQueryRouter) {
 	r.Register("EnableAlarmActions", handleCWQueryEnableAlarmActions)
 	r.Register("DisableAlarmActions", handleCWQueryDisableAlarmActions)
 	r.Register("SetAlarmState", handleCWQuerySetAlarmState)

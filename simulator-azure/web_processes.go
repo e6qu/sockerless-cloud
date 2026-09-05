@@ -14,7 +14,7 @@ import (
 	mobycontainer "github.com/moby/moby/api/types/container"
 	mobyclient "github.com/moby/moby/client"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // App Service instances and processes, read from the site's live workload
@@ -421,7 +421,7 @@ func webInstanceDoc(base, instanceID string, running bool, containers map[string
 // operation cannot answer without the engine, and answering with an empty
 // collection would claim the site has no processes when the truth is unknown.
 func webEngineFailure(w http.ResponseWriter, err error) {
-	sim.AzureError(w, "InternalServerError",
+	AzureError(w, "InternalServerError",
 		"Could not read the site instance from the container engine: "+err.Error(),
 		http.StatusInternalServerError)
 }
@@ -524,7 +524,7 @@ func webResolveInstance(w http.ResponseWriter, r *http.Request) (string, bool, b
 }
 
 func webInstanceNotFound(w http.ResponseWriter, r *http.Request) {
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource 'Microsoft.Web/sites/%s/instances/%s' was not found.",
 		sim.PathParam(r, "siteName"), sim.PathParam(r, "instanceId"))
 }
@@ -583,7 +583,7 @@ func webGetProcess(w http.ResponseWriter, r *http.Request) {
 	}
 	pid, err := strconv.Atoi(sim.PathParam(r, "processId"))
 	if err != nil {
-		sim.AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
 		return
 	}
 	for _, proc := range procs {
@@ -608,7 +608,7 @@ func webListProcessThreads(w http.ResponseWriter, r *http.Request) {
 	}
 	pid, err := strconv.Atoi(sim.PathParam(r, "processId"))
 	if err != nil {
-		sim.AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
 		return
 	}
 	found := false
@@ -641,7 +641,7 @@ func webListProcessThreads(w http.ResponseWriter, r *http.Request) {
 }
 
 func webProcessNotFound(w http.ResponseWriter, r *http.Request, pid int) {
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource 'Microsoft.Web/sites/%s/processes/%d' was not found.",
 		sim.PathParam(r, "siteName"), pid)
 }
@@ -660,7 +660,7 @@ func webDeleteProcess(w http.ResponseWriter, r *http.Request) {
 	}
 	pid, err := strconv.Atoi(sim.PathParam(r, "processId"))
 	if err != nil {
-		sim.AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
 		return
 	}
 	found := false
@@ -745,7 +745,7 @@ func webGetProcessModule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sim.AzureError(w, "NotFound",
+	AzureError(w, "NotFound",
 		fmt.Sprintf("No module is mapped at %q in this process.", wanted), http.StatusNotFound)
 }
 
@@ -761,7 +761,7 @@ func webResolveProcess(w http.ResponseWriter, r *http.Request) (webProcess, stri
 	}
 	pid, err := strconv.Atoi(sim.PathParam(r, "processId"))
 	if err != nil {
-		sim.AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
 		return webProcess{}, "", false
 	}
 	for _, proc := range procs {
@@ -804,7 +804,7 @@ func webProcessModuleDocs(base, instanceID string, proc webProcess, modules []we
 // where it does not — the engine in a virtual machine, which is every macOS
 // host — there is no mapping table to read and no honest answer but this one.
 func webProcessModulesUnreadable(w http.ResponseWriter, operation string) {
-	sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+	AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 		"%s is not implemented by the simulator: a process's loaded modules and "+
 			"their base addresses are read from its own /proc/<pid>/maps, and this "+
 			"host does not share a kernel with the container engine, so the site's "+

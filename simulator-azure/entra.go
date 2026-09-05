@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EntraUser is a Microsoft Entra directory user, provisioned via the standard
@@ -375,7 +375,7 @@ func entraGroupDoc(r *http.Request, grp EntraGraphGroup) map[string]any {
 func handleGraphCreateGroup(w http.ResponseWriter, r *http.Request) {
 	body, err := graphDecodeBody(r)
 	if err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	var req struct {
@@ -386,11 +386,11 @@ func handleGraphCreateGroup(w http.ResponseWriter, r *http.Request) {
 		MailEnabled     bool   `json:"mailEnabled"`
 	}
 	if err := graphDecodeProps(body.Props, &req); err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DisplayName == "" {
-		sim.AzureError(w, "Request_BadRequest", "displayName is required", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "displayName is required", http.StatusBadRequest)
 		return
 	}
 	grp := EntraGraphGroup{
@@ -456,7 +456,7 @@ func handleGraphUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	groupID := sim.PathParam(r, "groupId")
 	body, err := graphDecodeBody(r)
 	if err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	updated := entraGraphGroupStore.Update(groupID, func(g *EntraGraphGroup) {
@@ -513,12 +513,12 @@ func handleGraphAddGroupMemberRef(w http.ResponseWriter, r *http.Request) {
 		ODataID string `json:"@odata.id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	memberID := graphRefObjectID(req.ODataID)
 	if memberID == "" {
-		sim.AzureError(w, "Request_BadRequest", "@odata.id is required", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "@odata.id is required", http.StatusBadRequest)
 		return
 	}
 	entraAddGroupMember(groupID, memberID)
@@ -631,7 +631,7 @@ func entraUserDoc(r *http.Request, u EntraUser) map[string]any {
 func handleGraphCreateUser(w http.ResponseWriter, r *http.Request) {
 	body, err := graphDecodeBody(r)
 	if err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	var req struct {
@@ -640,15 +640,15 @@ func handleGraphCreateUser(w http.ResponseWriter, r *http.Request) {
 		Mail              string `json:"mail,omitempty"`
 	}
 	if err := graphDecodeProps(body.Props, &req); err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DisplayName == "" || req.UserPrincipalName == "" {
-		sim.AzureError(w, "Request_BadRequest", "displayName and userPrincipalName are required", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "displayName and userPrincipalName are required", http.StatusBadRequest)
 		return
 	}
 	if _, exists := findEntraUserByUPN(req.UserPrincipalName); exists {
-		sim.AzureError(w, "Request_BadRequest", fmt.Sprintf("Another object with the same value for property userPrincipalName already exists: %s", req.UserPrincipalName), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", fmt.Sprintf("Another object with the same value for property userPrincipalName already exists: %s", req.UserPrincipalName), http.StatusBadRequest)
 		return
 	}
 	oid := newGraphID()
@@ -697,7 +697,7 @@ func handleGraphUpdateUser(w http.ResponseWriter, r *http.Request) {
 	userID := sim.PathParam(r, "userId")
 	body, err := graphDecodeBody(r)
 	if err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	updated := entraUsersStore.Update(userID, func(u *EntraUser) {
@@ -787,7 +787,7 @@ func entraApplicationDoc(r *http.Request, a EntraApplication) map[string]any {
 func handleGraphCreateApplication(w http.ResponseWriter, r *http.Request) {
 	body, err := graphDecodeBody(r)
 	if err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	var req struct {
@@ -795,11 +795,11 @@ func handleGraphCreateApplication(w http.ResponseWriter, r *http.Request) {
 		SignInAudience string `json:"signInAudience"`
 	}
 	if err := graphDecodeProps(body.Props, &req); err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DisplayName == "" {
-		sim.AzureError(w, "Request_BadRequest", "displayName is required", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "displayName is required", http.StatusBadRequest)
 		return
 	}
 	for _, ownerID := range body.Binds["owners"] {
@@ -850,7 +850,7 @@ func handleGraphUpdateApplication(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "appObjectId")
 	body, err := graphDecodeBody(r)
 	if err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	updated := entraApplicationStore.Update(id, func(a *EntraApplication) {
@@ -907,7 +907,7 @@ func handleGraphApplicationRemovePassword(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !removed {
-		sim.AzureError(w, "Request_ResourceNotFound",
+		AzureError(w, "Request_ResourceNotFound",
 			fmt.Sprintf("No password credential found with keyId %s", keyID), http.StatusNotFound)
 		return
 	}
@@ -971,7 +971,7 @@ func entraServicePrincipalDoc(r *http.Request, sp EntraServicePrincipal) map[str
 func handleGraphCreateServicePrincipal(w http.ResponseWriter, r *http.Request) {
 	body, err := graphDecodeBody(r)
 	if err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	var req struct {
@@ -979,11 +979,11 @@ func handleGraphCreateServicePrincipal(w http.ResponseWriter, r *http.Request) {
 		DisplayName string `json:"displayName"`
 	}
 	if err := graphDecodeProps(body.Props, &req); err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.AppID == "" {
-		sim.AzureError(w, "Request_BadRequest", "appId is required", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "appId is required", http.StatusBadRequest)
 		return
 	}
 	// Graph refuses a service principal whose appId names no application in
@@ -991,7 +991,7 @@ func handleGraphCreateServicePrincipal(w http.ResponseWriter, r *http.Request) {
 	// message while the application replicates.
 	app, ok := entraFindApplicationByAppID(req.AppID)
 	if !ok {
-		sim.AzureError(w, "Request_BadRequest",
+		AzureError(w, "Request_BadRequest",
 			fmt.Sprintf("The appId '%s' of the service principal does not reference a valid application object.", req.AppID),
 			http.StatusBadRequest)
 		return
@@ -1049,7 +1049,7 @@ func handleGraphUpdateServicePrincipal(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "spId")
 	body, err := graphDecodeBody(r)
 	if err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	updated := entraServicePrincipalStore.Update(id, func(sp *EntraServicePrincipal) {
@@ -1107,7 +1107,7 @@ func handleGraphServicePrincipalRemovePassword(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if !removed {
-		sim.AzureError(w, "Request_ResourceNotFound",
+		AzureError(w, "Request_ResourceNotFound",
 			fmt.Sprintf("No password credential found with keyId %s", keyID), http.StatusNotFound)
 		return
 	}
@@ -1177,7 +1177,7 @@ func entraParseAddPassword(w http.ResponseWriter, r *http.Request) (EntraPasswor
 		} `json:"passwordCredential"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		sim.AzureError(w, "Request_BadRequest", "invalid request body", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "invalid request body", http.StatusBadRequest)
 		return EntraPasswordCredential{}, false
 	}
 	now := time.Now().UTC()
@@ -1210,7 +1210,7 @@ func entraParseRemovePassword(w http.ResponseWriter, r *http.Request) (string, b
 		KeyID string `json:"keyId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.KeyID == "" {
-		sim.AzureError(w, "Request_BadRequest", "keyId is required", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "keyId is required", http.StatusBadRequest)
 		return "", false
 	}
 	return req.KeyID, true
@@ -1353,7 +1353,7 @@ func handleGraphMemberOf(w http.ResponseWriter, r *http.Request) {
 	// is no anonymous /me.
 	oid, ok := parseOIDFromBearer(r)
 	if !ok {
-		sim.AzureError(w, "InvalidAuthenticationToken",
+		AzureError(w, "InvalidAuthenticationToken",
 			"Access token is empty or carries no oid claim.", http.StatusUnauthorized)
 		return
 	}

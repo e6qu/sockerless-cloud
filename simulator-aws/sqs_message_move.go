@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SQS dead-letter-queue redrive surface: ListDeadLetterSourceQueues plus the
@@ -42,7 +42,7 @@ type SQSMessageMoveTask struct {
 
 var sqsMoveTasks sim.Store[SQSMessageMoveTask]
 
-func registerSQSMessageMove(r *sim.AWSRouter, srv *sim.Server) {
+func registerSQSMessageMove(r *AWSRouter, srv *sim.Server) {
 	sqsMoveTasks = sim.MakeStore[SQSMessageMoveTask](srv.DB(), "sqs_move_tasks")
 
 	for target, h := range map[string]http.HandlerFunc{

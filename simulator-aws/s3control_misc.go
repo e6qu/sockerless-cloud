@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The rest of the S3 control plane: an access point's scope, and the buckets
@@ -87,7 +87,7 @@ func handleS3GetAccessPointScope(w http.ResponseWriter, r *http.Request) {
 	if ap.Scope != nil {
 		scope = *ap.Scope
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name           `xml:"GetAccessPointScopeResult"`
 		Scope   s3AccessPointScope `xml:"Scope"`
 	}{Scope: scope})
@@ -128,7 +128,7 @@ func handleS3ListRegionalBuckets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Bucket < items[j].Bucket })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"ListRegionalBucketsResult"`
 		Buckets []entry  `xml:"RegionalBucketList>RegionalBucket"`
 	}{Buckets: items})
@@ -182,7 +182,7 @@ func handleS3ListAccessPointsForDirectoryBuckets(w http.ResponseWriter, r *http.
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName      xml.Name `xml:"ListAccessPointsForDirectoryBucketsResult"`
 		AccessPoints []entry  `xml:"AccessPointList>AccessPoint"`
 	}{AccessPoints: items})

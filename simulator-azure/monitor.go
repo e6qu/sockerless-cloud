@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // logMu protects the read-modify-write cycle on monitorLogs entries.
@@ -193,12 +193,12 @@ func registerAzureMonitor(srv *sim.Server) {
 
 		var req Workspace
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if req.Location == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 
@@ -255,7 +255,7 @@ func registerAzureMonitor(srv *sim.Server) {
 
 		ws, ok := workspaces.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.OperationalInsights/workspaces/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -263,7 +263,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		// Apply partial update from request body
 		var patch Workspace
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if patch.Tags != nil {
@@ -294,7 +294,7 @@ func registerAzureMonitor(srv *sim.Server) {
 
 		ws, ok := workspaces.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.OperationalInsights/workspaces/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -311,7 +311,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name)
 
 		if _, ok := workspaces.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.OperationalInsights/workspaces/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -373,11 +373,11 @@ func registerAzureMonitor(srv *sim.Server) {
 		workspaceID := sim.PathParam(r, "workspaceId")
 		var req QueryRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Query == "" {
-			sim.AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
+			AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, runKQLQuery(workspaceID, req.Query))
@@ -386,7 +386,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		workspaceID := sim.PathParam(r, "workspaceId")
 		query := r.URL.Query().Get("query")
 		if query == "" {
-			sim.AzureError(w, "BadArgumentError", "The 'query' parameter is required.", http.StatusBadRequest)
+			AzureError(w, "BadArgumentError", "The 'query' parameter is required.", http.StatusBadRequest)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, runKQLQuery(workspaceID, query))
@@ -440,7 +440,7 @@ func registerAzureMonitor(srv *sim.Server) {
 			} `json:"requests"`
 		}
 		if err := sim.ReadJSON(r, &batch); err != nil {
-			sim.AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		responses := make([]map[string]any, 0, len(batch.Requests))
@@ -458,7 +458,7 @@ func registerAzureMonitor(srv *sim.Server) {
 	srv.HandleFunc("POST /dataCollectionRules/{dcrId}/streams/{streamName}", func(w http.ResponseWriter, r *http.Request) {
 		var entries []LogEntry
 		if err := sim.ReadJSON(r, &entries); err != nil {
-			sim.AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "BadArgumentError", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 

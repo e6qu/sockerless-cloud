@@ -19,7 +19,7 @@ import (
 	"strings"
 	"sync"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // dnsChangeMu serializes the Changes.create critical section. Real Cloud DNS
@@ -207,16 +207,16 @@ func registerCloudDNS(srv *sim.Server) {
 	srv.HandleFunc("POST /dns/v1/projects/{project}/managedZones", func(w http.ResponseWriter, r *http.Request) {
 		var zone ManagedZone
 		if err := sim.ReadJSON(r, &zone); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
 		if zone.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		if zone.DNSName == "" {
-			sim.GCPError(w, http.StatusBadRequest, "dnsName is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "dnsName is required", "INVALID_ARGUMENT")
 			return
 		}
 
@@ -224,7 +224,7 @@ func registerCloudDNS(srv *sim.Server) {
 		key := project + "/" + zone.Name
 
 		if _, exists := zones.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "managed zone %q already exists", zone.Name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "managed zone %q already exists", zone.Name)
 			return
 		}
 
@@ -290,7 +290,7 @@ func registerCloudDNS(srv *sim.Server) {
 
 		zone, ok := zones.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, zone.ManagedZone)
@@ -304,7 +304,7 @@ func registerCloudDNS(srv *sim.Server) {
 
 		zone, ok := zones.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		zones.Delete(key)
@@ -336,7 +336,7 @@ func registerCloudDNS(srv *sim.Server) {
 		zoneKey := project + "/" + zoneName
 
 		if _, ok := zones.Get(zoneKey); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 
@@ -390,24 +390,24 @@ func registerCloudDNS(srv *sim.Server) {
 
 		zone, ok := zones.Get(zoneKey)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 
 		var rs ResourceRecordSet
 		if err := sim.ReadJSON(r, &rs); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
 		if rs.Name == "" || rs.Type == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name and type are required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name and type are required", "INVALID_ARGUMENT")
 			return
 		}
 
 		key := dnsRecordSetKey(project, zoneName, rs.Name, rs.Type)
 		if _, exists := recordSets.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "record set %s/%s already exists", rs.Name, rs.Type)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "record set %s/%s already exists", rs.Name, rs.Type)
 			return
 		}
 
@@ -435,12 +435,12 @@ func registerCloudDNS(srv *sim.Server) {
 		rrName := sim.PathParam(r, "name")
 		rrType := sim.PathParam(r, "type")
 		if _, ok := zones.Get(project + "/" + zoneName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		stored, ok := recordSets.Get(dnsRecordSetKey(project, zoneName, rrName, rrType))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", rrName, rrType)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", rrName, rrType)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, stored.Record)
@@ -456,7 +456,7 @@ func registerCloudDNS(srv *sim.Server) {
 
 		stored, rsOk := recordSets.Get(key)
 		if !recordSets.Delete(key) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", rrName, rrType)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", rrName, rrType)
 			return
 		}
 
@@ -481,19 +481,19 @@ func registerCloudDNS(srv *sim.Server) {
 		rrType := sim.PathParam(r, "type")
 		zoneKey := project + "/" + zoneName
 		if _, ok := zones.Get(zoneKey); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 
 		var patch ResourceRecordSet
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		key := dnsRecordSetKey(project, zoneName, rrName, rrType)
 		stored, ok := recordSets.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", rrName, rrType)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", rrName, rrType)
 			return
 		}
 		updated := stored.Record
@@ -523,20 +523,20 @@ func registerCloudDNS(srv *sim.Server) {
 		zoneKey := project + "/" + zoneName
 		zone, ok := zones.Get(zoneKey)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 
 		var change DNSChange
 		if err := sim.ReadJSON(r, &change); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		for _, deletion := range change.Deletions {
 			key := dnsRecordSetKey(project, zoneName, deletion.Name, deletion.Type)
 			stored, ok := recordSets.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", deletion.Name, deletion.Type)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", deletion.Name, deletion.Type)
 				return
 			}
 			if !dnsRecordSetsEqual(stored.Record, deletion) {
@@ -547,12 +547,12 @@ func registerCloudDNS(srv *sim.Server) {
 		}
 		for _, addition := range change.Additions {
 			if addition.Name == "" || addition.Type == "" {
-				sim.GCPError(w, http.StatusBadRequest, "name and type are required", "INVALID_ARGUMENT")
+				GCPError(w, http.StatusBadRequest, "name and type are required", "INVALID_ARGUMENT")
 				return
 			}
 			if _, exists := recordSets.Get(dnsRecordSetKey(project, zoneName, addition.Name, addition.Type)); exists &&
 				!dnsChangeDeletesRecord(change, addition) {
-				sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "record set %s/%s already exists", addition.Name, addition.Type)
+				GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "record set %s/%s already exists", addition.Name, addition.Type)
 				return
 			}
 		}
@@ -583,12 +583,12 @@ func registerCloudDNS(srv *sim.Server) {
 		zoneName := sim.PathParam(r, "zone")
 		id := sim.PathParam(r, "change")
 		if _, ok := zones.Get(project + "/" + zoneName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		stored, ok := changes.Get(dnsChangeKey(project, zoneName, id))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "change %q not found", id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "change %q not found", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, stored.Change)
@@ -598,7 +598,7 @@ func registerCloudDNS(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
 		if _, ok := zones.Get(project + "/" + zoneName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		var out []DNSChange
@@ -663,7 +663,7 @@ func registerCloudDNS(srv *sim.Server) {
 		switch verb {
 		case "getIamPolicy", "setIamPolicy", "testIamPermissions":
 			if _, ok := zones.Get(project + "/" + zoneName); !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 				return
 			}
 			handleResourceIAM(w, r, gcpResourceIAMStore(), "dnsManagedZone/"+project+"/"+zoneName, verb)
@@ -678,7 +678,7 @@ func registerCloudDNS(srv *sim.Server) {
 		zoneName := sim.PathParam(r, "zone")
 		zone, ok := zones.Get(project + "/" + zoneName)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		keys := deriveDNSKeys(zone.ManagedZone)
@@ -706,7 +706,7 @@ func registerCloudDNS(srv *sim.Server) {
 		keyID := sim.PathParam(r, "dnsKeyId")
 		zone, ok := zones.Get(project + "/" + zoneName)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		for _, k := range deriveDNSKeys(zone.ManagedZone) {
@@ -715,7 +715,7 @@ func registerCloudDNS(srv *sim.Server) {
 				return
 			}
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "DNS key %q not found", keyID)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "DNS key %q not found", keyID)
 	})
 
 	// List managed-zone operations (audit log of zone mutations).
@@ -723,7 +723,7 @@ func registerCloudDNS(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
 		if _, ok := zones.Get(project + "/" + zoneName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		var stored []storedDNSOperation
@@ -760,12 +760,12 @@ func registerCloudDNS(srv *sim.Server) {
 		zoneName := sim.PathParam(r, "zone")
 		opID := sim.PathParam(r, "operation")
 		if _, ok := zones.Get(project + "/" + zoneName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
 		stored, ok := operations.Get(dnsZoneOperationKey(project, zoneName, opID))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", opID)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", opID)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, stored.Operation)
@@ -788,16 +788,16 @@ func registerCloudDNSPolicies(srv *sim.Server, policies sim.Store[storedDNSPolic
 		project := sim.PathParam(r, "project")
 		var p DNSPolicy
 		if err := sim.ReadJSON(r, &p); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if p.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		key := project + "/" + p.Name
 		if _, exists := policies.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "policy %q already exists", p.Name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "policy %q already exists", p.Name)
 			return
 		}
 		if p.ID == "" {
@@ -839,7 +839,7 @@ func registerCloudDNSPolicies(srv *sim.Server, policies sim.Store[storedDNSPolic
 		name := sim.PathParam(r, "policy")
 		sp, ok := policies.Get(project + "/" + name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, sp.Policy)
@@ -849,7 +849,7 @@ func registerCloudDNSPolicies(srv *sim.Server, policies sim.Store[storedDNSPolic
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "policy")
 		if !policies.Delete(project + "/" + name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -861,12 +861,12 @@ func registerCloudDNSPolicies(srv *sim.Server, policies sim.Store[storedDNSPolic
 		key := project + "/" + name
 		sp, ok := policies.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
 			return
 		}
 		var body DNSPolicy
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		updated := dnsApplyPolicyUpdate(sp.Policy, body, replace)
@@ -888,16 +888,16 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		project := sim.PathParam(r, "project")
 		var p DNSResponsePolicy
 		if err := sim.ReadJSON(r, &p); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if p.ResponsePolicyName == "" {
-			sim.GCPError(w, http.StatusBadRequest, "responsePolicyName is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "responsePolicyName is required", "INVALID_ARGUMENT")
 			return
 		}
 		key := project + "/" + p.ResponsePolicyName
 		if _, exists := responsePolicies.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "response policy %q already exists", p.ResponsePolicyName)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "response policy %q already exists", p.ResponsePolicyName)
 			return
 		}
 		if p.ID == "" {
@@ -936,7 +936,7 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		name := sim.PathParam(r, "responsePolicy")
 		sp, ok := responsePolicies.Get(project + "/" + name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, sp.Policy)
@@ -946,7 +946,7 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "responsePolicy")
 		if !responsePolicies.Delete(project + "/" + name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", name)
 			return
 		}
 		// Cascade-delete the policy's rules.
@@ -964,12 +964,12 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		key := project + "/" + name
 		sp, ok := responsePolicies.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", name)
 			return
 		}
 		var body DNSResponsePolicy
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		updated := dnsApplyResponsePolicyUpdate(sp.Policy, body, replace)
@@ -988,21 +988,21 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		project := sim.PathParam(r, "project")
 		rpName := sim.PathParam(r, "responsePolicy")
 		if _, ok := responsePolicies.Get(project + "/" + rpName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", rpName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", rpName)
 			return
 		}
 		var rule DNSResponsePolicyRule
 		if err := sim.ReadJSON(r, &rule); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if rule.RuleName == "" {
-			sim.GCPError(w, http.StatusBadRequest, "ruleName is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "ruleName is required", "INVALID_ARGUMENT")
 			return
 		}
 		key := dnsResponsePolicyRuleKey(project, rpName, rule.RuleName)
 		if _, exists := rules.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "rule %q already exists", rule.RuleName)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "rule %q already exists", rule.RuleName)
 			return
 		}
 		rule.Kind = "dns#responsePolicyRule"
@@ -1014,7 +1014,7 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		project := sim.PathParam(r, "project")
 		rpName := sim.PathParam(r, "responsePolicy")
 		if _, ok := responsePolicies.Get(project + "/" + rpName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", rpName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", rpName)
 			return
 		}
 		var items []DNSResponsePolicyRule
@@ -1044,7 +1044,7 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		ruleName := sim.PathParam(r, "rule")
 		sr, ok := rules.Get(dnsResponsePolicyRuleKey(project, rpName, ruleName))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", ruleName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", ruleName)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, sr.Rule)
@@ -1055,7 +1055,7 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		rpName := sim.PathParam(r, "responsePolicy")
 		ruleName := sim.PathParam(r, "rule")
 		if !rules.Delete(dnsResponsePolicyRuleKey(project, rpName, ruleName)) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", ruleName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", ruleName)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1068,12 +1068,12 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 		key := dnsResponsePolicyRuleKey(project, rpName, ruleName)
 		sr, ok := rules.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", ruleName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rule %q not found", ruleName)
 			return
 		}
 		var body DNSResponsePolicyRule
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		updated := dnsApplyRuleUpdate(sr.Rule, body, replace)
@@ -1232,12 +1232,12 @@ func dnsManagedZoneUpdate(w http.ResponseWriter, r *http.Request, zones sim.Stor
 	key := project + "/" + zoneName
 	stored, ok := zones.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 		return
 	}
 	var body ManagedZone
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	oldVal := stored.ManagedZone

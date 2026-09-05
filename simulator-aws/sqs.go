@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon Simple Queue Service (SQS) implements managed standard and FIFO
@@ -296,7 +296,7 @@ func sqsEnqueueRedrives(dlqARN string, msgs []SQSMessage) {
 	})
 }
 
-func registerSQS(r *sim.AWSRouter, srv *sim.Server) {
+func registerSQS(r *AWSRouter, srv *sim.Server) {
 	// Message-level ops are CloudTrail DATA events (excluded from LookupEvents);
 	// queue-management ops are management events.
 	cloudTrailDeclareDataEvents("sqs.amazonaws.com",
@@ -336,7 +336,7 @@ func queueNameFromURL(s string) string {
 }
 
 func sqsErrorJSON(w http.ResponseWriter, code, message string, status int) {
-	sim.AWSError(w, code, message, status)
+	AWSError(w, code, message, status)
 }
 
 func sqsQueueDoesNotExist(w http.ResponseWriter) {
@@ -519,7 +519,7 @@ func handleSQSListQueues(w http.ResponseWriter, r *http.Request) {
 		MaxResults      int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "MalformedInputException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "MalformedInputException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	all := sqsQueues.List()

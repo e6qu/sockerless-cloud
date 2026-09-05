@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // simRedisHost derives a deterministic RFC1918 address from the
@@ -263,12 +263,12 @@ func handleMSRedisClusterCreate(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	id := r.URL.Query().Get("clusterId")
 	if id == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "clusterId query parameter is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "clusterId query parameter is required")
 		return
 	}
 	var req MSRedisCluster
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", project, location, id)
@@ -304,7 +304,7 @@ func handleMSRedisClusterGet(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"))
 	c, ok := msRedisClusters.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, c)
@@ -326,12 +326,12 @@ func handleMSRedisClusterPatch(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", project, location, sim.PathParam(r, "id"))
 	if _, ok := msRedisClusters.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
 		return
 	}
 	var req MSRedisCluster
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	mask := r.URL.Query().Get("updateMask")
@@ -372,7 +372,7 @@ func handleMSRedisClusterDelete(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", project, location, sim.PathParam(r, "id"))
 	if !msRedisClusters.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
 		return
 	}
 	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
@@ -383,7 +383,7 @@ func handleMSRedisClusterAction(w http.ResponseWriter, r *http.Request) {
 	idAction := sim.PathParam(r, "idAction")
 	id, action, found := strings.Cut(idAction, ":")
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on cluster %q", idAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on cluster %q", idAction)
 		return
 	}
 	project := sim.PathParam(r, "project")
@@ -391,7 +391,7 @@ func handleMSRedisClusterAction(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", project, location, id)
 	cluster, ok := msRedisClusters.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
 		return
 	}
 	switch action {
@@ -405,7 +405,7 @@ func handleMSRedisClusterAction(w http.ResponseWriter, r *http.Request) {
 	case "addTokenAuthUser":
 		handleMSRedisAddTokenAuthUser(w, r, project, location, id)
 	default:
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on cluster %q", action, id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on cluster %q", action, id)
 	}
 }
 
@@ -415,7 +415,7 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 		BackupID string `json:"backupId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	// A manual backup materializes a BackupCollection for the cluster
@@ -458,7 +458,7 @@ func handleMSRedisClusterBackup(w http.ResponseWriter, r *http.Request, project,
 func handleMSRedisClusterGetCA(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"))
 	if _, ok := msRedisClusters.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -496,7 +496,7 @@ func handleMSRedisAddTokenAuthUser(w http.ResponseWriter, r *http.Request, proje
 		TokenAuthUser string `json:"tokenAuthUser"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	userID := req.TokenAuthUser
@@ -529,7 +529,7 @@ func handleMSRedisTokenAuthUserGet(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"), sim.PathParam(r, "tid"))
 	u, ok := msRedisTokenAuthUsers.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tokenAuthUser not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tokenAuthUser not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, u)
@@ -541,7 +541,7 @@ func handleMSRedisTokenAuthUserDelete(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/tokenAuthUsers/%s",
 		project, location, sim.PathParam(r, "id"), sim.PathParam(r, "tid"))
 	if !msRedisTokenAuthUsers.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tokenAuthUser not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tokenAuthUser not found: %s", name)
 		return
 	}
 	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
@@ -552,7 +552,7 @@ func handleMSRedisTokenAuthUserAction(w http.ResponseWriter, r *http.Request) {
 	tidAction := sim.PathParam(r, "tidAction")
 	tid, action, found := strings.Cut(tidAction, ":")
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on tokenAuthUser %q", tidAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on tokenAuthUser %q", tidAction)
 		return
 	}
 	project := sim.PathParam(r, "project")
@@ -560,18 +560,18 @@ func handleMSRedisTokenAuthUserAction(w http.ResponseWriter, r *http.Request) {
 	clusterID := sim.PathParam(r, "id")
 	userName := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/tokenAuthUsers/%s", project, location, clusterID, tid)
 	if _, ok := msRedisTokenAuthUsers.Get(userName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tokenAuthUser not found: %s", userName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tokenAuthUser not found: %s", userName)
 		return
 	}
 	if action != "addAuthToken" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on tokenAuthUser %q", action, tid)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on tokenAuthUser %q", action, tid)
 		return
 	}
 	var req struct {
 		AuthToken MSRedisAuthToken `json:"authToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	tokenID := req.AuthToken.Name
@@ -607,7 +607,7 @@ func handleMSRedisAuthTokenGet(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"), sim.PathParam(r, "tid"), sim.PathParam(r, "atid"))
 	tok, ok := msRedisAuthTokens.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authToken not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authToken not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, tok)
@@ -619,7 +619,7 @@ func handleMSRedisAuthTokenDelete(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/tokenAuthUsers/%s/authTokens/%s",
 		project, location, sim.PathParam(r, "id"), sim.PathParam(r, "tid"), sim.PathParam(r, "atid"))
 	if !msRedisAuthTokens.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authToken not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authToken not found: %s", name)
 		return
 	}
 	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
@@ -642,7 +642,7 @@ func handleMSRedisBackupCollectionGet(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "bc"))
 	bc, ok := msRedisBackupColls.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backupCollection not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backupCollection not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, bc)
@@ -665,7 +665,7 @@ func handleMSRedisBackupGet(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "bc"), sim.PathParam(r, "bid"))
 	b, ok := msRedisBackups.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, b)
@@ -677,7 +677,7 @@ func handleMSRedisBackupDelete(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/%s/backupCollections/%s/backups/%s",
 		project, location, sim.PathParam(r, "bc"), sim.PathParam(r, "bid"))
 	if !msRedisBackups.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", name)
 		return
 	}
 	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
@@ -688,7 +688,7 @@ func handleMSRedisBackupAction(w http.ResponseWriter, r *http.Request) {
 	bidAction := sim.PathParam(r, "bidAction")
 	bid, action, found := strings.Cut(bidAction, ":")
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on backup %q", bidAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on backup %q", bidAction)
 		return
 	}
 	project := sim.PathParam(r, "project")
@@ -697,18 +697,18 @@ func handleMSRedisBackupAction(w http.ResponseWriter, r *http.Request) {
 		project, location, sim.PathParam(r, "bc"), bid)
 	backup, ok := msRedisBackups.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", name)
 		return
 	}
 	if action != "export" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on backup %q", action, bid)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on backup %q", action, bid)
 		return
 	}
 	var req struct {
 		GcsBucket string `json:"gcsBucket"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	op := newLRO(project, location, backup, "type.googleapis.com/google.cloud.redis.v1.Backup")
@@ -720,12 +720,12 @@ func handleMSRedisAclPolicyCreate(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	id := r.URL.Query().Get("aclPolicyId")
 	if id == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "aclPolicyId query parameter is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "aclPolicyId query parameter is required")
 		return
 	}
 	var req MSRedisAclPolicy
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	name := fmt.Sprintf("projects/%s/locations/%s/aclPolicies/%s", project, location, id)
@@ -751,7 +751,7 @@ func handleMSRedisAclPolicyGet(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"))
 	p, ok := msRedisAclPolicies.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, p)
@@ -773,12 +773,12 @@ func handleMSRedisAclPolicyPatch(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	name := fmt.Sprintf("projects/%s/locations/%s/aclPolicies/%s", project, location, sim.PathParam(r, "id"))
 	if _, ok := msRedisAclPolicies.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", name)
 		return
 	}
 	var req MSRedisAclPolicy
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	mask := r.URL.Query().Get("updateMask")
@@ -813,7 +813,7 @@ func handleMSRedisAclPolicyDelete(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	name := fmt.Sprintf("projects/%s/locations/%s/aclPolicies/%s", project, location, sim.PathParam(r, "id"))
 	if !msRedisAclPolicies.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", name)
 		return
 	}
 	for _, revision := range msRedisAclRevisions.List() {
@@ -851,7 +851,7 @@ func handleMSRedisAclPolicyRevisionList(w http.ResponseWriter, r *http.Request) 
 	policyName := fmt.Sprintf("projects/%s/locations/%s/aclPolicies/%s",
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"))
 	if _, ok := msRedisAclPolicies.Get(policyName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", policyName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy not found: %s", policyName)
 		return
 	}
 	var revisions []MSRedisAclPolicyRevision
@@ -882,7 +882,7 @@ func handleMSRedisAclPolicyRevisionGet(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "id"), sim.PathParam(r, "revision"))
 	revision, ok := msRedisAclRevisions.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy revision not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "aclPolicy revision not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, revision)
@@ -896,7 +896,7 @@ func handleMSRedisAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"unknown action on memorystore instance %q", idAction)
 		return
 	}
@@ -912,7 +912,7 @@ func handleMSRedisAction(w http.ResponseWriter, r *http.Request) {
 	case "export":
 		handleMSRedisTransfer(w, r, id, "export")
 	default:
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"unknown action %q on memorystore instance %q", action, id)
 	}
 }
@@ -923,7 +923,7 @@ func handleMSRedisUpgrade(w http.ResponseWriter, r *http.Request, id string) {
 	key := msRedisInstanceName(project, location, id)
 	inst, ok := msRedisInstances.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"Memorystore instance %q not found", id)
 		return
 	}
@@ -931,7 +931,7 @@ func handleMSRedisUpgrade(w http.ResponseWriter, r *http.Request, id string) {
 		RedisVersion string `json:"redisVersion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.RedisVersion != "" {
@@ -954,7 +954,7 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 	key := msRedisInstanceName(project, location, id)
 	inst, ok := msRedisInstances.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"Memorystore instance %q not found", id)
 		return
 	}
@@ -982,7 +982,7 @@ func handleMSRedisTransfer(w http.ResponseWriter, r *http.Request, id, direction
 	key := msRedisInstanceName(project, location, id)
 	inst, ok := msRedisInstances.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"Memorystore instance %q not found", id)
 		return
 	}
@@ -999,7 +999,7 @@ func handleMSRedisTransfer(w http.ResponseWriter, r *http.Request, id, direction
 		} `json:"outputConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	uri := ""
@@ -1014,12 +1014,12 @@ func handleMSRedisTransfer(w http.ResponseWriter, r *http.Request, id, direction
 		}
 	}
 	if uri == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"an %s needs the Cloud Storage URI it reads from or writes to", direction)
 		return
 	}
 	if !strings.HasPrefix(uri, "gs://") {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"%q is not a Cloud Storage URI", uri)
 		return
 	}
@@ -1046,12 +1046,12 @@ func handleMSRedisCreate(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	id := r.URL.Query().Get("instanceId")
 	if id == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "instanceId query parameter is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "instanceId query parameter is required")
 		return
 	}
 	var req MSRedisInstance
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	inst := MSRedisInstance{
@@ -1091,7 +1091,7 @@ func handleMSRedisGet(w http.ResponseWriter, r *http.Request) {
 	name := msRedisInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), idVerb)
 	inst, ok := msRedisInstances.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, inst)
@@ -1116,12 +1116,12 @@ func handleMSRedisPatch(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	name := msRedisInstanceName(project, location, sim.PathParam(r, "id"))
 	if _, ok := msRedisInstances.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
 	var req MSRedisInstance
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	// Honour updateMask: only the named paths are written, so a
@@ -1159,7 +1159,7 @@ func handleMSRedisDelete(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	name := msRedisInstanceName(project, location, sim.PathParam(r, "id"))
 	if !msRedisInstances.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
 	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")
@@ -1173,7 +1173,7 @@ func handleMSRedisAuthString(w http.ResponseWriter, r *http.Request) {
 	name := msRedisInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "id"))
 	inst, ok := msRedisInstances.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
 	out := map[string]any{}
@@ -1210,7 +1210,7 @@ func handleMSRedisRescheduleMaintenance(w http.ResponseWriter, r *http.Request, 
 	key := msRedisInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), id)
 	inst, ok := msRedisInstances.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Memorystore instance %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Memorystore instance %q not found", id)
 		return
 	}
 	var req struct {
@@ -1218,21 +1218,21 @@ func handleMSRedisRescheduleMaintenance(w http.ResponseWriter, r *http.Request, 
 		ScheduleTime   string `json:"scheduleTime"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid reschedule body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid reschedule body: %v", err)
 		return
 	}
 	scheduled := req.ScheduleTime
 	switch req.RescheduleType {
 	case "SPECIFIC_TIME":
 		if scheduled == "" {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"scheduleTime is required when rescheduleType is SPECIFIC_TIME", "INVALID_ARGUMENT")
 			return
 		}
 	case "IMMEDIATE", "NEXT_AVAILABLE_WINDOW":
 		scheduled = nowTimestamp()
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"rescheduleType %q is not one of IMMEDIATE, NEXT_AVAILABLE_WINDOW or SPECIFIC_TIME",
 			req.RescheduleType)
 		return

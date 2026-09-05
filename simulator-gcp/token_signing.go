@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 )
 
@@ -338,7 +338,7 @@ func registerTokenDiscovery(srv *sim.Server) {
 	})
 	srv.HandleFunc("GET /.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
 		if accessSigner == nil {
-			sim.GCPError(w, http.StatusInternalServerError, "access-token signer not initialised", "INTERNAL")
+			GCPError(w, http.StatusInternalServerError, "access-token signer not initialised", "INTERNAL")
 			return
 		}
 		pub := &accessSigner.key.PublicKey
@@ -410,13 +410,13 @@ func verifyRequestBearer(w http.ResponseWriter, r *http.Request) bool {
 	auth := r.Header.Get("Authorization")
 	const prefix = "Bearer "
 	if !strings.HasPrefix(auth, prefix) {
-		sim.GCPError(w, http.StatusUnauthorized,
+		GCPError(w, http.StatusUnauthorized,
 			"Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential.",
 			"UNAUTHENTICATED")
 		return false
 	}
 	if err := verifyAccessToken(strings.TrimSpace(auth[len(prefix):])); err != nil {
-		sim.GCPError(w, http.StatusUnauthorized,
+		GCPError(w, http.StatusUnauthorized,
 			"Invalid authentication credentials: "+err.Error(),
 			"UNAUTHENTICATED")
 		return false

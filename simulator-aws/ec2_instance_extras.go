@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EC2IamInstanceProfileAssociation models the iip-assoc-… record that links an
@@ -122,7 +122,7 @@ func ec2InstanceAttrs(instanceID string) EC2InstanceAttributes {
 // password/TPM/UEFI reads, SQL-HA states, and the instance-requirements
 // instance-type lookup. Every handler operates on the existing instance store
 // and the shared instance-type catalog — no fakes, no synthetic instances.
-func registerEC2InstanceExtras(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2InstanceExtras(r *AWSQueryRouter, srv *sim.Server) {
 	ec2IamInstanceProfileAssocs = sim.MakeStore[EC2IamInstanceProfileAssociation](srv.DB(), "ec2_iam_instance_profile_assocs")
 	ec2BundleTasks = sim.MakeStore[EC2BundleTask](srv.DB(), "ec2_bundle_tasks")
 	ec2InstanceExportTasks = sim.MakeStore[EC2InstanceExportTask](srv.DB(), "ec2_instance_export_tasks")
@@ -168,7 +168,7 @@ func registerEC2InstanceExtras(r *sim.AWSQueryRouter, srv *sim.Server) {
 func ec2RequireInstance(w http.ResponseWriter, id string) (EC2Instance, bool) {
 	inst, ok := ec2Instances.Get(id)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
 		return EC2Instance{}, false
 	}
 	return inst, true
@@ -870,7 +870,7 @@ func ec2SqlHaStandbyDetection(w http.ResponseWriter, r *http.Request, root strin
 	var items strings.Builder
 	for _, id := range ids {
 		if _, ok := ec2Instances.Get(id); !ok {
-			sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
 			return
 		}
 		s := ec2SqlHaState(id)

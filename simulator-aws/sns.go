@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // xmlEscape escapes &, <, >, ", ' for inclusion in awsQuery XML
@@ -74,7 +74,7 @@ func snsSubscriptionARN(topicName string) string {
 // services in the AWSQueryRouter dispatch.
 const snsAPIVersion = "2010-03-31"
 
-func registerSNS(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerSNS(r *AWSQueryRouter, srv *sim.Server) {
 	// Publish is a CloudTrail DATA event (excluded from LookupEvents).
 	cloudTrailDeclareDataEvents("sns.amazonaws.com", "Publish", "PublishBatch")
 	snsTopics = sim.MakeStore[SNSTopic](srv.DB(), "sns_topics")

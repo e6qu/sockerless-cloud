@@ -30,6 +30,7 @@ fi
 cd "$REPO_ROOT"
 
 readonly SCAN_DIRS=(
+	sim
 	simulator-aws
 	simulator-gcp
 	simulator-azure

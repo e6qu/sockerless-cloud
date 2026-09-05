@@ -19,7 +19,7 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AzurePacketCaptureFilter mirrors the PacketCaptureFilter definition.
@@ -159,23 +159,23 @@ func handlePacketCaptureCreate(w http.ResponseWriter, r *http.Request) {
 		Properties AzurePacketCaptureProperties `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	props := body.Properties
 	if props.Target == "" {
-		sim.AzureErrorf(w, "MissingRequiredParameter", http.StatusBadRequest,
+		AzureErrorf(w, "MissingRequiredParameter", http.StatusBadRequest,
 			"The parameter 'target' is required.")
 		return
 	}
 	if props.StorageLocation.StorageId == "" && props.StorageLocation.FilePath == "" &&
 		props.StorageLocation.LocalPath == "" {
-		sim.AzureErrorf(w, "MissingRequiredParameter", http.StatusBadRequest,
+		AzureErrorf(w, "MissingRequiredParameter", http.StatusBadRequest,
 			"The parameter 'storageLocation' is required.")
 		return
 	}
 	if _, exists := azurePacketCaptures.Get(id); exists {
-		sim.AzureErrorf(w, "PacketCaptureAlreadyExists", http.StatusConflict,
+		AzureErrorf(w, "PacketCaptureAlreadyExists", http.StatusConflict,
 			"Packet capture %q already exists.", name)
 		return
 	}
@@ -191,7 +191,7 @@ func handlePacketCaptureCreate(w http.ResponseWriter, r *http.Request) {
 
 	namespace, iface, err := packetCaptureTargetInterface(props.Target)
 	if err != nil {
-		sim.AzureErrorf(w, "PacketCaptureTargetNotReady", http.StatusBadRequest, "%v", err)
+		AzureErrorf(w, "PacketCaptureTargetNotReady", http.StatusBadRequest, "%v", err)
 		return
 	}
 
@@ -204,7 +204,7 @@ func handlePacketCaptureCreate(w http.ResponseWriter, r *http.Request) {
 		Filters:        packetCaptureFilters(props.Filters),
 	})
 	if err != nil {
-		sim.AzureErrorf(w, "PacketCaptureFailed", http.StatusBadRequest,
+		AzureErrorf(w, "PacketCaptureFailed", http.StatusBadRequest,
 			"could not start the capture: %v", err)
 		return
 	}
@@ -252,7 +252,7 @@ func packetCaptureResult(c AzurePacketCapture) map[string]any {
 func handlePacketCaptureGet(w http.ResponseWriter, r *http.Request) {
 	capture, ok := azurePacketCaptures.Get(packetCaptureID(r))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource %q was not found.", packetCaptureID(r))
 		return
 	}
@@ -303,7 +303,7 @@ func syncPacketCaptureStatus(id string) AzurePacketCapture {
 func handlePacketCaptureQueryStatus(w http.ResponseWriter, r *http.Request) {
 	id := packetCaptureID(r)
 	if _, ok := azurePacketCaptures.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource %q was not found.", id)
 		return
 	}
@@ -327,7 +327,7 @@ func handlePacketCaptureStop(w http.ResponseWriter, r *http.Request) {
 	id := packetCaptureID(r)
 	capture, ok := azurePacketCaptures.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource %q was not found.", id)
 		return
 	}
@@ -336,12 +336,12 @@ func handlePacketCaptureStop(w http.ResponseWriter, r *http.Request) {
 	azureCaptureMu.Unlock()
 	if session != nil {
 		if err := session.Stop(); err != nil {
-			sim.AzureErrorf(w, "PacketCaptureFailed", http.StatusInternalServerError,
+			AzureErrorf(w, "PacketCaptureFailed", http.StatusInternalServerError,
 				"could not stop the capture: %v", err)
 			return
 		}
 		if err := storePacketCapture(capture, session.Bytes()); err != nil {
-			sim.AzureErrorf(w, "PacketCaptureStorageFailed", http.StatusBadRequest,
+			AzureErrorf(w, "PacketCaptureStorageFailed", http.StatusBadRequest,
 				"the capture stopped but could not be written to its storage location: %v", err)
 			return
 		}

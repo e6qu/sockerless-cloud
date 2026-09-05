@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func TestGCPFirewallCompilerPreservesPriorityDenyAndSourceTags(t *testing.T) {

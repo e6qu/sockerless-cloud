@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -141,7 +141,7 @@ var (
 	cbSeqMu        sync.Mutex
 )
 
-func registerCodeBuildExtended(r *sim.AWSRouter, srv *sim.Server) {
+func registerCodeBuildExtended(r *AWSRouter, srv *sim.Server) {
 	cbBuildBatches = sim.MakeStore[CBBuildBatch](srv.DB(), "codebuild_build_batches")
 	cbFleets = sim.MakeStore[CBFleet](srv.DB(), "codebuild_fleets")
 	cbSandboxes = sim.MakeStore[CBSandbox](srv.DB(), "codebuild_sandboxes")
@@ -1076,7 +1076,7 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 		},
 		ExtraHosts: hostMetadataExtraHosts(),
 		Labels:     map[string]string{"sockerless-codebuild-command": id},
-		Sandbox:    sim.SandboxFargate,
+		Sandbox:    SandboxFargate,
 	}, sink)
 	if err != nil {
 		cbCompleteCommandExecution(id, -1, "", fmt.Sprintf("start build environment %s: %v", image, err))

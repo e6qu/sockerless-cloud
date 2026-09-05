@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // guidRe matches a canonical (hyphenated) GUID. Real Azure requires the role
@@ -466,7 +466,7 @@ func registerAuthorization(srv *sim.Server) {
 						sim.WriteJSON(w, http.StatusOK, c.Response)
 						return
 					}
-					sim.AzureErrorf(w, "RoleDefinitionNotFound", http.StatusNotFound,
+					AzureErrorf(w, "RoleDefinitionNotFound", http.StatusNotFound,
 						"Role definition '%s' not found.", roleDefID)
 					return
 				}
@@ -550,7 +550,7 @@ func rbacDispatchRoleAssignmentItem(w http.ResponseWriter, r *http.Request, scop
 	case http.MethodDelete:
 		doRoleAssignmentDelete(w, scope, raName)
 	default:
-		sim.AzureError(w, "MethodNotAllowed", "Method not allowed.", http.StatusMethodNotAllowed)
+		AzureError(w, "MethodNotAllowed", "Method not allowed.", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -558,7 +558,7 @@ func rbacDispatchRoleAssignmentItem(w http.ResponseWriter, r *http.Request, scop
 func doRoleAssignmentPut(w http.ResponseWriter, r *http.Request, scope, raName string) {
 	// Real Azure requires the role assignment name to be a GUID.
 	if !guidRe.MatchString(raName) {
-		sim.AzureErrorf(w, "InvalidRoleAssignmentName", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRoleAssignmentName", http.StatusBadRequest,
 			"The role assignment name '%s' is not a valid GUID.", raName)
 		return
 	}
@@ -570,7 +570,7 @@ func doRoleAssignmentPut(w http.ResponseWriter, r *http.Request, scope, raName s
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -578,12 +578,12 @@ func doRoleAssignmentPut(w http.ResponseWriter, r *http.Request, scope, raName s
 	// RoleDefinitionDoesNotExist for an unknown roleDefinitionId.
 	roleDefID := roleDefinitionGUID(req.Properties.RoleDefinitionId)
 	if roleDefID == "" {
-		sim.AzureErrorf(w, "InvalidRoleDefinitionId", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRoleDefinitionId", http.StatusBadRequest,
 			"The role definition ID '%s' is malformed.", req.Properties.RoleDefinitionId)
 		return
 	}
 	if !roleDefExists(roleDefID) {
-		sim.AzureErrorf(w, "RoleDefinitionDoesNotExist", http.StatusBadRequest,
+		AzureErrorf(w, "RoleDefinitionDoesNotExist", http.StatusBadRequest,
 			"The specified role definition with ID '%s' does not exist.", roleDefID)
 		return
 	}
@@ -596,7 +596,7 @@ func doRoleAssignmentPut(w http.ResponseWriter, r *http.Request, scope, raName s
 	// assignments to principals created out of band. managedIdentityPrincipalExists
 	// is used only to set principalType when the sim does know the principal.
 	if !guidRe.MatchString(req.Properties.PrincipalId) {
-		sim.AzureErrorf(w, "InvalidPrincipalId", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidPrincipalId", http.StatusBadRequest,
 			"The principal ID '%s' is not a valid GUID.", req.Properties.PrincipalId)
 		return
 	}
@@ -632,7 +632,7 @@ func doRoleAssignmentGet(w http.ResponseWriter, scope, raName string) {
 	resourceID := fmt.Sprintf("%s/providers/Microsoft.Authorization/roleAssignments/%s", scope, raName)
 	ra, ok := azureRoleAssignments.Get(resourceID)
 	if !ok {
-		sim.AzureErrorf(w, "RoleAssignmentNotFound", http.StatusNotFound, "Role assignment '%s' not found.", raName)
+		AzureErrorf(w, "RoleAssignmentNotFound", http.StatusNotFound, "Role assignment '%s' not found.", raName)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, ra)
@@ -643,7 +643,7 @@ func doRoleAssignmentDelete(w http.ResponseWriter, scope, raName string) {
 	resourceID := fmt.Sprintf("%s/providers/Microsoft.Authorization/roleAssignments/%s", scope, raName)
 	ra, ok := azureRoleAssignments.Get(resourceID)
 	if !ok {
-		sim.AzureErrorf(w, "RoleAssignmentNotFound", http.StatusNotFound, "Role assignment '%s' not found.", raName)
+		AzureErrorf(w, "RoleAssignmentNotFound", http.StatusNotFound, "Role assignment '%s' not found.", raName)
 		return
 	}
 	azureRoleAssignments.Delete(resourceID)
@@ -676,7 +676,7 @@ func handleRoleDefinitionPut(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	roleDefID := sim.PathParam(r, "roleDefinitionId")
 	if !guidRe.MatchString(roleDefID) {
-		sim.AzureErrorf(w, "InvalidRoleDefinitionId", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRoleDefinitionId", http.StatusBadRequest,
 			"The role definition name '%s' is not a valid GUID.", roleDefID)
 		return
 	}
@@ -684,15 +684,15 @@ func handleRoleDefinitionPut(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Properties == nil {
-		sim.AzureError(w, "InvalidRoleDefinition", "Role definition properties are required.", http.StatusBadRequest)
+		AzureError(w, "InvalidRoleDefinition", "Role definition properties are required.", http.StatusBadRequest)
 		return
 	}
 	if name, _ := req.Properties["roleName"].(string); strings.TrimSpace(name) == "" {
-		sim.AzureError(w, "RoleDefinitionRoleNameRequired", "The role definition roleName is required.", http.StatusBadRequest)
+		AzureError(w, "RoleDefinitionRoleNameRequired", "The role definition roleName is required.", http.StatusBadRequest)
 		return
 	}
 	props := cloneMap(req.Properties)
@@ -786,7 +786,7 @@ func handlePermissionsList(w http.ResponseWriter, r *http.Request, scope string)
 		// this path; a failure here means the header changed between the
 		// middleware and the handler and is answered like the middleware
 		// answers it.
-		sim.AzureError(w, "InvalidAuthenticationToken",
+		AzureError(w, "InvalidAuthenticationToken",
 			"The access token is not valid: "+err.Error(), http.StatusUnauthorized)
 		return
 	}

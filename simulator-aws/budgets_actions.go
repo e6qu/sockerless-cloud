@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Budgets actions: the operations a budget takes when a threshold is
@@ -64,7 +64,7 @@ var budgetsActions sim.Store[budgetsAction]
 
 func budgetsActionKey(budgetName, actionID string) string { return budgetName + "/" + actionID }
 
-func registerBudgetsActions(r *sim.AWSRouter, srv *sim.Server) {
+func registerBudgetsActions(r *AWSRouter, srv *sim.Server) {
 	budgetsActions = sim.MakeStore[budgetsAction](srv.DB(), "budget_actions")
 	r.Register("AWSBudgetServiceGateway.CreateBudgetAction", handleBudgetsCreateBudgetAction)
 	r.Register("AWSBudgetServiceGateway.DescribeBudgetAction", handleBudgetsDescribeBudgetAction)
@@ -468,7 +468,7 @@ func budgetsPolicyNameFromARN(arn string) string {
 	return arn
 }
 
-func registerBudgetsNotificationExtras(r *sim.AWSRouter) {
+func registerBudgetsNotificationExtras(r *AWSRouter) {
 	r.Register("AWSBudgetServiceGateway.UpdateNotification", handleBudgetsUpdateNotification)
 	r.Register("AWSBudgetServiceGateway.UpdateSubscriber", handleBudgetsUpdateSubscriber)
 	r.Register("AWSBudgetServiceGateway.DescribeBudgetNotificationsForAccount", handleBudgetsDescribeBudgetNotificationsForAccount)

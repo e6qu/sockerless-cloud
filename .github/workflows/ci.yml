@@ -39,8 +39,8 @@ jobs:
             modules: simulator-aws simulator-gcp simulator-azure
             timeout_minutes: 10
           - shard: support
-            modules: realexec testutil ui-auth
-            timeout_minutes: 5
+            modules: sim realexec testutil ui-auth
+            timeout_minutes: 6
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -459,7 +459,6 @@ jobs:
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
           CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null .
-          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null ./shared
         timeout-minutes: 8
       - name: Run module unit tests
         # Shard-independent; the sdk suite carries them so they run once per
@@ -567,14 +566,12 @@ jobs:
           bash scripts/ci-go-mod-download.sh simulator-aws
           cd simulator-aws
           CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null .
-          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null ./shared
         timeout-minutes: 8
       - name: Run AWS module unit tests
         # The module unit tests are shard-independent; one shard carries them
         # so they run exactly once per workflow, and it is the shard with the
         # most room — carrying them cost services-n-z 154s while it ran level
-        # with the slowest shard in the suite. The shared/ suite carries a
-        # real SQLite durability soak, so the run step's budget holds the
+        # with the slowest shard in the suite. The run step's budget holds the
         # suite alone — compilation happened above. The inner deadline sits
         # under the step budget so a hung test fails with a named Go stack
         # rather than an opaque step kill.
@@ -1114,28 +1111,20 @@ jobs:
     # package-level stores the next test was replacing. simulator-aws/
     # background_work.go counts all of it now. They were found by running the
     # detector by hand, and a race found by hand is a race that comes back.
-    # The module and its shared package are separate jobs, each with the full
-    # fifteen-minute ceiling. The go-test deadline is per test binary and the
-    # two are an order of magnitude apart under the detector — 60s against 224s
-    # on a developer machine, and CI's cores are slower still — so a single job
-    # sized for both would either starve one or overrun the ceiling. The `sim`
-    # job splits its suites for the same reason.
-    name: race (simulator-${{ matrix.cloud }} ${{ matrix.pkg }})
+    # The simulator modules and the framework module (`race-sim` below) are
+    # separate jobs, each with the full fifteen-minute ceiling. The go-test
+    # deadline is per test binary and the two are an order of magnitude apart
+    # under the detector — 60s against 224s on a developer machine, and CI's
+    # cores are slower still — so a single job sized for both would either
+    # starve one or overrun the ceiling. The `sim` job splits its suites for
+    # the same reason.
+    name: race (simulator-${{ matrix.cloud }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         cloud: [aws, gcp, azure]
-        # A dimension rather than two include entries: an include object is
-        # merged into the combinations that already exist, so two of them both
-        # setting the same key would collapse to one job per cloud instead of
-        # two. The include below only attaches the package path to a dimension
-        # value that already exists, which is what include is for.
-        pkg: [module, shared]
-        include:
-          - { pkg: module, pkgs: '.' }
-          - { pkg: shared, pkgs: './shared' }
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -1143,14 +1132,14 @@ jobs:
           go-version: '1.26'
           cache: true
           cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
-      # The shared package's tests run real containers, and the ECR Public
-      # Gallery caps anonymous pulls by data volume — a cap that is not a
-      # transient failure a retry recovers from. Caching the images means the
-      # common case makes no registry request at all; on a miss the pull
-      # happens exactly as before. The set is read out of the package so the
-      # workflow holds no list to drift, and the key follows that set, so a
-      # test that starts pulling something new gets a fresh cache rather than
-      # a stale one that silently misses.
+      # The simulator's tests run real containers, and the ECR Public Gallery
+      # caps anonymous pulls by data volume — a cap that is not a transient
+      # failure a retry recovers from. Caching the images means the common case
+      # makes no registry request at all; on a miss the pull happens exactly as
+      # before. The set is read out of the module so the workflow holds no list
+      # to drift, and the key follows that set, so a test that starts pulling
+      # something new gets a fresh cache rather than a stale one that silently
+      # misses.
       - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |
@@ -1186,12 +1175,57 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
-          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null ${{ matrix.pkgs }}
+          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null .
         timeout-minutes: 8
       - name: Run unit tests under the race detector
         run: |
           cd simulator-${{ matrix.cloud }}
-          make race-test RACE_TEST_TIMEOUT=10m30s RACE_TEST_PKGS='${{ matrix.pkgs }}'
+          make race-test RACE_TEST_TIMEOUT=10m30s
+        timeout-minutes: 11
+
+  race-sim:
+    # The framework module's own unit tests under the race detector. They run
+    # real containers — the reaper, the startup sweep, the memory observer, the
+    # VPC network allocator — so the job warms the same image cache the
+    # simulator jobs use.
+    name: race (sim)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh sim | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$(printf '%s' "$images" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "$images"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-sim-${{ steps.base-images-list.outputs.digest }}
+      - name: Load or fetch the base images
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
+      - name: Pre-build the race test binary
+        run: |
+          bash scripts/ci-go-mod-download.sh sim
+          cd sim
+          CGO_ENABLED=1 go test -race -count=1 -c -o /dev/null .
+        timeout-minutes: 8
+      - name: Run unit tests under the race detector
+        run: |
+          cd sim
+          make race-test RACE_TEST_TIMEOUT=10m30s
         timeout-minutes: 11
 
   simulators-quality:
@@ -1288,6 +1322,9 @@ jobs:
         timeout-minutes: 5
       - name: Every simulator builds from its pinned modules (go install path)
         run: bash scripts/check-installable-build.sh
+        timeout-minutes: 5
+      - name: Every pinned support module carries the working tree's content
+        run: bash scripts/check-support-module-pins.sh
         timeout-minutes: 10
       - name: Check container publication contract
         run: bash scripts/check-container-publication.sh

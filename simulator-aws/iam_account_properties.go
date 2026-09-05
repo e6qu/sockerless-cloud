@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Identity and Access Management account properties and role templates.
@@ -30,7 +30,7 @@ var iamAccountProperties sim.Store[map[string]string]
 
 const iamAccountPropertiesKey = "account"
 
-func registerIAMAccountProperties(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMAccountProperties(r *AWSQueryRouter, srv *sim.Server) {
 	iamAccountProperties = sim.MakeStore[map[string]string](srv.DB(), "iam_account_properties")
 	r.Register("GetAccountProperties", handleIAMGetAccountProperties)
 	r.Register("PutAccountProperties", handleIAMPutAccountProperties)

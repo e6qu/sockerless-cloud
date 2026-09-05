@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // KMS custom key stores. A custom key store binds a KMS key store to an
@@ -26,7 +26,7 @@ type KMSCustomKeyStore struct {
 
 var kmsCustomKeyStores sim.Store[KMSCustomKeyStore]
 
-func registerKMSCustomKeyStores(r *sim.AWSRouter, srv *sim.Server) {
+func registerKMSCustomKeyStores(r *AWSRouter, srv *sim.Server) {
 	kmsCustomKeyStores = sim.MakeStore[KMSCustomKeyStore](srv.DB(), "kms_custom_key_stores")
 	r.Register("TrentService.CreateCustomKeyStore", handleKMSCreateCustomKeyStore)
 	r.Register("TrentService.DescribeCustomKeyStores", handleKMSDescribeCustomKeyStores)
@@ -43,16 +43,16 @@ func handleKMSCreateCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 		CloudHsmClusterId  string `json:"CloudHsmClusterId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.CustomKeyStoreName == "" {
-		sim.AWSError(w, "ValidationException", "CustomKeyStoreName is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "CustomKeyStoreName is required", http.StatusBadRequest)
 		return
 	}
 	for _, ks := range kmsCustomKeyStores.List() {
 		if ks.CustomKeyStoreName == req.CustomKeyStoreName {
-			sim.AWSErrorf(w, "CustomKeyStoreNameInUseException", http.StatusBadRequest,
+			AWSErrorf(w, "CustomKeyStoreNameInUseException", http.StatusBadRequest,
 				"A custom key store named %q already exists.", req.CustomKeyStoreName)
 			return
 		}
@@ -86,7 +86,7 @@ func handleKMSDescribeCustomKeyStores(w http.ResponseWriter, r *http.Request) {
 		Marker             string `json:"Marker"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var matched []map[string]any
@@ -110,7 +110,7 @@ func handleKMSDescribeCustomKeyStores(w http.ResponseWriter, r *http.Request) {
 		matched = append(matched, entry)
 	}
 	if (req.CustomKeyStoreId != "" || req.CustomKeyStoreName != "") && len(matched) == 0 {
-		sim.AWSErrorf(w, "CustomKeyStoreNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "CustomKeyStoreNotFoundException", http.StatusBadRequest,
 			"No custom key store matched the request.")
 		return
 	}
@@ -127,7 +127,7 @@ func handleKMSDescribeCustomKeyStores(w http.ResponseWriter, r *http.Request) {
 func kmsResolveCustomKeyStore(w http.ResponseWriter, id string) (KMSCustomKeyStore, bool) {
 	ks, ok := kmsCustomKeyStores.Get(id)
 	if !ok {
-		sim.AWSErrorf(w, "CustomKeyStoreNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "CustomKeyStoreNotFoundException", http.StatusBadRequest,
 			"Custom key store %q does not exist.", id)
 		return KMSCustomKeyStore{}, false
 	}
@@ -139,7 +139,7 @@ func handleKMSConnectCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 		CustomKeyStoreId string `json:"CustomKeyStoreId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := kmsResolveCustomKeyStore(w, req.CustomKeyStoreId); !ok {
@@ -156,7 +156,7 @@ func handleKMSDisconnectCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 		CustomKeyStoreId string `json:"CustomKeyStoreId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := kmsResolveCustomKeyStore(w, req.CustomKeyStoreId); !ok {
@@ -175,7 +175,7 @@ func handleKMSUpdateCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 		CloudHsmClusterId     string `json:"CloudHsmClusterId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	ks, ok := kmsResolveCustomKeyStore(w, req.CustomKeyStoreId)
@@ -184,7 +184,7 @@ func handleKMSUpdateCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 	}
 	// Real KMS requires the custom key store to be DISCONNECTED before update.
 	if ks.ConnectionState != "DISCONNECTED" {
-		sim.AWSErrorf(w, "CustomKeyStoreInvalidStateException", http.StatusBadRequest,
+		AWSErrorf(w, "CustomKeyStoreInvalidStateException", http.StatusBadRequest,
 			"The custom key store must be DISCONNECTED to update it.")
 		return
 	}
@@ -204,7 +204,7 @@ func handleKMSDeleteCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 		CustomKeyStoreId string `json:"CustomKeyStoreId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	ks, ok := kmsResolveCustomKeyStore(w, req.CustomKeyStoreId)
@@ -212,7 +212,7 @@ func handleKMSDeleteCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ks.ConnectionState == "CONNECTED" {
-		sim.AWSErrorf(w, "CustomKeyStoreInvalidStateException", http.StatusBadRequest,
+		AWSErrorf(w, "CustomKeyStoreInvalidStateException", http.StatusBadRequest,
 			"The custom key store must be DISCONNECTED before deletion.")
 		return
 	}

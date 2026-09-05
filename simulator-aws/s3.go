@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // S3 types
@@ -277,7 +277,7 @@ func s3RequestResourceARN(r *http.Request) string {
 }
 
 func s3WriteIAMDeny(w http.ResponseWriter, r *http.Request, principalArn, action string) {
-	sim.S3ErrorXML(w, "AccessDenied",
+	S3ErrorXML(w, "AccessDenied",
 		"User: "+principalArn+" is not authorized to perform: "+action+
 			" because no identity-based policy or resource-based policy allows the "+action+" action",
 		strings.TrimPrefix(r.URL.Path, "/"), generateUUID(), http.StatusForbidden)
@@ -575,13 +575,13 @@ func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	sim.WriteXML(w, http.StatusOK, result)
+	WriteXML(w, http.StatusOK, result)
 }
 
 func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if bucket == "" {
-		sim.S3ErrorXML(w, "InvalidBucketName", "Bucket name is required", "/", sim.RequestID(r.Context()), http.StatusBadRequest)
+		S3ErrorXML(w, "InvalidBucketName", "Bucket name is required", "/", sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 
@@ -593,7 +593,7 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		sim.S3ErrorXML(w, "BucketAlreadyOwnedByYou",
+		S3ErrorXML(w, "BucketAlreadyOwnedByYou",
 			"Your previous request to create the named bucket succeeded and you already own it.",
 			bucket, sim.RequestID(r.Context()), http.StatusConflict)
 		return
@@ -619,13 +619,13 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "The request body could not be read",
+		S3ErrorXML(w, "IncompleteBody", "The request body could not be read",
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if len(bytes.TrimSpace(bodyBytes)) > 0 {
 		if err := xml.Unmarshal(bodyBytes, &createConfig); err != nil {
-			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed",
+			S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed",
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
@@ -677,7 +677,7 @@ func handleS3DeleteBucket(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -687,7 +687,7 @@ func handleS3DeleteBucket(w http.ResponseWriter, r *http.Request) {
 		return strings.HasPrefix(obj.Key, bucket+"/") || obj.Key == bucket+"/"
 	})
 	if len(objects) > 0 {
-		sim.S3ErrorXML(w, "BucketNotEmpty", "The bucket you tried to delete is not empty",
+		S3ErrorXML(w, "BucketNotEmpty", "The bucket you tried to delete is not empty",
 			bucket, sim.RequestID(r.Context()), http.StatusConflict)
 		return
 	}
@@ -729,7 +729,7 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -802,7 +802,7 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 		// without parsing the full IAM AST.
 		policy, _, _, ok := getStoredBucketSubresource(bucket, "policy")
 		if !ok {
-			sim.S3ErrorXML(w, "NoSuchBucketPolicy", "The bucket policy does not exist",
+			S3ErrorXML(w, "NoSuchBucketPolicy", "The bucket policy does not exist",
 				bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 			return
 		}
@@ -1023,7 +1023,7 @@ func handleS3GetBucket(w http.ResponseWriter, r *http.Request) {
 		StartAfter:            startAfter,
 	}
 
-	sim.WriteXML(w, http.StatusOK, result)
+	WriteXML(w, http.StatusOK, result)
 }
 
 func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
@@ -1031,7 +1031,7 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -1040,13 +1040,13 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	// object already exists; If-Match: <etag> fails if the current ETag differs.
 	existing, exists := s3Objects.Get(s3ObjectKey(bucket, key))
 	if inm := r.Header.Get("If-None-Match"); inm == "*" && exists {
-		sim.S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
+		S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
 			key, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
 		return
 	}
 	if im := r.Header.Get("If-Match"); im != "" {
 		if !exists || strings.Trim(im, `"`) != strings.Trim(existing.ETag, `"`) {
-			sim.S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
+			S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
 				key, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
 			return
 		}
@@ -1065,7 +1065,7 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(bodyReader)
 	if err != nil {
-		sim.S3ErrorXML(w, "InternalError", "Failed to read request body: "+err.Error(),
+		S3ErrorXML(w, "InternalError", "Failed to read request body: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusInternalServerError)
 		return
 	}
@@ -1084,7 +1084,7 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 
 	obj, err := s3PutServiceObject(bucket, key, body, contentType, metadata)
 	if err != nil {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -1100,7 +1100,7 @@ func handleS3GetObject(w http.ResponseWriter, r *http.Request) {
 	storeKey := s3ObjectKey(bucket, key)
 	obj, ok := s3Objects.Get(storeKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}

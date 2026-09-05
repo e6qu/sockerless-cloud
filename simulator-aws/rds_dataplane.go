@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	dockerclient "github.com/moby/moby/client"
 )
 
@@ -321,7 +321,7 @@ func (runtime *rdsDataPlaneRuntime) startBackend() error {
 		PublishPorts: map[int]int{containerPort: backendPort},
 		Binds:        []string{"sockerless-rds-" + instance.DBInstanceIdentifier + ":" + dataPath},
 		Labels:       map[string]string{"sockerless-rds-instance": instance.DBInstanceIdentifier},
-		Sandbox:      sim.SandboxFargate,
+		Sandbox:      SandboxFargate,
 	}, sim.NoopSink{})
 	if err != nil {
 		return fmt.Errorf("start %s database engine: %w", instance.Engine, err)

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_hybrid.go serves the two App Service hybrid connection families on
@@ -89,7 +89,7 @@ func registerWebHybridConnections(srv *sim.Server) {
 		}
 		hc, ok := webHybridConnections.Get(relayID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Hybrid connection '%s/%s' not found.", sim.PathParam(r, "namespaceName"), sim.PathParam(r, "relayName"))
 			return
 		}
@@ -102,7 +102,7 @@ func registerWebHybridConnections(srv *sim.Server) {
 		}
 		var req WebHybridConnection
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := relayID(r)
@@ -145,7 +145,7 @@ func registerWebHybridConnections(srv *sim.Server) {
 			return
 		}
 		if !webHybridConnections.Delete(relayID(r)) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Hybrid connection '%s/%s' not found.", sim.PathParam(r, "namespaceName"), sim.PathParam(r, "relayName"))
 			return
 		}
@@ -200,7 +200,7 @@ func registerWebHybridConnections(srv *sim.Server) {
 		}
 		conn, ok := webRelayServiceConns.Get(entityID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Relay service connection '%s' not found.", sim.PathParam(r, "entityName"))
 			return
 		}
@@ -213,7 +213,7 @@ func registerWebHybridConnections(srv *sim.Server) {
 		}
 		var req WebRelayServiceConnection
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := entityID(r)
@@ -235,7 +235,7 @@ func registerWebHybridConnections(srv *sim.Server) {
 			return
 		}
 		if !webRelayServiceConns.Delete(entityID(r)) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Relay service connection '%s' not found.", sim.PathParam(r, "entityName"))
 			return
 		}

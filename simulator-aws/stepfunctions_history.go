@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type sfnHistoryEvent map[string]any

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AsyncOperationStatus is the ARM operation-status envelope a polled
@@ -174,7 +174,7 @@ func handleAzureAsyncOperationStatus(w http.ResponseWriter, r *http.Request) {
 	opID := sim.PathParam(r, "opId")
 	op, ok := azureAsyncOps.Get(opID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found.", opID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found.", opID)
 		return
 	}
 	op.ID = strings.Replace(r.URL.Path, "/operationResults/", "/operationStatuses/", 1)

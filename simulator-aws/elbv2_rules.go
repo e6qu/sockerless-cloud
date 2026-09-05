@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ELBv2 listener rules + ModifyListener. Listeners were read-only
@@ -37,7 +37,7 @@ type ELBv2QueryStringKV struct {
 
 var elbv2Rules sim.Store[ELBv2Rule]
 
-func registerELBv2Rules(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerELBv2Rules(r *AWSQueryRouter, srv *sim.Server) {
 	elbv2Rules = sim.MakeStore[ELBv2Rule](srv.DB(), "elbv2_rules")
 	r.RegisterVersioned(elbv2APIVersion, "CreateRule", handleELBv2CreateRule)
 	r.RegisterVersioned(elbv2APIVersion, "DescribeRules", handleELBv2DescribeRules)

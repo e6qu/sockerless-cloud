@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM MFA devices, SSH public keys, signing certificates, and service-specific
@@ -72,7 +72,7 @@ var (
 	iamServiceCreds      sim.Store[IAMServiceSpecificCredential]
 )
 
-func registerIAMMFAKeys(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMMFAKeys(r *AWSQueryRouter, srv *sim.Server) {
 	iamVirtualMFADevices = sim.MakeStore[IAMVirtualMFADevice](srv.DB(), "iam_virtual_mfa_devices")
 	iamSSHPublicKeys = sim.MakeStore[IAMSSHPublicKey](srv.DB(), "iam_ssh_public_keys")
 	iamSigningCerts = sim.MakeStore[IAMSigningCertificate](srv.DB(), "iam_signing_certificates")

@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type CloudTrailTrail struct {
@@ -112,7 +112,7 @@ func (w *cloudTrailStatusRecorder) statusCode() int {
 	return w.status
 }
 
-func registerCloudTrail(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudTrail(r *AWSRouter, srv *sim.Server) {
 	cloudTrailTrails = sim.MakeStore[CloudTrailTrail](srv.DB(), "cloudtrail_trails")
 	cloudTrailDeliveries = sim.MakeStore[CloudTrailDelivery](srv.DB(), "cloudtrail_deliveries")
 	cloudTrailEvents = sim.MakeStore[CloudTrailEvent](srv.DB(), "cloudtrail_events")

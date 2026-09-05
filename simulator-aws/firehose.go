@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/golang/snappy"
 )
 
@@ -146,7 +146,7 @@ var (
 	firehoseTimers    = map[string]*simTimer{}
 )
 
-func registerFirehose(r *sim.AWSRouter, srv *sim.Server) {
+func registerFirehose(r *AWSRouter, srv *sim.Server) {
 	firehoseStreams = sim.MakeStore[FirehoseDeliveryStream](srv.DB(), "firehose_delivery_streams")
 	r.Register("Firehose_20150804.CreateDeliveryStream", handleFirehoseCreateDeliveryStream)
 	r.Register("Firehose_20150804.DeleteDeliveryStream", handleFirehoseDeleteDeliveryStream)
@@ -195,7 +195,7 @@ func firehoseBucketName(arn string) string {
 }
 
 func firehoseError(w http.ResponseWriter, code, message string) {
-	sim.AWSError(w, code, message, http.StatusBadRequest)
+	AWSError(w, code, message, http.StatusBadRequest)
 }
 
 func firehoseGet(w http.ResponseWriter, name string) (FirehoseDeliveryStream, bool) {

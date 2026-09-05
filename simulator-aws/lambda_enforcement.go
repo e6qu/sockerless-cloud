@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Call-time credential enforcement for Lambda's REST control plane
@@ -140,10 +140,10 @@ func lambdaLayersOpName(r *http.Request) string {
 // read to classify the exception (also what CloudTrail's error-code
 // extraction reads, so denied calls are recorded with the real error code),
 // plus the __type/message JSON body every other Lambda error in this package
-// already returns via sim.AWSError.
+// already returns via AWSError.
 func lambdaWriteAuthError(w http.ResponseWriter, code, message string, status int) {
 	w.Header().Set("X-Amzn-Errortype", code)
-	sim.AWSError(w, code, message, status)
+	AWSError(w, code, message, status)
 }
 
 // lambdaWriteSigv4Error renders a SigV4 authentication failure. It reuses the

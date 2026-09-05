@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // acrTestDigest is the content digest a registry client computes before it

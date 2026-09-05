@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -38,14 +38,14 @@ func spannerRESTSessionName(r *http.Request) (string, string) {
 func spannerReadRESTProto(w http.ResponseWriter, r *http.Request, message proto.Message) bool {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read Cloud Spanner request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read Cloud Spanner request body: %v", err)
 		return false
 	}
 	if len(strings.TrimSpace(string(body))) == 0 {
 		body = []byte("{}")
 	}
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(body, message); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "decode Cloud Spanner request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "decode Cloud Spanner request body: %v", err)
 		return false
 	}
 	return true
@@ -54,7 +54,7 @@ func spannerReadRESTProto(w http.ResponseWriter, r *http.Request, message proto.
 func spannerWriteRESTProto(w http.ResponseWriter, message proto.Message) {
 	body, err := (protojson.MarshalOptions{}).Marshal(message)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode Cloud Spanner response: %v", err)
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode Cloud Spanner response: %v", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -81,7 +81,7 @@ func spannerWriteRESTError(w http.ResponseWriter, err error) {
 	case codes.Unavailable:
 		httpStatus = http.StatusServiceUnavailable
 	}
-	sim.GCPError(w, httpStatus, st.Message(), st.Code().String())
+	GCPError(w, httpStatus, st.Message(), st.Code().String())
 }
 
 func handleSpannerBatchCreateSessionsREST(w http.ResponseWriter, r *http.Request) {
@@ -225,11 +225,11 @@ func handleSpannerAdaptMessage(w http.ResponseWriter, r *http.Request, session s
 		Payload  string `json:"payload"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.Protocol == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"adaptMessage needs the protocol the message is in")
 		return
 	}
@@ -245,7 +245,7 @@ func handleSpannerAdaptMessage(w http.ResponseWriter, r *http.Request, session s
 // not exist cannot hold one.
 func handleSpannerCreateAdapterSession(w http.ResponseWriter, r *http.Request, database string) {
 	if _, ok := spannerDatabases.Get(database); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
 		return
 	}
 	name := fmt.Sprintf("%s/sessions/adapter-%s", database, generateUUID()[:8])

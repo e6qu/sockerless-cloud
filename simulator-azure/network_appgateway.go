@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Application gateways (Microsoft.Network/applicationGateways) are Azure's
@@ -739,7 +739,7 @@ func validateApplicationGateway(w http.ResponseWriter, _ *http.Request, gw *Appl
 		if name != "" {
 			return true
 		}
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: every %s member of an application gateway requires a name.", collection)
 		return false
 	}
@@ -761,7 +761,7 @@ func validateApplicationGateway(w http.ResponseWriter, _ *http.Request, gw *Appl
 		}
 		if fe.Properties.PublicIPAddress != nil && fe.Properties.PublicIPAddress.ID != "" {
 			if _, ok := azurePublicIPs.Get(fe.Properties.PublicIPAddress.ID); !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The Resource %q was not found.", fe.Properties.PublicIPAddress.ID)
 				return false
 			}
@@ -1208,13 +1208,13 @@ func registerApplicationGatewayOperations(srv *sim.Server) {
 		}
 		var probe ApplicationGatewayOnDemandProbe
 		if err := sim.ReadJSON(r, &probe); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		projectApplicationGateway(&gw)
 		result, err := applicationGatewayOnDemandHealth(r.Context(), gw, probe)
 		if err != nil {
-			sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest, "%v", err)
+			AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest, "%v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, result)
@@ -1292,7 +1292,7 @@ func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 	srv.HandleFunc("GET "+connBase+"/{connectionName}", func(w http.ResponseWriter, r *http.Request) {
 		conn, ok := azureAppGatewayPEConnections.Get(connID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Private endpoint connection %q was not found.", sim.PathParam(r, "connectionName"))
 			return
 		}
@@ -1306,11 +1306,11 @@ func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 	srv.HandleFunc("PUT "+connBase+"/{connectionName}", func(w http.ResponseWriter, r *http.Request) {
 		var req ApplicationGatewayPrivateEndpointConnection
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.PrivateLinkServiceConnectionState == nil {
-			sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 				"The request format was unexpected: privateLinkServiceConnectionState is required.")
 			return
 		}
@@ -1319,7 +1319,7 @@ func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 			conn.Properties.PrivateLinkServiceConnectionState = req.Properties.PrivateLinkServiceConnectionState
 			conn.Etag = azureNetworkEtag()
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Private endpoint connection %q was not found.", sim.PathParam(r, "connectionName"))
 			return
 		}

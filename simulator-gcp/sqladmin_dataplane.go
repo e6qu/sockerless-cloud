@@ -22,7 +22,7 @@ import (
 
 	dockerclient "github.com/moby/moby/client"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Cloud SQL data plane.
@@ -298,7 +298,7 @@ func sqlAdoptEngine(runtime *sqlDataPlaneRuntime) error {
 			return fmt.Errorf("resume database engine container %s: %w", existing[0].ID, err)
 		}
 	}
-	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{}, sim.NoopSink{})
+	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: 5 * time.Second}, sim.NoopSink{})
 	if err != nil {
 		return err
 	}
@@ -380,14 +380,15 @@ func (runtime *sqlDataPlaneRuntime) startEngine() error {
 		return fmt.Errorf("database engine %q has no data plane", runtime.family)
 	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		Image:        image,
-		Architecture: "linux/amd64",
-		Args:         args,
-		Env:          env,
-		PublishPorts: map[int]int{sqlEnginePort(runtime.family): backendPort},
-		Binds:        []string{sqlInstanceVolume(runtime.project, runtime.instance) + ":" + dataPath},
-		Labels:       map[string]string{"sockerless-cloudsql-instance": runtime.project + "/" + runtime.instance},
-		Sandbox:      sim.SandboxCloudRun,
+		CancelGracePeriod: 5 * time.Second,
+		Image:             image,
+		Architecture:      "linux/amd64",
+		Args:              args,
+		Env:               env,
+		PublishPorts:      map[int]int{sqlEnginePort(runtime.family): backendPort},
+		Binds:             []string{sqlInstanceVolume(runtime.project, runtime.instance) + ":" + dataPath},
+		Labels:            map[string]string{"sockerless-cloudsql-instance": runtime.project + "/" + runtime.instance},
+		Sandbox:           SandboxCloudRun,
 	}, sim.NoopSink{})
 	if err != nil {
 		return fmt.Errorf("start %s database engine: %w", runtime.family, err)

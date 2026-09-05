@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EventBridge Scheduler firing engine. The CRUD surface in scheduler.go stores

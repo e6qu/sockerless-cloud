@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/gorilla/websocket"
 	dockerclient "github.com/moby/moby/client"
 )
@@ -127,11 +127,11 @@ func handleACIContainerGroupPut(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "containerGroupName")
 	var req ACIContainerGroup
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Properties == nil {
-		sim.AzureError(w, "InvalidContainerGroup", "properties are required.", http.StatusBadRequest)
+		AzureError(w, "InvalidContainerGroup", "properties are required.", http.StatusBadRequest)
 		return
 	}
 	id := aciContainerGroupID(sub, rg, name)
@@ -149,7 +149,7 @@ func handleACIContainerGroupPut(w http.ResponseWriter, r *http.Request) {
 	aciContainerGroups.Put(id, group)
 	if err := aciStartGroupContainers(group); err != nil {
 		aciContainerGroups.Delete(id)
-		sim.AzureErrorf(w, "ContainerGroupDeploymentFailed", http.StatusBadRequest, "%v", err)
+		AzureErrorf(w, "ContainerGroupDeploymentFailed", http.StatusBadRequest, "%v", err)
 		return
 	}
 	// Real Azure never echoes osProfile/env secureValue back; strip it from
@@ -172,7 +172,7 @@ func handleACIContainerGroupPatch(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	var req ACIContainerGroup
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if !aciContainerGroups.Update(id, func(group *ACIContainerGroup) {
@@ -180,7 +180,7 @@ func handleACIContainerGroupPatch(w http.ResponseWriter, r *http.Request) {
 			group.Tags = req.Tags
 		}
 	}) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	group, _ := aciContainerGroups.Get(id)
@@ -191,7 +191,7 @@ func handleACIContainerGroupGet(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	group, ok := aciContainerGroups.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, group)
@@ -201,7 +201,7 @@ func handleACIContainerGroupDelete(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	group, ok := aciContainerGroups.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	aciStopGroupContainers(group)
@@ -235,7 +235,7 @@ func handleACIContainerGroupStop(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	group, ok := aciContainerGroups.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	aciStopGroupContainers(group)
@@ -249,11 +249,11 @@ func handleACIContainerGroupStart(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	group, ok := aciContainerGroups.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	if err := aciStartGroupContainers(group); err != nil {
-		sim.AzureErrorf(w, "ContainerGroupStartFailed", http.StatusBadRequest, "%v", err)
+		AzureErrorf(w, "ContainerGroupStartFailed", http.StatusBadRequest, "%v", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -263,12 +263,12 @@ func handleACIContainerGroupRestart(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	group, ok := aciContainerGroups.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	aciStopGroupContainers(group)
 	if err := aciStartGroupContainers(group); err != nil {
-		sim.AzureErrorf(w, "ContainerGroupRestartFailed", http.StatusBadRequest, "%v", err)
+		AzureErrorf(w, "ContainerGroupRestartFailed", http.StatusBadRequest, "%v", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -278,7 +278,7 @@ func handleACIContainerLogs(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	containerName := sim.PathParam(r, "containerName")
 	if _, ok := aciContainerGroups.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	key := aciRuntimeKey(id, containerName)
@@ -290,24 +290,24 @@ func handleACIContainerExec(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	containerName := sim.PathParam(r, "containerName")
 	if _, ok := aciContainerGroups.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	var req struct {
 		Command string `json:"command"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	req.Command = strings.TrimSpace(req.Command)
 	if req.Command == "" {
-		sim.AzureError(w, "BadRequest", "command is required.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "command is required.", http.StatusBadRequest)
 		return
 	}
 	rec, ok := aciRuntimeRecords.Get(aciRuntimeKey(id, containerName))
 	if !ok || rec.ContainerID == "" || rec.State != ACIStateRunning {
-		sim.AzureErrorf(w, "ContainerNotRunning", http.StatusBadRequest, "Container %q is not running.", containerName)
+		AzureErrorf(w, "ContainerNotRunning", http.StatusBadRequest, "Container %q is not running.", containerName)
 		return
 	}
 
@@ -340,16 +340,16 @@ func handleACIContainerExecSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := sim.PathParam(r, "sessionID")
 	v, ok := aciExecSessions.LoadAndDelete(sessionID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Exec session %q not found.", sessionID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Exec session %q not found.", sessionID)
 		return
 	}
 	session, ok := v.(aciExecSession)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Exec session %q not found.", sessionID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Exec session %q not found.", sessionID)
 		return
 	}
 	if session.Password != "" && r.URL.Query().Get("password") != session.Password && r.Header.Get("Authorization") != session.Password {
-		sim.AzureError(w, "Unauthorized", "Invalid exec session password.", http.StatusUnauthorized)
+		AzureError(w, "Unauthorized", "Invalid exec session password.", http.StatusUnauthorized)
 		return
 	}
 	conn, err := acaWSUpgrader.Upgrade(w, r, nil)
@@ -532,7 +532,7 @@ func handleACILocationCachedImages(w http.ResponseWriter, _ *http.Request) {
 func handleACIOutboundNetworkDeps(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	if _, ok := aciContainerGroups.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, []string{})
@@ -544,12 +544,12 @@ func handleACIContainerAttach(w http.ResponseWriter, r *http.Request) {
 	id := aciContainerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "containerGroupName"))
 	containerName := sim.PathParam(r, "containerName")
 	if _, ok := aciContainerGroups.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Container group %q not found.", sim.PathParam(r, "containerGroupName"))
 		return
 	}
 	rec, ok := aciRuntimeRecords.Get(aciRuntimeKey(id, containerName))
 	if !ok || rec.ContainerID == "" || rec.State != ACIStateRunning {
-		sim.AzureErrorf(w, "ContainerNotRunning", http.StatusBadRequest, "Container %q is not running.", containerName)
+		AzureErrorf(w, "ContainerNotRunning", http.StatusBadRequest, "Container %q is not running.", containerName)
 		return
 	}
 	sessionID := generateUUID()
@@ -578,16 +578,16 @@ func handleACIContainerAttachSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := sim.PathParam(r, "sessionID")
 	v, ok := aciAttachSessions.LoadAndDelete(sessionID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Attach session %q not found.", sessionID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Attach session %q not found.", sessionID)
 		return
 	}
 	session, ok := v.(aciAttachSession)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Attach session %q not found.", sessionID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Attach session %q not found.", sessionID)
 		return
 	}
 	if session.Password != "" && r.URL.Query().Get("password") != session.Password && r.Header.Get("Authorization") != session.Password {
-		sim.AzureError(w, "Unauthorized", "Invalid attach session password.", http.StatusUnauthorized)
+		AzureError(w, "Unauthorized", "Invalid attach session password.", http.StatusUnauthorized)
 		return
 	}
 	conn, err := acaWSUpgrader.Upgrade(w, r, nil)
@@ -665,11 +665,11 @@ func handleACISubnetServiceAssociationLinkDelete(w http.ResponseWriter, r *http.
 	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
 		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), vnetName, subnetName)
 	if azureSubnets == nil {
-		sim.AzureError(w, "ResourceNotFound", "No virtual networks exist.", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "No virtual networks exist.", http.StatusNotFound)
 		return
 	}
 	if _, ok := azureSubnets.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'subnets/%s' under virtualNetworks '%s' was not found.", subnetName, vnetName)
 		return
 	}
@@ -832,16 +832,17 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 			return fmt.Errorf("inspect container %q image platform: %w", name, err)
 		}
 		cfg := sim.ContainerConfig{
-			Image:        localImage,
-			Architecture: platform,
-			Env:          env,
+			CancelGracePeriod: 5 * time.Second,
+			Image:             localImage,
+			Architecture:      platform,
+			Env:               env,
 			Labels: map[string]string{
 				"sockerless-sim": "true",
 				"aci-group":      group.ID,
 				"aci-container":  name,
 			},
 			Name:    "sockerless-aci-" + sanitizeContainerName(group.Name) + "-" + sanitizeContainerName(name),
-			Sandbox: sim.SandboxACA,
+			Sandbox: SandboxACA,
 		}
 		if len(command) > 0 {
 			cfg.Command = command[:1]

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file completes four Amazon EC2 control-plane families:
@@ -170,7 +170,7 @@ var (
 // Manager state (real AWS keeps one per account-region).
 const ec2CapacityManagerKey = "account"
 
-func registerEC2LgwCapacity(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2LgwCapacity(r *AWSQueryRouter, srv *sim.Server) {
 	ec2LocalGateways = sim.MakeStore[EC2LocalGateway](srv.DB(), "ec2_local_gateways")
 	ec2LocalGatewayRouteTables = sim.MakeStore[EC2LocalGatewayRouteTable](srv.DB(), "ec2_local_gateway_route_tables")
 	ec2LocalGatewayVifs = sim.MakeStore[EC2LocalGatewayVirtualInterface](srv.DB(), "ec2_local_gateway_vifs")

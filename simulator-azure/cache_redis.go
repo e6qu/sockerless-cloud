@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.Cache/Redis ARM control plane. Real Azure exposes a
@@ -144,7 +144,7 @@ func handleRedisCacheCreateFirewallRule(w http.ResponseWriter, r *http.Request) 
 	cache := sim.PathParam(r, "name")
 	rule := sim.PathParam(r, "rule")
 	if _, ok := redisCaches.Get(redisCacheID(sub, rg, cache)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Redis cache %q not found", cache)
 		return
 	}
@@ -152,7 +152,7 @@ func handleRedisCacheCreateFirewallRule(w http.ResponseWriter, r *http.Request) 
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	fr := RedisFirewallRule{
@@ -172,7 +172,7 @@ func handleRedisCacheGetFirewallRule(w http.ResponseWriter, r *http.Request) {
 	rule := sim.PathParam(r, "rule")
 	fr, ok := redisFirewallRules.Get(redisFirewallRuleID(sub, rg, cache, rule))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Firewall rule %q not found on cache %q", rule, cache)
 		return
 	}
@@ -185,7 +185,7 @@ func handleRedisCacheDeleteFirewallRule(w http.ResponseWriter, r *http.Request) 
 	cache := sim.PathParam(r, "name")
 	rule := sim.PathParam(r, "rule")
 	if !redisFirewallRules.Delete(redisFirewallRuleID(sub, rg, cache, rule)) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Firewall rule %q not found on cache %q", rule, cache)
 		return
 	}
@@ -228,7 +228,7 @@ func handleRedisCacheListKeys(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	id := redisCacheID(sub, rg, name)
 	if _, ok := redisCaches.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Redis cache %q not found", name)
 		return
 	}
@@ -241,7 +241,7 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	var req RedisCache
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
@@ -286,13 +286,13 @@ func handleRedisCachePatch(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	id := redisCacheID(sub, rg, name)
 	if _, ok := redisCaches.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Cache/Redis/%s' under resource group '%s' was not found.", name, rg)
 		return
 	}
 	var req RedisCache
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	redisCaches.Update(id, func(cache *RedisCache) {
@@ -323,7 +323,7 @@ func handleRedisCacheGet(w http.ResponseWriter, r *http.Request) {
 	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
 	cache, ok := redisCaches.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Cache/Redis/%s' under resource group '%s' was not found.", name, rg)
 		return
 	}
@@ -336,7 +336,7 @@ func handleRedisCacheDelete(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
 	if !redisCaches.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Cache/Redis/%s' under resource group '%s' was not found.", name, rg)
 		return
 	}
@@ -381,7 +381,7 @@ func redisCacheExists(w http.ResponseWriter, sub, rg, name string) bool {
 	if _, ok := redisCaches.Get(redisCacheID(sub, rg, name)); ok {
 		return true
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource 'Microsoft.Cache/Redis/%s' under resource group '%s' was not found.", name, rg)
 	return false
 }
@@ -402,7 +402,7 @@ func handleRedisCacheRegenerateKey(w http.ResponseWriter, r *http.Request) {
 		KeyType string `json:"keyType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := redisCacheID(sub, rg, name)
@@ -412,7 +412,7 @@ func handleRedisCacheRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	case "Secondary":
 		azureBumpKeyGen(id, "secondary", "")
 	default:
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 			"keyType must be 'Primary' or 'Secondary', got %q", req.KeyType)
 		return
 	}
@@ -454,11 +454,11 @@ func handleRedisImportData(w http.ResponseWriter, r *http.Request) {
 		Format string   `json:"format,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if len(req.Files) == 0 {
-		sim.AzureError(w, "BadRequest", "at least one file is required to import", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "at least one file is required to import", http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -479,11 +479,11 @@ func handleRedisExportData(w http.ResponseWriter, r *http.Request) {
 		Format    string `json:"format,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Container == "" || req.Prefix == "" {
-		sim.AzureError(w, "BadRequest", "container and prefix are required to export", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "container and prefix are required to export", http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -546,17 +546,17 @@ func handleRedisCheckNameAvailability(w http.ResponseWriter, r *http.Request) {
 		Type string `json:"type"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Name == "" {
-		sim.AzureError(w, "BadRequest", "name is required", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "name is required", http.StatusBadRequest)
 		return
 	}
 	prefix := fmt.Sprintf("/subscriptions/%s/", sub)
 	for _, c := range redisCaches.List() {
 		if strings.HasPrefix(c.ID, prefix) && strings.EqualFold(c.Name, req.Name) {
-			sim.AzureErrorf(w, "NameNotAvailable", http.StatusConflict,
+			AzureErrorf(w, "NameNotAvailable", http.StatusConflict,
 				"The name %q is already in use.", req.Name)
 			return
 		}
@@ -567,7 +567,7 @@ func handleRedisCheckNameAvailability(w http.ResponseWriter, r *http.Request) {
 func handleRedisAsyncOperationStatus(w http.ResponseWriter, r *http.Request) {
 	op, ok := azureAsyncOps.Get(sim.PathParam(r, "operationId"))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Operation %q not found.", sim.PathParam(r, "operationId"))
 		return
 	}
@@ -597,7 +597,7 @@ func redisChildPut(w http.ResponseWriter, r *http.Request, store sim.Store[Redis
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	props := map[string]any{}
@@ -617,7 +617,7 @@ func redisChildGet(w http.ResponseWriter, r *http.Request, store sim.Store[Redis
 	id := redisCacheID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/" + childSeg + "/" + childName
 	res, ok := store.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found.", childSeg, childName)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found.", childSeg, childName)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, res)

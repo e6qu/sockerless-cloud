@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Google Compute Engine packet mirroring. A policy names a set of mirrored

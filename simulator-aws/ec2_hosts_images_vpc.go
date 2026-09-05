@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements EC2 ec2Query slices for Dedicated Hosts, Instance Event
@@ -162,7 +162,7 @@ type EC2VpcBpaOptions struct {
 	ExclusionsAllowed        string
 }
 
-func registerEC2HostsImagesVpc(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2HostsImagesVpc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2Hosts = sim.MakeStore[EC2Host](srv.DB(), "ec2_hosts")
 	ec2EventWindows = sim.MakeStore[EC2InstanceEventWindow](srv.DB(), "ec2_instance_event_windows")
 	ec2ImageAttrs = sim.MakeStore[EC2ImageAttributes](srv.DB(), "ec2_image_attributes")

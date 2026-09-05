@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strconv"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A reservation's resize, the maintenance it reports, and the blocks its
@@ -35,7 +35,7 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 		key := computeScopedKey(r, cScopeZone, "reservations", name)
 		reservation, ok := reservations.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation %q not found", name)
 			return "", nil, false
 		}
 		return key, reservation, true
@@ -56,11 +56,11 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 			SpecificSkuCount int64 `json:"specificSkuCount,string"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if req.SpecificSkuCount <= 0 {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"specificSkuCount must be greater than zero", "INVALID_ARGUMENT")
 			return
 		}
@@ -112,7 +112,7 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 				return
 			}
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation block %q not found", wanted)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation block %q not found", wanted)
 	})
 	srv.HandleFunc("POST "+base+"/{name}/reservationBlocks/{block}/performMaintenance", func(w http.ResponseWriter, r *http.Request) {
 		key, _, ok := load(w, r)
@@ -153,7 +153,7 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 			}
 			return computeReservationSubBlocks(held), true
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation block %q not found", block)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation block %q not found", block)
 		return nil, false
 	}
 
@@ -182,7 +182,7 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 				return item, true
 			}
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation sub-block %q not found", wanted)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation sub-block %q not found", wanted)
 		return nil, false
 	}
 	srv.HandleFunc("GET "+subBase+"/{subBlock}", func(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +237,7 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 				return item, true
 			}
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation slot %q not found", wanted)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "reservation slot %q not found", wanted)
 		return nil, false
 	}
 

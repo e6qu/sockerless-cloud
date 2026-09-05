@@ -7,7 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 )
 
@@ -48,7 +48,7 @@ func ensureConsoleRegistered(srv *sim.Server) {
 	if _, pattern := srv.Mux().Handler(probe); pattern == "GET "+consoleConfigPath {
 		return
 	}
-	srv.RegisterUI(consoleAssets())
+	srv.RegisterUI(consoleAssets(), sim.ConsoleOptions{Coordinates: sim.BrowserFederationCoordinates})
 }
 
 // Shauth is an ADDITION to each simulator's cloud authentication, never a

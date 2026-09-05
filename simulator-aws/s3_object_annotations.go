@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon S3 object annotations — named payloads attached to an object,
@@ -78,18 +78,18 @@ func handleS3PutObjectAnnotation(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	name := r.URL.Query().Get("annotationName")
 	if code, msg, ok := s3ValidAnnotationName(name); !ok {
-		sim.S3ErrorXML(w, code, msg, key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		S3ErrorXML(w, code, msg, key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if _, ok := s3Objects.Get(s3ObjectKey(bucket, key)); !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "Failed to read the annotation payload: "+err.Error(),
+		S3ErrorXML(w, "IncompleteBody", "Failed to read the annotation payload: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -116,17 +116,17 @@ func handleS3GetObjectAnnotation(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	name := r.URL.Query().Get("annotationName")
 	if code, msg, ok := s3ValidAnnotationName(name); !ok {
-		sim.S3ErrorXML(w, code, msg, key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		S3ErrorXML(w, code, msg, key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if _, ok := s3Objects.Get(s3ObjectKey(bucket, key)); !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	ann, ok := s3ObjectAnnotations.Get(s3AnnotationKey(bucket, key, name))
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchAnnotation", "The specified annotation does not exist.",
+		S3ErrorXML(w, "NoSuchAnnotation", "The specified annotation does not exist.",
 			name, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -145,11 +145,11 @@ func handleS3DeleteObjectAnnotation(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	name := r.URL.Query().Get("annotationName")
 	if code, msg, ok := s3ValidAnnotationName(name); !ok {
-		sim.S3ErrorXML(w, code, msg, key, sim.RequestID(r.Context()), http.StatusBadRequest)
+		S3ErrorXML(w, code, msg, key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if _, ok := s3Objects.Get(s3ObjectKey(bucket, key)); !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -164,7 +164,7 @@ func handleS3ListObjectAnnotations(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
 	if _, ok := s3Objects.Get(s3ObjectKey(bucket, key)); !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}

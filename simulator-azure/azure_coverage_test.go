@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure operation-coverage gate — the Swagger-spec analogue of the AWS

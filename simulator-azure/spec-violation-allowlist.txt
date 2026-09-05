@@ -1,0 +1,16 @@
+# Known runtime spec-shape violations — the burn-down list.
+#
+# Each line is a violation key (op<TAB>kind<TAB>field, array indices
+# collapsed to []) recorded by SOCKERLESS_SPEC_VALIDATE and accepted by
+# scripts/check-spec-violations.sh. Every burn-down entry MUST carry a
+# BUG ID; this list only shrinks — fixing the simulator removes lines,
+# never the other way around. New violations fail CI until fixed or
+# filed + listed here.
+
+# BUG-2977: an unmigrated account's `default` migration answers 200 with no
+# status, because terraform-provider-azurerm reads it on every account read and
+# fails the account on anything else — and it reads real Azure. The swagger
+# marks targetSkuName required; what real Azure puts there for an account nobody
+# has migrated is uncaptured, and inventing a value would be worse than omitting
+# it. A capture from a real account closes this.
+GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}/accountMigrations/{migrationName}	missing-required	$.properties.targetSkuName

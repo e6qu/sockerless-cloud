@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cross-resource-group move for Microsoft.Network. The hook table in

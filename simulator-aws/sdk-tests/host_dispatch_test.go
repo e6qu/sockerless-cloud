@@ -22,23 +22,25 @@ import (
 // `os/exec` would miss a handler that dispatched through a wrapper, so a gate
 // that checked only the import could not fail whatever the handlers did.
 //
-// It walks the whole module, not just the top-level directory, because the
-// container reaper lives in shared/ and is named below.
+// It walks the whole simulator module and the framework module `sim/` the
+// simulator is built on, because the container reaper lives there and is named
+// below; paths are repository-relative so both roots share one allow list.
 func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 	// Each entry is a file allowed to reach the host, with the reason. Nothing
 	// runs a workload as a host process: there is no process substrate, and
 	// SIM_RUNTIME=process means API-only — serving the API surface without a
 	// container engine, never executing a workload outside one.
 	allowList := map[string]string{
-		"shared/container_reaper.go": "reaps the sim's own containers through the docker CLI; not a workload",
+		"sim/container_reaper.go": "reaps the sim's own containers through the docker CLI; not a workload",
 	}
 
-	simDir, err := filepath.Abs("..")
+	repoRoot, err := filepath.Abs("../..")
 	require.NoError(t, err)
+	roots := []string{filepath.Join(repoRoot, "simulator-aws"), filepath.Join(repoRoot, "sim")}
 
 	scanned := 0
 	var offenders []string
-	require.NoError(t, filepath.WalkDir(simDir, func(path string, entry os.DirEntry, walkErr error) error {
+	walk := func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -52,7 +54,7 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 		if !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			return nil
 		}
-		relative, err := filepath.Rel(simDir, path)
+		relative, err := filepath.Rel(repoRoot, path)
 		if err != nil {
 			return err
 		}
@@ -75,10 +77,13 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 		}
 		offenders = append(offenders, relative)
 		return nil
-	}))
+	}
+	for _, root := range roots {
+		require.NoError(t, filepath.WalkDir(root, walk))
+	}
 
 	// A walk that reached nothing would report clean without having looked.
-	require.Greaterf(t, scanned, 200, "the gate read only %d files under %s", scanned, simDir)
+	require.Greaterf(t, scanned, 200, "the gate read only %d files under %s", scanned, strings.Join(roots, ", "))
 
 	require.Emptyf(t, offenders,
 		"these files dispatch a process on the host — a workload must run on the Docker host, or through the dedicated VM real-execution substrate (specs/SIMULATOR_REAL_EXECUTION.md): %s",
@@ -88,7 +93,7 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 	// dispatch removed from one of them drops off this list instead of
 	// silently licensing whatever the file becomes next.
 	for relative := range allowList {
-		body, err := os.ReadFile(filepath.Join(simDir, relative))
+		body, err := os.ReadFile(filepath.Join(repoRoot, relative))
 		require.NoErrorf(t, err, "allowlisted %s no longer exists — remove it from the list", relative)
 		text := string(body)
 		require.Truef(t,

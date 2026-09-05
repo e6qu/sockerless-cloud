@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	dockerclient "github.com/moby/moby/client"
 )
 
@@ -198,13 +198,14 @@ func startSidecarContainers(site *Site, mainContainerID string, sink sim.LogSink
 			injectAppTrace(site.Name, fmt.Sprintf("sidecar %q: resolve image platform failed: %v", sc.Name, err))
 			continue
 		}
-		handle := sim.StartContainer(sim.ContainerConfig{
-			Image:        localImage,
-			Architecture: platform,
-			Args:         splitStartUpCommand(sc.Properties.StartUpCommand),
-			Env:          mergeEnv(envVarsMap(sc.Properties.EnvironmentVariables), hostMetadataEnv()),
-			Binds:        siteContainerVolumeBinds(site.Name, sc.Properties.VolumeMounts),
-			Name:         fmt.Sprintf("sockerless-sim-azure-func-sidecar-%s-%s-%d", site.Name, sc.Name, time.Now().UnixNano()),
+		handle, err := sim.StartContainerSync(sim.ContainerConfig{
+			CancelGracePeriod: 5 * time.Second,
+			Image:             localImage,
+			Architecture:      platform,
+			Args:              splitStartUpCommand(sc.Properties.StartUpCommand),
+			Env:               mergeEnv(envVarsMap(sc.Properties.EnvironmentVariables), hostMetadataEnv()),
+			Binds:             siteContainerVolumeBinds(site.Name, sc.Properties.VolumeMounts),
+			Name:              fmt.Sprintf("sockerless-sim-azure-func-sidecar-%s-%s-%d", site.Name, sc.Name, time.Now().UnixNano()),
 			Labels: map[string]string{
 				"sockerless-sim-type":           "azure-function-sidecar",
 				"sockerless-site":               site.Name,
@@ -212,8 +213,12 @@ func startSidecarContainers(site *Site, mainContainerID string, sink sim.LogSink
 				"sockerless-sitecontainer-main": mainContainerID,
 			},
 			NetworkMode: "container:" + mainContainerID,
-			Sandbox:     sim.SandboxAZF,
+			Sandbox:     SandboxAZF,
 		}, sink)
+		if err != nil {
+			injectAppTrace(site.Name, fmt.Sprintf("sidecar %q: start failed: %v", sc.Name, err))
+			continue
+		}
 		handles = append(handles, handle)
 	}
 	return handles
@@ -269,11 +274,11 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 
 		var req SiteContainer
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.Image == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'properties.image' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'properties.image' property is required.", http.StatusBadRequest)
 			return
 		}
 
@@ -301,7 +306,7 @@ func registerSiteContainerHandlers(srv *sim.Server, armBase string) {
 	both("GET", "/sitecontainers/{containerName}", func(w http.ResponseWriter, r *http.Request) {
 		sc, ok := azfSiteContainers.Get(containerID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"sitecontainer %q not found", sim.PathParam(r, "containerName"))
 			return
 		}

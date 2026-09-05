@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // DDBBackup is a point-in-time snapshot of a table's schema + items, taken by
@@ -133,7 +133,7 @@ var (
 // registerDynamoDBExtended mounts the extended control-plane handlers onto the
 // existing DynamoDB JSON router and initializes the backing stores. Called from
 // registerDynamoDB.
-func registerDynamoDBExtended(r *sim.AWSRouter, srv *sim.Server) {
+func registerDynamoDBExtended(r *AWSRouter, srv *sim.Server) {
 	ddbBackups = sim.MakeStore[DDBBackup](srv.DB(), "ddb_backups")
 	ddbGlobalTables = sim.MakeStore[DDBGlobalTable](srv.DB(), "ddb_global_tables")
 	ddbStreamDests = sim.MakeStore[DDBStreamDestination](srv.DB(), "ddb_stream_dests")
@@ -235,12 +235,12 @@ func handleDDBCreateBackup(w http.ResponseWriter, r *http.Request) {
 		BackupName string `json:"BackupName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
 			"Table not found: %s", req.TableName)
 		return
 	}
@@ -325,12 +325,12 @@ func handleDDBDescribeBackup(w http.ResponseWriter, r *http.Request) {
 		BackupArn string `json:"BackupArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	bk, ok := ddbBackups.Get(req.BackupArn)
 	if !ok {
-		sim.AWSErrorf(w, "BackupNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "BackupNotFoundException", http.StatusBadRequest,
 			"Backup not found: %s", req.BackupArn)
 		return
 	}
@@ -342,12 +342,12 @@ func handleDDBDeleteBackup(w http.ResponseWriter, r *http.Request) {
 		BackupArn string `json:"BackupArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	bk, ok := ddbBackups.Get(req.BackupArn)
 	if !ok {
-		sim.AWSErrorf(w, "BackupNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "BackupNotFoundException", http.StatusBadRequest,
 			"Backup not found: %s", req.BackupArn)
 		return
 	}
@@ -363,7 +363,7 @@ func handleDDBListBackups(w http.ResponseWriter, r *http.Request) {
 		Limit                   int    `json:"Limit"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ddbBackups.List()
@@ -433,17 +433,17 @@ func handleDDBRestoreTableFromBackup(w http.ResponseWriter, r *http.Request) {
 		TargetTableName string `json:"TargetTableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	bk, ok := ddbBackups.Get(req.BackupArn)
 	if !ok {
-		sim.AWSErrorf(w, "BackupNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "BackupNotFoundException", http.StatusBadRequest,
 			"Backup not found: %s", req.BackupArn)
 		return
 	}
 	if _, exists := ddbTables.Get(req.TargetTableName); exists {
-		sim.AWSErrorf(w, "TableAlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "TableAlreadyExistsException", http.StatusBadRequest,
 			"Table already exists: %s", req.TargetTableName)
 		return
 	}
@@ -460,7 +460,7 @@ func handleDDBRestoreTableToPointInTime(w http.ResponseWriter, r *http.Request) 
 		TargetTableName string `json:"TargetTableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	srcName := req.SourceTableName
@@ -471,19 +471,19 @@ func handleDDBRestoreTableToPointInTime(w http.ResponseWriter, r *http.Request) 
 	}
 	src, ok := ddbTables.Get(srcName)
 	if !ok {
-		sim.AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
 			"Source table not found: %s", srcName)
 		return
 	}
 	// PITR must be enabled on the source (terraform/real AWS reject otherwise).
 	settings, _ := ddbTableSettings.Get(srcName)
 	if settings.PITRStatus != "ENABLED" {
-		sim.AWSErrorf(w, "InvalidRestoreTimeException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidRestoreTimeException", http.StatusBadRequest,
 			"Point in time recovery is not enabled for table: %s", srcName)
 		return
 	}
 	if _, exists := ddbTables.Get(req.TargetTableName); exists {
-		sim.AWSErrorf(w, "TableAlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "TableAlreadyExistsException", http.StatusBadRequest,
 			"Table already exists: %s", req.TargetTableName)
 		return
 	}
@@ -566,18 +566,18 @@ func handleDDBCreateGlobalTable(w http.ResponseWriter, r *http.Request) {
 		} `json:"ReplicationGroup"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, exists := ddbGlobalTables.Get(req.GlobalTableName); exists {
-		sim.AWSErrorf(w, "GlobalTableAlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "GlobalTableAlreadyExistsException", http.StatusBadRequest,
 			"Global table already exists: %s", req.GlobalTableName)
 		return
 	}
 	// The same-named table must exist in the current region (real AWS requires
 	// the source table before a legacy global table can be formed).
 	if _, ok := ddbTables.Get(req.GlobalTableName); !ok {
-		sim.AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
 			"Table not found: %s", req.GlobalTableName)
 		return
 	}
@@ -601,12 +601,12 @@ func handleDDBDescribeGlobalTable(w http.ResponseWriter, r *http.Request) {
 		GlobalTableName string `json:"GlobalTableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	gt, ok := ddbGlobalTables.Get(req.GlobalTableName)
 	if !ok {
-		sim.AWSErrorf(w, "GlobalTableNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "GlobalTableNotFoundException", http.StatusBadRequest,
 			"Global table not found: %s", req.GlobalTableName)
 		return
 	}
@@ -620,7 +620,7 @@ func handleDDBListGlobalTables(w http.ResponseWriter, r *http.Request) {
 		Limit                         int    `json:"Limit"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ddbGlobalTables.List()
@@ -686,12 +686,12 @@ func handleDDBUpdateGlobalTable(w http.ResponseWriter, r *http.Request) {
 		} `json:"ReplicaUpdates"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	gt, ok := ddbGlobalTables.Get(req.GlobalTableName)
 	if !ok {
-		sim.AWSErrorf(w, "GlobalTableNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "GlobalTableNotFoundException", http.StatusBadRequest,
 			"Global table not found: %s", req.GlobalTableName)
 		return
 	}
@@ -706,7 +706,7 @@ func handleDDBUpdateGlobalTable(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if exists {
-				sim.AWSErrorf(w, "ReplicaAlreadyExistsException", http.StatusBadRequest,
+				AWSErrorf(w, "ReplicaAlreadyExistsException", http.StatusBadRequest,
 					"Replica already exists: %s", upd.Create.RegionName)
 				return
 			}
@@ -764,12 +764,12 @@ func handleDDBDescribeGlobalTableSettings(w http.ResponseWriter, r *http.Request
 		GlobalTableName string `json:"GlobalTableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	gt, ok := ddbGlobalTables.Get(req.GlobalTableName)
 	if !ok {
-		sim.AWSErrorf(w, "GlobalTableNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "GlobalTableNotFoundException", http.StatusBadRequest,
 			"Global table not found: %s", req.GlobalTableName)
 		return
 	}
@@ -790,14 +790,14 @@ func handleDDBUpdateGlobalTableSettings(w http.ResponseWriter, r *http.Request) 
 		} `json:"ReplicaSettingsUpdate"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	ddbExtendedMu.Lock()
 	defer ddbExtendedMu.Unlock()
 	gt, ok := ddbGlobalTables.Get(req.GlobalTableName)
 	if !ok {
-		sim.AWSErrorf(w, "GlobalTableNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "GlobalTableNotFoundException", http.StatusBadRequest,
 			"Global table not found: %s", req.GlobalTableName)
 		return
 	}
@@ -843,12 +843,12 @@ func handleDDBUpdateTableReplicaAutoScaling(w http.ResponseWriter, r *http.Reque
 		TableName string `json:"TableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -862,12 +862,12 @@ func handleDDBDescribeTableReplicaAutoScaling(w http.ResponseWriter, r *http.Req
 		TableName string `json:"TableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -882,11 +882,11 @@ func handleDDBPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		Policy      string `json:"Policy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ddbResourceExistsForPolicy(req.ResourceArn) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: %s", req.ResourceArn)
 		return
 	}
@@ -903,12 +903,12 @@ func handleDDBGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		ResourceArn string `json:"ResourceArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	rp, ok := ddbResourcePols.Get(req.ResourceArn)
 	if !ok {
-		sim.AWSErrorf(w, "PolicyNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "PolicyNotFoundException", http.StatusBadRequest,
 			"No resource policy found for resource: %s", req.ResourceArn)
 		return
 	}
@@ -923,11 +923,11 @@ func handleDDBDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		ResourceArn string `json:"ResourceArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ddbResourcePols.Get(req.ResourceArn); !ok {
-		sim.AWSErrorf(w, "PolicyNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "PolicyNotFoundException", http.StatusBadRequest,
 			"No resource policy found for resource: %s", req.ResourceArn)
 		return
 	}
@@ -971,11 +971,11 @@ func handleDDBEnableKinesisStreaming(w http.ResponseWriter, r *http.Request) {
 		} `json:"EnableKinesisStreamingConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ddbTables.Get(req.TableName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -1007,17 +1007,17 @@ func handleDDBDisableKinesisStreaming(w http.ResponseWriter, r *http.Request) {
 		StreamArn string `json:"StreamArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ddbTables.Get(req.TableName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
 	key := ddbStreamDestKey(req.TableName, ddbStreamArn(req.StreamArn))
 	if _, ok := ddbStreamDests.Get(key); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Kinesis streaming destination not found for table %s", req.TableName)
 		return
 	}
@@ -1034,11 +1034,11 @@ func handleDDBDescribeKinesisStreaming(w http.ResponseWriter, r *http.Request) {
 		TableName string `json:"TableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ddbTables.Get(req.TableName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -1070,18 +1070,18 @@ func handleDDBUpdateKinesisStreaming(w http.ResponseWriter, r *http.Request) {
 		} `json:"UpdateKinesisStreamingConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ddbTables.Get(req.TableName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
 	key := ddbStreamDestKey(req.TableName, ddbStreamArn(req.StreamArn))
 	dest, ok := ddbStreamDests.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Kinesis streaming destination not found for table %s", req.TableName)
 		return
 	}
@@ -1138,12 +1138,12 @@ func handleDDBExportTableToPointInTime(w http.ResponseWriter, r *http.Request) {
 		ClientToken  string  `json:"ClientToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, t, ok := ddbTableByArn(req.TableArn)
 	if !ok {
-		sim.AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
 			"Table not found for ARN: %s", req.TableArn)
 		return
 	}
@@ -1181,12 +1181,12 @@ func handleDDBDescribeExport(w http.ResponseWriter, r *http.Request) {
 		ExportArn string `json:"ExportArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	e, ok := ddbExports.Get(req.ExportArn)
 	if !ok {
-		sim.AWSErrorf(w, "ExportNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ExportNotFoundException", http.StatusBadRequest,
 			"Export not found: %s", req.ExportArn)
 		return
 	}
@@ -1200,7 +1200,7 @@ func handleDDBListExports(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ddbExports.List()
@@ -1277,16 +1277,16 @@ func handleDDBImportTable(w http.ResponseWriter, r *http.Request) {
 		} `json:"TableCreationParameters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TableCreationParameters == nil || req.TableCreationParameters.TableName == "" {
-		sim.AWSError(w, "ValidationException", "TableCreationParameters.TableName is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "TableCreationParameters.TableName is required", http.StatusBadRequest)
 		return
 	}
 	tcp := req.TableCreationParameters
 	if _, exists := ddbTables.Get(tcp.TableName); exists {
-		sim.AWSErrorf(w, "ImportConflictException", http.StatusBadRequest,
+		AWSErrorf(w, "ImportConflictException", http.StatusBadRequest,
 			"Table already exists: %s", tcp.TableName)
 		return
 	}
@@ -1333,12 +1333,12 @@ func handleDDBDescribeImport(w http.ResponseWriter, r *http.Request) {
 		ImportArn string `json:"ImportArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	im, ok := ddbImports.Get(req.ImportArn)
 	if !ok {
-		sim.AWSErrorf(w, "ImportNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ImportNotFoundException", http.StatusBadRequest,
 			"Import not found: %s", req.ImportArn)
 		return
 	}
@@ -1352,7 +1352,7 @@ func handleDDBListImports(w http.ResponseWriter, r *http.Request) {
 		NextToken string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ddbImports.List()
@@ -1398,11 +1398,11 @@ func handleDDBUpdateContributorInsights(w http.ResponseWriter, r *http.Request) 
 		ContributorInsightsMode   string `json:"ContributorInsightsMode"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ddbTables.Get(req.TableName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -1444,11 +1444,11 @@ func handleDDBDescribeContributorInsights(w http.ResponseWriter, r *http.Request
 		IndexName string `json:"IndexName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ddbTables.Get(req.TableName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -1485,7 +1485,7 @@ func handleDDBListContributorInsights(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ddbContribInsts.List()

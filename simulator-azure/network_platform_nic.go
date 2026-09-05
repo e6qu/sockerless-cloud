@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
 // Several Microsoft.Network resources own network interfaces they did not ask
@@ -111,13 +109,13 @@ func azurePlatformNICPrivateIP(nicID string) string {
 // rejected with the subnet's own ResourceNotFound, before any fabric is built.
 func azureRequireSubnet(w http.ResponseWriter, subnetID string) (Subnet, bool) {
 	if subnetID == "" {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: a subnet reference is required.")
 		return Subnet{}, false
 	}
 	subnet, ok := azureSubnets.Get(subnetID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", subnetID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", subnetID)
 		return Subnet{}, false
 	}
 	return subnet, true

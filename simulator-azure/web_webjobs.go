@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_webjobs.go implements the App Service WebJobs slice of the
@@ -314,18 +314,19 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	env = mergeEnv(env, extraEnv)
 	sink := &funcLogSink{appName: site.Name}
 	return sim.StartContainerSync(sim.ContainerConfig{
-		Image:        localImage,
-		Architecture: platform,
-		Command:      []string{"/bin/sh", "-c", "cd " + jobDir + " && " + runInvocation},
-		Env:          env,
-		Binds:        append([]string{hostDir + ":" + jobDir}, siteAzureStorageBinds(site)...),
-		Name:         fmt.Sprintf("sockerless-sim-azure-webjob-%s-%s-%s", site.Name, rec.Name, randomSuffix(6)),
+		CancelGracePeriod: 5 * time.Second,
+		Image:             localImage,
+		Architecture:      platform,
+		Command:           []string{"/bin/sh", "-c", "cd " + jobDir + " && " + runInvocation},
+		Env:               env,
+		Binds:             append([]string{hostDir + ":" + jobDir}, siteAzureStorageBinds(site)...),
+		Name:              fmt.Sprintf("sockerless-sim-azure-webjob-%s-%s-%s", site.Name, rec.Name, randomSuffix(6)),
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-webjob",
 			"sockerless-site":     site.Name,
 		},
 		ExtraHosts: hostMetadataExtraHosts(),
-		Sandbox:    sim.SandboxAZF,
+		Sandbox:    SandboxAZF,
 	}, sink)
 }
 
@@ -592,7 +593,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		}
 		rec, ok := webWebJobs.Get(jobID(r, kind))
 		if !ok {
-			sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+			AzureErrorf(w, "NotFound", http.StatusNotFound,
 				"WebJob %q not found.", sim.PathParam(r, "webJobName"))
 			return WebJobRecord{}, false
 		}
@@ -631,7 +632,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 				return
 			}
 		}
-		sim.AzureErrorf(w, "NotFound", http.StatusNotFound, "WebJob %q not found.", name)
+		AzureErrorf(w, "NotFound", http.StatusNotFound, "WebJob %q not found.", name)
 	})
 
 	// Triggered webjobs.
@@ -693,7 +694,7 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		}
 		run, found := webJobRuns.Get(rec.ID + "/history/" + sim.PathParam(r, "id"))
 		if !found {
-			sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+			AzureErrorf(w, "NotFound", http.StatusNotFound,
 				"Run %q of webjob %q not found.", sim.PathParam(r, "id"), rec.Name)
 			return
 		}

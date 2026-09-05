@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // StartTask runs a task on the specific container instances the caller names,
@@ -15,7 +15,7 @@ import (
 // instances. It launches each assigned task through the same real container,
 // networking, logging, and lifecycle path as RunTask.
 
-func registerECSStartTask(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSStartTask(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonEC2ContainerServiceV20141113.StartTask", handleECSStartTask)
 }
 
@@ -35,21 +35,21 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 		NetworkConfiguration *ECSTaskNetworkConfig `json:"networkConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TaskDefinition == "" {
-		sim.AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
 		return
 	}
 	if len(req.ContainerInstances) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "containerInstances cannot be empty", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "containerInstances cannot be empty", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	_, ok := ecsClusters.Get(clusterName)
 	if !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
 		return
 	}
 
@@ -69,7 +69,7 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 	}
 	_, ok = ecsTaskDefinitions.Get(tdKey)
 	if !ok {
-		sim.AWSErrorf(w, "ClientException", http.StatusBadRequest,
+		AWSErrorf(w, "ClientException", http.StatusBadRequest,
 			"Unable to describe task definition: %s", req.TaskDefinition)
 		return
 	}
@@ -103,7 +103,7 @@ func handleECSStartTask(w http.ResponseWriter, r *http.Request) {
 			ContainerInstanceKey: instanceKey,
 		})
 		if requestError != nil {
-			sim.AWSError(w, requestError.code, requestError.message, requestError.status)
+			AWSError(w, requestError.code, requestError.message, requestError.status)
 			return
 		}
 		tasks = append(tasks, launched...)

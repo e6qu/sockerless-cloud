@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon S3 Batch Operations: a job applies one operation to every object a
@@ -107,7 +107,7 @@ func handleS3CreateJob(w http.ResponseWriter, r *http.Request) {
 		s3BatchJobs.Put(s3AccessPointKey(account, job.JobID), job)
 		s3RunBatchJob(account, job.JobID)
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"CreateJobResult"`
 		JobID   string   `xml:"JobId"`
 	}{JobID: job.JobID})
@@ -311,7 +311,7 @@ func handleS3DescribeJob(w http.ResponseWriter, r *http.Request) {
 		NumberOfTasksSucceeded int `xml:"NumberOfTasksSucceeded"`
 		NumberOfTasksFailed    int `xml:"NumberOfTasksFailed"`
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName            xml.Name         `xml:"DescribeJobResult"`
 		JobID              string           `xml:"Job>JobId"`
 		Description        string           `xml:"Job>Description,omitempty"`
@@ -385,7 +385,7 @@ func handleS3ListJobs(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreationTime > items[j].CreationTime })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"ListJobsResult"`
 		Jobs    []entry  `xml:"Jobs>member"`
 	}{Jobs: items})
@@ -403,7 +403,7 @@ func handleS3UpdateJobPriority(w http.ResponseWriter, r *http.Request) {
 		s3ControlError(w, "NoSuchJob", "The specified job does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName  xml.Name `xml:"UpdateJobPriorityResult"`
 		JobID    string   `xml:"JobId"`
 		Priority int      `xml:"Priority"`
@@ -441,7 +441,7 @@ func handleS3UpdateJobStatus(w http.ResponseWriter, r *http.Request) {
 		s3RunBatchJob(account, jobID)
 	}
 	updated, _ := s3BatchJobs.Get(s3AccessPointKey(account, jobID))
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName            xml.Name `xml:"UpdateJobStatusResult"`
 		JobID              string   `xml:"JobId"`
 		Status             string   `xml:"Status"`

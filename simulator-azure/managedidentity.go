@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // systemAssignedIdentity is the stable identity the IMDS/MSI endpoint
@@ -142,7 +142,7 @@ func registerManagedIdentity(srv *sim.Server) {
 			Tags     map[string]string `json:"tags,omitempty"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -199,7 +199,7 @@ func registerManagedIdentity(srv *sim.Server) {
 
 		identity, ok := identities.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Identity '%s' not found.", identityName)
 			return
 		}
@@ -238,7 +238,7 @@ func registerManagedIdentity(srv *sim.Server) {
 	tokenHandler := func(w http.ResponseWriter, r *http.Request) {
 		resource := r.URL.Query().Get("resource")
 		if resource == "" {
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"missing required 'resource' query parameter (audience the token is scoped to)",
 				http.StatusBadRequest)
 			return
@@ -251,7 +251,7 @@ func registerManagedIdentity(srv *sim.Server) {
 		// identity's oid/clientId so resource servers can authorize it.
 		identity, ok := resolveTokenIdentity(identities, r.URL.Query())
 		if !ok {
-			sim.AzureError(w, "invalid_request",
+			AzureError(w, "invalid_request",
 				"no managed identity matches the requested client_id/object_id/mi_res_id; create one first (PUT .../userAssignedIdentities/{name})",
 				http.StatusBadRequest)
 			return
@@ -272,7 +272,7 @@ func registerManagedIdentity(srv *sim.Server) {
 			"ver":       "1.0",
 		})
 		if err != nil {
-			sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -323,7 +323,7 @@ func handleManagedIdentityUpdate(w http.ResponseWriter, r *http.Request) {
 		Tags     map[string]string `json:"tags,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	updated := azureManagedIdentities.Update(resourceID, func(existing *UserAssignedIdentity) {
@@ -335,7 +335,7 @@ func handleManagedIdentityUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if !updated {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Identity '%s' not found.", name)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Identity '%s' not found.", name)
 		return
 	}
 	identity, _ := azureManagedIdentities.Get(resourceID)
@@ -377,14 +377,14 @@ func handleFederatedCredentialPut(w http.ResponseWriter, r *http.Request) {
 	identityName := sim.PathParam(r, "identityName")
 	ficName := sim.PathParam(r, "ficName")
 	if _, ok := azureManagedIdentities.Get(userAssignedIdentityID(sub, rg, identityName)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Identity '%s' not found.", identityName)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Identity '%s' not found.", identityName)
 		return
 	}
 	var req struct {
 		Properties FederatedCredentialSpec `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	id := federatedCredentialID(sub, rg, identityName, ficName)
@@ -408,7 +408,7 @@ func handleFederatedCredentialGet(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "identityName"), sim.PathParam(r, "ficName"))
 	fic, ok := azureFederatedCredentials.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Federated identity credential '%s' not found.", sim.PathParam(r, "ficName"))
 		return
 	}
@@ -430,7 +430,7 @@ func handleFederatedCredentialList(w http.ResponseWriter, r *http.Request) {
 	rg := sim.PathParam(r, "resourceGroupName")
 	identityName := sim.PathParam(r, "identityName")
 	if _, ok := azureManagedIdentities.Get(userAssignedIdentityID(sub, rg, identityName)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Identity '%s' not found.", identityName)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Identity '%s' not found.", identityName)
 		return
 	}
 	prefix := userAssignedIdentityID(sub, rg, identityName) + "/federatedIdentityCredentials/"

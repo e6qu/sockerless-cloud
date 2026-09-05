@@ -24,7 +24,7 @@ pattern='(strings|bytes)\.(Last)?Index([A-Za-z]*)?\([^)]*\.To(Lower|Upper)\('
 # directories this repository actually has: the sockerless monorepo's
 # simulators/, backends/, agent/ and core/ are not among them, and a filter
 # naming those matched nothing here.
-readonly SCAN_DIRS='simulator-aws|simulator-azure|simulator-gcp|realexec|testutil|ui-auth'
+readonly SCAN_DIRS='sim|simulator-aws|simulator-azure|simulator-gcp|realexec|testutil|ui-auth'
 
 # A gate that scans nothing passes for the wrong reason. Prove the scan set is
 # non-empty before trusting a clean result.

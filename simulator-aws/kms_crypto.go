@@ -19,7 +19,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // KMS crypto: real AES-256-GCM for symmetric operations and real Go-stdlib
@@ -39,7 +39,7 @@ const kmsBlobMagic = "SK1"
 const kmsBlobVersion = byte(0x01)
 const kmsKeyMaterialLen = 32
 
-func registerKMSCrypto(r *sim.AWSRouter, srv *sim.Server) {
+func registerKMSCrypto(r *AWSRouter, srv *sim.Server) {
 	registerKMSKeyMaterial(srv)
 	kmsAsymmetricKeyMaterial = sim.MakeStore[KMSKeyMaterial](srv.DB(), "kms_asymmetric_key_material")
 
@@ -277,7 +277,7 @@ func kmsIsUsable(key KMSKey) bool {
 // kmsCryptoDisabledError returns the service-specific error real KMS emits
 // when a key is not in a valid state for the requested operation.
 func kmsCryptoDisabledError(w http.ResponseWriter, op string) {
-	sim.AWSErrorf(w, "DisabledException", http.StatusConflict,
+	AWSErrorf(w, "DisabledException", http.StatusConflict,
 		"%s is disabled.", op)
 }
 
@@ -390,7 +390,7 @@ func handleKMSSign(w http.ResponseWriter, r *http.Request) {
 		SigningAlgorithm string `json:"SigningAlgorithm"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -403,22 +403,22 @@ func handleKMSSign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !kmsIsAsymmetricSpec(key.Spec) || key.KeyUsage != "SIGN_VERIFY" {
-		sim.AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
 			"%s key usage is %s, not SIGN_VERIFY.", kmsKeyArn(keyId), key.KeyUsage)
 		return
 	}
 	if req.SigningAlgorithm == "" {
-		sim.AWSError(w, "ValidationException", "SigningAlgorithm is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "SigningAlgorithm is required", http.StatusBadRequest)
 		return
 	}
 	mat, err := kmsEnsureAsymmetricMaterial(keyId, key.Spec)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
 		return
 	}
 	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
 		return
 	}
 	digest, hkind := kmsHashForSigningAlg(req.SigningAlgorithm, req.Message)
@@ -433,11 +433,11 @@ func handleKMSSign(w http.ResponseWriter, r *http.Request) {
 	case *ecdsa.PrivateKey:
 		signature, err = ecdsa.SignASN1(rand.Reader, k, digest)
 	default:
-		sim.AWSError(w, "InvalidKeyUsageException", "key material is not a signing key", http.StatusBadRequest)
+		AWSError(w, "InvalidKeyUsageException", "key material is not a signing key", http.StatusBadRequest)
 		return
 	}
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to sign message", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to sign message", http.StatusInternalServerError)
 		return
 	}
 	kmsRecordUsage(keyId, "Sign")
@@ -457,7 +457,7 @@ func handleKMSVerify(w http.ResponseWriter, r *http.Request) {
 		SigningAlgorithm string `json:"SigningAlgorithm"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -466,18 +466,18 @@ func handleKMSVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	key, _ := kmsKeys.Get(keyId)
 	if !kmsIsAsymmetricSpec(key.Spec) || key.KeyUsage != "SIGN_VERIFY" {
-		sim.AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
 			"%s key usage is %s, not SIGN_VERIFY.", kmsKeyArn(keyId), key.KeyUsage)
 		return
 	}
 	mat, err := kmsEnsureAsymmetricMaterial(keyId, key.Spec)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
 		return
 	}
 	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
 		return
 	}
 	digest, hkind := kmsHashForSigningAlg(req.SigningAlgorithm, req.Message)
@@ -494,11 +494,11 @@ func handleKMSVerify(w http.ResponseWriter, r *http.Request) {
 			verifyErr = kmsSimpleError("invalid ecdsa signature")
 		}
 	default:
-		sim.AWSError(w, "InvalidKeyUsageException", "key material is not a signing key", http.StatusBadRequest)
+		AWSError(w, "InvalidKeyUsageException", "key material is not a signing key", http.StatusBadRequest)
 		return
 	}
 	if verifyErr != nil {
-		sim.AWSErrorf(w, "KMSInvalidSignatureException", http.StatusBadRequest,
+		AWSErrorf(w, "KMSInvalidSignatureException", http.StatusBadRequest,
 			"The signature is not valid for the message and key.")
 		return
 	}
@@ -514,7 +514,7 @@ func handleKMSGetPublicKey(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -523,18 +523,18 @@ func handleKMSGetPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 	key, _ := kmsKeys.Get(keyId)
 	if !kmsIsAsymmetricSpec(key.Spec) {
-		sim.AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
 			"%s is not an asymmetric key.", kmsKeyArn(keyId))
 		return
 	}
 	mat, err := kmsEnsureAsymmetricMaterial(keyId, key.Spec)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
 		return
 	}
 	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
 		return
 	}
 	var pubDER []byte
@@ -544,11 +544,11 @@ func handleKMSGetPublicKey(w http.ResponseWriter, r *http.Request) {
 	case *ecdsa.PrivateKey:
 		pubDER, err = x509.MarshalPKIXPublicKey(&k.PublicKey)
 	default:
-		sim.AWSError(w, "KMSInternalException", "unsupported key material", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "unsupported key material", http.StatusInternalServerError)
 		return
 	}
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to marshal public key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to marshal public key", http.StatusInternalServerError)
 		return
 	}
 	resp := map[string]any{
@@ -592,7 +592,7 @@ func handleKMSGenerateMac(w http.ResponseWriter, r *http.Request) {
 		MacAlgorithm string `json:"MacAlgorithm"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -605,19 +605,19 @@ func handleKMSGenerateMac(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !kmsIsHMACSpec(key.Spec) || key.KeyUsage != "GENERATE_VERIFY_MAC" {
-		sim.AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
 			"%s is not an HMAC key.", kmsKeyArn(keyId))
 		return
 	}
 	hfn := kmsHMACHash(req.MacAlgorithm)
 	if hfn == nil {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"Unsupported MacAlgorithm: %s", req.MacAlgorithm)
 		return
 	}
 	mat, err := kmsEnsureAsymmetricMaterial(keyId, key.Spec)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
 		return
 	}
 	mac := hmac.New(hfn, mat.HMACSecret)
@@ -639,7 +639,7 @@ func handleKMSVerifyMac(w http.ResponseWriter, r *http.Request) {
 		MacAlgorithm string `json:"MacAlgorithm"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -648,26 +648,26 @@ func handleKMSVerifyMac(w http.ResponseWriter, r *http.Request) {
 	}
 	key, _ := kmsKeys.Get(keyId)
 	if !kmsIsHMACSpec(key.Spec) || key.KeyUsage != "GENERATE_VERIFY_MAC" {
-		sim.AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
 			"%s is not an HMAC key.", kmsKeyArn(keyId))
 		return
 	}
 	hfn := kmsHMACHash(req.MacAlgorithm)
 	if hfn == nil {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"Unsupported MacAlgorithm: %s", req.MacAlgorithm)
 		return
 	}
 	mat, err := kmsEnsureAsymmetricMaterial(keyId, key.Spec)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
 		return
 	}
 	mac := hmac.New(hfn, mat.HMACSecret)
 	mac.Write(req.Message)
 	expected := mac.Sum(nil)
 	if !hmac.Equal(expected, req.Mac) {
-		sim.AWSErrorf(w, "KMSInvalidMacException", http.StatusBadRequest,
+		AWSErrorf(w, "KMSInvalidMacException", http.StatusBadRequest,
 			"The HMAC is not valid for the message and key.")
 		return
 	}
@@ -734,7 +734,7 @@ func handleKMSGenerateDataKeyPair(w http.ResponseWriter, r *http.Request) {
 		KeyPairSpec string `json:"KeyPairSpec"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -748,13 +748,13 @@ func handleKMSGenerateDataKeyPair(w http.ResponseWriter, r *http.Request) {
 	}
 	pubDER, privDER, err := kmsGenerateDataKeyPairMaterial(req.KeyPairSpec)
 	if err != nil {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"Unsupported KeyPairSpec: %s", req.KeyPairSpec)
 		return
 	}
 	wrapped, ok := kmsEncryptBytes(keyId, privDER)
 	if !ok {
-		sim.AWSError(w, "DependencyTimeoutException", "failed to wrap private key", http.StatusInternalServerError)
+		AWSError(w, "DependencyTimeoutException", "failed to wrap private key", http.StatusInternalServerError)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -773,7 +773,7 @@ func handleKMSGenerateDataKeyPairWithoutPlaintext(w http.ResponseWriter, r *http
 		KeyPairSpec string `json:"KeyPairSpec"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -787,13 +787,13 @@ func handleKMSGenerateDataKeyPairWithoutPlaintext(w http.ResponseWriter, r *http
 	}
 	pubDER, privDER, err := kmsGenerateDataKeyPairMaterial(req.KeyPairSpec)
 	if err != nil {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"Unsupported KeyPairSpec: %s", req.KeyPairSpec)
 		return
 	}
 	wrapped, ok := kmsEncryptBytes(keyId, privDER)
 	if !ok {
-		sim.AWSError(w, "DependencyTimeoutException", "failed to wrap private key", http.StatusInternalServerError)
+		AWSError(w, "DependencyTimeoutException", "failed to wrap private key", http.StatusInternalServerError)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -815,7 +815,7 @@ func handleKMSDeriveSharedSecret(w http.ResponseWriter, r *http.Request) {
 		PublicKey             []byte `json:"PublicKey"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -829,7 +829,7 @@ func handleKMSDeriveSharedSecret(w http.ResponseWriter, r *http.Request) {
 	}
 	curve := kmsEllipticCurveFor(key.Spec)
 	if curve == nil || key.KeyUsage != "KEY_AGREEMENT" {
-		sim.AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
 			"%s is not a KEY_AGREEMENT EC key.", kmsKeyArn(keyId))
 		return
 	}
@@ -838,44 +838,44 @@ func handleKMSDeriveSharedSecret(w http.ResponseWriter, r *http.Request) {
 	}
 	mat, err := kmsEnsureAsymmetricMaterial(keyId, key.Spec)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
 		return
 	}
 	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
 		return
 	}
 	ecdsaPriv, ok := priv.(*ecdsa.PrivateKey)
 	if !ok {
-		sim.AWSError(w, "InvalidKeyUsageException", "key material is not an EC key", http.StatusBadRequest)
+		AWSError(w, "InvalidKeyUsageException", "key material is not an EC key", http.StatusBadRequest)
 		return
 	}
 	ecdhPriv, err := ecdsaPriv.ECDH()
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to convert EC key for ECDH", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to convert EC key for ECDH", http.StatusInternalServerError)
 		return
 	}
 	peerPubAny, err := x509.ParsePKIXPublicKey(req.PublicKey)
 	if err != nil {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"PublicKey is not a valid DER-encoded SubjectPublicKeyInfo: %v", err)
 		return
 	}
 	peerEcdsa, ok := peerPubAny.(*ecdsa.PublicKey)
 	if !ok {
-		sim.AWSError(w, "ValidationException", "PublicKey is not an EC public key", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "PublicKey is not an EC public key", http.StatusBadRequest)
 		return
 	}
 	peerEcdh, err := peerEcdsa.ECDH()
 	if err != nil {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"PublicKey is not on the expected curve: %v", err)
 		return
 	}
 	shared, err := ecdhPriv.ECDH(peerEcdh)
 	if err != nil {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"Failed to derive shared secret: %v", err)
 		return
 	}

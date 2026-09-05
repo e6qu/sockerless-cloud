@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Dapr sidecar assembly for the Container Apps "Apps" slice. Real Azure
@@ -79,8 +80,9 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 		shortName = shortName[:24]
 	}
 	return sim.StartContainerSync(sim.ContainerConfig{
-		Image:        daprdSidecarImage,
-		Architecture: platform,
+		CancelGracePeriod: 5 * time.Second,
+		Image:             daprdSidecarImage,
+		Architecture:      platform,
 		// The daprd image declares no entrypoint or cmd; the runtime
 		// binary lives at /daprd.
 		Command: []string{"/daprd"},
@@ -92,6 +94,6 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 			"sockerless-app-name": app.Name,
 		},
 		NetworkMode: "container:" + mainContainerID,
-		Sandbox:     sim.SandboxACA,
+		Sandbox:     SandboxACA,
 	}, &acaAppLogSink{appName: app.Name})
 }

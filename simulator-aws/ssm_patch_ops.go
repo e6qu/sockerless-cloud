@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SSM Patch Manager patch-group + patch-read surface, OpsMetadata,
@@ -83,7 +83,7 @@ var (
 
 func ssmPatchGroupKey(os, group string) string { return os + "/" + group }
 
-func registerSSMPatchOps(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMPatchOps(r *AWSRouter, srv *sim.Server) {
 	ssmPatchGroups = sim.MakeStore[SSMPatchGroupRegistration](srv.DB(), "ssm_patch_groups")
 	ssmOpsMetadata = sim.MakeStore[SSMOpsMetadata](srv.DB(), "ssm_ops_metadata")
 	ssmResPolicies = sim.MakeStore[SSMResourcePolicy](srv.DB(), "ssm_resource_policies")
@@ -127,22 +127,22 @@ func handleSSMRegisterPatchBaselineForPatchGroup(w http.ResponseWriter, r *http.
 		PatchGroup string `json:"PatchGroup"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.BaselineId == "" || req.PatchGroup == "" {
-		sim.AWSError(w, "ValidationException", "BaselineId and PatchGroup are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "BaselineId and PatchGroup are required", http.StatusBadRequest)
 		return
 	}
 	bl, ok := ssmPatchBaselines.Get(req.BaselineId)
 	if !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Patch baseline %s doesn't exist.", req.BaselineId)
 		return
 	}
 	key := ssmPatchGroupKey(bl.OperatingSystem, req.PatchGroup)
 	if existing, ok := ssmPatchGroups.Get(key); ok && existing.BaselineId != req.BaselineId {
-		sim.AWSErrorf(w, "AlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "AlreadyExistsException", http.StatusBadRequest,
 			"Patch group %s is already registered with patch baseline %s for operating system %s.",
 			req.PatchGroup, existing.BaselineId, bl.OperatingSystem)
 		return
@@ -164,11 +164,11 @@ func handleSSMDeregisterPatchBaselineForPatchGroup(w http.ResponseWriter, r *htt
 		PatchGroup string `json:"PatchGroup"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.BaselineId == "" || req.PatchGroup == "" {
-		sim.AWSError(w, "ValidationException", "BaselineId and PatchGroup are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "BaselineId and PatchGroup are required", http.StatusBadRequest)
 		return
 	}
 	// Remove any registration of this group pointing at the baseline,
@@ -190,11 +190,11 @@ func handleSSMGetPatchBaselineForPatchGroup(w http.ResponseWriter, r *http.Reque
 		OperatingSystem string `json:"OperatingSystem"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PatchGroup == "" {
-		sim.AWSError(w, "ValidationException", "PatchGroup is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "PatchGroup is required", http.StatusBadRequest)
 		return
 	}
 	os := req.OperatingSystem
@@ -203,7 +203,7 @@ func handleSSMGetPatchBaselineForPatchGroup(w http.ResponseWriter, r *http.Reque
 	}
 	reg, ok := ssmPatchGroups.Get(ssmPatchGroupKey(os, req.PatchGroup))
 	if !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"No patch baseline is registered for patch group %s and operating system %s.", req.PatchGroup, os)
 		return
 	}
@@ -220,7 +220,7 @@ func handleSSMDescribePatchGroups(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmPatchGroups.List()
@@ -259,11 +259,11 @@ func handleSSMDescribePatchGroupState(w http.ResponseWriter, r *http.Request) {
 		PatchGroup string `json:"PatchGroup"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PatchGroup == "" {
-		sim.AWSError(w, "ValidationException", "PatchGroup is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "PatchGroup is required", http.StatusBadRequest)
 		return
 	}
 	// No managed nodes report scan data in the sim: every count is an
@@ -284,7 +284,7 @@ func handleSSMDescribeAvailablePatches(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// The catalog of vendor-published patches is sourced from the cloud's
@@ -302,15 +302,15 @@ func handleSSMDescribeEffectivePatchesForPatchBaseline(w http.ResponseWriter, r 
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.BaselineId == "" {
-		sim.AWSError(w, "ValidationException", "BaselineId is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "BaselineId is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmPatchBaselines.Get(req.BaselineId); !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Patch baseline %s doesn't exist.", req.BaselineId)
 		return
 	}
@@ -329,11 +329,11 @@ func handleSSMDescribeInstancePatches(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.InstanceId == "" {
-		sim.AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
 		return
 	}
 	// Per-node patch compliance comes from a node's scan results; the sim
@@ -350,11 +350,11 @@ func handleSSMDescribeInstancePatchStates(w http.ResponseWriter, r *http.Request
 		NextToken   string   `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.InstanceIds) == 0 {
-		sim.AWSError(w, "ValidationException", "InstanceIds is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "InstanceIds is required", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -369,11 +369,11 @@ func handleSSMDescribeInstancePatchStatesForPatchGroup(w http.ResponseWriter, r 
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PatchGroup == "" {
-		sim.AWSError(w, "ValidationException", "PatchGroup is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "PatchGroup is required", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -423,11 +423,11 @@ func handleSSMDescribePatchProperties(w http.ResponseWriter, r *http.Request) {
 		NextToken       string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.OperatingSystem == "" || req.Property == "" {
-		sim.AWSError(w, "ValidationException", "OperatingSystem and Property are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "OperatingSystem and Property are required", http.StatusBadRequest)
 		return
 	}
 	var values []string
@@ -451,11 +451,11 @@ func handleSSMGetDeployablePatchSnapshotForInstance(w http.ResponseWriter, r *ht
 		SnapshotId string `json:"SnapshotId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.InstanceId == "" || req.SnapshotId == "" {
-		sim.AWSError(w, "ValidationException", "InstanceId and SnapshotId are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "InstanceId and SnapshotId are required", http.StatusBadRequest)
 		return
 	}
 	// The snapshot download URL is a presigned S3 object that AWS-RunPatchBaseline
@@ -488,16 +488,16 @@ func handleSSMCreateOpsMetadata(w http.ResponseWriter, r *http.Request) {
 		Metadata   map[string]struct{ Value string } `json:"Metadata"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceId == "" {
-		sim.AWSError(w, "ValidationException", "ResourceId is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ResourceId is required", http.StatusBadRequest)
 		return
 	}
 	arn := ssmOpsMetadataArn(req.ResourceId)
 	if _, ok := ssmOpsMetadata.Get(arn); ok {
-		sim.AWSErrorf(w, "OpsMetadataAlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "OpsMetadataAlreadyExistsException", http.StatusBadRequest,
 			"An OpsMetadata object already exists for the resource ID %s.", req.ResourceId)
 		return
 	}
@@ -530,12 +530,12 @@ func handleSSMGetOpsMetadata(w http.ResponseWriter, r *http.Request) {
 		OpsMetadataArn string `json:"OpsMetadataArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	md, ok := ssmOpsMetadata.Get(req.OpsMetadataArn)
 	if !ok {
-		sim.AWSErrorf(w, "OpsMetadataNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "OpsMetadataNotFoundException", http.StatusBadRequest,
 			"The OpsMetadata object %s doesn't exist.", req.OpsMetadataArn)
 		return
 	}
@@ -552,12 +552,12 @@ func handleSSMUpdateOpsMetadata(w http.ResponseWriter, r *http.Request) {
 		KeysToDelete     []string                          `json:"KeysToDelete"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	md, ok := ssmOpsMetadata.Get(req.OpsMetadataArn)
 	if !ok {
-		sim.AWSErrorf(w, "OpsMetadataNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "OpsMetadataNotFoundException", http.StatusBadRequest,
 			"The OpsMetadata object %s doesn't exist.", req.OpsMetadataArn)
 		return
 	}
@@ -580,11 +580,11 @@ func handleSSMDeleteOpsMetadata(w http.ResponseWriter, r *http.Request) {
 		OpsMetadataArn string `json:"OpsMetadataArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmOpsMetadata.Get(req.OpsMetadataArn); !ok {
-		sim.AWSErrorf(w, "OpsMetadataNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "OpsMetadataNotFoundException", http.StatusBadRequest,
 			"The OpsMetadata object %s doesn't exist.", req.OpsMetadataArn)
 		return
 	}
@@ -602,7 +602,7 @@ func handleSSMListOpsMetadata(w http.ResponseWriter, r *http.Request) {
 		} `json:"Filters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmOpsMetadata.Filter(func(m SSMOpsMetadata) bool {
@@ -651,7 +651,7 @@ func handleSSMGetOpsSummary(w http.ResponseWriter, r *http.Request) {
 		SyncName string `json:"SyncName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -674,11 +674,11 @@ func handleSSMPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyHash  string `json:"PolicyHash"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceArn == "" || req.Policy == "" {
-		sim.AWSError(w, "ResourcePolicyInvalidParameterException", "ResourceArn and Policy are required", http.StatusBadRequest)
+		AWSError(w, "ResourcePolicyInvalidParameterException", "ResourceArn and Policy are required", http.StatusBadRequest)
 		return
 	}
 	existing, exists := ssmResPolicies.Get(req.ResourceArn)
@@ -686,12 +686,12 @@ func handleSSMPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		// Update path: PolicyId + PolicyHash must match the current version
 		// (optimistic concurrency), matching real SSM.
 		if req.PolicyId == "" || req.PolicyHash == "" {
-			sim.AWSError(w, "ResourcePolicyConflictException",
+			AWSError(w, "ResourcePolicyConflictException",
 				"PolicyId and PolicyHash are required to update an existing policy.", http.StatusBadRequest)
 			return
 		}
 		if req.PolicyId != existing.PolicyId || req.PolicyHash != existing.PolicyHash {
-			sim.AWSError(w, "ResourcePolicyConflictException",
+			AWSError(w, "ResourcePolicyConflictException",
 				"The PolicyHash provided doesn't match the current policy version.", http.StatusBadRequest)
 			return
 		}
@@ -726,11 +726,11 @@ func handleSSMGetResourcePolicies(w http.ResponseWriter, r *http.Request) {
 		NextToken   string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceArn == "" {
-		sim.AWSError(w, "ResourcePolicyInvalidParameterException", "ResourceArn is required", http.StatusBadRequest)
+		AWSError(w, "ResourcePolicyInvalidParameterException", "ResourceArn is required", http.StatusBadRequest)
 		return
 	}
 	var policies []map[string]any
@@ -756,17 +756,17 @@ func handleSSMDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyHash  string `json:"PolicyHash"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	existing, ok := ssmResPolicies.Get(req.ResourceArn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourcePolicyNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourcePolicyNotFoundException", http.StatusBadRequest,
 			"No resource policy is attached to %s.", req.ResourceArn)
 		return
 	}
 	if req.PolicyId != existing.PolicyId || req.PolicyHash != existing.PolicyHash {
-		sim.AWSError(w, "ResourcePolicyConflictException",
+		AWSError(w, "ResourcePolicyConflictException",
 			"The PolicyId or PolicyHash provided doesn't match the current policy version.", http.StatusBadRequest)
 		return
 	}
@@ -816,16 +816,16 @@ func handleSSMGetParameterHistory(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
 		return
 	}
 	cur, ok := ssmParams.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
 			"Parameter %s not found.", req.Name)
 		return
 	}
@@ -891,16 +891,16 @@ func handleSSMLabelParameterVersion(w http.ResponseWriter, r *http.Request) {
 		Labels           []string `json:"Labels"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
 		return
 	}
 	cur, ok := ssmParams.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
 			"Parameter %s not found.", req.Name)
 		return
 	}
@@ -918,7 +918,7 @@ func handleSSMLabelParameterVersion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if idx < 0 {
-		sim.AWSErrorf(w, "ParameterVersionNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ParameterVersionNotFound", http.StatusBadRequest,
 			"Version %d of parameter %s not found.", version, req.Name)
 		return
 	}
@@ -954,16 +954,16 @@ func handleSSMUnlabelParameterVersion(w http.ResponseWriter, r *http.Request) {
 		Labels           []string `json:"Labels"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.ParameterVersion == nil {
-		sim.AWSError(w, "ValidationException", "Name and ParameterVersion are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name and ParameterVersion are required", http.StatusBadRequest)
 		return
 	}
 	cur, ok := ssmParams.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
 			"Parameter %s not found.", req.Name)
 		return
 	}
@@ -977,7 +977,7 @@ func handleSSMUnlabelParameterVersion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if idx < 0 {
-		sim.AWSErrorf(w, "ParameterVersionNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ParameterVersionNotFound", http.StatusBadRequest,
 			"Version %d of parameter %s not found.", *req.ParameterVersion, req.Name)
 		return
 	}

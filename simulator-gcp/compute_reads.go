@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Compute Engine reads that answer from what the project already holds, and the
@@ -137,7 +137,7 @@ func registerComputeReads(srv *sim.Server) {
 				KmsKeyName string `json:"kmsKeyName"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil || req.KmsKeyName == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"updateKmsKey needs the key the snapshot is to be encrypted under")
 				return
 			}
@@ -150,7 +150,7 @@ func registerComputeReads(srv *sim.Server) {
 				encryption["kmsKeyName"] = req.KmsKeyName
 				(*m)["snapshotEncryptionKey"] = encryption
 			}) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "snapshot %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "snapshot %q not found", name)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK,
@@ -169,17 +169,17 @@ func registerComputeReads(srv *sim.Server) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 			var status map[string]any
 			if err := sim.ReadJSON(r, &status); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if state, _ := status["state"].(string); state == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"a deprecation needs the state the image is being moved to")
 				return
 			}
 			key := computeGlobalLink(project, "images", name)
 			if !gcpComputeImages.Update(key, func(m *map[string]any) { (*m)["deprecated"] = status }) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "image %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "image %q not found", name)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, key, "deprecate"))
@@ -194,17 +194,17 @@ func registerComputeReads(srv *sim.Server) {
 				SizeGb int64 `json:"sizeGb,string"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			key := fmt.Sprintf("projects/%s/regions/%s/disks/%s", project, region, name)
 			held, ok := gcpComputeRegionDisks.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found", name)
 				return
 			}
 			if req.SizeGb <= int64(computeStoredInt(held["sizeGb"])) {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"a disk can only grow: %d is not larger than the current size", req.SizeGb)
 				return
 			}

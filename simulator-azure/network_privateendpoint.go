@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Private endpoints (Microsoft.Network/privateEndpoints) are the consumer half
@@ -140,7 +140,7 @@ func validatePrivateEndpoint(w http.ResponseWriter, _ *http.Request, pe *Private
 	// A subnet whose private-endpoint network policies are enabled rejects the
 	// endpoint, exactly as the real resource provider does.
 	if strings.EqualFold(subnet.Properties.PrivateEndpointNetworkPolicies, "Enabled") {
-		sim.AzureErrorf(w, "PrivateEndpointCannotBeCreatedInSubnetThatHasNetworkPoliciesEnabled",
+		AzureErrorf(w, "PrivateEndpointCannotBeCreatedInSubnetThatHasNetworkPoliciesEnabled",
 			http.StatusBadRequest,
 			"Private endpoints cannot be created in subnet %q because it has private endpoint network policies enabled.",
 			subnet.Name)
@@ -148,7 +148,7 @@ func validatePrivateEndpoint(w http.ResponseWriter, _ *http.Request, pe *Private
 	}
 	for _, conn := range privateEndpointRequestedConnections(pe) {
 		if conn.Properties.PrivateLinkServiceID == "" {
-			sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 				"The request format was unexpected: privateLinkServiceId is required on connection %q.", conn.Name)
 			return false
 		}
@@ -156,7 +156,7 @@ func validatePrivateEndpoint(w http.ResponseWriter, _ *http.Request, pe *Private
 		// terminate an endpoint. Azure rejects that during request validation,
 		// which is a permanent client error rather than a retryable one.
 		if _, ok := privateLinkTargetFor(conn.Properties.PrivateLinkServiceID); !ok {
-			sim.AzureErrorf(w, "PrivateLinkServiceIdNotValid", http.StatusBadRequest,
+			AzureErrorf(w, "PrivateLinkServiceIdNotValid", http.StatusBadRequest,
 				"The resource %q does not support private endpoint connections.",
 				conn.Properties.PrivateLinkServiceID)
 			return false

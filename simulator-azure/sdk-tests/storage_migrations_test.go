@@ -30,10 +30,14 @@ func TestSDK_StorageAccount_Migrations(t *testing.T) {
 	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Nothing has been migrated yet, which is the negative control for the read.
-	_, err = accounts.GetCustomerInitiatedMigration(ctx, rg, account, armstorage.MigrationNameDefault, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "No customer-initiated migration")
+	// Nothing has been migrated yet: the default migration answers with no
+	// status, not with a 404 — terraform-provider-azurerm reads it on every
+	// storage-account read and would fail the account otherwise.
+	unmigrated, err := accounts.GetCustomerInitiatedMigration(ctx, rg, account, armstorage.MigrationNameDefault, nil)
+	require.NoError(t, err)
+	require.NotNil(t, unmigrated.StorageAccountMigrationDetails)
+	assert.Nil(t, unmigrated.StorageAccountMigrationDetails.MigrationStatus)
+	assert.Nil(t, unmigrated.StorageAccountMigrationDetails.TargetSKUName)
 
 	before, err := accounts.GetProperties(ctx, rg, account, nil)
 	require.NoError(t, err)

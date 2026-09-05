@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // CloudWatch metrics — query-protocol surface (the aws CLI / botocore path).
@@ -23,7 +21,7 @@ import (
 
 const cwQueryXmlns = `xmlns="http://monitoring.amazonaws.com/doc/2010-08-01/"`
 
-func registerCloudWatchMetricsQuery(r *sim.AWSQueryRouter) {
+func registerCloudWatchMetricsQuery(r *AWSQueryRouter) {
 	r.Register("PutMetricData", handleCWQueryPutMetricData)
 	r.Register("GetMetricStatistics", handleCWQueryGetMetricStatistics)
 	r.Register("ListMetrics", handleCWQueryListMetrics)

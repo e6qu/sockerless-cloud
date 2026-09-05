@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -63,7 +63,7 @@ func cwLogAlarmScheduledQueryName(alarmName string) string {
 	return "AlarmManagedQuery-" + alarmName
 }
 
-func registerCloudWatchLogAlarmsJSON(r *sim.AWSRouter) {
+func registerCloudWatchLogAlarmsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutLogAlarm", handleCWJSONPutLogAlarm)
 }
 
@@ -228,11 +228,11 @@ func cwApplyPutLogAlarm(req *cwPutLogAlarmInput) CWLogAlarm {
 func handleCWJSONPutLogAlarm(w http.ResponseWriter, r *http.Request) {
 	var req cwPutLogAlarmInput
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if code, msg, status, ok := cwValidateLogAlarm(&req); !ok {
-		sim.AWSError(w, code, msg, status)
+		AWSError(w, code, msg, status)
 		return
 	}
 	cwApplyPutLogAlarm(&req)

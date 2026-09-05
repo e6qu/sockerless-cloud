@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A regional instance group is not created: it is the group a regional
@@ -52,7 +52,7 @@ func registerComputeRegionInstanceGroups(srv *sim.Server, managers sim.Store[map
 	load := func(w http.ResponseWriter, r *http.Request, name string) (map[string]any, bool) {
 		manager, ok := managers.Get(managerKey(r, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
 			return nil, false
 		}
 		return group(r, name, manager), true
@@ -103,7 +103,7 @@ func registerComputeRegionInstanceGroups(srv *sim.Server, managers sim.Store[map
 			InstanceState string `json:"instanceState"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		managed := computeManagedInstances.Filter(func(i ComputeManagedInstance) bool {
@@ -139,7 +139,7 @@ func registerComputeRegionInstanceGroups(srv *sim.Server, managers sim.Store[map
 			Fingerprint string           `json:"fingerprint"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		link := groupLink(r, name)
@@ -148,7 +148,7 @@ func registerComputeRegionInstanceGroups(srv *sim.Server, managers sim.Store[map
 		if held, ok := namedPorts.Get(link); ok {
 			current, _ := held["fingerprint"].(string)
 			if req.Fingerprint != "" && req.Fingerprint != current {
-				sim.GCPErrorf(w, http.StatusPreconditionFailed, "CONDITION_NOT_MET",
+				GCPErrorf(w, http.StatusPreconditionFailed, "CONDITION_NOT_MET",
 					"the named ports were changed since they were read")
 				return
 			}

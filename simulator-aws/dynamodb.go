@@ -10,7 +10,7 @@ package main
 // `sim.WriteJSON` (used elsewhere) sets `application/json`. The
 // `writeDDBJSON` wrapper below sets the per-protocol header instead so
 // each DynamoDB success response carries the right CT. Errors keep going
-// through `sim.AWSErrorf` which already sets `application/x-amz-json-1.1`
+// through `AWSErrorf` which already sets `application/x-amz-json-1.1`
 // (real AWS uses 1.1 for errors across JSON-RPC services, regardless of
 // the service's own payload protocol).
 
@@ -27,7 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // DynamoDB — a table backs Terraform state locking
@@ -239,7 +239,7 @@ func ddbTableByArn(arn string) (string, DDBTable, bool) {
 	return name, t, ok
 }
 
-func registerDynamoDB(r *sim.AWSRouter, srv *sim.Server) {
+func registerDynamoDB(r *AWSRouter, srv *sim.Server) {
 	// Item-level ops are CloudTrail DATA events (excluded from LookupEvents); the
 	// table-level ops registered below are management events.
 	cloudTrailDeclareDataEvents("dynamodb.amazonaws.com",
@@ -306,12 +306,12 @@ func handleDDBUpdateContinuousBackups(w http.ResponseWriter, r *http.Request) {
 		} `json:"PointInTimeRecoverySpecification"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	_, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -346,12 +346,12 @@ func handleDDBUpdateTimeToLive(w http.ResponseWriter, r *http.Request) {
 		} `json:"TimeToLiveSpecification"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	_, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -383,16 +383,16 @@ func handleDDBTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags        []SMTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceArn == "" {
-		sim.AWSError(w, "ValidationException", "ResourceArn is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ResourceArn is required", http.StatusBadRequest)
 		return
 	}
 	name, _, ok := ddbTableByArn(req.ResourceArn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: %s", req.ResourceArn)
 		return
 	}
@@ -423,16 +423,16 @@ func handleDDBUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys     []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceArn == "" {
-		sim.AWSError(w, "ValidationException", "ResourceArn is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ResourceArn is required", http.StatusBadRequest)
 		return
 	}
 	name, _, ok := ddbTableByArn(req.ResourceArn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: %s", req.ResourceArn)
 		return
 	}
@@ -463,12 +463,12 @@ func handleDDBDescribeContinuousBackups(w http.ResponseWriter, r *http.Request) 
 		TableName string `json:"TableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	_, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -495,12 +495,12 @@ func handleDDBDescribeTimeToLive(w http.ResponseWriter, r *http.Request) {
 		TableName string `json:"TableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	_, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -525,16 +525,16 @@ func handleDDBListTagsOfResource(w http.ResponseWriter, r *http.Request) {
 		ResourceArn string `json:"ResourceArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceArn == "" {
-		sim.AWSError(w, "ValidationException", "ResourceArn is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ResourceArn is required", http.StatusBadRequest)
 		return
 	}
 	name, _, ok := ddbTableByArn(req.ResourceArn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: %s", req.ResourceArn)
 		return
 	}
@@ -565,20 +565,20 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		Tags []SMTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TableName == "" {
-		sim.AWSError(w, "ValidationException", "TableName is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "TableName is required", http.StatusBadRequest)
 		return
 	}
 	if _, exists := ddbTables.Get(req.TableName); exists {
-		sim.AWSErrorf(w, "ResourceInUseException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceInUseException", http.StatusBadRequest,
 			"Table already exists: %s", req.TableName)
 		return
 	}
 	if len(req.KeySchema) == 0 {
-		sim.AWSError(w, "ValidationException", "KeySchema is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "KeySchema is required", http.StatusBadRequest)
 		return
 	}
 	// Every key attribute (table + GSI + LSI) must be declared in
@@ -596,7 +596,7 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, k := range keyAttrs {
 		if !defined[k.AttributeName] {
-			sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+			AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 				"One or more parameter values were invalid: Some index key attributes are not defined in AttributeDefinitions. Keys: [%s]", k.AttributeName)
 			return
 		}
@@ -676,7 +676,7 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	for _, raw := range req.VectorIndexes {
 		idx, err := ddbParseVectorIndex(req.TableName, raw)
 		if err != nil {
-			sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+			AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 			return
 		}
 		table.VectorIndexes = append(table.VectorIndexes, idx)
@@ -694,12 +694,12 @@ func handleDDBDescribeTable(w http.ResponseWriter, r *http.Request) {
 		TableName string `json:"TableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -766,18 +766,18 @@ func handleDDBUpdateTable(w http.ResponseWriter, r *http.Request) {
 		} `json:"GlobalSecondaryIndexUpdates"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
 	if len(req.VectorIndexUpdates) > 0 {
 		if err := ddbApplyVectorIndexUpdates(&t, req.VectorIndexUpdates); err != nil {
-			sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+			AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
@@ -825,12 +825,12 @@ func handleDDBDeleteTable(w http.ResponseWriter, r *http.Request) {
 		TableName string `json:"TableName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -856,7 +856,7 @@ func handleDDBListTables(w http.ResponseWriter, r *http.Request) {
 		Limit                   int    `json:"Limit"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ddbTables.List()
@@ -1137,22 +1137,22 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity              string                      `json:"ReturnConsumedCapacity,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
 	if ddbItemTooDeep(req.Item) {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"Item nesting exceeds the 32-level maximum", http.StatusBadRequest)
 		return
 	}
 	if err := ddbValidateItemSize(req.Item); err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer ddbLockTables(true, req.TableName)()
@@ -1162,14 +1162,14 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 	// Atomically evaluate the ConditionExpression (e.g. terraform's state-lock
 	// "attribute_not_exists(LockID)") before writing.
 	if condOK, err := ddbEvalCondition(old, exists, req.ConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	} else if !condOK {
 		writeDDBConditionalCheckFailed(w, req.ReturnValuesOnConditionCheckFailure, old, exists)
 		return
 	}
 	if okExp, err := ddbCheckExpected(old, exists, req.Expected, req.ConditionalOperator); err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	} else if !okExp {
 		writeDDBConditionalCheckFailed(w, req.ReturnValuesOnConditionCheckFailure, old, exists)
@@ -1224,12 +1224,12 @@ func handleDDBGetItem(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity   string            `json:"ReturnConsumedCapacity"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -1266,12 +1266,12 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity              string                      `json:"ReturnConsumedCapacity,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -1279,14 +1279,14 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 	itemKey := ddbItemKey(t, req.Key)
 	item, existed := ddbItems.Get(itemKey)
 	if condOK, err := ddbEvalCondition(item, existed, req.ConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	} else if !condOK {
 		writeDDBConditionalCheckFailed(w, req.ReturnValuesOnConditionCheckFailure, item, existed)
 		return
 	}
 	if okExp, err := ddbCheckExpected(item, existed, req.Expected, req.ConditionalOperator); err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	} else if !okExp {
 		writeDDBConditionalCheckFailed(w, req.ReturnValuesOnConditionCheckFailure, item, existed)
@@ -1308,7 +1308,7 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.UpdateExpression != "" {
 		if err := ddbApplyUpdateExpression(item, req.UpdateExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
-			sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+			AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
@@ -1330,7 +1330,7 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := ddbValidateItemSize(item); err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	ddbItems.Put(itemKey, item)
@@ -1497,12 +1497,12 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity              string                      `json:"ReturnConsumedCapacity,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -1510,14 +1510,14 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 	itemKey := ddbItemKey(t, req.Key)
 	oldItem, existed := ddbItems.Get(itemKey)
 	if condOK, err := ddbEvalCondition(oldItem, existed, req.ConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	} else if !condOK {
 		writeDDBConditionalCheckFailed(w, req.ReturnValuesOnConditionCheckFailure, oldItem, existed)
 		return
 	}
 	if okExp, err := ddbCheckExpected(oldItem, existed, req.Expected, req.ConditionalOperator); err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	} else if !okExp {
 		writeDDBConditionalCheckFailed(w, req.ReturnValuesOnConditionCheckFailure, oldItem, existed)
@@ -1557,12 +1557,12 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
@@ -1570,12 +1570,12 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// index's key attributes. The matcher is generic over item attributes, so a
 	// GSI query needs no special handling beyond rejecting an unknown index.
 	if req.IndexName != "" && !ddbHasIndex(t, req.IndexName) {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"The table does not have the specified index: %s", req.IndexName)
 		return
 	}
 	if req.ConsistentRead && ddbIsGSI(t, req.IndexName) {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"Consistent reads are not supported on global secondary indexes", http.StatusBadRequest)
 		return
 	}
@@ -1584,12 +1584,12 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	// regardless of whether any item is examined — never a silent empty result.
 	keyExpr, err := ddbCompileExpr("KeyConditionExpression", req.KeyConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues)
 	if err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	filterExpr, err := ddbCompileExpr("FilterExpression", req.FilterExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues)
 	if err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -1769,28 +1769,28 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
 	if req.IndexName != "" && !ddbHasIndex(t, req.IndexName) {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"The table does not have the specified index: %s", req.IndexName)
 		return
 	}
 	if req.ConsistentRead && ddbIsGSI(t, req.IndexName) {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"Consistent reads are not supported on global secondary indexes", http.StatusBadRequest)
 		return
 	}
 	// Segment/TotalSegments must be provided together and 0 <= Segment < TotalSegments.
 	if (req.Segment != nil) != (req.TotalSegments != nil) {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"The Segment and TotalSegments parameters must be provided together", http.StatusBadRequest)
 		return
 	}
@@ -1800,7 +1800,7 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 			seg = *req.Segment
 		}
 		if *req.TotalSegments < 1 || seg < 0 || seg >= *req.TotalSegments {
-			sim.AWSError(w, "ValidationException",
+			AWSError(w, "ValidationException",
 				"The Segment parameter is zero-based and must be less than the TotalSegments parameter", http.StatusBadRequest)
 			return
 		}
@@ -1809,7 +1809,7 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 	// #name/:value) is a ValidationException, not a silently emptied result.
 	filterExpr, err := ddbCompileExpr("FilterExpression", req.FilterExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues)
 	if err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	prefix := req.TableName + "/"
@@ -2068,7 +2068,7 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 		} `json:"RequestItems"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// A batch spans whatever tables it names, and their stripes are taken in
@@ -2084,26 +2084,26 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 	for tableName, ops := range req.RequestItems {
 		total += len(ops)
 		if _, ok := ddbTables.Get(tableName); !ok {
-			sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"Requested resource not found: Table: %s not found", tableName)
 			return
 		}
 		for _, op := range ops {
 			if op.PutRequest != nil && ddbItemTooDeep(op.PutRequest.Item) {
-				sim.AWSError(w, "ValidationException",
+				AWSError(w, "ValidationException",
 					"Item nesting exceeds the 32-level maximum", http.StatusBadRequest)
 				return
 			}
 			if op.PutRequest != nil {
 				if err := ddbValidateItemSize(op.PutRequest.Item); err != nil {
-					sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+					AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 					return
 				}
 			}
 		}
 	}
 	if total == 0 || total > 25 {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"1 validation error detected: Value at 'requestItems' failed to satisfy constraint: Member must have length less than or equal to 25 and at least 1",
 			http.StatusBadRequest)
 		return
@@ -2135,7 +2135,7 @@ func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
 		} `json:"RequestItems"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// Every key the request names is resolved before anything is read, so the
@@ -2149,7 +2149,7 @@ func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
 	for tableName, spec := range req.RequestItems {
 		t, ok := ddbTables.Get(tableName)
 		if !ok {
-			sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"Requested resource not found: Table: %s not found", tableName)
 			return
 		}
@@ -2202,12 +2202,12 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		} `json:"TransactItems"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// Real DynamoDB allows 1..100 actions per transaction.
 	if n := len(req.TransactItems); n == 0 || n > 100 {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"1 validation error detected: Value at 'transactItems' failed to satisfy constraint: Member must have length less than or equal to 100 and at least 1",
 			http.StatusBadRequest)
 		return
@@ -2242,7 +2242,7 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if opCount != 1 {
-			sim.AWSError(w, "ValidationException",
+			AWSError(w, "ValidationException",
 				"TransactItems can only contain one of Put, Update, Delete, or ConditionCheck", http.StatusBadRequest)
 			return
 		}
@@ -2252,14 +2252,14 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		}
 		t, ok := ddbTables.Get(op.TableName)
 		if !ok {
-			sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"Requested resource not found: Table: %s not found", op.TableName)
 			return
 		}
 		current, exists := ddbItems.Get(ddbItemKey(t, keyItem))
 		condOK, err := ddbEvalCondition(current, exists, op.ConditionExpression, op.ExpressionAttributeNames, op.ExpressionAttributeValues)
 		if err != nil {
-			sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+			AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if !condOK {
@@ -2270,12 +2270,12 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		}
 		if ti.Put != nil {
 			if ddbItemTooDeep(op.Item) {
-				sim.AWSError(w, "ValidationException",
+				AWSError(w, "ValidationException",
 					"Item nesting exceeds the 32-level maximum", http.StatusBadRequest)
 				return
 			}
 			if err := ddbValidateItemSize(op.Item); err != nil {
-				sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+				AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
@@ -2289,17 +2289,17 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			}
 			if op.UpdateExpression != "" {
 				if err := ddbApplyUpdateExpression(updated, op.UpdateExpression, op.ExpressionAttributeNames, op.ExpressionAttributeValues); err != nil {
-					sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+					AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 					return
 				}
 			}
 			if ddbItemTooDeep(updated) {
-				sim.AWSError(w, "ValidationException",
+				AWSError(w, "ValidationException",
 					"Item nesting exceeds the 32-level maximum", http.StatusBadRequest)
 				return
 			}
 			if err := ddbValidateItemSize(updated); err != nil {
-				sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+				AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
@@ -2333,7 +2333,7 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			}
 			if ti.Update.UpdateExpression != "" {
 				if err := ddbApplyUpdateExpression(item, ti.Update.UpdateExpression, ti.Update.ExpressionAttributeNames, ti.Update.ExpressionAttributeValues); err != nil {
-					sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+					AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 					return
 				}
 			}
@@ -2377,7 +2377,7 @@ func handleDDBTransactGetItems(w http.ResponseWriter, r *http.Request) {
 		} `json:"TransactItems"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// A transactional read is serializable: DynamoDB documents TransactGetItems
@@ -2395,7 +2395,7 @@ func handleDDBTransactGetItems(w http.ResponseWriter, r *http.Request) {
 		}
 		t, ok := ddbTables.Get(ti.Get.TableName)
 		if !ok {
-			sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"Requested resource not found: Table: %s not found", ti.Get.TableName)
 			return
 		}

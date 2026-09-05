@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Per-service aws:ResourceTag/<k> resolution for the IAM enforcement gate.

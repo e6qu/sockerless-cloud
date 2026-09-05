@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.ServiceBus REST data plane. Routed by Host header
@@ -189,7 +189,7 @@ func handleSBRESTDataPlane(w http.ResponseWriter, r *http.Request, namespace str
 	path := strings.Trim(r.URL.Path, "/")
 	segs := strings.Split(path, "/")
 	if len(segs) == 0 || segs[0] == "" {
-		sim.AzureError(w, "BadRequest", "Missing path", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "Missing path", http.StatusBadRequest)
 		return
 	}
 
@@ -209,7 +209,7 @@ func handleSBRESTDataPlane(w http.ResponseWriter, r *http.Request, namespace str
 		return
 	}
 
-	sim.AzureError(w, "ResourceNotFound", "Unknown REST path: "+r.URL.Path, http.StatusNotFound)
+	AzureError(w, "ResourceNotFound", "Unknown REST path: "+r.URL.Path, http.StatusNotFound)
 }
 
 // dispatchSBMessagesOp handles the /messages/... tail. `tail` is the
@@ -233,7 +233,7 @@ func dispatchSBMessagesOp(w http.ResponseWriter, r *http.Request, key string, ta
 		handleSBCompleteLock(w, r, key, tail[0], tail[1])
 
 	default:
-		sim.AzureError(w, "MethodNotAllowed",
+		AzureError(w, "MethodNotAllowed",
 			fmt.Sprintf("Unsupported %s on %s", r.Method, r.URL.Path),
 			http.StatusMethodNotAllowed)
 	}
@@ -248,7 +248,7 @@ func handleSBSendMessage(w http.ResponseWriter, r *http.Request, key string) {
 	// wrap required).
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.AzureError(w, "BadRequest", "Failed to read body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", "Failed to read body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	st := sbQueueStateFor(key)
@@ -282,7 +282,7 @@ func handleSBReceiveAndDelete(w http.ResponseWriter, r *http.Request, key string
 	if err := writeSBMessageResponse(w, msg, "", http.StatusOK); err != nil {
 		// Headers may already be on the wire; can't switch to a 500
 		// envelope at this point. Log via the request logger.
-		sim.AzureError(w, "InternalServerError",
+		AzureError(w, "InternalServerError",
 			"emit Service Bus response: "+err.Error(),
 			http.StatusInternalServerError)
 	}
@@ -324,7 +324,7 @@ func handleSBPeekLock(w http.ResponseWriter, r *http.Request, key string) {
 	location := fmt.Sprintf("https://%s/%s/messages/%s/%s",
 		r.Host, pathTail, msg.MessageID, msg.LockToken)
 	if err := writeSBMessageResponse(w, msg, location, http.StatusCreated); err != nil {
-		sim.AzureError(w, "InternalServerError",
+		AzureError(w, "InternalServerError",
 			"emit Service Bus PeekLock response: "+err.Error(),
 			http.StatusInternalServerError)
 	}
@@ -342,7 +342,7 @@ func handleSBCompleteLock(w http.ResponseWriter, r *http.Request, key, msgID, lo
 		}
 	}
 	if idx == -1 {
-		sim.AzureError(w, "MessageLockLost",
+		AzureError(w, "MessageLockLost",
 			"Message lock not found or expired", http.StatusGone)
 		return
 	}

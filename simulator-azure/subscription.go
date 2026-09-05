@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // resourceProviderNamespaces lists the Azure resource provider namespaces
@@ -127,7 +127,7 @@ func registerSubscription(srv *sim.Server) {
 			Type string `json:"type"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		status := "Allowed"
@@ -150,7 +150,7 @@ func registerSubscription(srv *sim.Server) {
 			SubscriptionIDs []string `json:"subscriptionIds"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		peers := make([]map[string]any, 0, len(req.SubscriptionIDs))

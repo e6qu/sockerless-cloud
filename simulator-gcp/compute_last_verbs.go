@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The remaining Compute Engine surfaces: the machines a reservation's blocks sit
@@ -51,18 +51,18 @@ func registerComputeLastVerbs(srv *sim.Server) {
 				} `json:"disks"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if len(req.Disks) == 0 {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"startWithEncryptionKey needs the keys for the instance's encrypted disks")
 				return
 			}
 			key := computeInstanceSelfLink(project, zone, name)
 			inst, ok := gcpInstances.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"instance %q not found in zone %q", name, zone)
 				return
 			}
@@ -72,7 +72,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			// report a machine that nothing is running, which a host that can
 			// actually run one immediately contradicts.
 			if err := gcpStartRealVM(r.Context(), &inst); err != nil {
-				sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
+				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
 					"failed to start real Compute Engine instance: %v", err)
 				return
 			}
@@ -92,7 +92,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			held, ok := gcpComputeCompositeHealthChecks.Get(
 				computeScopedKey(r, cScopeRegion, "compositeHealthChecks", sim.PathParam(r, "name")))
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"composite health check %q not found", sim.PathParam(r, "name"))
 				return
 			}
@@ -111,7 +111,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			held, ok := gcpComputeHealthSources.Get(
 				computeScopedKey(r, cScopeRegion, "healthSources", sim.PathParam(r, "name")))
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"health source %q not found", sim.PathParam(r, "name"))
 				return
 			}
@@ -133,7 +133,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			held, ok := gcpRegionBackendServices.Get(
 				computeScopedKey(r, cScopeRegion, "backendServices", sim.PathParam(r, "name")))
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"backendServices %q not found", sim.PathParam(r, "name"))
 				return
 			}
@@ -163,7 +163,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 				Request map[string]any `json:"request"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil || req.Request == nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"createMembers needs the request describing the members to create")
 				return
 			}
@@ -173,7 +173,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 				// which is what its operational status is then derived from.
 				(*m)["interconnects"] = req.Request["interconnects"]
 			}) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"interconnect group %q not found", name)
 				return
 			}
@@ -204,17 +204,17 @@ func registerComputeLastVerbs(srv *sim.Server) {
 		project, zone, name := sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "name")
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		key := computeInstanceSelfLink(project, zone, name)
 		found, err := computeTypedWrite(gcpInstances, key, body, true)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid instance: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid instance: %v", err)
 			return
 		}
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, key, "update"))
@@ -232,11 +232,11 @@ func registerComputeLastVerbs(srv *sim.Server) {
 				FutureResourcesSpecs map[string]any `json:"futureResourcesSpecs"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if len(req.FutureResourcesSpecs) == 0 {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"calendarMode needs the resources the advice is about")
 				return
 			}
@@ -280,20 +280,20 @@ func computeMoveAddress[T any](w http.ResponseWriter, r *http.Request, scope com
 		Description        string `json:"description"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil || req.DestinationAddress == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"a move needs the destinationAddress it is going to")
 		return
 	}
 	source := computeScopedKey(r, scope, "addresses", name)
 	held, ok := store.Get(source)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "address %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "address %q not found", name)
 		return
 	}
 	target := strings.TrimPrefix(
 		strings.TrimPrefix(req.DestinationAddress, "https://www.googleapis.com/compute/v1/"), "/")
 	if target == source {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"address %q is already at %s", name, target)
 		return
 	}
@@ -309,17 +309,17 @@ func computeTypedUpdate[T any](w http.ResponseWriter, r *http.Request, collectio
 	project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 	var body map[string]any
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	key := computeGlobalLink(project, collection, name)
 	found, err := computeTypedWrite(store, key, body, true)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", collection, err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", collection, err)
 		return
 	}
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, key, "update"))

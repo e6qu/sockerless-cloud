@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon DynamoDB vector search.
@@ -248,17 +248,17 @@ func handleDDBSearchVectors(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := ddbTables.Get(req.TableName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Requested resource not found: Table: %s not found", req.TableName)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
 	idx, ok := ddbTableVectorIndex(t, req.IndexName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Requested resource not found: Vector index %s not found on table %s", req.IndexName, req.TableName)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Requested resource not found: Vector index %s not found on table %s", req.IndexName, req.TableName)
 		return
 	}
 
@@ -266,19 +266,19 @@ func handleDDBSearchVectors(w http.ResponseWriter, r *http.Request) {
 	for _, el := range req.SearchVector {
 		n, ok := ddbNumberOf(el["N"])
 		if !ok {
-			sim.AWSError(w, "ValidationException", "SearchVector must be a list of numbers", http.StatusBadRequest)
+			AWSError(w, "ValidationException", "SearchVector must be a list of numbers", http.StatusBadRequest)
 			return
 		}
 		query = append(query, n)
 	}
 	if int64(len(query)) != idx.Dimensions {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest, "SearchVector has %d dimensions, but vector index %s has %d",
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest, "SearchVector has %d dimensions, but vector index %s has %d",
 			len(query), idx.IndexName, idx.Dimensions)
 		return
 	}
 	topK := req.TopK
 	if topK <= 0 {
-		sim.AWSError(w, "ValidationException", "TopK must be greater than zero", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "TopK must be greater than zero", http.StatusBadRequest)
 		return
 	}
 
@@ -287,7 +287,7 @@ func handleDDBSearchVectors(w http.ResponseWriter, r *http.Request) {
 	condition, err := ddbCompileExpr("SearchConditionExpression", req.SearchConditionExpression,
 		req.ExpressionAttributeNames, req.ExpressionAttributeValues)
 	if err != nil {
-		sim.AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
 

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // An AMI's instance type specification names which instance types may launch
@@ -23,7 +23,7 @@ type EC2ImageInstanceTypeSpec struct {
 
 var ec2ImageInstanceTypeSpecs sim.Store[EC2ImageInstanceTypeSpec]
 
-func registerEC2ImageInstanceTypeSpec(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2ImageInstanceTypeSpec(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ImageInstanceTypeSpecs = sim.MakeStore[EC2ImageInstanceTypeSpec](srv.DB(), "ec2_image_instance_type_specs")
 	r.Register("ReplaceImageInstanceTypeSpecification", handleReplaceImageInstanceTypeSpecification)
 }

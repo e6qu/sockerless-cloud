@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -103,7 +103,7 @@ var (
 	cwDeletionProtect sim.Store[bool]
 )
 
-func registerCloudWatchLogsExtra3(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudWatchLogsExtra3(r *AWSRouter, srv *sim.Server) {
 	cwIntegrations = sim.MakeStore[CWIntegration](srv.DB(), "cw_integrations")
 	cwLookupTables = sim.MakeStore[CWLookupTable](srv.DB(), "cw_lookup_tables")
 	cwScheduledQ = sim.MakeStore[CWScheduledQuery](srv.DB(), "cw_scheduled_queries")
@@ -171,11 +171,11 @@ func handleCWPutIntegration(w http.ResponseWriter, r *http.Request) {
 		ResourceConfig  json.RawMessage `json:"resourceConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.IntegrationName == "" || req.IntegrationType == "" {
-		sim.AWSError(w, "InvalidParameterException", "integrationName and integrationType are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "integrationName and integrationType are required", http.StatusBadRequest)
 		return
 	}
 	integ := CWIntegration{
@@ -196,12 +196,12 @@ func handleCWGetIntegration(w http.ResponseWriter, r *http.Request) {
 		IntegrationName string `json:"integrationName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	integ, ok := cwIntegrations.Get(req.IntegrationName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified integration does not exist: %s", req.IntegrationName)
 		return
 	}
@@ -261,11 +261,11 @@ func handleCWDeleteIntegration(w http.ResponseWriter, r *http.Request) {
 		Force           bool   `json:"force"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwIntegrations.Delete(req.IntegrationName) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified integration does not exist: %s", req.IntegrationName)
 		return
 	}
@@ -280,11 +280,11 @@ func handleCWCreateLookupTable(w http.ResponseWriter, r *http.Request) {
 		KmsKeyId        string `json:"kmsKeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LookupTableName == "" {
-		sim.AWSError(w, "InvalidParameterException", "lookupTableName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "lookupTableName is required", http.StatusBadRequest)
 		return
 	}
 	arn := cwLookupTableArn(req.LookupTableName)
@@ -310,12 +310,12 @@ func handleCWGetLookupTable(w http.ResponseWriter, r *http.Request) {
 		LookupTableArn string `json:"lookupTableArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	lt, ok := cwLookupTables.Get(req.LookupTableArn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified lookup table does not exist: %s", req.LookupTableArn)
 		return
 	}
@@ -338,7 +338,7 @@ func handleCWUpdateLookupTable(w http.ResponseWriter, r *http.Request) {
 		KmsKeyId       string `json:"kmsKeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -356,7 +356,7 @@ func handleCWUpdateLookupTable(w http.ResponseWriter, r *http.Request) {
 		lt.LastUpdatedTime = now
 	})
 	if !updated {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified lookup table does not exist: %s", req.LookupTableArn)
 		return
 	}
@@ -371,11 +371,11 @@ func handleCWDeleteLookupTable(w http.ResponseWriter, r *http.Request) {
 		LookupTableArn string `json:"lookupTableArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwLookupTables.Delete(req.LookupTableArn) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified lookup table does not exist: %s", req.LookupTableArn)
 		return
 	}
@@ -421,11 +421,11 @@ func handleCWCreateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		DestinationConfiguration json.RawMessage `json:"destinationConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.QueryString == "" || req.ScheduleExpression == "" {
-		sim.AWSError(w, "InvalidParameterException", "name, queryString and scheduleExpression are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name, queryString and scheduleExpression are required", http.StatusBadRequest)
 		return
 	}
 	state := req.State
@@ -519,12 +519,12 @@ func handleCWGetScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		Identifier string `json:"identifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	sq, ok := cwScheduledQueryByIdentifier(req.Identifier)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified scheduled query does not exist: %s", req.Identifier)
 		return
 	}
@@ -548,12 +548,12 @@ func handleCWUpdateScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		DestinationConfiguration json.RawMessage `json:"destinationConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	sq, ok := cwScheduledQueryByIdentifier(req.Identifier)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified scheduled query does not exist: %s", req.Identifier)
 		return
 	}
@@ -606,12 +606,12 @@ func handleCWDeleteScheduledQuery(w http.ResponseWriter, r *http.Request) {
 		Identifier string `json:"identifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	sq, ok := cwScheduledQueryByIdentifier(req.Identifier)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified scheduled query does not exist: %s", req.Identifier)
 		return
 	}
@@ -659,12 +659,12 @@ func handleCWGetScheduledQueryHistory(w http.ResponseWriter, r *http.Request) {
 		Identifier string `json:"identifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	sq, ok := cwScheduledQueryByIdentifier(req.Identifier)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified scheduled query does not exist: %s", req.Identifier)
 		return
 	}
@@ -683,11 +683,11 @@ func handleCWPutTransformer(w http.ResponseWriter, r *http.Request) {
 		TransformerConfig  json.RawMessage `json:"transformerConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupIdentifier == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupIdentifier is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupIdentifier is required", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -709,12 +709,12 @@ func handleCWGetTransformer(w http.ResponseWriter, r *http.Request) {
 		LogGroupIdentifier string `json:"logGroupIdentifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := cwTransformers.Get(req.LogGroupIdentifier)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not have a transformer: %s", req.LogGroupIdentifier)
 		return
 	}
@@ -731,11 +731,11 @@ func handleCWDeleteTransformer(w http.ResponseWriter, r *http.Request) {
 		LogGroupIdentifier string `json:"logGroupIdentifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwTransformers.Delete(req.LogGroupIdentifier) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not have a transformer: %s", req.LogGroupIdentifier)
 		return
 	}
@@ -748,7 +748,7 @@ func handleCWTestTransformer(w http.ResponseWriter, r *http.Request) {
 		LogEventMessages  []string        `json:"logEventMessages"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// Apply the transformer to each sample record. A JSON-parsing processor is
@@ -784,11 +784,11 @@ func handleCWCreateImportTask(w http.ResponseWriter, r *http.Request) {
 		ImportFilter    json.RawMessage `json:"importFilter"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ImportSourceArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "importSourceArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "importSourceArn is required", http.StatusBadRequest)
 		return
 	}
 	id := uuid.New().String()
@@ -818,12 +818,12 @@ func handleCWCancelImportTask(w http.ResponseWriter, r *http.Request) {
 		ImportId string `json:"importId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	task, ok := cwImportTasks.Get(req.ImportId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified import task does not exist: %s", req.ImportId)
 		return
 	}
@@ -895,12 +895,12 @@ func handleCWDescribeImportTaskBatches(w http.ResponseWriter, r *http.Request) {
 		BatchImportStatus string `json:"batchImportStatus"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	task, ok := cwImportTasks.Get(req.ImportId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified import task does not exist: %s", req.ImportId)
 		return
 	}
@@ -940,7 +940,7 @@ func handleCWGetLogGroupFields(w http.ResponseWriter, r *http.Request) {
 		Time               int64  `json:"time"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name := req.LogGroupName
@@ -948,7 +948,7 @@ func handleCWGetLogGroupFields(w http.ResponseWriter, r *http.Request) {
 		name = cwLogGroupIdentifierToName(req.LogGroupIdentifier)
 	}
 	if _, ok := cwLogGroups.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", name)
 		return
 	}
@@ -1011,11 +1011,11 @@ func handleCWGetLogRecord(w http.ResponseWriter, r *http.Request) {
 		Unmask           bool   `json:"unmask"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogRecordPointer == "" {
-		sim.AWSError(w, "InvalidParameterException", "logRecordPointer is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logRecordPointer is required", http.StatusBadRequest)
 		return
 	}
 	// A logRecordPointer encodes group|stream|index, produced by StartQuery
@@ -1054,12 +1054,12 @@ func handleCWPutLogGroupDeletionProtection(w http.ResponseWriter, r *http.Reques
 		DeletionProtectionEnabled bool   `json:"deletionProtectionEnabled"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name := cwLogGroupIdentifierToName(req.LogGroupIdentifier)
 	if _, ok := cwLogGroups.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", name)
 		return
 	}
@@ -1075,7 +1075,7 @@ func handleCWListAnomalies(w http.ResponseWriter, r *http.Request) {
 	_ = sim.ReadJSON(r, &req)
 	if req.AnomalyDetectorArn != "" {
 		if _, ok := cwLogAnomalyDetectors.Get(req.AnomalyDetectorArn); !ok {
-			sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
 			return
 		}
@@ -1094,15 +1094,15 @@ func handleCWUpdateAnomaly(w http.ResponseWriter, r *http.Request) {
 		Baseline           bool   `json:"baseline"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AnomalyDetectorArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "anomalyDetectorArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "anomalyDetectorArn is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cwLogAnomalyDetectors.Get(req.AnomalyDetectorArn); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
 		return
 	}
@@ -1118,7 +1118,7 @@ func handleCWUpdateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		Enabled               bool   `json:"enabled"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -1140,7 +1140,7 @@ func handleCWUpdateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		d.LastModifiedTimeStamp = now
 	})
 	if !updated {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
 		return
 	}

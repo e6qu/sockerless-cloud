@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Run v2 Worker Pools slice. Worker pools are the v2 resource for
@@ -129,17 +129,17 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		poolID := r.URL.Query().Get("workerPoolId")
 		if poolID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "workerPoolId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "workerPoolId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 		var pool WorkerPoolV2
 		if err := sim.ReadJSON(r, &pool); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, poolID)
 		if _, exists := pools.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "worker pool %q already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "worker pool %q already exists", name)
 			return
 		}
 		pool = seedWorkerPoolV2Defaults(pool, project, location, poolID)
@@ -161,13 +161,13 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 				workerPoolIAM(w, r, pools, project, location, id, action)
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, poolParam)
 		pool, ok := pools.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, pool)
@@ -202,12 +202,12 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, poolID)
 		existing, ok := pools.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
 			return
 		}
 		var update WorkerPoolV2
 		if err := sim.ReadJSON(r, &update); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// The etag is read off the request as sent, before any mask merge
@@ -220,7 +220,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		if mask := r.URL.Query().Get("updateMask"); mask != "" {
 			merged, err := applyWorkerPoolUpdateMask(existing, update, mask)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 				return
 			}
 			update = merged
@@ -256,7 +256,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, poolID)
 		pool, ok := pools.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
 			return
 		}
 		if !cloudRunEtagOK(w, "worker pool", pool.Name, pool.Etag, r.URL.Query().Get("etag")) {
@@ -279,7 +279,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s/revisions/%s", project, location, poolID, revisionID)
 		rev, ok := revisions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, rev)
@@ -312,7 +312,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s/revisions/%s", project, location, poolID, revisionID)
 		rev, ok := revisions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
 			return
 		}
 		if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
@@ -330,14 +330,14 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		poolAction := sim.PathParam(r, "workerPoolAction")
 		id, action, found := strings.Cut(poolAction, ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on worker pool %q", poolAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on worker pool %q", poolAction)
 			return
 		}
 		switch action {
 		case "setIamPolicy", "testIamPermissions":
 			workerPoolIAM(w, r, pools, project, location, id, action)
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
 		}
 	})
 
@@ -355,7 +355,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		id, action, found := strings.Cut(sim.PathParam(r, "workerPool"), ":")
 		if !found || action != "getIamPolicy" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
 			return
 		}
 		workerPoolIAM(w, r, pools, project, location, id, action)
@@ -365,14 +365,14 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		id, action, found := strings.Cut(sim.PathParam(r, "workerPoolAction"), ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on worker pool %q", id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on worker pool %q", id)
 			return
 		}
 		switch action {
 		case "setIamPolicy", "testIamPermissions":
 			workerPoolIAM(w, r, pools, project, location, id, action)
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
 		}
 	})
 }
@@ -385,7 +385,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 func workerPoolIAM(w http.ResponseWriter, r *http.Request, pools sim.Store[WorkerPoolV2], project, location, id, action string) {
 	name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, id)
 	if _, ok := pools.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), name, action)

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Systems Manager cloud connectors — the control plane that registers a
@@ -61,7 +61,7 @@ type ssmCloudConnectorConfiguration struct {
 
 var ssmCloudConnectors sim.Store[SSMCloudConnector]
 
-func registerSSMCloudConnectors(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMCloudConnectors(r *AWSRouter, srv *sim.Server) {
 	ssmCloudConnectors = sim.MakeStore[SSMCloudConnector](srv.DB(), "ssm_cloud_connectors")
 
 	r.Register("AmazonSSM.CreateCloudConnector", handleSSMCreateCloudConnector)
@@ -109,29 +109,29 @@ func handleSSMCreateCloudConnector(w http.ResponseWriter, r *http.Request) {
 		Tags               []ssmTagKV      `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	switch {
 	case req.DisplayName == "":
-		sim.AWSError(w, "ValidationException", "DisplayName is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "DisplayName is required", http.StatusBadRequest)
 		return
 	case req.RoleArn == "":
-		sim.AWSError(w, "ValidationException", "RoleArn is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "RoleArn is required", http.StatusBadRequest)
 		return
 	case req.ConfigConnectorArn == "":
-		sim.AWSError(w, "ValidationException", "ConfigConnectorArn is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ConfigConnectorArn is required", http.StatusBadRequest)
 		return
 	}
 	if _, msg := ssmParseCloudConnectorConfiguration(req.Configuration); msg != "" {
-		sim.AWSError(w, "ValidationException", msg, http.StatusBadRequest)
+		AWSError(w, "ValidationException", msg, http.StatusBadRequest)
 		return
 	}
 	// The display name identifies the connector for an operator; a second
 	// connector with the same name conflicts with the existing one.
 	for _, c := range ssmCloudConnectors.List() {
 		if c.DisplayName == req.DisplayName {
-			sim.AWSErrorf(w, "ConflictException", http.StatusBadRequest,
+			AWSErrorf(w, "ConflictException", http.StatusBadRequest,
 				"A cloud connector named %s already exists", req.DisplayName)
 			return
 		}
@@ -159,12 +159,12 @@ func handleSSMGetCloudConnector(w http.ResponseWriter, r *http.Request) {
 		CloudConnectorId string `json:"CloudConnectorId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	c, ok := ssmCloudConnectors.Get(req.CloudConnectorId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Cloud connector %s does not exist", req.CloudConnectorId)
 		return
 	}
@@ -248,7 +248,7 @@ func handleSSMListCloudConnectors(w http.ResponseWriter, r *http.Request) {
 		} `json:"Filters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	var matched []SSMCloudConnector
@@ -287,18 +287,18 @@ func handleSSMUpdateCloudConnector(w http.ResponseWriter, r *http.Request) {
 		Configuration    json.RawMessage `json:"Configuration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	c, ok := ssmCloudConnectors.Get(req.CloudConnectorId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Cloud connector %s does not exist", req.CloudConnectorId)
 		return
 	}
 	if len(req.Configuration) > 0 {
 		if _, msg := ssmParseCloudConnectorConfiguration(req.Configuration); msg != "" {
-			sim.AWSError(w, "ValidationException", msg, http.StatusBadRequest)
+			AWSError(w, "ValidationException", msg, http.StatusBadRequest)
 			return
 		}
 		c.Configuration = req.Configuration
@@ -319,11 +319,11 @@ func handleSSMDeleteCloudConnector(w http.ResponseWriter, r *http.Request) {
 		CloudConnectorId string `json:"CloudConnectorId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmCloudConnectors.Get(req.CloudConnectorId); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Cloud connector %s does not exist", req.CloudConnectorId)
 		return
 	}
@@ -396,12 +396,12 @@ func handleSSMValidateCloudConnector(w http.ResponseWriter, r *http.Request) {
 		NextToken        string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	c, ok := ssmCloudConnectors.Get(req.CloudConnectorId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Cloud connector %s does not exist", req.CloudConnectorId)
 		return
 	}

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Authentication for the Google Artifact Registry Docker data plane — the
@@ -650,7 +650,7 @@ func arTokenServiceHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := json.Marshal(envelope)
 	if err != nil {
-		sim.GCPError(w, http.StatusInternalServerError, "encode registry token", "INTERNAL")
+		GCPError(w, http.StatusInternalServerError, "encode registry token", "INTERNAL")
 		return
 	}
 	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")

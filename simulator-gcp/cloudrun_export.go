@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Run's source uploads and image exports.
@@ -36,13 +36,13 @@ func registerCloudRunExport(srv *sim.Server) {
 		operationID, verb, _ := strings.Cut(sim.PathParam(r, "operationId"), ":")
 		_ = locationName
 		if verb != "exportStatus" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no Cloud Run method named %q", verb)
 			return
 		}
 		held, ok := exports.Get(operationID)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no image export with operation id %q", operationID)
 			return
 		}
@@ -68,7 +68,7 @@ func registerCloudRunExport(srv *sim.Server) {
 		func(w http.ResponseWriter, r *http.Request) {
 			_, verb, _ := strings.Cut(sim.PathParam(r, "location"), ":")
 			if !cloudRunLocationVerbHandled(w, r, "", verb) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"no Cloud Run location method named %q", verb)
 			}
 		})
@@ -78,7 +78,7 @@ func registerCloudRunExport(srv *sim.Server) {
 			name := fmt.Sprintf("projects/%s/locations/%s/%s",
 				sim.PathParam(r, "project"), sim.PathParam(r, "location"), resource)
 			if !cloudRunLocationExportHandled(w, r, name, verb) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"no Cloud Run method named %q", verb)
 			}
 		})
@@ -90,7 +90,7 @@ func registerCloudRunExport(srv *sim.Server) {
 		func(w http.ResponseWriter, r *http.Request) {
 			_, verb, _ := strings.Cut(sim.PathParam(r, "location"), ":")
 			if !cloudRunLocationVerbHandled(w, r, "", verb) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"no Cloud Run upload method named %q", verb)
 			}
 		})
@@ -121,7 +121,7 @@ func cloudRunExportImage(w http.ResponseWriter, r *http.Request, source string) 
 		DestinationRepo string `json:"destinationRepo"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil || req.DestinationRepo == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"an image export needs the destinationRepo it is going to")
 		return
 	}

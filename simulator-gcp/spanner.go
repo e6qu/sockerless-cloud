@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc/status"
 )
 
@@ -160,7 +160,7 @@ func handleSpannerDatabases(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		handleSpannerListDatabases(w, r)
 	default:
-		sim.GCPError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
+		GCPError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
 	}
 }
 
@@ -171,7 +171,7 @@ func handleSpannerSessions(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		handleSpannerListSessions(w, r)
 	default:
-		sim.GCPError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
+		GCPError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
 	}
 }
 
@@ -427,7 +427,7 @@ func spannerRouteDatabaseCollection(w http.ResponseWriter, r *http.Request, part
 		}
 		database := spannerDatabaseName(project, instance, id)
 		if _, ok := spannerDatabases.Get(database); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
 			return true
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"name": database + "/scans"})
@@ -538,14 +538,14 @@ func handleSpannerCreateInstance(w http.ResponseWriter, r *http.Request) {
 		Instance   spannerInstance `json:"instance"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if instanceID == "" {
 		instanceID = req.InstanceID
 	}
 	if instanceID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "instanceId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "instanceId is required", "INVALID_ARGUMENT")
 		return
 	}
 	inst := req.Instance
@@ -592,7 +592,7 @@ func handleSpannerGetInstance(w http.ResponseWriter, r *http.Request) {
 	name := spannerInstanceName(sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0))
 	inst, ok := spannerInstances.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, inst)
@@ -601,7 +601,7 @@ func handleSpannerGetInstance(w http.ResponseWriter, r *http.Request) {
 func handleSpannerDeleteInstance(w http.ResponseWriter, r *http.Request) {
 	name := spannerInstanceName(sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0))
 	if _, ok := spannerInstances.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	// Drop protection on any database in the instance blocks the delete, the
@@ -609,7 +609,7 @@ func handleSpannerDeleteInstance(w http.ResponseWriter, r *http.Request) {
 	// it holds is protected.
 	for _, db := range spannerDatabases.List() {
 		if strings.HasPrefix(db.Name, name+"/databases/") && db.EnableDropProtection {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 				"database %q has drop protection enabled and must be updated before its instance can be deleted", db.Name)
 			return
 		}
@@ -621,7 +621,7 @@ func handleSpannerDeleteInstance(w http.ResponseWriter, r *http.Request) {
 			spannerDDLs.Delete(db.Name)
 			spannerDeleteBackupSchedulesFor(db.Name)
 			if err := spannerDropBackend(db.Name); err != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", db.Name, err)
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", db.Name, err)
 				return
 			}
 		}
@@ -640,7 +640,7 @@ func handleSpannerUpdateInstance(w http.ResponseWriter, r *http.Request) {
 	name := spannerInstanceName(project, instanceID)
 	inst, ok := spannerInstances.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	var req struct {
@@ -648,7 +648,7 @@ func handleSpannerUpdateInstance(w http.ResponseWriter, r *http.Request) {
 		FieldMask string          `json:"fieldMask"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	for _, field := range strings.Split(req.FieldMask, ",") {
@@ -669,7 +669,7 @@ func handleSpannerUpdateInstance(w http.ResponseWriter, r *http.Request) {
 func handleSpannerCreateDatabase(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0)
 	if _, ok := spannerInstances.Get(spannerInstanceName(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
 	var req struct {
@@ -679,17 +679,17 @@ func handleSpannerCreateDatabase(w http.ResponseWriter, r *http.Request) {
 		ProtoDescriptors string   `json:"protoDescriptors"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	dbID := spannerDatabaseIDFromStatement(req.CreateStatement)
 	if dbID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "CREATE DATABASE statement is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "CREATE DATABASE statement is required", "INVALID_ARGUMENT")
 		return
 	}
 	name := spannerDatabaseName(project, instance, dbID)
 	if _, exists := spannerDatabases.Get(name); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "database %q already exists", name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "database %q already exists", name)
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -715,7 +715,7 @@ func handleSpannerCreateDatabase(w http.ResponseWriter, r *http.Request) {
 			// database behind when its initial schema is rejected.
 			spannerDatabases.Delete(db.Name)
 			if dropErr := spannerDropBackend(db.Name); dropErr != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", db.Name, dropErr)
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", db.Name, dropErr)
 				return
 			}
 			op := newSpannerDatabaseLRO(project, instance, dbID, nil, "type.googleapis.com/google.spanner.admin.database.v1.Database")
@@ -759,7 +759,7 @@ func handleSpannerGetDatabase(w http.ResponseWriter, r *http.Request) {
 	name := spannerDatabaseName(sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0), spannerPathPart(r, "database", 2))
 	db, ok := spannerDatabases.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, db)
@@ -769,11 +769,11 @@ func handleSpannerDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	name := spannerDatabaseName(sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0), spannerPathPart(r, "database", 2))
 	db, ok := spannerDatabases.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
 	if db.EnableDropProtection {
-		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 			"database %q has drop protection enabled and cannot be dropped", name)
 		return
 	}
@@ -781,7 +781,7 @@ func handleSpannerDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	spannerDDLs.Delete(name)
 	spannerDeleteBackupSchedulesFor(name)
 	if err := spannerDropBackend(name); err != nil {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", name, err)
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", name, err)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -791,7 +791,7 @@ func handleSpannerUpdateDatabaseDdl(w http.ResponseWriter, r *http.Request) {
 	project, instance, database := sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0), spannerPathPart(r, "database", 2)
 	name := spannerDatabaseName(project, instance, database)
 	if _, ok := spannerDatabases.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
 	var req struct {
@@ -800,17 +800,17 @@ func handleSpannerUpdateDatabaseDdl(w http.ResponseWriter, r *http.Request) {
 		Statements       []string `json:"statements"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if len(req.Statements) == 0 {
-		sim.GCPError(w, http.StatusBadRequest, "statements is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "statements is required", "INVALID_ARGUMENT")
 		return
 	}
 	if req.OperationID != "" {
 		opName := fmt.Sprintf("%s/operations/%s", name, req.OperationID)
 		if _, ok := crOperations.Get(opName); ok {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "operation %q already exists", opName)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "operation %q already exists", opName)
 			return
 		}
 	}
@@ -862,14 +862,14 @@ func newSpannerDatabaseDDLOperation(database, operationID string, statements []s
 func handleSpannerCreateSession(w http.ResponseWriter, r *http.Request) {
 	project, instance, database := sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0), spannerPathPart(r, "database", 2)
 	if _, ok := spannerDatabases.Get(spannerDatabaseName(project, instance, database)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", database)
 		return
 	}
 	var req struct {
 		Session spannerSession `json:"session"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	sessionID := generateUUID()
@@ -891,7 +891,7 @@ func handleSpannerGetSession(w http.ResponseWriter, r *http.Request) {
 	name := spannerSessionName(sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0), spannerPathPart(r, "database", 2), spannerPathPart(r, "session", 4))
 	sess, ok := spannerSessions.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "session %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "session %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, sess)
@@ -900,7 +900,7 @@ func handleSpannerGetSession(w http.ResponseWriter, r *http.Request) {
 func handleSpannerDeleteSession(w http.ResponseWriter, r *http.Request) {
 	name := spannerSessionName(sim.PathParam(r, "project"), spannerPathPart(r, "instance", 0), spannerPathPart(r, "database", 2), spannerPathPart(r, "session", 4))
 	if !spannerSessions.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "session %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "session %q not found", name)
 		return
 	}
 	spannerRollbackSessionTransactions(name)
@@ -924,12 +924,12 @@ func handleSpannerCreateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 		ValidateOnly     bool                  `json:"validateOnly"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	configID := req.InstanceConfigID
 	if configID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "instanceConfigId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "instanceConfigId is required", "INVALID_ARGUMENT")
 		return
 	}
 	cfg := req.InstanceConfig
@@ -938,7 +938,7 @@ func handleSpannerCreateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 		cfg.DisplayName = configID
 	}
 	if _, ok := spannerInstanceConfigs.Get(cfg.Name); ok {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance config %q already exists", cfg.Name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance config %q already exists", cfg.Name)
 		return
 	}
 	cfg.ConfigType = "USER_MANAGED"
@@ -968,7 +968,7 @@ func handleSpannerGetInstanceConfig(w http.ResponseWriter, r *http.Request) {
 	name := spannerInstanceConfigName(sim.PathParam(r, "project"), sim.PathParam(r, "config"))
 	cfg, ok := spannerInstanceConfigs.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance config %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance config %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, cfg)
@@ -979,7 +979,7 @@ func handleSpannerUpdateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 	name := spannerInstanceConfigName(project, configID)
 	cfg, ok := spannerInstanceConfigs.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance config %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance config %q not found", name)
 		return
 	}
 	var req struct {
@@ -988,7 +988,7 @@ func handleSpannerUpdateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 		ValidateOnly   bool                  `json:"validateOnly"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	for _, field := range strings.Split(req.UpdateMask, ",") {
@@ -1010,7 +1010,7 @@ func handleSpannerUpdateInstanceConfig(w http.ResponseWriter, r *http.Request) {
 func handleSpannerDeleteInstanceConfig(w http.ResponseWriter, r *http.Request) {
 	name := spannerInstanceConfigName(sim.PathParam(r, "project"), sim.PathParam(r, "config"))
 	if !spannerInstanceConfigs.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance config %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance config %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1041,7 +1041,7 @@ func handleSpannerGetInstanceConfigOperation(w http.ResponseWriter, r *http.Requ
 		sim.WriteJSON(w, http.StatusOK, op)
 		return
 	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 }
 
 func handleSpannerDeleteInstanceConfigOperation(w http.ResponseWriter, r *http.Request) {

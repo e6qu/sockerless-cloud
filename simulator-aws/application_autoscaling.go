@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Application Auto Scaling — terraform-provider-aws and the AWS SDK use this
@@ -88,7 +88,7 @@ var (
 	appScalingActivities sim.Store[AppScalingActivity]
 )
 
-func registerApplicationAutoScaling(r *sim.AWSRouter, srv *sim.Server, startBackgroundEvaluator bool) {
+func registerApplicationAutoScaling(r *AWSRouter, srv *sim.Server, startBackgroundEvaluator bool) {
 	appScalableTargets = sim.MakeStore[AppScalableTarget](srv.DB(), "app_scalable_targets")
 	appScalingPolicies = sim.MakeStore[AppScalingPolicy](srv.DB(), "app_scaling_policies")
 	appScheduledActions = sim.MakeStore[AppScheduledAction](srv.DB(), "app_scheduled_actions")
@@ -150,11 +150,11 @@ func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
 		Tags              map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceNamespace == "" || req.ResourceId == "" || req.ScalableDimension == "" {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"ServiceNamespace, ResourceId, and ScalableDimension are required", http.StatusBadRequest)
 		return
 	}
@@ -212,12 +212,12 @@ func handleAppASDeregisterScalableTarget(w http.ResponseWriter, r *http.Request)
 		ScalableDimension string `json:"ScalableDimension"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := appScalableTargetKey(req.ServiceNamespace, req.ResourceId, req.ScalableDimension)
 	if _, ok := appScalableTargets.Get(key); !ok {
-		sim.AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
 			"No scalable target registered for %s/%s/%s",
 			req.ServiceNamespace, req.ResourceId, req.ScalableDimension)
 		return
@@ -243,11 +243,11 @@ func handleAppASDescribeScalableTargets(w http.ResponseWriter, r *http.Request) 
 		NextToken         string   `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceNamespace == "" {
-		sim.AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
 		return
 	}
 	wantIDs := map[string]bool{}
@@ -308,18 +308,18 @@ func handleAppASPutScalingPolicy(w http.ResponseWriter, r *http.Request) {
 		StepScaling       json.RawMessage `json:"StepScalingPolicyConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PolicyName == "" || req.ServiceNamespace == "" || req.ResourceId == "" || req.ScalableDimension == "" {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"PolicyName, ServiceNamespace, ResourceId, and ScalableDimension are required", http.StatusBadRequest)
 		return
 	}
 	// A policy requires a registered scalable target.
 	targetKey := appScalableTargetKey(req.ServiceNamespace, req.ResourceId, req.ScalableDimension)
 	if _, ok := appScalableTargets.Get(targetKey); !ok {
-		sim.AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
 			"No scalable target registered for %s/%s/%s",
 			req.ServiceNamespace, req.ResourceId, req.ScalableDimension)
 		return
@@ -358,12 +358,12 @@ func handleAppASDeleteScalingPolicy(w http.ResponseWriter, r *http.Request) {
 		ScalableDimension string `json:"ScalableDimension"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := appScalingPolicyKey(req.ServiceNamespace, req.ResourceId, req.ScalableDimension, req.PolicyName)
 	if _, ok := appScalingPolicies.Get(key); !ok {
-		sim.AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
 			"No scaling policy named %q for %s/%s/%s",
 			req.PolicyName, req.ServiceNamespace, req.ResourceId, req.ScalableDimension)
 		return
@@ -420,11 +420,11 @@ func handleAppASDescribeScalingPolicies(w http.ResponseWriter, r *http.Request) 
 		NextToken         string   `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceNamespace == "" {
-		sim.AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
 		return
 	}
 	wantNames := map[string]bool{}
@@ -476,12 +476,12 @@ func handleAppASListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceARN string `json:"ResourceARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	_, target, ok := appScalableTargetByARN(req.ResourceARN)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"No resource found for ARN %q", req.ResourceARN)
 		return
 	}
@@ -498,12 +498,12 @@ func handleAppASTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags        map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key, target, ok := appScalableTargetByARN(req.ResourceARN)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"No resource found for ARN %q", req.ResourceARN)
 		return
 	}
@@ -523,12 +523,12 @@ func handleAppASUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys     []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key, target, ok := appScalableTargetByARN(req.ResourceARN)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"No resource found for ARN %q", req.ResourceARN)
 		return
 	}
@@ -565,11 +565,11 @@ func handleAppASPutScheduledAction(w http.ResponseWriter, r *http.Request) {
 		ScalableTargetAction json.RawMessage `json:"ScalableTargetAction"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceNamespace == "" || req.ScheduledActionName == "" || req.ResourceId == "" {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"ServiceNamespace, ScheduledActionName, and ResourceId are required", http.StatusBadRequest)
 		return
 	}
@@ -614,12 +614,12 @@ func handleAppASDeleteScheduledAction(w http.ResponseWriter, r *http.Request) {
 		ScalableDimension   string `json:"ScalableDimension"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := appScheduledActionKey(req.ServiceNamespace, req.ResourceId, req.ScheduledActionName)
 	if _, ok := appScheduledActions.Get(key); !ok {
-		sim.AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
 			"No scheduled action named %q for %s/%s",
 			req.ScheduledActionName, req.ServiceNamespace, req.ResourceId)
 		return
@@ -638,11 +638,11 @@ func handleAppASDescribeScheduledActions(w http.ResponseWriter, r *http.Request)
 		NextToken            string   `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceNamespace == "" {
-		sim.AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
 		return
 	}
 	wantNames := map[string]bool{}
@@ -698,11 +698,11 @@ func handleAppASDescribeScalingActivities(w http.ResponseWriter, r *http.Request
 		IncludeNotScaledActivities *bool  `json:"IncludeNotScaledActivities"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceNamespace == "" {
-		sim.AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
 		return
 	}
 	matched := appScalingActivities.Filter(func(a AppScalingActivity) bool {
@@ -769,11 +769,11 @@ func handleAppASGetPredictiveScalingForecast(w http.ResponseWriter, r *http.Requ
 		EndTime           *float64 `json:"EndTime"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceNamespace == "" || req.ResourceId == "" || req.PolicyName == "" {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"ServiceNamespace, ResourceId, and PolicyName are required", http.StatusBadRequest)
 		return
 	}

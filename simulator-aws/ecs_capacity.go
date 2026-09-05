@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS capacity providers — the control-plane resource behind
@@ -30,7 +30,7 @@ type ECSCapacityProvider struct {
 
 var ecsCapacityProviders sim.Store[ECSCapacityProvider]
 
-func registerECSCapacity(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSCapacity(r *AWSRouter, srv *sim.Server) {
 	ecsCapacityProviders = sim.MakeStore[ECSCapacityProvider](srv.DB(), "ecs_capacity_providers")
 
 	r.Register("AmazonEC2ContainerServiceV20141113.CreateCapacityProvider", handleECSCreateCapacityProvider)
@@ -56,22 +56,22 @@ func handleECSCreateCapacityProvider(w http.ResponseWriter, r *http.Request) {
 		Tags                     []ECSTag        `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
 		return
 	}
 	for _, builtin := range ecsBuiltInCapacityProviders {
 		if req.Name == builtin {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 				"The capacity provider name '%s' is reserved.", req.Name)
 			return
 		}
 	}
 	if _, exists := ecsCapacityProviders.Get(req.Name); exists {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The specified capacity provider already exists. To change the configuration of an existing capacity provider, update the capacity provider.")
 		return
 	}
@@ -95,13 +95,13 @@ func handleECSUpdateCapacityProvider(w http.ResponseWriter, r *http.Request) {
 		ManagedInstancesProvider json.RawMessage `json:"managedInstancesProvider"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name := ecsCapacityProviderName(req.Name)
 	cp, ok := ecsCapacityProviders.Get(name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The specified capacity provider does not exist. Specify a valid name or ARN and try again.")
 		return
 	}
@@ -153,7 +153,7 @@ func handleECSDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) {
 		CapacityProvider string `json:"capacityProvider"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name := ecsCapacityProviderName(req.CapacityProvider)
@@ -163,14 +163,14 @@ func handleECSDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) {
 	// deleted.
 	for _, builtin := range ecsBuiltInCapacityProviders {
 		if name == builtin {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 				"The capacity provider '%s' is reserved and cannot be deleted.", name)
 			return
 		}
 	}
 	cp, ok := ecsCapacityProviders.Get(name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The specified capacity provider does not exist. Specify a valid name or ARN and try again.")
 		return
 	}
@@ -179,7 +179,7 @@ func handleECSDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) {
 	// own list was never consulted, so deleting one left clusters naming a
 	// provider that no longer existed.
 	if clusters := ecsClustersUsingCapacityProvider(name); len(clusters) > 0 {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The capacity provider '%s' is in use by cluster(s) %s and cannot be deleted. "+
 				"Disassociate it with PutClusterCapacityProviders and try again.",
 			name, strings.Join(clusters, ", "))

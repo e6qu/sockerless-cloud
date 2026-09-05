@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ASGroupExtras holds the per-group attachment / configuration state introduced
@@ -75,7 +75,7 @@ var (
 	asLifecycleActions  sim.Store[ASLifecycleAction]
 )
 
-func registerAutoScalingExtra(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerAutoScalingExtra(r *AWSQueryRouter, srv *sim.Server) {
 	asGroupExtras = sim.MakeStore[ASGroupExtras](srv.DB(), "autoscaling_group_extras")
 	asInstanceRefreshes = sim.MakeStore[ASInstanceRefresh](srv.DB(), "autoscaling_instance_refreshes")
 	asLifecycleActions = sim.MakeStore[ASLifecycleAction](srv.DB(), "autoscaling_lifecycle_actions")

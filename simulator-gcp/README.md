@@ -209,26 +209,15 @@ More inline examples (Cloud Run Jobs / Cloud Functions / Cloud Logging / Artifac
 
 ## Project structure
 
-```
-gcp/
-├── main.go                 Entry point, service registration
-├── cloudrunjobs.go         Cloud Run Jobs + Executions
-├── cloudfunctions.go       Cloud Functions v2
-├── dns.go                  Cloud DNS zones + record sets
-├── gcs.go                  GCS buckets + objects, multipart upload
-├── artifactregistry.go     Artifact Registry + OCI Distribution
-├── logging.go              Cloud Logging entries
-├── compute.go              Networks + subnetworks
-├── iam.go                  Service accounts + IAM policies + CRM v3 projects/folders/tags
-├── cloudresourcemanager.go CRM v1 projects lifecycle + Cloud Billing billingInfo
-├── vpcaccess.go            VPC Access connectors
-├── serviceusage.go         Service enable/disable
-├── operations.go           LRO status
-├── shared/                 Shared simulator framework
-├── sdk-tests/              SDK integration tests
-├── cli-tests/              CLI integration tests
-└── terraform-tests/        Terraform apply/destroy tests
-```
+One Go file per service family at the module root (`cloudrunjobs.go`,
+`cloudfunctions.go`, `gcs.go`, `artifactregistry.go`, `compute*.go`,
+`spanner*.go`, …), each registering its routes in `buildSimulator` in
+`main.go`, with the gRPC services mounted by `registerAllGRPCServices`. The
+framework — server, container-engine layer, durable state, OCI data plane — is
+the [`sim`](../sim/README.md) module; the Google-specific pieces of it (the
+error envelope and the sandbox profiles) live here. `sdk-tests/`, `cli-tests/`
+and `terraform-tests/` are separate Go modules driving the Google Cloud client
+libraries, gcloud and terraform-provider-google against a running simulator.
 
 ## Testing
 
@@ -247,16 +236,16 @@ Each test package's `TestMain` builds the simulator binary, finds a free port, b
 
 ## Execution model
 
-Cloud Run job executions honor the task template `timeout` field (e.g., `"600s"`). Given a timeout, the execution auto-completes after that duration. When a command is provided, the simulator executes it as a real process and streams output to Cloud Logging. When no command and no timeout are set, the execution stays running until explicitly cancelled. Cloud Functions invocations are synchronous and return immediately.
+Every Cloud Run job execution, Cloud Run service revision and Cloud Functions instance is a real container on the engine the simulator started against, under the Cloud Run sandbox profile, with its output streamed into Cloud Logging as it is produced. A job task runs until its container exits, is cancelled, or reaches the task template's `timeout`, which the simulator enforces the way Cloud Run does; a cancelled execution's container gets SIGTERM and then SIGKILL. Cloud Functions and Cloud Run services are invoked over HTTP against the container's own listener.
 
 ## Known issues
 
-None open. The Cloud Run `BackingPDEphemeral` rejection (Phase 91d bookmark) lives in the `backends/cloudrun` layer, not the simulator — Cloud Run lacks the protobuf field, so no amount of simulator work changes that.
+Open simulator bugs live in [BUGS.md](../BUGS.md).
 
 ## What's out of scope
 
-- **gRPC parity**: Cloud Logging's recommended path is gRPC; the sim exposes a gRPC port (default `:4568`) but does not serve every gRPC method. REST + JSON is the canonical surface.
-- **DNS resolution at UDP/53**: Cloud DNS stores records but does not serve them via UDP. Pair with dnsmasq for actual lookups.
+- **Three gRPC methods**: the gRPC door (default `:4569`) serves 210 of 213 declared methods; `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and `Spanner.FetchCacheUpdate` each need state the simulator does not hold and answer `Unimplemented`.
+- **DNS resolution at UDP/53**: Cloud DNS private zones resolve inside the workload networks through the container engine's embedded DNS; the simulator serves no UDP/53 listener of its own.
 - **Google's interactive consent screen**: `gcloud auth login` and `gcloud auth
   application-default login` are browser flows against accounts.google.com. The
   non-interactive credential paths — service-account keys, the metadata server,

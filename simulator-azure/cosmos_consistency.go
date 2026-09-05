@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cosmos consistency-level validation + session-token issuance.

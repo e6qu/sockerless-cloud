@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -132,7 +132,7 @@ var (
 	cwIndexPolicies       sim.Store[CWIndexPolicy]
 )
 
-func registerCloudWatchLogsExtra2(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudWatchLogsExtra2(r *AWSRouter, srv *sim.Server) {
 	cwAccountPolicies = sim.MakeStore[CWAccountPolicy](srv.DB(), "cw_account_policies")
 	cwQueryDefinitions = sim.MakeStore[CWQueryDefinition](srv.DB(), "cw_query_definitions")
 	cwResourcePolicies = sim.MakeStore[CWResourcePolicy](srv.DB(), "cw_resource_policies")
@@ -212,11 +212,11 @@ func handleCWPutAccountPolicy(w http.ResponseWriter, r *http.Request) {
 		SelectionCriteria string `json:"selectionCriteria"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PolicyName == "" || req.PolicyType == "" || req.PolicyDocument == "" {
-		sim.AWSError(w, "InvalidParameterException", "policyName, policyType and policyDocument are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "policyName, policyType and policyDocument are required", http.StatusBadRequest)
 		return
 	}
 	p := CWAccountPolicy{
@@ -239,11 +239,11 @@ func handleCWDescribeAccountPolicies(w http.ResponseWriter, r *http.Request) {
 		AccountIdentifiers []string `json:"accountIdentifiers"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PolicyType == "" {
-		sim.AWSError(w, "InvalidParameterException", "policyType is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "policyType is required", http.StatusBadRequest)
 		return
 	}
 	policies := cwAccountPolicies.Filter(func(p CWAccountPolicy) bool {
@@ -267,11 +267,11 @@ func handleCWDeleteAccountPolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyType string `json:"policyType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwAccountPolicies.Delete(cwAccountPolicyKey(req.PolicyType, req.PolicyName)) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified account policy does not exist: %s", req.PolicyName)
 		return
 	}
@@ -287,18 +287,18 @@ func handleCWPutQueryDefinition(w http.ResponseWriter, r *http.Request) {
 		LogGroupNames     []string `json:"logGroupNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.QueryString == "" {
-		sim.AWSError(w, "InvalidParameterException", "name and queryString are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name and queryString are required", http.StatusBadRequest)
 		return
 	}
 	id := req.QueryDefinitionId
 	if id == "" {
 		id = uuid.New().String()
 	} else if _, ok := cwQueryDefinitions.Get(id); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Query definition does not exist: %s", id)
 		return
 	}
@@ -336,7 +336,7 @@ func handleCWDeleteQueryDefinition(w http.ResponseWriter, r *http.Request) {
 		QueryDefinitionId string `json:"queryDefinitionId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	ok := cwQueryDefinitions.Delete(req.QueryDefinitionId)
@@ -349,11 +349,11 @@ func handleCWPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyDocument string `json:"policyDocument"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PolicyName == "" {
-		sim.AWSError(w, "InvalidParameterException", "policyName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "policyName is required", http.StatusBadRequest)
 		return
 	}
 	p := CWResourcePolicy{
@@ -378,11 +378,11 @@ func handleCWDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyName string `json:"policyName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwResourcePolicies.Delete(req.PolicyName) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified resource policy does not exist: %s", req.PolicyName)
 		return
 	}
@@ -401,11 +401,11 @@ func handleCWPutDestination(w http.ResponseWriter, r *http.Request) {
 		Tags            map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DestinationName == "" {
-		sim.AWSError(w, "InvalidParameterException", "destinationName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "destinationName is required", http.StatusBadRequest)
 		return
 	}
 	creation := time.Now().UnixMilli()
@@ -449,11 +449,11 @@ func handleCWDeleteDestination(w http.ResponseWriter, r *http.Request) {
 		DestinationName string `json:"destinationName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwDestinations.Delete(req.DestinationName) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified destination does not exist: %s", req.DestinationName)
 		return
 	}
@@ -466,11 +466,11 @@ func handleCWPutDestinationPolicy(w http.ResponseWriter, r *http.Request) {
 		AccessPolicy    string `json:"accessPolicy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwDestinations.Update(req.DestinationName, func(d *CWDestination) { d.AccessPolicy = req.AccessPolicy }) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified destination does not exist: %s", req.DestinationName)
 		return
 	}
@@ -498,15 +498,15 @@ func handleCWCreateDelivery(w http.ResponseWriter, r *http.Request) {
 		Tags                   map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DeliverySourceName == "" || req.DeliveryDestinationArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "deliverySourceName and deliveryDestinationArn are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "deliverySourceName and deliveryDestinationArn are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cwDeliverySources.Get(req.DeliverySourceName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery source does not exist: %s", req.DeliverySourceName)
 		return
 	}
@@ -541,12 +541,12 @@ func handleCWGetDelivery(w http.ResponseWriter, r *http.Request) {
 		Id string `json:"id"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	d, ok := cwDeliveries.Get(req.Id)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery does not exist: %s", req.Id)
 		return
 	}
@@ -558,11 +558,11 @@ func handleCWDeleteDelivery(w http.ResponseWriter, r *http.Request) {
 		Id string `json:"id"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwDeliveries.Delete(req.Id) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery does not exist: %s", req.Id)
 		return
 	}
@@ -585,11 +585,11 @@ func handleCWPutDeliverySource(w http.ResponseWriter, r *http.Request) {
 		Tags        map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
 		return
 	}
 	var resourceArns []string
@@ -612,12 +612,12 @@ func handleCWGetDeliverySource(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	src, ok := cwDeliverySources.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery source does not exist: %s", req.Name)
 		return
 	}
@@ -637,11 +637,11 @@ func handleCWDeleteDeliverySource(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwDeliverySources.Delete(req.Name) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery source does not exist: %s", req.Name)
 		return
 	}
@@ -657,11 +657,11 @@ func handleCWPutDeliveryDestination(w http.ResponseWriter, r *http.Request) {
 		Tags                             map[string]string                   `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
 		return
 	}
 	destType := req.DeliveryDestinationType
@@ -690,12 +690,12 @@ func handleCWGetDeliveryDestination(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	dd, ok := cwDeliveryDests.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery destination does not exist: %s", req.Name)
 		return
 	}
@@ -715,11 +715,11 @@ func handleCWDeleteDeliveryDestination(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwDeliveryDests.Delete(req.Name) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery destination does not exist: %s", req.Name)
 		return
 	}
@@ -732,11 +732,11 @@ func handleCWPutDeliveryDestinationPolicy(w http.ResponseWriter, r *http.Request
 		DeliveryDestinationPolicy string `json:"deliveryDestinationPolicy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwDeliveryDests.Update(req.DeliveryDestinationName, func(dd *CWDeliveryDestination) { dd.Policy = req.DeliveryDestinationPolicy }) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery destination does not exist: %s", req.DeliveryDestinationName)
 		return
 	}
@@ -750,12 +750,12 @@ func handleCWGetDeliveryDestinationPolicy(w http.ResponseWriter, r *http.Request
 		DeliveryDestinationName string `json:"deliveryDestinationName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	dd, ok := cwDeliveryDests.Get(req.DeliveryDestinationName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery destination does not exist: %s", req.DeliveryDestinationName)
 		return
 	}
@@ -769,11 +769,11 @@ func handleCWDeleteDeliveryDestinationPolicy(w http.ResponseWriter, r *http.Requ
 		DeliveryDestinationName string `json:"deliveryDestinationName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwDeliveryDests.Update(req.DeliveryDestinationName, func(dd *CWDeliveryDestination) { dd.Policy = "" }) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery destination does not exist: %s", req.DeliveryDestinationName)
 		return
 	}
@@ -794,11 +794,11 @@ func handleCWCreateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.LogGroupArnList) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "logGroupArnList is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupArnList is required", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -828,12 +828,12 @@ func handleCWGetLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		AnomalyDetectorArn string `json:"anomalyDetectorArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	det, ok := cwLogAnomalyDetectors.Get(req.AnomalyDetectorArn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
 		return
 	}
@@ -877,11 +877,11 @@ func handleCWDeleteLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		AnomalyDetectorArn string `json:"anomalyDetectorArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwLogAnomalyDetectors.Delete(req.AnomalyDetectorArn) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
 		return
 	}
@@ -894,11 +894,11 @@ func handleCWPutIndexPolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyDocument     string `json:"policyDocument"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupIdentifier == "" || req.PolicyDocument == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupIdentifier and policyDocument are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupIdentifier and policyDocument are required", http.StatusBadRequest)
 		return
 	}
 	p := CWIndexPolicy{
@@ -916,11 +916,11 @@ func handleCWDeleteIndexPolicy(w http.ResponseWriter, r *http.Request) {
 		LogGroupIdentifier string `json:"logGroupIdentifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwIndexPolicies.Delete(req.LogGroupIdentifier) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified index policy does not exist: %s", req.LogGroupIdentifier)
 		return
 	}
@@ -953,7 +953,7 @@ func handleCWDescribeFieldIndexes(w http.ResponseWriter, r *http.Request) {
 		LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// Field indexes are realized once an index policy is in effect and the log

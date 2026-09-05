@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ARPrewarmedArtifact mirrors the artifactregistry-v1 PrewarmedArtifact schema.
@@ -84,7 +84,7 @@ func arRepoVerbHandled(w http.ResponseWriter, r *http.Request, repo, verb string
 		return false
 	}
 	if _, exists := repos.Get(repo); !exists {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", repo)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "repository %q not found", repo)
 		return true
 	}
 	switch verb {
@@ -110,16 +110,16 @@ func arHandlePrewarm(w http.ResponseWriter, r *http.Request, repo string, versio
 		Force          bool   `json:"force"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	name, uri, err := arArtifactSelector(repo, req.Version, req.Tag)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
 	if !arArtifactExists(name, versions, tags) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "artifact %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "artifact %q not found", name)
 		return
 	}
 	// streamLocation is optional: unset caches the artifact where it already
@@ -131,7 +131,7 @@ func arHandlePrewarm(w http.ResponseWriter, r *http.Request, repo string, versio
 	}
 	key := arPrewarmKey(repo, streamLocation, uri)
 	if _, exists := arPrewarmed.Get(key); exists && !req.Force {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 			"artifact %q is already prewarmed in %q", uri, streamLocation)
 		return
 	}
@@ -139,7 +139,7 @@ func arHandlePrewarm(w http.ResponseWriter, r *http.Request, repo string, versio
 	if req.RetentionDays != "" {
 		days, convErr := strconv.Atoi(req.RetentionDays)
 		if convErr != nil || days <= 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"retentionDays %q is not a positive integer", req.RetentionDays)
 			return
 		}
@@ -181,12 +181,12 @@ func arPrewarmedFromRequest(w http.ResponseWriter, r *http.Request, repo string)
 		Tag            string `json:"tag"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return ARPrewarmedArtifact{}, false
 	}
 	_, uri, err := arArtifactSelector(repo, req.Version, req.Tag)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return ARPrewarmedArtifact{}, false
 	}
 	_, repoLocation, _ := arRepoParts(repo)
@@ -196,7 +196,7 @@ func arPrewarmedFromRequest(w http.ResponseWriter, r *http.Request, repo string)
 	}
 	artifact, ok := arPrewarmed.Get(arPrewarmKey(repo, streamLocation, uri))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"artifact %q is not prewarmed in %q", uri, streamLocation)
 		return ARPrewarmedArtifact{}, false
 	}
@@ -214,36 +214,36 @@ func arHandleExportArtifact(w http.ResponseWriter, r *http.Request, repo string,
 		GcsPath       string `json:"gcsPath"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	name, _, err := arArtifactSelector(repo, req.SourceVersion, req.SourceTag)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
 	version, ok := arResolveVersion(name, versions, tags)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "artifact %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "artifact %q not found", name)
 		return
 	}
 	// gcsPath starts with the bucket name and may carry a directory, per the
 	// member's own description; the object keeps the artifact's digest.
 	bucket, prefix, _ := strings.Cut(strings.TrimPrefix(req.GcsPath, "gs://"), "/")
 	if bucket == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"gcsPath %q must start with a bucket name", req.GcsPath)
 		return
 	}
 	if _, exists := gcsBuckets.Get(bucket); !exists {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 		return
 	}
 	digest := version.Name[strings.LastIndex(version.Name, "/")+1:]
 	_, repoLocation, repoID := arRepoParts(repo)
 	blob, ok := arRegistry.Blobs.Get(repoID + "@" + digest)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"no stored blob for %q, so there is nothing to export", digest)
 		return
 	}

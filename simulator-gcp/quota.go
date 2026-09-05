@@ -26,8 +26,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
 // quotaDebit is one historical allocation event.
@@ -139,7 +137,7 @@ func regionalCPUQuotaErrorJSON(w http.ResponseWriter, resourceName string) {
 	if resourceName != "" {
 		msg = "Could not create or update Cloud Run service " + resourceName + ", " + msg
 	}
-	sim.GCPError(w, http.StatusBadRequest, msg, "INVALID_ARGUMENT")
+	GCPError(w, http.StatusBadRequest, msg, "INVALID_ARGUMENT")
 }
 
 // containerCPULoad parses a Container resource limit (e.g. "1", "0.5",

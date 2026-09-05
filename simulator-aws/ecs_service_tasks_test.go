@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // TestECSStopServiceTasks_DrainsNonStopped verifies the delete-time drain: given

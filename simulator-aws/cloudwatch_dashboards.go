@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -64,7 +64,7 @@ func cwListDashboardEntries(prefix string) []map[string]any {
 
 // ── awsJson1.0 (aws CLI) ────────────────────────────────────────────────────
 
-func registerCloudWatchDashboardsJSON(r *sim.AWSRouter) {
+func registerCloudWatchDashboardsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutDashboard", handleCWJSONPutDashboard)
 	r.Register("GraniteServiceVersion20100801.GetDashboard", handleCWJSONGetDashboard)
 	r.Register("GraniteServiceVersion20100801.ListDashboards", handleCWJSONListDashboards)
@@ -77,11 +77,11 @@ func handleCWJSONPutDashboard(w http.ResponseWriter, r *http.Request) {
 		DashboardBody string `json:"DashboardBody"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DashboardName == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter DashboardName is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter DashboardName is required.", http.StatusBadRequest)
 		return
 	}
 	cwPutDashboard(req.DashboardName, req.DashboardBody)
@@ -93,12 +93,12 @@ func handleCWJSONGetDashboard(w http.ResponseWriter, r *http.Request) {
 		DashboardName string `json:"DashboardName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	d, ok := cwDashboards.Get(req.DashboardName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Dashboard %s does not exist", req.DashboardName)
+		AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Dashboard %s does not exist", req.DashboardName)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -113,7 +113,7 @@ func handleCWJSONListDashboards(w http.ResponseWriter, r *http.Request) {
 		DashboardNamePrefix string `json:"DashboardNamePrefix"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "The request body is not valid JSON.", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "The request body is not valid JSON.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"DashboardEntries": cwListDashboardEntries(req.DashboardNamePrefix)})
@@ -124,12 +124,12 @@ func handleCWJSONDeleteDashboards(w http.ResponseWriter, r *http.Request) {
 		DashboardNames []string `json:"DashboardNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	for _, n := range req.DashboardNames {
 		if _, ok := cwDashboards.Get(n); !ok {
-			sim.AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Dashboard %s does not exist", n)
+			AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Dashboard %s does not exist", n)
 			return
 		}
 	}
@@ -238,7 +238,7 @@ func handleCWCBORDeleteDashboards(w http.ResponseWriter, r *http.Request) {
 
 // ── query (botocore / older aws CLI) ────────────────────────────────────────
 
-func registerCloudWatchDashboardsQuery(r *sim.AWSQueryRouter) {
+func registerCloudWatchDashboardsQuery(r *AWSQueryRouter) {
 	r.Register("PutDashboard", handleCWQueryPutDashboard)
 	r.Register("GetDashboard", handleCWQueryGetDashboard)
 	r.Register("ListDashboards", handleCWQueryListDashboards)

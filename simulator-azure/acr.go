@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Registry represents an Azure Container Registry.
@@ -104,6 +104,19 @@ func registerACR(srv *sim.Server) {
 		Uploads:   sim.MakeStore[sim.OCIUpload](srv.DB(), "acr_uploads"),
 		Authorize: acrAuthorizeV2,
 		Scope:     acrDataPlaneScope,
+		// Azure Container Registry answers the authorized ping with the
+		// two-byte body `{}` — no trailing newline — as
+		// `application/json; charset=utf-8`, `content-length: 2`. Captured from
+		// `k8sprow.azurecr.io/v2/` and `upstream.azurecr.io/v2/` with anonymous
+		// tokens from their own `/oauth2/token`, and `mcr.microsoft.com/v2/`
+		// answers identically. Encoding it as JSON would send three bytes and
+		// declare no charset, so it is written literally.
+		BaseResponse: func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Content-Length", "2")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("{}"))
+		},
 	}
 	// cacheRules stores pull-through cache rules keyed by ARM resource ID.
 	cacheRules := sim.MakeStore[ACRCacheRule](srv.DB(), "acr_cache_rules")
@@ -120,7 +133,7 @@ func registerACR(srv *sim.Server) {
 			Type string `json:"type"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// The name a caller is about to create with. Answering "available" for
@@ -157,12 +170,12 @@ func registerACR(srv *sim.Server) {
 
 		var req Registry
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if req.Location == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 
@@ -239,7 +252,7 @@ func registerACR(srv *sim.Server) {
 
 		reg, ok := registries.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.ContainerRegistry/registries/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -276,12 +289,12 @@ func registerACR(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s", sub, rg, name)
 		reg, ok := registries.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.ContainerRegistry/registries/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
 		if !reg.Properties.AdminUserEnabled {
-			sim.AzureError(w, "BadRequest",
+			AzureError(w, "BadRequest",
 				"The admin user is not enabled for the registry. Enable it before requesting credentials.",
 				http.StatusBadRequest)
 			return
@@ -323,19 +336,19 @@ func registerACR(srv *sim.Server) {
 			regID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s",
 				sub, rg, regName)
 			if _, ok := registries.Get(regID); !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"Registry '%s' under resource group '%s' was not found.", regName, rg)
 				return
 			}
 
 			var req ACRCacheRule
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.AzureError(w, "InvalidRequestContent",
+				AzureError(w, "InvalidRequestContent",
 					"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 			if req.Properties.SourceRepository == "" || req.Properties.TargetRepository == "" {
-				sim.AzureError(w, "InvalidRequestContent",
+				AzureError(w, "InvalidRequestContent",
 					"properties.sourceRepository and properties.targetRepository are required",
 					http.StatusBadRequest)
 				return
@@ -371,7 +384,7 @@ func registerACR(srv *sim.Server) {
 				sub, rg, regName, ruleName)
 			rule, ok := cacheRules.Get(ruleID)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"Cache rule '%s' under registry '%s' was not found.", ruleName, regName)
 				return
 			}
@@ -422,13 +435,13 @@ func registerACR(srv *sim.Server) {
 			ruleID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s/cacheRules/%s",
 				sub, rg, regName, ruleName)
 			if _, ok := cacheRules.Get(ruleID); !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"Cache rule '%s' under registry '%s' was not found.", ruleName, regName)
 				return
 			}
 			var req ACRCacheRule
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.AzureError(w, "InvalidRequestContent",
+				AzureError(w, "InvalidRequestContent",
 					"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -574,7 +587,7 @@ func registerACROAuth2(srv *sim.Server) {
 		}
 		refreshToken, err := acrMintRefreshToken(reg, subject)
 		if err != nil {
-			sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"refresh_token": refreshToken})
@@ -767,7 +780,7 @@ func acrWriteAccessToken(w http.ResponseWriter, reg Registry, identity acrTokenI
 	granted := acrGrantScopes(acrParseScopes(scopes), identity.owner)
 	accessToken, err := acrMintAccessToken(reg, identity.subject, granted, identity.credential, identity.slot)
 	if err != nil {
-		sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"access_token": accessToken})
@@ -871,7 +884,7 @@ func (k acrChildKind) handlePut(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, k.nameParam)
 	var req acrSubResource
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	resID := fmt.Sprintf("%s/%s/%s", regID, k.seg, name)
@@ -929,7 +942,7 @@ func (k acrChildKind) handlePatch(w http.ResponseWriter, r *http.Request) {
 	}
 	var req acrSubResource
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	k.store.Update(resID, func(s *acrSubResource) {
@@ -988,13 +1001,13 @@ func acrDropCredentialKeyGens(registryID string) {
 }
 
 func acrRegistryNotFound(w http.ResponseWriter, r *http.Request) {
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource 'Microsoft.ContainerRegistry/registries/%s' under resource group '%s' was not found.",
 		sim.PathParam(r, "registryName"), sim.PathParam(r, "resourceGroupName"))
 }
 
 func acrChildNotFound(w http.ResponseWriter, k acrChildKind, r *http.Request) {
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource '%s/%s' under registry '%s' was not found.",
 		k.typeName, sim.PathParam(r, k.nameParam), sim.PathParam(r, "registryName"))
 }
@@ -1051,7 +1064,7 @@ func registerACRChildResources(srv *sim.Server) {
 				child.Properties["connectionState"] = "Offline"
 			})
 			if !updated {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The connected registry %q was not found.",
 					sim.PathParam(r, "connectedRegistryName"))
 				return
@@ -1144,7 +1157,7 @@ func registerACRWebhooks(srv *sim.Server) {
 		}
 		var req acrWebhookCreateParams
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		wh := acrWebhookStored{
@@ -1162,7 +1175,7 @@ func registerACRWebhooks(srv *sim.Server) {
 		id, _ := webhookID(r)
 		wh, ok := webhooks.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Webhook '%s' under registry '%s' was not found.", sim.PathParam(r, "webhookName"), sim.PathParam(r, "registryName"))
 			return
 		}
@@ -1188,13 +1201,13 @@ func registerACRWebhooks(srv *sim.Server) {
 	srv.HandleFunc("PATCH "+base+"/{webhookName}", func(w http.ResponseWriter, r *http.Request) {
 		id, _ := webhookID(r)
 		if _, ok := webhooks.Get(id); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Webhook '%s' under registry '%s' was not found.", sim.PathParam(r, "webhookName"), sim.PathParam(r, "registryName"))
 			return
 		}
 		var req acrWebhookCreateParams
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		webhooks.Update(id, func(wh *acrWebhookStored) {
@@ -1241,7 +1254,7 @@ func registerACRWebhooks(srv *sim.Server) {
 		id, _ := webhookID(r)
 		wh, ok := webhooks.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Webhook '%s' under registry '%s' was not found.", sim.PathParam(r, "webhookName"), sim.PathParam(r, "registryName"))
 			return
 		}
@@ -1302,7 +1315,7 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		registries.Update(regID, func(reg *Registry) {
@@ -1390,7 +1403,7 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		}
 		_ = sim.ReadJSON(r, &req)
 		if req.Name != "password" && req.Name != "password2" {
-			sim.AzureErrorf(w, "InvalidParameter", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidParameter", http.StatusBadRequest,
 				"The value '%s' is not valid for parameter 'name'. Expected 'password' or 'password2'.", req.Name)
 			return
 		}

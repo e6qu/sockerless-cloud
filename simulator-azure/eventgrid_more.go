@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // eventGridKeySlots are the two access-key slots every Event Grid publishing
@@ -136,12 +136,12 @@ func registerEventGridNestedSubscription(srv *sim.Server, base string) {
 func eventGridUpdateARMResource(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, label string) {
 	existing, ok := store.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
 		return
 	}
 	var req EventGridTopic
 	if err := sim.ReadJSON(r, &req); err != nil && r.ContentLength != 0 {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Tags != nil {
@@ -180,7 +180,7 @@ func handleEventGridUpdateSystemTopic(w http.ResponseWriter, r *http.Request) {
 // is unchanged.
 func eventGridRegenerateKeyResponse(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, label string) {
 	if _, ok := store.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
 		return
 	}
 	var req struct {
@@ -208,13 +208,13 @@ func handleEventGridRegenerateDomainKey(w http.ResponseWriter, r *http.Request) 
 func handleEventGridUpdateEventSubscription(w http.ResponseWriter, r *http.Request) {
 	scopeID, _, ok := eventGridScopeFromRequest(r)
 	if !ok {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
 		return
 	}
 	id := eventGridSubscriptionIDForRequest(r, scopeID, sim.PathParam(r, "eventSubscriptionName"))
 	es, ok := eventGridSubscriptions.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
 		return
 	}
 	// EventSubscriptionUpdateParameters carries the mutable fields at the top
@@ -222,7 +222,7 @@ func handleEventGridUpdateEventSubscription(w http.ResponseWriter, r *http.Reque
 	// stored subscription's properties.
 	var patch map[string]any
 	if err := sim.ReadJSON(r, &patch); err != nil && r.ContentLength != 0 {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if es.Properties == nil {
@@ -270,13 +270,13 @@ func handleEventGridGetEventSubscriptionDeliveryAttributes(w http.ResponseWriter
 func eventGridLookupSubscription(w http.ResponseWriter, r *http.Request) (EventGridEventSubscription, bool) {
 	scopeID, _, ok := eventGridScopeFromRequest(r)
 	if !ok {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
 		return EventGridEventSubscription{}, false
 	}
 	id := eventGridSubscriptionIDForRequest(r, scopeID, sim.PathParam(r, "eventSubscriptionName"))
 	es, ok := eventGridSubscriptions.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
 		return EventGridEventSubscription{}, false
 	}
 	return es, true
@@ -442,7 +442,7 @@ func eventGridPrivateLinkResource(parentID, parentType string) EventGridTopic {
 func handleEventGridListPrivateLinkResources(w http.ResponseWriter, r *http.Request) {
 	parentID, ok := eventGridParentExists(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource %q not found", parentID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource %q not found", parentID)
 		return
 	}
 	plr := eventGridPrivateLinkResource(parentID, sim.PathParam(r, "parentType"))
@@ -452,12 +452,12 @@ func handleEventGridListPrivateLinkResources(w http.ResponseWriter, r *http.Requ
 func handleEventGridGetPrivateLinkResource(w http.ResponseWriter, r *http.Request) {
 	parentID, ok := eventGridParentExists(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource %q not found", parentID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource %q not found", parentID)
 		return
 	}
 	name := sim.PathParam(r, "privateLinkResourceName")
 	if !strings.EqualFold(name, eventGridPrivateLinkGroupID(sim.PathParam(r, "parentType"))) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private link resource %q not found", name)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private link resource %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, eventGridPrivateLinkResource(parentID, sim.PathParam(r, "parentType")))
@@ -473,7 +473,7 @@ func eventGridPrivateEndpointConnectionID(r *http.Request) (parentID, id string)
 func handleEventGridListPrivateEndpointConnections(w http.ResponseWriter, r *http.Request) {
 	parentID, ok := eventGridParentExists(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource %q not found", parentID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource %q not found", parentID)
 		return
 	}
 	prefix := parentID + "/privateEndpointConnections/"
@@ -490,7 +490,7 @@ func handleEventGridGetPrivateEndpointConnection(w http.ResponseWriter, r *http.
 	_, id := eventGridPrivateEndpointConnectionID(r)
 	conn, ok := eventGridPrivateEndpointConnections.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection %q not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, conn)
@@ -499,12 +499,12 @@ func handleEventGridGetPrivateEndpointConnection(w http.ResponseWriter, r *http.
 func handleEventGridPutPrivateEndpointConnection(w http.ResponseWriter, r *http.Request) {
 	parentID, id := eventGridPrivateEndpointConnectionID(r)
 	if _, ok := eventGridParentExists(r); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource %q not found", parentID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource %q not found", parentID)
 		return
 	}
 	var req EventGridTopic
 	if err := sim.ReadJSON(r, &req); err != nil && r.ContentLength != 0 {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	props := req.Properties
@@ -525,7 +525,7 @@ func handleEventGridPutPrivateEndpointConnection(w http.ResponseWriter, r *http.
 func handleEventGridDeletePrivateEndpointConnection(w http.ResponseWriter, r *http.Request) {
 	_, id := eventGridPrivateEndpointConnectionID(r)
 	if !eventGridPrivateEndpointConnections.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection %q not found", id)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

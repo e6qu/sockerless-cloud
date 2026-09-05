@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // fsEnum is a Firestore enum field value: the canonical uppercase name the
@@ -268,12 +268,12 @@ func handleFSPostDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	var req FSDocument
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid document body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid document body: %v", err)
 		return
 	}
 	name := fsFullName(project, database, strings.Trim(path, "/")+"/"+docID)
 	if _, ok := fsDocuments.Get(name); ok {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Document already exists: %s", name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Document already exists: %s", name)
 		return
 	}
 	req.Name = name
@@ -289,7 +289,7 @@ func handleFSGetOrList(w http.ResponseWriter, r *http.Request) {
 	}
 	doc, ok := fsDocuments.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Document not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Document not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, doc)
@@ -351,7 +351,7 @@ func handleFSPatchDocument(w http.ResponseWriter, r *http.Request) {
 	// params (currentDocument.exists / currentDocument.updateTime).
 	if pre := fsPreconditionFromQuery(r); pre != nil {
 		if e := fsEvalPrecondition(name, pre); e != nil {
-			sim.GCPError(w, e.httpStatus, e.message, e.status)
+			GCPError(w, e.httpStatus, e.message, e.status)
 			return
 		}
 	}
@@ -361,7 +361,7 @@ func handleFSPatchDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var req FSDocument
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid document body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid document body: %v", err)
 		return
 	}
 	// An absent updateMask.fieldPaths query param replaces wholesale; a present
@@ -377,7 +377,7 @@ func handleFSPatchDocument(w http.ResponseWriter, r *http.Request) {
 func handleFSDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	name := fsFullName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "docPath"))
 	if !fsDocuments.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Document not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Document not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -625,7 +625,7 @@ func handleFSCommit(w http.ResponseWriter, r *http.Request) {
 		Transaction string    `json:"transaction"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid commit body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid commit body: %v", err)
 		return
 	}
 	// A transactional commit consumes the transaction: an unknown or
@@ -633,7 +633,7 @@ func handleFSCommit(w http.ResponseWriter, r *http.Request) {
 	// token (a transaction can be committed at most once, success or failure).
 	if req.Transaction != "" {
 		if _, ok := fsTransactions.Get(req.Transaction); !ok {
-			sim.GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
 			return
 		}
 		fsTransactions.Delete(req.Transaction)
@@ -644,7 +644,7 @@ func handleFSCommit(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			// commit is atomic: the first failing write aborts the whole commit
 			// with the gRPC-mapped HTTP error.
-			sim.GCPError(w, e.httpStatus, e.message, e.status)
+			GCPError(w, e.httpStatus, e.message, e.status)
 			return
 		}
 		writeResults = append(writeResults, res)
@@ -657,7 +657,7 @@ func handleFSBatchWrite(w http.ResponseWriter, r *http.Request) {
 		Writes []fsWrite `json:"writes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid batchWrite body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid batchWrite body: %v", err)
 		return
 	}
 	// batchWrite is non-atomic: each write succeeds or fails independently and
@@ -727,12 +727,12 @@ func handleFSBatchGet(w http.ResponseWriter, r *http.Request) {
 		Transaction string   `json:"transaction"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid batchGet body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid batchGet body: %v", err)
 		return
 	}
 	readTime, ok := fsReadTimeForTxn(req.Transaction)
 	if !ok {
-		sim.GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
 		return
 	}
 	out := make([]map[string]any, 0, len(req.Documents))
@@ -758,17 +758,17 @@ func handleFSRunQuery(w http.ResponseWriter, r *http.Request, parentPath string)
 		Transaction     string            `json:"transaction"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid runQuery body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid runQuery body: %v", err)
 		return
 	}
 	readTime, ok := fsReadTimeForTxn(req.Transaction)
 	if !ok {
-		sim.GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
 		return
 	}
 	q := req.StructuredQuery
 	if len(q.From) == 0 || q.From[0].CollectionID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "structuredQuery.from[0].collectionId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "structuredQuery.from[0].collectionId is required", "INVALID_ARGUMENT")
 		return
 	}
 	collection := strings.TrimSuffix(parent, "/") + "/" + q.From[0].CollectionID
@@ -1435,17 +1435,17 @@ func handleFSDatabasesCollection(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	dbID := r.URL.Query().Get("databaseId")
 	if dbID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "databaseId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "databaseId is required", "INVALID_ARGUMENT")
 		return
 	}
 	body, err := fsReadBody(r)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid database body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid database body: %v", err)
 		return
 	}
 	name := fsDatabaseName(project, dbID)
 	if _, ok := fsDatabases.Get(name); ok {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Database already exists: %s", name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Database already exists: %s", name)
 		return
 	}
 	now := fsNow()
@@ -1474,7 +1474,7 @@ func handleFSGetDatabase(w http.ResponseWriter, r *http.Request) {
 	name := fsDatabaseName(sim.PathParam(r, "project"), sim.PathParam(r, "database"))
 	d, ok := fsDatabases.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, d.Body)
@@ -1485,12 +1485,12 @@ func handleFSPatchDatabase(w http.ResponseWriter, r *http.Request) {
 	name := fsDatabaseName(project, database)
 	d, ok := fsDatabases.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", name)
 		return
 	}
 	body, err := fsReadBody(r)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid database body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid database body: %v", err)
 		return
 	}
 	for k, v := range body {
@@ -1508,7 +1508,7 @@ func handleFSDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	name := fsDatabaseName(project, database)
 	d, ok := fsDatabases.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", name)
 		return
 	}
 	fsDatabases.Delete(name)
@@ -1526,19 +1526,19 @@ func handleFSDatabaseVerb(w http.ResponseWriter, r *http.Request) {
 	dbAction := sim.PathParam(r, "dbAction")
 	dbID, verb, ok := strings.Cut(dbAction, ":")
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown database verb: %s", dbAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown database verb: %s", dbAction)
 		return
 	}
 	body, err := fsReadBody(r)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	switch verb {
 	case "exportDocuments", "importDocuments", "bulkDeleteDocuments":
 		name := fsDatabaseName(project, dbID)
 		if _, exists := fsDatabases.Get(name); !exists {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", name)
 			return
 		}
 		op := fsNewAdminOp(project, dbID, map[string]any{"name": name}, "type.googleapis.com/google.firestore.admin.v1.Database", nil)
@@ -1558,7 +1558,7 @@ func handleFSDatabaseVerb(w http.ResponseWriter, r *http.Request) {
 		op := fsNewAdminOp(project, newID, db, "type.googleapis.com/google.firestore.admin.v1.Database", nil)
 		sim.WriteJSON(w, http.StatusOK, op)
 	default:
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown database verb: %s", verb)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown database verb: %s", verb)
 	}
 }
 
@@ -1566,7 +1566,7 @@ func handleFSCreateIndex(w http.ResponseWriter, r *http.Request) {
 	project, database, cg := sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "cg")
 	body, err := fsReadBody(r)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid index body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid index body: %v", err)
 		return
 	}
 	indexID := generateUUID()
@@ -1596,7 +1596,7 @@ func handleFSGetIndex(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/databases/%s/collectionGroups/%s/indexes/%s", project, database, cg, index)
 	d, ok := fsIndexes.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Index not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Index not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, d.Body)
@@ -1606,7 +1606,7 @@ func handleFSDeleteIndex(w http.ResponseWriter, r *http.Request) {
 	project, database, cg, index := sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "cg"), sim.PathParam(r, "index")
 	name := fmt.Sprintf("projects/%s/databases/%s/collectionGroups/%s/indexes/%s", project, database, cg, index)
 	if !fsIndexes.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Index not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Index not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1646,7 +1646,7 @@ func handleFSPatchField(w http.ResponseWriter, r *http.Request) {
 	name := fsFieldName(project, database, cg, field)
 	body, err := fsReadBody(r)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid field body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid field body: %v", err)
 		return
 	}
 	d, ok := fsFields.Get(name)
@@ -1670,7 +1670,7 @@ func handleFSCreateBackupSchedule(w http.ResponseWriter, r *http.Request) {
 	project, database := sim.PathParam(r, "project"), sim.PathParam(r, "database")
 	body, err := fsReadBody(r)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid backupSchedule body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid backupSchedule body: %v", err)
 		return
 	}
 	bsID := generateUUID()
@@ -1699,7 +1699,7 @@ func handleFSGetBackupSchedule(w http.ResponseWriter, r *http.Request) {
 	name := fsBackupScheduleName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "bs"))
 	d, ok := fsBackupSchedules.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup schedule not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup schedule not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, d.Body)
@@ -1709,12 +1709,12 @@ func handleFSPatchBackupSchedule(w http.ResponseWriter, r *http.Request) {
 	name := fsBackupScheduleName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "bs"))
 	d, ok := fsBackupSchedules.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup schedule not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup schedule not found: %s", name)
 		return
 	}
 	body, err := fsReadBody(r)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid backupSchedule body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid backupSchedule body: %v", err)
 		return
 	}
 	for k, v := range body {
@@ -1729,7 +1729,7 @@ func handleFSPatchBackupSchedule(w http.ResponseWriter, r *http.Request) {
 func handleFSDeleteBackupSchedule(w http.ResponseWriter, r *http.Request) {
 	name := fsBackupScheduleName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "bs"))
 	if !fsBackupSchedules.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup schedule not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup schedule not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1755,7 +1755,7 @@ func handleFSGetBackup(w http.ResponseWriter, r *http.Request) {
 	name := fsBackupName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "backup"))
 	d, ok := fsBackups.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, d.Body)
@@ -1764,7 +1764,7 @@ func handleFSGetBackup(w http.ResponseWriter, r *http.Request) {
 func handleFSDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	name := fsBackupName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "backup"))
 	if !fsBackups.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1782,7 +1782,7 @@ func handleFSUserCredsCollection(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := fsReadBody(r)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid userCreds body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid userCreds body: %v", err)
 		return
 	}
 	name := fsUserCredsName(project, database, ucID)
@@ -1810,7 +1810,7 @@ func handleFSGetUserCreds(w http.ResponseWriter, r *http.Request) {
 	name := fsUserCredsName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "uc"))
 	d, ok := fsUserCreds.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "User creds not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "User creds not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, d.Body)
@@ -1819,7 +1819,7 @@ func handleFSGetUserCreds(w http.ResponseWriter, r *http.Request) {
 func handleFSDeleteUserCreds(w http.ResponseWriter, r *http.Request) {
 	name := fsUserCredsName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "uc"))
 	if !fsUserCreds.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "User creds not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "User creds not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1833,13 +1833,13 @@ func handleFSUserCredsVerb(w http.ResponseWriter, r *http.Request) {
 	ucAction := sim.PathParam(r, "ucAction")
 	ucID, verb, ok := strings.Cut(ucAction, ":")
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown userCreds verb: %s", ucAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown userCreds verb: %s", ucAction)
 		return
 	}
 	name := fsUserCredsName(project, database, ucID)
 	d, ok := fsUserCreds.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "User creds not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "User creds not found: %s", name)
 		return
 	}
 	switch verb {
@@ -1850,7 +1850,7 @@ func handleFSUserCredsVerb(w http.ResponseWriter, r *http.Request) {
 	case "resetPassword":
 		d.Body["securePassword"] = generateUUID()
 	default:
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown userCreds verb: %s", verb)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown userCreds verb: %s", verb)
 		return
 	}
 	fsUserCreds.Put(name, d)
@@ -1873,7 +1873,7 @@ func handleFSGetOperation(w http.ResponseWriter, r *http.Request) {
 	name := fsOperationName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "operation"))
 	op, ok := fsAdminOps.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Operation not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Operation not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -1882,7 +1882,7 @@ func handleFSGetOperation(w http.ResponseWriter, r *http.Request) {
 func handleFSDeleteOperation(w http.ResponseWriter, r *http.Request) {
 	name := fsOperationName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "operation"))
 	if !fsAdminOps.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Operation not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Operation not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1895,12 +1895,12 @@ func handleFSCancelOperation(w http.ResponseWriter, r *http.Request) {
 	opAction := sim.PathParam(r, "opAction")
 	opID, verb, ok := strings.Cut(opAction, ":")
 	if !ok || verb != "cancel" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown operation verb: %s", opAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Unknown operation verb: %s", opAction)
 		return
 	}
 	name := fsOperationName(project, database, opID)
 	if _, ok := fsAdminOps.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Operation not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Operation not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})

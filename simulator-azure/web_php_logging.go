@@ -9,7 +9,7 @@ import (
 
 	dockerclient "github.com/moby/moby/client"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The site's PHP error-logging flag, read from the PHP the site is running.
@@ -101,7 +101,7 @@ func webGetSitePhpErrorLogFlag(w http.ResponseWriter, r *http.Request) {
 	}
 	directives, hasPHP := webReadPHPDirectives(containerID, "log_errors", "log_errors_max_len")
 	if !hasPHP {
-		sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+		AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 			"WebApps_GetSitePhpErrorLogFlag is not implemented for this site: the flag "+
 				"reports PHP's own log_errors and log_errors_max_len settings, and the "+
 				"site's workload container runs no PHP for the simulator to read them "+

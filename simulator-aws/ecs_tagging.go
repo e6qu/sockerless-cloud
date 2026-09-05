@@ -3,8 +3,6 @@ package main
 import (
 	"net/http"
 	"strings"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // Tagging for every Amazon ECS resource type AWS declares taggable.
@@ -172,5 +170,5 @@ func ecsRejectTaggingAStoppedTask(resourceArn string) *ecsTagFault {
 // ecsWriteTagFault answers with the fault's own exception, which is what a
 // client's error handling switches on.
 func ecsWriteTagFault(w http.ResponseWriter, fault *ecsTagFault) {
-	sim.AWSError(w, fault.code, fault.message, http.StatusBadRequest)
+	AWSError(w, fault.code, fault.message, http.StatusBadRequest)
 }

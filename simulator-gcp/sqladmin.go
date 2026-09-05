@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud SQL Admin v1 — REST surface. Real API path prefix is
@@ -298,7 +298,7 @@ func handleSQLInsertBackupRun(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
 	id := time.Now().UTC().UnixNano()
@@ -367,7 +367,7 @@ func handleSQLGetBackupRun(w http.ResponseWriter, r *http.Request) {
 	}
 	br, ok := sqlBackupRuns.Get(sqlBackupRunKey(project, instance, id))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"backupRun %q on instance %q not found", sim.PathParam(r, "id"), instance)
 		return
 	}
@@ -382,7 +382,7 @@ func handleSQLDeleteBackupRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !sqlBackupRuns.Delete(sqlBackupRunKey(project, instance, id)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"backupRun %q on instance %q not found", sim.PathParam(r, "id"), instance)
 		return
 	}
@@ -394,7 +394,7 @@ func handleSQLDeleteBackupRun(w http.ResponseWriter, r *http.Request) {
 func parseSQLBackupRunID(w http.ResponseWriter, raw string) (int64, bool) {
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "backupRun id must be an int64: %s", raw)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "backupRun id must be an int64: %s", raw)
 		return 0, false
 	}
 	return id, true
@@ -408,7 +408,7 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 	source := sim.PathParam(r, "instance")
 	src, ok := sqlInstances.Get(sqlInstanceKey(project, source))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"source instance %q not found", source)
 		return
 	}
@@ -418,17 +418,17 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 		} `json:"cloneContext"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
 		return
 	}
 	dest := req.CloneContext.DestinationInstanceName
 	if dest == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"cloneContext.destinationInstanceName is required")
 		return
 	}
 	if _, exists := sqlInstances.Get(sqlInstanceKey(project, dest)); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 			"instance %q already exists", dest)
 		return
 	}
@@ -502,20 +502,20 @@ func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project
 		PreferredZone  string `json:"preferredZone"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	if req.PointInTime == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "pointInTime is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "pointInTime is required")
 		return
 	}
 	pointInTime, err := time.Parse(time.RFC3339, req.PointInTime)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "pointInTime must be an RFC 3339 timestamp: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "pointInTime must be an RFC 3339 timestamp: %v", err)
 		return
 	}
 	if req.TargetInstance == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "targetInstance is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "targetInstance is required")
 		return
 	}
 	// The target is named bare or as projects/{project}/instances/{name};
@@ -526,17 +526,17 @@ func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project
 	}
 	sourceProject, sourceInstance, ok := sqlParseBackupDRDatasource(req.Datasource)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"datasource must be of the form projects/{project}/locations/{region}/backupVaults/{backupvault}/dataSources/{datasource}, got %q", req.Datasource)
 		return
 	}
 	src, ok := sqlInstances.Get(sqlInstanceKey(sourceProject, sourceInstance))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "datasource %q names no Cloud SQL instance", req.Datasource)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "datasource %q names no Cloud SQL instance", req.Datasource)
 		return
 	}
 	if _, exists := sqlInstances.Get(sqlInstanceKey(project, target)); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance %q already exists", target)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance %q already exists", target)
 		return
 	}
 
@@ -565,7 +565,7 @@ func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project
 		}
 	}
 	if backupRun == nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"no backup of instance %q exists at or before %s; the requested point in time cannot be restored", sourceInstance, req.PointInTime)
 		return
 	}
@@ -720,7 +720,7 @@ func handleSQLGetOperation(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "operation")
 	op, ok := sqlOperations.Get(sqlOperationKey(project, name))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -799,12 +799,12 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 		RootPassword string `json:"rootPassword"`
 	}
 	if err := sim.ReadJSON(r, &wire); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	req := wire.SQLInstance
 	if req.Name == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
 		return
 	}
 	inst := SQLInstance{
@@ -858,7 +858,7 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 		if wire.RootPassword != "" {
 			sealed, sealErr := sqlSealSecret(wire.RootPassword)
 			if sealErr != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal root credential: %s", sealErr.Error())
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal root credential: %s", sealErr.Error())
 				return
 			}
 			sqlUserSecrets.Put(sqlUserKey(project, req.Name, host, admin), sqlUserCredential{Sealed: sealed})
@@ -873,7 +873,7 @@ func handleSQLGetInstance(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "instance")
 	inst, ok := sqlInstances.Get(sqlInstanceKey(project, name))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, inst)
@@ -898,12 +898,12 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "instance")
 	key := sqlInstanceKey(project, name)
 	if _, ok := sqlInstances.Get(key); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
 	var req SQLInstance
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	sqlInstances.Update(key, func(i *SQLInstance) {
@@ -961,7 +961,7 @@ func handleSQLDeleteInstance(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	name := sim.PathParam(r, "instance")
 	if !sqlInstances.Delete(sqlInstanceKey(project, name)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
 	sqlStopDataPlane(project, name, true)
@@ -996,16 +996,16 @@ func handleSQLInsertDatabase(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	var req SQLDatabase
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	if req.Name == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
 		return
 	}
 	db := SQLDatabase{
@@ -1017,7 +1017,7 @@ func handleSQLInsertDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	sqlDatabases.Put(sqlDatabaseKey(project, instance, req.Name), db)
 	if err := sqlReconcileIfRunning(project, instance); err != nil {
-		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "create database in the engine: %s", err.Error())
+		GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "create database in the engine: %s", err.Error())
 		return
 	}
 	op := newSQLOperation(project, "CREATE_DATABASE", req.Name)
@@ -1030,7 +1030,7 @@ func handleSQLGetDatabase(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "database")
 	db, ok := sqlDatabases.Get(sqlDatabaseKey(project, instance, name))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, db)
@@ -1057,11 +1057,11 @@ func handleSQLDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "database")
 	key := sqlDatabaseKey(project, instance, name)
 	if !sqlDatabases.Delete(key) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database not found: %s", name)
 		return
 	}
 	if err := sqlEngineDropDatabaseIfRunning(project, instance, name); err != nil {
-		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "drop database from the engine: %s", err.Error())
+		GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "drop database from the engine: %s", err.Error())
 		return
 	}
 	op := newSQLOperation(project, "DELETE_DATABASE", name)
@@ -1072,7 +1072,7 @@ func handleSQLInsertUser(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	var req SQLUser
@@ -1081,12 +1081,12 @@ func handleSQLInsertUser(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := sim.ReadJSON(r, &wire); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	req = wire.SQLUser
 	if req.Name == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
 		return
 	}
 	serverRoles := req.ServerRoles
@@ -1106,13 +1106,13 @@ func handleSQLInsertUser(w http.ResponseWriter, r *http.Request) {
 	if wire.Password != "" {
 		sealed, err := sqlSealSecret(wire.Password)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal user credential: %s", err.Error())
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal user credential: %s", err.Error())
 			return
 		}
 		sqlUserSecrets.Put(sqlUserKey(project, instance, req.Host, req.Name), sqlUserCredential{Sealed: sealed})
 	}
 	if err := sqlReconcileIfRunning(project, instance); err != nil {
-		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "apply user to the database engine: %s", err.Error())
+		GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "apply user to the database engine: %s", err.Error())
 		return
 	}
 	op := newSQLOperation(project, "CREATE_USER", req.Name)
@@ -1126,7 +1126,7 @@ func handleSQLGetUser(w http.ResponseWriter, r *http.Request) {
 	host := r.URL.Query().Get("host")
 	u, ok := firstSQLUser(project, instance, name, host)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "user not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "user not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, u)
@@ -1153,12 +1153,12 @@ func handleSQLUpdateUser(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	host := r.URL.Query().Get("host")
 	if name == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name query parameter is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name query parameter is required")
 		return
 	}
 	current, ok := firstSQLUser(project, instance, name, host)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "user not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "user not found: %s", name)
 		return
 	}
 	var wire struct {
@@ -1166,7 +1166,7 @@ func handleSQLUpdateUser(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := sim.ReadJSON(r, &wire); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	req := wire.SQLUser
@@ -1202,13 +1202,13 @@ func handleSQLUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if wire.Password != "" {
 		sealed, err := sqlSealSecret(wire.Password)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal user credential: %s", err.Error())
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "seal user credential: %s", err.Error())
 			return
 		}
 		sqlUserSecrets.Put(sqlUserKey(project, instance, current.Host, current.Name), sqlUserCredential{Sealed: sealed})
 	}
 	if err := sqlReconcileIfRunning(project, instance); err != nil {
-		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "apply user to the database engine: %s", err.Error())
+		GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "apply user to the database engine: %s", err.Error())
 		return
 	}
 	op := newSQLOperation(project, "UPDATE_USER", name)
@@ -1221,19 +1221,19 @@ func handleSQLDeleteUser(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	host := r.URL.Query().Get("host")
 	if name == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name query parameter is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name query parameter is required")
 		return
 	}
 	u, ok := firstSQLUser(project, instance, name, host)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "user not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "user not found: %s", name)
 		return
 	}
 	key := sqlUserKey(project, instance, u.Host, u.Name)
 	sqlUsers.Delete(key)
 	sqlUserSecrets.Delete(key)
 	if err := sqlEngineDropUserIfRunning(project, instance, u.Name); err != nil {
-		sim.GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "drop user from the database engine: %s", err.Error())
+		GCPErrorf(w, http.StatusConflict, "FAILED_PRECONDITION", "drop user from the database engine: %s", err.Error())
 		return
 	}
 	op := newSQLOperation(project, "DELETE_USER", name)
@@ -1249,12 +1249,12 @@ func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "instance")
 	key := sqlInstanceKey(project, name)
 	if _, ok := sqlInstances.Get(key); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
 	var req SQLInstance
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	sqlInstances.Update(key, func(i *SQLInstance) {
@@ -1292,12 +1292,12 @@ func handleSQLWriteDatabase(w http.ResponseWriter, r *http.Request, replace bool
 	name := sim.PathParam(r, "database")
 	key := sqlDatabaseKey(project, instance, name)
 	if _, ok := sqlDatabases.Get(key); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database not found: %s", name)
 		return
 	}
 	var req SQLDatabase
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	sqlDatabases.Update(key, func(d *SQLDatabase) {
@@ -1356,7 +1356,7 @@ func handleSQLRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	var req struct {
@@ -1369,7 +1369,7 @@ func handleSQLRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		Backup string `json:"backup"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	var backupVolume string
@@ -1377,18 +1377,18 @@ func handleSQLRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	case req.RestoreBackupContext.BackupRunID != "":
 		id, err := req.RestoreBackupContext.BackupRunID.Int64()
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "backupRunId must be an int64: %s", req.RestoreBackupContext.BackupRunID)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "backupRunId must be an int64: %s", req.RestoreBackupContext.BackupRunID)
 			return
 		}
 		sourceInstance := defaultStr(req.RestoreBackupContext.InstanceID, instance)
 		sourceProject := defaultStr(req.RestoreBackupContext.Project, project)
 		run, ok := sqlBackupRuns.Get(sqlBackupRunKey(sourceProject, sourceInstance, id))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backupRun %d on instance %q not found", id, sourceInstance)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backupRun %d on instance %q not found", id, sourceInstance)
 			return
 		}
 		if run.Status != "SUCCESSFUL" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 				"backupRun %d is %s; it must be SUCCESSFUL to restore", id, run.Status)
 			return
 		}
@@ -1402,17 +1402,17 @@ func handleSQLRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		}
 		backup, ok := sqlBackups.Get(sqlBackupKey(backupProject, backupID))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", req.Backup)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", req.Backup)
 			return
 		}
 		if backup.State != "SUCCESSFUL" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 				"backup %s is %s; it must be SUCCESSFUL to restore", req.Backup, backup.State)
 			return
 		}
 		backupVolume = sqlBackupVolume(backupProject, backupID)
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"restoreBackupContext.backupRunId or backup is required")
 		return
 	}
@@ -1435,7 +1435,7 @@ func handleSQLInstanceAction(action string) http.HandlerFunc {
 		project := sim.PathParam(r, "project")
 		instance := sim.PathParam(r, "instance")
 		if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 			return
 		}
 		op := newSQLOperation(project, opType, instance)
@@ -1451,11 +1451,11 @@ func handleSQLInstanceColonVerb(w http.ResponseWriter, r *http.Request) {
 	raw := sim.PathParam(r, "instance")
 	instance, verb, hasVerb := strings.Cut(raw, ":")
 	if !hasVerb {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown instance operation: %s", raw)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown instance operation: %s", raw)
 		return
 	}
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	switch verb {
@@ -1464,7 +1464,7 @@ func handleSQLInstanceColonVerb(w http.ResponseWriter, r *http.Request) {
 			"ephemeralCert": sqlNewSslCert(r, project, instance, "ephemeral"),
 		})
 	default:
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown instance verb: %s", verb)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown instance verb: %s", verb)
 	}
 }
 
@@ -1475,7 +1475,7 @@ func handleSQLExecuteSql(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1488,7 +1488,7 @@ func handleSQLAcquireSsrsLease(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	op := newSQLOperation(project, "ACQUIRE_SSRS_LEASE", instance)
@@ -1499,7 +1499,7 @@ func handleSQLReleaseSsrsLease(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	op := newSQLOperation(project, "RELEASE_SSRS_LEASE", instance)
@@ -1510,7 +1510,7 @@ func handleSQLVerifyExternalSyncSettings(w http.ResponseWriter, r *http.Request)
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1524,7 +1524,7 @@ func handleSQLGetDiskShrinkConfig(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1537,7 +1537,7 @@ func handleSQLGetLatestRecoveryTime(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	now := nowTimestamp()
@@ -1551,7 +1551,7 @@ func handleSQLListServerCas(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	ca := sqlNewSslCert(r, project, instance, "server-ca")
@@ -1566,7 +1566,7 @@ func handleSQLListServerCertificates(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	ca := sqlNewSslCert(r, project, instance, "server-ca")
@@ -1583,7 +1583,7 @@ func handleSQLListEntraIdCertificates(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1621,7 +1621,7 @@ func handleSQLInsertSslCert(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	var req struct {
@@ -1644,7 +1644,7 @@ func handleSQLListSslCerts(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	prefix := project + "/" + instance + "/"
@@ -1666,7 +1666,7 @@ func handleSQLGetSslCert(w http.ResponseWriter, r *http.Request) {
 	fp := sim.PathParam(r, "sha1Fingerprint")
 	c, ok := sqlSslCerts.Get(sqlSslCertKey(project, instance, fp))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sslCert not found: %s", fp)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sslCert not found: %s", fp)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, c)
@@ -1677,7 +1677,7 @@ func handleSQLDeleteSslCert(w http.ResponseWriter, r *http.Request) {
 	instance := sim.PathParam(r, "instance")
 	fp := sim.PathParam(r, "sha1Fingerprint")
 	if !sqlSslCerts.Delete(sqlSslCertKey(project, instance, fp)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sslCert not found: %s", fp)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sslCert not found: %s", fp)
 		return
 	}
 	op := newSQLOperation(project, "DELETE", instance)
@@ -1688,7 +1688,7 @@ func handleSQLCreateEphemeralCert(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, sqlNewSslCert(r, project, instance, "ephemeral"))
@@ -1733,7 +1733,7 @@ func handleSQLConnectGet(w http.ResponseWriter, r *http.Request) {
 	instance := sim.PathParam(r, "instance")
 	inst, ok := sqlInstances.Get(sqlInstanceKey(project, instance))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, sqlConnectSettingsJSON(r, inst))
@@ -1761,7 +1761,7 @@ func handleSQLConnectResolve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 		"DNS name %q does not resolve to a Cloud SQL instance in location %q", dnsName, location)
 }
 
@@ -1783,16 +1783,16 @@ func handleSQLCancelOperation(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "operation")
 	op, ok := sqlOperations.Get(sqlOperationKey(project, name))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation not found: %s", name)
 		return
 	}
 	if op.Status == "DONE" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 			"You can't cancel operation %s because this operation isn't in progress.", name)
 		return
 	}
 	if !sqlCancellableOperationTypes[op.OperationType] {
-		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 			"You can't cancel operation %s because Cloud SQL doesn't support the cancellation of an %s operation.",
 			name, op.OperationType)
 		return
@@ -1859,11 +1859,11 @@ func handleSQLCreateBackup(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	var req SQLBackup
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	if req.Instance == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "instance is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "instance is required")
 		return
 	}
 	// The backups resource names its instance by full resource name
@@ -1872,7 +1872,7 @@ func handleSQLCreateBackup(w http.ResponseWriter, r *http.Request) {
 	instanceParts := strings.Split(req.Instance, "/")
 	instanceName := instanceParts[len(instanceParts)-1]
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instanceName)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", req.Instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", req.Instance)
 		return
 	}
 	id := strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
@@ -1929,7 +1929,7 @@ func handleSQLGetBackup(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "backup")
 	b, ok := sqlBackups.Get(sqlBackupKey(project, id))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, b)
@@ -1940,12 +1940,12 @@ func handleSQLUpdateBackup(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "backup")
 	key := sqlBackupKey(project, id)
 	if _, ok := sqlBackups.Get(key); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", id)
 		return
 	}
 	var req SQLBackup
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	sqlBackups.Update(key, func(b *SQLBackup) {
@@ -1961,7 +1961,7 @@ func handleSQLDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	id := sim.PathParam(r, "backup")
 	if !sqlBackups.Delete(sqlBackupKey(project, id)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup not found: %s", id)
 		return
 	}
 	sqlRemoveBackupVolume(sqlBackupVolume(project, id))

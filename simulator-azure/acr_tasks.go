@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/rs/zerolog"
 )
 
@@ -135,7 +135,7 @@ func registerACRTasks(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/tasks/{taskName}/listDetails", func(w http.ResponseWriter, r *http.Request) {
 		res, ok := tasks.Get(acrChildResourceID(r, "tasks", "taskName"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Task %q not found.", sim.PathParam(r, "taskName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Task %q not found.", sim.PathParam(r, "taskName"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, res)
@@ -145,7 +145,7 @@ func registerACRTasks(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/taskRuns/{taskRunName}/listDetails", func(w http.ResponseWriter, r *http.Request) {
 		res, ok := taskRuns.Get(acrChildResourceID(r, "taskRuns", "taskRunName"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "TaskRun %q not found.", sim.PathParam(r, "taskRunName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "TaskRun %q not found.", sim.PathParam(r, "taskRunName"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, res)
@@ -176,7 +176,7 @@ func registerACRTasks(srv *sim.Server) {
 		runID := sim.PathParam(r, "runId")
 		run, ok := acrRuns.Get(runID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", runID)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", runID)
 			return
 		}
 		var req struct{}
@@ -204,7 +204,7 @@ func registerACRTasks(srv *sim.Server) {
 		// link to a stricter rule than the run itself would refuse a link to a
 		// log that is there.
 		if _, ok := acrRuns.Get(runID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The run %q was not found.", runID)
 			return
 		}
@@ -250,7 +250,7 @@ func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 
 	var req acrDockerBuildRequest
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "failed to parse run request: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "failed to parse run request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -306,7 +306,7 @@ func handleACRGetRun(w http.ResponseWriter, r *http.Request) {
 	runID := sim.PathParam(r, "runId")
 	run, ok := acrRuns.Get(runID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", runID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", runID)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, run)

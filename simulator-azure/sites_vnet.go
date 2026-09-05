@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // App Service VNet integration. One integration state per site/slot, readable
@@ -159,7 +159,7 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 		}
 		conn, ok := webVnetConnections.Get(webResourceID(r) + "/virtualNetworkConnections/" + sim.PathParam(r, "vnetName"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Virtual network connection '%s' not found.", sim.PathParam(r, "vnetName"))
 			return
 		}
@@ -174,7 +174,7 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 		}
 		conn, ok := webVnetConnections.Get(webResourceID(r) + "/virtualNetworkConnections/" + sim.PathParam(r, "vnetName"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Virtual network connection '%s' not found.", sim.PathParam(r, "vnetName"))
 			return
 		}
@@ -189,7 +189,7 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 		gw, ok := webVnetGateways.Get(webResourceID(r) + "/virtualNetworkConnections/" + sim.PathParam(r, "vnetName") +
 			"/gateways/" + sim.PathParam(r, "gatewayName"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Gateway '%s' not found on virtual network connection '%s'.",
 				sim.PathParam(r, "gatewayName"), sim.PathParam(r, "vnetName"))
 			return
@@ -202,7 +202,7 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 		}
 		connID := webResourceID(r) + "/virtualNetworkConnections/" + sim.PathParam(r, "vnetName")
 		if _, ok := webVnetConnections.Get(connID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Virtual network connection '%s' not found.", sim.PathParam(r, "vnetName"))
 			return
 		}
@@ -217,11 +217,11 @@ func registerSiteVNetIntegration(srv *sim.Server) {
 func writeVnetGateway(w http.ResponseWriter, r *http.Request, ownerConnID, gwType string) {
 	var req WebVnetGateway
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Properties.VpnPackageURI == "" {
-		sim.AzureError(w, "InvalidRequestContent", "vpnPackageUri is required.", http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "vpnPackageUri is required.", http.StatusBadRequest)
 		return
 	}
 	gwName := sim.PathParam(r, "gatewayName")
@@ -247,13 +247,13 @@ func handleSwiftVnetPut(w http.ResponseWriter, r *http.Request) {
 	}
 	var req SwiftVirtualNetwork
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	subnetID := req.Properties.SubnetResourceID
 	vnetName := vnetNameFromSubnetID(subnetID)
 	if vnetName == "" {
-		sim.AzureError(w, "InvalidRequestContent", "subnetResourceId is required and must reference a subnet", http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "subnetResourceId is required and must reference a subnet", http.StatusBadRequest)
 		return
 	}
 	site, _ := webResource(r)
@@ -269,7 +269,7 @@ func handleSwiftVnetPut(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.ID = resID + "/virtualNetworkConnections/" + conn.Name
 	if err := upsertVnetConnection(r, site, conn); err != nil {
-		sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 			"failed to integrate site %q into VNet: %v", site.Name, err)
 		return
 	}
@@ -292,7 +292,7 @@ func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 	}
 	var req WebVnetConnection
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	resID := webResourceID(r)
@@ -313,7 +313,7 @@ func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 	}
 	vnetOfTarget := vnetNameFromSubnetID(vnetResourceID)
 	if vnetOfTarget == "" {
-		sim.AzureError(w, "InvalidRequestContent",
+		AzureError(w, "InvalidRequestContent",
 			"vnetResourceId is required and must reference a virtual network or one of its subnets", http.StatusBadRequest)
 		return
 	}
@@ -344,7 +344,7 @@ func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 		conn.Properties.CertThumbprint = vnetCertThumbprint(conn.Properties.CertBlob)
 	}
 	if err := upsertVnetConnection(r, site, conn); err != nil {
-		sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 			"failed to integrate site %q into VNet: %v", site.Name, err)
 		return
 	}

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Compute Engine verbs that hang off a resource rather than replacing it: the
@@ -45,12 +45,12 @@ func registerComputeRouterNamedSets(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/{router}/getNamedSet", func(w http.ResponseWriter, r *http.Request) {
 		name := named(r)
 		if name == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "getNamedSet needs a namedSet")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "getNamedSet needs a namedSet")
 			return
 		}
 		held, ok := namedSets.Get(key(r, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "named set %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "named set %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"resource": computeNamedSetDoc(held)})
@@ -83,7 +83,7 @@ func registerComputeRouterNamedSets(srv *sim.Server) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			name, _ := body["name"].(string)
@@ -91,7 +91,7 @@ func registerComputeRouterNamedSets(srv *sim.Server) {
 				name = named(r)
 			}
 			if name == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"%s needs the named set to write, by name", verb)
 				return
 			}
@@ -117,11 +117,11 @@ func registerComputeRouterNamedSets(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/{router}/deleteNamedSet", func(w http.ResponseWriter, r *http.Request) {
 		name := named(r)
 		if name == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "deleteNamedSet needs a namedSet")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "deleteNamedSet needs a namedSet")
 			return
 		}
 		if !namedSets.Delete(key(r, name)) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "named set %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "named set %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, operation(r, "deleteNamedSet"))
@@ -173,7 +173,7 @@ func computeSignedURLKeys(srv *sim.Server, collection string, store sim.Store[ma
 			KeyValue string `json:"keyValue"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil || req.KeyName == "" || req.KeyValue == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"a signed-URL key needs a keyName and a keyValue")
 			return
 		}
@@ -190,11 +190,11 @@ func computeSignedURLKeys(srv *sim.Server, collection string, store sim.Store[ma
 			}
 			setNames(*m, append(held, req.KeyName))
 		}) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", singular, name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", singular, name)
 			return
 		}
 		if refused {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"the %s already has a signed-URL key named %q", singular, req.KeyName)
 			return
 		}
@@ -204,7 +204,7 @@ func computeSignedURLKeys(srv *sim.Server, collection string, store sim.Store[ma
 	srv.HandleFunc("POST "+base+"/{name}/deleteSignedUrlKey", func(w http.ResponseWriter, r *http.Request) {
 		wanted := r.URL.Query().Get("keyName")
 		if wanted == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"deleteSignedUrlKey needs the keyName to remove")
 			return
 		}
@@ -222,11 +222,11 @@ func computeSignedURLKeys(srv *sim.Server, collection string, store sim.Store[ma
 			}
 			setNames(*m, kept)
 		}) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", singular, name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", singular, name)
 			return
 		}
 		if !found {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"the %s has no signed-URL key named %q", singular, wanted)
 			return
 		}
@@ -261,7 +261,7 @@ func registerComputeOrganizationOperations(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		rec, ok := computeOpRegistry.Get(sim.PathParam(r, "operation"))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"operation %q not found", sim.PathParam(r, "operation"))
 			return
 		}
@@ -269,7 +269,7 @@ func registerComputeOrganizationOperations(srv *sim.Server) {
 	})
 	srv.HandleFunc("DELETE "+base+"/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		if !computeOpRegistry.Delete(sim.PathParam(r, "operation")) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"operation %q not found", sim.PathParam(r, "operation"))
 			return
 		}

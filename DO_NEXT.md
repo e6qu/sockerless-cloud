@@ -1,585 +1,110 @@
 # DO NEXT
 
-0-monitoring. **Complete release integration for the three application
-   observations.** The publisher merged in feature PR #95 and shipped in
-   `v0.26.0`. Live acceptance then proved Google Cloud's global cloud-bearer
-   verifier treated the monitoring credential as a Google JWT before the
-   monitoring handler could authenticate it. The canonical monitoring path is
-   now owned by its dedicated bearer boundary, while the same credential stays
-   invalid on cloud API routes. After this branch merges and publishes, advance
-   the owning infrastructure release pin and verify all three authenticated
-   observations through Shauth.
+## After this branch merges
 
-0. **The remaining tails are being served, document by document, on one
-   branch.** An earlier revision of this item claimed that what remained
-   unserved was "without exception" a family needing invented data or a
-   primitive the container engine lacks. That was wrong, and the floor
-   comments said so in their own words: measured on 2026-08-27, roughly 79
-   Google Cloud method spellings were plain routing misses. A route a handler
-   never sees and a fact the simulator cannot know are different problems, and
-   filing the first under the second hid ordinary work.
+1. **Re-pin `sim` to the merged commit.** The simulators pin
+   `github.com/e6qu/sockerless-cloud/sim` at the pseudo-version of the branch
+   commit that introduced it, which the module proxy caches forever but which
+   no branch will reference once the pull request is squash-merged. Pin the
+   `main` commit in all three simulators
+   (`go get github.com/e6qu/sockerless-cloud/sim@<sha>`), run
+   `scripts/check-support-module-pins.sh` and `scripts/check-installable-build.sh`,
+   and ship it with the next change. The same applies to `realexec` and
+   `ui-auth`, whose pins were moved to the pre-merge `main` commit in the same
+   change.
 
-   Done: **Cloud Storage, 89 of 89** (2026-08-27) — soft delete and the
-   restore surface it exists for, `objects.move`, and the per-object access
-   controls. **Cloud Logging, 508 of 508** and **Artifact Registry, 147 of
-   147** (2026-08-28) — the colon-verb split that let locations.get mount
-   without inflating Cloud Run, the plain `/v1` spellings of the media publish
-   methods, and the prewarmed-artifact family over real state. **Cloud Build,
-   114 of 114** (2026-08-28) — the regional surface, the build and trigger
-   colon-verbs, the webhook receivers, and the Bitbucket Server
-   connected-repository pair. **Firestore, 108 of 120** (2026-08-28) — the
-   document-parent custom methods, `documents:write`, and the databases
-   clone/restore pair. **BigQuery, 95 of 95**, **Cloud Run v2, 104 of 119** and
-   **Memorystore, 90 of 94** (2026-08-28) — the media upload path, the hosted
-   build path routed to real Cloud Build, and rescheduleMaintenance.
+2. **State each cloud's stop grace from its own configuration.** The grace a
+   workload gets between SIGTERM and SIGKILL is a caller-stated value now
+   (`sim.StopContainer`'s `grace`, `ContainerConfig.CancelGracePeriod`), and
+   the values passed are the ones each cloud's framework copy used to hardcode:
+   one second for an Amazon ECS task stop, ten seconds for Cloud Run and Azure
+   Container Apps stops, five seconds on cancellation everywhere but AWS. The
+   real services define them — an Amazon ECS container definition's
+   `stopTimeout` (default 30s), Cloud Run's documented ten seconds, an Azure
+   Container Apps revision's `terminationGracePeriodSeconds` (default 30s) —
+   and BUG-2970 records the gap.
 
-   Left, measured 2026-09-01 against the ratchets that produce the numbers:
-   **nothing that can be served without inventing the answer.** Google Cloud
-   is 5,466 of 5,480 spellings, and the fourteen are seven methods — Cloud
-   Interconnect's facilities and remote facilities, what interconnect hardware
-   reports about itself, and the preconfigured WAF expression sets. Azure is
-   2,613 of 2,628, and the fifteen are all App Service: Microsoft's runtime
-   stacks, its advisory copy, an App Service Environment's outbound dependency
-   endpoints, the platform php.ini, and a process memory dump. AWS is 1,986 of
-   1,994 IAM derivations, and the eight are requests that name no resource.
+## Standing work
 
-   Every one of those answers a declared 501 naming its reason, and that is now
-   a gate rather than an observation:
-   `TestServiceConformance_GCPUnservedMethodsDeclareThemselves` and
-   `TestServiceConformance_AzureUnservedOperationsDeclareThemselves` fail on any
-   unserved operation answering anything else, so a gap cannot quietly become a
-   routing 404 while the count holds.
-
-   A Discovery document's field descriptions are worth reading before the
-   first implementation, not after: the prewarm family's contract was wrong in
-   five places on the first pass — resource names versus bare ids, an optional
-   member treated as required, the wrong default retention, a resource name
-   where a registry URI belongs, and a `gs://` prefix the member does not
-   carry.
-
-   Genuinely blocked, and left unserved with the reason recorded rather than
-   answered with invented data: Cloud Spanner's Key Visualizer scans, quorum
-   change and wire-protocol adapter; Cloud KMS' Key Access Justifications; App
-   Service's packet capture and process dump; the Application Insights query
-   data plane; and the published catalogs declined more than once (Microsoft's
-   runtime stacks, Google's SKU list and interconnect facilities).
-
-   A licence code stopped being one of them: it is not Google's catalogue when
-   the licence is a project's own. Compute Engine assigns the code on insert,
-   so reading one is a read of the licence it was issued for, and a code this
-   project was never issued is not found. Before declining a surface as a
-   published catalogue, check whether the caller's own resource is what the
-   identifier names — the same question turned three AWS Glue operations from
-   underivable into ordinary reads.
-
-   AWS's own tail closed on 2026-09-01: the vendored models are implemented or
-   exempt in full, with no exemption left for a surface a client can reach.
-   `s3control` is vendored and all 67 of its operations are served, which is
-   what let Amazon S3 Object Lambda run end to end — the transformation
-   function is invoked and its `WriteGetObjectResponse` is what the caller
-   receives. The pattern that unblocked it is the same one the licence code
-   taught: an operation declined because its slice "was not chosen" is not
-   blocked, it is unvendored, and vendoring is ordinary work.
-
-   The handler-state sweep (BUG-2960) is closed: all three clouds' candidate
-   lists were read, the response validators grew the four dimensions they were
-   missing, and the request side got its own gate. What came out of it and is
-   still open is **BUG-2963** — Cloud Build's three webhook receivers accept a
-   delivery and start no build, which is a feature to assemble rather than an
-   answer that misreports.
-
-0-iam. **The AWS IAM derivation gap was mostly measurement, and what is left
-   is not.** 2,000 of 2,008 on 2026-09-01, after the refreshed service
-   references widened the corpus.
-   `IAM_DERIVATION_LIST_MISSING=1 go test ./simulator-aws -run
-   IAMResourceDerivationCoverage -v` names every missing operation per service.
-
-   Between 1,792 and 1,936 almost every gain came from the coverage probe
-   addressing an operation the way no client does, so a derivation that already
-   worked measured as absent. Four defects, all closed:
-
-   - Eleven copies of the rule deciding what a probe puts in a request member,
-     so a fix in one reached only the services routed through it. There is one
-     copy now, service-aware, because a member can only be filled correctly if
-     you know whose member it is.
-   - Each service's probe filled its ARN members with one ARN chosen for the
-     whole service, so an action about something else was addressed with an ARN
-     naming a resource it is not about. Every probe now builds that ARN from
-     the action's own declared type.
-   - That ARN was rendered by filling only the first variable a format
-     declares, so a WAFv2 web ACL came out `probe/webacl//`. The whole format
-     is rendered now.
-   - The probe could express a scalar, a list of scalars and a structure, and
-     nothing else — so a list of structures and a map both arrived as bare
-     strings. Those are how a service spells a batch, and the identifier sits
-     inside the element or in the key. Both render faithfully now, and Amazon
-     DynamoDB and Amazon EventBridge went through the shared probe rather than
-     their own flat ones.
-
-   The lesson worth keeping: a wrong probe value shows up as a number that does
-   not move, and a wrong reader shows up as a grant nobody notices. The
-   measurement class was safe to fix in bulk for exactly that reason. What is
-   left is reader work and is not.
-
-   The creates are done. Every one of them now names what it mints: by the
-   type answering to the operation's name, by saying the same words in another
-   order (`RequestSpotFleet`), by being the noun outright where another type is
-   only what the noun ends with (`CreateGlobalReplicationGroup`), or by a
-   reviewed entry in `iamCreatesItsOnlyDeclaredType` where the name says
-   nothing (`CreatePublicIpv4Pool`, `PurchaseCapacityBlock`). Extend that list
-   an entry at a time when a new create needs it.
-
-   The 8 that remain are one shape: the request names no resource. Every other
-   AWS service derives every operation it declares a type for.
-
-   - **A resource the request does not name at all** (8). CloudWatch's
-     `ListMetrics`, `PutMetricData` and `GetMetricData` declare a dataset and
-     carry no dataset identifier. AWS Glue's `GetMLTransforms`,
-     `ListMLTransforms`, `ListDataQualityResults` and
-     `ListDataQualityRuleRecommendationRuns` carry a filter and a page token,
-     and a filter is not the resource it selects on; reading one as a resource
-     would authorize against something the caller only asked to match.
-     `ListIntegrationResourceProperties` declares four types and its whole
-     input is `Filters`, `Marker` and `MaxRecords`. `"*"` is the honest answer
-     for these and the ratchet counts them as misses.
-
-     Do not try to decide the class by inspecting member names. That was built
-     and measured on 2026-09-01: read the request members out of the Smithy
-     models and call an action "names no instance" when none shares a word with
-     the type or an identifier its ARN format declares. Tightened three times —
-     a bare `Name` always counts, a word inside a run-together type name
-     counts, any member ending in an identifier suffix counts — it still
-     produced dangerous false positives of four kinds, each of which would have
-     widened a real grant: a resource named indirectly by a value whose member
-     name says nothing (`ec2:AcceptAddressTransfer` carries an `Address`), the
-     caller as the resource (`iam:ChangePassword` — widening it would have
-     authorized changing any user's password), an identifier in a map's keys
-     (`dynamodb:BatchWriteItem`), and an identifier resolved through the
-     simulator's own state. Against two operations it would legitimately have
-     gained, that is a bad trade, and it was discarded rather than shipped. The
-     class needs per-action review, which is what
-     `iamCreatesItsOnlyDeclaredType` is.
-
-   The three AWS Glue data-quality model operations were the other shape and
-   are done. They name the profile an evaluation wrote its statistics to, and
-   the ruleset that produced it is what they authorize against. The result rows
-   carried no profile id at all — a member the model declares on
-   `GetDataQualityResult`, and the only place the API hands one out, so those
-   three operations were unreachable as well as underived. The evaluation
-   assigns it, the result returns it, and the derivation resolves it to the
-   ruleset through an index keyed on the profile. Only the identifier is
-   modelled: the profile's statistics would come from analysing the data
-   source, which the evaluation does not read.
-
-   The measurement seam that carried most of this is closed for the readers
-   that existed: `iamSeedDerivationFixtures` creates what a family resolves
-   through by calling the service's own creation handler, and the probe names
-   the resource by the identifier the service assigned. Add creation calls
-   there when a new family needs them, keyed
-   "<service>:<operation>:<member>" — per operation, because two calls can name
-   different things through the same member.
-
-
-0-sync. **All three clouds are in sync.** Measured 2026-08-29: zero drift
-   across AWS's 41 Smithy models plus its service references, Azure's 120
-   Swagger documents, and Google Cloud's 30 Discovery documents.
-
-   Google serves several Discovery revisions concurrently, so the last one or
-   two documents can oscillate by edge; the scheduled run vendors from what it
-   sampled rather than re-fetching, which is what settles them.
-
-   Three defects had kept the nightly refresh from landing anything, and all
-   three are fixed. The one-PR gate made the run give up whenever a pull
-   request was open; it now pushes onto that request. A fetcher asked
-   www.googleapis.com for `apis/www/v1` when re-vendoring Compute Engine, and
-   the 404 aborted the whole Google sweep. Last, the freshness check compared
-   every pin against `commits?srcpath=` — a parameter the GitHub API does not
-   define, so the query dropped the filter and answered with the repository's
-   branch tip. Every AWS and Azure row therefore reported drift against a
-   commit that never touched it, and no refresh could ever clear it: of the
-   162 reported, 5 were real. `scripts/check-gh-api-params.sh` now refuses a
-   query parameter GitHub does not define, in pre-commit and in CI.
-
-0-spec. **A re-vendor moves counts, so read them.** No document is behind
-   today, but the next refresh will move both a declared total and a served
-   floor, and the floor comment has to say which methods moved and why.
-
-   Cloud Build is the worked example (revision 20260814): Google withdrew the
-   whole `gitLabConfigs` collection, and the simulator no longer serves it. Expect
-   more withdrawals — a served count that falls after a re-vendor is not
-   automatically a regression, but it must be shown to be a withdrawal.
-
-0a. **A served count can hide an unserved method, and a gate now says so.**
-   The coverage probe reads any handler answer as served, so a sibling
-   collection swallowed by a multi-segment wildcard counted as covered while no
-   handler for it existed. Cloud Storage's five per-object ACL reads and writes
-   were covered that way for as long as the gate had existed; `/o/{object}/acl`
-   reached `objects.get`, which answered `object "doc.txt/acl" not found`.
-
-   `TestServiceConformance_GCPNoPhantomCoverage` closed the class across every
-   document: it asks the mux which pattern actually matched and holds each
-   served method to a route that names its Discovery path's literal segments.
-   The sweep found six more — Compute Engine's `backendServices.listUsable`
-   (global and regional) and `backendBuckets.listUsable`, swallowed by the
-   `{name}` get, and Cloud Storage's object `getIamPolicy`, `setIamPolicy` and
-   `testIamPermissions`, swallowed by the `{object...}` get — and all six are
-   served now. The served counts did not move, because all six already counted.
-
-   `gcpFanInPatterns` lists the routes that legitimately dispatch inside the
-   handler, each with the reason. Add one only with the evidence that the
-   handler reads the tail and rejects what it does not route; an entry that
-   merely silences the gate reinstates the blind spot.
-
-0b. **Judge a route on both clients before believing it.** The generated Go
-   client sends `softDeleted=true`; gcloud sends `softDeleted=True`. An
-   exact-match comparison passes every SDK test and returns an empty list to
-   the CLI, silently. Query booleans go through `strconv.ParseBool`.
-
-1. The gRPC surfaces are served (2026-08-26). The ratchet in
-   simulator-gcp/grpc_coverage_test.go holds 210 of 213, and the three that
-   remain are not work waiting to be picked up:
-   `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and
-   `Spanner.FetchCacheUpdate` each need state this simulator does not hold —
-   a materialized result set, a pipeline expression evaluator, and a
-   split/zone topology — and the floor comment records why for each. Reopen
-   one only if the simulator gains the state it would report; serving it
-   before then means inventing that state.
-
-   The door-parity gap this exposed is closed for Google Cloud (2026-08-26).
-   `simulator-gcp/sdk-tests/cross_door_test.go` writes through one protocol and
-   observes through the other for every mounted gRPC service, and
-   `simulator-gcp/cross_door_test.go` holds that file to the services the
-   server mounts. It found the long-running Operations divergence on its first
-   run — two stores and two name shapes for one resource — which is now one
-   store and the name the bigtableadmin document declares.
-
-   Neither of the other two clouds has a second protocol door, so there is
-   nothing to cross there: the AWS and Azure simulators serve one HTTP surface
-   each. The equivalent question for them is a different one — whether the SDK,
-   CLI and Terraform clients that reach the same operation agree — and the
-   shard-coverage gates already hold each of those surfaces to its own tests.
-
-2. Simulators no longer outlive their tests (2026-08-27). If orphaned
-   simulators ever reappear, the watch is the first thing to check: a harness
-   that starts one without `SOCKERLESS_PARENT_PID` in its environment gets no
-   watch at all, silently, because the variable is read by the simulator and
-   nothing asserts the harness set it. `TestSimulatorExitsWithItsParent` covers
-   the Google Cloud suite's own path; the equivalent for the other two clouds
-   is their `shared` package's unit tests plus the wiring being identical.
-
-3. The full-store-read class is closed: scripts/check-store-scans.sh holds
-   the floor at zero, and its comment now records that every exemption the
-   file ever carried — including the final seven — turned out to be a keyed
-   lookup on a second reading. A new scan on a request path is a regression;
-   convert it to a GenerationIndex rather than writing a new exemption
-   paragraph.
-
-4. App Service is **closed**: all 692 operation spellings of
-   `web-arm-openapi-2025-03-01` are served. This item used to enumerate a tail
-   of 76, each family recorded as needing a catalog, a metric series or a
-   primitive the container engine lacks, and family after family turned out to
-   be answerable from what the site and its workload container already know:
-   network traces, the process family (list, get, threads, modules, dump and a
-   real kill, read from the process's own `/proc` where the simulator shares
-   the engine's kernel), backup and restore, App Service Environments,
-   diagnostics, recommendations, cloneability, performance counters, PHP
-   logging, the in-app MySQL migration, the environment's outbound network
-   dependencies, and last the six runtime-stack catalogs, which report what
-   this App Service offers — no built-in stack, because a site here runs a
-   container image — rather than Microsoft's published list.
-
-   The lesson worth keeping is the method, not the tail: the floor comment's
-   own words are not evidence. Open the schema and read what the operation
-   actually asks for. A field that belongs to the vendor and is optional is
-   left absent; a collection that is genuinely empty here says so; only a
-   response whose *required* content the simulator would have to invent is
-   declined, and it declines by naming what is missing.
-
-5. Cloud Spanner admin is **closed**, not pending. Its measured number counts
-   Discovery *method spellings*, not methods — the document declares most
-   methods twice, an expanded `flatPath` and a `{+name}` template — so 188 of
-   198 reads like ten missing methods and is five: 99 distinct methods, 94
-   served, and the five unserved ones account for exactly the ten missing
-   spellings. Those five are `databases.getScans`, `databases.addSplitPoints`,
-   `databases.changequorum`, `sessions.adapter` and `sessions.adaptMessage`,
-   each unserved because the simulator holds nothing to report — a Key
-   Visualizer heatmap derived from production traffic, key-range splits on what
-   is one SQLite database, a dual-region quorum with one replica, and raw
-   PostgreSQL and Cassandra wire protocols it does not speak. Serving any of
-   them means inventing the answer, so they belong with the declined catalogs
-   below rather than on a work list. Google Cloud Billing is fully served
-   (36 of 36): the account collection, sub-accounts, organization-scoped
-   spellings, project links, the IAM triple, and the installation's own
-   service catalog — whose SKU lists are empty because the deployment
-   publishes no price sheet. Read a measured Google number as spellings before treating
-   the gap as a method count.
-
-## Consumer follow-ups in the sockerless repository
-
-Both recorded follow-ups shipped there: the Azure Container Registry token
-exchange (sockerless #926) and the build-context blob client's shared-key
-credential (sockerless #927). Nothing is pending on the consumer side.
+- **Serve what a re-vendor adds.** The daily specification refresh pushes onto
+  the open pull request; a moved declared total has to be served or declared,
+  and a served count that falls has to be shown to be a withdrawal, with the
+  floor comment naming which methods moved and why. Read a measured Google
+  number as method spellings — most methods are declared twice, an expanded
+  `flatPath` and a `{+name}` template — before treating a gap as a method
+  count.
+- **Keep the negative control when a gate is added or moved.** Every gate has
+  been shown to fail on a planted violation of its own shape, and a gate whose
+  scan set can go empty exits non-zero rather than green. A new gate earns its
+  place by being watched to fail once.
+- **The AWS SDK shards' next lever is the fixed per-job cost, not the split.**
+  The four shards spend about 815s running tests and 2,706s of wall time; each
+  pays its own base-image load, test-binary pre-build and cache restore. If the
+  fifteen-minute cap gets tight again, the duplicated setup is what to attack.
+- **Add a `iamCreatesItsOnlyDeclaredType` entry when a new create needs
+  one**, and creation calls to `iamSeedDerivationFixtures` when a new
+  derivation family resolves through state, keyed
+  `<service>:<operation>:<member>`. Do not try to decide the "names no
+  resource" class by inspecting member names; that was built, measured, and
+  discarded for widening real grants.
 
 ## Tooling quirks that are not simulator defects
 
-- `route_coverage_paths_test.go` is a wire-path index whose owning test —
-  `TestRouteCoveragePathsAreServed` — rejects a duplicated line and is not in
-  pre-commit, which only greps the file. Editing the index by anchored
-  insertion duplicates a line whenever a later edit anchors on one an earlier
-  edit added. Run the SDK suite of the simulator whose index changed, not only
-  the tests named after the change.
-
+- `route_coverage_paths_test.go` is a wire-path index whose owning test
+  rejects a duplicated line and is not in pre-commit. Editing the index by
+  anchored insertion duplicates a line whenever a later edit anchors on one an
+  earlier edit added; run the SDK suite of the simulator whose index changed.
 - Running two simulator suites at once starves this host's Podman: the SDK
-  suite failed with `Get "http://%2Fvar%2Frun%2Fdocker.sock/_ping": context
-  deadline exceeded` while the CLI suite held the engine, and the isolated
-  simulator it was starting never became healthy. The engine answered normally
-  a minute later and the same suite passed alone. Run them in sequence.
-
+  suite fails with `Get "http://%2Fvar%2Frun%2Fdocker.sock/_ping": context
+  deadline exceeded` while the CLI suite holds the engine. Run them in
+  sequence.
 - This host's Podman drops `buildx` with `rpc error: ... EOF` at the
   `exporting to docker image format` step, which fails the Terraform harness
-  before Terraform runs at all. `podman machine stop && podman machine start`
-  clears it. Do not restart the machine while another suite is running: it
-  pulls the engine out from under every container-dependent test and produces
-  failures that look like the change under test.
-
+  before Terraform runs. `podman machine stop && podman machine start` clears
+  it; never restart the machine while another suite is running.
 - The Google Cloud Terraform package runs under `-timeout 300s` and takes
-  163s with a warm provider cache. The first run on a cold one spends the
-  difference downloading providers and dies at 307s, and what it prints is a
-  goroutine dump from `runTimed`'s watchdog rather than a named failure — so
-  it reads like a hang in whichever command was in flight. Measured on
-  2026-08-27, both runs on the same tree. Re-run before diagnosing; if the
-  warm number ever approaches the budget, raise the budget rather than
-  trimming the stack, because the stack is the coverage.
-
-- The two container engines take different blob-upload paths, so a registry
-  upload change cannot be judged on a local run. Docker's `docker push` opens
-  the session with POST, sends the whole blob in a single `PATCH` and finalizes
-  with `PUT`; this host's Podman sends the blob on the `PUT` and never issues
-  the `PATCH` at all. A refusal added to the `PATCH` therefore passed every
-  local suite and broke `TestArtifactRegistryCLI_DockerLoginPushPull` on CI.
-  Judge `/v2/` upload behaviour on the CI engine.
-
+  about 163s with a warm provider cache; a cold cache spends the difference
+  downloading providers and dies at the deadline with a goroutine dump from
+  `runTimed`'s watchdog. Re-run before diagnosing.
+- Docker's `docker push` opens the upload with POST, sends the whole blob in a
+  single `PATCH` and finalizes with `PUT`; this host's Podman sends the blob on
+  the `PUT` and never issues the `PATCH`. Judge `/v2/` upload behaviour on the
+  CI engine.
 - This host's Podman container store can acquire a dangling entry that makes
   every `ContainerList(All: true)` fail with `container not known`, which is
-  the call `sim.FindExistingContainers` uses for workload recovery. It
-  presents as unrelated Lambda, Step Functions and container-reaper failures
-  that all pass in isolation. Clear it with `docker rm -f <dangling id>`; it
-  is not a simulator defect.
-- Microsoft's Cosmos DB emulator is started once for the whole Azure SDK suite,
-  from `TestMain`, and warms in the background while the rest of the suite runs.
-  It used to be started by whichever test asked first, and the two differential
-  tests each started one — so the engine ran two emulators at once on a
-  two-core runner, which is precisely the contention the reaper comment in
-  `cosmos_differential_test.go` describes: the second one's pgcosmos extension
-  is starved and answers "still starting" until the readiness budget expires.
-  That failed three runs (2026-08-21, 2026-08-23, 2026-08-24) before the shape
-  was recognised. Sharing one emulator and warming it early fixed it; the
-  readiness budget was deliberately *not* raised, because go test gets 13
-  minutes for this suite and the step 14, so buying readiness time would trade
-  a named Go failure for an opaque step kill. A run whose `-run` filter cannot
-  reach either differential test skips the warm-up and pays nothing; the tests
-  still boot the emulator themselves if it was not warmed, so the filter
-  decides when the cost is paid and never whether the oracle is available. The
-  readiness failure also classifies itself — "still starting" means host
-  starvation, anything else means the emulator never answered.
-
-- Azure CLI 2.88's `az keyvault update --set tags.<k>=<v>` issues a vault
-  GET followed by a PUT that does not carry the changed tags, and
-  `az keyvault show` reported a stale tag set after a server-side change.
-  Verified by hand against the simulator that the server is correct in both
-  cases, and that the same sequence through `az servicebus` behaves
-  correctly — so this is client-side. The Key Vault CLI tests avoid those
-  two commands; do not chase it as a simulator bug.
+  the call `sim.FindExistingContainers` makes. It presents as unrelated Lambda,
+  Step Functions and container-reaper failures that pass in isolation; clear it
+  with `docker rm -f <dangling id>`.
+- Microsoft's Cosmos DB emulator is started once for the whole Azure SDK suite
+  from `TestMain` and warms in the background. Its readiness failure classifies
+  itself: "still starting" means host starvation, anything else means the
+  emulator never answered. The readiness budget stays where it is, because
+  `go test` gets thirteen minutes for the suite and the step fourteen.
+- Azure CLI 2.88's `az keyvault update --set tags.<k>=<v>` issues a vault GET
+  followed by a PUT that does not carry the changed tags, and `az keyvault
+  show` reports a stale tag set after a server-side change. Verified against
+  the simulator that the server is correct; the Key Vault CLI tests avoid
+  those two commands.
 
 ## Declined catalog work
 
-Two surfaces were offered for vendoring across three passes and declined
-each time; they are recorded here so they stop being re-proposed. Neither
-is a defect — both are surfaces whose only faithful implementation is
-somebody else's published data, and a partial catalog would be fabrication:
+- **Google Cloud Billing SKUs** — `services.skus.list` answers with Google's
+  public SKU catalog. This installation publishes no price sheet, so the
+  listing is served and empty, pinned by a test so it never becomes fabricated
+  pricing. Revisit only if a consumer needs the catalog; the Application
+  Gateway WAF rule-set catalog is the precedent for how vendoring is done.
 
-- **Google Cloud Billing (6 of 36)** — `services.list` and
-  `services.skus.list` answer with Google's public SKU catalog. The slice
-  stays at its current floor.
+## Externally blocked
 
-Revisit either only if a consumer needs it; the Application Gateway WAF
-rule-set catalog is the precedent for how the vendoring would be done.
-
-## Next Recommended Slice
-
-BUG-2798 and BUG-2799 closed. ECS services now drive durable AWS Cloud Map
-registration from real task transitions and implement persisted launch
-throttling, deployment circuit-breaker rollback, and CloudWatch-alarm rollback.
-Official AWS SDK and AWS CLI scenarios, hard-restart regressions, and the
-production-shaped HashiCorp AWS provider graph exercised the completed data
-plane.
-
-BUG-2766 remained the next independent AWS fidelity slice: implement the
-published AWS Amplify Hosting `ImageOptimization` fetch, source-policy,
-transformation, validation, format-negotiation, and cache contract, then prove
-it through hosted requests and external image decoders. BUG-2764 remained a
-host boundary: the shared Linux test image contained the real Firecracker and
-squashfs tools, while the macOS Podman virtual machine exposed no nested KVM;
-the capable-Linux Terraform CI cell remained mandatory.
-
-The completed baseline retained real AWS Private Certificate Authority and
-Amazon Data Firehose implementations with official SDK, AWS CLI, Terraform,
-and authenticated browser coverage.
-
-The external review's locally actionable gaps and the follow-up implementation
-audit were closed. AWS Step Functions ran and cancelled real Amazon ECS and
-AWS CodeBuild workloads; CodeBuild used the requested source revision,
-credential, build specification, and image; AWS Amplify ran authenticated
-multi-language monorepo builds with complete phase, cache, and artifact
-lifecycle; Amazon RDS exposed persistent PostgreSQL, MySQL, and MariaDB native
-data planes with TLS-only IAM authentication and real password rotation; and
-deployed workloads used the standard SDK endpoint environment variables.
-Hosted concurrency validation preserved sub-second AWS Amplify release order,
-accepted Microsoft Azure's valid subnet-before-public-prefix NAT-gateway
-state, and gave the real Step Functions container integrations a
-cloud-shaped cold-provisioning window with useful terminal diagnostics. The
-AWS SDK shard provisioned the exact configured Alpine and official AWS CLI
-images before `m.Run`, so registry transfer no longer consumed that
-integration's lifecycle deadline while both real containers still executed.
-Explicit Amazon ECR Public coordinates reached the container runtime unchanged,
-and cancellation killed the CodeBuild workload whether Docker completed its
-wait through the context or error channel, so a stopped build produced no
-delayed Amazon SQS side effect. The macOS/Linux Docker validation harness loaded
-Buildx output and shared the container host's PID namespace; the full
-production-shaped HashiCorp AWS provider graph completed apply, a real
-VPC-attached Lambda invocation, refresh, and destroy through HTTPS.
-The Amazon ECS integration harness loaded its real arithmetic workload through
-the backend's Docker Image Load API instead of building it outside the backend
-catalog; live-cloud runs required the corresponding pre-provisioned Amazon ECR
-coordinate, and all six simulator-backed real-container cases passed.
-The AWS external Terraform harness preserved the original request host through
-Caddy for AWS Signature Version 4, serialized heavyweight packages locally,
-and assigned the root, Amazon ElastiCache, and three Amazon RDS graphs to
-separate hosted runners. All five HTTPS packages completed apply, real
-workload or data-plane assertions, and destroy without cross-package resource
-contention.
-The mandatory publication audit upgraded the AWS simulator to `go-git` 5.19.2
-and its current transitive graph. The complete module suite passed, and the
-authenticated dependency audit reported no drift.
-The shared e2e harness loaded its compiled arithmetic fixture through every
-active cloud backend's Docker Image Load API, keeping the backend catalog
-authoritative. The exact e2e suite and its optional second Amazon ECS
-simulator-backend path passed.
-The hosted publication edge then advanced `docker/login-action` to 4.6.0.
-Both immutable multi-architecture publication jobs upgraded, and action
-syntax, the publication contract, and the authenticated freshness audit
-passed.
-Native Linux workload coordinates retained Docker's
-`host.docker.internal:host-gateway` alias instead of rewriting it to the
-virtual machine's default gateway; rewriting remained correct for a simulator
-that itself ran in a container. The official AWS SDK Step Functions
-integration passed its real Amazon ECS task, AWS CodeBuild container, and
-vendor AWS CLI flow.
-Publication also upgraded every newly drifted SQLite and Google Cloud client
-module, moved Firestore and Spanner protobuf imports to their current
-canonical modules, and passed the complete official Google Cloud SDK suite.
-The exact hosted Cloud Run v1 and v2 Discovery revision 20260727 documents were
-also retained; their public methods, paths, and schema fields were unchanged,
-and the Google simulator route, specification, and measured-coverage suite
-passed against their newer descriptions.
-The three console accessibility checks anchored keyboard traversal at the
-loaded document before pressing Tab, so real Chromium consistently proved each
-skip link was the first in-document focus target.
-Explicit Lambda deployment remained intentional because AWS Lambda itself runs
-only functions a caller creates. The repository retained its truthful
-unaudited/non-production warning because functional validation did not
-constitute an independent security audit.
-
-The next pass should recheck the six external blockers below and resume only
-when their missing credentials, upstream API coordinates, published schemas,
-provider transports, or external repository become available. Mobile push and
-SMS remained under BUG-2712 because no available public AWS configuration
-exposed the carrier/provider primitives needed for faithful delivery.
-
-## Externally Blocked Work
-
-- BUG-1075 retained authenticated Google Cloud Run, Azure Container Apps,
-  Azure Functions, Lambda service-mesh, and Azure identity-backed live-cloud
-  cells that required operator credentials.
-- BUG-2646 retained Google's publication of Cloud Run worker-pool scaling
+- **BUG-1075** — authenticated live-cloud cells for Cloud Run, Azure Container
+  Apps, Azure Functions, the Lambda service mesh and Azure identity need
+  operator credentials.
+- **BUG-2646** — Google has not published the Cloud Run worker-pool scaling
   members in the Discovery document.
-- BUG-1345 retained the upstream AzureAD Terraform provider's missing
-  Microsoft Graph endpoint override. Checked again on 2026-08-23: the
-  provider's latest release is v3.9.0 (2026-06-18) and its changelog records
-  no endpoint or base-URI override, so the gate is unchanged.
-- BUG-2523 and BUG-2441 remained owned by the external Bleephub repository,
-  which was not present in this workspace.
-
-## The branch that is waiting
-
-`gate-integrity-and-casefold-panics` is pushed with its work complete and has
-no pull request. It could not have one: the one-open-pull-request gate counts
-every pull request in the repository, a sibling worktree's was open throughout,
-and opening a second fails that gate on *its* commits as well as this branch's.
-Open it the moment the repository has none open:
-
-```
-gh pr create --head gate-integrity-and-casefold-panics
-```
-
-What it carries, and what was run for it — `ci.yml` is pull-request-only, so
-none of this came from CI:
-
-- Two quality gates that could not fail, dead since the extraction because they
-  named the monorepo's directories, and the two live `slice bounds out of
-  range` panics one of them was hiding.
-- A phantom-coverage detector for Azure, which had none, with its 34 fan-ins
-  documented by the mechanism that legitimises each.
-- The 46 AWS S3 exemptions verified against the table that claims to route
-  them, rather than trusted.
-- The AWS SDK shard rebalance, and the Cloud Build step-state repair.
-- The Google Cloud CLI suite's workload image, which was pulled inside a timed
-  test and failed that suite until it moved to the warmed gallery image.
-
-Suites run locally in place of CI: GCP unit/SDK/CLI, Azure unit/SDK/CLI, AWS
-unit and all four SDK shards under CI's own regexes and 600-second budget — all
-green. The Azure Terraform leg is the exception and stays unverified for this
-change: it reached none of the code the branch touches before Firecracker
-failed to boot for want of nested KVM (BUG-2764), so CI's Linux cell is the
-only thing that can cover it.
-
-## CI and Gate Follow-ups
-
-1. **The AWS SDK shards were rebalanced, and the next lever is not the split.**
-   `sim (aws sdk compute)` was killed at the 15-minute cap on 2026-09-03 —
-   GitHub reports a timeout kill as "cancelled", not "timed_out", which is what
-   made it read as infrastructure noise. Amazon ECS, at 204s the largest block
-   in the suite, sat in the same shard that installs Firecracker; it moved to
-   the `data` shard, whose own tests ran in 4s, and the module unit tests moved
-   off `services-n-z`, which was running level with the slowest shard while
-   carrying them. Measured test time per shard is now 196s/209s/194s/216s and
-   the slowest job projects to about 742s against the 900s cap, from 852s.
-
-   What the measurement also showed: tests are the minority of a job. The four
-   shards spend about 815s running tests and 2706s of wall time, because each
-   pays its own setup — 155-202s loading the base-image tarball, 169-184s
-   pre-building the SDK test binary, 43-45s restoring the cache. Four shards
-   duplicate that four times, so if the cap gets tight again the split is the
-   wrong thing to touch: the fixed per-job cost is.
-
-2. **Keep the negative control when a gate is added or moved.** Every gate has
-   now been shown to fail on a planted violation of its own declared shape, and
-   the two that could not fail had been dead since the extraction because they
-   named directories this repository does not have. A gate whose scan set can
-   go empty now exits 2 instead of green, but that guard only covers the shape
-   the rot took here: a new gate still earns its place by being watched to fail
-   once.
-
-## Durable Validation Contract
-
-- Simulator endpoints were exercised through official SDK, vendor CLI, and
-  Terraform surfaces in the same change.
-- Tests differed between simulator and cloud only in endpoint and credential
-  coordinates.
-- Production builds created every frontend before any UI-bearing Go binary.
-- Workflow changes kept every ordinary job at or below 15 minutes and
-  preserved exact AWS CLI and SDK shard coverage.
-- Dependency freshness retained authenticated GitHub API requests in both its
-  Bash and Zsh portability passes.
-- Every observed failure or warning was fixed or recorded with evidence in
-  [BUGS.md](BUGS.md).
+- **BUG-1345** — the upstream AzureAD Terraform provider carries no Microsoft
+  Graph endpoint override (latest release v3.9.0 checked; changelog records
+  none).
+- **BUG-2712** — Amazon SNS SMS and mobile push need a carrier and Apple's and
+  Google's hosts, which no AWS API provisions.
+- **BUG-42** — the shared azurerm Terraform stack's Firecracker guest never
+  reaches userspace on this arm64 host; CI's amd64 Linux cell runs it.

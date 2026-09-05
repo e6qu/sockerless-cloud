@@ -302,7 +302,7 @@ func waitForHealth(url string) error {
 	// Registration creates every persistent store table before the listener
 	// binds. That DDL phase used to measure ~25 seconds on a loaded hosted
 	// disk under synchronous=FULL SQLite, which fsynced every CREATE TABLE
-	// commit individually; synchronous=NORMAL (see shared/db.go) dropped that
+	// commit individually; synchronous=NORMAL (see sim/db.go) dropped that
 	// substantially, but the deadline stays generous so the wait fails loudly
 	// on a genuinely stuck listener rather than a merely loaded host.
 	deadline := time.Now().Add(120 * time.Second)

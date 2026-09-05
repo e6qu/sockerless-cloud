@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Dataflow's config store settings: named values a project, folder or
@@ -47,7 +47,7 @@ func registerDataflowConfigStore(srv *sim.Server) {
 		srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
 			var setting map[string]any
 			if err := sim.ReadJSON(r, &setting); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			id := r.URL.Query().Get("configStoreSettingId")
@@ -59,13 +59,13 @@ func registerDataflowConfigStore(srv *sim.Server) {
 				}
 			}
 			if id == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"a config store setting needs an id to be addressed by")
 				return
 			}
 			name := parentName(r) + "/configStoreSettings/" + id
 			if _, taken := settings.Get(name); taken {
-				sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+				GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 					"config store setting %q already exists", name)
 				return
 			}
@@ -95,7 +95,7 @@ func registerDataflowConfigStore(srv *sim.Server) {
 		srv.HandleFunc("GET "+base+"/{configStoreSettingsId}", func(w http.ResponseWriter, r *http.Request) {
 			held, ok := settings.Get(settingName(r))
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"config store setting %q not found", settingName(r))
 				return
 			}
@@ -104,7 +104,7 @@ func registerDataflowConfigStore(srv *sim.Server) {
 
 		srv.HandleFunc("DELETE "+base+"/{configStoreSettingsId}", func(w http.ResponseWriter, r *http.Request) {
 			if !settings.Delete(settingName(r)) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"config store setting %q not found", settingName(r))
 				return
 			}
@@ -118,13 +118,13 @@ func registerDataflowConfigStore(srv *sim.Server) {
 		srv.HandleFunc("POST "+base+"/{configStoreSettingsId}", func(w http.ResponseWriter, r *http.Request) {
 			id, verb, _ := strings.Cut(sim.PathParam(r, "configStoreSettingsId"), ":")
 			if verb != "resolve" {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"no config store setting method named %q", verb)
 				return
 			}
 			resolved, ok := settings.Get(parentName(r) + "/configStoreSettings/" + id)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"no config store setting named %q applies here", id)
 				return
 			}

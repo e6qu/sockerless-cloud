@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A private DNS zone group attaches a private endpoint to one or more private
@@ -87,7 +87,7 @@ func registerPrivateEndpointDNSZoneGroups(srv *sim.Server) {
 		}
 		var req PrivateDNSZoneGroup
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := groupID(r)
@@ -106,7 +106,7 @@ func registerPrivateEndpointDNSZoneGroups(srv *sim.Server) {
 			},
 		}
 		if err := publishPrivateEndpointDNSRecords(&group, pe); err != nil {
-			sim.AzureErrorf(w, "PrivateDnsZoneNotFound", http.StatusBadRequest, "%v", err)
+			AzureErrorf(w, "PrivateDnsZoneNotFound", http.StatusBadRequest, "%v", err)
 			return
 		}
 		azurePEDNSZoneGroups.Put(id, group)
@@ -116,7 +116,7 @@ func registerPrivateEndpointDNSZoneGroups(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/{privateDnsZoneGroupName}", func(w http.ResponseWriter, r *http.Request) {
 		group, ok := azurePEDNSZoneGroups.Get(groupID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Private DNS zone group %q was not found.", sim.PathParam(r, "privateDnsZoneGroupName"))
 			return
 		}

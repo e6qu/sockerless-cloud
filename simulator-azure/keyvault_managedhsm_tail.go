@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // DeletedManagedHSM is a `Microsoft.KeyVault/deletedManagedHSMs` resource: the
@@ -107,7 +107,7 @@ func registerManagedHSMTail(srv *sim.Server, armBase string) {
 				sim.PathParam(r, "location"), sim.PathParam(r, "name"))
 			deleted, ok := deletedManagedHSMs.Get(id)
 			if !ok {
-				sim.AzureError(w, "NotFound", fmt.Sprintf("Deleted managed HSM %q not found", sim.PathParam(r, "name")), http.StatusNotFound)
+				AzureError(w, "NotFound", fmt.Sprintf("Deleted managed HSM %q not found", sim.PathParam(r, "name")), http.StatusNotFound)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, deleted)
@@ -120,11 +120,11 @@ func registerManagedHSMTail(srv *sim.Server, armBase string) {
 				sim.PathParam(r, "location"), sim.PathParam(r, "name"))
 			deleted, ok := deletedManagedHSMs.Get(id)
 			if !ok {
-				sim.AzureError(w, "NotFound", fmt.Sprintf("Deleted managed HSM %q not found", sim.PathParam(r, "name")), http.StatusNotFound)
+				AzureError(w, "NotFound", fmt.Sprintf("Deleted managed HSM %q not found", sim.PathParam(r, "name")), http.StatusNotFound)
 				return
 			}
 			if deleted.Properties.PurgeProtection != nil && *deleted.Properties.PurgeProtection {
-				sim.AzureError(w, "Conflict", fmt.Sprintf("Managed HSM %q has purge protection enabled and cannot be purged",
+				AzureError(w, "Conflict", fmt.Sprintf("Managed HSM %q has purge protection enabled and cannot be purged",
 					sim.PathParam(r, "name")), http.StatusConflict)
 				return
 			}
@@ -154,11 +154,11 @@ func registerManagedHSMTail(srv *sim.Server, armBase string) {
 				Type string `json:"type"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.AzureError(w, "BadRequest", fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+				AzureError(w, "BadRequest", fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 				return
 			}
 			if req.Name == "" {
-				sim.AzureError(w, "BadRequest", "name is required", http.StatusBadRequest)
+				AzureError(w, "BadRequest", "name is required", http.StatusBadRequest)
 				return
 			}
 			suffix := "/managedHSMs/" + req.Name
@@ -185,7 +185,7 @@ func registerManagedHSMTail(srv *sim.Server, armBase string) {
 		id := managedHSMID(sim.PathParam(r, "subscriptionId"),
 			sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 		if _, ok := managedHSMs.Get(id); !ok {
-			sim.AzureError(w, "NotFound", fmt.Sprintf("Managed HSM %q not found", sim.PathParam(r, "name")), http.StatusNotFound)
+			AzureError(w, "NotFound", fmt.Sprintf("Managed HSM %q not found", sim.PathParam(r, "name")), http.StatusNotFound)
 			return "", false
 		}
 		return id, true
@@ -216,7 +216,7 @@ func registerManagedHSMTail(srv *sim.Server, armBase string) {
 			connection, found := mhsmPrivateLinks.Get(id + "/privateEndpointConnections/" +
 				sim.PathParam(r, "privateEndpointConnectionName"))
 			if !found {
-				sim.AzureError(w, "NotFound", fmt.Sprintf("Private endpoint connection %q not found",
+				AzureError(w, "NotFound", fmt.Sprintf("Private endpoint connection %q not found",
 					sim.PathParam(r, "privateEndpointConnectionName")), http.StatusNotFound)
 				return
 			}
@@ -232,7 +232,7 @@ func registerManagedHSMTail(srv *sim.Server, armBase string) {
 			connectionName := sim.PathParam(r, "privateEndpointConnectionName")
 			var body MHSMPrivateEndpointConnection
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.AzureError(w, "BadRequest", fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+				AzureError(w, "BadRequest", fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 				return
 			}
 			body.ID = id + "/privateEndpointConnections/" + connectionName

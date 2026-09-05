@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The subscription-scoped application gateway catalogs. These operations
@@ -226,7 +226,7 @@ func registerApplicationGatewayCatalogs(srv *sim.Server) {
 				return
 			}
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Network/applicationGatewayAvailableSslOptions/default/predefinedPolicies/%s' was not found.", name)
 	})
 }

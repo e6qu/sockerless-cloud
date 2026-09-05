@@ -6,7 +6,7 @@ import (
 	"embed"
 	"io/fs"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 //go:embed all:dist
@@ -19,5 +19,5 @@ func registerUI(srv *sim.Server) {
 		logger.Warn().Err(err).Msg("failed to load embedded UI assets")
 		return
 	}
-	srv.RegisterUI(sub)
+	srv.RegisterUI(sub, sim.ConsoleOptions{Coordinates: sim.BrowserFederationCoordinates})
 }

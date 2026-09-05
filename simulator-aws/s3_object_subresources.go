@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Object-level S3 subresources that ride on the stored S3Object:
@@ -36,14 +36,14 @@ func handleS3PutObjectAcl(w http.ResponseWriter, r *http.Request) {
 	storeKey := s3ObjectKey(bucket, key)
 	obj, ok := s3Objects.Get(storeKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "Failed to read ACL body: "+err.Error(),
+		S3ErrorXML(w, "IncompleteBody", "Failed to read ACL body: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -60,7 +60,7 @@ func handleS3GetObjectAcl(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -82,14 +82,14 @@ func handleS3PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 	storeKey := s3ObjectKey(bucket, key)
 	obj, ok := s3Objects.Get(storeKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "Failed to read LegalHold body: "+err.Error(),
+		S3ErrorXML(w, "IncompleteBody", "Failed to read LegalHold body: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -98,7 +98,7 @@ func handleS3PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		Status  string   `xml:"Status"`
 	}
 	if err := xml.Unmarshal(body, &req); err != nil {
-		sim.S3ErrorXML(w, "MalformedXML", "Failed to parse LegalHold body: "+err.Error(),
+		S3ErrorXML(w, "MalformedXML", "Failed to parse LegalHold body: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -112,7 +112,7 @@ func handleS3GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -130,7 +130,7 @@ func handleS3GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
 		Status: status,
 	}
-	sim.WriteXML(w, http.StatusOK, out)
+	WriteXML(w, http.StatusOK, out)
 }
 
 // ── Object Lock retention ────────────────────────────────────────────
@@ -141,14 +141,14 @@ func handleS3PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 	storeKey := s3ObjectKey(bucket, key)
 	obj, ok := s3Objects.Get(storeKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "Failed to read Retention body: "+err.Error(),
+		S3ErrorXML(w, "IncompleteBody", "Failed to read Retention body: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -158,7 +158,7 @@ func handleS3PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 		RetainUntilDate string   `xml:"RetainUntilDate"`
 	}
 	if err := xml.Unmarshal(body, &req); err != nil {
-		sim.S3ErrorXML(w, "MalformedXML", "Failed to parse Retention body: "+err.Error(),
+		S3ErrorXML(w, "MalformedXML", "Failed to parse Retention body: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -173,14 +173,14 @@ func handleS3GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	if obj.RetentionMode == "" {
 		// No retention configured: real S3 returns 404
 		// NoSuchObjectLockConfiguration.
-		sim.S3ErrorXML(w, "NoSuchObjectLockConfiguration",
+		S3ErrorXML(w, "NoSuchObjectLockConfiguration",
 			"The specified object does not have an ObjectLock configuration",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -197,7 +197,7 @@ func handleS3GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 		Mode:            obj.RetentionMode,
 		RetainUntilDate: obj.RetainUntilDate,
 	}
-	sim.WriteXML(w, http.StatusOK, out)
+	WriteXML(w, http.StatusOK, out)
 }
 
 // ── GetObjectAttributes ──────────────────────────────────────────────
@@ -212,7 +212,7 @@ func handleS3GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -265,7 +265,7 @@ func handleS3GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
 	key := sim.PathParam(r, "key")
 	obj, ok := s3Objects.Get(s3ObjectKey(bucket, key))
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -292,7 +292,7 @@ func handleS3RestoreObject(w http.ResponseWriter, r *http.Request) {
 	storeKey := s3ObjectKey(bucket, key)
 	obj, ok := s3Objects.Get(storeKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -326,7 +326,7 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 	var partNum int
 	_, _ = fmt.Sscanf(partNumStr, "%d", &partNum)
 	if partNum < 1 || partNum > 10000 {
-		sim.S3ErrorXML(w, "InvalidArgument", "Part number must be between 1 and 10000",
+		S3ErrorXML(w, "InvalidArgument", "Part number must be between 1 and 10000",
 			sim.PathParam(r, "bucket"), sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -334,7 +334,7 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 	srcRaw := strings.TrimPrefix(r.Header.Get("x-amz-copy-source"), "/")
 	srcParts := strings.SplitN(srcRaw, "/", 2)
 	if len(srcParts) != 2 {
-		sim.S3ErrorXML(w, "InvalidArgument",
+		S3ErrorXML(w, "InvalidArgument",
 			"x-amz-copy-source must be of the form /<bucket>/<key>",
 			"", sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -342,14 +342,14 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 	srcBucket, srcKey := srcParts[0], srcParts[1]
 	src, ok := s3Objects.Get(srcBucket + "/" + srcKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified source object does not exist",
+		S3ErrorXML(w, "NoSuchKey", "The specified source object does not exist",
 			srcBucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 
 	_, ok = s3MultipartUploads.Get(uploadID)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchUpload", "The specified multipart upload does not exist",
+		S3ErrorXML(w, "NoSuchUpload", "The specified multipart upload does not exist",
 			sim.PathParam(r, "bucket"), sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -359,7 +359,7 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 	if rng := r.Header.Get("x-amz-copy-source-range"); rng != "" {
 		start, end, ok := parseCopySourceRange(rng, int64(len(src.Data)))
 		if !ok {
-			sim.S3ErrorXML(w, "InvalidArgument",
+			S3ErrorXML(w, "InvalidArgument",
 				"The x-amz-copy-source-range value must be of the form bytes=first-last",
 				"", sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
@@ -387,7 +387,7 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 		ETag:         etag,
 		LastModified: now.Format(time.RFC3339),
 	}
-	sim.WriteXML(w, http.StatusOK, out)
+	WriteXML(w, http.StatusOK, out)
 }
 
 // parseCopySourceRange parses a `bytes=first-last` range header against the
@@ -550,7 +550,7 @@ func handleS3ListObjectsV1(w http.ResponseWriter, r *http.Request, bucket string
 	if isTruncated {
 		result.NextMarker = nextMarker
 	}
-	sim.WriteXML(w, http.StatusOK, result)
+	WriteXML(w, http.StatusOK, result)
 }
 
 // ── SelectObjectContent ──────────────────────────────────────────────
@@ -626,38 +626,38 @@ func handleS3SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	storeKey := s3ObjectKey(bucket, key)
 	obj, ok := s3Objects.Get(storeKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "InvalidRequest", "failed to read request body: "+err.Error(),
+		S3ErrorXML(w, "InvalidRequest", "failed to read request body: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	var req selectObjectContentRequest
 	if err := xml.Unmarshal(body, &req); err != nil {
-		sim.S3ErrorXML(w, "MalformedXML", "the SelectObjectContentRequest XML is malformed: "+err.Error(),
+		S3ErrorXML(w, "MalformedXML", "the SelectObjectContentRequest XML is malformed: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if req.ExpressionType != "" && !strings.EqualFold(req.ExpressionType, "SQL") {
-		sim.S3ErrorXML(w, "InvalidExpressionType",
+		S3ErrorXML(w, "InvalidExpressionType",
 			"The ExpressionType is not valid. Only SQL expressions are supported.",
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if req.InputSerialization.CompressionType != "" &&
 		!strings.EqualFold(req.InputSerialization.CompressionType, "NONE") {
-		sim.S3ErrorXML(w, "InvalidCompressionFormat",
+		S3ErrorXML(w, "InvalidCompressionFormat",
 			"The compression type is not supported by this simulator. Use CompressionType NONE.",
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if !selectIsStar(req.Expression) {
-		sim.S3ErrorXML(w, "InvalidExpression",
+		S3ErrorXML(w, "InvalidExpression",
 			"This simulator faithfully supports only `SELECT * FROM S3Object` queries; "+
 				"projection and WHERE filtering are not evaluated.",
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
@@ -668,7 +668,7 @@ func handleS3SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	// per InputSerialization into rows, then reserialize per OutputSerialization.
 	rows, err := selectParseRows(obj.Data, req.InputSerialization)
 	if err != nil {
-		sim.S3ErrorXML(w, "InvalidTextEncoding", err.Error(),
+		S3ErrorXML(w, "InvalidTextEncoding", err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}

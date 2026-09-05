@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A pull through a cache rule fetches the image from the upstream registry.
@@ -106,12 +106,12 @@ func ecrUpstreamImageRef(rule ECRPullThroughCacheRule, remainder, reference stri
 // ecrHydrateFromPullThroughCache fetches the upstream image a rule points at
 // and stores it as the repository's content, which is what makes the following
 // manifest read succeed. It reports whether the cache was hydrated.
-func ecrHydrateFromPullThroughCache(reg *sim.OCIRegistry, repo, reference string) bool {
+func ecrHydrateFromPullThroughCache(reg *sim.OCIRegistry, scope, repo, reference string) bool {
 	rule, remainder, ok := ecrPullThroughCacheRuleFor(repo)
 	if !ok {
 		return false
 	}
-	if err := ecrCacheUpstreamImage(reg, rule, repo, remainder, reference); err != nil {
+	if err := ecrCacheUpstreamImage(reg, scope, rule, repo, remainder, reference); err != nil {
 		fmt.Fprintf(os.Stderr, "[sim-aws-ecr] pull through cache miss for %s:%s via %s: %v\n",
 			repo, reference, rule.UpstreamRegistryUrl, err)
 		return false
@@ -119,7 +119,7 @@ func ecrHydrateFromPullThroughCache(reg *sim.OCIRegistry, repo, reference string
 	return true
 }
 
-func ecrCacheUpstreamImage(reg *sim.OCIRegistry, rule ECRPullThroughCacheRule, repo, remainder, reference string) error {
+func ecrCacheUpstreamImage(reg *sim.OCIRegistry, scope string, rule ECRPullThroughCacheRule, repo, remainder, reference string) error {
 	if err := sim.RequireContainerRuntime("hydrating an Amazon ECR pull through cache rule"); err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func ecrCacheUpstreamImage(reg *sim.OCIRegistry, rule ECRPullThroughCacheRule, r
 	// is rejected by a `docker build` FROM ("invalid mixed OCI image with
 	// Docker v2s2 config").
 	configDigest := ecrDigestOf(configData)
-	reg.PutBlob(repo, configDigest, "application/vnd.oci.image.config.v1+json", configData)
+	reg.PutBlob(scope, repo, configDigest, "application/vnd.oci.image.config.v1+json", configData)
 
 	type descriptor struct {
 		MediaType string `json:"mediaType"`
@@ -175,7 +175,7 @@ func ecrCacheUpstreamImage(reg *sim.OCIRegistry, rule ECRPullThroughCacheRule, r
 			return fmt.Errorf("image layer %q is missing from the engine's export", path)
 		}
 		digest := ecrDigestOf(data)
-		reg.PutBlob(repo, digest, "application/vnd.oci.image.layer.v1.tar", data)
+		reg.PutBlob(scope, repo, digest, "application/vnd.oci.image.layer.v1.tar", data)
 		layers = append(layers, descriptor{
 			MediaType: "application/vnd.oci.image.layer.v1.tar",
 			Size:      int64(len(data)),
@@ -196,7 +196,7 @@ func ecrCacheUpstreamImage(reg *sim.OCIRegistry, rule ECRPullThroughCacheRule, r
 	if err != nil {
 		return fmt.Errorf("encode the cached image's manifest: %w", err)
 	}
-	reg.PutManifest(repo, reference, "application/vnd.oci.image.manifest.v1+json", manifest)
+	reg.PutManifest(scope, repo, reference, "application/vnd.oci.image.manifest.v1+json", manifest)
 	return nil
 }
 

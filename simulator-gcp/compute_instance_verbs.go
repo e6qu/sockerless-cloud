@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The verbs a Compute Engine instance carries beyond its lifecycle.
@@ -39,7 +39,7 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		link := computeInstanceSelfLink(project, zone, name)
 		instance, ok := instances.Get(link)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return "", ComputeInstance{}, false
 		}
 		return link, instance, true
@@ -58,7 +58,7 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 				return
 			}
 			if err := apply(&instance, r); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 				return
 			}
 			instances.Put(link, instance)
@@ -511,7 +511,7 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 			if _, _, ok := load(w, r); !ok {
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
+			GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
 				"the simulator serves no %s: %s", verb, why)
 		})
 	}

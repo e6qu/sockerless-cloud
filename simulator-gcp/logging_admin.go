@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Logging admin resource families (logging/v2). Every admin resource
@@ -280,7 +280,7 @@ func handleLoggingScopeCreateSink(w http.ResponseWriter, r *http.Request) {
 	parent := loggingScopeParent(r)
 	var sink LoggingSink
 	if err := sim.ReadJSON(r, &sink); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
 		return
 	}
 	short := lastSegment(sink.Name)
@@ -323,7 +323,7 @@ func handleLoggingScopeGetSink(w http.ResponseWriter, r *http.Request) {
 	key := parent + "/sinks/" + sim.PathParam(r, "sink")
 	sink, ok := logSinks.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, loggingScopeSinkResponse(parent, sink))
@@ -334,7 +334,7 @@ func handleLoggingScopeUpdateSink(w http.ResponseWriter, r *http.Request) {
 	key := parent + "/sinks/" + sim.PathParam(r, "sink")
 	var sink LoggingSink
 	if err := sim.ReadJSON(r, &sink); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
 		return
 	}
 	sink.Name = key
@@ -352,7 +352,7 @@ func handleLoggingScopeUpdateSink(w http.ResponseWriter, r *http.Request) {
 func handleLoggingScopeDeleteSink(w http.ResponseWriter, r *http.Request) {
 	key := loggingScopeParent(r) + "/sinks/" + sim.PathParam(r, "sink")
 	if !logSinks.Delete(key) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -362,7 +362,7 @@ func handleLoggingCreateExclusion(w http.ResponseWriter, r *http.Request) {
 	parent := loggingScopeParent(r)
 	var ex LogExclusion
 	if err := sim.ReadJSON(r, &ex); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid exclusion: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid exclusion: %v", err)
 		return
 	}
 	short := lastSegment(ex.Name)
@@ -395,7 +395,7 @@ func handleLoggingGetExclusion(w http.ResponseWriter, r *http.Request) {
 	key := loggingScopeParent(r) + "/exclusions/" + sim.PathParam(r, "exclusion")
 	ex, ok := logExclusions.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, ex)
@@ -405,12 +405,12 @@ func handleLoggingPatchExclusion(w http.ResponseWriter, r *http.Request) {
 	key := loggingScopeParent(r) + "/exclusions/" + sim.PathParam(r, "exclusion")
 	cur, ok := logExclusions.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
 		return
 	}
 	var upd LogExclusion
 	if err := sim.ReadJSON(r, &upd); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid exclusion: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid exclusion: %v", err)
 		return
 	}
 	if upd.Description != "" {
@@ -428,7 +428,7 @@ func handleLoggingPatchExclusion(w http.ResponseWriter, r *http.Request) {
 func handleLoggingDeleteExclusion(w http.ResponseWriter, r *http.Request) {
 	key := loggingScopeParent(r) + "/exclusions/" + sim.PathParam(r, "exclusion")
 	if !logExclusions.Delete(key) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -473,7 +473,7 @@ func handleLoggingUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	name := loggingScopeParent(r) + "/settings"
 	var s LoggingSettings
 	if err := sim.ReadJSON(r, &s); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid settings: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid settings: %v", err)
 		return
 	}
 	s.Name = name
@@ -496,7 +496,7 @@ func handleLoggingUpdateCmekSettings(w http.ResponseWriter, r *http.Request) {
 	name := loggingScopeParent(r) + "/cmekSettings"
 	var body map[string]any
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid cmekSettings: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid cmekSettings: %v", err)
 		return
 	}
 	resp := map[string]any{
@@ -531,7 +531,7 @@ func handleLoggingGetLocation(w http.ResponseWriter, r *http.Request) {
 		if cloudRunLocationExportHandled(w, r, loggingScopeParent(r)+"/locations/"+name, verb) {
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"unknown verb %q on location %q", verb, name)
 		return
 	}
@@ -550,7 +550,7 @@ func handleLoggingCreateBucket(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("bucketId")
 	var b LogBucket
 	if err := sim.ReadJSON(r, &b); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
 		return
 	}
 	if id == "" {
@@ -572,7 +572,7 @@ func handleLoggingCreateBucketAsync(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("bucketId")
 	var b LogBucket
 	if err := sim.ReadJSON(r, &b); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
 		return
 	}
 	if id == "" {
@@ -612,7 +612,7 @@ func handleLoggingGetBucket(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	b, ok := logBuckets.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, b)
@@ -622,12 +622,12 @@ func handleLoggingPatchBucket(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	cur, ok := logBuckets.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
 		return
 	}
 	var upd LogBucket
 	if err := sim.ReadJSON(r, &upd); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
 		return
 	}
 	if upd.Description != "" {
@@ -647,7 +647,7 @@ func handleLoggingDeleteBucket(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	cur, ok := logBuckets.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
 		return
 	}
 	// Real Cloud Logging soft-deletes a bucket (DELETE_REQUESTED) so an
@@ -666,7 +666,7 @@ func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
 	case "undelete":
 		cur, ok := logBuckets.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
 			return
 		}
 		cur.LifecycleState = "ACTIVE"
@@ -675,12 +675,12 @@ func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
 	case "updateAsync":
 		cur, ok := logBuckets.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
 			return
 		}
 		var upd LogBucket
 		if err := sim.ReadJSON(r, &upd); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
 			return
 		}
 		if upd.Description != "" {
@@ -693,7 +693,7 @@ func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
 		logBuckets.Put(key, cur)
 		sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, cur, "type.googleapis.com/google.logging.v2.LogBucket"))
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unknown bucket verb %q", verb)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unknown bucket verb %q", verb)
 	}
 }
 
@@ -702,7 +702,7 @@ func handleLoggingCreateView(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("viewId")
 	var v LogView
 	if err := sim.ReadJSON(r, &v); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid view: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid view: %v", err)
 		return
 	}
 	if id == "" {
@@ -737,7 +737,7 @@ func handleLoggingGetView(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/" + sim.PathParam(r, "view")
 	v, ok := logViews.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "view %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "view %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, v)
@@ -768,12 +768,12 @@ func handleLoggingPatchView(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/" + sim.PathParam(r, "view")
 	cur, ok := logViews.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "view %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "view %s not found", key)
 		return
 	}
 	var upd LogView
 	if err := sim.ReadJSON(r, &upd); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid view: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid view: %v", err)
 		return
 	}
 	if upd.Description != "" {
@@ -790,7 +790,7 @@ func handleLoggingPatchView(w http.ResponseWriter, r *http.Request) {
 func handleLoggingDeleteView(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/" + sim.PathParam(r, "view")
 	if !logViews.Delete(key) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "view %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "view %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -812,7 +812,7 @@ func handleLoggingViewIAM(w http.ResponseWriter, r *http.Request) {
 		_ = sim.ReadJSON(r, &body)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"permissions": body.Permissions})
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unknown view verb %q", verb)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unknown view verb %q", verb)
 	}
 }
 
@@ -821,7 +821,7 @@ func handleLoggingCreateLink(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("linkId")
 	var l LogLink
 	if err := sim.ReadJSON(r, &l); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid link: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid link: %v", err)
 		return
 	}
 	if id == "" {
@@ -856,7 +856,7 @@ func handleLoggingGetLink(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/links/" + sim.PathParam(r, "link")
 	l, ok := logLinks.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "link %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "link %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, l)
@@ -866,7 +866,7 @@ func handleLoggingDeleteLink(w http.ResponseWriter, r *http.Request) {
 	parent := loggingLocationParent(r)
 	key := parent + "/buckets/" + sim.PathParam(r, "bucket") + "/links/" + sim.PathParam(r, "link")
 	if !logLinks.Delete(key) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "link %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "link %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, nil, "type.googleapis.com/google.protobuf.Empty"))
@@ -877,7 +877,7 @@ func handleLoggingCreateSavedQuery(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("savedQueryId")
 	var q SavedQuery
 	if err := sim.ReadJSON(r, &q); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid savedQuery: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid savedQuery: %v", err)
 		return
 	}
 	if id == "" {
@@ -912,7 +912,7 @@ func handleLoggingGetSavedQuery(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/savedQueries/" + sim.PathParam(r, "savedQuery")
 	q, ok := logSavedQueries.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "savedQuery %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "savedQuery %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, q)
@@ -922,12 +922,12 @@ func handleLoggingPatchSavedQuery(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/savedQueries/" + sim.PathParam(r, "savedQuery")
 	cur, ok := logSavedQueries.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "savedQuery %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "savedQuery %s not found", key)
 		return
 	}
 	var upd SavedQuery
 	if err := sim.ReadJSON(r, &upd); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid savedQuery: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid savedQuery: %v", err)
 		return
 	}
 	if upd.DisplayName != "" {
@@ -950,7 +950,7 @@ func handleLoggingPatchSavedQuery(w http.ResponseWriter, r *http.Request) {
 func handleLoggingDeleteSavedQuery(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/savedQueries/" + sim.PathParam(r, "savedQuery")
 	if !logSavedQueries.Delete(key) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "savedQuery %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "savedQuery %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -967,7 +967,7 @@ func handleLoggingCreateLogScope(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("logScopeId")
 	var ls LogScope
 	if err := sim.ReadJSON(r, &ls); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid logScope: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid logScope: %v", err)
 		return
 	}
 	if id == "" {
@@ -1002,7 +1002,7 @@ func handleLoggingGetLogScope(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/logScopes/" + sim.PathParam(r, "logScope")
 	ls, ok := logScopes.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logScope %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logScope %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, ls)
@@ -1012,12 +1012,12 @@ func handleLoggingPatchLogScope(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/logScopes/" + sim.PathParam(r, "logScope")
 	cur, ok := logScopes.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logScope %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logScope %s not found", key)
 		return
 	}
 	var upd LogScope
 	if err := sim.ReadJSON(r, &upd); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid logScope: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid logScope: %v", err)
 		return
 	}
 	if upd.Description != "" {
@@ -1034,7 +1034,7 @@ func handleLoggingPatchLogScope(w http.ResponseWriter, r *http.Request) {
 func handleLoggingDeleteLogScope(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/logScopes/" + sim.PathParam(r, "logScope")
 	if !logScopes.Delete(key) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logScope %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logScope %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1062,7 +1062,7 @@ func handleLoggingGetOperation(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/operations/" + sim.PathParam(r, "operation")
 	op, ok := logOperations.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -1075,7 +1075,7 @@ func handleLoggingGetOperation(w http.ResponseWriter, r *http.Request) {
 func handleLoggingOperationCancel(w http.ResponseWriter, r *http.Request) {
 	id, verb := splitColonVerb(sim.PathParam(r, "operationAction"))
 	if verb != "cancel" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unknown operation verb %q", verb)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unknown operation verb %q", verb)
 		return
 	}
 	handleGCPCancelOperation(w, loggingLocationParent(r)+"/operations/"+id)
@@ -1088,7 +1088,7 @@ func handleLoggingEntriesCopy(w http.ResponseWriter, r *http.Request) {
 		Destination string `json:"destination"`
 	}
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid copy request: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid copy request: %v", err)
 		return
 	}
 	op := loggingNewOperation("", map[string]any{"logEntriesCopiedCount": "0"},
@@ -1102,7 +1102,7 @@ func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
 		Filter        string   `json:"filter"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tail request: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tail request: %v", err)
 		return
 	}
 	entries, _ := listLogEntries(req.Filter, req.ResourceNames, 0, "", "timestamp desc")

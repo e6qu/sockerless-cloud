@@ -24,7 +24,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SubscriptionOwnershipRecord mirrors AcceptOwnershipStatusResponse in the

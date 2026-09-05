@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM users, access keys, and user policies — the credential→principal→policy
@@ -54,7 +54,7 @@ var (
 	iamUserAttached sim.Store[IAMUserAttachedPolicy]
 )
 
-func registerIAMUsers(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMUsers(r *AWSQueryRouter, srv *sim.Server) {
 	iamUsers = sim.MakeStore[IAMUser](srv.DB(), "iam_users")
 	iamAccessKeys = sim.MakeStore[IAMAccessKey](srv.DB(), "iam_access_keys")
 	iamUserPolicies = sim.MakeStore[IAMUserPolicy](srv.DB(), "iam_user_policies")

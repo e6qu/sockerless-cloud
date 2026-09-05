@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Microsoft.Network resource provider gives every top-level tracked
@@ -102,14 +102,14 @@ func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResource
 	srv.HandleFunc("PUT "+armBase+"/"+s.collection+"/{"+s.nameParam+"}", func(w http.ResponseWriter, r *http.Request) {
 		var req T
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := s.resourceID(r)
 		name := sim.PathParam(r, s.nameParam)
 		head := s.header(&req)
 		if head.Location == "" {
-			sim.AzureErrorf(w, "LocationRequired", http.StatusBadRequest,
+			AzureErrorf(w, "LocationRequired", http.StatusBadRequest,
 				"The location property is required for this definition.")
 			return
 		}
@@ -126,7 +126,7 @@ func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResource
 		}
 		if s.provision != nil {
 			if err := s.provision(r.Context(), &req, previous); err != nil {
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
 					"failed to provision %s %q: %v", s.resourceType, name, err)
 				return
 			}
@@ -208,7 +208,7 @@ func (s azureNetworkResourceSpec[T]) listWithPrefix(prefix string) []T {
 // azureNetworkResourceNotFound writes the ARM error the Microsoft.Network
 // resource provider returns for a read of a resource that does not exist.
 func azureNetworkResourceNotFound(w http.ResponseWriter, resourceType, name, rg string) {
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource '%s/%s' under resource group '%s' was not found.", resourceType, name, rg)
 }
 

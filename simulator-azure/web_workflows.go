@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_workflows.go serves the App-Service-hosted Logic Apps workflow surface
@@ -116,7 +116,7 @@ func webDeployWorkflowArtifacts(w http.ResponseWriter, r *http.Request) {
 		FilesToDelete []string          `json:"filesToDelete"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	resID := webResourceID(r)
@@ -295,7 +295,7 @@ func webWorkflowsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	wf, ok := logicWorkflows.Get(webWorkflowID(r, sim.PathParam(r, "workflowName")))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
@@ -332,7 +332,7 @@ func webHostWorkflow(w http.ResponseWriter, r *http.Request) (LogicWorkflow, boo
 	}
 	wf, ok := logicWorkflows.Get(webWorkflowID(r, sim.PathParam(r, "workflowName")))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return LogicWorkflow{}, false
 	}
@@ -350,7 +350,7 @@ func webWorkflowRegenerateAccessKey(w http.ResponseWriter, r *http.Request) {
 	_ = sim.ReadJSON(r, &req)
 	slot := logicAccessKeySlot(req.KeyType)
 	if slot == "" {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
 			"The value '%s' is not valid for property 'keyType'.", req.KeyType)
 		return
 	}
@@ -364,11 +364,11 @@ func webWorkflowValidate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req LogicWorkflow
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Properties == nil {
-		sim.AzureError(w, "InvalidWorkflow", "Workflow properties are required.", http.StatusBadRequest)
+		AzureError(w, "InvalidWorkflow", "Workflow properties are required.", http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -398,7 +398,7 @@ func webWorkflowRunsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	run, ok := logicRuns.Get(webWorkflowRunID(r))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, run)
@@ -415,7 +415,7 @@ func webWorkflowRunsCancel(w http.ResponseWriter, r *http.Request) {
 		run.Properties["status"] = "Cancelled"
 		run.Properties["endTime"] = time.Now().UTC().Format(time.RFC3339Nano)
 	}) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -438,7 +438,7 @@ func webWorkflowRunActionsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	action, ok := logicRunActions.Get(webWorkflowRunID(r) + "/actions/" + sim.PathParam(r, "actionName"))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The run action %q was not found.", sim.PathParam(r, "actionName"))
 		return
 	}
@@ -475,7 +475,7 @@ func webWorkflowTriggersGet(w http.ResponseWriter, r *http.Request) {
 	}
 	trigger, ok := logicTriggers.Get(wf.ID + "/triggers/" + sim.PathParam(r, "triggerName"))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", sim.PathParam(r, "triggerName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", sim.PathParam(r, "triggerName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, trigger)
@@ -510,11 +510,11 @@ func webWorkflowTriggerRun(w http.ResponseWriter, r *http.Request) {
 	}
 	triggerName := sim.PathParam(r, "triggerName")
 	if state, _ := wf.Properties["state"].(string); strings.EqualFold(state, "Disabled") {
-		sim.AzureErrorf(w, "WorkflowTriggerIsDisabled", http.StatusBadRequest, "Workflow %q is disabled.", wf.Name)
+		AzureErrorf(w, "WorkflowTriggerIsDisabled", http.StatusBadRequest, "Workflow %q is disabled.", wf.Name)
 		return
 	}
 	if !logicWorkflowHasTrigger(wf, triggerName) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", triggerName)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", triggerName)
 		return
 	}
 	logicRecordTriggerRun(wf, triggerName)
@@ -538,7 +538,7 @@ func webWorkflowTriggerHistoriesGet(w http.ResponseWriter, r *http.Request) {
 	histID := wf.ID + "/triggers/" + sim.PathParam(r, "triggerName") + "/histories/" + sim.PathParam(r, "historyName")
 	hist, ok := logicTriggerHistories.Get(histID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Trigger history %q not found.", sim.PathParam(r, "historyName"))
 		return
 	}
@@ -556,7 +556,7 @@ func webWorkflowTriggerHistoryResubmit(w http.ResponseWriter, r *http.Request) {
 	triggerName := sim.PathParam(r, "triggerName")
 	histID := wf.ID + "/triggers/" + triggerName + "/histories/" + sim.PathParam(r, "historyName")
 	if _, ok := logicTriggerHistories.Get(histID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Trigger history %q not found.", sim.PathParam(r, "historyName"))
 		return
 	}
@@ -585,7 +585,7 @@ func webWorkflowVersionsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	version, ok := logicWorkflowVersions.Get(wf.ID + "/versions/" + sim.PathParam(r, "versionId"))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The version %q was not found.", sim.PathParam(r, "versionId"))
 		return
 	}

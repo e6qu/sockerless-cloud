@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The AIP-136 custom methods on a document parent. Each shares its URI shape
@@ -93,21 +93,21 @@ func fsHandleRunAggregationQuery(w http.ResponseWriter, r *http.Request, parentP
 		Transaction string `json:"transaction"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid runAggregationQuery body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid runAggregationQuery body: %v", err)
 		return
 	}
 	if _, ok := fsReadTimeForTxn(req.Transaction); !ok {
-		sim.GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
 		return
 	}
 	query := req.StructuredAggregationQuery.StructuredQuery
 	if len(query.From) == 0 || query.From[0].CollectionID == "" {
-		sim.GCPError(w, http.StatusBadRequest,
+		GCPError(w, http.StatusBadRequest,
 			"structuredAggregationQuery.structuredQuery.from[0].collectionId is required", "INVALID_ARGUMENT")
 		return
 	}
 	if len(req.StructuredAggregationQuery.Aggregations) == 0 {
-		sim.GCPError(w, http.StatusBadRequest,
+		GCPError(w, http.StatusBadRequest,
 			"structuredAggregationQuery.aggregations must not be empty", "INVALID_ARGUMENT")
 		return
 	}
@@ -148,7 +148,7 @@ func fsHandleRunAggregationQuery(w http.ResponseWriter, r *http.Request, parentP
 			}
 			fields[alias] = map[string]any{"doubleValue": total / float64(counted)}
 		default:
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"aggregation %q names none of count, sum or avg", alias)
 			return
 		}
@@ -209,11 +209,11 @@ func fsHandlePartitionQuery(w http.ResponseWriter, r *http.Request, parentPath s
 		PartitionCount  string            `json:"partitionCount"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid partitionQuery body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid partitionQuery body: %v", err)
 		return
 	}
 	if len(req.StructuredQuery.From) == 0 || req.StructuredQuery.From[0].CollectionID == "" {
-		sim.GCPError(w, http.StatusBadRequest,
+		GCPError(w, http.StatusBadRequest,
 			"structuredQuery.from[0].collectionId is required", "INVALID_ARGUMENT")
 		return
 	}
@@ -221,7 +221,7 @@ func fsHandlePartitionQuery(w http.ResponseWriter, r *http.Request, parentPath s
 	if req.PartitionCount != "" {
 		parsed, err := strconv.ParseInt(req.PartitionCount, 10, 64)
 		if err != nil || parsed < 1 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"partitionCount %q is not a positive integer", req.PartitionCount)
 			return
 		}
@@ -276,14 +276,14 @@ func registerFSDocumentVerbs(srv *sim.Server) {
 			Labels      map[string]string `json:"labels"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid write body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid write body: %v", err)
 			return
 		}
 		results := make([]map[string]any, 0, len(req.Writes))
 		for _, one := range req.Writes {
 			result, failure := fsApplyWrite(one)
 			if failure != nil {
-				sim.GCPError(w, failure.httpStatus, failure.message, failure.status)
+				GCPError(w, failure.httpStatus, failure.message, failure.status)
 				return
 			}
 			results = append(results, result)
@@ -330,16 +330,16 @@ func handleFSDatabasesVerb(w http.ResponseWriter, r *http.Request) {
 		Tags map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s body: %v", verb, err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s body: %v", verb, err)
 		return
 	}
 	if req.DatabaseID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "databaseId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "databaseId is required", "INVALID_ARGUMENT")
 		return
 	}
 	destination := fsDatabaseName(project, req.DatabaseID)
 	if _, exists := fsDatabases.Get(destination); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Database already exists: %s", destination)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Database already exists: %s", destination)
 		return
 	}
 
@@ -347,23 +347,23 @@ func handleFSDatabasesVerb(w http.ResponseWriter, r *http.Request) {
 	switch verb {
 	case "clone":
 		if req.PitrSnapshot == nil || req.PitrSnapshot.Database == "" {
-			sim.GCPError(w, http.StatusBadRequest, "pitrSnapshot.database is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "pitrSnapshot.database is required", "INVALID_ARGUMENT")
 			return
 		}
 		existing, ok := fsDatabases.Get(req.PitrSnapshot.Database)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", req.PitrSnapshot.Database)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Database not found: %s", req.PitrSnapshot.Database)
 			return
 		}
 		source = existing.Body
 	case "restore":
 		if req.Backup == "" {
-			sim.GCPError(w, http.StatusBadRequest, "backup is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "backup is required", "INVALID_ARGUMENT")
 			return
 		}
 		backup, ok := fsBackups.Get(req.Backup)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup not found: %s", req.Backup)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Backup not found: %s", req.Backup)
 			return
 		}
 		source = backup.Body

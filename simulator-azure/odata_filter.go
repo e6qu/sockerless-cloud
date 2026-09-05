@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure ARM `$filter` (OData) support + the `$top`/`$skiptoken` and `$orderby`

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_children.go serves four Microsoft.Web/sites child-resource families on
@@ -145,7 +145,7 @@ func registerWebPublicCertificates(both func(string, string, http.HandlerFunc)) 
 		}
 		c, ok := webPublicCertificates.Get(certID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Public certificate %q not found.", sim.PathParam(r, "publicCertificateName"))
 			return
 		}
@@ -157,18 +157,18 @@ func registerWebPublicCertificates(both func(string, string, http.HandlerFunc)) 
 		}
 		var req WebPublicCertificate
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if len(req.Properties.Blob) == 0 {
-			sim.AzureError(w, "InvalidRequestContent", "The 'properties.blob' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'properties.blob' property is required.", http.StatusBadRequest)
 			return
 		}
 		// The blob is a DER certificate; real App Service rejects bytes that
 		// do not parse as one. The thumbprint is the SHA-1 of the DER bytes —
 		// the fingerprint every Azure certificate surface reports.
 		if _, err := x509.ParseCertificate(req.Properties.Blob); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "The certificate blob is not a valid X.509 certificate: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The certificate blob is not a valid X.509 certificate: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		sum := sha1.Sum(req.Properties.Blob)
@@ -213,7 +213,7 @@ func registerWebDomainOwnershipIdentifiers(both func(string, string, http.Handle
 		}
 		d, ok := webDomainOwnershipIdentifiers.Get(identID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Domain ownership identifier %q not found.", sim.PathParam(r, "domainOwnershipIdentifierName"))
 			return
 		}
@@ -225,7 +225,7 @@ func registerWebDomainOwnershipIdentifiers(both func(string, string, http.Handle
 		}
 		var req WebDomainOwnershipIdentifier
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		req.ID = identID(r)
@@ -240,7 +240,7 @@ func registerWebDomainOwnershipIdentifiers(both func(string, string, http.Handle
 		}
 		d, ok := webDomainOwnershipIdentifiers.Get(identID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Domain ownership identifier %q not found.", sim.PathParam(r, "domainOwnershipIdentifierName"))
 			return
 		}
@@ -252,7 +252,7 @@ func registerWebDomainOwnershipIdentifiers(both func(string, string, http.Handle
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Kind != nil {
@@ -304,7 +304,7 @@ func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 		}
 		a, ok := webPremierAddOns.Get(addonID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Premier add-on %q not found.", sim.PathParam(r, "premierAddOnName"))
 			return
 		}
@@ -316,7 +316,7 @@ func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 		}
 		var req WebPremierAddOn
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		req.ID = addonID(r)
@@ -331,7 +331,7 @@ func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 		}
 		a, ok := webPremierAddOns.Get(addonID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Premier add-on %q not found.", sim.PathParam(r, "premierAddOnName"))
 			return
 		}
@@ -348,7 +348,7 @@ func registerWebPremierAddOns(both func(string, string, http.HandlerFunc)) {
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Kind != nil {
@@ -405,7 +405,7 @@ func registerWebPushSettings(both func(string, string, http.HandlerFunc)) {
 		}
 		var req WebPushSettings
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		stored := wirePush(r, req.Properties, req.Kind)

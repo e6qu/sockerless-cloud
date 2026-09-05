@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS task scale-in protection — a task in a service can be marked protected so
@@ -23,7 +23,7 @@ type ECSTaskProtection struct {
 
 var ecsTaskProtections sim.Store[ECSTaskProtection]
 
-func registerECSTaskProtection(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSTaskProtection(r *AWSRouter, srv *sim.Server) {
 	ecsTaskProtections = sim.MakeStore[ECSTaskProtection](srv.DB(), "ecs_task_protections")
 
 	r.Register("AmazonEC2ContainerServiceV20141113.GetTaskProtection", handleECSGetTaskProtection)
@@ -44,7 +44,7 @@ func handleECSGetTaskProtection(w http.ResponseWriter, r *http.Request) {
 		Tasks   []string `json:"tasks"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -82,7 +82,7 @@ func handleECSUpdateTaskProtection(w http.ResponseWriter, r *http.Request) {
 		ExpiresInMinutes  *int     `json:"expiresInMinutes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {

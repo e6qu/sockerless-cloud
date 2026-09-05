@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_private_access.go serves two site/slot network views:
@@ -91,7 +91,7 @@ func registerWebPrivateAccess(srv *sim.Server) {
 		}
 		var req WebPrivateAccess
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		webPrivateAccess.Put(webResourceID(r), req)

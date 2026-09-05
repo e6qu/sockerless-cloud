@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon RDS snapshots carry the instance's data.

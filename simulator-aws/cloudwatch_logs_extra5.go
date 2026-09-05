@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch Logs event-stream operations.
@@ -17,7 +17,7 @@ import (
 // member of the response-stream union, using the same awsEventStreamMessage
 // framing Lambda's InvokeWithResponseStream uses, so aws-sdk-go-v2's
 // eventstream decoder reassembles them natively.
-func registerCloudWatchLogsExtra5(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudWatchLogsExtra5(r *AWSRouter, srv *sim.Server) {
 	_ = srv
 	r.Register("Logs_20140328.StartLiveTail", handleCWStartLiveTail)
 	r.Register("Logs_20140328.GetLogObject", handleCWGetLogObject)
@@ -56,11 +56,11 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 		LogEventFilterPattern string   `json:"logEventFilterPattern"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.LogGroupIdentifiers) == 0 {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"logGroupIdentifiers is required", http.StatusBadRequest)
 		return
 	}
@@ -72,7 +72,7 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 	for _, id := range req.LogGroupIdentifiers {
 		name, ok := cwResolveLogGroupName(id)
 		if !ok {
-			sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 				"The specified log group does not exist: %s", id)
 			return
 		}
@@ -203,11 +203,11 @@ func handleCWGetLogObject(w http.ResponseWriter, r *http.Request) {
 		LogObjectPointer string `json:"logObjectPointer"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogObjectPointer == "" {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"logObjectPointer is required", http.StatusBadRequest)
 		return
 	}
@@ -218,7 +218,7 @@ func handleCWGetLogObject(w http.ResponseWriter, r *http.Request) {
 	// FilterLogEvents/Live Tail result over the sim would carry.
 	data, ok := cwResolveLogObject(req.LogObjectPointer)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log object does not exist: %s", req.LogObjectPointer)
 		return
 	}

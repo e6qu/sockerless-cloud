@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EC2Image models a user-registered AMI. The sim has no real machine images, so
@@ -67,7 +67,7 @@ var (
 	ec2DhcpOptions     sim.Store[EC2DhcpOptions]
 )
 
-func registerEC2AmiPlacementDhcp(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2AmiPlacementDhcp(r *AWSQueryRouter, srv *sim.Server) {
 	ec2Images = sim.MakeStore[EC2Image](srv.DB(), "ec2_images")
 	ec2PlacementGroups = sim.MakeStore[EC2PlacementGroup](srv.DB(), "ec2_placement_groups")
 	ec2DhcpOptions = sim.MakeStore[EC2DhcpOptions](srv.DB(), "ec2_dhcp_options")

@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Object IAM — objects.getIamPolicy / setIamPolicy / testIamPermissions, on
@@ -25,11 +25,11 @@ func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects si
 	resolve := func(w http.ResponseWriter, r *http.Request) (bucket, object string, ok bool) {
 		bucket, object = sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
 		if _, found := buckets.Get(bucket); !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 			return "", "", false
 		}
 		if _, found := objects.Get(bucket + "/" + object); !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
 			return "", "", false
 		}
 		return bucket, object, true
@@ -58,7 +58,7 @@ func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects si
 		}
 		var policy IAMPolicy
 		if err := sim.ReadJSON(r, &policy); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		policy.Etag = gcpPolicyETag()

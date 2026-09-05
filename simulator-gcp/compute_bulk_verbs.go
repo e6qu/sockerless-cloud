@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Compute Engine's bulk creates and the verbs that reshape a resource in place.
@@ -56,17 +56,17 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				InstanceProperties json.RawMessage `json:"instanceProperties"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if req.Count <= 0 {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"a bulk insert needs a count greater than zero")
 				return
 			}
 			names, err := computeBulkNames(req.NamePattern, int(req.Count))
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 				return
 			}
 			zone := sim.PathParam(r, "zone")
@@ -79,7 +79,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 			for _, name := range names {
 				key := computeInstanceSelfLink(project, zone, name)
 				if _, taken := gcpInstances.Get(key); taken {
-					sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+					GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 						"the bulk insert would overwrite instance %q", name)
 					return
 				}
@@ -100,7 +100,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				var instance ComputeInstance
 				if len(req.InstanceProperties) > 0 {
 					if err := json.Unmarshal(req.InstanceProperties, &instance); err != nil {
-						sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+						GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 							"invalid instanceProperties: %v", err)
 						return
 					}
@@ -113,7 +113,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 					for _, created := range run {
 						gcpInstances.Delete(created.SelfLink)
 					}
-					sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
+					GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
 						"failed to attach real instance network interface for %q: %v", name, err)
 					return
 				}
@@ -163,7 +163,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 			project := sim.PathParam(r, "project")
 			var req map[string]any
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			source := ""
@@ -174,7 +174,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				}
 			}
 			if source == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"a bulk disk insert needs the group it restores from")
 				return
 			}
@@ -203,11 +203,11 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				} `json:"requests"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if len(req.Requests) == 0 {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"bulkSetLabels needs at least one set of labels to apply")
 				return
 			}
@@ -215,7 +215,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 			// which is how Compute Engine scopes the call.
 			wanted := r.URL.Query().Get("resource")
 			if wanted == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"bulkSetLabels needs the resource whose labels are being set")
 				return
 			}
@@ -230,7 +230,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 					}
 				}
 			}) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found", wanted)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found", wanted)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK,
@@ -244,17 +244,17 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 			project, zone, name := sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "name")
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			key := fmt.Sprintf("projects/%s/zones/%s/disks/%s", project, zone, name)
 			found, err := computeTypedWrite(gcpComputeZoneDisks, key, body, false)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid disk: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid disk: %v", err)
 				return
 			}
 			if !found {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found", name)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK,

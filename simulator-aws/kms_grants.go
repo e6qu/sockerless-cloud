@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // KMS grants + secondary crypto ops. AWS services (ECS, ECR,
@@ -30,7 +30,7 @@ type KMSGrant struct {
 
 var kmsGrants sim.Store[KMSGrant]
 
-func registerKMSGrants(r *sim.AWSRouter, srv *sim.Server) {
+func registerKMSGrants(r *AWSRouter, srv *sim.Server) {
 	kmsGrants = sim.MakeStore[KMSGrant](srv.DB(), "kms_grants")
 	r.Register("TrentService.CreateGrant", handleKMSCreateGrant)
 	r.Register("TrentService.ListGrants", handleKMSListGrants)
@@ -49,16 +49,16 @@ func handleKMSCreateGrant(w http.ResponseWriter, r *http.Request) {
 		Name              string         `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Key %q does not exist", req.KeyId)
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Key %q does not exist", req.KeyId)
 		return
 	}
 	if req.GranteePrincipal == "" {
-		sim.AWSError(w, "ValidationException", "GranteePrincipal is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "GranteePrincipal is required", http.StatusBadRequest)
 		return
 	}
 	grant := KMSGrant{
@@ -88,12 +88,12 @@ func handleKMSListGrants(w http.ResponseWriter, r *http.Request) {
 		Marker           string `json:"Marker"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Key %q does not exist", req.KeyId)
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Key %q does not exist", req.KeyId)
 		return
 	}
 	var matched []KMSGrant
@@ -127,15 +127,15 @@ func handleKMSRevokeGrant(w http.ResponseWriter, r *http.Request) {
 		GrantId string `json:"GrantId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := resolveKMSKey(req.KeyId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Key %q does not exist", req.KeyId)
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Key %q does not exist", req.KeyId)
 		return
 	}
 	if _, ok := kmsGrants.Get(req.GrantId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Grant %q does not exist", req.GrantId)
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Grant %q does not exist", req.GrantId)
 		return
 	}
 	kmsGrants.Delete(req.GrantId)
@@ -149,12 +149,12 @@ func handleKMSGenerateDataKeyWithoutPlaintext(w http.ResponseWriter, r *http.Req
 		KeySpec       string `json:"KeySpec"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Key %q does not exist", req.KeyId)
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Key %q does not exist", req.KeyId)
 		return
 	}
 	key, _ := kmsKeys.Get(keyId)
@@ -172,12 +172,12 @@ func handleKMSGenerateDataKeyWithoutPlaintext(w http.ResponseWriter, r *http.Req
 	}
 	plaintext := make([]byte, size)
 	if _, err := rand.Read(plaintext); err != nil {
-		sim.AWSError(w, "DependencyTimeoutException", "failed to generate random data key", http.StatusInternalServerError)
+		AWSError(w, "DependencyTimeoutException", "failed to generate random data key", http.StatusInternalServerError)
 		return
 	}
 	ciphertextBlob, ok := kmsEncryptBytes(keyId, plaintext)
 	if !ok {
-		sim.AWSError(w, "DependencyTimeoutException", "failed to encrypt data key", http.StatusInternalServerError)
+		AWSError(w, "DependencyTimeoutException", "failed to encrypt data key", http.StatusInternalServerError)
 		return
 	}
 	// Real GenerateDataKeyWithoutPlaintext returns only the encrypted key — the
@@ -194,18 +194,18 @@ func handleKMSReEncrypt(w http.ResponseWriter, r *http.Request) {
 		DestinationKeyId string `json:"DestinationKeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	srcKeyId, plaintext, ok := kmsDecryptBytes(req.CiphertextBlob)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidCiphertextException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidCiphertextException", http.StatusBadRequest,
 			"The ciphertext blob is not in the expected format.")
 		return
 	}
 	srcKey, exists := kmsKeys.Get(srcKeyId)
 	if !exists {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Source key %q does not exist", srcKeyId)
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest, "Source key %q does not exist", srcKeyId)
 		return
 	}
 	if !kmsIsUsable(srcKey) {
@@ -214,7 +214,7 @@ func handleKMSReEncrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	destKeyId, ok := resolveKMSKey(req.DestinationKeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Destination key %q does not exist", req.DestinationKeyId)
 		return
 	}
@@ -225,7 +225,7 @@ func handleKMSReEncrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	newBlob, ok := kmsEncryptBytes(destKeyId, plaintext)
 	if !ok {
-		sim.AWSError(w, "DependencyTimeoutException", "failed to re-encrypt", http.StatusInternalServerError)
+		AWSError(w, "DependencyTimeoutException", "failed to re-encrypt", http.StatusInternalServerError)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{

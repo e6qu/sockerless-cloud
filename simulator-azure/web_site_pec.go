@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Private endpoint connections on an App Service site
@@ -73,7 +73,7 @@ func registerWebSitePrivateEndpoints(srv *sim.Server) {
 		}
 		pec, ok := webSitePECs.Get(webResourceID(r) + "/privateEndpointConnections/" + sim.PathParam(r, "privateEndpointConnectionName"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Private endpoint connection '%s' not found.", sim.PathParam(r, "privateEndpointConnectionName"))
 			return
 		}
@@ -89,7 +89,7 @@ func registerWebSitePrivateEndpoints(srv *sim.Server) {
 		id := webResourceID(r) + "/privateEndpointConnections/" + sim.PathParam(r, "privateEndpointConnectionName")
 		pec, ok := webSitePECs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Private endpoint connection '%s' not found.", sim.PathParam(r, "privateEndpointConnectionName"))
 			return
 		}
@@ -99,7 +99,7 @@ func registerWebSitePrivateEndpoints(srv *sim.Server) {
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if pec.Properties == nil {
@@ -123,7 +123,7 @@ func registerWebSitePrivateEndpoints(srv *sim.Server) {
 		}
 		id := webResourceID(r) + "/privateEndpointConnections/" + sim.PathParam(r, "privateEndpointConnectionName")
 		if !webSitePECs.Delete(id) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Private endpoint connection '%s' not found.", sim.PathParam(r, "privateEndpointConnectionName"))
 			return
 		}

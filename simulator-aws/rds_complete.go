@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // rds_complete.go drives the RDS slice to full operation coverage with
@@ -95,7 +95,7 @@ type RDSClusterCapacity struct {
 	CurrentCapacity     int
 }
 
-func registerRDSComplete(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerRDSComplete(r *AWSQueryRouter, srv *sim.Server) {
 	rdsCustomEngineVersions = sim.MakeStore[RDSCustomEngineVersion](srv.DB(), "rds_custom_engine_versions")
 	rdsRecommendations = sim.MakeStore[RDSRecommendation](srv.DB(), "rds_recommendations")
 	rdsOptionGroupOptions = sim.MakeStore[RDSOptionGroupOptions](srv.DB(), "rds_option_group_options")

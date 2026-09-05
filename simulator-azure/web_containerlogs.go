@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
 // web_containerlogs.go implements WebApps_GetWebSiteContainerLogs[Slot] and
@@ -75,7 +73,7 @@ func registerWebContainerLogs(both func(string, string, http.HandlerFunc)) {
 			err = cerr
 		}
 		if err != nil {
-			sim.AzureError(w, "InternalServerError", "Failed to assemble the container log archive: "+err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalServerError", "Failed to assemble the container log archive: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/zip")

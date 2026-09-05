@@ -21,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // lambdaInvocation represents a single pending Lambda invocation served
@@ -179,13 +179,13 @@ func (s *runtimeAPISidecar) handleNext(w http.ResponseWriter, r *http.Request) {
 func (s *runtimeAPISidecar) handleResponse(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id != s.inv.RequestID {
-		sim.AWSErrorf(w, "InvalidRequestID", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidRequestID", http.StatusBadRequest,
 			"Invocation with id %s doesn't exist", id)
 		return
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.AWSError(w, "InvalidRequestBody", "Failed to read response body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestBody", "Failed to read response body", http.StatusBadRequest)
 		return
 	}
 	s.inv.response = body
@@ -204,13 +204,13 @@ func (s *runtimeAPISidecar) handleResponse(w http.ResponseWriter, r *http.Reques
 func (s *runtimeAPISidecar) handleInvocationError(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id != s.inv.RequestID {
-		sim.AWSErrorf(w, "InvalidRequestID", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidRequestID", http.StatusBadRequest,
 			"Invocation with id %s doesn't exist", id)
 		return
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.AWSError(w, "InvalidRequestBody", "Failed to read error body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestBody", "Failed to read error body", http.StatusBadRequest)
 		return
 	}
 	s.inv.errorObj = body
@@ -228,7 +228,7 @@ func (s *runtimeAPISidecar) handleInvocationError(w http.ResponseWriter, r *http
 func (s *runtimeAPISidecar) handleInitError(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.AWSError(w, "InvalidRequestBody", "Failed to read error body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestBody", "Failed to read error body", http.StatusBadRequest)
 		return
 	}
 	s.inv.errorObj = body
@@ -358,7 +358,7 @@ func startLambdaVpcPauseContainer(invocationID string, sink sim.LogSink) (*sim.C
 			"sockerless-sim-lambda":       invocationID,
 			"sockerless-sim-lambda-pause": "true",
 		},
-		Sandbox: sim.SandboxLambda,
+		Sandbox: SandboxLambda,
 	}, sink)
 }
 
@@ -772,7 +772,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 			Network:     invocationNetwork.network,
 			ENIAddress:  invocationNetwork.eniAddress,
 			NetworkMode: invocationNetwork.networkMode,
-			Sandbox:     sim.SandboxLambda,
+			Sandbox:     SandboxLambda,
 			Binds:       binds,
 			WorkingDir:  workingDir,
 			MemoryBytes: int64(fn.MemorySize) * 1024 * 1024,

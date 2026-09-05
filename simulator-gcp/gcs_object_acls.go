@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sort"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Routes take a single-segment {object} so they beat the `{object...}`
@@ -131,18 +131,18 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		bucket, object = sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
 		b, found := buckets.Get(bucket)
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 			return "", "", GCSObject{}, false
 		}
 		if gcsUniformBucketLevelAccess(b) {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"Cannot get legacy ACL for an object when uniform bucket-level access is enabled. "+
 					"Read the object's IAM policy instead.", "INVALID_ARGUMENT")
 			return "", "", GCSObject{}, false
 		}
 		obj, found = objects.Get(bucket + "/" + object)
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
 			return "", "", GCSObject{}, false
 		}
 		return bucket, object, obj, true
@@ -191,7 +191,7 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		entity := sim.PathParam(r, "entity")
 		acl, found := gcsObjectACLs.Get(gcsObjectACLKey(bucket, object, entity))
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no ACL entry for entity %q on object %q in bucket %q", entity, object, bucket)
 			return
 		}
@@ -206,11 +206,11 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		}
 		var in GCSObjectACL
 		if err := sim.ReadJSON(r, &in); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Entity == "" || in.Role == "" {
-			sim.GCPError(w, http.StatusBadRequest, "entity and role are required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "entity and role are required", "INVALID_ARGUMENT")
 			return
 		}
 		acl := build(r, bucket, object, obj.Generation, in.Entity, in.Role)
@@ -225,17 +225,17 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		}
 		entity := sim.PathParam(r, "entity")
 		if _, found := gcsObjectACLs.Get(gcsObjectACLKey(bucket, object, entity)); !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no ACL entry for entity %q on object %q in bucket %q", entity, object, bucket)
 			return
 		}
 		var in GCSObjectACL
 		if err := sim.ReadJSON(r, &in); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Role == "" {
-			sim.GCPError(w, http.StatusBadRequest, "role is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "role is required", "INVALID_ARGUMENT")
 			return
 		}
 		acl := build(r, bucket, object, obj.Generation, entity, in.Role)
@@ -252,7 +252,7 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		}
 		entity := sim.PathParam(r, "entity")
 		if !gcsObjectACLs.Delete(gcsObjectACLKey(bucket, object, entity)) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no ACL entry for entity %q on object %q in bucket %q", entity, object, bucket)
 			return
 		}

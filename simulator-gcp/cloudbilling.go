@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Billing v1 — the billing-account collection, the project links, and
@@ -143,7 +143,7 @@ func registerCloudBilling(srv *sim.Server, resourcePolicies sim.Store[IAMPolicy]
 				DestinationParent string `json:"destinationParent"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil || req.DestinationParent == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "destinationParent is required")
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "destinationParent is required")
 				return
 			}
 			billingMoveAccount(w, account, req.DestinationParent)
@@ -227,7 +227,7 @@ func registerCloudBilling(srv *sim.Server, resourcePolicies sim.Store[IAMPolicy]
 func registerCloudBillingTaskAPI(srv *sim.Server) {
 	unimplemented := func(what, why string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no %s: %s", what, why)
+			GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no %s: %s", what, why)
 		}
 	}
 	const taskWhy = "a task's state is Cloud Billing's own conversational agent tracking work it is doing, and an invented status would not be that tracking"
@@ -310,9 +310,9 @@ func cloudBillingUnimplementedTaskWrite(w http.ResponseWriter, r *http.Request, 
 	const why = "a task's state is Cloud Billing's own conversational agent tracking work it is doing, and an invented status would not be that tracking"
 	switch {
 	case !hasVerb:
-		sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no tasks.pushNotificationConfigs.create: %s", why)
+		GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no tasks.pushNotificationConfigs.create: %s", why)
 	case verb == "cancel":
-		sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no tasks.cancel: %s", why)
+		GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED", "the simulator serves no tasks.cancel: %s", why)
 	default:
 		return false
 	}
@@ -320,7 +320,7 @@ func cloudBillingUnimplementedTaskWrite(w http.ResponseWriter, r *http.Request, 
 }
 
 func billingAccountNotFound(w http.ResponseWriter, name string) {
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 		"billing account billingAccounts/%s not found", name)
 }
 
@@ -346,11 +346,11 @@ func handleBillingCreateAccount(w http.ResponseWriter, r *http.Request, master s
 func handleBillingCreateAccountUnderParent(w http.ResponseWriter, r *http.Request, master, parent string) {
 	var req BillingAccount
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	if req.DisplayName == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "displayName is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "displayName is required")
 		return
 	}
 	if master == "" {
@@ -388,7 +388,7 @@ func handleBillingListAccounts(w http.ResponseWriter, r *http.Request) {
 	if filter != "" {
 		key, value, ok := strings.Cut(filter, "=")
 		if !ok || !strings.EqualFold(strings.TrimSpace(key), "master_billing_account") {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"filter supports only master_billing_account=billingAccounts/{id}")
 			return
 		}
@@ -419,7 +419,7 @@ func handleBillingPatchAccount(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "account")
 	var req BillingAccount
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	updated, ok := billingAccounts.Get(name)
@@ -437,12 +437,12 @@ func handleBillingPatchAccount(w http.ResponseWriter, r *http.Request) {
 
 func billingMoveAccount(w http.ResponseWriter, account BillingAccount, destination string) {
 	if !strings.HasPrefix(destination, "organizations/") {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"the destination parent must be an organization")
 		return
 	}
 	if _, ok := crmOrganizations.Get(destination); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", destination)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", destination)
 		return
 	}
 	account.Parent = destination
@@ -495,7 +495,7 @@ func handleBillingUpdateProjectInfo(w http.ResponseWriter, r *http.Request) {
 		BillingAccountName string `json:"billingAccountName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	if req.BillingAccountName == "" {
@@ -511,7 +511,7 @@ func handleBillingUpdateProjectInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !account.Open {
-		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 			"billing account %s is closed", account.Name)
 		return
 	}
@@ -565,5 +565,5 @@ func handleBillingListSkus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service services/%s not found", id)
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service services/%s not found", id)
 }

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SSM Documents — a versioned named document (Command / Automation /
@@ -46,7 +46,7 @@ type SSMDocument struct {
 
 var ssmDocuments sim.Store[SSMDocument]
 
-func registerSSMDocuments(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMDocuments(r *AWSRouter, srv *sim.Server) {
 	ssmDocuments = sim.MakeStore[SSMDocument](srv.DB(), "ssm_documents")
 
 	r.Register("AmazonSSM.CreateDocument", handleSSMCreateDocument)
@@ -127,15 +127,15 @@ func handleSSMCreateDocument(w http.ResponseWriter, r *http.Request) {
 		VersionName    string `json:"VersionName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Content == "" {
-		sim.AWSError(w, "ValidationException", "Name and Content are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name and Content are required", http.StatusBadRequest)
 		return
 	}
 	if _, exists := ssmDocuments.Get(req.Name); exists {
-		sim.AWSErrorf(w, "DocumentAlreadyExists", http.StatusBadRequest,
+		AWSErrorf(w, "DocumentAlreadyExists", http.StatusBadRequest,
 			"The specified document already exists.")
 		return
 	}
@@ -179,11 +179,11 @@ func handleSSMDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmDocuments.Get(req.Name); !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
@@ -198,18 +198,18 @@ func handleSSMDescribeDocument(w http.ResponseWriter, r *http.Request) {
 		VersionName     string `json:"VersionName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
 	ver, ok := ssmDocVersion(doc, req.DocumentVersion)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocumentVersion", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocumentVersion", http.StatusBadRequest,
 			"The document version isn't valid or doesn't exist.")
 		return
 	}
@@ -226,18 +226,18 @@ func handleSSMGetDocument(w http.ResponseWriter, r *http.Request) {
 		DocumentFormat  string `json:"DocumentFormat"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
 	ver, ok := ssmDocVersion(doc, req.DocumentVersion)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocumentVersion", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocumentVersion", http.StatusBadRequest,
 			"The document version isn't valid or doesn't exist.")
 		return
 	}
@@ -265,7 +265,7 @@ func handleSSMListDocuments(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmDocuments.List()
@@ -306,12 +306,12 @@ func handleSSMListDocumentVersions(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
@@ -350,24 +350,24 @@ func handleSSMUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		VersionName     string `json:"VersionName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
 	if req.Content == "" {
-		sim.AWSError(w, "ValidationException", "Content is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Content is required", http.StatusBadRequest)
 		return
 	}
 	// Real SSM rejects an update whose content is identical to the
 	// latest version (DuplicateDocumentContent).
 	latest, _ := ssmDocVersion(doc, "$LATEST")
 	if latest.Content == req.Content {
-		sim.AWSErrorf(w, "DuplicateDocumentContent", http.StatusBadRequest,
+		AWSErrorf(w, "DuplicateDocumentContent", http.StatusBadRequest,
 			"The content of the association document matches another document. Change the content of the document and try again.")
 		return
 	}
@@ -441,18 +441,18 @@ func handleSSMUpdateDocumentDefaultVersion(w http.ResponseWriter, r *http.Reques
 		DocumentVersion string `json:"DocumentVersion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
 	ver, ok := ssmDocVersion(doc, req.DocumentVersion)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocumentVersion", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocumentVersion", http.StatusBadRequest,
 			"The document version isn't valid or doesn't exist.")
 		return
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // dockerNetForVNet is the Docker user-defined network that realizes an Azure
@@ -295,7 +295,7 @@ func registerNetwork(srv *sim.Server) {
 
 		var req VirtualNetwork
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -329,7 +329,7 @@ func registerNetwork(srv *sim.Server) {
 		// capabilities; a compute subnet added later still requires the host.
 		if realexec.DetectNetworkCapabilities().Require() == nil {
 			if err := azureCreateRealVnet(r.Context(), vnet); err != nil {
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to create real virtual network fabric: %v", err)
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to create real virtual network fabric: %v", err)
 				return
 			}
 		}
@@ -341,13 +341,13 @@ func registerNetwork(srv *sim.Server) {
 		// refusing a subnet whose network does not exist.
 		for _, inline := range req.Properties.Subnets {
 			if inline.Name == "" {
-				sim.AzureError(w, "InvalidRequestContent",
+				AzureError(w, "InvalidRequestContent",
 					"A subnet declared on a virtual network must carry a name.", http.StatusBadRequest)
 				return
 			}
 			built := azureBuildSubnet(resourceID+"/subnets/"+inline.Name, inline.Name, inline)
 			if code, message, status := azureMaterializeSubnet(r.Context(), vnetName, built); code != "" {
-				sim.AzureError(w, code, message, status)
+				AzureError(w, code, message, status)
 				return
 			}
 		}
@@ -373,7 +373,7 @@ func registerNetwork(srv *sim.Server) {
 
 		vnet, ok := vnets.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.", vnetName, rg)
 			return
 		}
@@ -402,13 +402,13 @@ func registerNetwork(srv *sim.Server) {
 		})
 		for _, s := range subnetList {
 			if err := azureDeleteRealSubnet(r.Context(), s.ID); err != nil {
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real subnet network fabric: %v", err)
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real subnet network fabric: %v", err)
 				return
 			}
 			subnets.Delete(s.ID)
 		}
 		if err := azureDeleteRealVnet(r.Context(), resourceID); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real virtual network fabric: %v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real virtual network fabric: %v", err)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -422,7 +422,7 @@ func registerNetwork(srv *sim.Server) {
 
 		var req Subnet
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -438,14 +438,14 @@ func registerNetwork(srv *sim.Server) {
 		vnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
 			sub, rg, vnetName)
 		if _, ok := vnets.Get(vnetID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.", vnetName, rg)
 			return
 		}
 
 		sn := azureBuildSubnet(resourceID, subnetName, req)
 		if code, message, status := azureMaterializeSubnet(r.Context(), vnetName, sn); code != "" {
-			sim.AzureError(w, code, message, status)
+			AzureError(w, code, message, status)
 			return
 		}
 
@@ -463,7 +463,7 @@ func registerNetwork(srv *sim.Server) {
 
 		sn, ok := subnets.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'subnets/%s' under virtualNetworks '%s' was not found.", subnetName, vnetName)
 			return
 		}
@@ -480,7 +480,7 @@ func registerNetwork(srv *sim.Server) {
 
 		subnets.Delete(resourceID)
 		if err := azureDeleteRealSubnet(r.Context(), resourceID); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real subnet network fabric: %v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real subnet network fabric: %v", err)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -493,7 +493,7 @@ func registerNetwork(srv *sim.Server) {
 
 		var req NetworkSecurityGroup
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -520,7 +520,7 @@ func registerNetwork(srv *sim.Server) {
 		}
 		nsgs.Put(resourceID, nsg)
 		if err := azureReapplyRealNSGs(r.Context()); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
 			return
 		}
 
@@ -537,7 +537,7 @@ func registerNetwork(srv *sim.Server) {
 
 		nsg, ok := nsgs.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/networkSecurityGroups/%s' under resource group '%s' was not found.", nsgName, rg)
 			return
 		}
@@ -553,7 +553,7 @@ func registerNetwork(srv *sim.Server) {
 
 		nsgs.Delete(resourceID)
 		if err := azureReapplyRealNSGs(r.Context()); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -582,7 +582,7 @@ func registerNetwork(srv *sim.Server) {
 
 			nsg, ok := nsgs.Get(nsgID)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The Resource 'Microsoft.Network/networkSecurityGroups/%s' under resource group '%s' was not found.",
 					nsgName, rg)
 				return
@@ -590,7 +590,7 @@ func registerNetwork(srv *sim.Server) {
 
 			var req SecurityRule
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.AzureError(w, "InvalidRequestContent",
+				AzureError(w, "InvalidRequestContent",
 					"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -611,7 +611,7 @@ func registerNetwork(srv *sim.Server) {
 				}
 				if existing.Properties.Priority == req.Properties.Priority &&
 					strings.EqualFold(existing.Properties.Direction, req.Properties.Direction) {
-					sim.AzureErrorf(w, "SecurityRuleParameterPriorityAlreadyTaken",
+					AzureErrorf(w, "SecurityRuleParameterPriorityAlreadyTaken",
 						http.StatusBadRequest,
 						"Priority %d is already in use for direction %s by rule %q in NSG %q",
 						req.Properties.Priority, req.Properties.Direction, existing.Name, nsgName)
@@ -633,7 +633,7 @@ func registerNetwork(srv *sim.Server) {
 			}
 			nsgs.Put(nsgID, nsg)
 			if err := azureReapplyRealNSGs(r.Context()); err != nil {
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
 				return
 			}
 
@@ -653,7 +653,7 @@ func registerNetwork(srv *sim.Server) {
 
 			nsg, ok := nsgs.Get(nsgID)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"NSG '%s' not found in resource group '%s'.", nsgName, rg)
 				return
 			}
@@ -663,7 +663,7 @@ func registerNetwork(srv *sim.Server) {
 					return
 				}
 			}
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Security rule '%s' not found in NSG '%s'.", ruleName, nsgName)
 		})
 
@@ -692,7 +692,7 @@ func registerNetwork(srv *sim.Server) {
 			nsg.Properties.SecurityRules = filtered
 			nsgs.Put(nsgID, nsg)
 			if err := azureReapplyRealNSGs(r.Context()); err != nil {
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
 				return
 			}
 			w.WriteHeader(http.StatusOK)
@@ -710,7 +710,7 @@ func registerNetwork(srv *sim.Server) {
 
 			nsg, ok := nsgs.Get(nsgID)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"NSG '%s' not found.", nsgName)
 				return
 			}
@@ -740,7 +740,7 @@ func registerNetwork(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		var req NatGateway
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		resourceID := fmt.Sprintf(
@@ -787,7 +787,7 @@ func registerNetwork(srv *sim.Server) {
 				azureSubnets.Update(ref.ID, func(sn *Subnet) {
 					sn.Properties.NatGateway = nil
 				})
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to program real NAT gateway fabric: %v", err)
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to program real NAT gateway fabric: %v", err)
 				return
 			}
 		}
@@ -803,7 +803,7 @@ func registerNetwork(srv *sim.Server) {
 			sub, rg, name)
 		gw, ok := natGateways.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"NAT gateway %q not found.", name)
 			return
 		}
@@ -844,7 +844,7 @@ func registerNetwork(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		var req RouteTable
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		resourceID := fmt.Sprintf(
@@ -875,7 +875,7 @@ func registerNetwork(srv *sim.Server) {
 			sub, rg, name)
 		rt, ok := routeTables.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Route table %q not found.", name)
 			return
 		}
@@ -1127,14 +1127,14 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 func azureApplyTagsPatch(w http.ResponseWriter, r *http.Request, update func(map[string]string) bool) bool {
 	var req azureTagsObject
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return false
 	}
 	if req.Tags == nil {
 		req.Tags = map[string]string{}
 	}
 	if !update(req.Tags) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The resource was not found.")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The resource was not found.")
 		return false
 	}
 	return true
@@ -1180,7 +1180,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 	srv.HandleFunc("PUT "+armBase+"/virtualNetworks/{vnetName}/virtualNetworkPeerings/{peeringName}", func(w http.ResponseWriter, r *http.Request) {
 		var req VirtualNetworkPeering
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := peeringID(r)
@@ -1200,7 +1200,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/virtualNetworkPeerings/{peeringName}", func(w http.ResponseWriter, r *http.Request) {
 		peering, ok := azureVNetPeerings.Get(peeringID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Virtual network peering %q not found.", sim.PathParam(r, "peeringName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Virtual network peering %q not found.", sim.PathParam(r, "peeringName"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, peering)
@@ -1249,7 +1249,7 @@ func registerNSGDefaultRules(srv *sim.Server) {
 		nsgID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "nsgName"))
 		if _, ok := azureNSGs.Get(nsgID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NSG %q not found.", sim.PathParam(r, "nsgName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NSG %q not found.", sim.PathParam(r, "nsgName"))
 			return
 		}
 		azureWriteList(w, azureDefaultSecurityRules(nsgID))
@@ -1264,7 +1264,7 @@ func registerNSGDefaultRules(srv *sim.Server) {
 				return
 			}
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Default security rule %q not found.", want)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Default security rule %q not found.", want)
 	})
 }
 
@@ -1318,7 +1318,7 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 		srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/"+collection, func(w http.ResponseWriter, r *http.Request) {
 			lb, ok := azureLBs.Get(lbID(r))
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
 				return
 			}
 			azureWriteList(w, pick(lb))
@@ -1333,7 +1333,7 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/frontendIPConfigurations/{frontendIPConfigurationName}", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
 			return
 		}
 		want := sim.PathParam(r, "frontendIPConfigurationName")
@@ -1343,7 +1343,7 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 				return
 			}
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Frontend IP configuration %q not found.", want)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Frontend IP configuration %q not found.", want)
 	})
 
 	// inboundNatRules CRUD + list/get, stored per-rule keyed by ARM ID.
@@ -1352,12 +1352,12 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 	}
 	srv.HandleFunc("PUT "+armBase+"/loadBalancers/{loadBalancerName}/inboundNatRules/{inboundNatRuleName}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := azureLBs.Get(lbID(r)); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
 			return
 		}
 		var req LoadBalancerChild
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := inboundID(r)
@@ -1369,7 +1369,7 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/inboundNatRules/{inboundNatRuleName}", func(w http.ResponseWriter, r *http.Request) {
 		rule, ok := azureLBInboundNatRules.Get(inboundID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Inbound NAT rule %q not found.", sim.PathParam(r, "inboundNatRuleName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Inbound NAT rule %q not found.", sim.PathParam(r, "inboundNatRuleName"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, rule)
@@ -1387,13 +1387,13 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 	// which the sim does not currently capture, so the collection is empty.
 	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/outboundRules", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := azureLBs.Get(lbID(r)); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
 			return
 		}
 		azureWriteList(w, []LoadBalancerChild{})
 	})
 	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/outboundRules/{outboundRuleName}", func(w http.ResponseWriter, r *http.Request) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Outbound rule %q not found.", sim.PathParam(r, "outboundRuleName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Outbound rule %q not found.", sim.PathParam(r, "outboundRuleName"))
 	})
 }
 
@@ -1409,7 +1409,7 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces/{networkInterfaceName}/ipConfigurations", func(w http.ResponseWriter, r *http.Request) {
 		nic, ok := azureNICs.Get(nicID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
 			return
 		}
 		azureWriteList(w, nic.Properties.IPConfigurations)
@@ -1417,7 +1417,7 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces/{networkInterfaceName}/ipConfigurations/{ipConfigurationName}", func(w http.ResponseWriter, r *http.Request) {
 		nic, ok := azureNICs.Get(nicID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
 			return
 		}
 		want := sim.PathParam(r, "ipConfigurationName")
@@ -1427,7 +1427,7 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 				return
 			}
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "IP configuration %q not found.", want)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "IP configuration %q not found.", want)
 	})
 
 	// tapConfigurations CRUD.
@@ -1436,12 +1436,12 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 	}
 	srv.HandleFunc("PUT "+armBase+"/networkInterfaces/{networkInterfaceName}/tapConfigurations/{tapConfigurationName}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := azureNICs.Get(nicID(r)); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
 			return
 		}
 		var req InterfaceTapConfiguration
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := tapID(r)
@@ -1461,7 +1461,7 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces/{networkInterfaceName}/tapConfigurations/{tapConfigurationName}", func(w http.ResponseWriter, r *http.Request) {
 		cfg, ok := azureNICTapConfigs.Get(tapID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Tap configuration %q not found.", sim.PathParam(r, "tapConfigurationName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Tap configuration %q not found.", sim.PathParam(r, "tapConfigurationName"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, cfg)
@@ -1498,7 +1498,7 @@ func registerRouteTableRoutes(srv *sim.Server) {
 		routeName := sim.PathParam(r, "routeName")
 		var req RouteEntry
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		route := normalizeRouteEntry(id, routeName, req)
@@ -1515,7 +1515,7 @@ func registerRouteTableRoutes(srv *sim.Server) {
 				rt.Properties.Routes = append(rt.Properties.Routes, route)
 			}
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Route table %q not found.", sim.PathParam(r, "routeTableName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Route table %q not found.", sim.PathParam(r, "routeTableName"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, route)
@@ -1523,7 +1523,7 @@ func registerRouteTableRoutes(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/routeTables/{routeTableName}/routes/{routeName}", func(w http.ResponseWriter, r *http.Request) {
 		rt, ok := azureRouteTables.Get(tableID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Route table %q not found.", sim.PathParam(r, "routeTableName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Route table %q not found.", sim.PathParam(r, "routeTableName"))
 			return
 		}
 		want := sim.PathParam(r, "routeName")
@@ -1533,7 +1533,7 @@ func registerRouteTableRoutes(srv *sim.Server) {
 				return
 			}
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Route %q not found.", want)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Route %q not found.", want)
 	})
 	srv.HandleFunc("DELETE "+armBase+"/routeTables/{routeTableName}/routes/{routeName}", func(w http.ResponseWriter, r *http.Request) {
 		routeName := sim.PathParam(r, "routeName")
@@ -1551,7 +1551,7 @@ func registerRouteTableRoutes(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/routeTables/{routeTableName}/routes", func(w http.ResponseWriter, r *http.Request) {
 		rt, ok := azureRouteTables.Get(tableID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Route table %q not found.", sim.PathParam(r, "routeTableName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Route table %q not found.", sim.PathParam(r, "routeTableName"))
 			return
 		}
 		azureWriteList(w, rt.Properties.Routes)

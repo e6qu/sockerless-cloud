@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // envStaticIP derives a stable, environment-unique static IP for a managed
@@ -225,7 +225,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 
 		var req ContainerAppEnvironment
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -283,7 +283,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 
 		env, ok := environments.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Managed environment '%s' not found.", envName)
 			return
 		}
@@ -329,20 +329,20 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			sub, rg, envName)
 		env, ok := environments.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Managed environment '%s' not found.", envName)
 			return
 		}
 		patch, err := io.ReadAll(r.Body)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// Merge over the ARM wire shape so sockerless-internal wiring (the
 		// backing Docker network) is neither patchable nor exposed.
 		merged := env.wire()
 		if err := applyARMMergePatch(&merged, patch); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// Identity and server-owned fields are not client-writable.
@@ -397,7 +397,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			sub, rg, envName)
 		env, ok := environments.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Managed environment '%s' not found.", envName)
 			return
 		}
@@ -424,7 +424,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
 			sub, rg, envName)
 		if _, ok := environments.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Managed environment '%s' not found.", envName)
 			return
 		}
@@ -433,7 +433,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			Type string `json:"type"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// Name is available when no certificate of that name already exists
@@ -459,7 +459,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			sub, rg, envName)
 		env, ok := environments.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Managed environment '%s' not found.", envName)
 			return
 		}
@@ -528,13 +528,13 @@ func registerContainerAppEnvironmentStorages(srv *sim.Server, envs sim.Store[Con
 		envID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
 			sub, rg, envName)
 		if _, ok := envs.Get(envID); !ok {
-			sim.AzureError(w, "ParentResourceNotFound", "Managed environment not found: "+envID, http.StatusNotFound)
+			AzureError(w, "ParentResourceNotFound", "Managed environment not found: "+envID, http.StatusNotFound)
 			return
 		}
 
 		var req ManagedEnvironmentStorage
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := envID + "/storages/" + storageName
@@ -557,7 +557,7 @@ func registerContainerAppEnvironmentStorages(srv *sim.Server, envs sim.Store[Con
 			sub, rg, envName, storageName)
 		storage, ok := acaEnvStorages.Get(id)
 		if !ok {
-			sim.AzureError(w, "ResourceNotFound", "Storage not found: "+id, http.StatusNotFound)
+			AzureError(w, "ResourceNotFound", "Storage not found: "+id, http.StatusNotFound)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, storage)
@@ -619,7 +619,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		envID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
 			sub, rg, envName)
 		if _, ok := envs.Get(envID); !ok {
-			sim.AzureError(w, "ParentResourceNotFound", "Managed environment not found: "+envID, http.StatusNotFound)
+			AzureError(w, "ParentResourceNotFound", "Managed environment not found: "+envID, http.StatusNotFound)
 			return "", false
 		}
 		return envID, true
@@ -634,7 +634,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		certName := sim.PathParam(r, "certificateName")
 		var req Certificate
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := envID + "/certificates/" + certName
@@ -663,7 +663,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		certName := sim.PathParam(r, "certificateName")
 		cert, ok := acaEnvCertificates.Get(envID + "/certificates/" + certName)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Certificate '%s' not found.", certName)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Certificate '%s' not found.", certName)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, cert)
@@ -679,12 +679,12 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		id := envID + "/certificates/" + certName
 		cert, ok := acaEnvCertificates.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Certificate '%s' not found.", certName)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Certificate '%s' not found.", certName)
 			return
 		}
 		var req Certificate
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Tags != nil {
@@ -732,7 +732,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		certName := sim.PathParam(r, "managedCertificateName")
 		var req ManagedCertificate
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := envID + "/managedCertificates/" + certName
@@ -771,7 +771,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		certName := sim.PathParam(r, "managedCertificateName")
 		cert, ok := acaEnvManagedCertificates.Get(envID + "/managedCertificates/" + certName)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Managed certificate '%s' not found.", certName)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Managed certificate '%s' not found.", certName)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, cert)
@@ -787,12 +787,12 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		id := envID + "/managedCertificates/" + certName
 		cert, ok := acaEnvManagedCertificates.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Managed certificate '%s' not found.", certName)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Managed certificate '%s' not found.", certName)
 			return
 		}
 		var req ManagedCertificate
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Tags != nil {

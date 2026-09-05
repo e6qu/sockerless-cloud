@@ -44,6 +44,7 @@ GO_UI_APPS := \
 
 # Go libraries without UI.
 GO_APPS := \
+  sim \
   realexec \
   testutil \
   ui-auth
@@ -139,7 +140,7 @@ _fanout:
 .PHONY: FORCE
 FORCE:
 
-%/install %/build %/build-noui %/embed %/run %/dev %/test %/test-integration %/lint %/clean %/preview %/help %/docker-test %/docker-test-build %/unit-test %/shared-test %/sdk-test %/cli-test %/terraform-test %/terraform-https-test: FORCE
+%/install %/build %/build-noui %/embed %/run %/dev %/test %/test-integration %/lint %/clean %/preview %/help %/docker-test %/docker-test-build %/unit-test %/sdk-test %/cli-test %/terraform-test %/terraform-https-test: FORCE
 	@$(MAKE) -s -C $* $(notdir $@)
 
 # ── Simulator Docker test harness ───────────────────────────────────

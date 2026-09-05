@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A read that names many items takes the stripes covering them once.

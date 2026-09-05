@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Network Watcher (Microsoft.Network/networkWatchers) is Azure's regional
@@ -186,16 +186,16 @@ func registerNetworkWatcherFlowLogs(srv *sim.Server) {
 		}
 		var req NetworkWatcherFlowLog
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.TargetResourceID == "" || req.Properties.StorageID == "" {
-			sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 				"The request format was unexpected: a flow log requires both targetResourceId and storageId.")
 			return
 		}
 		if !networkWatcherFlowLogTargetExists(req.Properties.TargetResourceID) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource %q was not found.", req.Properties.TargetResourceID)
 			return
 		}
@@ -325,11 +325,11 @@ func registerNetworkWatcherConnectionMonitors(srv *sim.Server) {
 		}
 		var req NetworkWatcherConnectionMonitor
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if len(req.Properties.Endpoints) == 0 && req.Properties.Source == nil {
-			sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 				"The request format was unexpected: a connection monitor requires either endpoints or a source.")
 			return
 		}

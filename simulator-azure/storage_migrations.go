@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A storage account's migrations, and the point-in-time blob restore beside
@@ -76,18 +76,18 @@ func handleStorageStartAccountMigration(w http.ResponseWriter, r *http.Request) 
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
 			"The migration request could not be read: %v", err)
 		return
 	}
 	if req.Properties.TargetSkuName == "" {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
 			"A customer-initiated migration must name the target SKU to move the account to.")
 		return
 	}
 	account, _ := azStorageAccounts.Get(acctID)
 	if account.Sku != nil && strings.EqualFold(account.Sku.Name, req.Properties.TargetSkuName) {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
 			"The account '%s' is already on SKU '%s'.", name, req.Properties.TargetSkuName)
 		return
 	}
@@ -115,27 +115,35 @@ func handleStorageStartAccountMigration(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleStorageGetAccountMigration — StorageAccounts_GetCustomerInitiatedMigration.
+//
+// The `default` migration is a singleton every account carries; an account
+// nobody has migrated answers it with no status rather than 404.
+// terraform-provider-azurerm reads it on every storage-account read and treats
+// anything but 200 as a failed read of the account, and it reads real Azure —
+// so a plain account answers 200 there. A name other than `default` is the one
+// migration name the API does not have.
 func handleStorageGetAccountMigration(w http.ResponseWriter, r *http.Request) {
 	acctID, name, ok := requireStorageAccount(w, r)
 	if !ok {
 		return
 	}
 	migrationName := sim.PathParam(r, "migrationName")
-	held, found := storageAccountMigrations.Get(acctID)
-	if !found || !strings.EqualFold(held.Name, migrationName) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	if !strings.EqualFold(migrationName, "default") {
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"No customer-initiated migration named '%s' was started on account '%s'.",
 			migrationName, name)
 		return
 	}
+	properties := map[string]any{}
+	if held, found := storageAccountMigrations.Get(acctID); found {
+		properties["targetSkuName"] = held.TargetSkuName
+		properties["migrationStatus"] = held.Status
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"id":   acctID + "/accountMigrations/" + held.Name,
-		"name": held.Name,
-		"type": "Microsoft.Storage/storageAccounts/accountMigrations",
-		"properties": map[string]any{
-			"targetSkuName":   held.TargetSkuName,
-			"migrationStatus": held.Status,
-		},
+		"id":         acctID + "/accountMigrations/default",
+		"name":       "default",
+		"type":       "Microsoft.Storage/storageAccounts/accountMigrations",
+		"properties": properties,
 	})
 }
 
@@ -152,13 +160,13 @@ func handleStorageHnsOnMigration(w http.ResponseWriter, r *http.Request) {
 	case strings.EqualFold(requestType, "HnsOnValidationRequest"):
 	case strings.EqualFold(requestType, "HnsOnHydrationRequest"):
 	default:
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
 			"requestType must be HnsOnValidationRequest or HnsOnHydrationRequest, not %q.", requestType)
 		return
 	}
 	account, _ := azStorageAccounts.Get(acctID)
 	if account.Properties.IsHnsEnabled != nil && *account.Properties.IsHnsEnabled {
-		sim.AzureErrorf(w, "Conflict", http.StatusConflict,
+		AzureErrorf(w, "Conflict", http.StatusConflict,
 			"The account '%s' already has a hierarchical namespace.", name)
 		return
 	}
@@ -186,7 +194,7 @@ func handleStorageAbortHnsOnMigration(w http.ResponseWriter, r *http.Request) {
 	}
 	held, found := storageHnsMigrations.Get(acctID)
 	if !found || !held.Running {
-		sim.AzureErrorf(w, "Conflict", http.StatusConflict,
+		AzureErrorf(w, "Conflict", http.StatusConflict,
 			"No hierarchical namespace migration is running on account '%s' to abort.", name)
 		return
 	}
@@ -214,24 +222,24 @@ func handleStorageRestoreBlobRanges(w http.ResponseWriter, r *http.Request) {
 		} `json:"blobRanges"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
 			"The restore request could not be read: %v", err)
 		return
 	}
 	if !storageRestorePolicyEnabled(acctID) {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
 			"Point-in-time restore is not enabled on account '%s'. Enable the blob service restore policy first.",
 			name)
 		return
 	}
 	restoreTo, err := time.Parse(time.RFC3339, req.TimeToRestore)
 	if err != nil {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
 			"timeToRestore must be an RFC 3339 instant: %v", err)
 		return
 	}
 	if len(req.BlobRanges) == 0 {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest,
 			"A restore must name at least one blob range to restore.")
 		return
 	}

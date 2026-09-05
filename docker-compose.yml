@@ -20,8 +20,10 @@ services:
       dockerfile: simulator-gcp/Dockerfile
     ports:
       - "4567:4567"
+      - "4569:4569"
     environment:
       SIM_LISTEN_ADDR: ":4567"
+      SIM_GCP_GRPC_PORT: "4569"
       SIM_LOG_LEVEL: info
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:4567/health"]

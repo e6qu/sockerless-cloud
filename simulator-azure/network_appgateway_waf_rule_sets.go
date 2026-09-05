@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The subscription-scoped web application firewall rule-set catalog:

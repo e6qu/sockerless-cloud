@@ -5,7 +5,7 @@ import (
 	"encoding/xml"
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudFront Functions + Invalidations.

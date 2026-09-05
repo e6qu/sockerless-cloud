@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // randIntn returns a non-negative pseudo-random integer in [0, n)
@@ -189,7 +189,7 @@ func smArnForRegion(name, region string) string {
 		region, awsAccountID(), name, generateUUID()[:6])
 }
 
-func registerSecretsManager(r *sim.AWSRouter, srv *sim.Server) {
+func registerSecretsManager(r *AWSRouter, srv *sim.Server) {
 	smSecrets = sim.MakeStore[SMSecret](srv.DB(), "sm_secrets")
 	smRecoverReplicas()
 
@@ -300,12 +300,12 @@ func handleSMGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		SecretId string `json:"SecretId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	secret, ok := resolveSMSecretForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret: %s", req.SecretId)
 		return
 	}
@@ -383,37 +383,37 @@ func handleSMCreateSecret(w http.ResponseWriter, r *http.Request) {
 		ForceOverwriteReplicaSecret bool                     `json:"ForceOverwriteReplicaSecret"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidRequestException", "Name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Name is required", http.StatusBadRequest)
 		return
 	}
 	region := smRequestRegion(r)
 	storeKey := smStoreKey(region, req.Name)
 	if _, exists := smSecrets.Get(storeKey); exists {
-		sim.AWSErrorf(w, "ResourceExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceExistsException", http.StatusBadRequest,
 			"The operation failed because the secret %s already exists.", req.Name)
 		return
 	}
 	seenReplicaRegions := map[string]bool{}
 	for _, replica := range req.AddReplicaRegions {
 		if replica.Region == "" || replica.Region == region {
-			sim.AWSError(w, "InvalidParameterException",
+			AWSError(w, "InvalidParameterException",
 				"A replica Region must be different from the primary Region.",
 				http.StatusBadRequest)
 			return
 		}
 		if seenReplicaRegions[replica.Region] {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 				"Replica Region %s was specified more than once.", replica.Region)
 			return
 		}
 		seenReplicaRegions[replica.Region] = true
 		if _, exists := smSecrets.Get(smStoreKey(replica.Region, req.Name)); exists &&
 			!req.ForceOverwriteReplicaSecret {
-			sim.AWSErrorf(w, "ResourceExistsException", http.StatusBadRequest,
+			AWSErrorf(w, "ResourceExistsException", http.StatusBadRequest,
 				"The secret %s already exists in Region %s.", req.Name, replica.Region)
 			return
 		}
@@ -468,26 +468,26 @@ func handleSMGetSecretValue(w http.ResponseWriter, r *http.Request) {
 		VersionStage string `json:"VersionStage"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	secret, ok := resolveSMSecretForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
 	if secret.DeletedDate != 0 {
 		// A secret scheduled for deletion can't have its value read until
 		// it is restored. Real AWS returns InvalidRequestException.
-		sim.AWSErrorf(w, "InvalidRequestException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidRequestException", http.StatusBadRequest,
 			"You can't perform this operation on the secret because it was marked for deletion.")
 		return
 	}
 	version, found := secret.versionByIDOrStage(req.VersionId, req.VersionStage)
 	if !found {
 		// Real AWS returns this exact code/message on a miss.
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret value for VersionId: %s VersionStage: %s",
 			req.VersionId, req.VersionStage)
 		return
@@ -519,12 +519,12 @@ func handleSMDescribeSecret(w http.ResponseWriter, r *http.Request) {
 		SecretId string `json:"SecretId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	secret, ok := resolveSMSecretForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -617,12 +617,12 @@ func handleSMUpdateSecret(w http.ResponseWriter, r *http.Request) {
 		SecretBinary []byte `json:"SecretBinary"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -658,12 +658,12 @@ func handleSMPutSecretValue(w http.ResponseWriter, r *http.Request) {
 		SecretBinary []byte `json:"SecretBinary"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -694,24 +694,24 @@ func handleSMDeleteSecret(w http.ResponseWriter, r *http.Request) {
 		ForceDeleteWithoutRecovery bool   `json:"ForceDeleteWithoutRecovery"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
 	secret, _ := smSecrets.Get(name)
 	if secret.PrimaryRegion != "" {
-		sim.AWSError(w, "InvalidRequestException",
+		AWSError(w, "InvalidRequestException",
 			"You can't delete a replica secret. Stop replication to this Region first.",
 			http.StatusBadRequest)
 		return
 	}
 	if len(secret.Replicas) > 0 {
-		sim.AWSError(w, "InvalidRequestException",
+		AWSError(w, "InvalidRequestException",
 			"You can't delete a primary secret that is replicated to other Regions.",
 			http.StatusBadRequest)
 		return
@@ -832,7 +832,7 @@ func handleSMListSecrets(w http.ResponseWriter, r *http.Request) {
 		Filters    []smFilter `json:"Filters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	region := smRequestRegion(r)
@@ -890,12 +890,12 @@ func handleSMTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags     []SMTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -927,12 +927,12 @@ func handleSMUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys  []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -997,12 +997,12 @@ func handleSMListSecretVersionIds(w http.ResponseWriter, r *http.Request) {
 		IncludeDeprecated bool   `json:"IncludeDeprecated"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	secret, ok := resolveSMSecretForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret: %s", req.SecretId)
 		return
 	}
@@ -1049,14 +1049,14 @@ func handleSMGetRandomPassword(w http.ResponseWriter, r *http.Request) {
 		RequireEachIncludedType bool   `json:"RequireEachIncludedType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PasswordLength == 0 {
 		req.PasswordLength = 32 // real-SM default
 	}
 	if req.PasswordLength < 4 || req.PasswordLength > 4096 {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"PasswordLength must be between 4 and 4096", http.StatusBadRequest)
 		return
 	}
@@ -1079,17 +1079,17 @@ func handleSMPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		BlockPublicPolicy bool   `json:"BlockPublicPolicy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
 	if req.ResourcePolicy == "" {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"ResourcePolicy must not be empty", http.StatusBadRequest)
 		return
 	}
@@ -1110,12 +1110,12 @@ func handleSMDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		SecretId string `json:"SecretId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -1140,11 +1140,11 @@ func handleSMValidateResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		ResourcePolicy string `json:"ResourcePolicy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourcePolicy == "" {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"ResourcePolicy must not be empty", http.StatusBadRequest)
 		return
 	}
@@ -1172,12 +1172,12 @@ func handleSMRestoreSecret(w http.ResponseWriter, r *http.Request) {
 		SecretId string `json:"SecretId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -1204,12 +1204,12 @@ func handleSMRotateSecret(w http.ResponseWriter, r *http.Request) {
 		RotateImmediately  *bool           `json:"RotateImmediately"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -1255,12 +1255,12 @@ func handleSMCancelRotateSecret(w http.ResponseWriter, r *http.Request) {
 		SecretId string `json:"SecretId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -1287,12 +1287,12 @@ func handleSMBatchGetSecretValue(w http.ResponseWriter, r *http.Request) {
 		NextToken    string     `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// Real AWS rejects mixing SecretIdList and Filters.
 	if len(req.SecretIdList) > 0 && len(req.Filters) > 0 {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"Either 'SecretIdList' or 'Filters' must be provided, but not both.", http.StatusBadRequest)
 		return
 	}
@@ -1385,17 +1385,17 @@ func handleSMUpdateSecretVersionStage(w http.ResponseWriter, r *http.Request) {
 		MoveToVersionId     string `json:"MoveToVersionId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
 	if req.VersionStage == "" {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"VersionStage must be provided.", http.StatusBadRequest)
 		return
 	}
@@ -1409,12 +1409,12 @@ func handleSMUpdateSecretVersionStage(w http.ResponseWriter, r *http.Request) {
 		return false
 	}
 	if req.MoveToVersionId != "" && !versionExists(req.MoveToVersionId) {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The version %s is not in the secret.", req.MoveToVersionId)
 		return
 	}
 	if req.RemoveFromVersionId != "" && !versionExists(req.RemoveFromVersionId) {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The version %s is not in the secret.", req.RemoveFromVersionId)
 		return
 	}
@@ -1469,38 +1469,38 @@ func handleSMReplicateSecretToRegions(w http.ResponseWriter, r *http.Request) {
 		ForceOverwriteReplicaSecret bool                     `json:"ForceOverwriteReplicaSecret"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
 	primary, _ := smSecrets.Get(name)
 	if primary.PrimaryRegion != "" {
-		sim.AWSError(w, "InvalidRequestException",
+		AWSError(w, "InvalidRequestException",
 			"You must call ReplicateSecretToRegions in the primary Region.",
 			http.StatusBadRequest)
 		return
 	}
 	if len(req.AddReplicaRegions) == 0 {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"AddReplicaRegions must contain at least one Region.", http.StatusBadRequest)
 		return
 	}
 	primaryRegion := smSecretRegion(primary)
 	for _, add := range req.AddReplicaRegions {
 		if add.Region == "" || add.Region == primaryRegion {
-			sim.AWSError(w, "InvalidParameterException",
+			AWSError(w, "InvalidParameterException",
 				"A replica Region must be different from the primary Region.",
 				http.StatusBadRequest)
 			return
 		}
 		if existing, exists := smSecrets.Get(smStoreKey(add.Region, primary.Name)); exists &&
 			existing.PrimaryRegion != primaryRegion && !req.ForceOverwriteReplicaSecret {
-			sim.AWSErrorf(w, "ResourceExistsException", http.StatusBadRequest,
+			AWSErrorf(w, "ResourceExistsException", http.StatusBadRequest,
 				"The secret %s already exists in Region %s.", primary.Name, add.Region)
 			return
 		}
@@ -1562,12 +1562,12 @@ func handleSMRemoveRegionsFromReplication(w http.ResponseWriter, r *http.Request
 		RemoveReplicaRegions []string `json:"RemoveReplicaRegions"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
@@ -1577,7 +1577,7 @@ func handleSMRemoveRegionsFromReplication(w http.ResponseWriter, r *http.Request
 	}
 	primary, _ := smSecrets.Get(name)
 	if primary.PrimaryRegion != "" {
-		sim.AWSError(w, "InvalidRequestException",
+		AWSError(w, "InvalidRequestException",
 			"You must call RemoveRegionsFromReplication in the primary Region.",
 			http.StatusBadRequest)
 		return
@@ -1613,18 +1613,18 @@ func handleSMStopReplicationToReplica(w http.ResponseWriter, r *http.Request) {
 		SecretId string `json:"SecretId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := resolveSecretKeyForRequest(r, req.SecretId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret.")
 		return
 	}
 	secret, _ := smSecrets.Get(name)
 	if secret.PrimaryRegion == "" {
-		sim.AWSError(w, "InvalidRequestException",
+		AWSError(w, "InvalidRequestException",
 			"You must call StopReplicationToReplica in a replica Region.",
 			http.StatusBadRequest)
 		return

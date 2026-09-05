@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // TestAuthGateAccountsForEveryCatchAllRoute guards the assumption

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // newELBv2DataPlaneServer builds a simulator carrying everything the load
@@ -33,8 +33,8 @@ func newELBv2DataPlaneServer(t *testing.T) *sim.Server {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	jsonRouter := sim.NewAWSRouter()
-	registerELBv2(sim.NewAWSQueryRouter(), srv)
+	jsonRouter := NewAWSRouter()
+	registerELBv2(NewAWSQueryRouter(), srv)
 	registerWAFv2(jsonRouter, srv)
 	registerECS(jsonRouter, srv)
 	registerELBv2DataPlane(srv)

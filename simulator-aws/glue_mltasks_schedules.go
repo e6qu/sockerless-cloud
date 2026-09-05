@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -89,7 +89,7 @@ var (
 )
 
 // registerGlueMLTasksSchedules registers this Glue sub-service's awsJson1.1 operations.
-func registerGlueMLTasksSchedules(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlueMLTasksSchedules(r *AWSRouter, srv *sim.Server) {
 	glueMLTaskRuns = sim.MakeStore[GlueMLTaskRun](srv.DB(), "glue_ml_task_runs")
 	glueMVRefreshRuns = sim.MakeStore[GlueMVRefreshTaskRun](srv.DB(), "glue_mv_refresh_runs")
 	glueColStatsScheds = sim.MakeStore[GlueColumnStatsSchedule](srv.DB(), "glue_column_stats_schedules")

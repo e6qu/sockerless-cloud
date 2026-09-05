@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements faithful control-plane CRUD for the EC2 resources that
@@ -109,7 +109,7 @@ var (
 	ec2EgressOnlyGateways sim.Store[EC2EgressOnlyInternetGateway]
 )
 
-func registerEC2AclPeeringPrefix(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2AclPeeringPrefix(r *AWSQueryRouter, srv *sim.Server) {
 	ec2NetworkAcls = sim.MakeStore[EC2NetworkAcl](srv.DB(), "ec2_network_acls")
 	ec2VpcPeerings = sim.MakeStore[EC2VpcPeeringConnection](srv.DB(), "ec2_vpc_peerings")
 	ec2ManagedPrefixLists = sim.MakeStore[EC2ManagedPrefixList](srv.DB(), "ec2_managed_prefix_lists")

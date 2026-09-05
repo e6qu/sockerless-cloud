@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Budgets shapes. AWS Budgets speaks awsJson1.1 over POST / with the
@@ -70,7 +70,7 @@ type budgetsStoreEntry struct {
 
 var budgetsStore sim.Store[budgetsStoreEntry]
 
-func registerBudgets(r *sim.AWSRouter, srv *sim.Server) {
+func registerBudgets(r *AWSRouter, srv *sim.Server) {
 	budgetsStore = sim.MakeStore[budgetsStoreEntry](srv.DB(), "budgets")
 	budgetsTags = sim.MakeStore[map[string]string](srv.DB(), "budget_tags")
 	registerBudgetsActions(r, srv)

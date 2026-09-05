@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -265,7 +265,7 @@ func registerCloudLogging(srv *sim.Server) {
 	srv.HandleFunc("POST /v2/entries:list", func(w http.ResponseWriter, r *http.Request) {
 		var req ListLogEntriesRESTRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		entries, next := listLogEntries(req.Filter, req.ResourceNames, req.PageSize, req.PageToken, req.OrderBy)
@@ -279,7 +279,7 @@ func registerCloudLogging(srv *sim.Server) {
 	srv.HandleFunc("POST /v2/entries:write", func(w http.ResponseWriter, r *http.Request) {
 		var req WriteLogEntriesRESTRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		writeLogEntries(req.LogName, req.Resource, req.Labels, req.Entries)
@@ -380,7 +380,7 @@ func handleCreateLoggingSink(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	var sink LoggingSink
 	if err := sim.ReadJSON(r, &sink); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
 		return
 	}
 	sink = normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
@@ -413,7 +413,7 @@ func handleGetLoggingSink(w http.ResponseWriter, r *http.Request) {
 	key := loggingSinkRequestKey(sim.PathParam(r, "project"), sim.PathParam(r, "sink"))
 	sink, ok := logSinks.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, loggingSinkResponse(sim.PathParam(r, "project"), sink))
@@ -424,7 +424,7 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 	key := loggingSinkRequestKey(project, sim.PathParam(r, "sink"))
 	var sink LoggingSink
 	if err := sim.ReadJSON(r, &sink); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
 		return
 	}
 	sink.Name = key
@@ -436,7 +436,7 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 func handleDeleteLoggingSink(w http.ResponseWriter, r *http.Request) {
 	sink := sim.PathParam(r, "sink")
 	if !logSinks.Delete(loggingSinkRequestKey(sim.PathParam(r, "project"), sink)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %q not found", sink)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %q not found", sink)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -446,7 +446,7 @@ func handleCreateLoggingMetric(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	var metric LoggingMetric
 	if err := sim.ReadJSON(r, &metric); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid metric body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid metric body: %v", err)
 		return
 	}
 	metric = normalizeLoggingMetric(project, metric)
@@ -479,7 +479,7 @@ func handleGetLoggingMetric(w http.ResponseWriter, r *http.Request) {
 	key := loggingMetricRequestKey(sim.PathParam(r, "project"), sim.PathParam(r, "metric"))
 	metric, ok := logMetrics.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "metric %s not found", key)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "metric %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, loggingMetricResponse(sim.PathParam(r, "project"), metric))
@@ -490,7 +490,7 @@ func handleUpdateLoggingMetric(w http.ResponseWriter, r *http.Request) {
 	key := loggingMetricRequestKey(project, sim.PathParam(r, "metric"))
 	var metric LoggingMetric
 	if err := sim.ReadJSON(r, &metric); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid metric body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid metric body: %v", err)
 		return
 	}
 	metric.Name = key
@@ -502,7 +502,7 @@ func handleUpdateLoggingMetric(w http.ResponseWriter, r *http.Request) {
 func handleDeleteLoggingMetric(w http.ResponseWriter, r *http.Request) {
 	metric := sim.PathParam(r, "metric")
 	if !logMetrics.Delete(loggingMetricRequestKey(sim.PathParam(r, "project"), metric)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "metric %q not found", metric)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "metric %q not found", metric)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})

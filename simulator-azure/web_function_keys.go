@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_function_keys.go implements the Azure Functions key surface of the
@@ -119,7 +119,7 @@ func webFunctionMissing(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	if _, ok := azfFunctionConfigs.Get(webFunctionID(r)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Function %q not found.", sim.PathParam(r, "functionName"))
 		return true
 	}
@@ -174,7 +174,7 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		case "masterKey":
 			row.MasterKey = value
 		default:
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"Invalid key type %q. Valid types are 'functionKeys', 'systemKeys' and 'masterKey'.", keyType)
 			return
 		}
@@ -205,7 +205,7 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 			delete(row.SystemKeys, keyName)
 		}
 		if !existed {
-			sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+			AzureErrorf(w, "NotFound", http.StatusNotFound,
 				"Host key %q of type %q was not found.", keyName, keyType)
 			return
 		}
@@ -277,7 +277,7 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		row := ensureWebFunctionKeys(fnID)
 		keyName := sim.PathParam(r, "keyName")
 		if _, existed := row.Keys[keyName]; !existed {
-			sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+			AzureErrorf(w, "NotFound", http.StatusNotFound,
 				"Function key %q was not found.", keyName)
 			return
 		}
@@ -349,7 +349,7 @@ func readKeyInfoValue(w http.ResponseWriter, r *http.Request) (string, bool) {
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return "", false
 	}
 	if req.Value == "" && req.Properties != nil {
