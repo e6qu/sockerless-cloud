@@ -59,6 +59,9 @@ type ECSContainerDefinition struct {
 	PseudoTerminal    bool                 `json:"pseudoTerminal,omitempty"`
 	Interactive       bool                 `json:"interactive,omitempty"`
 	Privileged        bool                 `json:"privileged,omitempty"`
+	// StopTimeout is how many seconds Amazon ECS waits after SIGTERM before it
+	// kills the container; unset means the platform default.
+	StopTimeout *int `json:"stopTimeout,omitempty"`
 	// healthCheck and secrets are decoded for the runtime (secret injection reads
 	// Secrets); every other field rides the verbatim `raw` capture below.
 	HealthCheck json.RawMessage `json:"healthCheck,omitempty"`
@@ -399,6 +402,32 @@ var (
 type ecsTaskProcesses struct {
 	MainContainerName string
 	Handles           map[string]*sim.ContainerHandle
+	// StopGrace is each container's SIGTERM-to-SIGKILL grace, from its
+	// definition's stopTimeout.
+	StopGrace map[string]time.Duration
+}
+
+// ecsDefaultStopTimeout is what Amazon ECS waits between SIGTERM and SIGKILL
+// when a container definition sets no stopTimeout: 30 seconds on Fargate and
+// the EC2 agent's ECS_CONTAINER_STOP_TIMEOUT default alike.
+const ecsDefaultStopTimeout = 30 * time.Second
+
+// ecsContainerStopGrace is the grace a stopping container gets: its
+// definition's stopTimeout, else the platform default.
+func ecsContainerStopGrace(cd ECSContainerDefinition) time.Duration {
+	if cd.StopTimeout != nil && *cd.StopTimeout >= 0 {
+		return time.Duration(*cd.StopTimeout) * time.Second
+	}
+	return ecsDefaultStopTimeout
+}
+
+// ecsTaskStopGrace maps each of a definition's containers to its stop grace.
+func ecsTaskStopGrace(td ECSTaskDefinition) map[string]time.Duration {
+	grace := make(map[string]time.Duration, len(td.ContainerDefinitions))
+	for _, cd := range td.ContainerDefinitions {
+		grace[cd.Name] = ecsContainerStopGrace(cd)
+	}
+	return grace
 }
 
 func (p *ecsTaskProcesses) firstHandle() *sim.ContainerHandle {
@@ -439,9 +468,11 @@ func stopECSTaskProcesses(p *ecsTaskProcesses) {
 	if p == nil {
 		return
 	}
-	for _, h := range p.Handles {
+	for name, h := range p.Handles {
 		if h != nil {
-			sim.StopContainer(h.ContainerID, time.Second)
+			// The pause container holds the task's network namespace and runs
+			// nothing of the task's; it gets no grace.
+			sim.StopContainer(h.ContainerID, p.StopGrace[name])
 		}
 	}
 }
@@ -1962,6 +1993,7 @@ func ecsAdoptRunningTask(
 	processes := &ecsTaskProcesses{
 		MainContainerName: definition.ContainerDefinitions[0].Name,
 		Handles:           make(map[string]*sim.ContainerHandle, len(existing)),
+		StopGrace:         ecsTaskStopGrace(definition),
 	}
 	sink := ecsTaskCloudWatchSink(definition, taskID)
 	for _, container := range existing {
@@ -1972,7 +2004,7 @@ func ecsAdoptRunningTask(
 		if name == "" {
 			return fmt.Errorf("task %s Amazon ECS container %s has no container identity label", task.TaskArn, container.ID)
 		}
-		handle, err := sim.AdoptContainer(container.ID, sim.ContainerConfig{}, sink)
+		handle, err := sim.AdoptContainer(container.ID, sim.ContainerConfig{CancelGracePeriod: processes.StopGrace[name]}, sink)
 		if err != nil {
 			return fmt.Errorf("adopt Amazon ECS task %s container %s: %w", task.TaskArn, name, err)
 		}
@@ -2131,6 +2163,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 	processes := &ecsTaskProcesses{
 		MainContainerName: td.ContainerDefinitions[0].Name,
 		Handles:           make(map[string]*sim.ContainerHandle, len(td.ContainerDefinitions)),
+		StopGrace:         ecsTaskStopGrace(td),
 	}
 	// The task definition's networkMode decides the fabric every container in
 	// the task lands on: awsvpc gets the task its own elastic network interface
@@ -2254,12 +2287,13 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			command = containerOverride.Command
 		}
 		cfg := sim.ContainerConfig{
-			Image:        localImage,
-			Architecture: platform,
-			Command:      cd.EntryPoint,
-			Args:         command,
-			Env:          mergeEnv(cmdEnv, metadataEnv),
-			Name:         containerName,
+			CancelGracePeriod: ecsContainerStopGrace(cd),
+			Image:             localImage,
+			Architecture:      platform,
+			Command:           cd.EntryPoint,
+			Args:              command,
+			Env:               mergeEnv(cmdEnv, metadataEnv),
+			Name:              containerName,
 			Labels: map[string]string{
 				"sockerless-sim-task":           taskID,
 				"sockerless-sim-task-container": cd.Name,

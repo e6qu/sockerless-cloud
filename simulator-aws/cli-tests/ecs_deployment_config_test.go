@@ -18,7 +18,7 @@ func TestECSCLI_DeploymentConfiguration(t *testing.T) {
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	stable := strings.TrimSpace(runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-deploycfg-task",
-		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","command":["hold"],"memory":128}]`,
+		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","stopTimeout":2,"command":["hold"],"memory":128}]`,
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")))
 	runCLI(t, awsCLI("ecs", "create-service",
 		"--cluster", cluster, "--service-name", "cli-deploycfg-svc",
@@ -36,7 +36,7 @@ func TestECSCLI_DeploymentConfiguration(t *testing.T) {
 
 	failing := strings.TrimSpace(runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-deploycfg-task",
-		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","command":["not-a-supported-command"],"memory":128}]`,
+		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","stopTimeout":2,"command":["not-a-supported-command"],"memory":128}]`,
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")))
 	runCLI(t, awsCLI("ecs", "update-service",
 		"--cluster", cluster, "--service", "cli-deploycfg-svc",

@@ -145,6 +145,7 @@ resource "aws_ecs_task_definition" "this" {
   memory                   = "512"
   container_definitions = jsonencode([{
     name      = "app"
+    stopTimeout = 2
     image     = "nginx"
     essential = true
   }])

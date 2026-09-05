@@ -808,17 +808,18 @@ func StartHTTPContainer(ctx context.Context, cfg HTTPContainerConfig) (string, e
 	return resp.ID, nil
 }
 
-// StopAndRemoveContainer stops and removes the container. It is idempotent
+// StopAndRemoveContainer stops and removes the container, giving its process
+// the grace the cloud grants between SIGTERM and SIGKILL. It is idempotent
 // cleanup that callers defer, so there is nothing useful to report.
-func StopAndRemoveContainer(containerID string) {
+func StopAndRemoveContainer(containerID string, grace time.Duration) {
 	cli := DockerClient()
 	if cli == nil {
 		return
 	}
 	managedContainers.Delete(containerID)
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second+grace)
 	defer stopCancel()
-	timeout := 5
+	timeout := int(grace / time.Second)
 	_, _ = cli.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{Timeout: &timeout})
 	_, _ = cli.ContainerRemove(stopCtx, containerID, client.ContainerRemoveOptions{Force: true})
 }

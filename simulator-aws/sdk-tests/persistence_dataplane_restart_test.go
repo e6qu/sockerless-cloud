@@ -59,7 +59,8 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	firstTaskDefinition, err := ecsAPI.RegisterTaskDefinition(testCtx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("persistent-task-family"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("application"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("application"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
 			Essential: aws.Bool(true),
 		}},
 	})
@@ -141,7 +142,8 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	secondTaskDefinition, err := ecsAPI.RegisterTaskDefinition(testCtx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("persistent-task-family"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("application"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("application"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
 			Essential: aws.Bool(true),
 		}},
 	})

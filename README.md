@@ -258,9 +258,9 @@ framework through hooks.
 
 Simulators are **real implementations**, not fakes. They don't approximate cloud behavior with synthetic timers or hardcoded responses — they reimplement the actual service semantics:
 
-- **Cloud-native configuration drives the execution lifecycle.** Azure ACA jobs respect `replicaTimeout`. GCP Cloud Run jobs respect the task-template `timeout`. AWS ECS tasks run until the process exits or a caller invokes `StopTask`, because ECS has no native execution timeout.
+- **Cloud-native configuration drives the execution lifecycle.** Azure ACA jobs respect `replicaTimeout`. GCP Cloud Run jobs respect the task-template `timeout`. AWS ECS tasks run until the process exits or a caller invokes `StopTask`, because ECS has no native execution timeout, and a stopped container gets its definition's `stopTimeout` between SIGTERM and SIGKILL.
 - **Log injection** writes entries to the same tables and log groups that the real services would, queryable through the same APIs (KQL for Azure, Cloud Logging filters for GCP, CloudWatch for AWS).
-- **Agent integration** spawns real subprocesses — the same `sockerless-agent` binary used in production — enabling full exec/attach through simulated cloud resources.
+- **Exec and attach reach the real container.** Amazon ECS `ExecuteCommand` and the Azure App Service and Container Apps exec surfaces run their command inside the workload's own container through the engine's exec API, bridged over the same WebSocket protocol the real service uses.
 - **SDK + Terraform compatibility** rides on the real official clients, not custom HTTP calls.
 
 The simulators run locally on a single machine today. The architecture allows distributing them across machines later, behind the same API surface.
@@ -282,16 +282,16 @@ Each workload streams stdout/stderr in real time into the cloud-native log sink:
 | Cloud Functions | Cloud Logging | `entries.list` / `ListLogEntries` |
 | Azure Functions | Log Analytics (AppTraces) | KQL via `QueryWorkspace` |
 
-FaaS simulators (Lambda, Cloud Functions, Azure Functions) also execute real processes when `SimCommand` is set, returning the result synchronously.
+The FaaS simulators (Lambda, Cloud Functions, Azure Functions) invoke the function image's own HTTP listener or Runtime API inside the container; nothing runs as a host process.
 
 ## ECS ExecuteCommand
 
 The ECS simulator supports `ExecuteCommand` with WebSocket-based session bridging:
 
-1. Spawn a new process with the given command.
+1. Create an exec inside the task's running container through the engine's exec API.
 2. Register a WebSocket handler at `/ecs-exec/{sessionId}`.
-3. Return a session with the WebSocket URL.
-4. Bridge stdin/stdout/stderr over the WebSocket connection.
+3. Return a session with the WebSocket URL, in the shape AWS Systems Manager Session Manager clients expect.
+4. Bridge stdin/stdout/stderr over the WebSocket connection, framing them as SSM agent messages with the exit-code marker.
 
 ## Request routing per cloud
 

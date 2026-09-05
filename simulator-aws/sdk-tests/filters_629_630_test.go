@@ -23,7 +23,7 @@ func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 			RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
 			NetworkMode:             ecstypes.NetworkModeAwsvpc,
 			Cpu:                     aws.String("256"), Memory: aws.String("512"),
-			ContainerDefinitions: []ecstypes.ContainerDefinition{{Name: aws.String("a"), Image: aws.String("nginx"), Essential: aws.Bool(true)}},
+			ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("a"), Image: aws.String("nginx"), Essential: aws.Bool(true)}},
 		})
 		require.NoError(t, err)
 		arns = append(arns, *reg.TaskDefinition.TaskDefinitionArn)

@@ -120,7 +120,7 @@ When `scripts/check-latest-deps.sh` reports drift, **upgrade the drifted modules
 
 ## Never create more than one PR — one branch, one PR
 
-All work goes on a single branch and a single PR. Never open a second PR while one is open. Enforced by `scripts/check-single-open-pr.sh`.
+All work goes on a single branch and a single PR. Never open a second PR while one is open. Enforced by `scripts/check-single-open-pr.sh`, which does not count the release pull request release-please opens after every merge: that is the automation's release proposal for the user to merge, not work in progress.
 
 ## Never dismiss a problem as "unrelated"
 

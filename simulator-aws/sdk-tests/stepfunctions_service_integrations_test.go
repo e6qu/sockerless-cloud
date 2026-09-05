@@ -529,9 +529,10 @@ func TestSFN_AmazonECSAndCodeBuildIntegrations_SDK(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:    aws.String("work"),
-			Image:   aws.String("public.ecr.aws/docker/library/alpine:3.21"),
-			Command: []string{"sh", "-c", "printf step-functions-ecs"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("work"),
+			Image:       aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+			Command:     []string{"sh", "-c", "printf step-functions-ecs"},
 		}},
 	})
 	require.NoError(t, err)
@@ -848,9 +849,10 @@ resource "aws_sqs_queue" "proof" {
 		Cpu:                     aws.String("512"),
 		Memory:                  aws.String("1024"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:       aws.String("terraform"),
-			Image:      aws.String(terraformECSImage),
-			EntryPoint: []string{"sh", "-c"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("terraform"),
+			Image:       aws.String(terraformECSImage),
+			EntryPoint:  []string{"sh", "-c"},
 			Command: []string{
 				`set -eu
 mkdir -p /workspace

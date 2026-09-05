@@ -24,10 +24,11 @@ func registerECSServiceDeploymentTask(
 	output, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:      aws.String("app"),
-			Image:     aws.String(containerCommandImage),
-			Command:   command,
-			Essential: aws.Bool(true),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String(containerCommandImage),
+			Command:     command,
+			Essential:   aws.Bool(true),
 		}},
 	})
 	require.NoError(t, err)

@@ -880,7 +880,7 @@ func aciStopGroupContainers(group ACIContainerGroup) {
 		name, _ := c["name"].(string)
 		key := aciRuntimeKey(group.ID, name)
 		if rec, ok := aciRuntimeRecords.Get(key); ok && rec.ContainerID != "" {
-			sim.StopAndRemoveContainer(rec.ContainerID)
+			sim.StopAndRemoveContainer(rec.ContainerID, 5*time.Second)
 			rec.State = ACIStateStopped
 			rec.FinishTime = time.Now().UTC().Format(time.RFC3339Nano)
 			aciRuntimeRecords.Put(key, rec)

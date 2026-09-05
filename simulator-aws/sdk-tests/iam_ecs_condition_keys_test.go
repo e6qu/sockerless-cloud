@@ -25,8 +25,9 @@ func TestECS_RequestShapeConditionKeysScopeTheGrant(t *testing.T) {
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
 		NetworkMode:             ecstypes.NetworkModeAwsvpc,
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:  aws.String("app"),
-			Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
 		}},
 	})
 	require.NoError(t, err)

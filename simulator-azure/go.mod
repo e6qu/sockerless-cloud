@@ -5,9 +5,9 @@ go 1.26.0
 require (
 	github.com/Azure/go-amqp v1.7.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260905112959-24dd57dfc0c6
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260905183017-032fac3a5974
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905112959-24dd57dfc0c6
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260905213638-ef4567e91da5
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260905215215-9ea6029a1be1
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5
 	github.com/gorilla/websocket v1.5.3
 	github.com/miekg/dns v1.1.73
 	github.com/moby/moby/api v1.56.0

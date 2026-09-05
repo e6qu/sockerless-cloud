@@ -17,7 +17,7 @@ func TestECSCLI_CapacityProvidersAndFamilies(t *testing.T) {
 
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-rc-family",
-		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/busybox:latest","memory":128}]`))
+		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/busybox:latest","stopTimeout":2,"memory":128}]`))
 
 	families := runCLI(t, awsCLI("ecs", "list-task-definition-families", "--family-prefix", "cli-rc-"))
 	if !strings.Contains(families, "cli-rc-family") {

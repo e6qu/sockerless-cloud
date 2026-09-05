@@ -3,6 +3,13 @@
 # There should be just one PR in progress at a time — put all work in the
 # already-open PR; never open a new one while one exists.
 #
+# The release pull request release-please opens on its own branch after every
+# merge to main is not work in progress: it is the automation's release
+# proposal, it reopens itself if closed, and its branch cannot be consolidated
+# into a work branch without carrying the version bump along. Counting it made
+# the gate unsatisfiable for the first change after any merge until the release
+# had shipped, so it is left out of the count.
+#
 # Used by the pre-commit hook and by CI from the same source:
 #   - Locally without gh / auth / network it skips (the CI gate is authoritative).
 #   - In CI a token is always present, so a query failure is a hard error and
@@ -17,7 +24,7 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 0
 fi
 
-if ! open_json=$(gh pr list --state open --limit 100 --json number,title,isDraft 2>/dev/null); then
+if ! open_json=$(gh pr list --state open --limit 100 --json number,title,isDraft,headRefName 2>/dev/null); then
   if [ -n "$have_token" ]; then
     echo "ERROR: could not query open PRs despite a token being present." >&2
     exit 1
@@ -26,6 +33,7 @@ if ! open_json=$(gh pr list --state open --limit 100 --json number,title,isDraft
   exit 0
 fi
 
+open_json=$(printf '%s' "$open_json" | jq '[.[] | select(.headRefName | startswith("release-please--") | not)]')
 count=$(printf '%s' "$open_json" | jq 'length')
 
 if [ "${count:-0}" -gt 1 ]; then

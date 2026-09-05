@@ -73,7 +73,8 @@ func TestECS_ServiceLifecycle(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)
@@ -196,7 +197,8 @@ func TestECS_TagsAndListOps(t *testing.T) {
 	_, err = c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("tag-svc-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)
@@ -240,8 +242,9 @@ func TestECS_RegisterTaskDefinition(t *testing.T) {
 		Family: aws.String("test-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:  aws.String("app"),
-				Image: aws.String("alpine:latest"),
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("alpine:latest"),
 			},
 		},
 	})
@@ -274,9 +277,10 @@ func TestECS_MultiContainerTaskSharesLocalhost(t *testing.T) {
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:    aws.String("main"),
-				Image:   aws.String(containerCommandImage),
-				Command: []string{"probe-http", "http://127.0.0.1:9090", "sidecar-ok", "10"},
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("main"),
+				Image:       aws.String(containerCommandImage),
+				Command:     []string{"probe-http", "http://127.0.0.1:9090", "sidecar-ok", "10"},
 				LogConfiguration: &ecstypes.LogConfiguration{
 					LogDriver: ecstypes.LogDriverAwslogs,
 					Options: map[string]string{
@@ -286,9 +290,10 @@ func TestECS_MultiContainerTaskSharesLocalhost(t *testing.T) {
 				},
 			},
 			{
-				Name:    aws.String("sidecar"),
-				Image:   aws.String(containerCommandImage),
-				Command: []string{"http", "9090", "sidecar-ok"},
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("sidecar"),
+				Image:       aws.String(containerCommandImage),
+				Command:     []string{"http", "9090", "sidecar-ok"},
 			},
 		},
 	})
@@ -359,10 +364,11 @@ func TestECS_ManagedEBSVolumeSnapshotRoundTripSDK(t *testing.T) {
 			ConfiguredAtLaunch: aws.Bool(true),
 		}},
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:       aws.String("writer"),
-			Image:      aws.String(busyboxImage),
-			EntryPoint: []string{"sh", "-c"},
-			Command:    []string{"printf 'sockerless-ebs-roundtrip' > /workspace/state.txt"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("writer"),
+			Image:       aws.String(busyboxImage),
+			EntryPoint:  []string{"sh", "-c"},
+			Command:     []string{"printf 'sockerless-ebs-roundtrip' > /workspace/state.txt"},
 			MountPoints: []ecstypes.MountPoint{{
 				SourceVolume:  aws.String("workspace"),
 				ContainerPath: aws.String("/workspace"),
@@ -432,9 +438,10 @@ func TestECS_ManagedEBSVolumeSnapshotRoundTripSDK(t *testing.T) {
 			ConfiguredAtLaunch: aws.Bool(true),
 		}},
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:       aws.String("reader"),
-			Image:      aws.String(busyboxImage),
-			EntryPoint: []string{"sh", "-c"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("reader"),
+			Image:       aws.String(busyboxImage),
+			EntryPoint:  []string{"sh", "-c"},
 			Command: []string{`test "$(cat /workspace/state.txt)" = "sockerless-ebs-roundtrip"
 echo EBS_ROUNDTRIP_OK`},
 			MountPoints: []ecstypes.MountPoint{{
@@ -504,8 +511,9 @@ func TestECS_RunTaskContainerOverridesApplyToRuntimeSDK(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:  aws.String("workspace"),
-			Image: aws.String("alpine:latest"),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("workspace"),
+			Image:       aws.String("alpine:latest"),
 			Command: []string{
 				"sh", "-c",
 				`echo taskdef:${EDD_WORKSPACE_ID:-missing}:${BASE_ONLY}:${OVERRIDE_ME}`,
@@ -603,9 +611,10 @@ func TestECS_ExitCodeNilWhileRunning(t *testing.T) {
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:    aws.String("app"),
-				Image:   aws.String("alpine:latest"),
-				Command: []string{"sleep", "30"}, // long-running so RUNNING window is real
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("alpine:latest"),
+				Command:     []string{"sleep", "30"}, // long-running so RUNNING window is real
 			},
 		},
 	})
@@ -689,9 +698,10 @@ func TestECS_StopCodeUserInitiated(t *testing.T) {
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:    aws.String("app"),
-				Image:   aws.String("alpine:latest"),
-				Command: []string{"sleep", "30"},
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("alpine:latest"),
+				Command:     []string{"sleep", "30"},
 			},
 		},
 	})
@@ -919,9 +929,10 @@ func ebsVolumeIDFromTask(t *testing.T, task ecstypes.Task) string {
 
 func TestECS_TaskExecutesCommand(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-cmd", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String("alpine:latest"),
-		Command: []string{"echo", "hello"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"echo", "hello"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
@@ -941,9 +952,10 @@ func TestECS_TaskExecutesCommand(t *testing.T) {
 
 func TestECS_TaskExitCodeNonZero(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-fail", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String("alpine:latest"),
-		Command: []string{"sh", "-c", "exit 1"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"sh", "-c", "exit 1"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
@@ -961,9 +973,10 @@ func TestECS_TaskExitCodeNonZero(t *testing.T) {
 
 func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 	_, _, _ = ecsRunTaskHelper(t, "exec-logs", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String("alpine:latest"),
-		Command: []string{"echo", "hello from process"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"echo", "hello from process"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
@@ -1011,9 +1024,10 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 // already delivered.
 func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "live-logs", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String("alpine:latest"),
-		Command: []string{"sh", "-c", "echo live-line-from-running-task; tail -f /dev/null"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"sh", "-c", "echo live-line-from-running-task; tail -f /dev/null"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
@@ -1086,9 +1100,10 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 
 func TestECS_TaskNoCommandStaysRunning(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-nocmd", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String("alpine:latest"),
-		Command: []string{"tail", "-f", "/dev/null"}, // Long-running — stays RUNNING
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"tail", "-f", "/dev/null"}, // Long-running — stays RUNNING
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
@@ -1121,9 +1136,10 @@ func TestECS_TaskNoCommandStaysRunning(t *testing.T) {
 // untag, and confirm STOPPED tasks reject tagging.
 func TestECS_TagResource_OnRunningTask(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "tag-task", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String("alpine:latest"),
-		Command: []string{"tail", "-f", "/dev/null"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"tail", "-f", "/dev/null"},
 	})
 	_ = cluster
 
@@ -1190,9 +1206,10 @@ func TestECS_TagResource_OnRunningTask(t *testing.T) {
 
 func TestECS_TagResource_RejectsStoppedTask(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "tag-stopped", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String("alpine:latest"),
-		Command: []string{"sh", "-c", "exit 0"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"sh", "-c", "exit 0"},
 	})
 
 	// Poll for STOPPED — podman lifecycle (image pull + start + exit + sim
@@ -1238,7 +1255,7 @@ func TestECS_ListTasks_Pagination(t *testing.T) {
 	td, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("pag-family"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
-			{Name: aws.String("app"), Image: aws.String("alpine:latest")},
+			{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("alpine:latest")},
 		},
 		NetworkMode: ecstypes.NetworkModeBridge,
 	})
@@ -1303,7 +1320,7 @@ func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 
 	td, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:               aws.String("listtasks-filters-td"),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{{Name: aws.String("app"), Image: aws.String("alpine:latest")}},
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("alpine:latest")}},
 	})
 	require.NoError(t, err)
 	tdArn := aws.ToString(td.TaskDefinition.TaskDefinitionArn)
@@ -1370,7 +1387,8 @@ func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("taggable-types-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)
@@ -1521,7 +1539,8 @@ func TestECS_AgentStateChangesAreAppliedNotAcknowledged(t *testing.T) {
 	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("agent-state-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)
@@ -1688,7 +1707,8 @@ func TestECS_DestructiveCallsRefuseWhatAWSRefuses(t *testing.T) {
 	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("refusal-rules-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)
@@ -1803,7 +1823,8 @@ func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
 	registered, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("lifecycle-hook-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)

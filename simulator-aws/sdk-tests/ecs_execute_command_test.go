@@ -27,10 +27,11 @@ func runLongLivedECSTask(t *testing.T, client *ecs.Client, cluster, family strin
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:       aws.String("app"),
-			Image:      aws.String(busyboxImage),
-			EntryPoint: []string{"sh", "-c"},
-			Command:    []string{"sleep 30"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String(busyboxImage),
+			EntryPoint:  []string{"sh", "-c"},
+			Command:     []string{"sleep 30"},
 		}},
 	})
 	require.NoError(t, err)

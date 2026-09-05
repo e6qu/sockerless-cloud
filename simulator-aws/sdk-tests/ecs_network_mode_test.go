@@ -23,10 +23,11 @@ func ecsNetworkModeTaskDefinition(t *testing.T, client *ecs.Client, family strin
 		Family:      aws.String(family),
 		NetworkMode: mode,
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:      aws.String("app"),
-			Image:     aws.String(containerCommandImage),
-			Command:   []string{"sleep", "60"},
-			Essential: aws.Bool(true),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String(containerCommandImage),
+			Command:     []string{"sleep", "60"},
+			Essential:   aws.Bool(true),
 		}},
 	}
 	if mode == ecstypes.NetworkModeAwsvpc {

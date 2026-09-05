@@ -514,6 +514,12 @@ func cloneAnyMap(src map[string]any) map[string]any {
 // Container handle tracker for Cloud Run Jobs real execution
 var crjProcessHandles sync.Map // map[execName]*cloudRunJobProcesses
 
+// cloudRunStopGrace is the grace Cloud Run gives a container between the
+// SIGTERM that stops it — a cancelled execution, a retired instance — and the
+// SIGKILL that follows: ten seconds, as Google documents for jobs and services
+// alike. Cloud Functions runs on Cloud Run and gets the same.
+const cloudRunStopGrace = 10 * time.Second
+
 type cloudRunJobProcesses struct {
 	Main     *sim.ContainerHandle
 	Sidecars []*sim.ContainerHandle
@@ -524,7 +530,7 @@ func stopCloudRunJobProcesses(p *cloudRunJobProcesses) {
 		return
 	}
 	if p.Main != nil {
-		sim.StopContainer(p.Main.ContainerID, 10*time.Second)
+		sim.StopContainer(p.Main.ContainerID, cloudRunStopGrace)
 		p.Main.Cancel()
 	}
 	for _, h := range p.Sidecars {
@@ -1407,7 +1413,7 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 		return nil, nil, fmt.Errorf("resolve main container %q image platform: %w", main.Name, err)
 	}
 	mainHandle, err := sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: 5 * time.Second,
+		CancelGracePeriod: cloudRunStopGrace,
 		Image:             mainImage,
 		Architecture:      mainPlatform,
 		Command:           main.Command,
@@ -1439,7 +1445,7 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 			return nil, nil, fmt.Errorf("resolve sidecar container %q image platform: %w", c.Name, err)
 		}
 		handle, err := sim.StartContainerSync(sim.ContainerConfig{
-			CancelGracePeriod: 5 * time.Second,
+			CancelGracePeriod: cloudRunStopGrace,
 			Image:             sidecarImage,
 			Architecture:      sidecarPlatform,
 			Command:           c.Command,

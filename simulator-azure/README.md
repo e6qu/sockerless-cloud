@@ -325,7 +325,7 @@ cd terraform-tests && go test -v ./...
 
 ## Execution model
 
-Every Container Apps job execution and replica, Container Instance, Azure Functions site and App Service site runs as a real container on the engine the simulator started against, under the Container Apps or Azure Functions sandbox profile, with its output streamed into Log Analytics as it is produced. A job execution runs until its container exits, is stopped, or reaches the job's `replicaTimeout`, which the simulator enforces; a stopped execution's container gets SIGTERM and then SIGKILL. Function apps and sites are invoked over HTTP against the container's own listener, and their traces land in Application Insights and Log Analytics, queryable through the KQL subset below.
+Every Container Apps job execution and replica, Container Instance, Azure Functions site and App Service site runs as a real container on the engine the simulator started against, under the Container Apps or Azure Functions sandbox profile, with its output streamed into Log Analytics as it is produced. A job execution runs until its container exits, is stopped, or reaches the job's `replicaTimeout`, which the simulator enforces; a stopped execution's container gets SIGTERM and then SIGKILL after the template's `terminationGracePeriodSeconds` (30 by default), and a site's container after its `WEBSITES_CONTAINER_STOP_TIME_LIMIT` (5 by default). Function apps and sites are invoked over HTTP against the container's own listener, and their traces land in Application Insights and Log Analytics, queryable through the KQL subset below.
 
 ## Known issues
 

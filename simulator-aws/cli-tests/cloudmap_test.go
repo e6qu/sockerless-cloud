@@ -240,7 +240,7 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	// containers when awslogs is configured) + sleep command so the
 	// container stays alive through real resolver updates.
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-xtask-dns"))
-	containerDef := `[{"name":"app","image":"alpine:latest","entryPoint":["sh","-c"],"command":["sleep 120"],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/cli-xtask-dns","awslogs-stream-prefix":"ecs"}}}]`
+	containerDef := `[{"name":"app","image":"alpine:latest","stopTimeout":2,"entryPoint":["sh","-c"],"command":["sleep 120"],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/cli-xtask-dns","awslogs-stream-prefix":"ecs"}}}]`
 	out = runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-xtask-dns-td",
 		"--requires-compatibilities", "FARGATE",

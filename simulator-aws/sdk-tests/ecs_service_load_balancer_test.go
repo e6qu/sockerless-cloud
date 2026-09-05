@@ -45,8 +45,9 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:  aws.String(container),
-			Image: aws.String(containerCommandImage),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String(container),
+			Image:       aws.String(containerCommandImage),
 			// The server starts after the first steady-state probe. Amazon ECS
 			// must keep reconciling target health without another API request or
 			// task transition.

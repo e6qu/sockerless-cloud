@@ -846,7 +846,7 @@ func invokeOverlayContainerHTTPWithBody(image, functionID string, timeout time.D
 	if err != nil {
 		return nil, -1, fmt.Errorf("start overlay container: %w", err)
 	}
-	defer sim.StopAndRemoveContainer(containerID)
+	defer sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
 
 	// Stream container logs to Cloud Logging in the background. Uses
 	// the same sink as the process path so test assertions on

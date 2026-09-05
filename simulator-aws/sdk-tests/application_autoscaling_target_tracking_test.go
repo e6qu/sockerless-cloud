@@ -42,7 +42,8 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 	_, err = ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("as-track-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)

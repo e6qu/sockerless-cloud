@@ -54,10 +54,11 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 	_, err = ecsAPI.RegisterTaskDefinition(testCtx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(familyName),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:      aws.String("application"),
-			Image:     aws.String("public.ecr.aws/docker/library/busybox:latest"),
-			Essential: aws.Bool(true),
-			Command:   []string{"sh", "-c", "sleep 8"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("application"),
+			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Essential:   aws.Bool(true),
+			Command:     []string{"sh", "-c", "sleep 8"},
 		}},
 	})
 	require.NoError(t, err)

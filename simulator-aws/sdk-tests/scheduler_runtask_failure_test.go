@@ -37,8 +37,9 @@ func TestScheduler_ECSRunTaskFailureSurfaced(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:  aws.String("app"),
-			Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
 		}},
 	})
 	require.NoError(t, err)

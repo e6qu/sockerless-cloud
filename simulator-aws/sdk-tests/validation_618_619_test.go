@@ -23,7 +23,7 @@ func TestECS_RequestValidation(t *testing.T) {
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
 		NetworkMode:             ecstypes.NetworkModeAwsvpc,
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
-			{Name: aws.String("c"), Image: aws.String("nginx"), Essential: aws.Bool(true)},
+			{StopTimeout: aws.Int32(2), Name: aws.String("c"), Image: aws.String("nginx"), Essential: aws.Bool(true)},
 		},
 	})
 	assert.Equal(t, "ClientException", errCode(t, err))
@@ -36,7 +36,7 @@ func TestECS_RequestValidation(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
-			{Name: aws.String("c"), Image: aws.String("nginx"), Essential: aws.Bool(true)},
+			{StopTimeout: aws.Int32(2), Name: aws.String("c"), Image: aws.String("nginx"), Essential: aws.Bool(true)},
 		},
 	})
 	require.NoError(t, err)

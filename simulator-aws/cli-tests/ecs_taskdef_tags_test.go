@@ -14,7 +14,7 @@ func TestECSCLI_TaskDefinitionTagsIncludePath(t *testing.T) {
 		"--network-mode", "awsvpc",
 		"--requires-compatibilities", "FARGATE",
 		"--cpu", "256", "--memory", "512",
-		"--container-definitions", `[{"name":"app","image":"nginx"}]`,
+		"--container-definitions", `[{"name":"app","image":"nginx","stopTimeout":2}]`,
 		"--tags", "key=Name,value=test", "key=env,value=ci"))
 
 	// --include TAGS surfaces the top-level tags.

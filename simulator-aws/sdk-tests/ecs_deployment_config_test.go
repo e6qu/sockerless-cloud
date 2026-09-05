@@ -21,7 +21,8 @@ func TestECS_DeploymentConfigurationRoundTrip(t *testing.T) {
 	td, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("deploycfg-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage),
 			Command: []string{"hold"}, Memory: aws.Int32(128),
 		}},
 	})

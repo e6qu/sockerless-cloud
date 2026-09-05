@@ -25,6 +25,7 @@ func TestECS_TaskDefEnvironment(t *testing.T) {
 		Family: aws.String("env-roundtrip"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
+				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
 				Image:       aws.String("alpine:latest"),
 				Environment: envVars,
@@ -65,9 +66,10 @@ func TestECS_TaskDefCPUMemory(t *testing.T) {
 		Memory:                  aws.String("1024"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:   aws.String("app"),
-				Image:  aws.String("alpine:latest"),
-				Memory: aws.Int32(1024),
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("alpine:latest"),
+				Memory:      aws.Int32(1024),
 			},
 		},
 	})
@@ -105,8 +107,9 @@ func TestECS_TaskDefMountPoints(t *testing.T) {
 		},
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:  aws.String("app"),
-				Image: aws.String("alpine:latest"),
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("alpine:latest"),
 				MountPoints: []ecstypes.MountPoint{
 					{
 						SourceVolume:  aws.String("data-vol"),
@@ -173,8 +176,9 @@ func TestECS_RunTaskTags(t *testing.T) {
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:  aws.String("app"),
-				Image: aws.String("alpine:latest"),
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("alpine:latest"),
 			},
 		},
 	})
@@ -239,8 +243,9 @@ func TestECS_RunTaskNetworkConfig(t *testing.T) {
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:  aws.String("app"),
-				Image: aws.String("alpine:latest"),
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("alpine:latest"),
 			},
 		},
 	})

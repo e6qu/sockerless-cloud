@@ -13,9 +13,9 @@ require (
 	cloud.google.com/go/secretmanager v1.21.0
 	cloud.google.com/go/spanner v1.95.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260905112959-24dd57dfc0c6
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260905183017-032fac3a5974
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905112959-24dd57dfc0c6
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260905213638-ef4567e91da5
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20260905215215-9ea6029a1be1
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5
 	github.com/moby/moby/client v0.6.0
 	google.golang.org/genproto v0.0.0-20260904194346-d0f1323225a4
 	google.golang.org/genproto/googleapis/api v0.0.0-20260904194346-d0f1323225a4

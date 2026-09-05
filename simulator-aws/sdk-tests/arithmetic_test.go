@@ -136,9 +136,10 @@ func TestLambda_InvokeArithmeticLogs(t *testing.T) {
 
 func TestECS_TaskArithmetic(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "arith-ecs", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String(evalImageName),
-		Command: []string{"(10 + 5) * 2"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String(evalImageName),
+		Command:     []string{"(10 + 5) * 2"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
@@ -178,9 +179,10 @@ func TestECS_TaskArithmetic(t *testing.T) {
 
 func TestECS_TaskArithmeticInvalid(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "arith-ecs-fail", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String(evalImageName),
-		Command: []string{"3 +"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String(evalImageName),
+		Command:     []string{"3 +"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{
@@ -208,9 +210,10 @@ func TestECS_TaskArithmeticInvalid(t *testing.T) {
 
 func TestECS_TaskArithmeticLogs(t *testing.T) {
 	_, _, _ = ecsRunTaskHelper(t, "arith-ecs-logs", ecstypes.ContainerDefinition{
-		Name:    aws.String("app"),
-		Image:   aws.String(evalImageName),
-		Command: []string{"10 / 3"},
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("app"),
+		Image:       aws.String(evalImageName),
+		Command:     []string{"10 / 3"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
 			Options: map[string]string{

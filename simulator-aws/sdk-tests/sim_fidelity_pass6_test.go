@@ -183,10 +183,11 @@ func TestECS_ListTasksLaunchTypeFilter(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:       aws.String("main"),
-			Image:      aws.String(busyboxImage),
-			EntryPoint: []string{"sh", "-c"},
-			Command:    []string{"sleep 5"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("main"),
+			Image:       aws.String(busyboxImage),
+			EntryPoint:  []string{"sh", "-c"},
+			Command:     []string{"sleep 5"},
 		}},
 	})
 	require.NoError(t, err)

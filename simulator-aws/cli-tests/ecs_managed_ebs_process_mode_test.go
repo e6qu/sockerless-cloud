@@ -92,7 +92,7 @@ func TestECS_CLI_ManagedEBSProcessMode(t *testing.T) {
 		"--requires-compatibilities", "FARGATE",
 		"--cpu", "256", "--memory", "512",
 		"--volumes", `[{"name":"workspace","configuredAtLaunch":true}]`,
-		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/alpine:3.20","mountPoints":[{"sourceVolume":"workspace","containerPath":"/workspace"}]}]`,
+		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/alpine:3.20","stopTimeout":2,"mountPoints":[{"sourceVolume":"workspace","containerPath":"/workspace"}]}]`,
 	))
 	var td struct {
 		TaskDefinition struct {

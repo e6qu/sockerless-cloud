@@ -122,7 +122,7 @@ func TestIAM_PassRoleResourceScopedCLI(t *testing.T) {
 			"--family", "cli-passrole-family",
 			"--task-role-arn", "arn:aws:iam::123456789012:role/"+role,
 			"--container-definitions",
-			`[{"name":"app","image":"public.ecr.aws/docker/library/alpine:3.21"}]`), id, secret)
+			`[{"name":"app","image":"public.ecr.aws/docker/library/alpine:3.21","stopTimeout":2}]`), id, secret)
 	}
 
 	runCLI(t, register("cli-task-allowed"))
