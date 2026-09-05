@@ -81,13 +81,11 @@ func TestMain(m *testing.M) {
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-sdk"
 	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
 
-	if _, err := exec.LookPath("docker"); err == nil {
-		pullCtx, pullCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := exec.CommandContext(pullCtx, "docker", "pull", "alpine:latest").Run(); err != nil {
-			log.Printf("Warning: docker pull alpine:latest failed (Cloud Build tests may flake): %v", err)
-		}
-		pullCancel()
-	}
+	// The Cloud Run job tests run this image as their workload, so it is
+	// acquired here, with retries, and its absence fails the run: a pull that
+	// only warned left the image to be fetched inside a timed test, where a
+	// throttled registry surfaced as a flaky workload rather than a pull error.
+	pullImageBeforeRun(simWorkloadImage)
 
 	// Allocate both ports while both listeners are open. Closing the first
 	// before allocating the second lets the OS re-assign the just-freed
@@ -325,6 +323,13 @@ func waitForHealth(url string) error {
 	}
 	return fmt.Errorf("timeout waiting for %s: %v", url, lastErr)
 }
+
+// simWorkloadImage is the base image these suites run as a container workload
+// and build from. It is served from the Amazon ECR Public Gallery, which is
+// the registry CI warms from a cached tarball (scripts/base-images-for.sh
+// derives that set by scanning these sources for gallery references); Docker
+// Hub is not warmed, and its anonymous pull cap has flaked these runs.
+const simWorkloadImage = "public.ecr.aws/docker/library/alpine:3.20"
 
 // pullImageBeforeRun fetches a public image before m.Run so a transient
 // registry failure surfaces here as a clear pull error, not as a workload

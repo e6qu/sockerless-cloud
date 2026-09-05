@@ -440,7 +440,7 @@ func writeAzureMoveValidationError(w http.ResponseWriter, sub string, moveErr *A
 // a type no provider slice has hooked answers ARM's ResourceMoveNotSupported.
 func moveAzureResources(sub, targetResourceGroup string, resources []string, validateOnly bool) *AsyncOperationError {
 	targetRG := targetResourceGroup
-	if i := strings.LastIndex(strings.ToLower(targetRG), "/resourcegroups/"); i >= 0 {
+	if i := sim.CaseInsensitiveLastIndex(targetRG, "/resourcegroups/"); i >= 0 {
 		targetRG = targetRG[i+len("/resourcegroups/"):]
 	}
 	if targetRG == "" {

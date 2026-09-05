@@ -510,6 +510,66 @@ exposed the carrier/provider primitives needed for faithful delivery.
 - BUG-2523 and BUG-2441 remained owned by the external Bleephub repository,
   which was not present in this workspace.
 
+## The branch that is waiting
+
+`gate-integrity-and-casefold-panics` is pushed with its work complete and has
+no pull request. It could not have one: the one-open-pull-request gate counts
+every pull request in the repository, a sibling worktree's was open throughout,
+and opening a second fails that gate on *its* commits as well as this branch's.
+Open it the moment the repository has none open:
+
+```
+gh pr create --head gate-integrity-and-casefold-panics
+```
+
+What it carries, and what was run for it — `ci.yml` is pull-request-only, so
+none of this came from CI:
+
+- Two quality gates that could not fail, dead since the extraction because they
+  named the monorepo's directories, and the two live `slice bounds out of
+  range` panics one of them was hiding.
+- A phantom-coverage detector for Azure, which had none, with its 34 fan-ins
+  documented by the mechanism that legitimises each.
+- The 46 AWS S3 exemptions verified against the table that claims to route
+  them, rather than trusted.
+- The AWS SDK shard rebalance, and the Cloud Build step-state repair.
+- The Google Cloud CLI suite's workload image, which was pulled inside a timed
+  test and failed that suite until it moved to the warmed gallery image.
+
+Suites run locally in place of CI: GCP unit/SDK/CLI, Azure unit/SDK/CLI, AWS
+unit and all four SDK shards under CI's own regexes and 600-second budget — all
+green. The Azure Terraform leg is the exception and stays unverified for this
+change: it reached none of the code the branch touches before Firecracker
+failed to boot for want of nested KVM (BUG-2764), so CI's Linux cell is the
+only thing that can cover it.
+
+## CI and Gate Follow-ups
+
+1. **The AWS SDK shards were rebalanced, and the next lever is not the split.**
+   `sim (aws sdk compute)` was killed at the 15-minute cap on 2026-09-03 —
+   GitHub reports a timeout kill as "cancelled", not "timed_out", which is what
+   made it read as infrastructure noise. Amazon ECS, at 204s the largest block
+   in the suite, sat in the same shard that installs Firecracker; it moved to
+   the `data` shard, whose own tests ran in 4s, and the module unit tests moved
+   off `services-n-z`, which was running level with the slowest shard while
+   carrying them. Measured test time per shard is now 196s/209s/194s/216s and
+   the slowest job projects to about 742s against the 900s cap, from 852s.
+
+   What the measurement also showed: tests are the minority of a job. The four
+   shards spend about 815s running tests and 2706s of wall time, because each
+   pays its own setup — 155-202s loading the base-image tarball, 169-184s
+   pre-building the SDK test binary, 43-45s restoring the cache. Four shards
+   duplicate that four times, so if the cap gets tight again the split is the
+   wrong thing to touch: the fixed per-job cost is.
+
+2. **Keep the negative control when a gate is added or moved.** Every gate has
+   now been shown to fail on a planted violation of its own declared shape, and
+   the two that could not fail had been dead since the extraction because they
+   named directories this repository does not have. A gate whose scan set can
+   go empty now exits 2 instead of green, but that guard only covers the shape
+   the rot took here: a new gate still earns its place by being watched to fail
+   once.
+
 ## Durable Validation Contract
 
 - Simulator endpoints were exercised through official SDK, vendor CLI, and

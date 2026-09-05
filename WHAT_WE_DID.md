@@ -1,5 +1,156 @@
 # WHAT WE DID
 
+## 2026-09-04, forty-eighth pass — the gates that could not fail, and the crash two of them hid
+
+A gate is only worth its green tick if it can go red. Every quality gate was
+put through a negative control: a violation of exactly the shape the gate
+declares it rejects, planted in the tree, with the gate expected to fail and
+then to pass again once the plant was removed. Seven bit as designed —
+store-scans, tool-absent-skips, fake-tests, lock-pairing, gh-api-params,
+readonly-locks and the copy-paste detector. Two could not fail at all.
+
+Both had been dead since the repository was extracted from the sockerless
+monorepo, and for the same reason: they named the monorepo's directories.
+`check-casefold-slice.sh` filtered its matches to `^(simulators|backends|agent|core)/`
+and `check-locked-helpers.sh` ran `find backends agent simulators core cmd`,
+whose error went to `/dev/null`. This repository has none of those
+directories, so one gate filtered every match away and the other scanned no
+files, and both reported success on every run.
+
+Behind the case-fold gate sat two live instances of the class it exists to
+stop. `strings.ToLower` is Unicode-aware and grows invalid UTF-8 — each bad
+byte becomes a 3-byte U+FFFD — so an index taken from the folded copy can point
+past the end of the original, and slicing the original with it panics.
+`canonicalServerFarmID` and `moveAzureResources` each took an index that way
+and sliced the caller's own string with it, both from client-supplied input: a
+`serverFarmId` of `/subscriptions/\xff\xfe/providers/microsoft.web/serverfarms/p`
+crashed the handler with `slice bounds out of range [58:55]`. Both now use the
+byte-length-preserving helpers, `CaseInsensitiveIndex` and a new
+`CaseInsensitiveLastIndex`, and a test at each site drives the invalid-UTF-8
+input that used to panic.
+
+Both gates now scan this repository's directories, and each one refuses to
+report success when its scan set is empty: a gate that examines no files exits
+2 rather than green, which is what would have caught this rot on the day of the
+extraction rather than a fortnight later. The locked-helper scan also matches
+any `<store>.mu.Lock()` receiver, because the stores here are named for what
+they hold — `ecsTasks`, `azureSites` — and the inherited pattern only knew
+`st` and `*store`.
+
+A degraded pre-pull was found in the same pass. The harness fetched
+`alpine:latest` with a single attempt and, on failure, logged `Warning: docker
+pull alpine:latest failed (Cloud Build tests may flake)` and carried on —
+leaving the pull to happen inside a timed build step, where a throttled Docker
+Hub would surface as a workload that failed rather than as a pull error. That
+is a flake source and it is gone, but it is not the cause of BUG-2969, the
+recorded flake in `TestSDK_CloudBuild_CancelStopsARunningBuild`: that failure
+had the built image *present*, and a build whose pull failed leaves no image.
+The bug stays open, and the assertion now reports the image's id, creation time
+and size together with the build's final status and each step's timing, so a
+recurrence carries its own evidence.
+The three Cloud Build sources still on Docker Hub now build from the pinned
+Amazon ECR Public Gallery base the rest of the file already used, and the
+`alpine:latest` the Cloud Run job tests run as their workload is acquired
+through the retrying, fail-loud helper that sat directly beneath the warning.
+
+The AWS clause of the ratchet reads "implemented **or exempt**", and the
+exemption list is 46 operations — every one an Amazon S3 bucket subresource.
+Their reason is sound: S3 routes those by query parameter, so the operation
+name never appears in the source and each is served by the bucket-subresource
+table. But a blanket exemption cannot tell "routed by query parameter" from
+"not served at all": delete an entry from that table and its operations stay
+exempted, unserved, with nothing to say so. Each exemption's reason names its
+subresource, so that claim is now checked — the table must route the
+subresource, and with the verb the operation needs. Removing `acl` from the
+table fails GetBucketAcl and PutBucketAcl by name; taking DELETE off `tagging`
+fails DeleteBucketTagging.
+
+Refreshing the vendored specifications to today's upstream brought one new
+Amazon EC2 operation with it, and it is served rather than exempted.
+`ValidateSecurityGroupQuotasForInterface` answers whether a set of security
+groups could all attach to one network interface, which is a real computation
+over the groups the simulator already holds: it counts each permission's
+sources the way AWS counts rules — a permission naming three CIDRs is three
+rules — against the two Amazon VPC quotas AWS publishes, sixty rules per group
+and five groups per interface. A group the request names that does not exist is
+`InvalidGroup.NotFound`, as it is for every other operation that resolves one.
+The pinned aws-sdk-go-v2 release predates the operation, so the test signs and
+posts the ec2Query request the generated client would, and drives both refusals
+as well as the pass. Amazon EC2 now reads 802 of 802.
+
+The three coverage ratchets were themselves put through negative controls,
+because a number is only as good as the gate that holds it. Deleting two
+Compute Engine routes dropped compute-v1 from 2,016/2,016 to 2,012/2,016 and
+failed, naming them. Removing both spellings of an Azure operation — the
+simulator registers `serverfarms` and `serverFarms` because different clients
+send different casing, so removing one leaves the other serving — failed the
+Azure floor. Breaking one service's resource derivation took the AWS figure
+from 2,004 to 1,972 and failed. `TestRoutesExistInDiscoveryDocs` rejects a
+route the Discovery documents do not declare.
+
+That pass found Azure had no counterpart to the Google Cloud phantom-coverage
+detector, so nothing held its 2,628 to operations reached by a route that
+names them. It has one now, and its first run reported 34. All 34 are
+legitimate, and the value is that they are now written down with the mechanism
+that makes each one legitimate: the OCI distribution and Azure Container
+Registry data planes, whose repository names carry slashes so the mux cannot
+name the segments after them; the data-plane fan-in where the Host header
+selects between Key Vault, Cosmos DB Table and Service Bus; and Azure RBAC's
+scope-generic reads, which are answered by middleware that runs ahead of the
+mux, so the pattern the detector reports is not the code that answered. A
+swallow that is not one of those now fails the build. The detector carries its
+own soundness test, as the Google Cloud one does, and was watched to report
+five operations when a single fan-in was left undocumented.
+
+The AWS SDK shards were rebalanced on measured time rather than test count.
+`sim (aws sdk compute)` had been killed at the 15-minute cap — a timeout kill
+is reported as "cancelled", which is what made it read as infrastructure noise
+— and its rerun still took 14m12s. Amazon ECS was the largest block in the
+suite at 204s and sat in the shard that also installs Firecracker; it now runs
+in the `data` shard, whose own tests took 4s, and the module unit tests, which
+run once per workflow on whichever shard carries them, moved off the shard that
+was running level with the slowest. Per-shard test time is 196s/209s/194s/216s,
+and the slowest job projects to about 742s against the 900s cap. The shard
+regexes could no longer all be character classes — a boundary inside a name
+cannot be one — so the coverage gate reads the alternation form too, and still
+holds every one of the 1338 tests to exactly one shard.
+
+The same measurement corrected the premise behind the rebalance: the four
+shards run 815s of tests inside 2706s of wall time, so most of a shard is
+setup it pays alone — loading the base-image tarball, pre-building the test
+binary, restoring caches. The split is now even; the duplicated fixed cost is
+what remains.
+
+Chasing that flake turned up a real fidelity defect through the new
+diagnostic: settling a finished build wrote back the copy of its steps taken
+before any of them ran, so a cancelled build reported a step with no status and
+no timing — one that, on the record, had never started. The run's own step
+state is now carried through, and the step the cancel interrupted reports
+CANCELLED with the times it started and stopped, which is what Cloud Build
+reports. The killed process's own FAILURE is discarded for the reason the
+build's verdict already was: CancelBuild only moves a build that has not
+settled, so a step that had really failed would have settled the build before
+the cancel could land.
+
+The Google Cloud CLI suite had the same defect and no pre-pull at all. Its
+Cloud Build cancel test builds `FROM alpine:latest` and waits 120 seconds for
+the first step to start, so the pull happened inside that window; the suite
+failed exactly that way — "the build's first step never started running" —
+when the image was not already on the host. Its four workload sites now use
+the pinned Amazon ECR Public Gallery image, and `TestMain` acquires it with
+retries and fails the run when it cannot, the way the SDK harness does. No
+`alpine:latest` reference remains in the suite, so it cannot reach Docker Hub
+whether or not the image happens to be cached.
+
+This surfaced only because the branch has no continuous-integration run behind
+it — `ci.yml` is pull-request-only and no pull request is open — so the
+per-suite jobs were run locally instead. The Azure CLI suite passes too.
+
+`createBucket` also treats a 409 as "the bucket is there", which is what Cloud
+Storage answers and what lets a test in that package be re-run in one process:
+stressing a flaky test with `-count` previously failed on the second iteration
+for a reason that had nothing to do with the test. A new test pins the 409 so
+the tolerance cannot mask a regression.
 ## 2026-09-04 — the login callback waited on a client with no timeout
 
 The Azure simulator's `/auth/oidc/callback` was observed in production taking

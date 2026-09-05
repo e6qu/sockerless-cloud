@@ -216,9 +216,10 @@ func TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret(t *testing.T) {
 }
 
 // cbBaseImage is the base every Cloud Build step in this file builds from and
-// runs. It is served from the Amazon ECR Public Gallery rather than Docker Hub,
-// whose anonymous pull throttle has flaked these builds.
-const cbBaseImage = "public.ecr.aws/docker/library/alpine:3.20"
+// runs: the harness-wide workload image, served from the Amazon ECR Public
+// Gallery rather than Docker Hub, whose anonymous pull throttle has flaked
+// these builds.
+const cbBaseImage = simWorkloadImage
 
 // cbDockerStep builds one gcr.io/cloud-builders/docker build step, the only
 // builder the simulator executes, optionally naming the secretEnv variables the
@@ -262,7 +263,7 @@ func TestCloudBuild_MissingSecretFails(t *testing.T) {
 	createBucket(t, project, bucket)
 
 	objectName := fmt.Sprintf("missing-cb-%d.tar.gz", time.Now().UnixNano())
-	tarball := makeTarGz(t, map[string]string{"Dockerfile": "FROM alpine:latest\n"})
+	tarball := makeTarGz(t, map[string]string{"Dockerfile": "FROM " + cbBaseImage + "\n"})
 	uploadGCSObject(t, bucket, objectName, tarball)
 
 	buildURL := fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project)
@@ -309,10 +310,25 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// createBucket makes sure the named bucket exists. Creating a bucket that is
+// already there is a 409 ALREADY_EXISTS, exactly as it is on Cloud Storage, and
+// that answer satisfies the caller: the bucket exists either way. Tolerating it
+// is what lets a test in this package be re-run in one process (`-count`),
+// which is how a flaky build test gets stressed.
 func createBucket(t *testing.T, project, name string) {
 	t.Helper()
 	url := fmt.Sprintf("%s/storage/v1/b?project=%s", baseURL, project)
-	httpPOST(t, url, fmt.Sprintf(`{"name":%q}`, name))
+	req, err := http.NewRequest("POST", url, strings.NewReader(fmt.Sprintf(`{"name":%q}`, name)))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusConflict {
+		return
+	}
+	require.Less(t, resp.StatusCode, 400, "create bucket %s: %d %s", name, resp.StatusCode, string(body))
 }
 
 func uploadGCSObject(t *testing.T, bucket, object string, data []byte) {

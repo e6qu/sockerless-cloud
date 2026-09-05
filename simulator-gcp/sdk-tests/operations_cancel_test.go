@@ -354,7 +354,8 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	object := "source.tar.gz"
 	// A Dockerfile whose only instruction takes an hour: the build cannot
 	// finish on its own inside this test.
-	uploadBuildSource(t, bucket, object, "FROM alpine:latest\nRUN sleep 3600\n")
+	pullImageWithRetry(t, cbBaseImage)
+	uploadBuildSource(t, bucket, object, "FROM "+cbBaseImage+"\nRUN sleep 3600\n")
 
 	build := &cloudbuild.Build{
 		Source: &cloudbuild.Source{
@@ -420,8 +421,46 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "CANCELLED", got.Status, "the cancel is the build's recorded verdict")
 
-	require.Error(t, exec.Command("docker", "image", "inspect", image).Run(),
-		"a cancelled build must not have produced its image")
+	// The step the cancel interrupted keeps the record of having run: Cloud
+	// Build reports a terminated step as CANCELLED, with the start time it was
+	// given when it began and an end time from when it stopped. Settling the
+	// build used to write the pre-run copy of the steps back over the record,
+	// which left a cancelled build reporting a step that had never started.
+	require.Len(t, got.Steps, 1)
+	assert.Equal(t, "CANCELLED", got.Steps[0].Status,
+		"the interrupted step reports the cancel, not the failure its killed process returned")
+	require.NotNil(t, got.Steps[0].Timing, "an interrupted step kept its timing")
+	assert.NotEmpty(t, got.Steps[0].Timing.StartTime, "the step records when it started")
+	assert.NotEmpty(t, got.Steps[0].Timing.EndTime, "the step records when it stopped")
+
+	// A cancelled build must not have produced its image. This assertion has
+	// failed once with the image present and has never reproduced, so it
+	// reports what it saw rather than only that it saw it: the image's own
+	// record and the build's final step state are what distinguish a build
+	// that ran to completion from an image that arrived another way.
+	if inspect, err := exec.Command("docker", "image", "inspect",
+		"--format", "{{.Id}} created={{.Created}} size={{.Size}}", image).CombinedOutput(); err == nil {
+		final, getErr := svc.Projects.Builds.Get(cancelProject, id).Do()
+		var steps string
+		if getErr == nil {
+			for i, step := range final.Steps {
+				if step == nil {
+					continue
+				}
+				timing := "<none>"
+				if step.Timing != nil {
+					timing = fmt.Sprintf("%s..%s", step.Timing.StartTime, step.Timing.EndTime)
+				}
+				steps += fmt.Sprintf("\n  step %d %s status=%s timing=%s", i, step.Name, step.Status, timing)
+			}
+			steps = fmt.Sprintf("build status=%s detail=%q finish=%s%s",
+				final.Status, final.StatusDetail, final.FinishTime, steps)
+		} else {
+			steps = fmt.Sprintf("(the build could not be read back: %v)", getErr)
+		}
+		t.Fatalf("a cancelled build must not have produced its image, but %s exists:\n  %s\n%s",
+			image, strings.TrimSpace(string(inspect)), steps)
+	}
 }
 
 // TestSDK_CloudBuild_RegionalOperationsCancel drives
@@ -517,7 +556,8 @@ func TestSDK_CloudBuild_OperationsCancel(t *testing.T) {
 
 	bucket := "cloudbuild-cancel-op-src"
 	object := "source.tar.gz"
-	uploadBuildSource(t, bucket, object, "FROM alpine:latest\n")
+	pullImageWithRetry(t, cbBaseImage)
+	uploadBuildSource(t, bucket, object, "FROM "+cbBaseImage+"\n")
 
 	op, err := svc.Projects.Builds.Create(cancelProject, &cloudbuild.Build{
 		Source: &cloudbuild.Source{

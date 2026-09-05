@@ -46,4 +46,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `elastic-load-balancing-v2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/elastic-load-balancing-v2.json` | Apache-2.0 | `093c165c00746d3a1626dd638fa65eb77431da17` | 2026-09-04T11:15:47Z |
 | `sfn.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/sfn.json` | Apache-2.0 | `093c165c00746d3a1626dd638fa65eb77431da17` | 2026-09-04T11:15:48Z |
 | `ecs.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ecs.json` | Apache-2.0 | `093c165c00746d3a1626dd638fa65eb77431da17` | 2026-09-04T11:15:48Z |
-| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `b785dd9bcf5ee61445c0a058681929fc38fdcbaa` | 2026-09-04T11:15:50Z |
+| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `9d20eaa373e771ad3dbe18648ebbeb2d086c9727` | 2026-09-04T21:57:24Z |

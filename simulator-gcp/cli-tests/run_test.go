@@ -26,7 +26,7 @@ func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
 			"template": {
 				"containers": [{
 					"name": "app",
-					"image": "alpine:latest",
+					"image": "` + cliWorkloadImage + `",
 					"command": ["echo", "hello-from-crj"]
 				}],
 				"maxRetries": 0,
@@ -85,7 +85,7 @@ func TestCloudRun_CLI_RunJobFailure(t *testing.T) {
 			"template": {
 				"containers": [{
 					"name": "app",
-					"image": "alpine:latest",
+					"image": "` + cliWorkloadImage + `",
 					"command": ["sh", "-c", "exit 1"]
 				}],
 				"maxRetries": 0,

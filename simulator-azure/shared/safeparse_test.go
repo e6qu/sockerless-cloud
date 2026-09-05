@@ -30,3 +30,22 @@ func TestCaseInsensitiveIndexValidInOriginal(t *testing.T) {
 		t.Error("expected -1 for no match")
 	}
 }
+
+func TestCaseInsensitiveLastIndexValidInOriginal(t *testing.T) {
+	// Two occurrences, invalid UTF-8 before both: the LAST one is returned and
+	// its index is slice-valid in the ORIGINAL string.
+	s := "\xf3\xf0/resourceGroups/a/x/RESOURCEGROUPS/b"
+	i := CaseInsensitiveLastIndex(s, "/resourcegroups/")
+	if i < 0 {
+		t.Fatalf("expected to find the marker, got %d", i)
+	}
+	if i > len(s) {
+		t.Fatalf("index %d out of range for len %d", i, len(s))
+	}
+	if got := s[i+len("/resourcegroups/"):]; got != "b" {
+		t.Errorf("tail after the last marker = %q, want %q", got, "b")
+	}
+	if CaseInsensitiveLastIndex("abc", "XYZ") != -1 {
+		t.Error("expected -1 for no match")
+	}
+}
