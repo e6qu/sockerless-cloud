@@ -236,11 +236,11 @@ Discovery documents, Azure Swagger):
   member-by-member against the spec's output shapes while the SDK/CLI
   suites run; `scripts/check-spec-violations.sh` gates the report against
   `simulator-<cloud>/spec-violation-allowlist.txt`. The allowlist only
-  shrinks: the bug burn-down is complete — AWS and Azure ship no
-  allowlist at all, and GCP's carries only two permanent, documented
-  modeling exemptions (Firestore REST server-streaming responses, which
-  are JSON arrays of stream elements on the real wire too). Any new
-  violation fails CI until the simulator matches.
+  shrinks: every entry carries the bug that records why the simulator
+  cannot yet match the model, and a value the model omits is declared in
+  `specs/cloud-api/<cloud>/<document>.supplement.json` with its evidence
+  rather than allowlisted. Any new violation fails CI until the simulator
+  matches.
 
 ## Shared framework
 
