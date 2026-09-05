@@ -24,8 +24,9 @@ func TestECS_ContainerHealthCheckAndSecretsRoundTrip(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:  aws.String("app"),
-			Image: aws.String("nginx"),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String("nginx"),
 			HealthCheck: &ecstypes.HealthCheck{
 				Command:     []string{"CMD-SHELL", "curl -f http://localhost/ || exit 1"},
 				Interval:    aws.Int32(30),

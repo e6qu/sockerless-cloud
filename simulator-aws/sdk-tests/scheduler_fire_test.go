@@ -32,10 +32,11 @@ func TestScheduler_FiresECSTarget(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:       aws.String("app"),
-			Image:      aws.String("public.ecr.aws/docker/library/busybox:latest"),
-			EntryPoint: []string{"sh", "-c"},
-			Command:    []string{"sleep 5"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			EntryPoint:  []string{"sh", "-c"},
+			Command:     []string{"sleep 5"},
 		}},
 	})
 	require.NoError(t, err)

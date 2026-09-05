@@ -20,7 +20,7 @@ func TestECS_CLI_ServiceFamily(t *testing.T) {
 		"--network-mode", "awsvpc",
 		"--requires-compatibilities", "FARGATE",
 		"--cpu", "256", "--memory", "512",
-		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","command":["hold"],"essential":true}]`))
+		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","stopTimeout":2,"command":["hold"],"essential":true}]`))
 
 	// PutClusterCapacityProviders → DescribeClusters echoes them.
 	runCLI(t, awsCLI("ecs", "put-cluster-capacity-providers",

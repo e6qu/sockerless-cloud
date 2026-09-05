@@ -34,7 +34,7 @@ func registerNetworkModeTaskDef(q func(...string) string, family, mode string) {
 		args = append(args, "--requires-compatibilities", "FARGATE", "--cpu", "256", "--memory", "512")
 	}
 	args = append(args,
-		"--container-definitions", `[{"name":"app","image":"`+vpcNetBusybox+`","entryPoint":["sh","-c"],"command":["sleep 120"]}]`,
+		"--container-definitions", `[{"name":"app","image":"`+vpcNetBusybox+`","stopTimeout":2,"entryPoint":["sh","-c"],"command":["sleep 120"]}]`,
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")
 	q(args...)
 }

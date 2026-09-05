@@ -20,9 +20,10 @@ import (
 // the wire level alongside the SDK view of the ENI attachment.
 func TestECS_TaskWireShapeOmitsNetworkConfiguration(t *testing.T) {
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "task-wire-shape", ecstypes.ContainerDefinition{
-		Name:    aws.String("main"),
-		Image:   aws.String("alpine:latest"),
-		Command: []string{"sleep", "30"}, // long-running so RUNNING window is real
+		StopTimeout: aws.Int32(2),
+		Name:        aws.String("main"),
+		Image:       aws.String("alpine:latest"),
+		Command:     []string{"sleep", "30"}, // long-running so RUNNING window is real
 	})
 	waitForECSTaskStatus(t, client, clusterName, taskArn, "RUNNING")
 

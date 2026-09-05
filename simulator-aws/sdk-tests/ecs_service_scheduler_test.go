@@ -39,10 +39,11 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 		out, registerErr := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 			Family: aws.String("sched-task"),
 			ContainerDefinitions: []ecstypes.ContainerDefinition{{
-				Name:      aws.String("app"),
-				Image:     aws.String(containerCommandImage),
-				Command:   []string{command},
-				Essential: aws.Bool(true),
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String(containerCommandImage),
+				Command:     []string{command},
+				Essential:   aws.Bool(true),
 			}},
 		})
 		require.NoError(t, registerErr)
@@ -168,10 +169,11 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:      aws.String("app"),
-			Image:     aws.String(containerCommandImage),
-			Command:   []string{"hold"},
-			Essential: aws.Bool(true),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String(containerCommandImage),
+			Command:     []string{"hold"},
+			Essential:   aws.Bool(true),
 		}},
 	})
 	require.NoError(t, err)
@@ -315,10 +317,11 @@ func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 	registered, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("svc-live-logs-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:      aws.String("app"),
-			Image:     aws.String(containerCommandImage),
-			Command:   []string{"log", marker, "600"},
-			Essential: aws.Bool(true),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String(containerCommandImage),
+			Command:     []string{"log", marker, "600"},
+			Essential:   aws.Bool(true),
 			LogConfiguration: &ecstypes.LogConfiguration{
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{

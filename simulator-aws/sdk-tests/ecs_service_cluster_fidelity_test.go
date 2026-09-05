@@ -21,7 +21,8 @@ func TestECS_ServiceFidelitySDK(t *testing.T) {
 	td, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("svc-fidelity-td"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)

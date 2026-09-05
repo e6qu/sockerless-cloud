@@ -43,8 +43,12 @@ registered through it), the request rewrites (Amazon S3's zonal virtual-hosted
 addressing and Azure Resource Manager's case folding, both
 `Config.RewriteRequest`), and the registry behaviours the three container
 registries disagree on (`BaseResponse`, `RefuseChunkedUpload`,
-`AdmitRepository`, `Scope`). The stop and cancellation grace a workload gets is
-a value the caller states rather than a constant one copy hardcoded.
+`AdmitRepository`, `Scope`). The stop and cancellation grace a workload gets
+comes from the cloud's own setting — an Amazon ECS container definition's
+`stopTimeout`, Cloud Run's ten seconds, a Container App template's
+`terminationGracePeriodSeconds`, App Service's
+`WEBSITES_CONTAINER_STOP_TIME_LIMIT` — rather than a constant one copy
+hardcoded.
 
 A pin must carry the working tree's content, and `check-support-module-pins.sh`
 fails when it does not: `ui-auth` had changed twice after its last pin, so the

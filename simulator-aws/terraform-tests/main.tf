@@ -400,6 +400,7 @@ resource "aws_ecs_task_definition" "tf_runner" {
 
   container_definitions = jsonencode([{
     name      = "app"
+    stopTimeout = 2
     image     = "sockerless-container-command:aws-terraform"
     command   = ["hold"]
     essential = true
@@ -415,6 +416,7 @@ resource "aws_ecs_task_definition" "tf_runner_bridge" {
 
   container_definitions = jsonencode([{
     name      = "app"
+    stopTimeout = 2
     image     = "public.ecr.aws/docker/library/alpine:latest"
     essential = true
   }])

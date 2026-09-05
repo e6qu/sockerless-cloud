@@ -41,9 +41,10 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name:    aws.String("app"),
-				Image:   aws.String("alpine:latest"),
-				Command: []string{"tail", "-f", "/dev/null"},
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("alpine:latest"),
+				Command:     []string{"tail", "-f", "/dev/null"},
 				LogConfiguration: &ecstypes.LogConfiguration{
 					LogDriver: "awslogs",
 					Options: map[string]string{

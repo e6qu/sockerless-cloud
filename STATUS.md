@@ -62,6 +62,10 @@ Current state of the sockerless-cloud repository.
   in any mode that executes workloads when no engine answers, after retrying
   the readiness ping for a budget. `SIM_RUNTIME=process` is API-only and says
   so.
+- **A stopped workload gets its cloud's grace** between SIGTERM and SIGKILL:
+  an Amazon ECS container definition's `stopTimeout`, Cloud Run's ten seconds,
+  a Container App template's `terminationGracePeriodSeconds`, App Service's
+  `WEBSITES_CONTAINER_STOP_TIME_LIMIT`, each with the platform's own default.
 - **Persistent workloads survive a restart.** With `SIM_PERSIST`, shutdown
   leaves the containers running and the next process adopts them by label;
   without it, the detached reaper and the startup sweep collect a run's

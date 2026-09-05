@@ -314,7 +314,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	env = mergeEnv(env, extraEnv)
 	sink := &funcLogSink{appName: site.Name}
 	return sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: 5 * time.Second,
+		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
 		Architecture:      platform,
 		Command:           []string{"/bin/sh", "-c", "cd " + jobDir + " && " + runInvocation},

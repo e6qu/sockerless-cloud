@@ -141,6 +141,38 @@ type ContainerAppTemplate struct {
 	InitContainers []JobContainer     `json:"initContainers,omitempty"`
 	Volumes        []JobVolume        `json:"volumes,omitempty"`
 	Scale          *ContainerAppScale `json:"scale,omitempty"`
+	// TerminationGracePeriodSeconds is how long a replica gets between SIGTERM
+	// and SIGKILL; nil means the platform default, zero kills at once.
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
+}
+
+// acaDefaultTerminationGrace is what Azure Container Apps grants a replica or
+// a job execution between SIGTERM and SIGKILL when the template sets nothing:
+// thirty seconds, per the Template schema. The Jobs API exposes no such member,
+// so an execution gets the same default.
+const acaDefaultTerminationGrace = 30 * time.Second
+
+// acaAppStopGrace is the grace an app's replicas get on stop.
+func acaAppStopGrace(app ContainerApp) time.Duration {
+	if app.Properties.Template != nil && app.Properties.Template.TerminationGracePeriodSeconds != nil &&
+		*app.Properties.Template.TerminationGracePeriodSeconds >= 0 {
+		return time.Duration(*app.Properties.Template.TerminationGracePeriodSeconds) * time.Second
+	}
+	return acaDefaultTerminationGrace
+}
+
+// acaAppStopGraces remembers each running app's grace beside its replica
+// handles, so a stop after a restart or a template change still uses the grace
+// the replicas were started under.
+var acaAppStopGraces sync.Map // map[resourceID]time.Duration
+
+func acaAppRecordedStopGrace(resourceID string) time.Duration {
+	if v, ok := acaAppStopGraces.Load(resourceID); ok {
+		if grace, ok := v.(time.Duration); ok {
+			return grace
+		}
+	}
+	return acaDefaultTerminationGrace
 }
 
 // ContainerAppScale mirrors armappcontainers.Scale.
@@ -660,7 +692,7 @@ func startACAAppReplicas(ctx context.Context, resourceID string, app ContainerAp
 		}
 	}
 	if len(handles) > 0 {
-		replaceACAAppReplicas(resourceID, handles)
+		replaceACAAppReplicas(resourceID, handles, acaAppStopGrace(app))
 		injectContainerAppReplicaLog(app.Name, "Container app replica started")
 	}
 	return nil
@@ -713,7 +745,7 @@ func startACAAppContainer(ctx context.Context, resourceID string, app ContainerA
 		return nil, err
 	}
 	return sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: 5 * time.Second,
+		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             localImage,
 		Architecture:      platform,
 		Command:           c.Command,
@@ -735,24 +767,28 @@ func startACAAppContainer(ctx context.Context, resourceID string, app ContainerA
 }
 
 func stopACAAppReplicas(resourceID string) {
+	grace := acaAppRecordedStopGrace(resourceID)
+	acaAppStopGraces.Delete(resourceID)
 	if v, ok := acaAppReplicaHandles.LoadAndDelete(resourceID); ok {
 		handles, _ := v.([]*sim.ContainerHandle)
 		for _, handle := range handles {
 			handle.Cancel()
 			if handle.ContainerID != "" {
-				sim.StopAndRemoveContainer(handle.ContainerID)
+				sim.StopAndRemoveContainer(handle.ContainerID, grace)
 			}
 		}
 	}
 }
 
-func replaceACAAppReplicas(resourceID string, handles []*sim.ContainerHandle) {
+func replaceACAAppReplicas(resourceID string, handles []*sim.ContainerHandle, grace time.Duration) {
+	previousGrace := acaAppRecordedStopGrace(resourceID)
+	acaAppStopGraces.Store(resourceID, grace)
 	if v, ok := acaAppReplicaHandles.Swap(resourceID, handles); ok {
 		prev, _ := v.([]*sim.ContainerHandle)
 		for _, handle := range prev {
 			handle.Cancel()
 			if handle.ContainerID != "" {
-				sim.StopAndRemoveContainer(handle.ContainerID)
+				sim.StopAndRemoveContainer(handle.ContainerID, previousGrace)
 			}
 		}
 	}

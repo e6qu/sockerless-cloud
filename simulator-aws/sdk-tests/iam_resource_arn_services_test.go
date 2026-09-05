@@ -167,8 +167,9 @@ func TestIAM_PassRole_IsAuthorizedAgainstTheRolePassed(t *testing.T) {
 			Family:      aws.String("passrole-family"),
 			TaskRoleArn: aws.String("arn:aws:iam::123456789012:role/" + role),
 			ContainerDefinitions: []ecstypes.ContainerDefinition{{
-				Name:  aws.String("app"),
-				Image: aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("app"),
+				Image:       aws.String("public.ecr.aws/docker/library/alpine:3.21"),
 			}},
 		})
 		return err

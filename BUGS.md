@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 12. Resolved: 78.
+Open: 11. Resolved: 79.
 
 ## Open
 
@@ -116,38 +116,6 @@ Open: 12. Resolved: 78.
   new fetch was added. Verified by deleting `alpine:latest` from the host and
   running the suite: it passed, and the run never named the image.
 
-
-- **BUG-2970 (the stop and cancellation grace a workload gets is a constant the
-  caller states, not the cloud's own setting):** Each simulator's copy of the
-  framework used to hardcode what happens when a workload is stopped or its
-  context cancelled: Amazon ECS stopped a task with a one-second grace, Cloud
-  Run and Azure Container Apps with ten, and cancellation sent SIGTERM with a
-  five-second grace everywhere but AWS, which killed outright. The framework
-  takes the grace as a parameter now (`sim.StopContainer`,
-  `ContainerConfig.CancelGracePeriod`) and every call site passes the value its
-  copy used to hardcode, so behaviour is unchanged and the constants are at
-  least visible where the cloud knowledge lives. The real services define them:
-  an Amazon ECS container definition's `stopTimeout` (default 30 seconds,
-  2–120), Cloud Run's documented ten seconds between SIGTERM and SIGKILL, an
-  Azure Container Apps revision's `terminationGracePeriodSeconds` (default 30).
-  Fix shape: read the configured value from the task definition, job or
-  revision at each call site and pass that; the tests that stop a `sleep`
-  running as PID 1 will then wait the configured grace, which is what the
-  service does too.
-
-- **BUG-2977 (the body an unmigrated storage account's `default` migration
-  carries on real Azure is uncaptured):** terraform-provider-azurerm 5.4.0
-  reads `accountMigrations/default` on every storage-account read and treats
-  anything but 200 as a failed read of the account, so real Azure answers 200
-  for an account nobody has migrated (BUG-2976). The swagger marks
-  `properties.targetSkuName` required, and the two published examples both
-  describe a migration that was started. The simulator answers the resource
-  envelope with empty properties, which the wire-shape ratchet reports and
-  `simulator-azure/spec-violation-allowlist.txt` holds under this ID. Fix
-  shape: capture `GET …/accountMigrations/default?api-version=2024-01-01`
-  against a real, never-migrated account and answer exactly that body; the
-  allowlist line then goes.
-
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
 | 2909 | P2 | AWS simulator IAM enforcement leaves 230 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,764 of the 1,994 served operations that authorize against a resource type derive it; the remaining 230 still request a literal `"*"`. The Amazon RDS and Amazon ElastiCache copies authorize both of their ends — the target ARN is name-determined before the resource exists, the AWS Step Functions argument — AWS Glue's usage profiles, connection types, integrations and tagging derive, Amazon EC2's tag operations read each id's type from its prefix, and its route-table, address and network-interface associations resolve to their parents through generation-keyed indexes over the simulator's own state. AWS Budgets joined the table, its Smithy model vendored for the probe, and its three tagging operations derive from the ARN they name. The coverage probe was also sending every member under a lower-cased name — a body no client sends, while the derivation reads the real member name — so it now sends the wire name in its own case, which is what let those three register. AWS Step Functions state-machine and activity creation joined the table — their ARNs are name-determined, so the create request already carries everything the ARN needs, and the older comment calling every create underivable was wrong for them. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (56), AWS Glue (25), AWS CodeBuild (23), Amazon RDS (22), AWS Identity and Access Management (21), Amazon DynamoDB (18), AWS Systems Manager (16). Amazon ECS fell from 20 to 8 when its daemon and Express Mode families were read from the ARNs they name, type by type. Amazon CloudWatch Logs fell from 31 to 3 when its named families — delivery, delivery destination and source, subscription destination, anomaly detector, lookup table, scheduled query — were assembled from the identifiers their requests carry. What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. | The figures come from `TestIAMResourceDerivationCoverage`, which is the only place they should come from — they had drifted twice — to 1,788 of 1,975, and again to 1,758 of 1,994 while `iamDerivationCoverageFloor` read 1,764 — so read the ratchet, never this row.
@@ -252,6 +220,27 @@ Open: 12. Resolved: 78.
   clean checkout and fails each corruption with the message that names it.
 
 ## Resolved history
+
+- ~~**BUG-2970 (the stop and cancellation grace a workload got was a constant
+  the framework copy hardcoded, not the cloud's own setting):**~~ Amazon ECS
+  stopped a task with a one-second grace, Cloud Run and Azure Container Apps
+  with ten, and cancellation sent SIGTERM with five everywhere but AWS. Each
+  slice now reads what its cloud defines: an Amazon ECS container definition's
+  `stopTimeout` (decoded and applied per container; 30 seconds when unset, the
+  Fargate and EC2-agent default; the pause container gets none), Cloud Run's
+  documented ten seconds for jobs, services and Cloud Functions alike, a
+  Container App template's `terminationGracePeriodSeconds` (30 when nil, zero
+  kills at once; job executions get the same platform default their API does
+  not expose), and App Service's `WEBSITES_CONTAINER_STOP_TIME_LIMIT` app
+  setting (5 seconds when unset, capped at 120). `sim.StopAndRemoveContainer`
+  takes the grace like `sim.StopContainer` does. The AWS suites' task
+  definitions declare `stopTimeout: 2`, the way a real caller whose workload
+  ignores SIGTERM does — a `sleep` running as PID 1 never exits on SIGTERM, so
+  every stop would otherwise take the full thirty seconds — and the Amazon ECS
+  SDK block measured 226s against 204s before. What still states a constant
+  is the pair of surfaces whose cloud publishes none: Azure Container Instances
+  and the managed-database engines (Cloud SQL, Azure Database for PostgreSQL),
+  which keep the five seconds they had.
 
 - ~~**BUG-2976 (a storage account with no migration answered its migration read
   with 404):**~~ `StorageAccounts_GetCustomerInitiatedMigration` on

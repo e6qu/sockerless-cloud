@@ -38,9 +38,10 @@ func TestECS_ListTasks_StillReportsARecentlyStoppedTask(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:    aws.String("brief"),
-			Image:   aws.String("public.ecr.aws/docker/library/alpine:3"),
-			Command: []string{"sh", "-c", "true"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("brief"),
+			Image:       aws.String("public.ecr.aws/docker/library/alpine:3"),
+			Command:     []string{"sh", "-c", "true"},
 		}},
 	})
 	require.NoError(t, err)

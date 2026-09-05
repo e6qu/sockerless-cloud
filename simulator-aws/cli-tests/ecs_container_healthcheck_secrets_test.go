@@ -13,7 +13,7 @@ func TestECSCLI_ContainerHealthCheckAndSecrets(t *testing.T) {
 		"--network-mode", "awsvpc",
 		"--requires-compatibilities", "FARGATE",
 		"--cpu", "256", "--memory", "512",
-		"--container-definitions", `[{"name":"app","image":"nginx","healthCheck":{"command":["CMD-SHELL","curl -f http://localhost/ || exit 1"],"interval":30,"timeout":5,"retries":3,"startPeriod":30},"secrets":[{"name":"DB","valueFrom":"arn:aws:ssm:us-east-1:123456789012:parameter/db"}]}]`))
+		"--container-definitions", `[{"name":"app","image":"nginx","stopTimeout":2,"healthCheck":{"command":["CMD-SHELL","curl -f http://localhost/ || exit 1"],"interval":30,"timeout":5,"retries":3,"startPeriod":30},"secrets":[{"name":"DB","valueFrom":"arn:aws:ssm:us-east-1:123456789012:parameter/db"}]}]`))
 
 	retries := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-task-definition",
 		"--task-definition", "cli-hc-secrets",

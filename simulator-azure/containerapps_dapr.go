@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -80,7 +79,7 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 		shortName = shortName[:24]
 	}
 	return sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: 5 * time.Second,
+		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             daprdSidecarImage,
 		Architecture:      platform,
 		// The daprd image declares no entrypoint or cmd; the runtime

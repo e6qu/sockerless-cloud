@@ -12,7 +12,7 @@ func TestECSServiceClusterFidelityCLI(t *testing.T) {
 
 	q("ecs", "create-cluster", "--cluster-name", "cli-svc-cluster", "--query", "cluster.clusterName", "--output", "text")
 	tdArn := q("ecs", "register-task-definition", "--family", "cli-svc-td",
-		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","command":["hold"]}]`,
+		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","stopTimeout":2,"command":["hold"]}]`,
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")
 
 	q("ecs", "create-service", "--cluster", "cli-svc-cluster", "--service-name", "cli-svc",

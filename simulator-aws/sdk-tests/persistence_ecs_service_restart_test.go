@@ -40,7 +40,8 @@ func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
 	_, err = client.RegisterTaskDefinition(testCtx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("persistent-service-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("application"), Image: aws.String(containerCommandImage),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("application"), Image: aws.String(containerCommandImage),
 			Command: []string{"hold"}, Essential: aws.Bool(true),
 		}},
 	})
@@ -136,7 +137,8 @@ func TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK(t *test
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("application"), Image: aws.String(containerCommandImage),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("application"), Image: aws.String(containerCommandImage),
 			Command: []string{"hold"}, Essential: aws.Bool(true),
 		}},
 	})

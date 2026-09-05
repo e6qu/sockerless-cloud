@@ -632,9 +632,10 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:      aws.String("http-target"),
-			Image:     aws.String("public.ecr.aws/docker/library/busybox:latest"),
-			Essential: aws.Bool(true),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("http-target"),
+			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Essential:   aws.Bool(true),
 			Command: []string{"sh", "-c",
 				"echo lambda-vpc-ok > /tmp/index.html; exec httpd -f -p 8080 -h /tmp"},
 			PortMappings: []ecstypes.PortMapping{{ContainerPort: aws.Int32(8080)}},

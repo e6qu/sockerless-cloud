@@ -373,14 +373,14 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		sidecarImage := sim.ResolveLocalImage(sidecar.Image)
 		sidecarPlatform, err := localImagePlatform(ctx, sidecarImage)
 		if err != nil {
-			sim.StopAndRemoveContainer(containerID)
+			sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
 			for _, h := range sidecars {
 				h.Cancel()
 			}
 			return nil, err
 		}
 		handle, err := sim.StartContainerSync(sim.ContainerConfig{
-			CancelGracePeriod: 5 * time.Second,
+			CancelGracePeriod: cloudRunStopGrace,
 			Image:             sidecarImage,
 			Architecture:      sidecarPlatform,
 			Command:           sidecar.Command,
@@ -396,7 +396,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			Sandbox:     SandboxCloudRun,
 		}, sink)
 		if err != nil {
-			sim.StopAndRemoveContainer(containerID)
+			sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
 			for _, h := range sidecars {
 				h.Cancel()
 			}
@@ -443,7 +443,7 @@ func stopCloudRunServiceInstance(inst *cloudRunServiceInstance) {
 	for _, h := range inst.sidecars {
 		h.Cancel()
 	}
-	sim.StopAndRemoveContainer(inst.containerID)
+	sim.StopAndRemoveContainer(inst.containerID, cloudRunStopGrace)
 }
 
 func postCloudRunServiceInstance(ctx context.Context, inst *cloudRunServiceInstance, requestPath, rawQuery string, body io.Reader, contentType string) ([]byte, int, error) {

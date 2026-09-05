@@ -40,9 +40,10 @@ func TestECS_RunTask_RunningDoesNotWaitForTheApplication(t *testing.T) {
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:    aws.String("slow-to-listen"),
-			Image:   aws.String("public.ecr.aws/docker/library/alpine:3"),
-			Command: []string{"sh", "-c", "sleep 60"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("slow-to-listen"),
+			Image:       aws.String("public.ecr.aws/docker/library/alpine:3"),
+			Command:     []string{"sh", "-c", "sleep 60"},
 		}},
 	})
 	require.NoError(t, err)

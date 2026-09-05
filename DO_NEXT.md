@@ -1,29 +1,5 @@
 # DO NEXT
 
-## After this branch merges
-
-1. **Re-pin `sim` to the merged commit.** The simulators pin
-   `github.com/e6qu/sockerless-cloud/sim` at the pseudo-version of the branch
-   commit that introduced it, which the module proxy caches forever but which
-   no branch will reference once the pull request is squash-merged. Pin the
-   `main` commit in all three simulators
-   (`go get github.com/e6qu/sockerless-cloud/sim@<sha>`), run
-   `scripts/check-support-module-pins.sh` and `scripts/check-installable-build.sh`,
-   and ship it with the next change. The same applies to `realexec` and
-   `ui-auth`, whose pins were moved to the pre-merge `main` commit in the same
-   change.
-
-2. **State each cloud's stop grace from its own configuration.** The grace a
-   workload gets between SIGTERM and SIGKILL is a caller-stated value now
-   (`sim.StopContainer`'s `grace`, `ContainerConfig.CancelGracePeriod`), and
-   the values passed are the ones each cloud's framework copy used to hardcode:
-   one second for an Amazon ECS task stop, ten seconds for Cloud Run and Azure
-   Container Apps stops, five seconds on cancellation everywhere but AWS. The
-   real services define them — an Amazon ECS container definition's
-   `stopTimeout` (default 30s), Cloud Run's documented ten seconds, an Azure
-   Container Apps revision's `terminationGracePeriodSeconds` (default 30s) —
-   and BUG-2970 records the gap.
-
 ## Standing work
 
 - **Serve what a re-vendor adds.** The daily specification refresh pushes onto

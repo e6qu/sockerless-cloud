@@ -24,8 +24,9 @@ func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
 		Family:      aws.String("a-record-registry-task"),
 		NetworkMode: ecstypes.NetworkModeAwsvpc,
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:  aws.String("dqlite"),
-			Image: aws.String("public.ecr.aws/docker/library/alpine:3.20"),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("dqlite"),
+			Image:       aws.String("public.ecr.aws/docker/library/alpine:3.20"),
 		}},
 	})
 	require.NoError(t, err)
@@ -135,7 +136,8 @@ func TestECS_TaskSetLifecycle(t *testing.T) {
 	_, err = c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("ts-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)
@@ -342,7 +344,7 @@ func TestECS_TaskProtection(t *testing.T) {
 
 	_, err = c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:               aws.String("prot-task"),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{{Name: aws.String("app"), Image: aws.String("alpine:latest")}},
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("alpine:latest")}},
 	})
 	require.NoError(t, err)
 	runOut, err := c.RunTask(ctx, &ecs.RunTaskInput{
@@ -388,10 +390,11 @@ func TestECS_StartTask(t *testing.T) {
 	_, err = c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("start-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:       aws.String("app"),
-			Image:      aws.String("alpine:latest"),
-			Privileged: aws.Bool(true),
-			Command:    []string{"sh", "-c", "mkdir -p /tmp/start-task-mount && mount -t tmpfs tmpfs /tmp/start-task-mount && umount /tmp/start-task-mount"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String("alpine:latest"),
+			Privileged:  aws.Bool(true),
+			Command:     []string{"sh", "-c", "mkdir -p /tmp/start-task-mount && mount -t tmpfs tmpfs /tmp/start-task-mount && umount /tmp/start-task-mount"},
 		}},
 	})
 	require.NoError(t, err)
@@ -428,7 +431,7 @@ func TestECS_DeleteTaskDefinitions(t *testing.T) {
 	c := ecsClient()
 	reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:               aws.String("del-task"),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{{Name: aws.String("app"), Image: aws.String("alpine:latest")}},
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("alpine:latest")}},
 	})
 	require.NoError(t, err)
 	arn := aws.ToString(reg.TaskDefinition.TaskDefinitionArn)
@@ -550,7 +553,8 @@ func TestECS_ServiceDeployments(t *testing.T) {
 	_, err = c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("sd-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)

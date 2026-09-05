@@ -28,7 +28,7 @@ func stopACAExecutionProcesses(p *acaExecutionProcesses) {
 		return
 	}
 	if p.Main != nil {
-		sim.StopContainer(p.Main.ContainerID, 10*time.Second)
+		sim.StopContainer(p.Main.ContainerID, acaDefaultTerminationGrace)
 		p.Main.Cancel()
 	}
 	for _, h := range p.Sidecars {
@@ -739,7 +739,7 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 		return nil, nil, fmt.Errorf("inspect main container %q image platform: %w", main.Name, err)
 	}
 	mainHandle, err := sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: 5 * time.Second,
+		CancelGracePeriod: acaDefaultTerminationGrace,
 		Image:             mainImage,
 		Architecture:      mainPlatform,
 		Command:           main.Command,
@@ -774,7 +774,7 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 			return nil, nil, fmt.Errorf("inspect sidecar container %q image platform: %w", c.Name, err)
 		}
 		handle, err := sim.StartContainerSync(sim.ContainerConfig{
-			CancelGracePeriod: 5 * time.Second,
+			CancelGracePeriod: acaDefaultTerminationGrace,
 			Image:             sidecarImage,
 			Architecture:      sidecarPlatform,
 			Command:           c.Command,

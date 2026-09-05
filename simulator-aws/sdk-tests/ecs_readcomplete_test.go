@@ -43,9 +43,10 @@ func TestECS_ListTaskDefinitionFamilies(t *testing.T) {
 	_, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:   aws.String("app"),
-			Image:  aws.String("public.ecr.aws/docker/library/busybox:latest"),
-			Memory: aws.Int32(128),
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Memory:      aws.Int32(128),
 		}},
 	})
 	require.NoError(t, err)

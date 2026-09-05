@@ -199,7 +199,7 @@ func startSidecarContainers(site *Site, mainContainerID string, sink sim.LogSink
 			continue
 		}
 		handle, err := sim.StartContainerSync(sim.ContainerConfig{
-			CancelGracePeriod: 5 * time.Second,
+			CancelGracePeriod: siteStopGrace(site),
 			Image:             localImage,
 			Architecture:      platform,
 			Args:              splitStartUpCommand(sc.Properties.StartUpCommand),

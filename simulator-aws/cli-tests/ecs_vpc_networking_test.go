@@ -89,7 +89,7 @@ func TestECSManagedEBSAwsvpcReachability(t *testing.T) {
 	q("ecs", "register-task-definition", "--family", "ebs-vpc-server",
 		"--network-mode", "awsvpc", "--requires-compatibilities", "FARGATE", "--cpu", "256", "--memory", "512",
 		"--volumes", `[{"name":"workspace","configuredAtLaunch":true}]`,
-		"--container-definitions", `[{"name":"app","image":"`+vpcNetBusybox+`","entryPoint":["sh","-c"],"command":["mkdir -p /workspace/www && echo ebs-ok > /workspace/www/index.html && httpd -f -p 80 -h /workspace/www"],"mountPoints":[{"sourceVolume":"workspace","containerPath":"/workspace"}]}]`,
+		"--container-definitions", `[{"name":"app","image":"`+vpcNetBusybox+`","stopTimeout":2,"entryPoint":["sh","-c"],"command":["mkdir -p /workspace/www && echo ebs-ok > /workspace/www/index.html && httpd -f -p 80 -h /workspace/www"],"mountPoints":[{"sourceVolume":"workspace","containerPath":"/workspace"}]}]`,
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")
 	registerTaskDef(q, "ebs-vpc-client", "sleep 120")
 
@@ -178,7 +178,7 @@ func unusedDockerVPCOctet(t *testing.T, start int, exclude map[int]bool) int {
 func registerTaskDef(q func(...string) string, family, script string) {
 	q("ecs", "register-task-definition", "--family", family,
 		"--network-mode", "awsvpc", "--requires-compatibilities", "FARGATE", "--cpu", "256", "--memory", "512",
-		"--container-definitions", `[{"name":"app","image":"`+vpcNetBusybox+`","entryPoint":["sh","-c"],"command":["`+script+`"]}]`,
+		"--container-definitions", `[{"name":"app","image":"`+vpcNetBusybox+`","stopTimeout":2,"entryPoint":["sh","-c"],"command":["`+script+`"]}]`,
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")
 }
 

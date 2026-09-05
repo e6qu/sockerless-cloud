@@ -1028,6 +1028,9 @@ type azureFunctionInstance struct {
 	sidecarHandles []*sim.ContainerHandle
 	rawHandle      *sim.ContainerHandle // non-HTTP service container (e.g. a redis `services:` site)
 	bootstrapURL   string               // "" for a raw service (no HTTP invoke)
+	// stopGrace is the WEBSITES_CONTAINER_STOP_TIME_LIMIT the containers were
+	// started under, applied when they are torn down.
+	stopGrace time.Duration
 	// dockerNetworks are the App Service VNet-integration networks
 	// (sim-vnet-<vnet>) the site joined, set by the virtualNetwork connection
 	// handlers (both the swift and the classic spelling). The site's containers
@@ -1208,7 +1211,7 @@ func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
 		primaryNetwork = inst.dockerNetworks[0]
 	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: 5 * time.Second,
+		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
 		Architecture:      platform,
 		Env:               mergeEnv(siteAppSettings(site), hostMetadataEnv()),
@@ -1231,6 +1234,7 @@ func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
 	}
 	inst.containerID = handle.ContainerID
 	inst.rawHandle = handle
+	inst.stopGrace = siteStopGrace(site)
 	inst.bootstrapURL = ""
 	return nil
 }
@@ -1340,7 +1344,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		for _, h := range sidecarHandles {
 			h.Cancel()
 		}
-		sim.StopAndRemoveContainer(containerID)
+		sim.StopAndRemoveContainer(containerID, siteStopGrace(site))
 		return fmt.Errorf("bootstrap not ready (tried %d address(es)): %w", len(cands), err)
 	}
 
@@ -1354,6 +1358,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	inst.cancelLogs = cancelLogs
 	inst.sidecarHandles = sidecarHandles
 	inst.bootstrapURL = bootstrapURL
+	inst.stopGrace = siteStopGrace(site)
 	return nil
 }
 
@@ -1370,7 +1375,7 @@ func (inst *azureFunctionInstance) teardownLocked() {
 		inst.cancelLogs()
 	}
 	if inst.containerID != "" {
-		sim.StopAndRemoveContainer(inst.containerID)
+		sim.StopAndRemoveContainer(inst.containerID, inst.stopGrace)
 	}
 	inst.containerID = ""
 	inst.cancelLogs = nil
@@ -1483,6 +1488,23 @@ func siteRuntimeStack(site *Site) string {
 		return ""
 	}
 	return site.Properties.SiteConfig.LinuxFxVersion
+}
+
+// siteStopGrace is how long App Service waits for a site's container to exit
+// after SIGTERM before killing it: the WEBSITES_CONTAINER_STOP_TIME_LIMIT app
+// setting in seconds, five when the site sets none, and at most the 120 the
+// platform accepts.
+func siteStopGrace(site *Site) time.Duration {
+	const defaultLimit, maxLimit = 5, 120
+	raw := strings.TrimSpace(siteAppSettings(site)["WEBSITES_CONTAINER_STOP_TIME_LIMIT"])
+	seconds, err := strconv.Atoi(raw)
+	if raw == "" || err != nil || seconds < 0 {
+		return defaultLimit * time.Second
+	}
+	if seconds > maxLimit {
+		seconds = maxLimit
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func siteAppSettings(site *Site) map[string]string {
@@ -1678,7 +1700,7 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 
 	// Host metadata: route IMDS + identity reads via env.
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		CancelGracePeriod: 5 * time.Second,
+		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
 		Architecture:      platform,
 		Command:           entrypoint,

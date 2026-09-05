@@ -312,6 +312,6 @@ Open simulator bugs live in [BUGS.md](../BUGS.md).
 - **Cost / billing surfaces** — `cur`, `pricing` and `cost-explorer` are absent; AWS Budgets is served.
 - **Outbound delivery to carriers and push services** — Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those publishes fail naming the missing dependency (BUG-2712).
 
-Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (default `5353`), a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
+A stopped Amazon ECS task's containers get SIGTERM and then SIGKILL after each container definition's `stopTimeout` (30 seconds when unset). Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (default `5353`), a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
 
 See also: [API_SPEC.md](API_SPEC.md).

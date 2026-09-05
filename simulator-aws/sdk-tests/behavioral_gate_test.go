@@ -187,7 +187,8 @@ func TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount(t *testing.T) {
 	_, err = ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("bg-as-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"), Image: aws.String(containerCommandImage), Command: []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)
@@ -316,9 +317,10 @@ func TestBehavioralGate_ECSService_ConvergesRunningCount(t *testing.T) {
 	_, err = ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String("bg-scheduler-task"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name:    aws.String("app"),
-			Image:   aws.String(containerCommandImage),
-			Command: []string{"hold"},
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String(containerCommandImage),
+			Command:     []string{"hold"},
 		}},
 	})
 	require.NoError(t, err)

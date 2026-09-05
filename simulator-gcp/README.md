@@ -236,7 +236,7 @@ Each test package's `TestMain` builds the simulator binary, finds a free port, b
 
 ## Execution model
 
-Every Cloud Run job execution, Cloud Run service revision and Cloud Functions instance is a real container on the engine the simulator started against, under the Cloud Run sandbox profile, with its output streamed into Cloud Logging as it is produced. A job task runs until its container exits, is cancelled, or reaches the task template's `timeout`, which the simulator enforces the way Cloud Run does; a cancelled execution's container gets SIGTERM and then SIGKILL. Cloud Functions and Cloud Run services are invoked over HTTP against the container's own listener.
+Every Cloud Run job execution, Cloud Run service revision and Cloud Functions instance is a real container on the engine the simulator started against, under the Cloud Run sandbox profile, with its output streamed into Cloud Logging as it is produced. A job task runs until its container exits, is cancelled, or reaches the task template's `timeout`, which the simulator enforces the way Cloud Run does; a cancelled execution's container gets SIGTERM and, ten seconds later as on Cloud Run, SIGKILL. Cloud Functions and Cloud Run services are invoked over HTTP against the container's own listener.
 
 ## Known issues
 
