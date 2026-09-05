@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.4](https://github.com/e6qu/sockerless-cloud/compare/v0.30.3...v0.30.4) (2026-09-05)
+
+
+### Bug Fixes
+
+* **sim:** move the simulators onto one framework module and reconcile the drift between its copies ([#119](https://github.com/e6qu/sockerless-cloud/issues/119)) ([ef4567e](https://github.com/e6qu/sockerless-cloud/commit/ef4567e91da5b2b8c53a6d317bf676f77d5d557a))
+
 ## [0.30.3](https://github.com/e6qu/sockerless-cloud/compare/v0.30.2...v0.30.3) (2026-09-05)
 
 
