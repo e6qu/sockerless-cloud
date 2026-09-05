@@ -154,3 +154,25 @@ func TestContainerNotFoundErrorRejectsOtherRuntimeFailures(t *testing.T) {
 		}
 	}
 }
+
+// A bind reaches the engine with exactly one relabel option: the shared one
+// added here, or the one the caller already wrote. Docker and Podman refuse
+// "ro,z,z".
+func TestSelinuxRelabelBindsStatesOneRelabelOption(t *testing.T) {
+	cases := map[string]string{
+		"/host/dir:/data":        "/host/dir:/data:z",
+		"named-volume:/data":     "named-volume:/data:z",
+		"/host/dir:/data:ro":     "/host/dir:/data:ro,z",
+		"/host/dir:/data:ro,z":   "/host/dir:/data:ro,z",
+		"/host/dir:/data:Z":      "/host/dir:/data:Z",
+		"/host/dir:/data:rw,O":   "/host/dir:/data:rw,O",
+		"/run/docker.sock":       "/run/docker.sock",
+		"/host/dir:/data:rslave": "/host/dir:/data:rslave,z",
+	}
+	for in, want := range cases {
+		got := selinuxRelabelBinds([]string{in})
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("selinuxRelabelBinds(%q) = %v, want %q", in, got, want)
+		}
+	}
+}

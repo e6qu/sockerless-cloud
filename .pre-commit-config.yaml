@@ -284,14 +284,3 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
-
-      # Pre-push because it downloads the pinned module versions, and because
-      # the pin can only ever point at a pushed commit: a support-module change
-      # is pushed once, pinned, and pushed again.
-      - id: support-module-pins
-        name: Every pinned support module carries the working tree's content
-        entry: bash scripts/check-support-module-pins.sh
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-push]

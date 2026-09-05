@@ -675,7 +675,8 @@ func pullImage(ctx context.Context, cli *client.Client, imageName, platform stri
 // machine, say) can read and write the bind-mounted directory. The simulator's
 // file shares are deliberately shared across the containers that mount them,
 // so the shared (`z`) rather than private (`Z`) relabel applies. Hosts without
-// SELinux ignore the option.
+// SELinux ignore the option. A bind that already states a relabel option is
+// left as its caller wrote it: the engine refuses a second one.
 func selinuxRelabelBinds(binds []string) []string {
 	out := make([]string, 0, len(binds))
 	for _, b := range binds {
@@ -685,12 +686,26 @@ func selinuxRelabelBinds(binds []string) []string {
 			continue
 		}
 		if len(parts) == 3 && parts[2] != "" {
-			out = append(out, b+",z")
+			if bindHasRelabelOption(parts[2]) {
+				out = append(out, b)
+			} else {
+				out = append(out, b+",z")
+			}
 		} else {
 			out = append(out, parts[0]+":"+parts[1]+":z")
 		}
 	}
 	return out
+}
+
+func bindHasRelabelOption(options string) bool {
+	for _, option := range strings.Split(options, ",") {
+		switch option {
+		case "z", "Z", "O":
+			return true
+		}
+	}
+	return false
 }
 
 // HTTPContainerConfig describes a container that exposes an HTTP listener on

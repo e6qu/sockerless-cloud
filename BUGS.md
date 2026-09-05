@@ -259,8 +259,8 @@ Open: 11. Resolved: 77.
   (`GOWORK=off`) shipped the old code. `check-installable-build.sh` could not
   see it, because the old code compiled. `scripts/check-support-module-pins.sh`
   downloads each pinned version and fails when its content differs from the
-  tree, in the build gates and at pre-push; the pins were moved to the commit
-  that carries the tree's content.
+  tree, in CI's build gates; the pins were moved to the commit that carries
+  the tree's content.
 
 - ~~**BUG-2973 (the request-logging middleware swallowed `Flush` in two of the
   three frameworks):**~~ Only the Google Cloud copy of `statusWriter`
