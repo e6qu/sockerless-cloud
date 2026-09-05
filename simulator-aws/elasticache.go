@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ElastiCache — awsQuery protocol. Surface scoped to the 90th-
@@ -198,7 +198,7 @@ var ecReservedCacheNodesOfferings = []ecReservedCacheNodesOffering{{
 // services in the AWSQueryRouter dispatch.
 const ecAPIVersion = "2015-02-02"
 
-func registerElastiCache(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	ecClusters = sim.MakeStore[ECCluster](srv.DB(), "elasticache_clusters")
 	ecReplGroups = sim.MakeStore[ECReplicationGroup](srv.DB(), "elasticache_replication_groups")
 	ecSubnetGrps = sim.MakeStore[ECSubnetGroup](srv.DB(), "elasticache_subnet_groups")

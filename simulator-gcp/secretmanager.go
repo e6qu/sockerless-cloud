@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // errSecretVersionNotEnabled signals an access attempt on a DISABLED or
@@ -180,7 +180,7 @@ func registerSecretManagerSecretRoutes(srv *sim.Server, prefix string, parentFor
 func secretManagerCreateSecret(w http.ResponseWriter, r *http.Request, parent string) {
 	secretID := r.URL.Query().Get("secretId")
 	if secretID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "secretId query parameter is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "secretId query parameter is required", "INVALID_ARGUMENT")
 		return
 	}
 
@@ -196,13 +196,13 @@ func secretManagerCreateSecret(w http.ResponseWriter, r *http.Request, parent st
 		SecretType     string            `json:"secretType,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 
 	name := parent + "/" + secretID
 	if _, exists := smSecrets.Get(name); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "secret %s already exists", secretID)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "secret %s already exists", secretID)
 		return
 	}
 
@@ -256,7 +256,7 @@ func secretManagerListSecrets(w http.ResponseWriter, r *http.Request, parent str
 func secretManagerGetSecret(w http.ResponseWriter, name string) {
 	secret, ok := smSecrets.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, secret)
@@ -266,13 +266,13 @@ func secretManagerPatchSecret(w http.ResponseWriter, r *http.Request, parent str
 	name := parent + "/" + sim.PathParam(r, "secret")
 	secret, ok := smSecrets.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", name)
 		return
 	}
 
 	updateMask := strings.TrimSpace(r.URL.Query().Get("updateMask"))
 	if updateMask == "" {
-		sim.GCPError(w, http.StatusBadRequest, "updateMask query parameter is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "updateMask query parameter is required", "INVALID_ARGUMENT")
 		return
 	}
 
@@ -283,7 +283,7 @@ func secretManagerPatchSecret(w http.ResponseWriter, r *http.Request, parent str
 		Rotation    json.RawMessage   `json:"rotation"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 
@@ -299,7 +299,7 @@ func secretManagerPatchSecret(w http.ResponseWriter, r *http.Request, parent str
 			secret.Rotation = req.Rotation
 		case "":
 		default:
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unsupported updateMask field %q", field)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unsupported updateMask field %q", field)
 			return
 		}
 	}
@@ -310,7 +310,7 @@ func secretManagerPatchSecret(w http.ResponseWriter, r *http.Request, parent str
 func secretManagerDeleteSecret(w http.ResponseWriter, r *http.Request, parent string) {
 	name := parent + "/" + sim.PathParam(r, "secret")
 	if !smSecrets.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", name)
 		return
 	}
 
@@ -338,12 +338,12 @@ func secretManagerSecretGetAction(w http.ResponseWriter, r *http.Request, parent
 		return
 	}
 	if action != "getIamPolicy" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown secret action %q", secretAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown secret action %q", secretAction)
 		return
 	}
 	secretName := parent + "/" + secretID
 	if _, ok := smSecrets.Get(secretName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", secretName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", secretName)
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), secretName, "getIamPolicy")
@@ -363,14 +363,14 @@ func secretManagerSecretPostAction(w http.ResponseWriter, r *http.Request, paren
 	}
 	secretName := parent + "/" + secretID
 	if _, ok := smSecrets.Get(secretName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", secretName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", secretName)
 		return
 	}
 	switch action {
 	case "addVersion":
 		secret, _ := smSecrets.Get(secretName)
 		if secret.SecretType == "CLOUD_SQL_DB_CREDENTIALS" {
-			sim.GCPError(w, http.StatusBadRequest, "versions for CLOUD_SQL_DB_CREDENTIALS secrets are managed by Secret Manager", "FAILED_PRECONDITION")
+			GCPError(w, http.StatusBadRequest, "versions for CLOUD_SQL_DB_CREDENTIALS secrets are managed by Secret Manager", "FAILED_PRECONDITION")
 			return
 		}
 		secretManagerAddVersion(w, r, secretName)
@@ -396,11 +396,11 @@ var secretManagerSecretPOSTMethods = map[string]bool{
 func secretManagerEnableManagedRotation(w http.ResponseWriter, r *http.Request, secretName string) {
 	secret, _ := smSecrets.Get(secretName)
 	if secret.SecretType != "CLOUD_SQL_DB_CREDENTIALS" {
-		sim.GCPError(w, http.StatusBadRequest, "managed rotation requires a CLOUD_SQL_DB_CREDENTIALS secret", "FAILED_PRECONDITION")
+		GCPError(w, http.StatusBadRequest, "managed rotation requires a CLOUD_SQL_DB_CREDENTIALS secret", "FAILED_PRECONDITION")
 		return
 	}
 	if _, exists := smManagedRotation.Get(secretName); exists {
-		sim.GCPError(w, http.StatusBadRequest, "managed rotation has already been enabled", "FAILED_PRECONDITION")
+		GCPError(w, http.StatusBadRequest, "managed rotation has already been enabled", "FAILED_PRECONDITION")
 		return
 	}
 	var req struct {
@@ -411,17 +411,17 @@ func secretManagerEnableManagedRotation(w http.ResponseWriter, r *http.Request, 
 		} `json:"cloudSqlSingleUserCredentials"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	project := strings.Split(secretName, "/")[1]
 	if req.Credentials.InstanceID == "" || req.Credentials.Username == "" {
-		sim.GCPError(w, http.StatusBadRequest, "instanceId and username are required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "instanceId and username are required", "INVALID_ARGUMENT")
 		return
 	}
 	user, ok := firstSQLUser(project, req.Credentials.InstanceID, req.Credentials.Username, "")
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Cloud SQL user %s on instance %s not found", req.Credentials.Username, req.Credentials.InstanceID)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Cloud SQL user %s on instance %s not found", req.Credentials.Username, req.Credentials.InstanceID)
 		return
 	}
 	record := smManagedRotationRecord{
@@ -434,7 +434,7 @@ func secretManagerEnableManagedRotation(w http.ResponseWriter, r *http.Request, 
 	}
 	version, err := smApplyManagedRotation(secretName, record, password)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 		return
 	}
 	smManagedRotation.Put(secretName, record)
@@ -444,12 +444,12 @@ func secretManagerEnableManagedRotation(w http.ResponseWriter, r *http.Request, 
 func secretManagerRotate(w http.ResponseWriter, secretName string) {
 	record, ok := smManagedRotation.Get(secretName)
 	if !ok {
-		sim.GCPError(w, http.StatusBadRequest, "managed rotation is not enabled", "FAILED_PRECONDITION")
+		GCPError(w, http.StatusBadRequest, "managed rotation is not enabled", "FAILED_PRECONDITION")
 		return
 	}
 	version, err := smApplyManagedRotation(secretName, record, smGeneratedPassword())
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, version)
@@ -493,12 +493,12 @@ func secretManagerAddVersion(w http.ResponseWriter, r *http.Request, secretName 
 		} `json:"payload"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	raw, err := base64.StdEncoding.DecodeString(req.Payload.Data)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "payload.data must be base64: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "payload.data must be base64: %v", err)
 		return
 	}
 	hasCRC := req.Payload.DataCrc32c != nil
@@ -508,7 +508,7 @@ func secretManagerAddVersion(w http.ResponseWriter, r *http.Request, secretName 
 	}
 	ver, err := smAddVersionPayload(secretName, raw, hasCRC, suppliedCRC)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, ver)
@@ -557,11 +557,11 @@ func smAddVersionPayload(secretName string, data []byte, hasCRC bool, suppliedCR
 func secretManagerListVersions(w http.ResponseWriter, r *http.Request, parent string) {
 	secretName := parent + "/" + sim.PathParam(r, "secret")
 	if _, ok := smSecrets.Get(secretName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", secretName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", secretName)
 		return
 	}
 	if filter := strings.TrimSpace(r.URL.Query().Get("filter")); filter != "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unsupported filter %q", filter)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unsupported filter %q", filter)
 		return
 	}
 
@@ -620,7 +620,7 @@ func secretManagerVersionGetAction(w http.ResponseWriter, r *http.Request, paren
 		if versionID == "latest" {
 			resolved, ok := resolveLatestVersionIDForSecret(secretName)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"no enabled versions for secret %s", secretName)
 				return
 			}
@@ -629,23 +629,23 @@ func secretManagerVersionGetAction(w http.ResponseWriter, r *http.Request, paren
 		versionName := fmt.Sprintf("%s/versions/%s", secretName, versionID)
 		ver, ok := smSecretVersions.Get(versionName)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret version %s not found", versionName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret version %s not found", versionName)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, ver)
 		return
 	}
 	if action != "access" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown version action %q", versionAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown version action %q", versionAction)
 		return
 	}
 	payload, resolvedID, err := accessSecretPayloadResolvedForSecret(secretName, versionID)
 	if err != nil {
 		if errors.Is(err, errSecretVersionNotEnabled) {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "%s", err.Error())
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "%s", err.Error())
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s", err.Error())
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s", err.Error())
 		return
 	}
 	// Real GCP resolves `latest` to the concrete version number in the
@@ -669,7 +669,7 @@ func secretManagerVersionPostAction(w http.ResponseWriter, r *http.Request, pare
 	versionAction := sim.PathParam(r, "versionAction")
 	versionID, action, found := strings.Cut(versionAction, ":")
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "missing :action suffix on version %q", versionAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "missing :action suffix on version %q", versionAction)
 		return
 	}
 	// Resolve `latest` alias to the concrete version number per real GCP
@@ -678,7 +678,7 @@ func secretManagerVersionPostAction(w http.ResponseWriter, r *http.Request, pare
 	if versionID == "latest" {
 		resolved, ok := resolveLatestVersionIDForSecret(secretName)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no enabled versions for secret %s", secretName)
 			return
 		}
@@ -687,16 +687,16 @@ func secretManagerVersionPostAction(w http.ResponseWriter, r *http.Request, pare
 	versionName := fmt.Sprintf("%s/versions/%s", secretName, versionID)
 	ver, ok := smSecretVersions.Get(versionName)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret version %s not found", versionName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret version %s not found", versionName)
 		return
 	}
 	updated, ok, err := smSetVersionState(versionName, ver, action)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown version action %q", versionAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown version action %q", versionAction)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, updated)
@@ -747,7 +747,7 @@ func secretManagerPagination(w http.ResponseWriter, r *http.Request, total int) 
 	if token := r.URL.Query().Get("pageToken"); token != "" {
 		n, err := strconv.Atoi(token)
 		if err != nil || n < 0 || n > total {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
 			return 0, 0, false
 		}
 		start = n
@@ -757,7 +757,7 @@ func secretManagerPagination(w http.ResponseWriter, r *http.Request, total int) 
 	if raw := r.URL.Query().Get("pageSize"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageSize %q", raw)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageSize %q", raw)
 			return 0, 0, false
 		}
 		if n > 25000 {

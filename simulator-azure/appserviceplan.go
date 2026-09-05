@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type AppServicePlan struct {
@@ -110,7 +110,7 @@ func registerAppServicePlan(srv *sim.Server) {
 
 			var req AppServicePlan
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+				AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 
@@ -122,7 +122,7 @@ func registerAppServicePlan(srv *sim.Server) {
 			// environment it cannot resolve.
 			hostingEnvironment, err := webResolveHostingEnvironmentProfile(req.Properties.HostingEnvironmentProfile)
 			if err != nil {
-				sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+				AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 				return
 			}
 
@@ -180,7 +180,7 @@ func registerAppServicePlan(srv *sim.Server) {
 
 			plan, ok := plans.Get(resourceID)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"Server farm '%s' not found.", planName)
 				return
 			}

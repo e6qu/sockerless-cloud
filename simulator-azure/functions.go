@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Site represents an Azure Function App (Web App).
@@ -145,7 +145,7 @@ func registerAzureFunctions(srv *sim.Server) {
 			Type string `json:"type"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		suffix := "/providers/Microsoft.Web/sites/" + req.Name
@@ -175,12 +175,12 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		var req Site
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if req.Location == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 
@@ -190,7 +190,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		// exists; the resource provider refuses an unresolvable reference.
 		hostingEnvironment, err := webResolveHostingEnvironmentProfile(req.Properties.HostingEnvironmentProfile)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -292,7 +292,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		// current integration either way.
 		if req.Properties.VirtualNetworkSubnetID != "" {
 			if err := applySiteVirtualNetworkSubnetID(r, site, req.Properties.VirtualNetworkSubnetID); err != nil {
-				sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+				AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 					"failed to integrate site %q into VNet: %v", name, err)
 				return
 			}
@@ -316,7 +316,7 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		site, ok := sites.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -383,7 +383,7 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		// Verify site exists
 		if _, ok := sites.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -409,7 +409,7 @@ func registerAzureFunctions(srv *sim.Server) {
 
 		fn, ok := functionConfigs.Get(funcID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The function '%s' in site '%s' was not found.", funcName, siteName)
 			return
 		}
@@ -434,7 +434,7 @@ func registerAzureFunctions(srv *sim.Server) {
 			}
 		}
 		if matchedSite == nil {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"no function app with DefaultHostName=%q (set Host header to <site>.azurewebsites.net)", host)
 			return
 		}
@@ -509,14 +509,14 @@ func registerAzureFunctions(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 		site, ok := sites.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
 
 		var req AzureStoragePropertyDictionaryResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -550,7 +550,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 		site, ok := sites.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -583,7 +583,7 @@ func registerAzureFunctions(srv *sim.Server) {
 			name := sim.PathParam(r, "siteName")
 			resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 			if _, ok := sites.Get(resourceID); !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 				return
 			}
@@ -608,7 +608,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		name := sim.PathParam(r, "siteName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 		if _, ok := sites.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -636,7 +636,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		name := sim.PathParam(r, "siteName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 		if _, ok := sites.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -659,7 +659,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		name := sim.PathParam(r, "siteName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 		if _, ok := sites.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -696,7 +696,7 @@ func registerAzureFunctions(srv *sim.Server) {
 		name := sim.PathParam(r, "siteName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s", sub, rg, name)
 		if _, ok := sites.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -783,13 +783,13 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}/config/appsettings", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site %q not found.", sim.PathParam(r, "siteName"))
 			return
 		}
 		var req AzureSiteAppSettings
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		cfg, _ := siteConfigStore.Get(resourceID)
@@ -811,7 +811,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/appsettings/list", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site %q not found.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -834,13 +834,13 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}/config/connectionstrings", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site %q not found.", sim.PathParam(r, "siteName"))
 			return
 		}
 		var req AzureSiteConnectionStrings
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		cfg, _ := siteConfigStore.Get(resourceID)
@@ -856,7 +856,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/connectionstrings/list", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site %q not found.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -883,7 +883,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 	slotConfigNamesGet := func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site %q not found.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -903,7 +903,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}/config/slotconfignames", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site %q not found.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -911,7 +911,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 			Properties SlotConfigNames `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		cfg, _ := siteConfigStore.Get(resourceID)
@@ -927,7 +927,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		resourceID := siteResourceID(r)
 		site, ok := sites.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site %q not found.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -948,7 +948,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		resourceID := siteResourceID(r)
 		site, ok := sites.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site %q not found.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -956,7 +956,7 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 			Properties SiteConfig `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		site.Properties.SiteConfig = &req.Properties
@@ -1208,15 +1208,16 @@ func (inst *azureFunctionInstance) startRawServiceLocked(site *Site) error {
 		primaryNetwork = inst.dockerNetworks[0]
 	}
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		Image:          localImage,
-		Architecture:   platform,
-		Env:            mergeEnv(siteAppSettings(site), hostMetadataEnv()),
-		Binds:          siteAzureStorageBinds(site),
-		Name:           fmt.Sprintf("sockerless-sim-azure-svc-%s-%s", site.Name, randomSuffix(6)),
-		Labels:         map[string]string{"sockerless-sim-type": "azure-service", "sockerless-site": site.Name},
-		Network:        primaryNetwork,
-		NetworkAliases: siteNetAliases(site),
-		Sandbox:        sim.SandboxAZF,
+		CancelGracePeriod: 5 * time.Second,
+		Image:             localImage,
+		Architecture:      platform,
+		Env:               mergeEnv(siteAppSettings(site), hostMetadataEnv()),
+		Binds:             siteAzureStorageBinds(site),
+		Name:              fmt.Sprintf("sockerless-sim-azure-svc-%s-%s", site.Name, randomSuffix(6)),
+		Labels:            map[string]string{"sockerless-sim-type": "azure-service", "sockerless-site": site.Name},
+		Network:           primaryNetwork,
+		NetworkAliases:    siteNetAliases(site),
+		Sandbox:           SandboxAZF,
 	}, sink)
 	if err != nil {
 		return fmt.Errorf("start service container: %w", err)
@@ -1299,7 +1300,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		Architecture: platform,
 		HostPort:     hostPort,
 		Env:          env,
-		Cmd:          mainCmd,
+		Args:         mainCmd,
 		Binds:        mainBinds,
 		Name:         fmt.Sprintf("sockerless-sim-azure-func-http-%s-%d", site.Name, hostPort),
 		Labels: map[string]string{
@@ -1307,7 +1308,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 			"sockerless-site":     site.Name,
 		},
 		ExtraHosts: hostMetadataExtraHosts(),
-		Sandbox:    sim.SandboxAZF,
+		Sandbox:    SandboxAZF,
 	})
 	if err != nil {
 		return fmt.Errorf("start function http container: %w", err)
@@ -1677,13 +1678,14 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 
 	// Host metadata: route IMDS + identity reads via env.
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
-		Image:        localImage,
-		Architecture: platform,
-		Command:      entrypoint,
-		Args:         cmd,
-		Env:          mergeEnv(cmdEnv, hostMetadataEnv()),
-		Timeout:      timeout,
-		Name:         containerName,
+		CancelGracePeriod: 5 * time.Second,
+		Image:             localImage,
+		Architecture:      platform,
+		Command:           entrypoint,
+		Args:              cmd,
+		Env:               mergeEnv(cmdEnv, hostMetadataEnv()),
+		Timeout:           timeout,
+		Name:              containerName,
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-function-invocation",
 			"sockerless-site":     site.Name,
@@ -1691,7 +1693,7 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 		ExtraHosts:     hostMetadataExtraHosts(),
 		Network:        primaryNetwork,
 		NetworkAliases: networkAliases,
-		Sandbox:        sim.SandboxAZF,
+		Sandbox:        SandboxAZF,
 	}, collectSink)
 	if err != nil {
 		injectAppTrace(site.Name,

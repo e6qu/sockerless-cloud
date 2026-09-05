@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // cbBuildActionHandled serves the build colon-verbs beyond cancel. It reports
@@ -31,7 +31,7 @@ func cbBuildActionHandled(w http.ResponseWriter, r *http.Request, project, id, a
 func cbHandleRetryBuild(w http.ResponseWriter, r *http.Request, project, id string) {
 	original, ok := cbBuilds.Get(id)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
 		return
 	}
 	retried := original
@@ -48,7 +48,7 @@ func cbHandleRetryBuild(w http.ResponseWriter, r *http.Request, project, id stri
 func cbHandleApproveBuild(w http.ResponseWriter, r *http.Request, project, id string) {
 	build, ok := cbBuilds.Get(id)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "build %s not found", id)
 		return
 	}
 	var req struct {
@@ -60,17 +60,17 @@ func cbHandleApproveBuild(w http.ResponseWriter, r *http.Request, project, id st
 		} `json:"approvalResult"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	decision := req.ApprovalResult.Decision
 	if decision != "APPROVED" && decision != "REJECTED" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"approvalResult.decision must be APPROVED or REJECTED, got %q", decision)
 		return
 	}
 	if build.Approval == nil || build.Approval.State != "PENDING" {
-		sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 			"build %s is not pending approval", id)
 		return
 	}
@@ -110,12 +110,12 @@ func cbTriggerActionHandled(w http.ResponseWriter, r *http.Request, project, loc
 func cbHandleRunTrigger(w http.ResponseWriter, r *http.Request, project, location, id string) {
 	trigger, ok := cbTriggers.Get(buildTriggerKey(project, location, id))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %s not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %s not found", id)
 		return
 	}
 	build := trigger.Build
 	if build == nil {
-		sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 			"trigger %s declares no inline build to run", id)
 		return
 	}
@@ -138,20 +138,20 @@ func cbHandleRunTrigger(w http.ResponseWriter, r *http.Request, project, locatio
 func cbHandleTriggerWebhook(w http.ResponseWriter, r *http.Request, project, location, id string) {
 	trigger, ok := cbTriggers.Get(buildTriggerKey(project, location, id))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %s not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %s not found", id)
 		return
 	}
 	if !cbTriggerWebhookSecretMatches(w, r, trigger) {
 		return
 	}
 	if trigger.Disabled {
-		sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 			"trigger %s is disabled", id)
 		return
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"could not read the delivery: %v", err)
 		return
 	}
@@ -170,18 +170,18 @@ func cbTriggerWebhookSecretMatches(w http.ResponseWriter, r *http.Request, trigg
 		reference, _ = trigger.WebhookConfig["secret"].(string)
 	}
 	if reference == "" {
-		sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 			"trigger %s declares no webhookConfig, so it has no webhook to call", trigger.ID)
 		return false
 	}
 	payload, err := resolveSecretManagerReference(reference)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 			"the trigger's webhook secret %s could not be read: %v", reference, err)
 		return false
 	}
 	if presented := r.URL.Query().Get("secret"); presented != string(payload) {
-		sim.GCPErrorf(w, http.StatusUnauthorized, "UNAUTHENTICATED",
+		GCPErrorf(w, http.StatusUnauthorized, "UNAUTHENTICATED",
 			"the secret does not match the one the trigger declares")
 		return false
 	}
@@ -216,7 +216,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		var build Build
 		if err := sim.ReadJSON(r, &build); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
 			return
 		}
 		build.ID = generateUUID()
@@ -234,7 +234,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		id, action, found := strings.Cut(sim.PathParam(r, "triggerAction"), ":")
 		if !found || !cbTriggerActionHandled(w, r, project, "global", id, action) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"unknown trigger action %q", sim.PathParam(r, "triggerAction"))
 		}
 	})
@@ -250,14 +250,14 @@ func registerCloudBuildRegional(srv *sim.Server) {
 			configAction := sim.PathParam(r, "configAction")
 			id, action, found := strings.Cut(configAction, ":")
 			if !found || action != "removeBitbucketServerConnectedRepository" {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"unknown Bitbucket Server config action %q", configAction)
 				return
 			}
 			name := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "bitbucketServerConfigs", id)
 			config, ok := cbBitbucketConfigs.Get(name)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Bitbucket Server config %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Bitbucket Server config %q not found", name)
 				return
 			}
 			// connectedRepository is the repository id itself, not a wrapper
@@ -269,7 +269,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 				} `json:"connectedRepository"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			target := req.ConnectedRepository.ProjectKey + "/" + req.ConnectedRepository.RepoSlug
@@ -283,7 +283,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 				kept = append(kept, repo)
 			}
 			if !removed {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"repository %q is not connected to %q", target, name)
 				return
 			}
@@ -298,7 +298,7 @@ func registerCloudBuildRegional(srv *sim.Server) {
 				"bitbucketServerConfigs", sim.PathParam(r, "config"))
 			config, ok := cbBitbucketConfigs.Get(name)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Bitbucket Server config %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Bitbucket Server config %q not found", name)
 				return
 			}
 			var req struct {
@@ -314,11 +314,11 @@ func registerCloudBuildRegional(srv *sim.Server) {
 				} `json:"requests"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if len(req.Requests) == 0 {
-				sim.GCPError(w, http.StatusBadRequest, "requests must not be empty", "INVALID_ARGUMENT")
+				GCPError(w, http.StatusBadRequest, "requests must not be empty", "INVALID_ARGUMENT")
 				return
 			}
 			connected := make([]map[string]any, 0, len(req.Requests))

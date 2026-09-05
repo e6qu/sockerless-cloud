@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM SAML providers, server certificates, account aliases, and the
@@ -58,7 +58,7 @@ var (
 	iamAccountAliases sim.Store[string] // account-level alias singleton (key == alias)
 )
 
-func registerIAMProvidersCerts(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMProvidersCerts(r *AWSQueryRouter, srv *sim.Server) {
 	iamSAMLProviders = sim.MakeStore[IAMSAMLProvider](srv.DB(), "iam_saml_providers")
 	iamServerCerts = sim.MakeStore[IAMServerCertificate](srv.DB(), "iam_server_certificates")
 	iamAccountAliases = sim.MakeStore[string](srv.DB(), "iam_account_aliases")

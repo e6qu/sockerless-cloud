@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon API Gateway v1 (REST APIs) — additional control-plane slices that
@@ -261,11 +261,11 @@ func handleAPIGWCreateBasePathMapping(w http.ResponseWriter, r *http.Request) {
 		Stage     string `json:"stage"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if _, ok := apigwRestApis.Get(req.RestApiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
 		return
 	}
 	m := APIGWBasePathMapping{
@@ -294,7 +294,7 @@ func handleAPIGWGetBasePathMapping(w http.ResponseWriter, r *http.Request) {
 	basePath := sim.PathParam(r, "basePath")
 	m, ok := apigwBasePathMappings.Get(apigwBasePathKey(domain, normalizeBasePath(basePath)))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, m)
@@ -306,14 +306,14 @@ func handleAPIGWUpdateBasePathMapping(w http.ResponseWriter, r *http.Request) {
 	key := apigwBasePathKey(domain, basePath)
 	m, ok := apigwBasePathMappings.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
 		return
 	}
 	var req struct {
 		PatchOperations []apigwPatchOp `json:"patchOperations"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	rekey := false
@@ -343,7 +343,7 @@ func handleAPIGWDeleteBasePathMapping(w http.ResponseWriter, r *http.Request) {
 	domain := sim.PathParam(r, "domainName")
 	basePath := normalizeBasePath(sim.PathParam(r, "basePath"))
 	if !apigwBasePathMappings.Delete(apigwBasePathKey(domain, basePath)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -364,7 +364,7 @@ func handleAPIGWGenerateClientCertificate(w http.ResponseWriter, r *http.Request
 		Tags        map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	now := time.Now()
@@ -392,7 +392,7 @@ func handleAPIGWListClientCertificates(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWGetClientCertificate(w http.ResponseWriter, r *http.Request) {
 	c, ok := apigwClientCertificates.Get(sim.PathParam(r, "clientCertificateId"))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid client certificate identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid client certificate identifier specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, c)
@@ -402,14 +402,14 @@ func handleAPIGWUpdateClientCertificate(w http.ResponseWriter, r *http.Request) 
 	id := sim.PathParam(r, "clientCertificateId")
 	c, ok := apigwClientCertificates.Get(id)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid client certificate identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid client certificate identifier specified")
 		return
 	}
 	var req struct {
 		PatchOperations []apigwPatchOp `json:"patchOperations"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	for _, op := range req.PatchOperations {
@@ -426,7 +426,7 @@ func handleAPIGWUpdateClientCertificate(w http.ResponseWriter, r *http.Request) 
 
 func handleAPIGWDeleteClientCertificate(w http.ResponseWriter, r *http.Request) {
 	if !apigwClientCertificates.Delete(sim.PathParam(r, "clientCertificateId")) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid client certificate identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid client certificate identifier specified")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -454,7 +454,7 @@ func apigwClientCertPEM(id string) string {
 
 func apigwRequireRestAPI(w http.ResponseWriter, id string) bool {
 	if _, ok := apigwRestApis.Get(id); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
 		return false
 	}
 	return true
@@ -470,7 +470,7 @@ func handleAPIGWCreateDocumentationPart(w http.ResponseWriter, r *http.Request) 
 		Properties string                         `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	p := APIGWDocumentationPart{
@@ -501,7 +501,7 @@ func handleAPIGWGetDocumentationPart(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
 	p, ok := apigwDocParts.Get(restApiId + "/" + sim.PathParam(r, "documentationPartId"))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Documentation part identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Documentation part identifier specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, p)
@@ -512,14 +512,14 @@ func handleAPIGWUpdateDocumentationPart(w http.ResponseWriter, r *http.Request) 
 	key := restApiId + "/" + sim.PathParam(r, "documentationPartId")
 	p, ok := apigwDocParts.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Documentation part identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Documentation part identifier specified")
 		return
 	}
 	var req struct {
 		PatchOperations []apigwPatchOp `json:"patchOperations"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	for _, op := range req.PatchOperations {
@@ -537,7 +537,7 @@ func handleAPIGWUpdateDocumentationPart(w http.ResponseWriter, r *http.Request) 
 func handleAPIGWDeleteDocumentationPart(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
 	if !apigwDocParts.Delete(restApiId + "/" + sim.PathParam(r, "documentationPartId")) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Documentation part identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Documentation part identifier specified")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -553,7 +553,7 @@ func handleAPIGWImportDocumentationParts(w http.ResponseWriter, r *http.Request)
 		Mode string `json:"mode"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	// On overwrite, the imported set replaces existing parts for the API.
@@ -587,11 +587,11 @@ func handleAPIGWCreateDocumentationVersion(w http.ResponseWriter, r *http.Reques
 		Description          string `json:"description"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.DocumentationVersion == "" {
-		sim.AWSError(w, "BadRequestException", "Documentation version identifier must be specified", http.StatusBadRequest)
+		AWSError(w, "BadRequestException", "Documentation version identifier must be specified", http.StatusBadRequest)
 		return
 	}
 	v := APIGWDocumentationVersion{
@@ -622,7 +622,7 @@ func handleAPIGWGetDocumentationVersion(w http.ResponseWriter, r *http.Request) 
 	restApiId := sim.PathParam(r, "restApiId")
 	v, ok := apigwDocVersions.Get(restApiId + "/" + sim.PathParam(r, "documentationVersion"))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid documentation version specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid documentation version specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, v)
@@ -633,14 +633,14 @@ func handleAPIGWUpdateDocumentationVersion(w http.ResponseWriter, r *http.Reques
 	key := restApiId + "/" + sim.PathParam(r, "documentationVersion")
 	v, ok := apigwDocVersions.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid documentation version specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid documentation version specified")
 		return
 	}
 	var req struct {
 		PatchOperations []apigwPatchOp `json:"patchOperations"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	for _, op := range req.PatchOperations {
@@ -658,7 +658,7 @@ func handleAPIGWUpdateDocumentationVersion(w http.ResponseWriter, r *http.Reques
 func handleAPIGWDeleteDocumentationVersion(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
 	if !apigwDocVersions.Delete(restApiId + "/" + sim.PathParam(r, "documentationVersion")) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid documentation version specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid documentation version specified")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -676,7 +676,7 @@ func handleAPIGWPutGatewayResponse(w http.ResponseWriter, r *http.Request) {
 		ResponseTemplates  map[string]string `json:"responseTemplates"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	gr := APIGWGatewayResponse{
@@ -729,7 +729,7 @@ func handleAPIGWGetGatewayResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !apigwIsDefaultGatewayResponseType(responseType) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid gateway response type specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid gateway response type specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, APIGWGatewayResponse{
@@ -748,7 +748,7 @@ func handleAPIGWUpdateGatewayResponse(w http.ResponseWriter, r *http.Request) {
 	responseType := sim.PathParam(r, "responseType")
 	if !apigwIsDefaultGatewayResponseType(responseType) {
 		if _, ok := apigwGatewayResponses.Get(restApiId + "/" + responseType); !ok {
-			sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid gateway response type specified")
+			AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid gateway response type specified")
 			return
 		}
 	}
@@ -764,7 +764,7 @@ func handleAPIGWUpdateGatewayResponse(w http.ResponseWriter, r *http.Request) {
 		PatchOperations []apigwPatchOp `json:"patchOperations"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	for _, op := range req.PatchOperations {
@@ -797,7 +797,7 @@ func handleAPIGWDeleteGatewayResponse(w http.ResponseWriter, r *http.Request) {
 	responseType := sim.PathParam(r, "responseType")
 	if !apigwGatewayResponses.Delete(restApiId + "/" + responseType) {
 		if !apigwIsDefaultGatewayResponseType(responseType) {
-			sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid gateway response type specified")
+			AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid gateway response type specified")
 			return
 		}
 	}
@@ -841,7 +841,7 @@ func handleAPIGWGetRequestValidator(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
 	rv, ok := apigwRequestValidators.Get(restApiId + "/" + sim.PathParam(r, "requestValidatorId"))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Request Validator identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Request Validator identifier specified")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, rv)
@@ -852,7 +852,7 @@ func handleAPIGWGetModelTemplate(w http.ResponseWriter, r *http.Request) {
 	modelName := sim.PathParam(r, "modelName")
 	m, ok := apigwModels.Get(restApiId + "/" + modelName)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Model name specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Model name specified")
 		return
 	}
 	// The default mapping template is a sample request body derived from the
@@ -882,7 +882,7 @@ func handleAPIGWUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		PatchOperations []apigwPatchOp `json:"patchOperations"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	for _, op := range req.PatchOperations {
@@ -903,15 +903,15 @@ func handleAPIGWGetExport(w http.ResponseWriter, r *http.Request) {
 	exportType := sim.PathParam(r, "exportType")
 	api, ok := apigwRestApis.Get(restApiId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
 		return
 	}
 	if _, ok := apigwStages.Get(restApiId + "/" + stageName); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid stage identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid stage identifier specified")
 		return
 	}
 	if exportType != "oas30" && exportType != "swagger" {
-		sim.AWSError(w, "BadRequestException", "No export type called "+exportType+" exists", http.StatusBadRequest)
+		AWSError(w, "BadRequestException", "No export type called "+exportType+" exists", http.StatusBadRequest)
 		return
 	}
 	body := apigwOpenAPIExport(api, stageName, exportType)
@@ -973,15 +973,15 @@ func handleAPIGWGetSdk(w http.ResponseWriter, r *http.Request) {
 	stageName := sim.PathParam(r, "stageName")
 	sdkType := sim.PathParam(r, "sdkType")
 	if _, ok := apigwRestApis.Get(restApiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
 		return
 	}
 	if _, ok := apigwStages.Get(restApiId + "/" + stageName); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid stage identifier specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid stage identifier specified")
 		return
 	}
 	if !apigwSdkTypeExists(sdkType) {
-		sim.AWSError(w, "NotFoundException", "No SDK type called "+sdkType+" exists", http.StatusNotFound)
+		AWSError(w, "NotFoundException", "No SDK type called "+sdkType+" exists", http.StatusNotFound)
 		return
 	}
 	// Real GetSdk streams a zip of generated SDK sources; emit a deterministic
@@ -1012,7 +1012,7 @@ func handleAPIGWGetSdkType(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid SDK type specified")
+	AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid SDK type specified")
 }
 
 func apigwSdkTypeExists(id string) bool {
@@ -1028,7 +1028,7 @@ func handleAPIGWGetUsage(w http.ResponseWriter, r *http.Request) {
 	usagePlanId := sim.PathParam(r, "usagePlanId")
 	up, ok := apigwUsagePlans.Get(usagePlanId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Usage Plan ID specified")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Usage Plan ID specified")
 		return
 	}
 	startDate := r.URL.Query().Get("startDate")

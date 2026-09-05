@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Compute Engine settings singletons. A settings resource is not created
@@ -56,7 +56,7 @@ func registerComputeSettings(srv *sim.Server) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			k := key(r)

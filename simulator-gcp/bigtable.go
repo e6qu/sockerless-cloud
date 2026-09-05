@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type bigtableInstance struct {
@@ -227,11 +227,11 @@ func handleBigtableCreateInstance(w http.ResponseWriter, r *http.Request) {
 		Clusters   map[string]bigtableCluster `json:"clusters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.InstanceID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "instanceId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "instanceId is required", "INVALID_ARGUMENT")
 		return
 	}
 	inst := req.Instance
@@ -273,7 +273,7 @@ func handleBigtableListInstances(w http.ResponseWriter, r *http.Request) {
 func handleBigtableInstanceAction(w http.ResponseWriter, r *http.Request) {
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "instanceAction"))
 	if verb != "getIamPolicy" && verb != "setIamPolicy" && verb != "testIamPermissions" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown instance action %q", sim.PathParam(r, "instanceAction"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown instance action %q", sim.PathParam(r, "instanceAction"))
 		return
 	}
 	resource := bigtableInstanceName(sim.PathParam(r, "project"), id)
@@ -284,7 +284,7 @@ func handleBigtableGetInstance(w http.ResponseWriter, r *http.Request) {
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"))
 	inst, ok := bigtableInstances.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, inst)
@@ -294,12 +294,12 @@ func handleBigtablePartialUpdateInstance(w http.ResponseWriter, r *http.Request)
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"))
 	inst, ok := bigtableInstances.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	var req bigtableInstance
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	for _, field := range strings.Split(r.URL.Query().Get("updateMask"), ",") {
@@ -322,12 +322,12 @@ func handleBigtablePartialUpdateInstance(w http.ResponseWriter, r *http.Request)
 func handleBigtableReplaceInstance(w http.ResponseWriter, r *http.Request) {
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"))
 	if _, ok := bigtableInstances.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	var req bigtableInstance
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	req.Name = name
@@ -342,7 +342,7 @@ func handleBigtableReplaceInstance(w http.ResponseWriter, r *http.Request) {
 func handleBigtableDeleteInstance(w http.ResponseWriter, r *http.Request) {
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"))
 	if !bigtableInstances.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	for _, cluster := range bigtableClusters.List() {
@@ -363,17 +363,17 @@ func handleBigtableDeleteInstance(w http.ResponseWriter, r *http.Request) {
 func handleBigtableCreateCluster(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
 	clusterID := r.URL.Query().Get("clusterId")
 	if clusterID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "clusterId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "clusterId is required", "INVALID_ARGUMENT")
 		return
 	}
 	var cluster bigtableCluster
 	if err := sim.ReadJSON(r, &cluster); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	cluster.Name = bigtableClusterName(project, instance, clusterID)
@@ -397,7 +397,7 @@ func handleBigtableGetCluster(w http.ResponseWriter, r *http.Request) {
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	cluster, ok := bigtableClusters.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, cluster)
@@ -407,12 +407,12 @@ func handleBigtableUpdateCluster(w http.ResponseWriter, r *http.Request) {
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	cluster, ok := bigtableClusters.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
 		return
 	}
 	var req bigtableCluster
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.ServeNodes != 0 {
@@ -428,12 +428,12 @@ func handleBigtablePartialUpdateCluster(w http.ResponseWriter, r *http.Request) 
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	cluster, ok := bigtableClusters.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
 		return
 	}
 	var req bigtableCluster
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	for _, field := range strings.Split(r.URL.Query().Get("updateMask"), ",") {
@@ -453,7 +453,7 @@ func handleBigtablePartialUpdateCluster(w http.ResponseWriter, r *http.Request) 
 func handleBigtableDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	if !bigtableClusters.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
 		return
 	}
 	bigtableMemoryLayers.Delete(name + "/memoryLayer")
@@ -463,7 +463,7 @@ func handleBigtableDeleteCluster(w http.ResponseWriter, r *http.Request) {
 func handleBigtableListHotTablets(w http.ResponseWriter, r *http.Request) {
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	if _, ok := bigtableClusters.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
 		return
 	}
 	// A healthy cluster with no measured hotspots returns an empty list.
@@ -473,7 +473,7 @@ func handleBigtableListHotTablets(w http.ResponseWriter, r *http.Request) {
 func handleBigtableGetMemoryLayer(w http.ResponseWriter, r *http.Request) {
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	if _, ok := bigtableClusters.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, bigtableMemoryLayerForCluster(name))
@@ -496,22 +496,22 @@ func bigtableMemoryLayerForCluster(clusterName string) bigtableMemoryLayer {
 func handleBigtableUpdateMemoryLayer(w http.ResponseWriter, r *http.Request) {
 	clusterName := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster"))
 	if _, ok := bigtableClusters.Get(clusterName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", clusterName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", clusterName)
 		return
 	}
 	var req bigtableMemoryLayer
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	name := clusterName + "/memoryLayer"
 	if req.Name != "" && req.Name != name {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "memory layer name %q does not match request path %q", req.Name, name)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "memory layer name %q does not match request path %q", req.Name, name)
 		return
 	}
 	layer := bigtableMemoryLayerForCluster(clusterName)
 	if req.Etag != "" && req.Etag != layer.Etag {
-		sim.GCPError(w, http.StatusConflict, "etag mismatch", "ABORTED")
+		GCPError(w, http.StatusConflict, "etag mismatch", "ABORTED")
 		return
 	}
 	mask := strings.TrimSpace(r.URL.Query().Get("updateMask"))
@@ -520,7 +520,7 @@ func handleBigtableUpdateMemoryLayer(w http.ResponseWriter, r *http.Request) {
 			switch strings.TrimSpace(field) {
 			case "memoryConfig", "memory_config":
 			default:
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "field %q cannot be updated", field)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "field %q cannot be updated", field)
 				return
 			}
 		}
@@ -551,7 +551,7 @@ func handleBigtableListMemoryLayers(w http.ResponseWriter, r *http.Request) {
 		name := bigtableClusterName(project, instance, cluster)
 		item, ok := bigtableClusters.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", name)
 			return
 		}
 		clusters = append(clusters, item)
@@ -576,17 +576,17 @@ func handleBigtableCreateBackup(w http.ResponseWriter, r *http.Request) {
 	project, instance, cluster := sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")
 	clusterName := bigtableClusterName(project, instance, cluster)
 	if _, ok := bigtableClusters.Get(clusterName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", clusterName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "cluster %q not found", clusterName)
 		return
 	}
 	backupID := r.URL.Query().Get("backupId")
 	if backupID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "backupId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "backupId is required", "INVALID_ARGUMENT")
 		return
 	}
 	var body bigtableResource
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if body == nil {
@@ -594,12 +594,12 @@ func handleBigtableCreateBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	sourceTable, _ := body["sourceTable"].(string)
 	if sourceTable == "" {
-		sim.GCPError(w, http.StatusBadRequest, "sourceTable is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "sourceTable is required", "INVALID_ARGUMENT")
 		return
 	}
 	name := clusterName + "/backups/" + backupID
 	if !btCaptureTable(name, sourceTable) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", sourceTable)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", sourceTable)
 		return
 	}
 	body["name"] = name
@@ -620,7 +620,7 @@ func handleBigtableGetBackup(w http.ResponseWriter, r *http.Request) {
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")) + "/backups/" + sim.PathParam(r, "backup")
 	body, ok := bigtableBackups.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, body)
@@ -630,12 +630,12 @@ func handleBigtablePatchBackup(w http.ResponseWriter, r *http.Request) {
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")) + "/backups/" + sim.PathParam(r, "backup")
 	body, ok := bigtableBackups.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
 		return
 	}
 	var patch bigtableResource
 	if err := sim.ReadJSON(r, &patch); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	bigtableApplyUpdateMask(body, patch, r.URL.Query().Get("updateMask"))
@@ -648,7 +648,7 @@ func handleBigtablePatchBackup(w http.ResponseWriter, r *http.Request) {
 func handleBigtableDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	name := bigtableClusterName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")) + "/backups/" + sim.PathParam(r, "backup")
 	if !bigtableBackups.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
 		return
 	}
 	btDeleteCapture(name)
@@ -661,7 +661,7 @@ func handleBigtableBackupCollectionAction(w http.ResponseWriter, r *http.Request
 	project, instance, cluster := sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")
 	coll, verb := bigtableSplitColonVerb(sim.PathParam(r, "backupsColl"))
 	if coll != "backups" || verb != "copy" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown collection action %q", sim.PathParam(r, "backupsColl"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown collection action %q", sim.PathParam(r, "backupsColl"))
 		return
 	}
 	clusterName := bigtableClusterName(project, instance, cluster)
@@ -671,16 +671,16 @@ func handleBigtableBackupCollectionAction(w http.ResponseWriter, r *http.Request
 		ExpireTime   string `json:"expireTime"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.BackupID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "backupId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "backupId is required", "INVALID_ARGUMENT")
 		return
 	}
 	source, ok := bigtableBackups.Get(req.SourceBackup)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.SourceBackup)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.SourceBackup)
 		return
 	}
 	name := clusterName + "/backups/" + req.BackupID
@@ -703,7 +703,7 @@ func handleBigtableBackupItemAction(w http.ResponseWriter, r *http.Request) {
 	project, instance, cluster := sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "cluster")
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "backupAction"))
 	if verb != "getIamPolicy" && verb != "setIamPolicy" && verb != "testIamPermissions" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown backup action %q", sim.PathParam(r, "backupAction"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown backup action %q", sim.PathParam(r, "backupAction"))
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableClusterName(project, instance, cluster)+"/backups/"+id, verb)
@@ -712,17 +712,17 @@ func handleBigtableBackupItemAction(w http.ResponseWriter, r *http.Request) {
 func handleBigtableCreateAppProfile(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
 	appProfileID := r.URL.Query().Get("appProfileId")
 	if appProfileID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "appProfileId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "appProfileId is required", "INVALID_ARGUMENT")
 		return
 	}
 	var body bigtableResource
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if body == nil {
@@ -746,7 +746,7 @@ func handleBigtableGetAppProfile(w http.ResponseWriter, r *http.Request) {
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance")) + "/appProfiles/" + sim.PathParam(r, "appProfile")
 	body, ok := bigtableAppProfiles.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "app profile %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "app profile %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, body)
@@ -756,12 +756,12 @@ func handleBigtablePatchAppProfile(w http.ResponseWriter, r *http.Request) {
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance")) + "/appProfiles/" + sim.PathParam(r, "appProfile")
 	body, ok := bigtableAppProfiles.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "app profile %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "app profile %q not found", name)
 		return
 	}
 	var patch bigtableResource
 	if err := sim.ReadJSON(r, &patch); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	bigtableApplyUpdateMask(body, patch, r.URL.Query().Get("updateMask"))
@@ -775,7 +775,7 @@ func handleBigtablePatchAppProfile(w http.ResponseWriter, r *http.Request) {
 func handleBigtableDeleteAppProfile(w http.ResponseWriter, r *http.Request) {
 	name := bigtableInstanceName(sim.PathParam(r, "project"), sim.PathParam(r, "instance")) + "/appProfiles/" + sim.PathParam(r, "appProfile")
 	if !bigtableAppProfiles.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "app profile %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "app profile %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -784,7 +784,7 @@ func handleBigtableDeleteAppProfile(w http.ResponseWriter, r *http.Request) {
 func handleBigtableCreateTable(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
 	var req struct {
@@ -792,11 +792,11 @@ func handleBigtableCreateTable(w http.ResponseWriter, r *http.Request) {
 		Table   bigtableTable `json:"table"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.TableID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "tableId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "tableId is required", "INVALID_ARGUMENT")
 		return
 	}
 	table := req.Table
@@ -831,7 +831,7 @@ func handleBigtableListTables(w http.ResponseWriter, r *http.Request) {
 func handleBigtableTableCollectionAction(w http.ResponseWriter, r *http.Request) {
 	coll, verb := bigtableSplitColonVerb(sim.PathParam(r, "tablesColl"))
 	if coll != "tables" || verb != "restore" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown collection action %q", sim.PathParam(r, "tablesColl"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown collection action %q", sim.PathParam(r, "tablesColl"))
 		return
 	}
 	handleBigtableRestoreTable(w, r, sim.PathParam(r, "project"), sim.PathParam(r, "instance"))
@@ -844,7 +844,7 @@ func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "tableAction"))
 	if verb == "" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown table action %q", sim.PathParam(r, "tableAction"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown table action %q", sim.PathParam(r, "tableAction"))
 		return
 	}
 	name := bigtableTableName(project, instance, id)
@@ -855,7 +855,7 @@ func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 	}
 	table, ok := bigtableTables.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", name)
 		return
 	}
 	switch verb {
@@ -871,7 +871,7 @@ func handleBigtableTableAction(w http.ResponseWriter, r *http.Request) {
 		op := newBigtableAdminLRO(project, table, "type.googleapis.com/google.bigtable.admin.v2.Table")
 		sim.WriteJSON(w, http.StatusOK, op)
 	default:
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown table action %q", sim.PathParam(r, "tableAction"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown table action %q", sim.PathParam(r, "tableAction"))
 	}
 }
 
@@ -884,7 +884,7 @@ func handleBigtableDropRowRange(w http.ResponseWriter, r *http.Request, name str
 		DeleteAllDataFromTable bool   `json:"deleteAllDataFromTable"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	td := bigtableTableData(name)
@@ -901,7 +901,7 @@ func handleBigtableDropRowRange(w http.ResponseWriter, r *http.Request, name str
 			}
 		}
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"one of rowKeyPrefix or deleteAllDataFromTable is required")
 		return
 	}
@@ -919,7 +919,7 @@ func handleBigtableModifyColumnFamilies(w http.ResponseWriter, r *http.Request, 
 		} `json:"modifications"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if table.ColumnFamilies == nil {
@@ -941,7 +941,7 @@ func handleBigtableModifyColumnFamilies(w http.ResponseWriter, r *http.Request, 
 
 func handleBigtableRestoreTable(w http.ResponseWriter, r *http.Request, project, instance string) {
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
 	var req struct {
@@ -949,20 +949,20 @@ func handleBigtableRestoreTable(w http.ResponseWriter, r *http.Request, project,
 		Backup  string `json:"backup"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.TableID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "tableId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "tableId is required", "INVALID_ARGUMENT")
 		return
 	}
 	if req.Backup == "" {
-		sim.GCPError(w, http.StatusBadRequest, "backup is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "backup is required", "INVALID_ARGUMENT")
 		return
 	}
 	table, ok := btRestoreCapture(req.Backup, bigtableTableName(project, instance, req.TableID))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.Backup)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.Backup)
 		return
 	}
 	op := newBigtableAdminLRO(project, table, "type.googleapis.com/google.bigtable.admin.v2.Table")
@@ -973,7 +973,7 @@ func handleBigtableGetTable(w http.ResponseWriter, r *http.Request) {
 	name := bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table"))
 	table, ok := bigtableTables.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, table)
@@ -983,12 +983,12 @@ func handleBigtablePatchTable(w http.ResponseWriter, r *http.Request) {
 	name := bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table"))
 	table, ok := bigtableTables.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", name)
 		return
 	}
 	var req bigtableTable
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	for _, field := range strings.Split(r.URL.Query().Get("updateMask"), ",") {
@@ -1005,7 +1005,7 @@ func handleBigtablePatchTable(w http.ResponseWriter, r *http.Request) {
 func handleBigtableDeleteTable(w http.ResponseWriter, r *http.Request) {
 	name := bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table"))
 	if !bigtableTables.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", name)
 		return
 	}
 	btDeleteTableData(name)
@@ -1019,12 +1019,12 @@ func bigtableAuthViewName(r *http.Request, view string) string {
 func handleBigtableCreateAuthView(w http.ResponseWriter, r *http.Request) {
 	tableName := bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table"))
 	if _, ok := bigtableTables.Get(tableName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", tableName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", tableName)
 		return
 	}
 	viewID := r.URL.Query().Get("authorizedViewId")
 	if viewID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "authorizedViewId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "authorizedViewId is required", "INVALID_ARGUMENT")
 		return
 	}
 	body := bigtableReadResourceBody(w, r)
@@ -1049,7 +1049,7 @@ func handleBigtableGetAuthView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableAuthViewName(r, sim.PathParam(r, "authView"))
 	body, ok := bigtableAuthViews.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authorized view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authorized view %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, body)
@@ -1059,7 +1059,7 @@ func handleBigtablePatchAuthView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableAuthViewName(r, sim.PathParam(r, "authView"))
 	body, ok := bigtableAuthViews.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authorized view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authorized view %q not found", name)
 		return
 	}
 	patch := bigtableReadResourceBody(w, r)
@@ -1077,7 +1077,7 @@ func handleBigtablePatchAuthView(w http.ResponseWriter, r *http.Request) {
 func handleBigtableDeleteAuthView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableAuthViewName(r, sim.PathParam(r, "authView"))
 	if !bigtableAuthViews.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authorized view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authorized view %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1086,7 +1086,7 @@ func handleBigtableDeleteAuthView(w http.ResponseWriter, r *http.Request) {
 func handleBigtableAuthViewItemAction(w http.ResponseWriter, r *http.Request) {
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "authViewAction"))
 	if verb != "getIamPolicy" && verb != "setIamPolicy" && verb != "testIamPermissions" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown authorized view action %q", sim.PathParam(r, "authViewAction"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown authorized view action %q", sim.PathParam(r, "authViewAction"))
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableAuthViewName(r, id), verb)
@@ -1099,12 +1099,12 @@ func bigtableSchemaBundleName(r *http.Request, bundle string) string {
 func handleBigtableCreateSchemaBundle(w http.ResponseWriter, r *http.Request) {
 	tableName := bigtableTableName(sim.PathParam(r, "project"), sim.PathParam(r, "instance"), sim.PathParam(r, "table"))
 	if _, ok := bigtableTables.Get(tableName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", tableName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "table %q not found", tableName)
 		return
 	}
 	bundleID := r.URL.Query().Get("schemaBundleId")
 	if bundleID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "schemaBundleId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "schemaBundleId is required", "INVALID_ARGUMENT")
 		return
 	}
 	body := bigtableReadResourceBody(w, r)
@@ -1129,7 +1129,7 @@ func handleBigtableGetSchemaBundle(w http.ResponseWriter, r *http.Request) {
 	name := bigtableSchemaBundleName(r, sim.PathParam(r, "schemaBundle"))
 	body, ok := bigtableSchemaBundle.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "schema bundle %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "schema bundle %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, body)
@@ -1139,7 +1139,7 @@ func handleBigtablePatchSchemaBundle(w http.ResponseWriter, r *http.Request) {
 	name := bigtableSchemaBundleName(r, sim.PathParam(r, "schemaBundle"))
 	body, ok := bigtableSchemaBundle.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "schema bundle %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "schema bundle %q not found", name)
 		return
 	}
 	patch := bigtableReadResourceBody(w, r)
@@ -1157,7 +1157,7 @@ func handleBigtablePatchSchemaBundle(w http.ResponseWriter, r *http.Request) {
 func handleBigtableDeleteSchemaBundle(w http.ResponseWriter, r *http.Request) {
 	name := bigtableSchemaBundleName(r, sim.PathParam(r, "schemaBundle"))
 	if !bigtableSchemaBundle.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "schema bundle %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "schema bundle %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1166,7 +1166,7 @@ func handleBigtableDeleteSchemaBundle(w http.ResponseWriter, r *http.Request) {
 func handleBigtableSchemaBundleItemAction(w http.ResponseWriter, r *http.Request) {
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "schemaBundleAction"))
 	if verb != "getIamPolicy" && verb != "setIamPolicy" && verb != "testIamPermissions" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown schema bundle action %q", sim.PathParam(r, "schemaBundleAction"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown schema bundle action %q", sim.PathParam(r, "schemaBundleAction"))
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableSchemaBundleName(r, id), verb)
@@ -1179,12 +1179,12 @@ func bigtableLogicalViewName(r *http.Request, view string) string {
 func handleBigtableCreateLogicalView(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
 	viewID := r.URL.Query().Get("logicalViewId")
 	if viewID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "logicalViewId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "logicalViewId is required", "INVALID_ARGUMENT")
 		return
 	}
 	body := bigtableReadResourceBody(w, r)
@@ -1209,7 +1209,7 @@ func handleBigtableGetLogicalView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableLogicalViewName(r, sim.PathParam(r, "logicalView"))
 	body, ok := bigtableLogicalView.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logical view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logical view %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, body)
@@ -1219,7 +1219,7 @@ func handleBigtablePatchLogicalView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableLogicalViewName(r, sim.PathParam(r, "logicalView"))
 	body, ok := bigtableLogicalView.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logical view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logical view %q not found", name)
 		return
 	}
 	patch := bigtableReadResourceBody(w, r)
@@ -1237,7 +1237,7 @@ func handleBigtablePatchLogicalView(w http.ResponseWriter, r *http.Request) {
 func handleBigtableDeleteLogicalView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableLogicalViewName(r, sim.PathParam(r, "logicalView"))
 	if !bigtableLogicalView.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logical view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logical view %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1246,7 +1246,7 @@ func handleBigtableDeleteLogicalView(w http.ResponseWriter, r *http.Request) {
 func handleBigtableLogicalViewItemAction(w http.ResponseWriter, r *http.Request) {
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "logicalViewAction"))
 	if verb != "getIamPolicy" && verb != "setIamPolicy" && verb != "testIamPermissions" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown logical view action %q", sim.PathParam(r, "logicalViewAction"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown logical view action %q", sim.PathParam(r, "logicalViewAction"))
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableLogicalViewName(r, id), verb)
@@ -1259,12 +1259,12 @@ func bigtableMatViewName(r *http.Request, view string) string {
 func handleBigtableCreateMatView(w http.ResponseWriter, r *http.Request) {
 	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
 	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
 	viewID := r.URL.Query().Get("materializedViewId")
 	if viewID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "materializedViewId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "materializedViewId is required", "INVALID_ARGUMENT")
 		return
 	}
 	body := bigtableReadResourceBody(w, r)
@@ -1289,7 +1289,7 @@ func handleBigtableGetMatView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableMatViewName(r, sim.PathParam(r, "matView"))
 	body, ok := bigtableMatView.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "materialized view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "materialized view %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, body)
@@ -1299,7 +1299,7 @@ func handleBigtablePatchMatView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableMatViewName(r, sim.PathParam(r, "matView"))
 	body, ok := bigtableMatView.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "materialized view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "materialized view %q not found", name)
 		return
 	}
 	patch := bigtableReadResourceBody(w, r)
@@ -1317,7 +1317,7 @@ func handleBigtablePatchMatView(w http.ResponseWriter, r *http.Request) {
 func handleBigtableDeleteMatView(w http.ResponseWriter, r *http.Request) {
 	name := bigtableMatViewName(r, sim.PathParam(r, "matView"))
 	if !bigtableMatView.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "materialized view %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "materialized view %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1326,7 +1326,7 @@ func handleBigtableDeleteMatView(w http.ResponseWriter, r *http.Request) {
 func handleBigtableMatViewItemAction(w http.ResponseWriter, r *http.Request) {
 	id, verb := bigtableSplitColonVerb(sim.PathParam(r, "matViewAction"))
 	if verb != "getIamPolicy" && verb != "setIamPolicy" && verb != "testIamPermissions" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown materialized view action %q", sim.PathParam(r, "matViewAction"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown materialized view action %q", sim.PathParam(r, "matViewAction"))
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), bigtableMatViewName(r, id), verb)
@@ -1337,7 +1337,7 @@ func handleBigtableMatViewItemAction(w http.ResponseWriter, r *http.Request) {
 func bigtableReadResourceBody(w http.ResponseWriter, r *http.Request) bigtableResource {
 	var body bigtableResource
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return nil
 	}
 	if body == nil {

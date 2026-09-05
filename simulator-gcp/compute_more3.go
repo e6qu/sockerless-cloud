@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file is the third isolated tranche of Compute Engine (compute v1)
@@ -167,7 +167,7 @@ func registerComputeTestIamOnly(srv *sim.Server, scope computeScopeKind, collect
 			Permissions []string `json:"permissions"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		granted := req.Permissions
@@ -203,7 +203,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			key := relPath(r, sim.PathParam(r, "name"))
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			ok := store.Update(key, func(m *map[string]any) {
@@ -213,7 +213,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 				cur[listField] = arr
 			})
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, opType))
@@ -233,7 +233,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			key := relPath(r, sim.PathParam(r, "name"))
 			q := r.URL.Query().Get(queryParam)
 			if q == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s query parameter is required", queryParam)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s query parameter is required", queryParam)
 				return
 			}
 			ok := store.Update(key, func(m *map[string]any) {
@@ -255,7 +255,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 				cur[listField] = kept
 			})
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, opType))
@@ -274,7 +274,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			key := relPath(r, sim.PathParam(r, "name"))
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			priority := r.URL.Query().Get("priority")
@@ -295,7 +295,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 				cur[listField] = append(arr, body)
 			})
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, opType))
@@ -313,7 +313,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			key := relPath(r, sim.PathParam(r, "name"))
 			m, ok := store.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
 				return
 			}
 			q := r.URL.Query().Get(queryParam)
@@ -331,7 +331,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 					}
 				}
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", verb, q)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", verb, q)
 		})
 	}
 	getSub("getAssociation", "associations", "name", false)
@@ -454,7 +454,7 @@ func registerComputeNetworkEndpointGroupMembers(srv *sim.Server, scope computeSc
 			NetworkEndpoints []map[string]any `json:"networkEndpoints"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ok := store.Update(key, func(m *map[string]any) {
@@ -463,7 +463,7 @@ func registerComputeNetworkEndpointGroupMembers(srv *sim.Server, scope computeSc
 			cur["networkEndpoints"] = append(arr, req.NetworkEndpoints...)
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "networkEndpointGroup %q not found", sim.PathParam(r, "name"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "networkEndpointGroup %q not found", sim.PathParam(r, "name"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, "attachNetworkEndpoints"))
@@ -475,7 +475,7 @@ func registerComputeNetworkEndpointGroupMembers(srv *sim.Server, scope computeSc
 			NetworkEndpoints []map[string]any `json:"networkEndpoints"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ok := store.Update(key, func(m *map[string]any) {
@@ -497,7 +497,7 @@ func registerComputeNetworkEndpointGroupMembers(srv *sim.Server, scope computeSc
 			cur["networkEndpoints"] = kept
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "networkEndpointGroup %q not found", sim.PathParam(r, "name"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "networkEndpointGroup %q not found", sim.PathParam(r, "name"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, "detachNetworkEndpoints"))
@@ -507,7 +507,7 @@ func registerComputeNetworkEndpointGroupMembers(srv *sim.Server, scope computeSc
 		key := relPath(r)
 		m, ok := store.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "networkEndpointGroup %q not found", sim.PathParam(r, "name"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "networkEndpointGroup %q not found", sim.PathParam(r, "name"))
 			return
 		}
 		endpoints, _ := m["networkEndpoints"].([]map[string]any)
@@ -540,7 +540,7 @@ func registerComputeForwardingRuleSetTarget(srv *sim.Server, scope computeScopeK
 			Target string `json:"target"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ok := store.Update(key, func(m *map[string]any) {
@@ -549,7 +549,7 @@ func registerComputeForwardingRuleSetTarget(srv *sim.Server, scope computeScopeK
 			}
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "forwardingRule %q not found", sim.PathParam(r, "name"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "forwardingRule %q not found", sim.PathParam(r, "name"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(scope, r), computeSelfLink(key), "setTarget"))
@@ -577,12 +577,12 @@ func registerComputeRouterMore(srv *sim.Server) {
 		key := fmt.Sprintf("projects/%s/regions/%s/routers/%s", project, region, name)
 		var router ComputeRouter
 		if err := sim.ReadJSON(r, &router); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		existing, ok := routers.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
 		}
 		// selfLink, id, region and the creation timestamp are output-only: an
@@ -646,17 +646,17 @@ func registerComputeRouterMore(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/routers/{router}/updateRoutePolicy", func(w http.ResponseWriter, r *http.Request) {
 		rk, ok := rpExists(r)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
 			return
 		}
 		var rp map[string]any
 		if err := sim.ReadJSON(r, &rp); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name, _ := rp["name"].(string)
 		if name == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "route policy name is required")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "route policy name is required")
 			return
 		}
 		rp["kind"] = "compute#routePolicy"
@@ -667,17 +667,17 @@ func registerComputeRouterMore(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/routers/{router}/patchRoutePolicy", func(w http.ResponseWriter, r *http.Request) {
 		rk, ok := rpExists(r)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
 			return
 		}
 		var rp map[string]any
 		if err := sim.ReadJSON(r, &rp); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name, _ := rp["name"].(string)
 		if name == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "route policy name is required")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "route policy name is required")
 			return
 		}
 		key := rpKey(rk, name)
@@ -695,12 +695,12 @@ func registerComputeRouterMore(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/routers/{router}/deleteRoutePolicy", func(w http.ResponseWriter, r *http.Request) {
 		rk, ok := rpExists(r)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
 			return
 		}
 		name := r.URL.Query().Get("policy")
 		if name == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "policy query parameter is required")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "policy query parameter is required")
 			return
 		}
 		routePolicies.Delete(rpKey(rk, name))
@@ -710,17 +710,17 @@ func registerComputeRouterMore(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/routers/{router}/getRoutePolicy", func(w http.ResponseWriter, r *http.Request) {
 		rk, ok := rpExists(r)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
 			return
 		}
 		name := r.URL.Query().Get("policy")
 		if name == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "policy query parameter is required")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "policy query parameter is required")
 			return
 		}
 		rp, ok := routePolicies.Get(rpKey(rk, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "route policy %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "route policy %q not found", name)
 			return
 		}
 		respRP := map[string]any{}
@@ -750,7 +750,7 @@ func registerComputeRouterMore(srv *sim.Server) {
 		rv := rv
 		srv.HandleFunc(rv.path, func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := routers.Get(relPath(r)); !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
 				return
 			}
 			resp := map[string]any{
@@ -766,12 +766,12 @@ func registerComputeRouterMore(srv *sim.Server) {
 	// echoing the previewed config without applying it.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/routers/{router}/preview", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := routers.Get(relPath(r)); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", sim.PathParam(r, "router"))
 			return
 		}
 		var body ComputeRouter
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{

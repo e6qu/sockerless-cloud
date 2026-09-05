@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The verbs a Compute Engine disk carries beyond its lifecycle.
@@ -155,7 +155,7 @@ func registerComputeDiskVerbsAt(
 			key := computeScopedKey(r, scope, "disks", sim.PathParam(r, "name"))
 			accessor := disks()
 			if _, ok := accessor.policies(key); !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"disk %q not found", sim.PathParam(r, "name"))
 				return "", accessor, false
 			}
@@ -176,7 +176,7 @@ func registerComputeDiskVerbsAt(
 					ResourcePolicies []string `json:"resourcePolicies"`
 				}
 				if err := sim.ReadJSON(r, &req); err != nil {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 					return
 				}
 				held, _ := disks.policies(key)
@@ -184,7 +184,7 @@ func registerComputeDiskVerbsAt(
 					at := computeIndexOfString(held, policy)
 					if add {
 						if at >= 0 {
-							sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+							GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 								"resource policy %s is already attached", policy)
 							return
 						}
@@ -192,7 +192,7 @@ func registerComputeDiskVerbsAt(
 						continue
 					}
 					if at < 0 {
-						sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+						GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 							"resource policy %s is not attached to this disk", policy)
 						return
 					}
@@ -214,11 +214,11 @@ func registerComputeDiskVerbsAt(
 				DiskEncryptionKey map[string]any `json:"diskEncryptionKey"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if req.DiskEncryptionKey == nil {
-				sim.GCPError(w, http.StatusBadRequest,
+				GCPError(w, http.StatusBadRequest,
 					"diskEncryptionKey is required to rekey a disk", "INVALID_ARGUMENT")
 				return
 			}
@@ -235,11 +235,11 @@ func registerComputeDiskVerbsAt(
 				AsyncSecondaryDisk string `json:"asyncSecondaryDisk"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if req.AsyncSecondaryDisk == "" {
-				sim.GCPError(w, http.StatusBadRequest,
+				GCPError(w, http.StatusBadRequest,
 					"asyncSecondaryDisk names the disk to replicate to", "INVALID_ARGUMENT")
 				return
 			}
@@ -256,7 +256,7 @@ func registerComputeDiskVerbsAt(
 				return
 			}
 			if !disks.hasField(key, "asyncPrimaryDisk") {
-				sim.GCPError(w, http.StatusBadRequest, "this disk is not replicating", "INVALID_ARGUMENT")
+				GCPError(w, http.StatusBadRequest, "this disk is not replicating", "INVALID_ARGUMENT")
 				return
 			}
 			disks.clearField(key, "asyncPrimaryDisk")
@@ -273,18 +273,18 @@ func registerComputeDiskVerbsAt(
 			}
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			name, _ := body["name"].(string)
 			if name == "" {
-				sim.GCPError(w, http.StatusBadRequest,
+				GCPError(w, http.StatusBadRequest,
 					"name is required to take a snapshot", "INVALID_ARGUMENT")
 				return
 			}
 			snapshotKey := "projects/" + sim.PathParam(r, "project") + "/global/snapshots/" + name
 			if _, exists := gcpComputeSnapshots.Get(snapshotKey); exists {
-				sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "snapshot %q already exists", name)
+				GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "snapshot %q already exists", name)
 				return
 			}
 			body["kind"] = "compute#snapshot"
@@ -307,11 +307,11 @@ func registerComputeDiskVerbsAt(
 				ResourcePolicy string `json:"resourcePolicy"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if req.ResourcePolicy == "" {
-				sim.GCPError(w, http.StatusBadRequest,
+				GCPError(w, http.StatusBadRequest,
 					"resourcePolicy names the consistency group to stop", "INVALID_ARGUMENT")
 				return
 			}

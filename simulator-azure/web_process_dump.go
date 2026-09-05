@@ -11,8 +11,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
 // A process dump: the memory image of one of the site's processes, written
@@ -178,7 +176,7 @@ func webGetProcessDump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !webProcIsProcess(proc) {
-		sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+		AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 			"%s is not implemented by the simulator: a process dump is the memory "+
 				"image of the process, read from its own /proc/<pid>/mem, and this host "+
 				"does not share a kernel with the container engine, so the site's "+
@@ -187,7 +185,7 @@ func webGetProcessDump(w http.ResponseWriter, r *http.Request) {
 	}
 	mappings, ok := webProcessMappings(proc.PID)
 	if !ok {
-		sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+		AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 			"%s is not implemented by the simulator: the process's mapping table "+
 				"could not be read.", webProcessDumpOperation(r))
 		return
@@ -202,7 +200,7 @@ func webGetProcessDump(w http.ResponseWriter, r *http.Request) {
 		// that is not a descendant. That is this host declining, not the
 		// simulator failing, so it declares the gap rather than reporting a
 		// server error the caller would read as a defect here.
-		sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+		AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 			"%s is not implemented on this host: a process dump is the memory image "+
 				"of the process, read from its own /proc/<pid>/mem, and this host would "+
 				"not let the simulator read it (%v).", webProcessDumpOperation(r), err)

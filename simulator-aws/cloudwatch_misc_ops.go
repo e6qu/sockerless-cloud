@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch GetMetricData (awsJson / query — the cbor surface lives in
@@ -76,7 +76,7 @@ func cwListAlarmMuteRules(alarmName string) []CWAlarmMuteRule {
 
 // ── GetMetricData (awsJson) ─────────────────────────────────────────────────
 
-func registerCloudWatchMiscJSON(r *sim.AWSRouter) {
+func registerCloudWatchMiscJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.GetMetricData", handleCWJSONGetMetricData)
 	r.Register("GraniteServiceVersion20100801.PutAlarmMuteRule", handleCWJSONPutAlarmMuteRule)
 	r.Register("GraniteServiceVersion20100801.GetAlarmMuteRule", handleCWJSONGetAlarmMuteRule)
@@ -109,7 +109,7 @@ func handleCWJSONGetMetricData(w http.ResponseWriter, r *http.Request) {
 		EndTime           float64                 `json:"EndTime"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	results := make([]map[string]any, 0, len(req.MetricDataQueries))
@@ -163,11 +163,11 @@ func handleCWJSONPutAlarmMuteRule(w http.ResponseWriter, r *http.Request) {
 		ExpireDate float64   `json:"ExpireDate"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter Name is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter Name is required.", http.StatusBadRequest)
 		return
 	}
 	var schedule CWMuteSchedule
@@ -217,12 +217,12 @@ func handleCWJSONGetAlarmMuteRule(w http.ResponseWriter, r *http.Request) {
 		AlarmMuteRuleName string `json:"AlarmMuteRuleName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	mr, ok := cwAlarmMuteRules.Get(req.AlarmMuteRuleName)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Alarm mute rule %s does not exist", req.AlarmMuteRuleName)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Alarm mute rule %s does not exist", req.AlarmMuteRuleName)
 		return
 	}
 	out := map[string]any{
@@ -249,7 +249,7 @@ func handleCWJSONDeleteAlarmMuteRule(w http.ResponseWriter, r *http.Request) {
 		AlarmMuteRuleName string `json:"AlarmMuteRuleName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	// DeleteAlarmMuteRule is idempotent — deleting an absent rule succeeds.
@@ -262,7 +262,7 @@ func handleCWJSONListAlarmMuteRules(w http.ResponseWriter, r *http.Request) {
 		AlarmName string `json:"AlarmName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	summaries := make([]map[string]any, 0)
@@ -322,12 +322,12 @@ func handleCWJSONTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags        []cwTagKV `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	current, setter, ok := cwResourceTags(req.ResourceARN)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Unknown resource %s", req.ResourceARN)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Unknown resource %s", req.ResourceARN)
 		return
 	}
 	merged := map[string]string{}
@@ -347,12 +347,12 @@ func handleCWJSONUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys     []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	current, setter, ok := cwResourceTags(req.ResourceARN)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Unknown resource %s", req.ResourceARN)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Unknown resource %s", req.ResourceARN)
 		return
 	}
 	merged := map[string]string{}
@@ -371,12 +371,12 @@ func handleCWJSONListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceARN string `json:"ResourceARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	current, _, ok := cwResourceTags(req.ResourceARN)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Unknown resource %s", req.ResourceARN)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Unknown resource %s", req.ResourceARN)
 		return
 	}
 	tags := make([]cwTagKV, 0, len(current))
@@ -522,7 +522,7 @@ func handleCWCBORListAlarmMuteRules(w http.ResponseWriter, r *http.Request) {
 
 // ── query surface (older aws CLI) ───────────────────────────────────────────
 
-func registerCloudWatchMiscQuery(r *sim.AWSQueryRouter) {
+func registerCloudWatchMiscQuery(r *AWSQueryRouter) {
 	r.Register("GetMetricData", handleCWQueryGetMetricData)
 	r.Register("PutAlarmMuteRule", handleCWQueryPutAlarmMuteRule)
 	r.Register("GetAlarmMuteRule", handleCWQueryGetAlarmMuteRule)

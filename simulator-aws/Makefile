@@ -1,7 +1,7 @@
 # Standardized Makefile for simulator-aws — see docs/MAKEFILE_STANDARD.md.
 #
 # This sim is its own Go module, resolved against the sibling support
-# modules (realexec, ui-auth) through the repo-root go.work during
+# modules (sim, realexec, ui-auth) through the repo-root go.work during
 # development and through tagged versions when installed with
 # `go install ...@version`. The default `build` produces a stripped,
 # no-UI binary; `make embed && make build` bakes the console SPA in.
@@ -36,10 +36,10 @@ REPO_ROOT_REL  := ..
 include $(REPO_ROOT_REL)/make/go-app.mk
 
 # ── Domain-specific test targets ────────────────────────────────────
-# Each sub-tree (sdk-tests, cli-tests, terraform-tests, shared) is a
+# Each sub-tree (sdk-tests, cli-tests, terraform-tests) is a
 # separate Go module; the CI calls these directly.
 
-.PHONY: unit-test race-test shared-test sdk-test cli-test terraform-test terraform-https-test terraform-https-test-docker
+.PHONY: unit-test race-test sdk-test cli-test terraform-test terraform-https-test terraform-https-test-docker
 
 # CI passes a deadline under its step budget so a hung test fails with a
 # named Go stack instead of an opaque step kill; locally the default matches
@@ -60,15 +60,10 @@ unit-test: ## go test the simulator module's own package-internal tests (fast; A
 # what keeps the count at zero: a suite whose races are only measured by hand is
 # a suite whose races come back.
 RACE_TEST_TIMEOUT ?= 20m
-# CI runs the module and its shared package as separate jobs, because the
-# deadline is per test binary and the two are an order of magnitude apart.
 RACE_TEST_PKGS ?= ./...
 
 race-test: ## go test the simulator module's own tests under the race detector
 	CGO_ENABLED=1 go test -tags noui -race -count=1 -timeout $(RACE_TEST_TIMEOUT) $(RACE_TEST_PKGS)
-
-shared-test: ## go test the shared/ helper module
-	cd shared && $(GO_ENV) go test -v -count=1 ./...
 
 sdk-test: build ## go test the SDK-driven sim tests
 	cd sdk-tests && $(GO_ENV) go test -v -count=1 -timeout $(SDK_TEST_TIMEOUT) $(SDK_TEST_ARGS)
@@ -87,9 +82,9 @@ terraform-https-test: ## go test terraform via the optional Caddy HTTPS gateway
 	  cd terraform-tests && SOCKERLESS_AWS_SIMULATOR_BINARY=$(CURDIR)/$(APP_NAME) SOCKERLESS_TF_HTTPS_GATEWAY=1 $(GO_ENV) go test -p $(TERRAFORM_TEST_PACKAGE_PARALLELISM) $(TERRAFORM_TEST_JSON_FLAG) -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) $(TERRAFORM_TEST_ARGS) $(TERRAFORM_TEST_PACKAGES); \
 	fi
 
-# Aggregate that runs all four legacy test categories.
+# Aggregate that runs every test category.
 .PHONY: test-all
-test-all: unit-test shared-test sdk-test cli-test terraform-test ## run every test category
+test-all: unit-test sdk-test cli-test terraform-test ## run every test category
 
 # ── Docker targets ──────────────────────────────────────────────────
 .PHONY: docker-build docker-run docker-test docker-test-build

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 var errAPIGWv2EmptyBody = errors.New("the OpenAPI definition body is required")
@@ -168,7 +168,7 @@ func handleAPIGWv2CreateIntegrationResponse(w http.ResponseWriter, r *http.Reque
 	apiId := sim.PathParam(r, "apiId")
 	integrationId := sim.PathParam(r, "integrationId")
 	if _, ok := apigwv2Integrations.Get(apigwv2StoreKey(apiId, integrationId)); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Integration identifier specified %s", integrationId)
 		return
 	}
@@ -180,11 +180,11 @@ func handleAPIGWv2CreateIntegrationResponse(w http.ResponseWriter, r *http.Reque
 		TemplateSelectionExpression string            `json:"TemplateSelectionExpression"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.IntegrationResponseKey == "" {
-		sim.AWSError(w, "BadRequestException", "IntegrationResponseKey is required", http.StatusBadRequest)
+		AWSError(w, "BadRequestException", "IntegrationResponseKey is required", http.StatusBadRequest)
 		return
 	}
 	ir := APIGWv2IntegrationResponse{
@@ -205,7 +205,7 @@ func handleAPIGWv2ListIntegrationResponses(w http.ResponseWriter, r *http.Reques
 	apiId := sim.PathParam(r, "apiId")
 	integrationId := sim.PathParam(r, "integrationId")
 	if _, ok := apigwv2Integrations.Get(apigwv2StoreKey(apiId, integrationId)); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Integration identifier specified %s", integrationId)
 		return
 	}
@@ -224,7 +224,7 @@ func handleAPIGWv2GetIntegrationResponse(w http.ResponseWriter, r *http.Request)
 	responseId := sim.PathParam(r, "integrationResponseId")
 	ir, ok := apigwv2IntegrationResponses.Get(apigwv2IntegrationResponseKey(apiId, integrationId, responseId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid IntegrationResponse identifier specified %s", responseId)
 		return
 	}
@@ -238,7 +238,7 @@ func handleAPIGWv2UpdateIntegrationResponse(w http.ResponseWriter, r *http.Reque
 	key := apigwv2IntegrationResponseKey(apiId, integrationId, responseId)
 	ir, ok := apigwv2IntegrationResponses.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid IntegrationResponse identifier specified %s", responseId)
 		return
 	}
@@ -251,7 +251,7 @@ func handleAPIGWv2UpdateIntegrationResponse(w http.ResponseWriter, r *http.Reque
 		TemplateSelectionExpression *string           `json:"TemplateSelectionExpression"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.IntegrationResponseKey != nil {
@@ -278,7 +278,7 @@ func handleAPIGWv2DeleteIntegrationResponse(w http.ResponseWriter, r *http.Reque
 	integrationId := sim.PathParam(r, "integrationId")
 	responseId := sim.PathParam(r, "integrationResponseId")
 	if !apigwv2IntegrationResponses.Delete(apigwv2IntegrationResponseKey(apiId, integrationId, responseId)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid IntegrationResponse identifier specified %s", responseId)
 		return
 	}
@@ -289,7 +289,7 @@ func handleAPIGWv2CreateRouteResponse(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	routeId := sim.PathParam(r, "routeId")
 	if _, ok := apigwv2Routes.Get(apigwv2StoreKey(apiId, routeId)); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Route identifier specified %s", routeId)
 		return
 	}
@@ -300,11 +300,11 @@ func handleAPIGWv2CreateRouteResponse(w http.ResponseWriter, r *http.Request) {
 		ResponseParameters       map[string]APIGWv2ParamConstraint `json:"ResponseParameters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.RouteResponseKey == "" {
-		sim.AWSError(w, "BadRequestException", "RouteResponseKey is required", http.StatusBadRequest)
+		AWSError(w, "BadRequestException", "RouteResponseKey is required", http.StatusBadRequest)
 		return
 	}
 	rr := APIGWv2RouteResponse{
@@ -324,7 +324,7 @@ func handleAPIGWv2ListRouteResponses(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	routeId := sim.PathParam(r, "routeId")
 	if _, ok := apigwv2Routes.Get(apigwv2StoreKey(apiId, routeId)); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Route identifier specified %s", routeId)
 		return
 	}
@@ -343,7 +343,7 @@ func handleAPIGWv2GetRouteResponse(w http.ResponseWriter, r *http.Request) {
 	responseId := sim.PathParam(r, "routeResponseId")
 	rr, ok := apigwv2RouteResponses.Get(apigwv2RouteResponseKey(apiId, routeId, responseId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid RouteResponse identifier specified %s", responseId)
 		return
 	}
@@ -357,7 +357,7 @@ func handleAPIGWv2UpdateRouteResponse(w http.ResponseWriter, r *http.Request) {
 	key := apigwv2RouteResponseKey(apiId, routeId, responseId)
 	rr, ok := apigwv2RouteResponses.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid RouteResponse identifier specified %s", responseId)
 		return
 	}
@@ -368,7 +368,7 @@ func handleAPIGWv2UpdateRouteResponse(w http.ResponseWriter, r *http.Request) {
 		ResponseParameters       map[string]APIGWv2ParamConstraint `json:"ResponseParameters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.RouteResponseKey != nil {
@@ -392,7 +392,7 @@ func handleAPIGWv2DeleteRouteResponse(w http.ResponseWriter, r *http.Request) {
 	routeId := sim.PathParam(r, "routeId")
 	responseId := sim.PathParam(r, "routeResponseId")
 	if !apigwv2RouteResponses.Delete(apigwv2RouteResponseKey(apiId, routeId, responseId)) {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid RouteResponse identifier specified %s", responseId)
 		return
 	}
@@ -404,7 +404,7 @@ func handleAPIGWv2GetModelTemplate(w http.ResponseWriter, r *http.Request) {
 	modelId := sim.PathParam(r, "modelId")
 	m, ok := apigwv2Models.Get(apigwv2StoreKey(apiId, modelId))
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Model identifier specified %s", modelId)
 		return
 	}
@@ -415,7 +415,7 @@ func handleAPIGWv2GetModelTemplate(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2ImportApi(w http.ResponseWriter, r *http.Request) {
 	api, err := apigwv2APIFromOpenAPI(r, "")
 	if err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	apigwv2Apis.Put(api.ApiId, api)
@@ -426,12 +426,12 @@ func handleAPIGWv2ReimportApi(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	existing, ok := apigwv2Apis.Get(apiId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	api, err := apigwv2APIFromOpenAPI(r, apiId)
 	if err != nil {
-		sim.AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	// Reimport replaces the definition but keeps the API's identity coordinates.
@@ -476,7 +476,7 @@ func handleAPIGWv2ExportApi(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	api, ok := apigwv2Apis.Get(apiId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	// The export is the OpenAPI 3.0 document for the stored API, shaped from
@@ -525,7 +525,7 @@ func handleAPIGWv2DeleteAccessLogSettings(w http.ResponseWriter, r *http.Request
 	apiId := sim.PathParam(r, "apiId")
 	stageName := sim.PathParam(r, "stageName")
 	if _, ok := apigwv2Stages.Get(apigwv2StoreKey(apiId, stageName)); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Stage identifier specified %s", stageName)
 		return
 	}
@@ -535,7 +535,7 @@ func handleAPIGWv2DeleteAccessLogSettings(w http.ResponseWriter, r *http.Request
 func handleAPIGWv2DeleteCorsConfiguration(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	if _, ok := apigwv2Apis.Get(apiId); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -545,7 +545,7 @@ func handleAPIGWv2DeleteRouteRequestParameter(w http.ResponseWriter, r *http.Req
 	apiId := sim.PathParam(r, "apiId")
 	routeId := sim.PathParam(r, "routeId")
 	if _, ok := apigwv2Routes.Get(apigwv2StoreKey(apiId, routeId)); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Route identifier specified %s", routeId)
 		return
 	}
@@ -556,7 +556,7 @@ func handleAPIGWv2DeleteRouteSettings(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	stageName := sim.PathParam(r, "stageName")
 	if _, ok := apigwv2Stages.Get(apigwv2StoreKey(apiId, stageName)); !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
 			"Invalid Stage identifier specified %s", stageName)
 		return
 	}

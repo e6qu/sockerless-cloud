@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // RDS proxies, IAM-role associations, DB security groups, certificates,
@@ -200,7 +200,7 @@ var (
 	rdsPendingMaintenance       sim.Store[rdsMaintenanceActions]
 )
 
-func registerRDSProxiesRoles(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerRDSProxiesRoles(r *AWSQueryRouter, srv *sim.Server) {
 	rdsProxies = sim.MakeStore[RDSProxy](srv.DB(), "rds_proxies")
 	rdsProxyEndpoints = sim.MakeStore[RDSProxyEndpoint](srv.DB(), "rds_proxy_endpoints")
 	rdsProxyTargets = sim.MakeStore[RDSProxyTarget](srv.DB(), "rds_proxy_targets")

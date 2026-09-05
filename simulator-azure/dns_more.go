@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // dnsResourceReferenceRequest is the body of
@@ -54,14 +54,14 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 		id := publicDNSZoneID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "zoneName"))
 		var req PublicDnsZone
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if !zones.Update(id, func(z *PublicDnsZone) {
 			z.Tags = req.Tags
 			z.Etag = generateUUID()
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/dnsZones/%s' under resource group '%s' was not found.",
 				sim.PathParam(r, "zoneName"), sim.PathParam(r, "resourceGroupName"))
 			return
@@ -79,14 +79,14 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 			recordID := publicDNSRecordID(zoneID, recordType, sim.PathParam(r, "recordName"))
 			var req PublicRecordSet
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+				AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 			if !recordSets.Update(recordID, func(rs *PublicRecordSet) {
 				mergePublicRecordSet(&rs.Properties, req.Properties)
 				rs.Etag = generateUUID()
 			}) {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The record set '%s' of type '%s' in zone '%s' was not found.",
 					sim.PathParam(r, "recordName"), recordType, sim.PathParam(r, "zoneName"))
 				return
@@ -101,7 +101,7 @@ func registerPublicDNSMore(srv *sim.Server, zones sim.Store[PublicDnsZone], reco
 	srv.HandleFunc("POST "+subBase+"/getDnsResourceReference", func(w http.ResponseWriter, r *http.Request) {
 		var req dnsResourceReferenceRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		var result dnsResourceReferenceResult
@@ -194,11 +194,11 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 		id := privateZoneID(r)
 		var req PrivateDnsZone
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if !zones.Update(id, func(z *PrivateDnsZone) { z.Tags = req.Tags }) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/privateDnsZones/%s' under resource group '%s' was not found.",
 				sim.PathParam(r, "zoneName"), sim.PathParam(r, "resourceGroupName"))
 			return
@@ -223,14 +223,14 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 			recordID := fmt.Sprintf("%s/%s/%s", privateZoneID(r), recordType, sim.PathParam(r, "recordName"))
 			var req RecordSet
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+				AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 			if !recordSets.Update(recordID, func(rs *RecordSet) {
 				mergePrivateRecordSet(&rs.Properties, req.Properties)
 				rs.Etag = generateUUID()
 			}) {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The record set '%s' of type '%s' in zone '%s' was not found.",
 					sim.PathParam(r, "recordName"), recordType, sim.PathParam(r, "zoneName"))
 				return
@@ -245,7 +245,7 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 		id := privateZoneID(r) + "/virtualNetworkLinks/" + sim.PathParam(r, "linkName")
 		var req VNetLink
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if !vnetLinks.Update(id, func(link *VNetLink) {
@@ -254,7 +254,7 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 			}
 			link.Properties.RegistrationEnabled = req.Properties.RegistrationEnabled
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Virtual network link '%s' not found.", sim.PathParam(r, "linkName"))
 			return
 		}

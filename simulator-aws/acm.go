@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // acmIssueManagedLeaf creates a new key pair and issues a CA-signed X.509 leaf
@@ -244,7 +244,7 @@ func acmARNToID(arn string) string {
 	return arn[i+len(prefix):]
 }
 
-func registerACM(r *sim.AWSRouter, srv *sim.Server) {
+func registerACM(r *AWSRouter, srv *sim.Server) {
 	acmCertificates = sim.MakeStore[acmStoredCert](srv.DB(), "acm_certificates")
 	acmAccountConfiguration = sim.MakeStore[acmAccountConfig](srv.DB(), "acm_account_config")
 	acmManagedCAs = sim.MakeStore[acmAcmeCA](srv.DB(), "acm_managed_certificate_authorities")

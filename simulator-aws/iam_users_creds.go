@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM credential and account-management surface that hangs off the existing
@@ -46,7 +46,7 @@ var (
 	iamPasswordPolicies sim.Store[IAMPasswordPolicy]
 )
 
-func registerIAMUsersCreds(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMUsersCreds(r *AWSQueryRouter, srv *sim.Server) {
 	iamLoginProfiles = sim.MakeStore[IAMLoginProfile](srv.DB(), "iam_login_profiles")
 	iamPasswordPolicies = sim.MakeStore[IAMPasswordPolicy](srv.DB(), "iam_password_policies")
 

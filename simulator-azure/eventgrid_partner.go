@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.EventGrid Partner Events control plane — partner registrations,
@@ -144,7 +144,7 @@ func handleEventGridUpdatePartnerNamespace(w http.ResponseWriter, r *http.Reques
 func handleEventGridDeletePartnerNamespace(w http.ResponseWriter, r *http.Request) {
 	id := eventGridPartnerNamespaceID(r)
 	if !eventGridPartnerNamespaces.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner namespace %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner namespace %q not found", id)
 		return
 	}
 	for _, ch := range eventGridPartnerChannels.List() {
@@ -168,7 +168,7 @@ func handleEventGridListPartnerNamespacesBySub(w http.ResponseWriter, r *http.Re
 func handleEventGridListPartnerNamespaceKeys(w http.ResponseWriter, r *http.Request) {
 	id := eventGridPartnerNamespaceID(r)
 	if _, ok := eventGridPartnerNamespaces.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner namespace %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner namespace %q not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, eventGridListKeysResponse(id))
@@ -181,7 +181,7 @@ func handleEventGridRegeneratePartnerNamespaceKey(w http.ResponseWriter, r *http
 func handleEventGridPutChannel(w http.ResponseWriter, r *http.Request) {
 	nsID := eventGridPartnerNamespaceID(r)
 	if _, ok := eventGridPartnerNamespaces.Get(nsID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner namespace %q not found", nsID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner namespace %q not found", nsID)
 		return
 	}
 	eventGridCreateARMResource(w, r, eventGridPartnerChannels, eventGridChannelID(r),
@@ -212,7 +212,7 @@ func handleEventGridListChannels(w http.ResponseWriter, r *http.Request) {
 func handleEventGridGetChannelFullURL(w http.ResponseWriter, r *http.Request) {
 	ch, ok := eventGridPartnerChannels.Get(eventGridChannelID(r))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "channel %q not found", eventGridChannelID(r))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "channel %q not found", eventGridChannelID(r))
 		return
 	}
 	endpoint := ""
@@ -274,7 +274,7 @@ func handleEventGridAuthorizePartner(w http.ResponseWriter, r *http.Request) {
 	}
 	var partner map[string]any
 	if err := sim.ReadJSON(r, &partner); err != nil {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	auth, list := eventGridPartnerAuthorization(&cfg)
@@ -287,12 +287,12 @@ func handleEventGridUnauthorizePartner(w http.ResponseWriter, r *http.Request) {
 	id := eventGridPartnerConfigurationID(r)
 	cfg, ok := eventGridPartnerConfigurations.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner configuration %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner configuration %q not found", id)
 		return
 	}
 	var partner map[string]any
 	if err := sim.ReadJSON(r, &partner); err != nil {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	auth, list := eventGridPartnerAuthorization(&cfg)
@@ -339,12 +339,12 @@ func handleEventGridGetVerifiedPartner(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "verified partner %q not found", name)
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "verified partner %q not found", name)
 }
 
 func eventGridDeleteARMResource(w http.ResponseWriter, store sim.Store[EventGridTopic], id, label string) {
 	if !store.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

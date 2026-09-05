@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Completion of the Microsoft.DBforPostgreSQL/flexibleServers control plane:
@@ -142,7 +142,7 @@ func pgServerFromReq(r *http.Request) (string, bool) {
 func pgRequireServer(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, ok := pgServerFromReq(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found: %s", id)
 	}
 	return id, ok
 }
@@ -273,7 +273,7 @@ func handlePGLtrBackupGet(w http.ResponseWriter, r *http.Request) {
 	backupName := sim.PathParam(r, "backupName")
 	b, found := pgLtrBackups.Get(pgLtrBackupID(id, backupName))
 	if !found {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"long-term-retention backup %q not found on server", backupName)
 		return
 	}
@@ -290,16 +290,16 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	var req pgLtrBackupRequest
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.BackupSettings == nil || req.BackupSettings.BackupName == "" {
-		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 			"backupSettings.backupName is required")
 		return
 	}
 	if req.TargetDetails == nil || len(req.TargetDetails.SasURIList) == 0 {
-		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 			"targetDetails.sasUriList is required")
 		return
 	}
@@ -376,11 +376,11 @@ func handlePGLtrPreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	var req pgLtrBackupRequest
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.BackupSettings == nil || req.BackupSettings.BackupName == "" {
-		sim.AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidParameterValue", http.StatusBadRequest,
 			"backupSettings.backupName is required")
 		return
 	}
@@ -441,7 +441,7 @@ func handlePGThreatProtectionPut(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	tp := pgThreatProtectionDefault(id, name)
@@ -503,7 +503,7 @@ func handlePGMigrationCreate(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "migrationName")
 	var req PGMigration
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	props := map[string]any{
@@ -528,12 +528,12 @@ func handlePGMigrationCreate(w http.ResponseWriter, r *http.Request) {
 func handlePGMigrationGet(w http.ResponseWriter, r *http.Request) {
 	id, ok := pgServerFromReq(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	m, found := pgMigrations.Get(pgMigrationID(id, sim.PathParam(r, "migrationName")))
 	if !found {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, m)
@@ -555,20 +555,20 @@ func handlePGMigrationList(w http.ResponseWriter, r *http.Request) {
 func handlePGMigrationUpdate(w http.ResponseWriter, r *http.Request) {
 	id, ok := pgServerFromReq(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	mid := pgMigrationID(id, sim.PathParam(r, "migrationName"))
 	m, found := pgMigrations.Get(mid)
 	if !found {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration not found")
 		return
 	}
 	var req struct {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if m.Properties == nil {
@@ -584,13 +584,13 @@ func handlePGMigrationUpdate(w http.ResponseWriter, r *http.Request) {
 func handlePGMigrationCancel(w http.ResponseWriter, r *http.Request) {
 	id, ok := pgServerFromReq(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	mid := pgMigrationID(id, sim.PathParam(r, "migrationName"))
 	m, found := pgMigrations.Get(mid)
 	if !found {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration not found")
 		return
 	}
 	if m.Properties == nil {
@@ -611,7 +611,7 @@ func handlePGCheckMigrationNameAvailability(w http.ResponseWriter, r *http.Reque
 		Type string `json:"type"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	resp := map[string]any{"name": req.Name, "type": req.Type, "nameAvailable": true}
@@ -643,12 +643,12 @@ func handlePGPrivateEndpointConnectionList(w http.ResponseWriter, r *http.Reques
 func handlePGPrivateEndpointConnectionGet(w http.ResponseWriter, r *http.Request) {
 	id, ok := pgServerFromReq(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "server not found")
 		return
 	}
 	c, found := pgPrivateEndpointCxn.Get(pgPrivateEndpointConnectionID(id, sim.PathParam(r, "privateEndpointConnectionName")))
 	if !found {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, c)
@@ -665,7 +665,7 @@ func handlePGPrivateEndpointConnectionPut(w http.ResponseWriter, r *http.Request
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	connState := map[string]any{"status": "Approved", "description": "", "actionsRequired": "None"}
@@ -697,7 +697,7 @@ func handlePGPrivateEndpointConnectionDelete(w http.ResponseWriter, r *http.Requ
 	}
 	cid := pgPrivateEndpointConnectionID(id, sim.PathParam(r, "privateEndpointConnectionName"))
 	if !pgPrivateEndpointCxn.Delete(cid) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found")
 		return
 	}
 	pgWriteActionAccepted(w, r, sub, pgServerLocation(id), issueAzureAsyncOperation(nil))

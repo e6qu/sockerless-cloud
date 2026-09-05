@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SSM Patch Baselines — terraform's `aws_ssm_patch_baseline` and
@@ -47,7 +47,7 @@ var (
 	ssmDefaultBaselines sim.Store[SSMDefaultBaseline]
 )
 
-func registerSSMPatchBaselines(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMPatchBaselines(r *AWSRouter, srv *sim.Server) {
 	ssmPatchBaselines = sim.MakeStore[SSMPatchBaseline](srv.DB(), "ssm_patch_baselines")
 	ssmDefaultBaselines = sim.MakeStore[SSMDefaultBaseline](srv.DB(), "ssm_default_patch_baselines")
 
@@ -119,11 +119,11 @@ func handleSSMCreatePatchBaseline(w http.ResponseWriter, r *http.Request) {
 		Sources                          json.RawMessage `json:"Sources"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name is required", http.StatusBadRequest)
 		return
 	}
 	if req.OperatingSystem == "" {
@@ -155,11 +155,11 @@ func handleSSMDeletePatchBaseline(w http.ResponseWriter, r *http.Request) {
 		BaselineId string `json:"BaselineId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmPatchBaselines.Get(req.BaselineId); !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Patch baseline %s doesn't exist.", req.BaselineId)
 		return
 	}
@@ -178,12 +178,12 @@ func handleSSMGetPatchBaseline(w http.ResponseWriter, r *http.Request) {
 		BaselineId string `json:"BaselineId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	p, ok := ssmPatchBaselines.Get(req.BaselineId)
 	if !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Patch baseline %s doesn't exist.", req.BaselineId)
 		return
 	}
@@ -205,12 +205,12 @@ func handleSSMUpdatePatchBaseline(w http.ResponseWriter, r *http.Request) {
 		Sources                          json.RawMessage `json:"Sources"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	p, ok := ssmPatchBaselines.Get(req.BaselineId)
 	if !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Patch baseline %s doesn't exist.", req.BaselineId)
 		return
 	}
@@ -255,7 +255,7 @@ func handleSSMDescribePatchBaselines(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmPatchBaselines.List()
@@ -290,7 +290,7 @@ func handleSSMGetDefaultPatchBaseline(w http.ResponseWriter, r *http.Request) {
 		OperatingSystem string `json:"OperatingSystem"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	os := req.OperatingSystem
@@ -322,12 +322,12 @@ func handleSSMRegisterDefaultPatchBaseline(w http.ResponseWriter, r *http.Reques
 		BaselineId string `json:"BaselineId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	p, ok := ssmPatchBaselines.Get(req.BaselineId)
 	if !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Patch baseline %s doesn't exist.", req.BaselineId)
 		return
 	}

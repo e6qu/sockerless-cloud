@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // API Gateway v1 — REST surface scoped to Api / ApiConfig / Gateway
@@ -87,7 +87,7 @@ func handleGCPAPIGWIamAction(w http.ResponseWriter, r *http.Request) {
 	gwAction := sim.PathParam(r, "gwAction")
 	gw, action, found := strings.Cut(gwAction, ":")
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"unknown action on gateway %q", gwAction)
 		return
 	}
@@ -99,7 +99,7 @@ func handleGCPAPIGWIamAction(w http.ResponseWriter, r *http.Request) {
 	case "testIamPermissions":
 		handleGCPAPIGWTestIamPermissions(w, r, gw)
 	default:
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"unknown action %q on gateway %q", action, gw)
 	}
 }
@@ -137,7 +137,7 @@ func handleGCPAPIGWSetIamPolicy(w http.ResponseWriter, r *http.Request, gw strin
 		Policy GCPAPIGWIamPolicy `json:"policy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
 		return
 	}
 	key := apigwIamPolicyKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), gw)
@@ -150,7 +150,7 @@ func handleGCPAPIGWTestIamPermissions(w http.ResponseWriter, r *http.Request, gw
 		Permissions []string `json:"permissions"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
 		return
 	}
 	stored, _ := apigwIamPolicies.Get(
@@ -168,12 +168,12 @@ func handleGCPAPIGWCreateApi(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	apiId := r.URL.Query().Get("apiId")
 	if apiId == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "apiId query param is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "apiId query param is required")
 		return
 	}
 	var req APIGWApi
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	name := fmt.Sprintf("projects/%s/locations/global/apis/%s", project, apiId)
@@ -193,7 +193,7 @@ func handleGCPAPIGWGetApi(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/global/apis/%s", sim.PathParam(r, "project"), sim.PathParam(r, "api"))
 	api, ok := apigwApis.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "api not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "api not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, api)
@@ -218,12 +218,12 @@ func handleGCPAPIGWPatchApi(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/global/apis/%s", project, sim.PathParam(r, "api"))
 	api, ok := apigwApis.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "api not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "api not found: %s", name)
 		return
 	}
 	var req APIGWApi
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	if req.DisplayName != "" {
@@ -241,7 +241,7 @@ func handleGCPAPIGWDeleteApi(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	name := fmt.Sprintf("projects/%s/locations/global/apis/%s", project, sim.PathParam(r, "api"))
 	if !apigwApis.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "api not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "api not found: %s", name)
 		return
 	}
 	op := newLRO(project, "global", nil, "type.googleapis.com/google.protobuf.Empty")
@@ -253,12 +253,12 @@ func handleGCPAPIGWCreateConfig(w http.ResponseWriter, r *http.Request) {
 	api := sim.PathParam(r, "api")
 	cfgId := r.URL.Query().Get("apiConfigId")
 	if cfgId == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "apiConfigId query param is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "apiConfigId query param is required")
 		return
 	}
 	var req APIGWApiConfig
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	name := fmt.Sprintf("projects/%s/locations/global/apis/%s/configs/%s", project, api, cfgId)
@@ -281,7 +281,7 @@ func handleGCPAPIGWGetConfig(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "api"), sim.PathParam(r, "cfg"))
 	c, ok := apigwConfigs.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "config not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "config not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, c)
@@ -307,12 +307,12 @@ func handleGCPAPIGWPatchConfig(w http.ResponseWriter, r *http.Request) {
 		project, sim.PathParam(r, "api"), sim.PathParam(r, "cfg"))
 	c, ok := apigwConfigs.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "config not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "config not found: %s", name)
 		return
 	}
 	var req APIGWApiConfig
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	if req.DisplayName != "" {
@@ -331,7 +331,7 @@ func handleGCPAPIGWDeleteConfig(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/global/apis/%s/configs/%s",
 		project, sim.PathParam(r, "api"), sim.PathParam(r, "cfg"))
 	if !apigwConfigs.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "config not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "config not found: %s", name)
 		return
 	}
 	op := newLRO(project, "global", nil, "type.googleapis.com/google.protobuf.Empty")
@@ -343,12 +343,12 @@ func handleGCPAPIGWCreateGateway(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	gwId := r.URL.Query().Get("gatewayId")
 	if gwId == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "gatewayId query param is required")
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "gatewayId query param is required")
 		return
 	}
 	var req APIGWGateway
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	name := fmt.Sprintf("projects/%s/locations/%s/gateways/%s", project, location, gwId)
@@ -371,7 +371,7 @@ func handleGCPAPIGWGetGateway(w http.ResponseWriter, r *http.Request) {
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "gw"))
 	g, ok := apigwGateways.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gateway not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gateway not found: %s", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, g)
@@ -397,12 +397,12 @@ func handleGCPAPIGWPatchGateway(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("projects/%s/locations/%s/gateways/%s", project, location, sim.PathParam(r, "gw"))
 	g, ok := apigwGateways.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gateway not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gateway not found: %s", name)
 		return
 	}
 	var req APIGWGateway
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
 	if req.DisplayName != "" {
@@ -424,7 +424,7 @@ func handleGCPAPIGWDeleteGateway(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	name := fmt.Sprintf("projects/%s/locations/%s/gateways/%s", project, location, sim.PathParam(r, "gw"))
 	if !apigwGateways.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gateway not found: %s", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "gateway not found: %s", name)
 		return
 	}
 	op := newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty")

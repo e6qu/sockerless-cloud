@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sort"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Compute Engine collections whose verbs manage a membership: the instances
@@ -92,12 +92,12 @@ func registerComputeMemberVerbs(srv *sim.Server) {
 			key := "projects/" + project + "/global/rollouts/" + name
 			rollout, ok := rollouts.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rollout %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rollout %q not found", name)
 				return
 			}
 			current, _ := rollout["state"].(string)
 			if current == state {
-				sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 					"rollout %q is already %s", name, state)
 				return
 			}
@@ -126,7 +126,7 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 		key := "projects/" + project + "/regions/" + region + "/targetPools/" + name
 		pool, ok := pools.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "targetPool %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "targetPool %q not found", name)
 			return "", nil, false
 		}
 		return key, pool, true
@@ -144,7 +144,7 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 			}
 			var req map[string][]map[string]string
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			wanted := computeReferenceNames(req[requestField], requestField[:len(requestField)-1])
@@ -153,7 +153,7 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 				at := computeIndexOfString(held, value)
 				if add {
 					if at >= 0 {
-						sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+						GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 							"%s is already in this target pool", value)
 						return
 					}
@@ -161,7 +161,7 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 					continue
 				}
 				if at < 0 {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 						"%s is not in this target pool", value)
 					return
 				}
@@ -186,7 +186,7 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 			Target string `json:"target"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		pool["backupPool"] = req.Target
@@ -206,7 +206,7 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 			SecurityPolicy string `json:"securityPolicy"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		pool["securityPolicy"] = req.SecurityPolicy
@@ -230,11 +230,11 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 			Instance string `json:"instance"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if !computeStringInSlice(computeMemberList(pool, "instances"), req.Instance) {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"instance %s is not in this target pool", req.Instance)
 			return
 		}
@@ -264,7 +264,7 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 		key := computeNetworkSelfLink(project, name)
 		network, ok := gcpComputeNetworks.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "network %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "network %q not found", name)
 			return "", ComputeNetwork{}, false
 		}
 		return key, network, true
@@ -293,7 +293,7 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 			AutoCreateRoutes bool                   `json:"autoCreateRoutes"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		peering := ComputeNetworkPeering{Name: req.Name, Network: req.PeerNetwork}
@@ -301,11 +301,11 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 			peering = *req.NetworkPeering
 		}
 		if peering.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "a peering must be named", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "a peering must be named", "INVALID_ARGUMENT")
 			return
 		}
 		if findPeering(&network, peering.Name) >= 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"a peering named %q already exists on this network", peering.Name)
 			return
 		}
@@ -335,12 +335,12 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 			Name string `json:"name"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		at := findPeering(&network, req.Name)
 		if at < 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"no peering named %q on this network", req.Name)
 			return
 		}
@@ -358,13 +358,13 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 			NetworkPeering *ComputeNetworkPeering `json:"networkPeering"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil || req.NetworkPeering == nil {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"networkPeering is required to update a peering", "INVALID_ARGUMENT")
 			return
 		}
 		at := findPeering(&network, req.NetworkPeering.Name)
 		if at < 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"no peering named %q on this network", req.NetworkPeering.Name)
 			return
 		}
@@ -388,12 +388,12 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 				Name string `json:"name"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			at := findPeering(&network, req.Name)
 			if at < 0 {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"no peering named %q on this network", req.Name)
 				return
 			}
@@ -411,7 +411,7 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 			return
 		}
 		if !network.AutoCreateSubnetworks {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 				"network %q is already in custom subnet mode", network.Name)
 			return
 		}
@@ -477,7 +477,7 @@ func registerComputeNodeGroupNodes(srv *sim.Server, groups, nodes sim.Store[map[
 		project, zone, name := sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "nodeGroup")
 		key := "projects/" + project + "/zones/" + zone + "/nodeGroups/" + name
 		if _, ok := groups.Get(key); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "nodeGroup %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "nodeGroup %q not found", name)
 			return "", false
 		}
 		return key, true
@@ -496,11 +496,11 @@ func registerComputeNodeGroupNodes(srv *sim.Server, groups, nodes sim.Store[map[
 			AdditionalNodeCount int `json:"additionalNodeCount"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if req.AdditionalNodeCount <= 0 {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"additionalNodeCount must be greater than zero", "INVALID_ARGUMENT")
 			return
 		}
@@ -525,12 +525,12 @@ func registerComputeNodeGroupNodes(srv *sim.Server, groups, nodes sim.Store[map[
 			Nodes []string `json:"nodes"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		for _, name := range req.Nodes {
 			if !nodes.Delete(key + "\x00" + name) {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"the group holds no node named %q", name)
 				return
 			}
@@ -579,7 +579,7 @@ func registerComputeNodeGroupNodes(srv *sim.Server, groups, nodes sim.Store[map[
 			NodeTemplate string `json:"nodeTemplate"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		groups.Update(key, func(g *map[string]any) { (*g)["nodeTemplate"] = req.NodeTemplate })
@@ -597,14 +597,14 @@ func registerComputeNodeGroupNodes(srv *sim.Server, groups, nodes sim.Store[map[
 				Nodes []string `json:"nodes"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			for _, name := range req.Nodes {
 				nodeKey := key + "\x00" + name
 				node, held := nodes.Get(nodeKey)
 				if !held {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 						"the group holds no node named %q", name)
 					return
 				}

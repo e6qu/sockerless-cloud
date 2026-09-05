@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // S3MultipartUpload tracks an in-flight multipart upload between
@@ -62,7 +62,7 @@ func handleS3PostObjectDispatch(w http.ResponseWriter, r *http.Request) {
 	case q.Has("select"):
 		handleS3SelectObjectContent(w, r)
 	default:
-		sim.S3ErrorXML(w, "InvalidRequest",
+		S3ErrorXML(w, "InvalidRequest",
 			"POST on an object requires ?uploads (InitiateMultipartUpload), ?uploadId (CompleteMultipartUpload), ?restore (RestoreObject), or ?select (SelectObjectContent)",
 			"", sim.RequestID(r.Context()), http.StatusBadRequest)
 	}
@@ -84,7 +84,7 @@ func handleS3PostBucketDispatch(w http.ResponseWriter, r *http.Request) {
 	case q.Has("metadataTable"):
 		handleS3CreateBucketMetadataTableConfiguration(w, r)
 	default:
-		sim.S3ErrorXML(w, "InvalidRequest",
+		S3ErrorXML(w, "InvalidRequest",
 			"POST on a bucket requires ?delete, ?metadataConfiguration, or ?metadataTable",
 			sim.PathParam(r, "bucket"), sim.RequestID(r.Context()),
 			http.StatusBadRequest)
@@ -202,7 +202,7 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -228,7 +228,7 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 		Key:      key,
 		UploadID: uploadID,
 	}
-	sim.WriteXML(w, http.StatusOK, result)
+	WriteXML(w, http.StatusOK, result)
 }
 
 func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +240,7 @@ func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
 	// values with the same canonical InvalidArgument response.
 	_, _ = fmt.Sscanf(partNumStr, "%d", &partNum)
 	if partNum < 1 || partNum > 10000 {
-		sim.S3ErrorXML(w, "InvalidArgument",
+		S3ErrorXML(w, "InvalidArgument",
 			"Part number must be between 1 and 10000",
 			sim.PathParam(r, "bucket"), sim.RequestID(r.Context()),
 			http.StatusBadRequest)
@@ -249,7 +249,7 @@ func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
 
 	mp, ok := s3MultipartUploads.Get(uploadID)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchUpload",
+		S3ErrorXML(w, "NoSuchUpload",
 			"The specified multipart upload does not exist",
 			sim.PathParam(r, "bucket"), sim.RequestID(r.Context()),
 			http.StatusNotFound)
@@ -263,7 +263,7 @@ func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(bodyReader)
 	if err != nil {
-		sim.S3ErrorXML(w, "InternalError", "Failed to read part body: "+err.Error(),
+		S3ErrorXML(w, "InternalError", "Failed to read part body: "+err.Error(),
 			mp.Bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
 		return
 	}
@@ -284,7 +284,7 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 
 	mp, ok := s3MultipartUploads.Get(uploadID)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchUpload",
+		S3ErrorXML(w, "NoSuchUpload",
 			"The specified multipart upload does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -307,19 +307,19 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 	// header set), so a direct `io.ReadAll` is wire-faithful.
 	rawBody, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody",
+		S3ErrorXML(w, "IncompleteBody",
 			"Failed to read request body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if err := xml.Unmarshal(rawBody, &req); err != nil {
-		sim.S3ErrorXML(w, "MalformedXML",
+		S3ErrorXML(w, "MalformedXML",
 			"Failed to parse CompleteMultipartUpload body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if len(req.Parts) == 0 {
-		sim.S3ErrorXML(w, "MalformedXML",
+		S3ErrorXML(w, "MalformedXML",
 			"CompleteMultipartUpload requires at least one Part",
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -332,7 +332,7 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 	for _, p := range req.Parts {
 		part, ok := mp.Parts[p.PartNumber]
 		if !ok {
-			sim.S3ErrorXML(w, "InvalidPart",
+			S3ErrorXML(w, "InvalidPart",
 				fmt.Sprintf("Part number %d not found", p.PartNumber),
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
@@ -341,7 +341,7 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		// `aws s3api` CLI's shorthand parser strips them, while the SDK
 		// preserves them; both must validate against the stored quoted ETag.
 		if p.ETag != "" && strings.Trim(p.ETag, `"`) != strings.Trim(part.ETag, `"`) {
-			sim.S3ErrorXML(w, "InvalidPart",
+			S3ErrorXML(w, "InvalidPart",
 				fmt.Sprintf("ETag mismatch for part %d: got %s want %s", p.PartNumber, p.ETag, part.ETag),
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
@@ -390,14 +390,14 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		Key:      key,
 		ETag:     finalETag,
 	}
-	sim.WriteXML(w, http.StatusOK, result)
+	WriteXML(w, http.StatusOK, result)
 }
 
 func handleS3AbortMultipart(w http.ResponseWriter, r *http.Request) {
 	uploadID := r.URL.Query().Get("uploadId")
 	ok := s3MultipartUploads.Delete(uploadID)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchUpload",
+		S3ErrorXML(w, "NoSuchUpload",
 			"The specified multipart upload does not exist",
 			sim.PathParam(r, "bucket"), sim.RequestID(r.Context()),
 			http.StatusNotFound)
@@ -496,7 +496,7 @@ func handleS3ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	sim.WriteXML(w, http.StatusOK, result)
+	WriteXML(w, http.StatusOK, result)
 }
 
 // handleS3ListParts returns the set of uploaded parts for an in-flight
@@ -514,7 +514,7 @@ func handleS3ListParts(w http.ResponseWriter, r *http.Request) {
 
 	mp, ok := s3MultipartUploads.Get(uploadID)
 	if !ok || mp.Bucket != bucket || mp.Key != key {
-		sim.S3ErrorXML(w, "NoSuchUpload",
+		S3ErrorXML(w, "NoSuchUpload",
 			"The specified multipart upload does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -586,7 +586,7 @@ func handleS3ListParts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sim.WriteXML(w, http.StatusOK, result)
+	WriteXML(w, http.StatusOK, result)
 }
 
 func parsePositiveQueryInt(raw string, fallback int) int {
@@ -606,7 +606,7 @@ func handleS3PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
 	if _, ok := s3Objects.Get(bucket + "/" + key); !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -624,13 +624,13 @@ func handleS3PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 	// sends it without aws-chunked or gzip framing.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody",
+		S3ErrorXML(w, "IncompleteBody",
 			"Failed to read Tagging body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if err := xml.Unmarshal(body, &req); err != nil {
-		sim.S3ErrorXML(w, "MalformedXML",
+		S3ErrorXML(w, "MalformedXML",
 			"Failed to parse Tagging body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -651,7 +651,7 @@ func handleS3GetObjectTagging(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
 	if _, ok := s3Objects.Get(bucket + "/" + key); !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -673,7 +673,7 @@ func handleS3GetObjectTagging(w http.ResponseWriter, r *http.Request) {
 	for k, v := range tags {
 		out.TagSet.Tags = append(out.TagSet.Tags, tag{Key: k, Value: v})
 	}
-	sim.WriteXML(w, http.StatusOK, out)
+	WriteXML(w, http.StatusOK, out)
 }
 
 func handleS3DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
@@ -690,7 +690,7 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 	srcRaw = strings.TrimPrefix(srcRaw, "/")
 	parts := strings.SplitN(srcRaw, "/", 2)
 	if len(parts) != 2 {
-		sim.S3ErrorXML(w, "InvalidArgument",
+		S3ErrorXML(w, "InvalidArgument",
 			"x-amz-copy-source must be of the form /<bucket>/<key>",
 			"", sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -701,13 +701,13 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 
 	src, ok := s3Objects.Get(srcBucket + "/" + srcKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey",
+		S3ErrorXML(w, "NoSuchKey",
 			"The specified source object does not exist",
 			srcBucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	if _, ok := s3Buckets_.Get(dstBucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			dstBucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -732,7 +732,7 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 		ETag:         src.ETag,
 		LastModified: now.Format(time.RFC3339),
 	}
-	sim.WriteXML(w, http.StatusOK, result)
+	WriteXML(w, http.StatusOK, result)
 }
 
 // ── Multi-object delete ──────────────────────────────────────────────
@@ -740,7 +740,7 @@ func handleS3CopyObject(w http.ResponseWriter, r *http.Request) {
 func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -757,13 +757,13 @@ func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 	// without aws-chunked or gzip framing.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody",
+		S3ErrorXML(w, "IncompleteBody",
 			"Failed to read Delete body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	if err := xml.Unmarshal(body, &req); err != nil {
-		sim.S3ErrorXML(w, "MalformedXML",
+		S3ErrorXML(w, "MalformedXML",
 			"Failed to parse Delete body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -787,7 +787,7 @@ func handleS3MultiObjectDelete(w http.ResponseWriter, r *http.Request) {
 			out.Deleted = append(out.Deleted, deleted{Key: o.Key})
 		}
 	}
-	sim.WriteXML(w, http.StatusOK, out)
+	WriteXML(w, http.StatusOK, out)
 }
 
 func handleS3ListObjectVersions(w http.ResponseWriter, r *http.Request) {
@@ -851,5 +851,5 @@ func handleS3ListObjectVersions(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	}
-	sim.WriteXML(w, http.StatusOK, out)
+	WriteXML(w, http.StatusOK, out)
 }

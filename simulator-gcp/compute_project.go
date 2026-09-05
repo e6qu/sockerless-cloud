@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Compute Engine project resource and the verbs that write it.
@@ -67,12 +67,12 @@ func registerComputeProject(srv *sim.Server) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			value, sent := body[member]
 			if !sent {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"%s needs %s in its request body", verb, member)
 				return
 			}
@@ -91,7 +91,7 @@ func registerComputeProject(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/setCommonInstanceMetadata", func(w http.ResponseWriter, r *http.Request) {
 		var metadata map[string]any
 		if err := sim.ReadJSON(r, &metadata); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		metadata["kind"] = "compute#metadata"
@@ -105,7 +105,7 @@ func registerComputeProject(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/setUsageExportBucket", func(w http.ResponseWriter, r *http.Request) {
 		var location map[string]any
 		if err := sim.ReadJSON(r, &location); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		write(sim.PathParam(r, "project"), func(m map[string]any) {
@@ -168,12 +168,12 @@ func registerComputeProject(srv *sim.Server) {
 			} `json:"xpnResource"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil || req.XpnResource == nil || req.XpnResource.ID == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"the request needs an xpnResource naming the service project")
 			return
 		}
 		if isHost, _ := xpnStatus(host); !isHost {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"project %q is not a Shared VPC host", host)
 			return
 		}
@@ -196,7 +196,7 @@ func registerComputeProject(srv *sim.Server) {
 			}
 			kept = append(kept, map[string]any{"id": req.XpnResource.ID, "type": resourceType})
 		} else if len(kept) == len(held) {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"project %q is not attached to host %q", req.XpnResource.ID, host)
 			return
 		}
@@ -235,7 +235,7 @@ func registerComputeProject(srv *sim.Server) {
 			Organization string `json:"organization"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		hosts := []any{}
@@ -292,13 +292,13 @@ func computeMoveZonalResource[T any](w http.ResponseWriter, r *http.Request, col
 	project := sim.PathParam(r, "project")
 	var req map[string]any
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	source, _ := req[member].(string)
 	destination, _ := req["destinationZone"].(string)
 	if source == "" || destination == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"the request needs %s and destinationZone", member)
 		return
 	}
@@ -307,18 +307,18 @@ func computeMoveZonalResource[T any](w http.ResponseWriter, r *http.Request, col
 	zone := destination[strings.LastIndex(destination, "/")+1:]
 	sourceKey := strings.TrimPrefix(strings.TrimPrefix(source, "https://www.googleapis.com/compute/v1/"), "/")
 	if !strings.HasPrefix(sourceKey, "projects/") {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"%s must name the resource by its path or URL", member)
 		return
 	}
 	held, ok := store.Get(sourceKey)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
 		return
 	}
 	target := fmt.Sprintf("projects/%s/zones/%s/%s/%s", project, zone, collection, name)
 	if target == sourceKey {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"%s %q is already in zone %q", collection, name, zone)
 		return
 	}

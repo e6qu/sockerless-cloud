@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // TagsResource mirrors Microsoft.Resources/tags/default — the canonical
@@ -261,7 +261,7 @@ var azureResourceGroupsByLowerID sim.GenerationIndex[ResourceGroup]
 func handleTagsDefault(w http.ResponseWriter, r *http.Request, scope string) {
 	holder, scopeErr := resolveTagScope(scope)
 	if scopeErr != nil {
-		sim.AzureError(w, scopeErr.code, scopeErr.message, scopeErr.status)
+		AzureError(w, scopeErr.code, scopeErr.message, scopeErr.status)
 		return
 	}
 	answer := func(tags map[string]string) {
@@ -282,7 +282,7 @@ func handleTagsDefault(w http.ResponseWriter, r *http.Request, scope string) {
 	case http.MethodPut:
 		var req TagsResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		tags := map[string]string{}
@@ -294,7 +294,7 @@ func handleTagsDefault(w http.ResponseWriter, r *http.Request, scope string) {
 	case http.MethodPatch:
 		var req TagsPatchRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		tags := map[string]string{}
@@ -316,7 +316,7 @@ func handleTagsDefault(w http.ResponseWriter, r *http.Request, scope string) {
 				delete(tags, k)
 			}
 		default:
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"tags PATCH `operation` must be one of Merge, Replace, Delete; got "+req.Operation,
 				http.StatusBadRequest)
 			return
@@ -327,6 +327,6 @@ func handleTagsDefault(w http.ResponseWriter, r *http.Request, scope string) {
 		holder.write(nil)
 		answer(nil)
 	default:
-		sim.AzureError(w, "MethodNotAllowed", "method "+r.Method+" not supported on tags/default", http.StatusMethodNotAllowed)
+		AzureError(w, "MethodNotAllowed", "method "+r.Method+" not supported on tags/default", http.StatusMethodNotAllowed)
 	}
 }

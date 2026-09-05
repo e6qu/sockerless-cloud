@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM groups + the cross-principal effective-policy resolution that call-time
@@ -55,7 +55,7 @@ var (
 	iamUserBoundaries sim.Store[IAMUserBoundary]
 )
 
-func registerIAMGroups(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMGroups(r *AWSQueryRouter, srv *sim.Server) {
 	iamGroups = sim.MakeStore[IAMGroup](srv.DB(), "iam_groups")
 	iamGroupMembers = sim.MakeStore[IAMGroupMember](srv.DB(), "iam_group_members")
 	iamGroupPolicies = sim.MakeStore[IAMGroupPolicy](srv.DB(), "iam_group_policies")

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SSM Service Settings — account-level toggles for SSM features
@@ -27,7 +27,7 @@ type SSMServiceSetting struct {
 
 var ssmServiceSettings sim.Store[SSMServiceSetting]
 
-func registerSSMServiceSettings(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMServiceSettings(r *AWSRouter, srv *sim.Server) {
 	ssmServiceSettings = sim.MakeStore[SSMServiceSetting](srv.DB(), "ssm_service_settings")
 
 	r.Register("AmazonSSM.GetServiceSetting", handleSSMGetServiceSetting)
@@ -90,11 +90,11 @@ func handleSSMGetServiceSetting(w http.ResponseWriter, r *http.Request) {
 		SettingId string `json:"SettingId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.SettingId == "" {
-		sim.AWSError(w, "ValidationException", "SettingId is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "SettingId is required", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -108,11 +108,11 @@ func handleSSMUpdateServiceSetting(w http.ResponseWriter, r *http.Request) {
 		SettingValue string `json:"SettingValue"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.SettingId == "" || req.SettingValue == "" {
-		sim.AWSError(w, "ValidationException", "SettingId and SettingValue are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "SettingId and SettingValue are required", http.StatusBadRequest)
 		return
 	}
 	ssmServiceSettings.Put(req.SettingId, SSMServiceSetting{
@@ -131,11 +131,11 @@ func handleSSMResetServiceSetting(w http.ResponseWriter, r *http.Request) {
 		SettingId string `json:"SettingId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.SettingId == "" {
-		sim.AWSError(w, "ValidationException", "SettingId is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "SettingId is required", http.StatusBadRequest)
 		return
 	}
 	ssmServiceSettings.Delete(req.SettingId)

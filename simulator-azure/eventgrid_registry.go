@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.EventGrid tenant-level read-only registries: the resource-provider
@@ -147,7 +147,7 @@ func handleEventGridGetTopicType(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic type %q not found", name)
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic type %q not found", name)
 }
 
 func handleEventGridListTopicTypeEventTypes(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +162,7 @@ func handleEventGridListTopicTypeEventTypes(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic type %q not found", name)
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic type %q not found", name)
 }
 
 // handleEventGridListResourceEventTypes lists the system event types emitted by

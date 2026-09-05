@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SSM Resource Data Sync — terraform's `aws_ssm_resource_data_sync`
@@ -27,7 +27,7 @@ type SSMResourceDataSync struct {
 
 var ssmResourceDataSyncs sim.Store[SSMResourceDataSync]
 
-func registerSSMResourceDataSync(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMResourceDataSync(r *AWSRouter, srv *sim.Server) {
 	ssmResourceDataSyncs = sim.MakeStore[SSMResourceDataSync](srv.DB(), "ssm_resource_data_syncs")
 
 	r.Register("AmazonSSM.CreateResourceDataSync", handleSSMCreateResourceDataSync)
@@ -51,11 +51,11 @@ func handleSSMCreateResourceDataSync(w http.ResponseWriter, r *http.Request) {
 		SyncSource    json.RawMessage `json:"SyncSource"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.SyncName == "" {
-		sim.AWSError(w, "ValidationException", "SyncName is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "SyncName is required", http.StatusBadRequest)
 		return
 	}
 	if req.SyncType == "" {
@@ -63,7 +63,7 @@ func handleSSMCreateResourceDataSync(w http.ResponseWriter, r *http.Request) {
 	}
 	key := ssmRDSKey(req.SyncName, req.SyncType)
 	if _, exists := ssmResourceDataSyncs.Get(key); exists {
-		sim.AWSErrorf(w, "ResourceDataSyncAlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceDataSyncAlreadyExistsException", http.StatusBadRequest,
 			"The specified sync configuration is currently in use.")
 		return
 	}
@@ -86,12 +86,12 @@ func handleSSMDeleteResourceDataSync(w http.ResponseWriter, r *http.Request) {
 		SyncType string `json:"SyncType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ssmRDSKey(req.SyncName, req.SyncType)
 	if _, ok := ssmResourceDataSyncs.Get(key); !ok {
-		sim.AWSErrorf(w, "ResourceDataSyncNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceDataSyncNotFoundException", http.StatusBadRequest,
 			"The specified sync name %q wasn't found.", req.SyncName)
 		return
 	}
@@ -106,13 +106,13 @@ func handleSSMUpdateResourceDataSync(w http.ResponseWriter, r *http.Request) {
 		SyncSource json.RawMessage `json:"SyncSource"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ssmRDSKey(req.SyncName, req.SyncType)
 	s, ok := ssmResourceDataSyncs.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceDataSyncNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceDataSyncNotFoundException", http.StatusBadRequest,
 			"The specified sync name %q wasn't found.", req.SyncName)
 		return
 	}
@@ -131,7 +131,7 @@ func handleSSMListResourceDataSync(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var all []SSMResourceDataSync

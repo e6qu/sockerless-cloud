@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func localImagePlatform(ctx context.Context, imageRef string) (string, error) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements the EC2 volume / snapshot / recycle-bin / Customer-Owned
@@ -70,7 +70,7 @@ type EC2MacSipSetting struct {
 	Value string
 }
 
-func registerEC2VolumesMisc(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2VolumesMisc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ReplaceRootVolumeTasks = sim.MakeStore[EC2ReplaceRootVolumeTask](srv.DB(), "ec2_replace_root_volume_tasks")
 	ec2MacModificationTasks = sim.MakeStore[EC2MacModificationTask](srv.DB(), "ec2_mac_modification_tasks")
 	ec2RecycledVolumes = sim.MakeStore[EC2Volume](srv.DB(), "ec2_recycled_volumes")

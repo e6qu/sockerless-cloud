@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Glue — Lake Formation credential-vending unfiltered-metadata reads and
@@ -45,7 +45,7 @@ func glueStatAnnotationKey(profileID, statisticID string) string {
 	return profileID + "/" + statisticID
 }
 
-func registerGlueUnfilteredDQ(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlueUnfilteredDQ(r *AWSRouter, srv *sim.Server) {
 	glueStatAnnotations = sim.MakeStore[GlueStatisticAnnotation](srv.DB(), "glue_statistic_annotations")
 	glueProfileAnnotations = sim.MakeStore[GlueProfileAnnotation](srv.DB(), "glue_profile_annotations")
 

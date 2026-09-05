@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS WAFv2 — JSON 1.1 over POST / + X-Amz-Target=AWSWAF_20190729.<Op>.
@@ -242,7 +242,7 @@ func wafWriteDuplicate(w http.ResponseWriter, kind, name string) {
 		fmt.Sprintf("AWS WAF couldn't perform the operation because some resource in your request is a duplicate of an existing one: %s %s", kind, name))
 }
 
-func registerWAFv2(r *sim.AWSRouter, srv *sim.Server) {
+func registerWAFv2(r *AWSRouter, srv *sim.Server) {
 	wafWebACLs = sim.MakeStore[wafStoredWebACL](srv.DB(), "wafv2_webacls")
 	wafIPSets = sim.MakeStore[wafStoredIPSet](srv.DB(), "wafv2_ipsets")
 	wafRuleGroups = sim.MakeStore[wafStoredRuleGroup](srv.DB(), "wafv2_rulegroups")

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // What a component's billing plan entitles it to, and whether it is over the

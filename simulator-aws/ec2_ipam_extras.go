@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements faithful control-plane CRUD for the Amazon EC2 IP
@@ -143,7 +143,7 @@ var (
 	ec2IpamExtResTokens   sim.Store[EC2IpamExternalResourceVerificationToken]
 )
 
-func registerEC2IPAMExtras(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2IPAMExtras(r *AWSQueryRouter, srv *sim.Server) {
 	registerEC2IpamRegistry(r, srv)
 	registerEC2ApplicationStatus(r, srv)
 	ec2IpamPolicies = sim.MakeStore[EC2IpamPolicy](srv.DB(), "ec2_ipam_policies")

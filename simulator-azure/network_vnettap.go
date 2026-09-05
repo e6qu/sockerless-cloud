@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Virtual network taps (Microsoft.Network/virtualNetworkTaps) name a collector
@@ -53,7 +53,7 @@ func registerNetworkVirtualNetworkTaps(srv *sim.Server) {
 			// neither an interface IP configuration nor a load balancer frontend.
 			if tap.Properties.DestinationNetworkInterfaceIPConfiguration == nil &&
 				tap.Properties.DestinationLoadBalancerFrontEndIPConfiguration == nil {
-				sim.AzureErrorf(w, "VirtualNetworkTapDestinationRequired", http.StatusBadRequest,
+				AzureErrorf(w, "VirtualNetworkTapDestinationRequired", http.StatusBadRequest,
 					"A virtual network tap requires a destination network interface IP configuration or load balancer frontend IP configuration.")
 				return false
 			}

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ElastiCache serverless caches, serverless cache snapshots, global
@@ -123,7 +123,7 @@ var (
 	ecCacheSecGroups      sim.Store[ECCacheSecurityGroup]
 )
 
-func registerElastiCacheServerless(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerElastiCacheServerless(r *AWSQueryRouter, srv *sim.Server) {
 	ecServerlessCaches = sim.MakeStore[ECServerlessCache](srv.DB(), "elasticache_serverless_caches")
 	ecServerlessSnapshots = sim.MakeStore[ECServerlessCacheSnapshot](srv.DB(), "elasticache_serverless_snapshots")
 	ecGlobalReplGroups = sim.MakeStore[ECGlobalReplicationGroup](srv.DB(), "elasticache_global_replication_groups")

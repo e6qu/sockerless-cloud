@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Private link services (Microsoft.Network/privateLinkServices) are the
@@ -152,7 +152,7 @@ func registerNetworkPrivateLinkServices(srv *sim.Server) {
 // NAT IP configuration, and every configuration must name a subnet that exists.
 func validatePrivateLinkService(w http.ResponseWriter, _ *http.Request, pls *PrivateLinkService) bool {
 	if len(pls.Properties.IPConfigurations) == 0 {
-		sim.AzureErrorf(w, "PrivateLinkServiceMustHaveIpConfiguration", http.StatusBadRequest,
+		AzureErrorf(w, "PrivateLinkServiceMustHaveIpConfiguration", http.StatusBadRequest,
 			"Private link service must have at least one IP configuration.")
 		return false
 	}
@@ -325,7 +325,7 @@ func registerPrivateLinkServiceConnections(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/{peConnectionName}", func(w http.ResponseWriter, r *http.Request) {
 		conn, ok := azurePLSConnections.Get(connID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Private endpoint connection %q was not found.", sim.PathParam(r, "peConnectionName"))
 			return
 		}
@@ -340,11 +340,11 @@ func registerPrivateLinkServiceConnections(srv *sim.Server) {
 		id := connID(r)
 		var req NetworkPrivateEndpointConnection
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.PrivateLinkServiceConnectionState == nil {
-			sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 				"The request format was unexpected: privateLinkServiceConnectionState is required.")
 			return
 		}
@@ -352,7 +352,7 @@ func registerPrivateLinkServiceConnections(srv *sim.Server) {
 			conn.Properties.PrivateLinkServiceConnectionState = req.Properties.PrivateLinkServiceConnectionState
 			conn.Etag = azureNetworkEtag()
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Private endpoint connection %q was not found.", sim.PathParam(r, "peConnectionName"))
 			return
 		}
@@ -382,7 +382,7 @@ func registerPrivateLinkServiceDiscovery(srv *sim.Server) {
 			PrivateLinkServiceAlias string `json:"privateLinkServiceAlias"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		sub := sim.PathParam(r, "subscriptionId")

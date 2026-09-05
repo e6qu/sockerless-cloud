@@ -1,7 +1,7 @@
 package main
 
 import (
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Resource-based IAM policies. Several AWS services attach a policy document

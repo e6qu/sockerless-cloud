@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // S3 Express One Zone: directory buckets, the regional control endpoint that
@@ -137,7 +137,7 @@ func handleS3ListDirectoryBuckets(w http.ResponseWriter, r *http.Request) {
 	if maximum := q.Get("max-directory-buckets"); maximum != "" {
 		n, err := strconv.Atoi(maximum)
 		if err != nil || n < 0 {
-			sim.S3ErrorXML(w, "InvalidArgument", "max-directory-buckets must be a non-negative integer",
+			S3ErrorXML(w, "InvalidArgument", "max-directory-buckets must be a non-negative integer",
 				"/", sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
@@ -150,7 +150,7 @@ func handleS3ListDirectoryBuckets(w http.ResponseWriter, r *http.Request) {
 		directory = []S3Bucket{}
 	}
 
-	sim.WriteXML(w, http.StatusOK, s3ListDirectoryBucketsResult{
+	WriteXML(w, http.StatusOK, s3ListDirectoryBucketsResult{
 		Xmlns:             "http://s3.amazonaws.com/doc/2006-03-01/",
 		Buckets:           s3Buckets{Bucket: directory},
 		ContinuationToken: next,
@@ -182,14 +182,14 @@ func handleS3CreateSession(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	held, ok := s3Buckets_.Get(bucket)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	// CreateSession is a Zonal endpoint operation, and only a directory bucket
 	// has one.
 	if held.DirectoryZone == "" {
-		sim.S3ErrorXML(w, "InvalidRequest",
+		S3ErrorXML(w, "InvalidRequest",
 			"The specified bucket is not a directory bucket, and only a directory bucket supports a session.",
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -203,7 +203,7 @@ func handleS3CreateSession(w http.ResponseWriter, r *http.Request) {
 		mode = "ReadWrite"
 	case "ReadWrite", "ReadOnly":
 	default:
-		sim.S3ErrorXML(w, "InvalidArgument",
+		S3ErrorXML(w, "InvalidArgument",
 			fmt.Sprintf("The session mode %q is not one of ReadWrite or ReadOnly.", mode),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -230,7 +230,7 @@ func handleS3CreateSession(w http.ResponseWriter, r *http.Request) {
 		Expires: expires.Format(time.RFC3339),
 	})
 
-	sim.WriteXML(w, http.StatusOK, s3CreateSessionResult{
+	WriteXML(w, http.StatusOK, s3CreateSessionResult{
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
 		Credentials: s3SessionCredentials{
 			AccessKeyID:     akid,
@@ -264,25 +264,25 @@ func s3EnforceExpressSession(w http.ResponseWriter, r *http.Request, operation, 
 	}
 	session, ok := s3ExpressSessions.Get(iamAccessKeyIDFromRequest(r))
 	if !ok {
-		sim.S3ErrorXML(w, "InvalidRequest",
+		S3ErrorXML(w, "InvalidRequest",
 			"The session token presented does not belong to a session this endpoint established.",
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return true
 	}
 	if expires, err := time.Parse(time.RFC3339, session.Expires); err == nil && time.Now().UTC().After(expires) {
-		sim.S3ErrorXML(w, "ExpiredToken",
+		S3ErrorXML(w, "ExpiredToken",
 			"The session credentials presented have expired. Call CreateSession again for a new session.",
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return true
 	}
 	if session.Bucket != bucket {
-		sim.S3ErrorXML(w, "AccessDenied",
+		S3ErrorXML(w, "AccessDenied",
 			fmt.Sprintf("The session presented was established for bucket %q, and a session opens only the bucket it was created for.", session.Bucket),
 			bucket, sim.RequestID(r.Context()), http.StatusForbidden)
 		return true
 	}
 	if session.Mode == "ReadOnly" && !s3ExpressReadOnlyOperations[operation] {
-		sim.S3ErrorXML(w, "AccessDenied",
+		S3ErrorXML(w, "AccessDenied",
 			fmt.Sprintf("A ReadOnly session does not authorize %s.", operation),
 			bucket, sim.RequestID(r.Context()), http.StatusForbidden)
 		return true
@@ -304,25 +304,25 @@ func s3ApplyDirectoryBucketConfiguration(
 	switch locationType {
 	case "AvailabilityZone", "LocalZone":
 	case "":
-		sim.S3ErrorXML(w, "InvalidRequest",
+		S3ErrorXML(w, "InvalidRequest",
 			"A directory bucket requires a Location naming the zone it is placed in.",
 			b.Name, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return false
 	default:
-		sim.S3ErrorXML(w, "InvalidArgument",
+		S3ErrorXML(w, "InvalidArgument",
 			fmt.Sprintf("The location type %q is not one of AvailabilityZone or LocalZone.", locationType),
 			b.Name, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return false
 	}
 	named := s3DirectoryBucketZone(b.Name)
 	if named == "" {
-		sim.S3ErrorXML(w, "InvalidBucketName",
+		S3ErrorXML(w, "InvalidBucketName",
 			"A directory bucket is named <base>--<zone-id>--x-s3, and this name does not carry a zone.",
 			b.Name, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return false
 	}
 	if zone != "" && named != zone {
-		sim.S3ErrorXML(w, "InvalidBucketName",
+		S3ErrorXML(w, "InvalidBucketName",
 			fmt.Sprintf("The bucket name places it in zone %q while the Location names %q; they must agree.", named, zone),
 			b.Name, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return false

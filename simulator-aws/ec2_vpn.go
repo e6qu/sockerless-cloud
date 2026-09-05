@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements the EC2 Site-to-Site VPN family (customer gateways, VPN
@@ -161,7 +161,7 @@ var (
 )
 
 // registerEC2VPN registers the Site-to-Site VPN and Client VPN ec2Query actions.
-func registerEC2VPN(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2VPN(r *AWSQueryRouter, srv *sim.Server) {
 	ec2CustomerGateways = sim.MakeStore[EC2CustomerGateway](srv.DB(), "ec2_customer_gateways")
 	ec2VpnGateways = sim.MakeStore[EC2VpnGateway](srv.DB(), "ec2_vpn_gateways")
 	ec2VpnConnections = sim.MakeStore[EC2VpnConnection](srv.DB(), "ec2_vpn_connections")

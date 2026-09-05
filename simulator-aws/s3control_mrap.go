@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon S3 Multi-Region Access Points: one global endpoint over buckets in
@@ -124,7 +124,7 @@ func s3WriteAsyncToken(w http.ResponseWriter, element, token string) {
 		XMLName         xml.Name
 		RequestTokenARN string `xml:"RequestTokenARN"`
 	}
-	sim.WriteXML(w, http.StatusOK, result{XMLName: xml.Name{Local: element}, RequestTokenARN: token})
+	WriteXML(w, http.StatusOK, result{XMLName: xml.Name{Local: element}, RequestTokenARN: token})
 }
 
 func handleS3CreateMultiRegionAccessPoint(w http.ResponseWriter, r *http.Request) {
@@ -305,7 +305,7 @@ func handleS3DescribeMultiRegionAccessPointOperation(w http.ResponseWriter, r *h
 	if operation.ErrorCode != "" {
 		details.ErrorDetails = &errorDetails{Code: operation.ErrorCode, Message: operation.ErrorMessage}
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName        xml.Name          `xml:"DescribeMultiRegionAccessPointOperationResult"`
 		CreationTime   string            `xml:"AsyncOperation>CreationTime"`
 		Operation      string            `xml:"AsyncOperation>Operation"`
@@ -358,7 +358,7 @@ func handleS3GetMultiRegionAccessPoint(w http.ResponseWriter, r *http.Request) {
 			"The specified Multi-Region Access Point does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName     xml.Name            `xml:"GetMultiRegionAccessPointResult"`
 		AccessPoint s3MultiRegionReport `xml:"AccessPoint"`
 	}{AccessPoint: s3MultiRegionReportOf(mrap)})
@@ -374,7 +374,7 @@ func handleS3ListMultiRegionAccessPoints(w http.ResponseWriter, r *http.Request)
 		items = append(items, s3MultiRegionReportOf(mrap))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName      xml.Name              `xml:"ListMultiRegionAccessPointsResult"`
 		AccessPoints []s3MultiRegionReport `xml:"AccessPoints>AccessPoint"`
 	}{AccessPoints: items})
@@ -388,7 +388,7 @@ func handleS3GetMultiRegionAccessPointPolicy(w http.ResponseWriter, r *http.Requ
 			"The specified Multi-Region Access Point does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName     xml.Name `xml:"GetMultiRegionAccessPointPolicyResult"`
 		Established string   `xml:"Policy>Established>Policy,omitempty"`
 		Proposed    string   `xml:"Policy>Proposed>Policy,omitempty"`
@@ -403,7 +403,7 @@ func handleS3GetMultiRegionAccessPointPolicyStatus(w http.ResponseWriter, r *htt
 			"The specified Multi-Region Access Point does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName  xml.Name `xml:"GetMultiRegionAccessPointPolicyStatusResult"`
 		IsPublic bool     `xml:"Established>IsPublic"`
 	}{IsPublic: s3PolicyIsPublic(mrap.EstablishedPolicy)})
@@ -429,7 +429,7 @@ func handleS3GetMultiRegionAccessPointRoutes(w http.ResponseWriter, r *http.Requ
 			TrafficDialPercentage: region.TrafficDialPercentage,
 		})
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"GetMultiRegionAccessPointRoutesResult"`
 		Mrap    string   `xml:"Mrap"`
 		Routes  []route  `xml:"Routes>Route"`

@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Compute Engine surfaces that report Google's own data rather than the
@@ -49,7 +49,7 @@ func registerComputeCatalogs(srv *sim.Server) {
 		})
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/reliabilityRisks/{reliabilityRisk}",
 		func(w http.ResponseWriter, r *http.Request) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"reliability risk %q not found", sim.PathParam(r, "reliabilityRisk"))
 		})
 
@@ -84,7 +84,7 @@ func registerComputeCatalogs(srv *sim.Server) {
 	// misrepresent the one thing this endpoint is for.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/projectViews",
 		func(w http.ResponseWriter, r *http.Request) {
-			sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
+			GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
 				"the simulator serves no regional project view: it holds one canonical "+
 					"copy of a project and runs no regional replication to lag behind")
 		})
@@ -96,7 +96,7 @@ func registerComputeCatalogs(srv *sim.Server) {
 	// already applies to Google's own risk assessment of a project.
 	adviceUnimplemented := func(what string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			sim.GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
+			GCPErrorf(w, http.StatusNotImplemented, "UNIMPLEMENTED",
 				"the simulator serves no %s: it runs no capacity forecasting or "+
 					"observation to answer from", what)
 		}

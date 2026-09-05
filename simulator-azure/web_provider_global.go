@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_provider_global.go implements the Microsoft.Web provider and
@@ -75,7 +75,7 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		fail := func(code, message string) {
@@ -136,7 +136,7 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		subnetID := req.Properties.SubnetResourceID
@@ -215,7 +215,7 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 	deletedSiteGet := func(w http.ResponseWriter, r *http.Request) {
 		row, ok := webDeletedSiteByRequest(sim.PathParam(r, "deletedSiteId"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The deleted app with id '%s' was not found.", sim.PathParam(r, "deletedSiteId"))
 			return
 		}
@@ -228,7 +228,7 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}/snapshots", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := webDeletedSiteByRequest(sim.PathParam(r, "deletedSiteId"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The deleted app with id '%s' was not found.", sim.PathParam(r, "deletedSiteId"))
 			return
 		}
@@ -253,7 +253,7 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/operations/{operationId}", func(w http.ResponseWriter, r *http.Request) {
 		opID := sim.PathParam(r, "operationId")
 		if _, ok := azureAsyncOps.Get(opID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found.", opID)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found.", opID)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

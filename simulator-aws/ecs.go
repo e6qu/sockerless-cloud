@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"net/http"
 	"net/netip"
 	"os"
@@ -14,11 +13,13 @@ import (
 	"sync"
 	"time"
 
+	realexec "github.com/e6qu/sockerless-cloud/realexec"
+
 	"github.com/gorilla/websocket"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	dockerclient "github.com/moby/moby/client"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS types
@@ -440,7 +441,7 @@ func stopECSTaskProcesses(p *ecsTaskProcesses) {
 	}
 	for _, h := range p.Handles {
 		if h != nil {
-			sim.StopContainer(h.ContainerID)
+			sim.StopContainer(h.ContainerID, time.Second)
 		}
 	}
 }
@@ -483,7 +484,7 @@ func ecsArn(resourceType, id string) string {
 	return fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":%s/%s", resourceType, id)
 }
 
-func registerECS(r *sim.AWSRouter, srv *sim.Server) {
+func registerECS(r *AWSRouter, srv *sim.Server) {
 	ecsClusters = sim.MakeStore[ECSCluster](srv.DB(), "ecs_clusters")
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](srv.DB(), "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks")
@@ -607,7 +608,7 @@ func handleECSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		ServiceConnectDefaults          json.RawMessage `json:"serviceConnectDefaults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ClusterName == "" {
@@ -638,7 +639,7 @@ func handleECSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 		Include  []string `json:"include"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	includeSettings, includeConfig := false, false
@@ -716,13 +717,13 @@ func handleECSUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		ServiceConnectDefaults json.RawMessage `json:"serviceConnectDefaults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name := ecsClusterNameFromRef(req.Cluster)
 	cluster, ok := ecsClusters.Get(name)
 	if !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
 		return
 	}
 	if req.Settings != nil {
@@ -746,13 +747,13 @@ func handleECSUpdateClusterSettings(w http.ResponseWriter, r *http.Request) {
 		Settings json.RawMessage `json:"settings"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name := ecsClusterNameFromRef(req.Cluster)
 	cluster, ok := ecsClusters.Get(name)
 	if !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.Cluster)
 		return
 	}
 	if req.Settings != nil {
@@ -784,15 +785,15 @@ func handleECSRegisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		Tags                    []ECSTag                 `json:"tags,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Family == "" {
-		sim.AWSError(w, "InvalidParameterException", "Family is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Family is required", http.StatusBadRequest)
 		return
 	}
 	if len(req.ContainerDefinitions) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "At least one container definition is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "At least one container definition is required", http.StatusBadRequest)
 		return
 	}
 
@@ -800,7 +801,7 @@ func handleECSRegisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 	// check when requiresCompatibilities includes FARGATE and rejects a task
 	// definition missing either with a ClientException.
 	if hasFargate(req.RequiresCompatibilities) && (req.Cpu == "" || req.Memory == "") {
-		sim.AWSError(w, "ClientException",
+		AWSError(w, "ClientException",
 			"Task definition does not support launch type FARGATE: task-level memory and cpu are required.",
 			http.StatusBadRequest)
 		return
@@ -809,7 +810,7 @@ func handleECSRegisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 	// Validate Fargate CPU/memory combinations
 	if hasFargate(req.RequiresCompatibilities) && req.Cpu != "" && req.Memory != "" {
 		if err := validateFargateResources(req.Cpu, req.Memory); err != nil {
-			sim.AWSError(w, "ClientException", err.Error(), http.StatusBadRequest)
+			AWSError(w, "ClientException", err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
@@ -861,11 +862,11 @@ func handleECSDeregisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		TaskDefinition string `json:"taskDefinition"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TaskDefinition == "" {
-		sim.AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
 		return
 	}
 
@@ -883,7 +884,7 @@ func handleECSDeregisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if !found {
-		sim.AWSErrorf(w, "ClientException", http.StatusBadRequest,
+		AWSErrorf(w, "ClientException", http.StatusBadRequest,
 			"Unable to describe task definition: %s", req.TaskDefinition)
 		return
 	}
@@ -900,11 +901,11 @@ func handleECSDescribeTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		Include        []string `json:"include"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TaskDefinition == "" {
-		sim.AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
 		return
 	}
 
@@ -928,7 +929,7 @@ func handleECSDescribeTaskDefinition(w http.ResponseWriter, r *http.Request) {
 
 	td, ok := ecsTaskDefinitions.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "ClientException", http.StatusBadRequest,
+		AWSErrorf(w, "ClientException", http.StatusBadRequest,
 			"Unable to describe task definition: %s", req.TaskDefinition)
 		return
 	}
@@ -1383,11 +1384,11 @@ func handleECSRunTask(w http.ResponseWriter, r *http.Request) {
 		NetworkConfiguration *ECSTaskNetworkConfig        `json:"networkConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TaskDefinition == "" {
-		sim.AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
 		return
 	}
 	if req.Count == 0 {
@@ -1395,7 +1396,7 @@ func handleECSRunTask(w http.ResponseWriter, r *http.Request) {
 	}
 	// RunTask accepts up to 10 tasks per call (documented max).
 	if req.Count > 10 {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"count cannot be greater than 10.", http.StatusBadRequest)
 		return
 	}
@@ -1415,7 +1416,7 @@ func handleECSRunTask(w http.ResponseWriter, r *http.Request) {
 	}
 	tasks, rerr := runECSTasks(r.Context(), in)
 	if rerr != nil {
-		sim.AWSError(w, rerr.code, rerr.message, rerr.status)
+		AWSError(w, rerr.code, rerr.message, rerr.status)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -2030,7 +2031,7 @@ func startECSPauseContainer(taskID string, td ECSTaskDefinition, dns []string, s
 			"sockerless-sim-task":       taskID,
 			"sockerless-sim-task-pause": "true",
 		},
-		Sandbox: sim.SandboxFargate,
+		Sandbox: SandboxFargate,
 		DNS:     dns,
 	}, sink)
 }
@@ -2073,7 +2074,7 @@ func ecsContainerResourceLimits(td ECSTaskDefinition, cd ECSContainerDefinition)
 // network stack, so the denial does not apply to it.
 func ecsTaskSandbox(launchType string, privileged bool) sim.SandboxProfile {
 	if strings.EqualFold(launchType, "FARGATE") {
-		return sim.SandboxFargate
+		return SandboxFargate
 	}
 	// Amazon ECS on EC2 and EXTERNAL hosts exposes the container instance's
 	// Docker capabilities. The task definition, not Fargate, decides whether a
@@ -2562,7 +2563,7 @@ func ecsRequireCluster(w http.ResponseWriter, ref string) bool {
 		}
 	}
 	if _, ok := ecsClusters.Get(name); !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", ref)
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", ref)
 		return false
 	}
 	return true
@@ -2575,12 +2576,12 @@ func handleECSDescribeTasks(w http.ResponseWriter, r *http.Request) {
 		Include []string `json:"include"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// The `tasks` list is required and must be non-empty.
 	if len(req.Tasks) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "Tasks cannot be empty.", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Tasks cannot be empty.", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -2624,20 +2625,20 @@ func handleECSStopTask(w http.ResponseWriter, r *http.Request) {
 		Reason  string `json:"reason"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
 		return
 	}
 	if req.Task == "" {
-		sim.AWSError(w, "InvalidParameterException", "task is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "task is required", http.StatusBadRequest)
 		return
 	}
 
 	taskID := ecsTaskIDFromRef(req.Task)
 	if !stopECSTask(taskID, req.Reason, "UserInitiated") {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Task not found: %s", req.Task)
 		return
 	}
@@ -2776,7 +2777,7 @@ func handleECSListTasks(w http.ResponseWriter, r *http.Request) {
 		MaxResults    int    `json:"maxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -2848,11 +2849,11 @@ func handleECSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		Cluster string `json:"cluster"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Cluster == "" {
-		sim.AWSError(w, "InvalidParameterException", "cluster is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "cluster is required", http.StatusBadRequest)
 		return
 	}
 
@@ -2866,7 +2867,7 @@ func handleECSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 
 	cluster, ok := ecsClusters.Get(name)
 	if !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest,
 			"Cluster not found: %s", req.Cluster)
 		return
 	}
@@ -2890,11 +2891,11 @@ func handleECSTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags        []ECSTag `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "resourceArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "resourceArn is required", http.StatusBadRequest)
 		return
 	}
 	if fault := ecsRejectTaggingAStoppedTask(req.ResourceArn); fault != nil {
@@ -2919,11 +2920,11 @@ func handleECSUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys     []string `json:"tagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceArn == "" || len(req.TagKeys) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "resourceArn and tagKeys are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "resourceArn and tagKeys are required", http.StatusBadRequest)
 		return
 	}
 	if fault := ecsRejectTaggingAStoppedTask(req.ResourceArn); fault != nil {
@@ -2977,7 +2978,7 @@ func handleECSListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceArn string `json:"resourceArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	// Resolved through the same function TagResource uses, so a type cannot be
@@ -3106,19 +3107,19 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 			Interactive bool   `json:"interactive"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+			AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 			return
 		}
 		if req.Task == "" {
-			sim.AWSError(w, "InvalidParameterException", "task is required", http.StatusBadRequest)
+			AWSError(w, "InvalidParameterException", "task is required", http.StatusBadRequest)
 			return
 		}
 		if req.Command == "" {
-			sim.AWSError(w, "InvalidParameterException", "command is required", http.StatusBadRequest)
+			AWSError(w, "InvalidParameterException", "command is required", http.StatusBadRequest)
 			return
 		}
 		if !req.Interactive {
-			sim.AWSError(w, "InvalidParameterException",
+			AWSError(w, "InvalidParameterException",
 				"Amazon ECS only supports initiating interactive execute command sessions. Specify interactive as true.",
 				http.StatusBadRequest)
 			return
@@ -3136,28 +3137,28 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 		// Verify task exists and is RUNNING
 		task, ok := ecsTasks.Get(taskID)
 		if !ok {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 				"Task not found: %s", req.Task)
 			return
 		}
 		if task.LastStatus != ECSTaskStatusRunning {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 				"Execute command is not supported on task in %s status", task.LastStatus)
 			return
 		}
 		if req.Cluster != "" && task.ClusterArn != ecsArn("cluster", ecsClusterNameFromRef(req.Cluster)) {
-			sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 				"Task not found: %s", req.Task)
 			return
 		}
 		container := ecsExecTargetContainer(task, req.Container)
 		if container == nil {
 			if req.Container == "" {
-				sim.AWSError(w, "InvalidParameterException",
+				AWSError(w, "InvalidParameterException",
 					"container is required when the task has multiple containers",
 					http.StatusBadRequest)
 			} else {
-				sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+				AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 					"Container not found: %s", req.Container)
 			}
 			return
@@ -3165,7 +3166,7 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 		// Real ECS rejects exec unless the task was started with
 		// enableExecuteCommand=true (the SSM exec agent is only injected then).
 		if !task.EnableExecuteCommand {
-			sim.AWSError(w, "InvalidParameterException",
+			AWSError(w, "InvalidParameterException",
 				"The execute command failed because execute command was not enabled when the task was run or the execute command agent isn't running. Wait and try again or run a new task with execute command enabled and try again.",
 				http.StatusBadRequest)
 			return
@@ -3191,7 +3192,7 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 			time.Sleep(100 * time.Millisecond)
 		}
 		if dockerContainerID == "" {
-			sim.AWSError(w, "TargetNotConnectedException",
+			AWSError(w, "TargetNotConnectedException",
 				"The execute command cannot run because the task target is not connected.",
 				http.StatusBadRequest)
 			return

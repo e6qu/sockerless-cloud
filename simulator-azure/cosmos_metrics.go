@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure Monitor legacy (Microsoft.DocumentDB-native) metric, usage and
@@ -336,18 +336,18 @@ func cosmosRegionTransition(w http.ResponseWriter, r *http.Request, online bool)
 	id := cosmosAccountID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 	a, ok := cosmosAccounts.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", id)
 		return
 	}
 	var req struct {
 		Region string `json:"region"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid region body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid region body: %v", err)
 		return
 	}
 	if req.Region == "" {
-		sim.AzureError(w, "BadRequest", "The 'region' property is required.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "The 'region' property is required.", http.StatusBadRequest)
 		return
 	}
 	var match map[string]any
@@ -358,11 +358,11 @@ func cosmosRegionTransition(w http.ResponseWriter, r *http.Request, online bool)
 		}
 	}
 	if match == nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "region %q is not configured on account %s", req.Region, a.Name)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "region %q is not configured on account %s", req.Region, a.Name)
 		return
 	}
 	if !online && cosmosToInt(match["failoverPriority"]) == 0 {
-		sim.AzureError(w, "BadRequest", "The write region cannot be taken offline.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "The write region cannot be taken offline.", http.StatusBadRequest)
 		return
 	}
 

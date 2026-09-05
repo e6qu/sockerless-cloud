@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Blob data-plane behaviours the SDK and CLI suites cannot reach: the lease

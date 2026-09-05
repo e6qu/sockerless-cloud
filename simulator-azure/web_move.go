@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_move.go re-homes Microsoft.Web resources between resource groups for

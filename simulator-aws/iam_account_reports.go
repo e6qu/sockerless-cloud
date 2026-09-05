@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Account reports, service-last-accessed, Organizations-root credential
@@ -73,7 +73,7 @@ var (
 	iamCredReportGen sim.Store[IAMAccountFeature] // tracks GenerateCredentialReport state by a fixed key
 )
 
-func registerIAMAccountReports(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMAccountReports(r *AWSQueryRouter, srv *sim.Server) {
 	iamServiceJobs = sim.MakeStore[IAMServiceJob](srv.DB(), "iam_service_jobs")
 	iamDelegations = sim.MakeStore[IAMDelegationRequest](srv.DB(), "iam_delegation_requests")
 	iamAccountFlags = sim.MakeStore[IAMAccountFeature](srv.DB(), "iam_account_flags")

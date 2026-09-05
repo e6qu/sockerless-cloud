@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM role permissions-boundary + description updates, instance-profile
@@ -43,7 +43,7 @@ var (
 	iamInstanceProfileTag sim.Store[IAMInstanceProfileTagSet]
 )
 
-func registerIAMRolesPolicies(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMRolesPolicies(r *AWSQueryRouter, srv *sim.Server) {
 	iamPolicyVersions = sim.MakeStore[IAMPolicyVersion](srv.DB(), "iam_policy_versions")
 	iamInstanceProfileTag = sim.MakeStore[IAMInstanceProfileTagSet](srv.DB(), "iam_instance_profile_tags")
 

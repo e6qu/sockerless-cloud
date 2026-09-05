@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 10. Resolved: 72.
+Open: 11. Resolved: 77.
 
 ## Open
 
@@ -117,6 +117,24 @@ Open: 10. Resolved: 72.
   running the suite: it passed, and the run never named the image.
 
 
+- **BUG-2970 (the stop and cancellation grace a workload gets is a constant the
+  caller states, not the cloud's own setting):** Each simulator's copy of the
+  framework used to hardcode what happens when a workload is stopped or its
+  context cancelled: Amazon ECS stopped a task with a one-second grace, Cloud
+  Run and Azure Container Apps with ten, and cancellation sent SIGTERM with a
+  five-second grace everywhere but AWS, which killed outright. The framework
+  takes the grace as a parameter now (`sim.StopContainer`,
+  `ContainerConfig.CancelGracePeriod`) and every call site passes the value its
+  copy used to hardcode, so behaviour is unchanged and the constants are at
+  least visible where the cloud knowledge lives. The real services define them:
+  an Amazon ECS container definition's `stopTimeout` (default 30 seconds,
+  2–120), Cloud Run's documented ten seconds between SIGTERM and SIGKILL, an
+  Azure Container Apps revision's `terminationGracePeriodSeconds` (default 30).
+  Fix shape: read the configured value from the task definition, job or
+  revision at each call site and pass that; the tests that stop a `sleep`
+  running as PID 1 will then wait the configured grace, which is what the
+  service does too.
+
 | ID | Sev | Area | Pattern | One-liner |
 |----|-----|------|---------|-----------|
 | 2909 | P2 | AWS simulator IAM enforcement leaves 230 served operations authorized against `"*"` | the resource-derivation gap BUG-2907 closed for five services is measured across the rest, not closed for them | Thirty services derive their resource from the types AWS declares and the ARN format published beside each — Amazon Data Firehose, AWS Security Token Service and Application Auto Scaling joined the generated table, Amazon EventBridge gained the alias table its Name/Rule abbreviations needed, Amazon DynamoDB reads the export and import family's TableArn, and the state-resolving tail closed — Amazon SQS cancels a message move against the source queue its task record names, AWS Cloud Map resolves GetOperation through the operation record, and AWS CloudTrail reads the ARN-valued ResourceId and ResourceIdList its tagging operations carry — and the per-request cases that predated the table are gone but for AWS Lambda. 1,764 of the 1,994 served operations that authorize against a resource type derive it; the remaining 230 still request a literal `"*"`. The Amazon RDS and Amazon ElastiCache copies authorize both of their ends — the target ARN is name-determined before the resource exists, the AWS Step Functions argument — AWS Glue's usage profiles, connection types, integrations and tagging derive, Amazon EC2's tag operations read each id's type from its prefix, and its route-table, address and network-interface associations resolve to their parents through generation-keyed indexes over the simulator's own state. AWS Budgets joined the table, its Smithy model vendored for the probe, and its three tagging operations derive from the ARN they name. The coverage probe was also sending every member under a lower-cased name — a body no client sends, while the derivation reads the real member name — so it now sends the wire name in its own case, which is what let those three register. AWS Step Functions state-machine and activity creation joined the table — their ARNs are name-determined, so the create request already carries everything the ARN needs, and the older comment calling every create underivable was wrong for them. `TestIAMResourceDerivationCoverage` ratchets the number and prints the per-service remainder, largest first: Amazon EC2 (56), AWS Glue (25), AWS CodeBuild (23), Amazon RDS (22), AWS Identity and Access Management (21), Amazon DynamoDB (18), AWS Systems Manager (16). Amazon ECS fell from 20 to 8 when its daemon and Express Mode families were read from the ARNs they name, type by type. Amazon CloudWatch Logs fell from 31 to 3 when its named families — delivery, delivery destination and source, subscription destination, anomaly detector, lookup table, scheduled query — were assembled from the identifiers their requests carry. What is left is mostly an operation that creates its resource, so carries no identifier for it yet, names something other than the resource it authorizes against, or names it by an ARN in a shape the coverage probe cannot express — those derive for real requests and are pinned by `TestIAMResourceARNs_*` behavior tests; the comment beside `iamDerivationCoverageFloor` states each service's remaining class. | The figures come from `TestIAMResourceDerivationCoverage`, which is the only place they should come from — they had drifted twice — to 1,788 of 1,975, and again to 1,758 of 1,994 while `iamDerivationCoverageFloor` read 1,764 — so read the ratchet, never this row.
@@ -221,6 +239,53 @@ Open: 10. Resolved: 72.
   clean checkout and fails each corruption with the message that names it.
 
 ## Resolved history
+
+- ~~**BUG-2975 (the default Google Cloud gRPC port collided with the default
+  Azure port):**~~ The Google Cloud simulator derived its gRPC port as the HTTP
+  port plus one, which for the default `:4567` is `:4568` — the Azure
+  simulator's default HTTP port. The README's "all three at once" start ran
+  both on one host, so whichever bound second failed, and the Google Cloud
+  simulator's gRPC listener failing is `log.Fatalf`: the whole process died.
+  `docker compose up` hid it by giving each simulator its own network namespace
+  and publishing no gRPC port at all. The gRPC port is now the HTTP port plus
+  two (`:4569`), compose publishes it, and the three defaults coexist.
+
+- ~~**BUG-2974 (the support-module pins lagged the modules they pinned):**~~
+  All three simulators pinned `ui-auth` at a pseudo-version two fixes behind
+  the working tree — the OIDC callback timeout among them — and `realexec` at
+  the deleted bootstrap tag, whose cached content predates the load balancer
+  and Firecracker changes. Every workspace build and test passed, because
+  `go.work` resolves the tree; every `go install` and every SDK harness build
+  (`GOWORK=off`) shipped the old code. `check-installable-build.sh` could not
+  see it, because the old code compiled. `scripts/check-support-module-pins.sh`
+  downloads each pinned version and fails when its content differs from the
+  tree, in CI's build gates; the pins were moved to the commit that carries
+  the tree's content.
+
+- ~~**BUG-2973 (the request-logging middleware swallowed `Flush` in two of the
+  three frameworks):**~~ Only the Google Cloud copy of `statusWriter`
+  implemented `http.Flusher`. In the AWS and Azure copies a handler's
+  `w.(http.Flusher)` assertion failed against the wrapper, so Amazon Kinesis
+  streaming reads, Amazon CloudWatch Logs live tail and the Amazon S3
+  select-object stream buffered their whole response until the handler
+  returned. The one framework module passes `Flush` through everywhere.
+
+- ~~**BUG-2972 (Azure's `WrapHandler` wrote the handler chain without the
+  lock that guards it):**~~ The AWS and Google Cloud copies took `handlerMu`
+  around the write; Azure's copy had lost it, so a `WrapHandler` racing the
+  first request's `finalHandler` build was the same data race the detector had
+  already found and fixed once. One module, one implementation.
+
+- ~~**BUG-2971 (the Google Cloud framework copy had no persistence
+  envelope):**~~ The AWS and Azure copies of `SQLiteStore` kept exported
+  `json:"-"` fields — internal source-of-truth state hidden from the wire — in
+  a sidecar so they survive a restart. The Google Cloud copy serialized the
+  wire shape alone, so every such field on a Google Cloud resource was dropped
+  on restart with persistence enabled. It also called `os.Exit(1)` from inside
+  `InitDocker` and swept a persistent run's workloads at startup, where the AWS
+  copy returned the error to startup and preserved persisted workloads for
+  adoption. The unified framework carries the envelope, the returned error and
+  the preservation for all three.
 
 - ~~**BUG-2966 (`testIamPermissions` answered with its own question):**~~ Six
   implementations on the Google Cloud slice — API Gateway, Cloud KMS, the Cloud
@@ -677,7 +742,7 @@ Open: 10. Resolved: 72.
   each simulator supplies its own name, slug, token, session store and process
   evidence; the observation reports real session, runtime, memory and uptime
   figures and fabricates no cloud resource or cost. `SIM_MONITORING_TOKEN` is
-  documented beside the other coordinates in each `shared/README.md`. The
+  documented beside the other coordinates in `sim/README.md`. The
   implementation merged in PR #95 and shipped in `v0.26.0`. Filed as BUG-2933
   by the change that fixed it, which was already the number of the orphaned-
   simulator leak below; renumbered here.

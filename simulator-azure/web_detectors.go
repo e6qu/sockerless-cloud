@@ -12,7 +12,7 @@ import (
 	mobycontainer "github.com/moby/moby/api/types/container"
 	mobyclient "github.com/moby/moby/client"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // App Service diagnostics: the diagnostic categories of a site or slot, the
@@ -835,7 +835,7 @@ func webRequireDiagnosticCategory(w http.ResponseWriter, r *http.Request) bool {
 	if strings.EqualFold(category, webDiagnosticCategory) {
 		return true
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The diagnostic category '%s' does not exist on this site. The categories it publishes are: %s.",
 		category, webDiagnosticCategory)
 	return false
@@ -852,13 +852,13 @@ func webFindDetector(w http.ResponseWriter, name string) (webDetector, bool) {
 	}
 	for _, unserved := range webUnservedDetectors() {
 		if strings.EqualFold(unserved.name, name) {
-			sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+			AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 				"The detector '%s' is not implemented by the simulator: it would need %s.",
 				unserved.name, unserved.reason)
 			return webDetector{}, false
 		}
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The detector '%s' does not exist on this site.", name)
 	return webDetector{}, false
 }
@@ -871,13 +871,13 @@ func webFindAnalysis(w http.ResponseWriter, name string) (webAnalysis, bool) {
 	}
 	for _, unserved := range webUnservedAnalyses() {
 		if strings.EqualFold(unserved.name, name) {
-			sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+			AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 				"The analysis '%s' is not implemented by the simulator: it would need %s.",
 				unserved.name, unserved.reason)
 			return webAnalysis{}, false
 		}
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The analysis '%s' does not exist on this site.", name)
 	return webAnalysis{}, false
 }
@@ -1126,7 +1126,7 @@ func registerWebEnvironmentDiagnostics(ase func(string, string, http.HandlerFunc
 		if !ok {
 			return
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The diagnostics item '%s' does not exist on App Service Environment '%s': the simulator computes no hosting-environment diagnostics.",
 			sim.PathParam(r, "diagnosticsName"), row.Name)
 	})
@@ -1145,7 +1145,7 @@ func registerWebEnvironmentDiagnostics(ase func(string, string, http.HandlerFunc
 		if !ok {
 			return
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The detector '%s' does not exist on App Service Environment '%s': the simulator computes no hosting-environment detectors.",
 			sim.PathParam(r, "detectorName"), row.Name)
 	})

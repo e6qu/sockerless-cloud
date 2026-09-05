@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // An instance reaching "running" or "stopped" restamps every volume attached to

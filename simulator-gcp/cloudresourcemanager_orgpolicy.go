@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CRMBooleanPolicy mirrors the cloudresourcemanager#BooleanPolicy (v1)
@@ -401,7 +401,7 @@ func crmOrgPolicyVerb(w http.ResponseWriter, r *http.Request, resource, action s
 		PageToken  string        `json:"pageToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return true
 	}
 
@@ -440,18 +440,18 @@ func crmOrgPolicyVerb(w http.ResponseWriter, r *http.Request, resource, action s
 	constraint := req.Constraint
 	if action == "setOrgPolicy" {
 		if req.Policy == nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Request must contain a policy.")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Request must contain a policy.")
 			return true
 		}
 		constraint = req.Policy.Constraint
 	}
 	if constraint == "" {
-		sim.GCPError(w, http.StatusBadRequest, "Request must specify a constraint.", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "Request must specify a constraint.", "INVALID_ARGUMENT")
 		return true
 	}
 	c, known := crmConstraintByName(constraint)
 	if !known {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Constraint %s is not recognized.", constraint)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Constraint %s is not recognized.", constraint)
 		return true
 	}
 
@@ -472,7 +472,7 @@ func crmOrgPolicyVerb(w http.ResponseWriter, r *http.Request, resource, action s
 	case "setOrgPolicy":
 		p := *req.Policy
 		if msg := crmValidateOrgPolicy(c, p); msg != "" {
-			sim.GCPError(w, http.StatusBadRequest, msg, "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, msg, "INVALID_ARGUMENT")
 			return true
 		}
 		if !crmOrgPolicyEtagOK(w, key, p.Etag) {
@@ -506,7 +506,7 @@ func crmOrgPolicyEtagOK(w http.ResponseWriter, key, etag string) bool {
 	}
 	row, ok := crmOrgPolicies.Get(key)
 	if !ok || row.Policy.Etag != etag {
-		sim.GCPErrorf(w, http.StatusConflict, "ABORTED",
+		GCPErrorf(w, http.StatusConflict, "ABORTED",
 			"Policy etag does not match the current policy; read the policy again and retry.")
 		return false
 	}
@@ -576,7 +576,7 @@ func crmOrgPolicyPage[T any](w http.ResponseWriter, items []T, pageSize int, pag
 	if pageToken != "" {
 		n, err := strconv.Atoi(pageToken)
 		if err != nil || n < 0 || n > len(items) {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid page token %q.", pageToken)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid page token %q.", pageToken)
 			return nil, "", false
 		}
 		start = n

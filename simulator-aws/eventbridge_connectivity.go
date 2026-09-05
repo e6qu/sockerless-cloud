@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EventBridge connectivity slice: API destinations, connections, global
@@ -93,7 +93,7 @@ var (
 	ebPartnerSources sim.Store[EBPartnerEventSource]
 )
 
-func registerEventBridgeConnectivity(r *sim.AWSRouter, srv *sim.Server) {
+func registerEventBridgeConnectivity(r *AWSRouter, srv *sim.Server) {
 	ebConnections = sim.MakeStore[EBConnection](srv.DB(), "eventbridge_connections")
 	ebApiDest = sim.MakeStore[EBApiDestination](srv.DB(), "eventbridge_api_destinations")
 	ebEndpoints = sim.MakeStore[EBEndpoint](srv.DB(), "eventbridge_endpoints")
@@ -161,19 +161,19 @@ func handleEBCreateApiDestination(w http.ResponseWriter, r *http.Request) {
 		InvocationRateLimitPerSecond *int32 `json:"InvocationRateLimitPerSecond"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.ConnectionArn == "" || req.InvocationEndpoint == "" || req.HttpMethod == "" {
-		sim.AWSError(w, "ValidationException", "Name, ConnectionArn, InvocationEndpoint, and HttpMethod are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name, ConnectionArn, InvocationEndpoint, and HttpMethod are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ebApiDest.Get(req.Name); ok {
-		sim.AWSError(w, "ResourceAlreadyExistsException", "An api-destination with the name "+req.Name+" already exists.", http.StatusConflict)
+		AWSError(w, "ResourceAlreadyExistsException", "An api-destination with the name "+req.Name+" already exists.", http.StatusConflict)
 		return
 	}
 	if !ebConnectionExistsByARN(req.ConnectionArn) {
-		sim.AWSError(w, "ResourceNotFoundException", "Connection does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Connection does not exist.", http.StatusNotFound)
 		return
 	}
 	now := time.Now().Unix()
@@ -203,12 +203,12 @@ func handleEBDescribeApiDestination(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	dest, ok := ebApiDest.Get(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "An api-destination "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "An api-destination "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	out := map[string]any{
@@ -284,17 +284,17 @@ func handleEBUpdateApiDestination(w http.ResponseWriter, r *http.Request) {
 		InvocationRateLimitPerSecond *int32  `json:"InvocationRateLimitPerSecond"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	dest, ok := ebApiDest.Get(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "An api-destination "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "An api-destination "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	if req.ConnectionArn != nil {
 		if !ebConnectionExistsByARN(*req.ConnectionArn) {
-			sim.AWSError(w, "ResourceNotFoundException", "Connection does not exist.", http.StatusNotFound)
+			AWSError(w, "ResourceNotFoundException", "Connection does not exist.", http.StatusNotFound)
 			return
 		}
 		dest.ConnectionArn = *req.ConnectionArn
@@ -326,11 +326,11 @@ func handleEBDeleteApiDestination(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ebApiDest.Delete(req.Name) {
-		sim.AWSError(w, "ResourceNotFoundException", "An api-destination "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "An api-destination "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
@@ -354,15 +354,15 @@ func handleEBCreateConnection(w http.ResponseWriter, r *http.Request) {
 		AuthParameters    json.RawMessage `json:"AuthParameters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.AuthorizationType == "" || len(req.AuthParameters) == 0 {
-		sim.AWSError(w, "ValidationException", "Name, AuthorizationType, and AuthParameters are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name, AuthorizationType, and AuthParameters are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ebConnections.Get(req.Name); ok {
-		sim.AWSError(w, "ResourceAlreadyExistsException", "Connection "+req.Name+" already exists.", http.StatusConflict)
+		AWSError(w, "ResourceAlreadyExistsException", "Connection "+req.Name+" already exists.", http.StatusConflict)
 		return
 	}
 	now := time.Now().Unix()
@@ -438,12 +438,12 @@ func handleEBDescribeConnection(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	conn, ok := ebConnections.Get(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	out := map[string]any{
@@ -525,12 +525,12 @@ func handleEBUpdateConnection(w http.ResponseWriter, r *http.Request) {
 		AuthParameters    json.RawMessage `json:"AuthParameters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	conn, ok := ebConnections.Get(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	if req.AuthorizationType != nil {
@@ -565,12 +565,12 @@ func handleEBDeauthorizeConnection(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	conn, ok := ebConnections.Get(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	conn.State = "DEAUTHORIZED"
@@ -591,12 +591,12 @@ func handleEBDeleteConnection(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	conn, ok := ebConnections.Get(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Connection "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	ebConnections.Delete(req.Name)
@@ -619,15 +619,15 @@ func handleEBCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		ReplicationConfig json.RawMessage `json:"ReplicationConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || len(req.EventBuses) == 0 || len(req.RoutingConfig) == 0 {
-		sim.AWSError(w, "ValidationException", "Name, EventBuses, and RoutingConfig are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name, EventBuses, and RoutingConfig are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ebEndpoints.Get(req.Name); ok {
-		sim.AWSError(w, "ResourceAlreadyExistsException", "Endpoint "+req.Name+" already exists.", http.StatusConflict)
+		AWSError(w, "ResourceAlreadyExistsException", "Endpoint "+req.Name+" already exists.", http.StatusConflict)
 		return
 	}
 	now := time.Now().Unix()
@@ -696,12 +696,12 @@ func handleEBDescribeEndpoint(w http.ResponseWriter, r *http.Request) {
 		HomeRegion string `json:"HomeRegion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	endpoint, ok := ebEndpoints.Get(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Endpoint "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Endpoint "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, ebEndpointDescribeShape(endpoint))
@@ -745,12 +745,12 @@ func handleEBUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 		ReplicationConfig json.RawMessage `json:"ReplicationConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	endpoint, ok := ebEndpoints.Get(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Endpoint "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Endpoint "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	if req.Description != nil {
@@ -793,11 +793,11 @@ func handleEBDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ebEndpoints.Delete(req.Name) {
-		sim.AWSError(w, "ResourceNotFoundException", "Endpoint "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Endpoint "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
@@ -813,21 +813,21 @@ func handleEBCreatePartnerEventSource(w http.ResponseWriter, r *http.Request) {
 		Account string `json:"Account"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Account == "" {
-		sim.AWSError(w, "ValidationException", "Name and Account are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name and Account are required", http.StatusBadRequest)
 		return
 	}
 	// Partner event source names must be partner_name/event_namespace/event_name.
 	if strings.Count(req.Name, "/") < 2 {
-		sim.AWSError(w, "ValidationException", "Event source name must be in the format partner_name/event_namespace/event_name.", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Event source name must be in the format partner_name/event_namespace/event_name.", http.StatusBadRequest)
 		return
 	}
 	key := req.Account + "|" + req.Name
 	if _, ok := ebPartnerSources.Get(key); ok {
-		sim.AWSError(w, "ResourceAlreadyExistsException", "Event source "+req.Name+" already exists.", http.StatusConflict)
+		AWSError(w, "ResourceAlreadyExistsException", "Event source "+req.Name+" already exists.", http.StatusConflict)
 		return
 	}
 	now := time.Now().Unix()
@@ -874,12 +874,12 @@ func handleEBDescribePartnerEventSource(w http.ResponseWriter, r *http.Request) 
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	source, ok := ebFindPartnerSource(req.Name)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event source "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event source "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{
@@ -895,11 +895,11 @@ func handleEBListPartnerEventSources(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.NamePrefix == "" {
-		sim.AWSError(w, "ValidationException", "NamePrefix is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "NamePrefix is required", http.StatusBadRequest)
 		return
 	}
 	seen := map[string]bool{}
@@ -931,11 +931,11 @@ func handleEBListPartnerEventSourceAccounts(w http.ResponseWriter, r *http.Reque
 		NextToken       string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.EventSourceName == "" {
-		sim.AWSError(w, "ValidationException", "EventSourceName is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "EventSourceName is required", http.StatusBadRequest)
 		return
 	}
 	found := false
@@ -947,7 +947,7 @@ func handleEBListPartnerEventSourceAccounts(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if !found {
-		sim.AWSError(w, "ResourceNotFoundException", "Event source "+req.EventSourceName+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event source "+req.EventSourceName+" does not exist.", http.StatusNotFound)
 		return
 	}
 	sort.Slice(accounts, func(i, j int) bool { return accounts[i].Account < accounts[j].Account })
@@ -977,16 +977,16 @@ func handleEBDeletePartnerEventSource(w http.ResponseWriter, r *http.Request) {
 		Account string `json:"Account"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Account == "" {
-		sim.AWSError(w, "ValidationException", "Name and Account are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name and Account are required", http.StatusBadRequest)
 		return
 	}
 	key := req.Account + "|" + req.Name
 	if _, ok := ebPartnerSources.Get(key); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event source "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event source "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	ebPartnerSources.Delete(key)
@@ -1004,7 +1004,7 @@ func handleEBPutPartnerEvents(w http.ResponseWriter, r *http.Request) {
 		} `json:"Entries"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	entries := make([]map[string]string, 0, len(req.Entries))
@@ -1051,7 +1051,7 @@ func ebSetEventSourceState(w http.ResponseWriter, r *http.Request, state string)
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	updated := false
@@ -1065,7 +1065,7 @@ func ebSetEventSourceState(w http.ResponseWriter, r *http.Request, state string)
 		}
 	}
 	if !updated {
-		sim.AWSError(w, "ResourceNotFoundException", "Event source "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event source "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{})
@@ -1076,12 +1076,12 @@ func handleEBDescribeEventSource(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	source, ok := ebFindPartnerSourceForAccount(req.Name, "")
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Event source "+req.Name+" does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "Event source "+req.Name+" does not exist.", http.StatusNotFound)
 		return
 	}
 	out := map[string]any{

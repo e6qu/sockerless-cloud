@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // azureSimSigningKey is the RS256 key used to sign Azure AD tokens the sim
@@ -151,7 +151,7 @@ func CleanPathMiddleware(next http.Handler) http.Handler {
 func AzureARMAPIVersionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isAzureARMPath(r.URL.Path) && r.URL.Query().Get("api-version") == "" {
-			sim.AzureError(w, "InvalidApiVersionParameter",
+			AzureError(w, "InvalidApiVersionParameter",
 				"The api-version query parameter (?api-version=) is required for all requests.",
 				http.StatusBadRequest)
 			return
@@ -239,7 +239,7 @@ func AzureAuthMiddleware(next http.Handler) http.Handler {
 		if r.Method == http.MethodGet && (strings.HasSuffix(path, "/discovery/v2.0/keys") || strings.HasSuffix(path, "/discovery/keys")) {
 			jwk, err := azureSimJWK()
 			if err != nil {
-				sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+				AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{"keys": []map[string]any{jwk}})
@@ -332,7 +332,7 @@ func handleAzureAuthorize(w http.ResponseWriter, r *http.Request, path string) {
 
 	code, err := newAzureAuthorizationCode()
 	if err != nil {
-		sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	azureAuthCodeMu.Lock()
@@ -429,19 +429,19 @@ func handleAzureUserInfo(w http.ResponseWriter, r *http.Request) {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token", error_description="missing bearer token"`)
-		sim.AzureError(w, "invalid_token", "The UserInfo endpoint requires a bearer access token", http.StatusUnauthorized)
+		AzureError(w, "invalid_token", "The UserInfo endpoint requires a bearer access token", http.StatusUnauthorized)
 		return
 	}
 	claims, err := verifyAzureSimJWT(strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")))
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="invalid_token", error_description=%q`, err.Error()))
-		sim.AzureError(w, "invalid_token", fmt.Sprintf("invalid access token: %v", err), http.StatusUnauthorized)
+		AzureError(w, "invalid_token", fmt.Sprintf("invalid access token: %v", err), http.StatusUnauthorized)
 		return
 	}
 	sub, _ := claims["sub"].(string)
 	oid, _ := claims["oid"].(string)
 	if sub == "" {
-		sim.AzureError(w, "invalid_token", "access token has no sub claim", http.StatusUnauthorized)
+		AzureError(w, "invalid_token", "access token has no sub claim", http.StatusUnauthorized)
 		return
 	}
 	u := getEntraSimUser(oid)
@@ -617,7 +617,7 @@ func handleAzureRegisteredAppClientCredentials(w http.ResponseWriter, r *http.Re
 	}
 	audience, err := azureTokenAudienceFromRequest(r)
 	if err != nil {
-		sim.AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	now := time.Now()
@@ -635,7 +635,7 @@ func handleAzureRegisteredAppClientCredentials(w http.ResponseWriter, r *http.Re
 		"idtyp": "app",
 	})
 	if err != nil {
-		sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -705,7 +705,7 @@ func handleAzureAuthorizationCodeToken(w http.ResponseWriter, r *http.Request, t
 	now := time.Now()
 	accessToken, err := mintAzureSimJWTForUser(user, tenantID, azureAudienceFromScope(scope), now, now.Add(time.Hour))
 	if err != nil {
-		sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	body := map[string]any{
@@ -719,7 +719,7 @@ func handleAzureAuthorizationCodeToken(w http.ResponseWriter, r *http.Request, t
 		issuer := azureIssuer(azureAuthBaseURL(r), tenantID, true)
 		idToken, err := mintAzureSimIDTokenForUser(user, tenantID, clientID, authCode.Nonce, scope, issuer, now, now.Add(time.Hour))
 		if err != nil {
-			sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 			return
 		}
 		body["id_token"] = idToken
@@ -727,7 +727,7 @@ func handleAzureAuthorizationCodeToken(w http.ResponseWriter, r *http.Request, t
 	if azureScopeIncludes(scope, "offline_access") {
 		refreshToken, err := newAzureAuthorizationCode()
 		if err != nil {
-			sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 			return
 		}
 		azureRefreshTokens.Put(refreshToken, azureRefreshToken{
@@ -770,7 +770,7 @@ func handleAzureRefreshToken(w http.ResponseWriter, r *http.Request, tenantID, c
 	now := time.Now()
 	accessToken, err := mintAzureSimJWTForUser(user, tenantID, azureAudienceFromScope(scope), now, now.Add(time.Hour))
 	if err != nil {
-		sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	body := map[string]any{
@@ -785,7 +785,7 @@ func handleAzureRefreshToken(w http.ResponseWriter, r *http.Request, tenantID, c
 		issuer := azureIssuer(azureAuthBaseURL(r), tenantID, true)
 		idToken, err := mintAzureSimIDTokenForUser(user, tenantID, clientID, stored.Nonce, scope, issuer, now, now.Add(time.Hour))
 		if err != nil {
-			sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 			return
 		}
 		body["id_token"] = idToken
@@ -979,7 +979,7 @@ func handleAzureROPC(w http.ResponseWriter, r *http.Request, tenantID, clientID 
 	audience := azureAudienceFromScope(scope)
 	accessToken, err := mintAzureSimJWTForUser(u, tenantID, audience, now, now.Add(time.Hour))
 	if err != nil {
-		sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 	body := map[string]any{
@@ -993,7 +993,7 @@ func handleAzureROPC(w http.ResponseWriter, r *http.Request, tenantID, clientID 
 		issuer := azureIssuer(azureAuthBaseURL(r), tenantID, true)
 		idToken, err := mintAzureSimIDTokenForUser(u, tenantID, clientID, "", scope, issuer, now, now.Add(time.Hour))
 		if err != nil {
-			sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 			return
 		}
 		body["id_token"] = idToken

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_configrefs.go serves /config/configreferences: the Key Vault reference
@@ -164,12 +164,12 @@ func registerWebConfigReferences(srv *sim.Server) {
 		cfg, _ := siteConfigStore.Get(webResourceID(r))
 		value, ok := cfg.AppSettings[key]
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"App setting %q not found.", key)
 			return
 		}
 		if _, isRef := webParseKeyVaultRef(value); !isRef {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"App setting %q is not a Key Vault reference.", key)
 			return
 		}
@@ -203,12 +203,12 @@ func registerWebConfigReferences(srv *sim.Server) {
 		cfg, _ := siteConfigStore.Get(webResourceID(r))
 		entry, ok := cfg.ConnectionStrings[key]
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Connection string %q not found.", key)
 			return
 		}
 		if _, isRef := webParseKeyVaultRef(entry.Value); !isRef {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Connection string %q is not a Key Vault reference.", key)
 			return
 		}

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // KMS — runner workflows interact with KMS through Secrets Manager
@@ -122,7 +122,7 @@ func kmsKeyArn(keyId string) string {
 	return fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", awsRegion(), awsAccountID(), keyId)
 }
 
-func registerKMS(r *sim.AWSRouter, srv *sim.Server) {
+func registerKMS(r *AWSRouter, srv *sim.Server) {
 	kmsKeys = sim.MakeStore[KMSKey](srv.DB(), "kms_keys")
 	kmsAliases = sim.MakeStore[string](srv.DB(), "kms_aliases")
 	kmsAliasNames = sim.MakeStore[string](srv.DB(), "kms_alias_names")
@@ -224,12 +224,12 @@ func handleKMSGetKeyPolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyName string `json:"PolicyName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -238,7 +238,7 @@ func handleKMSGetKeyPolicy(w http.ResponseWriter, r *http.Request) {
 		policyName = "default"
 	}
 	if policyName != "default" {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"No such policy: %s", policyName)
 		return
 	}
@@ -264,12 +264,12 @@ func handleKMSPutKeyPolicy(w http.ResponseWriter, r *http.Request) {
 		Policy     string `json:"Policy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -277,12 +277,12 @@ func handleKMSPutKeyPolicy(w http.ResponseWriter, r *http.Request) {
 		req.PolicyName = "default"
 	}
 	if req.PolicyName != "default" {
-		sim.AWSErrorf(w, "MalformedPolicyDocumentException", http.StatusBadRequest,
+		AWSErrorf(w, "MalformedPolicyDocumentException", http.StatusBadRequest,
 			"Unsupported policy name: %s", req.PolicyName)
 		return
 	}
 	if req.Policy == "" {
-		sim.AWSError(w, "MalformedPolicyDocumentException", "Policy is required", http.StatusBadRequest)
+		AWSError(w, "MalformedPolicyDocumentException", "Policy is required", http.StatusBadRequest)
 		return
 	}
 	key, _ := kmsKeys.Get(keyId)
@@ -299,12 +299,12 @@ func handleKMSListResourceTags(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -326,12 +326,12 @@ func handleKMSTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags  []KMSTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -348,12 +348,12 @@ func handleKMSUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -402,12 +402,12 @@ func handleKMSGetKeyRotationStatus(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -435,12 +435,12 @@ func handleKMSEnableKeyRotation(w http.ResponseWriter, r *http.Request) {
 		RotationPeriodInDays *int   `json:"RotationPeriodInDays"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -448,7 +448,7 @@ func handleKMSEnableKeyRotation(w http.ResponseWriter, r *http.Request) {
 	if req.RotationPeriodInDays != nil {
 		period = *req.RotationPeriodInDays
 		if period < 90 || period > 2560 {
-			sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+			AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 				"RotationPeriodInDays must be between 90 and 2560, got %d", period)
 			return
 		}
@@ -466,12 +466,12 @@ func handleKMSDisableKeyRotation(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -494,7 +494,7 @@ func handleKMSCreateKey(w http.ResponseWriter, r *http.Request) {
 		MultiRegion           bool     `json:"MultiRegion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 
@@ -548,7 +548,7 @@ func handleKMSCreateKey(w http.ResponseWriter, r *http.Request) {
 	if req.Origin != "EXTERNAL" {
 		if _, err := kmsGenerateKeyMaterial(keyId); err != nil {
 			kmsKeys.Delete(keyId)
-			sim.AWSError(w, "DependencyTimeoutException", "failed to generate key material", http.StatusInternalServerError)
+			AWSError(w, "DependencyTimeoutException", "failed to generate key material", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -584,12 +584,12 @@ func handleKMSDescribeKey(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -605,7 +605,7 @@ func handleKMSListKeys(w http.ResponseWriter, r *http.Request) {
 		Limit  int    `json:"Limit"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidMarkerException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidMarkerException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := kmsKeys.List()
@@ -631,12 +631,12 @@ func handleKMSScheduleKeyDeletion(w http.ResponseWriter, r *http.Request) {
 		PendingWindowInDays int32  `json:"PendingWindowInDays"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -659,12 +659,12 @@ func handleKMSEncrypt(w http.ResponseWriter, r *http.Request) {
 		Plaintext []byte `json:"Plaintext"` // base64-decoded by the SDK
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -675,7 +675,7 @@ func handleKMSEncrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	ciphertextBlob, ok := kmsEncryptBytes(keyId, req.Plaintext)
 	if !ok {
-		sim.AWSError(w, "DependencyTimeoutException", "failed to encrypt", http.StatusInternalServerError)
+		AWSError(w, "DependencyTimeoutException", "failed to encrypt", http.StatusInternalServerError)
 		return
 	}
 	kmsRecordUsage(keyId, "Encrypt")
@@ -694,18 +694,18 @@ func handleKMSDecrypt(w http.ResponseWriter, r *http.Request) {
 		CiphertextBlob []byte `json:"CiphertextBlob"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	srcKeyId, plaintext, ok := kmsDecryptBytes(req.CiphertextBlob)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidCiphertextException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidCiphertextException", http.StatusBadRequest,
 			"The ciphertext blob is not in the expected format.")
 		return
 	}
 	key, exists := kmsKeys.Get(srcKeyId)
 	if !exists {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", srcKeyId)
 		return
 	}
@@ -716,7 +716,7 @@ func handleKMSDecrypt(w http.ResponseWriter, r *http.Request) {
 	if req.KeyId != "" {
 		resolved, ok := resolveKMSKey(req.KeyId)
 		if !ok || resolved != srcKeyId {
-			sim.AWSErrorf(w, "IncorrectKeyException", http.StatusBadRequest,
+			AWSErrorf(w, "IncorrectKeyException", http.StatusBadRequest,
 				"The key ID in the request does not match the key ID of the ciphertext.")
 			return
 		}
@@ -735,12 +735,12 @@ func handleKMSGenerateDataKey(w http.ResponseWriter, r *http.Request) {
 		KeySpec       string `json:"KeySpec"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.KeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", req.KeyId)
 		return
 	}
@@ -760,12 +760,12 @@ func handleKMSGenerateDataKey(w http.ResponseWriter, r *http.Request) {
 	}
 	plaintext := make([]byte, size)
 	if _, err := rand.Read(plaintext); err != nil {
-		sim.AWSError(w, "DependencyTimeoutException", "failed to generate random data key", http.StatusInternalServerError)
+		AWSError(w, "DependencyTimeoutException", "failed to generate random data key", http.StatusInternalServerError)
 		return
 	}
 	ciphertextBlob, ok := kmsEncryptBytes(keyId, plaintext)
 	if !ok {
-		sim.AWSError(w, "DependencyTimeoutException", "failed to encrypt data key", http.StatusInternalServerError)
+		AWSError(w, "DependencyTimeoutException", "failed to encrypt data key", http.StatusInternalServerError)
 		return
 	}
 	kmsRecordUsage(keyId, "GenerateDataKey")
@@ -782,22 +782,22 @@ func handleKMSCreateAlias(w http.ResponseWriter, r *http.Request) {
 		TargetKeyId string `json:"TargetKeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !strings.HasPrefix(req.AliasName, "alias/") {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"AliasName must start with 'alias/'", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.TargetKeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"TargetKeyId %q does not exist", req.TargetKeyId)
 		return
 	}
 	if _, exists := kmsAliases.Get(req.AliasName); exists {
-		sim.AWSErrorf(w, "AlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "AlreadyExistsException", http.StatusBadRequest,
 			"Alias %q already exists", req.AliasName)
 		return
 	}
@@ -811,7 +811,7 @@ func handleKMSDeleteAlias(w http.ResponseWriter, r *http.Request) {
 		AliasName string `json:"AliasName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	kmsAliases.Delete(req.AliasName)
@@ -826,7 +826,7 @@ func handleKMSListAliases(w http.ResponseWriter, r *http.Request) {
 		Marker string `json:"Marker"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// When KeyId is set, resolve it (it may be an ARN or key id) so aliases
@@ -835,7 +835,7 @@ func handleKMSListAliases(w http.ResponseWriter, r *http.Request) {
 	if req.KeyId != "" {
 		keyID, ok := resolveKMSKey(req.KeyId)
 		if !ok {
-			sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+			AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 				"Key %q does not exist", req.KeyId)
 			return
 		}
@@ -899,7 +899,7 @@ var kmsAliasNames sim.Store[string]
 func kmsResolveOr404(w http.ResponseWriter, r *http.Request, keyIdRef string) (string, bool) {
 	keyId, ok := resolveKMSKey(keyIdRef)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Key %q does not exist", keyIdRef)
 		return "", false
 	}
@@ -913,7 +913,7 @@ func handleKMSEnableKey(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -930,7 +930,7 @@ func handleKMSDisableKey(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -949,7 +949,7 @@ func handleKMSCancelKeyDeletion(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -958,7 +958,7 @@ func handleKMSCancelKeyDeletion(w http.ResponseWriter, r *http.Request) {
 	}
 	key, _ := kmsKeys.Get(keyId)
 	if key.KeyState != "PendingDeletion" {
-		sim.AWSErrorf(w, "KMSInvalidStateException", http.StatusBadRequest,
+		AWSErrorf(w, "KMSInvalidStateException", http.StatusBadRequest,
 			"%s is not pending deletion.", kmsKeyArn(keyId))
 		return
 	}
@@ -975,7 +975,7 @@ func handleKMSUpdateKeyDescription(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"Description"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -994,17 +994,17 @@ func handleKMSUpdateAlias(w http.ResponseWriter, r *http.Request) {
 		TargetKeyId string `json:"TargetKeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, exists := kmsAliases.Get(req.AliasName); !exists {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"Alias %q does not exist", req.AliasName)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.TargetKeyId)
 	if !ok {
-		sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 			"TargetKeyId %q does not exist", req.TargetKeyId)
 		return
 	}
@@ -1021,17 +1021,17 @@ func handleKMSGenerateRandom(w http.ResponseWriter, r *http.Request) {
 		NumberOfBytes int `json:"NumberOfBytes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.NumberOfBytes < 1 || req.NumberOfBytes > 1024 {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"NumberOfBytes must be between 1 and 1024, got %d", req.NumberOfBytes)
 		return
 	}
 	buf := make([]byte, req.NumberOfBytes)
 	if _, err := rand.Read(buf); err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to generate random bytes", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to generate random bytes", http.StatusInternalServerError)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1047,7 +1047,7 @@ func handleKMSListKeyPolicies(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := kmsResolveOr404(w, r, req.KeyId); !ok {
@@ -1069,7 +1069,7 @@ func handleKMSListKeyRotations(w http.ResponseWriter, r *http.Request) {
 		Marker string `json:"Marker"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -1101,7 +1101,7 @@ func handleKMSRotateKeyOnDemand(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -1132,7 +1132,7 @@ func handleKMSGetParametersForImport(w http.ResponseWriter, r *http.Request) {
 		WrappingKeySpec   string `json:"WrappingKeySpec"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -1141,7 +1141,7 @@ func handleKMSGetParametersForImport(w http.ResponseWriter, r *http.Request) {
 	}
 	key, _ := kmsKeys.Get(keyId)
 	if key.Origin != "EXTERNAL" {
-		sim.AWSErrorf(w, "UnsupportedOperationException", http.StatusBadRequest,
+		AWSErrorf(w, "UnsupportedOperationException", http.StatusBadRequest,
 			"%s origin is not EXTERNAL; import is not supported.", kmsKeyArn(keyId))
 		return
 	}
@@ -1154,12 +1154,12 @@ func handleKMSGetParametersForImport(w http.ResponseWriter, r *http.Request) {
 	}
 	priv, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to generate wrapping key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to generate wrapping key", http.StatusInternalServerError)
 		return
 	}
 	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
 	if err != nil {
-		sim.AWSError(w, "KMSInternalException", "failed to marshal wrapping key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to marshal wrapping key", http.StatusInternalServerError)
 		return
 	}
 	tokenBytes := make([]byte, 32)
@@ -1195,7 +1195,7 @@ func handleKMSImportKeyMaterial(w http.ResponseWriter, r *http.Request) {
 		ValidTo              float64 `json:"ValidTo"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -1203,30 +1203,30 @@ func handleKMSImportKeyMaterial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.EncryptedKeyMaterial) == 0 {
-		sim.AWSError(w, "ValidationException", "EncryptedKeyMaterial is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "EncryptedKeyMaterial is required", http.StatusBadRequest)
 		return
 	}
 	params, ok := kmsImportTokens.Get(string(req.ImportToken))
 	if !ok || params.KeyId != keyId {
-		sim.AWSErrorf(w, "InvalidImportTokenException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidImportTokenException", http.StatusBadRequest,
 			"The import token is expired or does not match the key.")
 		return
 	}
 	if params.PrivateKey == nil {
-		sim.AWSError(w, "KMSInternalException", "import token has no associated wrapping key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "import token has no associated wrapping key", http.StatusInternalServerError)
 		return
 	}
 	if len(req.EncryptedKeyMaterial) > params.PrivateKey.Size() {
-		sim.AWSError(w, "ValidationException", "EncryptedKeyMaterial exceeds wrapping key size", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "EncryptedKeyMaterial exceeds wrapping key size", http.StatusBadRequest)
 		return
 	}
 	plaintext, err := kmsDecryptImportedKeyMaterial(params.PrivateKey, params.WrappingAlgorithm, req.EncryptedKeyMaterial)
 	if err != nil {
-		sim.AWSError(w, "ValidationException", "failed to decrypt key material", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "failed to decrypt key material", http.StatusBadRequest)
 		return
 	}
 	if len(plaintext) != kmsKeyMaterialLen {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"Imported key material must be %d bytes, got %d", kmsKeyMaterialLen, len(plaintext))
 		return
 	}
@@ -1266,7 +1266,7 @@ func handleKMSDeleteImportedKeyMaterial(w http.ResponseWriter, r *http.Request) 
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)

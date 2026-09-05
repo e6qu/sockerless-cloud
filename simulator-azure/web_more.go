@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_more.go broadens the Microsoft.Web (App Service / Web Apps) ARM slice
@@ -274,11 +274,11 @@ func webMissing(w http.ResponseWriter, r *http.Request) bool {
 	}
 	name := sim.PathParam(r, "siteName")
 	if slot := sim.PathParam(r, "slot"); slot != "" {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Web/sites/%s/slots/%s' was not found.", name, slot)
 		return true
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource 'Microsoft.Web/sites/%s' was not found.", name)
 	return true
 }
@@ -367,7 +367,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 			Properties map[string]string `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
@@ -412,7 +412,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 			Properties map[string]any `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
@@ -434,7 +434,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 			Properties map[string]any `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
@@ -482,7 +482,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 			Properties map[string]any `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
@@ -547,7 +547,7 @@ func webConfigWebPut(w http.ResponseWriter, r *http.Request) {
 		Properties SiteConfig `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	store := webResourceStore(r)
@@ -649,7 +649,7 @@ func registerWebDeployments(both func(string, string, http.HandlerFunc)) {
 		}
 		d, ok := webDeployments.Get(deployID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Deployment %q not found.", sim.PathParam(r, "id"))
 			return
 		}
@@ -661,7 +661,7 @@ func registerWebDeployments(both func(string, string, http.HandlerFunc)) {
 		}
 		var req WebDeployment
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := sim.PathParam(r, "id")
@@ -684,7 +684,7 @@ func registerWebDeployments(both func(string, string, http.HandlerFunc)) {
 		}
 		d, ok := webDeployments.Get(deployID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Deployment %q not found.", sim.PathParam(r, "id"))
 			return
 		}
@@ -710,7 +710,7 @@ func registerWebHostNameBindings(both func(string, string, http.HandlerFunc)) {
 		}
 		b, ok := webHostNameBindings.Get(bindID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Hostname binding %q not found.", sim.PathParam(r, "hostName"))
 			return
 		}
@@ -722,7 +722,7 @@ func registerWebHostNameBindings(both func(string, string, http.HandlerFunc)) {
 		}
 		var req WebHostNameBinding
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		host := sim.PathParam(r, "hostName")
@@ -752,7 +752,7 @@ func registerWebSourceControl(both func(string, string, http.HandlerFunc)) {
 		}
 		sc, ok := webSourceControls.Get(scID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"No source control configured for %q.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -764,7 +764,7 @@ func registerWebSourceControl(both func(string, string, http.HandlerFunc)) {
 		}
 		var req WebSourceControl
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		req.ID = scID(r)
@@ -803,7 +803,7 @@ func registerWebSiteExtensions(both func(string, string, http.HandlerFunc)) {
 		}
 		e, ok := webSiteExtensions.Get(extID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Site extension %q not found.", sim.PathParam(r, "siteExtensionId"))
 			return
 		}
@@ -815,7 +815,7 @@ func registerWebSiteExtensions(both func(string, string, http.HandlerFunc)) {
 		}
 		var req WebSiteExtension
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := sim.PathParam(r, "siteExtensionId")
@@ -849,7 +849,7 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 		}
 		var req FunctionEnvelope
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		name := sim.PathParam(r, "functionName")
@@ -886,7 +886,7 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 		}
 		f, ok := azfFunctionConfigs.Get(funcID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Function %q not found.", sim.PathParam(r, "functionName"))
 			return
 		}
@@ -945,14 +945,14 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 	}
 	var raw map[string]json.RawMessage
 	if err := sim.ReadJSON(r, &raw); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	props := map[string]json.RawMessage{}
 	if rawProps, present := raw["properties"]; present {
 		if err := json.Unmarshal(rawProps, &props); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
@@ -970,7 +970,7 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 			return
 		}
 		if err := json.Unmarshal(v, dst); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			bad = true
 		}
 	}
@@ -1007,7 +1007,7 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 	// for real, and the stored row ends up reflecting the resulting state.
 	if vnsPresent {
 		if err := applySiteVirtualNetworkSubnetID(r, row, row.Properties.VirtualNetworkSubnetID); err != nil {
-			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 				"failed to integrate site %q into VNet: %v", row.Name, err)
 			return
 		}

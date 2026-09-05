@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure Virtual Network Manager (Microsoft.Network/networkManagers) is the
@@ -130,13 +130,13 @@ func registerNetworkManagers(srv *sim.Server) {
 func validateNetworkManager(w http.ResponseWriter, _ *http.Request, nm *NetworkManager) bool {
 	scopes := nm.Properties.NetworkManagerScopes
 	if len(scopes.ManagementGroups) == 0 && len(scopes.Subscriptions) == 0 {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: networkManagerScopes must name at least one management group or subscription.")
 		return false
 	}
 	for _, access := range nm.Properties.NetworkManagerScopeAccesses {
 		if !networkManagerConfigurationTypes[access] {
-			sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 				"The request format was unexpected: %q is not a network manager configuration type.", access)
 			return false
 		}
@@ -202,7 +202,7 @@ func registerNetworkManagerCommits(srv *sim.Server) {
 		}
 		var commit NetworkManagerCommit
 		if err := sim.ReadJSON(r, &commit); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if !validateNetworkManagerCommit(w, nm, commit) {
@@ -240,7 +240,7 @@ func registerNetworkManagerCommits(srv *sim.Server) {
 			SkipToken       string   `json:"skipToken,omitempty"`
 		}
 		if err := sim.ReadJSON(r, &query); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		statuses := make([]NetworkManagerDeploymentStatus, 0)
@@ -265,18 +265,18 @@ func registerNetworkManagerCommits(srv *sim.Server) {
 // region must be named, and every configuration the commit names must exist.
 func validateNetworkManagerCommit(w http.ResponseWriter, nm NetworkManager, commit NetworkManagerCommit) bool {
 	if !networkManagerConfigurationTypes[commit.CommitType] {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: %q is not a network manager configuration type.", commit.CommitType)
 		return false
 	}
 	if len(commit.TargetLocations) == 0 {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: targetLocations must name at least one region.")
 		return false
 	}
 	if len(nm.Properties.NetworkManagerScopeAccesses) > 0 &&
 		!networkManagerMatches(nm.Properties.NetworkManagerScopeAccesses, commit.CommitType) {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"Network manager %q has no %s scope access, so it cannot commit a %s configuration.",
 			nm.Name, commit.CommitType, commit.CommitType)
 		return false
@@ -288,7 +288,7 @@ func validateNetworkManagerCommit(w http.ResponseWriter, nm NetworkManager, comm
 	// configurations is the one that removes what a region currently holds, and
 	// it is accepted.
 	for _, configurationID := range commit.ConfigurationIDs {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource %q was not found.", configurationID)
 		return false
 	}

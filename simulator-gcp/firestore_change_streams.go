@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Firestore's change streams, and the two document methods that read through a
@@ -26,7 +26,7 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 	srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
 		var stream map[string]any
 		if err := sim.ReadJSON(r, &stream); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		id := r.URL.Query().Get("changeStreamId")
@@ -36,7 +36,7 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 			}
 		}
 		if id == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"a change stream needs an id to be addressed by")
 			return
 		}
@@ -46,13 +46,13 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 		_, database := stream["databaseScope"]
 		_, group := stream["collectionGroupScope"]
 		if database && group {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"a change stream watches a database or a collection group, not both")
 			return
 		}
 		name := parent(r) + "/changeStreams/" + id
 		if _, taken := streams.Get(name); taken {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"change stream %q already exists", name)
 			return
 		}
@@ -91,7 +91,7 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 		name := parent(r) + "/changeStreams/" + sim.PathParam(r, "changeStream")
 		held, ok := streams.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "change stream %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "change stream %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, held)
@@ -100,7 +100,7 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base+"/{changeStream}", func(w http.ResponseWriter, r *http.Request) {
 		name := parent(r) + "/changeStreams/" + sim.PathParam(r, "changeStream")
 		if !streams.Delete(name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "change stream %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "change stream %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -125,7 +125,7 @@ func fsListen(w http.ResponseWriter, r *http.Request) {
 		RemoveTarget int64 `json:"removeTarget"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	change := map[string]any{"readTime": time.Now().UTC().Format(time.RFC3339)}
@@ -137,7 +137,7 @@ func fsListen(w http.ResponseWriter, r *http.Request) {
 		change["targetIds"] = []any{req.RemoveTarget}
 		change["targetChangeType"] = "REMOVE"
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"a listen adds or removes a target")
 		return
 	}
@@ -155,11 +155,11 @@ func fsExecutePipeline(w http.ResponseWriter, r *http.Request) {
 		StructuredPipeline *map[string]any `json:"structuredPipeline"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.StructuredPipeline == nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"executePipeline needs the pipeline to run")
 		return
 	}

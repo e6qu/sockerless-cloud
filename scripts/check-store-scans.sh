@@ -20,7 +20,7 @@
 # have found either, which is why this counts the shape instead.
 #
 # The fix is an index keyed by the store's Generation: see
-# simulator-*/shared/index.go for the shared implementation, and
+# sim/index.go for the shared implementation, and
 # elbv2LoadBalancerFromDataPlaneHost or ecsRunningTaskENIs for a call site.
 # Their tests count reads of the store rather than timing anything.
 
@@ -37,6 +37,7 @@ fi
 cd "$REPO_ROOT"
 
 readonly SCAN_DIRS=(
+	sim
 	simulator-aws
 	simulator-gcp
 	simulator-azure

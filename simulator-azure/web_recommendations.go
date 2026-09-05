@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // App Service recommendations.
@@ -148,7 +148,7 @@ func webEnvironmentMissing(w http.ResponseWriter, r *http.Request) bool {
 	if _, ok := webHostingEnvironments.Get(aseResourceID(r)); ok {
 		return false
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource 'Microsoft.Web/hostingEnvironments/%s' was not found.",
 		sim.PathParam(r, "name"))
 	return true
@@ -174,7 +174,7 @@ func webRecommendations() []map[string]any {
 // webDisableRecommendationRule suppresses one rule for a scope.
 func webDisableRecommendationRule(w http.ResponseWriter, scope, rule string) {
 	if strings.TrimSpace(rule) == "" {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 			"A recommendation rule name is required to disable one.")
 		return
 	}
@@ -237,7 +237,7 @@ func webRecommendationFiltersFor(scope string) webRecommendationFilters {
 // listing does not carry is not found, whatever the listing comes to carry.
 func webWriteRecommendationRule(w http.ResponseWriter, rule string) {
 	if strings.TrimSpace(rule) == "" {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 			"A recommendation rule name is required.")
 		return
 	}
@@ -247,6 +247,6 @@ func webWriteRecommendationRule(w http.ResponseWriter, rule string) {
 			return
 		}
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"No recommendation named %q has been raised for this resource.", rule)
 }

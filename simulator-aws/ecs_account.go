@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sort"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS account settings — opt-in/opt-out flags (e.g. serviceLongArnFormat,
@@ -24,7 +24,7 @@ type ECSAccountSetting struct {
 
 var ecsAccountSettings sim.Store[ECSAccountSetting]
 
-func registerECSAccount(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSAccount(r *AWSRouter, srv *sim.Server) {
 	ecsAccountSettings = sim.MakeStore[ECSAccountSetting](srv.DB(), "ecs_account_settings")
 
 	r.Register("AmazonEC2ContainerServiceV20141113.PutAccountSetting", handleECSPutAccountSetting)
@@ -57,11 +57,11 @@ func handleECSPutAccountSetting(w http.ResponseWriter, r *http.Request) {
 		PrincipalArn string `json:"principalArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Value == "" {
-		sim.AWSError(w, "InvalidParameterException", "name and value are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name and value are required", http.StatusBadRequest)
 		return
 	}
 	principal := req.PrincipalArn
@@ -78,11 +78,11 @@ func handleECSPutAccountSettingDefault(w http.ResponseWriter, r *http.Request) {
 		Value string `json:"value"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Value == "" {
-		sim.AWSError(w, "InvalidParameterException", "name and value are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name and value are required", http.StatusBadRequest)
 		return
 	}
 	s := ecsPutAccountSetting(ecsAccountRootArn(), req.Name, req.Value, "aws_managed")
@@ -95,11 +95,11 @@ func handleECSDeleteAccountSetting(w http.ResponseWriter, r *http.Request) {
 		PrincipalArn string `json:"principalArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
 		return
 	}
 	principal := req.PrincipalArn
@@ -125,7 +125,7 @@ func handleECSListAccountSettings(w http.ResponseWriter, r *http.Request) {
 		NextToken    string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var settings []ECSAccountSetting

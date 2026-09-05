@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch continuously re-evaluates each metric alarm against incoming

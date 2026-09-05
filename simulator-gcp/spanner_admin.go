@@ -7,8 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Spanner instance/database administration beyond the core instance and
@@ -69,13 +70,13 @@ func spannerRouteOperation(w http.ResponseWriter, r *http.Request, verb, name st
 	case http.MethodGet:
 		op, ok := crOperations.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 			return true
 		}
 		sim.WriteJSON(w, http.StatusOK, op)
 	case http.MethodDelete:
 		if !crOperations.Delete(name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 			return true
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -94,7 +95,7 @@ func spannerRouteOperation(w http.ResponseWriter, r *http.Request, verb, name st
 // exactly what the real service does with a late cancel.
 func handleSpannerCancelOperation(w http.ResponseWriter, name string) {
 	if _, ok := crOperations.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -160,7 +161,7 @@ func handleSpannerInstanceAction(w http.ResponseWriter, r *http.Request, instanc
 	switch verb {
 	case "getIamPolicy", "setIamPolicy", "testIamPermissions":
 		if _, ok := spannerInstances.Get(name); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 			return
 		}
 		handleResourceIAM(w, r, gcpResourceIAMStore(), name, verb)
@@ -178,22 +179,22 @@ func handleSpannerInstanceAction(w http.ResponseWriter, r *http.Request, instanc
 func handleSpannerMoveInstance(w http.ResponseWriter, r *http.Request, name string) {
 	inst, ok := spannerInstances.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	var req struct {
 		TargetConfig string `json:"targetConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.TargetConfig == "" {
-		sim.GCPError(w, http.StatusBadRequest, "targetConfig is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "targetConfig is required", "INVALID_ARGUMENT")
 		return
 	}
 	if req.TargetConfig == inst.Config {
-		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 			"instance %q is already in configuration %q", name, req.TargetConfig)
 		return
 	}
@@ -246,7 +247,7 @@ func handleSpannerDatabaseAction(w http.ResponseWriter, r *http.Request, instanc
 	switch verb {
 	case "getIamPolicy", "setIamPolicy", "testIamPermissions":
 		if _, ok := spannerDatabases.Get(name); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 			return
 		}
 		handleResourceIAM(w, r, gcpResourceIAMStore(), name, verb)
@@ -264,7 +265,7 @@ func handleSpannerDatabaseAction(w http.ResponseWriter, r *http.Request, instanc
 // split — and Spanner answers with an empty body, having taken the request.
 func handleSpannerAddSplitPoints(w http.ResponseWriter, r *http.Request, name string) {
 	if _, ok := spannerDatabases.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
 	var req struct {
@@ -274,17 +275,17 @@ func handleSpannerAddSplitPoints(w http.ResponseWriter, r *http.Request, name st
 		} `json:"splitPoints"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if len(req.SplitPoints) == 0 {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"addSplitPoints needs the split points to add")
 		return
 	}
 	for _, point := range req.SplitPoints {
 		if point.Table == "" && point.Index == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"a split point names the table or index it splits")
 			return
 		}
@@ -302,11 +303,11 @@ func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name stri
 		Etag       string         `json:"etag"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if len(req.QuorumType) == 0 {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"changequorum needs the quorum type to move to")
 		return
 	}
@@ -323,7 +324,7 @@ func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name stri
 		quorum["etag"] = req.Etag
 	}
 	if !spannerDatabases.Update(name, func(db *spannerDatabase) { db.QuorumInfo = quorum }) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -338,7 +339,7 @@ func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name stri
 func handleSpannerGetDatabaseDdl(w http.ResponseWriter, r *http.Request, instance, database string) {
 	name := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
 	if _, ok := spannerDatabases.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
 	ddl, _ := spannerDDLs.Get(name)
@@ -359,17 +360,17 @@ func handleSpannerUpdateDatabase(w http.ResponseWriter, r *http.Request, instanc
 	name := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
 	db, ok := spannerDatabases.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
 	var req spannerDatabase
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	mask := spannerQueryParam(r, "updateMask", "update_mask")
 	if mask == "" {
-		sim.GCPError(w, http.StatusBadRequest, "updateMask is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "updateMask is required", "INVALID_ARGUMENT")
 		return
 	}
 	for _, field := range strings.Split(mask, ",") {
@@ -377,7 +378,7 @@ func handleSpannerUpdateDatabase(w http.ResponseWriter, r *http.Request, instanc
 		case "enableDropProtection", "enable_drop_protection":
 			db.EnableDropProtection = req.EnableDropProtection
 		default:
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"field %q is not updatable on a Cloud Spanner database", strings.TrimSpace(field))
 			return
 		}
@@ -436,7 +437,7 @@ func spannerDatabaseRoleNames(dbName string) []string {
 func handleSpannerListDatabaseRoles(w http.ResponseWriter, r *http.Request, instance, database string) {
 	name := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
 	if _, ok := spannerDatabases.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
 		return
 	}
 	type databaseRole struct {
@@ -477,7 +478,7 @@ func handleSpannerCreateInstancePartition(w http.ResponseWriter, r *http.Request
 	project := sim.PathParam(r, "project")
 	instanceName := spannerInstanceName(project, instance)
 	if _, ok := spannerInstances.Get(instanceName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instanceName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instanceName)
 		return
 	}
 	var req struct {
@@ -485,25 +486,25 @@ func handleSpannerCreateInstancePartition(w http.ResponseWriter, r *http.Request
 		InstancePartition   spannerInstancePartition `json:"instancePartition"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.InstancePartitionID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "instancePartitionId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "instancePartitionId is required", "INVALID_ARGUMENT")
 		return
 	}
 	partition := req.InstancePartition
 	partition.Name = spannerInstancePartitionName(project, instance, req.InstancePartitionID)
 	if _, exists := spannerInstancePartitions.Get(partition.Name); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance partition %q already exists", partition.Name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance partition %q already exists", partition.Name)
 		return
 	}
 	if partition.Config == "" {
-		sim.GCPError(w, http.StatusBadRequest, "instancePartition.config is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "instancePartition.config is required", "INVALID_ARGUMENT")
 		return
 	}
 	if partition.NodeCount == 0 && partition.ProcessingUnits == 0 {
-		sim.GCPError(w, http.StatusBadRequest,
+		GCPError(w, http.StatusBadRequest,
 			"exactly one of instancePartition.nodeCount or instancePartition.processingUnits is required", "INVALID_ARGUMENT")
 		return
 	}
@@ -551,7 +552,7 @@ func handleSpannerGetInstancePartition(w http.ResponseWriter, r *http.Request, i
 	name := spannerInstancePartitionName(sim.PathParam(r, "project"), instance, partition)
 	stored, ok := spannerInstancePartitions.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance partition %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance partition %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, stored)
@@ -561,7 +562,7 @@ func handleSpannerUpdateInstancePartition(w http.ResponseWriter, r *http.Request
 	name := spannerInstancePartitionName(sim.PathParam(r, "project"), instance, partition)
 	stored, ok := spannerInstancePartitions.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance partition %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance partition %q not found", name)
 		return
 	}
 	var req struct {
@@ -569,11 +570,11 @@ func handleSpannerUpdateInstancePartition(w http.ResponseWriter, r *http.Request
 		FieldMask         string                   `json:"fieldMask"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if strings.TrimSpace(req.FieldMask) == "" {
-		sim.GCPError(w, http.StatusBadRequest, "fieldMask is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "fieldMask is required", "INVALID_ARGUMENT")
 		return
 	}
 	for _, field := range strings.Split(req.FieldMask, ",") {
@@ -585,7 +586,7 @@ func handleSpannerUpdateInstancePartition(w http.ResponseWriter, r *http.Request
 		case "displayName", "display_name":
 			stored.DisplayName = req.InstancePartition.DisplayName
 		default:
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"field %q is not updatable on a Cloud Spanner instance partition", strings.TrimSpace(field))
 			return
 		}
@@ -606,11 +607,11 @@ func handleSpannerDeleteInstancePartition(w http.ResponseWriter, r *http.Request
 	name := spannerInstancePartitionName(sim.PathParam(r, "project"), instance, partition)
 	stored, ok := spannerInstancePartitions.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance partition %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance partition %q not found", name)
 		return
 	}
 	if len(stored.ReferencingDatabases) > 0 || len(stored.ReferencingBackups) > 0 {
-		sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 			"instance partition %q is still referenced and cannot be deleted", name)
 		return
 	}

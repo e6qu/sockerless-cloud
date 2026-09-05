@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements faithful control-plane CRUD for the Amazon EC2 Verified
@@ -162,7 +162,7 @@ var (
 	ec2TmSessions    sim.Store[EC2TrafficMirrorSession]
 )
 
-func registerEC2VerifiedAccess(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2VerifiedAccess(r *AWSQueryRouter, srv *sim.Server) {
 	ec2VaInstances = sim.MakeStore[EC2VerifiedAccessInstance](srv.DB(), "ec2_va_instances")
 	ec2VaTrustProviders = sim.MakeStore[EC2VerifiedAccessTrustProvider](srv.DB(), "ec2_va_trust_providers")
 	ec2VaGroups = sim.MakeStore[EC2VerifiedAccessGroup](srv.DB(), "ec2_va_groups")

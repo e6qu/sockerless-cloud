@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Glue — Catalog (multi-catalog), Table Optimizer, BatchGet*, and zero-ETL
@@ -98,7 +98,7 @@ var (
 
 // registerGlueCatalogOptimizer registers the Catalog / Table Optimizer / BatchGet /
 // Integration awsJson1.1 operations onto the shared Glue router.
-func registerGlueCatalogOptimizer(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlueCatalogOptimizer(r *AWSRouter, srv *sim.Server) {
 	glueCatalogs = sim.MakeStore[GlueCatalog](srv.DB(), "glue_catalogs")
 	glueTableOptimizers = sim.MakeStore[GlueTableOptimizer](srv.DB(), "glue_table_optimizers")
 	glueIntegrations = sim.MakeStore[GlueIntegration](srv.DB(), "glue_integrations")

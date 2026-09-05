@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudTrail Lake control plane: event data stores, Lake queries (run
@@ -97,7 +97,7 @@ type CloudTrailOrgAdmin struct {
 	AccountId string
 }
 
-func registerCloudTrailLake(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudTrailLake(r *AWSRouter, srv *sim.Server) {
 	cloudTrailEventDataStores = sim.MakeStore[CloudTrailEventDataStore](srv.DB(), "cloudtrail_event_data_stores")
 	cloudTrailQueries = sim.MakeStore[CloudTrailQuery](srv.DB(), "cloudtrail_queries")
 	cloudTrailDashboards = sim.MakeStore[CloudTrailDashboard](srv.DB(), "cloudtrail_dashboards")

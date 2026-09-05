@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements three EC2 commitment families: Reserved Instances
@@ -153,7 +153,7 @@ var (
 )
 
 // registerEC2ReservedCapacity registers this EC2 sub-service's ec2Query actions.
-func registerEC2ReservedCapacity(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2ReservedCapacity(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ReservedInstances = sim.MakeStore[EC2ReservedInstances](srv.DB(), "ec2_reserved_instances")
 	ec2ReservedInstancesListings = sim.MakeStore[EC2ReservedInstancesListing](srv.DB(), "ec2_reserved_instances_listings")
 	ec2ReservedInstancesModifications = sim.MakeStore[EC2ReservedInstancesModification](srv.DB(), "ec2_reserved_instances_modifications")

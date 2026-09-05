@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_hostnames_global.go implements the Microsoft.Web hostname-truth
@@ -240,7 +240,7 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 			Name string `json:"name"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		subPrefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"

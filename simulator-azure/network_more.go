@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // registerNetworkMoreOps adds the remaining Microsoft.Network operations that
@@ -34,7 +34,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/networkInterfaces", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
 			return
 		}
 		poolPrefix := lb.ID + "/backendAddressPools/"
@@ -52,7 +52,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces/{networkInterfaceName}/loadBalancers", func(w http.ResponseWriter, r *http.Request) {
 		nic, ok := azureNICs.Get(nicID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
 			return
 		}
 		var lbs []LoadBalancer
@@ -77,7 +77,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 			} `json:"frontendIPConfigurations"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		for _, fe := range req.FrontendIPConfigurations {
@@ -110,7 +110,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 			IPAddress string `json:"ipAddress"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		rulePrefix := lbID(r) + "/inboundNatRules/"
@@ -141,7 +141,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/loadBalancers/{loadBalancerName}/loadBalancingRules/{loadBalancingRuleName}/health", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
 			return
 		}
 		ruleName := sim.PathParam(r, "loadBalancingRuleName")
@@ -155,7 +155,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 			}
 		}
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancing rule %q not found.", ruleName)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancing rule %q not found.", ruleName)
 			return
 		}
 		type addressHealth struct {
@@ -186,14 +186,14 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/loadBalancers/{loadBalancerName}/migrateToIpBased", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
 			return
 		}
 		var req struct {
 			Pools []string `json:"pools"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		want := req.Pools
@@ -223,7 +223,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 			"/providers/Microsoft.Network/publicIPAddresses/" + sim.PathParam(r, "publicIPName")
 		pip, ok := azurePublicIPs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -243,7 +243,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		_ = sim.ReadJSON(r, &body)
 		pip, ok := azurePublicIPs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, pip)
@@ -258,7 +258,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		var body map[string]any
 		_ = sim.ReadJSON(r, &body)
 		if _, ok := azurePublicIPs.Get(id); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -272,7 +272,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	// ResourceNotFound, not an empty list.
 	linkList := func(w http.ResponseWriter, r *http.Request) {
 		if !azureSubnetExists(r) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'subnets/%s' under virtualNetworks '%s' was not found.",
 				sim.PathParam(r, "subnetName"), sim.PathParam(r, "vnetName"))
 			return
@@ -317,14 +317,14 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		// here would never be read.
 		vnet, ok := azureVnets.Get(vnetID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.",
 				sim.PathParam(r, "vnetName"), sim.PathParam(r, "resourceGroupName"))
 			return
 		}
 		payload, err := json.Marshal(map[string]any{"value": results})
 		if err != nil {
-			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 				"The DDoS protection status could not be rendered: %v", err)
 			return
 		}

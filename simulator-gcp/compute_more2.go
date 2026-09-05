@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file is an isolated tranche of Compute Engine (compute v1)
@@ -181,7 +181,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 	srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if body == nil {
@@ -189,7 +189,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 		}
 		name, _ := body["name"].(string)
 		if name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		key := relPath(r, name)
@@ -226,7 +226,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 			// as a code that was never issued.
 			code := sim.PathParam(r, "licenseCode")
 			notFound := func() {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"licenseCode %q not found", code)
 			}
 			row, issued := codes.Get(code)
@@ -278,7 +278,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 	srv.HandleFunc("GET "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := store.Get(relPath(r, sim.PathParam(r, "name")))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, sim.PathParam(r, "name"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, sim.PathParam(r, "name"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, m)
@@ -335,7 +335,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 		key := relPath(r, sim.PathParam(r, "name"))
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ok := store.Update(key, func(m *map[string]any) {
@@ -349,7 +349,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 			}
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, sim.PathParam(r, "name"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, sim.PathParam(r, "name"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "global", computeSelfLink(key), "patch"))
@@ -367,13 +367,13 @@ func registerComputeAutoscalerCollectionMutations(srv *sim.Server, scope compute
 		project := sim.PathParam(r, "project")
 		name := r.URL.Query().Get("autoscaler")
 		if name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "autoscaler query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "autoscaler query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 		key := fmt.Sprintf("projects/%s/%s/autoscalers/%s", project, computeScopeSegment(scope, r), name)
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ok := store.Update(key, func(m *map[string]any) {
@@ -404,7 +404,7 @@ func registerComputeAutoscalerCollectionMutations(srv *sim.Server, scope compute
 			}
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "autoscaler %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "autoscaler %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(scope, r), computeSelfLink(key), opType))
@@ -509,7 +509,7 @@ func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collecti
 		key := resourceKey(r)
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		pol := buildComputeIamPolicy(body)
@@ -523,7 +523,7 @@ func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collecti
 			Permissions []string `json:"permissions"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// Faithful to a simulator that grants every requested permission:

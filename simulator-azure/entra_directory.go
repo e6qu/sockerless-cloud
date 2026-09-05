@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft Graph directory-object machinery, shared by the application,
@@ -206,14 +206,14 @@ func graphFilterDocs(w http.ResponseWriter, r *http.Request, docs []map[string]a
 	}
 	node, err := azureParseODataFilter(filter)
 	if err != nil {
-		sim.AzureError(w, "Request_UnsupportedQuery", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_UnsupportedQuery", err.Error(), http.StatusBadRequest)
 		return nil, false
 	}
 	out := make([]map[string]any, 0, len(docs))
 	for _, doc := range docs {
 		flat, err := graphFlattenDoc(doc)
 		if err != nil {
-			sim.AzureError(w, "Request_UnsupportedQuery", err.Error(), http.StatusBadRequest)
+			AzureError(w, "Request_UnsupportedQuery", err.Error(), http.StatusBadRequest)
 			return nil, false
 		}
 		if node.eval(flat) {
@@ -254,7 +254,7 @@ func graphCollection(w http.ResponseWriter, r *http.Request, context string, doc
 	}
 	if graphCountRequested(r) {
 		if !graphEventualConsistency(r) {
-			sim.AzureError(w, "Request_UnsupportedQuery",
+			AzureError(w, "Request_UnsupportedQuery",
 				"Request with $count=true requires the ConsistencyLevel:eventual header.",
 				http.StatusBadRequest)
 			return
@@ -317,7 +317,7 @@ func entraDirectoryObjectDoc(r *http.Request, id string) (map[string]any, bool) 
 // entraGraphNotFound answers with the message Microsoft Graph returns when a
 // request addresses a directory object that is not there.
 func entraGraphNotFound(w http.ResponseWriter, id string) {
-	sim.AzureError(w, "Request_ResourceNotFound",
+	AzureError(w, "Request_ResourceNotFound",
 		fmt.Sprintf("Resource '%s' does not exist or one of its queried reference-property objects are not present.", id),
 		http.StatusNotFound)
 }
@@ -405,12 +405,12 @@ func handleGraphAddOwnerRef(w http.ResponseWriter, r *http.Request, objectID str
 		ODataID string `json:"@odata.id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	ownerID := graphRefObjectID(req.ODataID)
 	if ownerID == "" {
-		sim.AzureError(w, "Request_BadRequest", "@odata.id is required", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "@odata.id is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := entraDirectoryObjectDoc(r, ownerID); !ok {
@@ -505,12 +505,12 @@ func handleGraphSetManagerRef(w http.ResponseWriter, r *http.Request) {
 		ODataID string `json:"@odata.id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sim.AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	managerID := graphRefObjectID(req.ODataID)
 	if managerID == "" {
-		sim.AzureError(w, "Request_BadRequest", "@odata.id is required", http.StatusBadRequest)
+		AzureError(w, "Request_BadRequest", "@odata.id is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := entraDirectoryObjectDoc(r, managerID); !ok {

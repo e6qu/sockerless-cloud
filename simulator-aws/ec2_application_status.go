@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon EC2 application status checks: operator-defined health checks the
@@ -56,7 +56,7 @@ var (
 	ec2AppStatusAssociations sim.Store[EC2ApplicationStatusCheckAssociation]
 )
 
-func registerEC2ApplicationStatus(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2ApplicationStatus(r *AWSQueryRouter, srv *sim.Server) {
 	ec2AppStatusChecks = sim.MakeStore[EC2ApplicationStatusCheck](srv.DB(), "ec2_app_status_checks")
 	ec2AppStatusAssociations = sim.MakeStore[EC2ApplicationStatusCheckAssociation](srv.DB(), "ec2_app_status_associations")
 

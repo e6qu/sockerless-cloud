@@ -27,6 +27,7 @@ cd "$REPO_ROOT"
 # The Go modules holding tests. testdata/ holds workload programs rather than
 # suites, and ui/ is TypeScript with its own gates.
 readonly SCAN_DIRS=(
+	sim
 	simulator-aws
 	simulator-gcp
 	simulator-azure
@@ -69,7 +70,7 @@ readonly NO_ASSERTION_FLOOR=10
 # status-only counts a 2xx whose body is never read. The ones left are handlers
 # that answer with no body at all — an authentication redirect, a wrapper
 # claiming a host-addressed request — where there is nothing to read.
-readonly STATUS_ONLY_FLOOR=9
+readonly STATUS_ONLY_FLOOR=5
 
 # sleep-then-assert counts a bare sleep standing between an action and the
 # assertion that reads its result. The ones left are sleeps that separate

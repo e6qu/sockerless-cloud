@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EC2InstanceConnectEndpoint models an EC2 Instance Connect Endpoint (eice-…) —
@@ -73,7 +73,7 @@ var (
 // Instance Connect endpoints, instance-event-notification attributes,
 // serial-console access, IMDS account defaults, monitoring, and the
 // reboot/report/reset/classic-link instance operations.
-func registerEC2InstanceMgmt(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2InstanceMgmt(r *AWSQueryRouter, srv *sim.Server) {
 	ec2InstanceConnectEndpoints = sim.MakeStore[EC2InstanceConnectEndpoint](srv.DB(), "ec2_instance_connect_endpoints")
 	ec2InstanceStatusReports = sim.MakeStore[EC2InstanceStatusReport](srv.DB(), "ec2_instance_status_reports")
 	ec2AccountInstanceSettings = sim.MakeStore[EC2AccountInstanceSettings](srv.DB(), "ec2_account_instance_settings")
@@ -472,7 +472,7 @@ func ec2MonitoringResponse(w http.ResponseWriter, r *http.Request, root string, 
 	ids := ec2ParamList(r, "InstanceId")
 	for _, id := range ids {
 		if _, ok := ec2Instances.Get(id); !ok {
-			sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
 			return
 		}
 	}
@@ -504,7 +504,7 @@ func handleRebootInstances(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "InstanceId")
 	for _, id := range ids {
 		if _, ok := ec2Instances.Get(id); !ok {
-			sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
 			return
 		}
 	}
@@ -530,7 +530,7 @@ func handleReportInstanceStatus(w http.ResponseWriter, r *http.Request) {
 	reasons := ec2ParamList(r, "ReasonCode")
 	for _, id := range ids {
 		if _, ok := ec2Instances.Get(id); !ok {
-			sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
 			return
 		}
 		ec2InstanceStatusReports.Put(id, EC2InstanceStatusReport{
@@ -551,7 +551,7 @@ func handleResetInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("InstanceId")
 	attr := r.FormValue("Attribute")
 	if _, ok := ec2Instances.Get(id); !ok {
-		sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
 		return
 	}
 	switch attr {

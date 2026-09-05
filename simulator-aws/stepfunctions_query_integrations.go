@@ -10,8 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 type sfnAWSQueryService struct {
@@ -20,7 +18,7 @@ type sfnAWSQueryService struct {
 }
 
 var (
-	sfnAWSQueryRouter *sim.AWSQueryRouter
+	sfnAWSQueryRouter *AWSQueryRouter
 
 	sfnAWSQueryServices = map[string]sfnAWSQueryService{
 		"autoscaling":            {Version: "2011-01-01"},

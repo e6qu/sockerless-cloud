@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Glue Data Catalog export configuration: the account-wide switch that
@@ -30,7 +30,7 @@ var glueExportConfigurations sim.Store[GlueDataCatalogExportConfiguration]
 
 const glueExportConfigurationKey = "catalog"
 
-func registerGlueCatalogExport(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlueCatalogExport(r *AWSRouter, srv *sim.Server) {
 	glueExportConfigurations = sim.MakeStore[GlueDataCatalogExportConfiguration](srv.DB(), "glue_export_configurations")
 	r.Register("AWSGlue.PutDataCatalogExportConfiguration", handleGluePutDataCatalogExportConfiguration)
 	r.Register("AWSGlue.GetDataCatalogExportConfiguration", handleGlueGetDataCatalogExportConfiguration)
@@ -42,11 +42,11 @@ func handleGluePutDataCatalogExportConfiguration(w http.ResponseWriter, r *http.
 		EncryptionConfiguration map[string]any `json:"EncryptionConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ExportSetting != "ENABLED" && req.ExportSetting != "DISABLED" {
-		sim.AWSError(w, "InvalidInputException",
+		AWSError(w, "InvalidInputException",
 			"ExportSetting must be ENABLED or DISABLED", http.StatusBadRequest)
 		return
 	}

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Organizations — the remaining operation surface beyond organizations.go:
@@ -41,7 +41,7 @@ type OrgResponsibilityTransfer struct {
 
 var orgResponsibilityTransfers sim.Store[OrgResponsibilityTransfer]
 
-func registerOrganizationsExtra(r *sim.AWSRouter, srv *sim.Server) {
+func registerOrganizationsExtra(r *AWSRouter, srv *sim.Server) {
 	orgResponsibilityTransfers = sim.MakeStore[OrgResponsibilityTransfer](srv.DB(), "org_responsibility_transfers")
 
 	for target, h := range map[string]http.HandlerFunc{
@@ -71,7 +71,7 @@ func handleOrgLeaveOrganization(w http.ResponseWriter, _ *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
 	}
-	sim.AWSError(w, "MasterCannotLeaveOrganizationException", "You can't remove the management account from the organization.", http.StatusBadRequest)
+	AWSError(w, "MasterCannotLeaveOrganizationException", "You can't remove the management account from the organization.", http.StatusBadRequest)
 }
 
 // CreateGovCloudAccount ------------------------------------------------------
@@ -91,11 +91,11 @@ func handleOrgCreateGovCloudAccount(w http.ResponseWriter, r *http.Request) {
 		RoleName    string `json:"RoleName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AccountName == "" || req.Email == "" {
-		sim.AWSError(w, "InvalidInputException", "AccountName and Email are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "AccountName and Email are required", http.StatusBadRequest)
 		return
 	}
 	now := orgEpoch()
@@ -146,11 +146,11 @@ func handleOrgListAccountsWithInvalidEffectivePolicy(w http.ResponseWriter, r *h
 		PolicyType string `json:"PolicyType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PolicyType == "" {
-		sim.AWSError(w, "InvalidInputException", "PolicyType is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "PolicyType is required", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -173,15 +173,15 @@ func handleOrgListEffectivePolicyValidationErrors(w http.ResponseWriter, r *http
 		PolicyType string `json:"PolicyType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AccountId == "" || req.PolicyType == "" {
-		sim.AWSError(w, "InvalidInputException", "AccountId and PolicyType are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "AccountId and PolicyType are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := orgAccounts.Get(req.AccountId); !ok {
-		sim.AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
+		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -273,11 +273,11 @@ func handleOrgInviteResponsibilityTransfer(w http.ResponseWriter, r *http.Reques
 		SourceName string `json:"SourceName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Type == "" || req.Target.Id == "" || req.Target.Type == "" {
-		sim.AWSError(w, "InvalidInputException", "Type and Target (Id, Type) are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Type and Target (Id, Type) are required", http.StatusBadRequest)
 		return
 	}
 	now := orgEpoch()
@@ -334,12 +334,12 @@ func handleOrgDescribeResponsibilityTransfer(w http.ResponseWriter, r *http.Requ
 		Id string `json:"Id"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := orgResponsibilityTransfers.Get(req.Id)
 	if !ok {
-		sim.AWSError(w, "ResponsibilityTransferNotFoundException", "We can't find a responsibility transfer with the Id that you specified.", http.StatusBadRequest)
+		AWSError(w, "ResponsibilityTransferNotFoundException", "We can't find a responsibility transfer with the Id that you specified.", http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"ResponsibilityTransfer": orgResponsibilityTransferToMap(t)})
@@ -351,12 +351,12 @@ func handleOrgUpdateResponsibilityTransfer(w http.ResponseWriter, r *http.Reques
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := orgResponsibilityTransfers.Get(req.Id)
 	if !ok {
-		sim.AWSError(w, "ResponsibilityTransferNotFoundException", "We can't find a responsibility transfer with the Id that you specified.", http.StatusBadRequest)
+		AWSError(w, "ResponsibilityTransferNotFoundException", "We can't find a responsibility transfer with the Id that you specified.", http.StatusBadRequest)
 		return
 	}
 	if req.Name != "" {
@@ -375,17 +375,17 @@ func handleOrgTerminateResponsibilityTransfer(w http.ResponseWriter, r *http.Req
 		EndTimestamp int64  `json:"EndTimestamp"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	t, ok := orgResponsibilityTransfers.Get(req.Id)
 	if !ok {
-		sim.AWSError(w, "ResponsibilityTransferNotFoundException", "We can't find a responsibility transfer with the Id that you specified.", http.StatusBadRequest)
+		AWSError(w, "ResponsibilityTransferNotFoundException", "We can't find a responsibility transfer with the Id that you specified.", http.StatusBadRequest)
 		return
 	}
 	switch t.Status {
 	case "WITHDRAWN", "CANCELED", "DECLINED", "EXPIRED":
-		sim.AWSError(w, "ResponsibilityTransferAlreadyInStatusException", "The responsibility transfer is already in a terminal status.", http.StatusBadRequest)
+		AWSError(w, "ResponsibilityTransferAlreadyInStatusException", "The responsibility transfer is already in a terminal status.", http.StatusBadRequest)
 		return
 	}
 	t.Status = "WITHDRAWN"
@@ -412,7 +412,7 @@ func orgListResponsibilityTransfers(w http.ResponseWriter, r *http.Request, dire
 		Id   string `json:"Id"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	transfers := orgResponsibilityTransfers.Filter(func(t OrgResponsibilityTransfer) bool {

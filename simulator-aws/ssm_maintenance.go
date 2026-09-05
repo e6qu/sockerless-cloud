@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -75,7 +75,7 @@ var (
 	ssmWindowTasks   sim.Store[SSMMaintenanceWindowTask]
 )
 
-func registerSSMMaintenanceWindows(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMMaintenanceWindows(r *AWSRouter, srv *sim.Server) {
 	ssmWindows = sim.MakeStore[SSMMaintenanceWindow](srv.DB(), "ssm_maintenance_windows")
 	ssmWindowTargets = sim.MakeStore[SSMMaintenanceWindowTarget](srv.DB(), "ssm_maintenance_window_targets")
 	ssmWindowTasks = sim.MakeStore[SSMMaintenanceWindowTask](srv.DB(), "ssm_maintenance_window_tasks")
@@ -157,11 +157,11 @@ func handleSSMCreateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 		AllowUnassociatedTargets bool   `json:"AllowUnassociatedTargets"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Schedule == "" || req.Duration == 0 {
-		sim.AWSError(w, "ValidationException", "Name, Schedule, and Duration are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name, Schedule, and Duration are required", http.StatusBadRequest)
 		return
 	}
 	now := float64(time.Now().Unix())
@@ -190,11 +190,11 @@ func handleSSMDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 		WindowId string `json:"WindowId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmWindows.Get(req.WindowId); !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Maintenance window %s doesn't exist.", req.WindowId)
 		return
 	}
@@ -218,12 +218,12 @@ func handleSSMGetMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 		WindowId string `json:"WindowId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	m, ok := ssmWindows.Get(req.WindowId)
 	if !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Maintenance window %s doesn't exist.", req.WindowId)
 		return
 	}
@@ -249,12 +249,12 @@ func handleSSMUpdateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 		Enabled                  *bool  `json:"Enabled"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	m, ok := ssmWindows.Get(req.WindowId)
 	if !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Maintenance window %s doesn't exist.", req.WindowId)
 		return
 	}
@@ -302,7 +302,7 @@ func handleSSMDescribeMaintenanceWindows(w http.ResponseWriter, r *http.Request)
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmWindows.List()
@@ -332,11 +332,11 @@ func handleSSMRegisterTarget(w http.ResponseWriter, r *http.Request) {
 		Description      string      `json:"Description"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmWindows.Get(req.WindowId); !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Maintenance window %s doesn't exist.", req.WindowId)
 		return
 	}
@@ -372,16 +372,16 @@ func handleSSMRegisterTask(w http.ResponseWriter, r *http.Request) {
 		CutoffBehavior string         `json:"CutoffBehavior"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmWindows.Get(req.WindowId); !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Maintenance window %s doesn't exist.", req.WindowId)
 		return
 	}
 	if req.TaskArn == "" || req.TaskType == "" {
-		sim.AWSError(w, "ValidationException", "TaskArn and TaskType are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "TaskArn and TaskType are required", http.StatusBadRequest)
 		return
 	}
 	t := SSMMaintenanceWindowTask{
@@ -409,12 +409,12 @@ func handleSSMDeregisterTarget(w http.ResponseWriter, r *http.Request) {
 		WindowTargetId string `json:"WindowTargetId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ssmWindowKey(req.WindowId, req.WindowTargetId)
 	if _, ok := ssmWindowTargets.Get(key); !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Target %s doesn't exist in maintenance window %s.", req.WindowTargetId, req.WindowId)
 		return
 	}
@@ -431,12 +431,12 @@ func handleSSMDeregisterTask(w http.ResponseWriter, r *http.Request) {
 		WindowTaskId string `json:"WindowTaskId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ssmWindowKey(req.WindowId, req.WindowTaskId)
 	if _, ok := ssmWindowTasks.Get(key); !ok {
-		sim.AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
+		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
 			"Task %s doesn't exist in maintenance window %s.", req.WindowTaskId, req.WindowId)
 		return
 	}
@@ -454,7 +454,7 @@ func handleSSMDescribeTargets(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var all []SSMMaintenanceWindowTarget
@@ -498,7 +498,7 @@ func handleSSMDescribeTasks(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var all []SSMMaintenanceWindowTask

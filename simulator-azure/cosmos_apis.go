@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Additional Microsoft.DocumentDB ARM control-plane surfaces beyond the SQL
@@ -147,12 +147,12 @@ func cosmosPutHandler(resType string) http.HandlerFunc {
 		// ".../collections/{coll}" -> the mongodb database).
 		parent := path.Dir(path.Dir(r.URL.Path))
 		if !cosmosParentExists(parent) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource not found: %s", parent)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource not found: %s", parent)
 			return
 		}
 		var req CosmosResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid %s body: %v", cosmosFriendly(resType), err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid %s body: %v", cosmosFriendly(resType), err)
 			return
 		}
 		id := r.URL.Path
@@ -175,7 +175,7 @@ func cosmosPutHandler(resType string) http.HandlerFunc {
 func handleCosmosGetResource(w http.ResponseWriter, r *http.Request) {
 	res, ok := cosmosResources.Get(r.URL.Path)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos resource not found: %s", r.URL.Path)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos resource not found: %s", r.URL.Path)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, res)
@@ -184,7 +184,7 @@ func handleCosmosGetResource(w http.ResponseWriter, r *http.Request) {
 func handleCosmosDeleteResource(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path
 	if !cosmosResources.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos resource not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos resource not found: %s", id)
 		return
 	}
 	for _, c := range cosmosResources.List() {
@@ -348,12 +348,12 @@ func handleCosmosUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	id := cosmosAccountID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 	a, ok := cosmosAccounts.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", id)
 		return
 	}
 	var req CosmosAccount
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid Cosmos account update body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid Cosmos account update body: %v", err)
 		return
 	}
 	if req.Tags != nil {
@@ -381,7 +381,7 @@ func handleCosmosListAccountsBySubscription(w http.ResponseWriter, r *http.Reque
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	filtered, err := azureApplyListQuery(all, r)
 	if err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	page, next := armPage(r, filtered)
@@ -401,14 +401,14 @@ func handleCosmosFailoverPriorityChange(w http.ResponseWriter, r *http.Request) 
 	id := cosmosAccountID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 	a, ok := cosmosAccounts.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", id)
 		return
 	}
 	var req struct {
 		FailoverPolicies []map[string]any `json:"failoverPolicies"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid failover policy body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid failover policy body: %v", err)
 		return
 	}
 	if len(req.FailoverPolicies) > 0 {
@@ -477,19 +477,19 @@ func cosmosLocationMaps(v any) []map[string]any {
 func handleCosmosRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	id := cosmosAccountID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 	if _, ok := cosmosAccounts.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Cosmos DB account not found: %s", id)
 		return
 	}
 	var req struct {
 		KeyKind string `json:"keyKind"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid regenerate key body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid regenerate key body: %v", err)
 		return
 	}
 	role := cosmosKeyRole(req.KeyKind)
 	if role == "" {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "unknown keyKind: %q", req.KeyKind)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "unknown keyKind: %q", req.KeyKind)
 		return
 	}
 	cosmosBumpKeyGen(id, role)

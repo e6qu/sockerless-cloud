@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // TestGCPOperationsAreRecordedComplete pins the invariant the standard

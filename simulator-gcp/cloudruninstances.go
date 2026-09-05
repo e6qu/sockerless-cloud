@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Run v2 Instances slice. An Instance is a single long-lived Cloud
@@ -80,17 +80,17 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		instanceID := r.URL.Query().Get("instanceId")
 		if instanceID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "instanceId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "instanceId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 		var inst InstanceV2
 		if err := sim.ReadJSON(r, &inst); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, instanceID)
 		if _, exists := instances.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance %q already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "instance %q already exists", name)
 			return
 		}
 		inst = seedInstanceV2Defaults(inst, r.Host, project, location, instanceID)
@@ -111,13 +111,13 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 				instanceIAM(w, r, instances, project, location, id, action)
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, instParam)
 		inst, ok := instances.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, inst)
@@ -152,12 +152,12 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, instanceID)
 		existing, ok := instances.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 			return
 		}
 		var update InstanceV2
 		if err := sim.ReadJSON(r, &update); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// The etag is read off the request as sent, before any mask merge
@@ -170,7 +170,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		if mask := r.URL.Query().Get("updateMask"); mask != "" {
 			merged, err := applyInstanceUpdateMask(existing, update, mask)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 				return
 			}
 			update = merged
@@ -207,7 +207,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, instanceID)
 		inst, ok := instances.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 			return
 		}
 		if !cloudRunEtagOK(w, "instance", inst.Name, inst.Etag, r.URL.Query().Get("etag")) {
@@ -226,7 +226,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		instanceAction := sim.PathParam(r, "instanceAction")
 		id, action, found := strings.Cut(instanceAction, ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on instance %q", instanceAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on instance %q", instanceAction)
 			return
 		}
 		switch action {
@@ -239,12 +239,12 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			// members, so one shape decodes both.
 			var request InstanceLifecycleRequest
 			if err := sim.ReadJSON(r, &request); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			existing, ok := instances.Get(name)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 				return
 			}
 			if !cloudRunEtagOK(w, "instance", existing.Name, existing.Etag, request.Etag) {
@@ -273,7 +273,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			lro := newLRO(project, location, inst, instType)
 			sim.WriteJSON(w, http.StatusOK, lro)
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
 		}
 	})
 }
@@ -291,7 +291,7 @@ func cloudRunAdminV1InstanceIAM(w http.ResponseWriter, r *http.Request, id, acti
 		// The IAM triple is the whole of the Cloud Run Admin v1 instances
 		// collection: anything else on that path is a method run.googleapis.com
 		// does not publish.
-		sim.GCPError(w, http.StatusNotFound, "Method not found.", "NOT_FOUND")
+		GCPError(w, http.StatusNotFound, "Method not found.", "NOT_FOUND")
 		return
 	}
 	instanceIAM(w, r, crv2Instances, sim.PathParam(r, "project"), sim.PathParam(r, "location"), id, action)
@@ -303,7 +303,7 @@ func cloudRunAdminV1InstanceIAM(w http.ResponseWriter, r *http.Request, id, acti
 func instanceIAM(w http.ResponseWriter, r *http.Request, instances sim.Store[InstanceV2], project, location, id, action string) {
 	name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, id)
 	if _, ok := instances.Get(name); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), name, action)

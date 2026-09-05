@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS task sets — the blue/green deployment primitive within an EXTERNAL
@@ -46,7 +46,7 @@ type ECSTaskSet struct {
 
 var ecsTaskSets sim.Store[ECSTaskSet]
 
-func registerECSTaskSets(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSTaskSets(r *AWSRouter, srv *sim.Server) {
 	ecsTaskSets = sim.MakeStore[ECSTaskSet](srv.DB(), "ecs_task_sets")
 
 	r.Register("AmazonEC2ContainerServiceV20141113.CreateTaskSet", handleECSCreateTaskSet)
@@ -89,15 +89,15 @@ func handleECSCreateTaskSet(w http.ResponseWriter, r *http.Request) {
 		Tags                     []ECSTag        `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Service == "" {
-		sim.AWSError(w, "InvalidParameterException", "service is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "service is required", http.StatusBadRequest)
 		return
 	}
 	if req.TaskDefinition == "" {
-		sim.AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "taskDefinition is required", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -105,7 +105,7 @@ func handleECSCreateTaskSet(w http.ResponseWriter, r *http.Request) {
 	}
 	_, svc, ok := ecsResolveService(req.Cluster, req.Service)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
 			"The service %s does not exist.", req.Service)
 		return
 	}
@@ -149,7 +149,7 @@ func handleECSDescribeTaskSets(w http.ResponseWriter, r *http.Request) {
 		TaskSets []string `json:"taskSets"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -157,7 +157,7 @@ func handleECSDescribeTaskSets(w http.ResponseWriter, r *http.Request) {
 	}
 	_, svc, ok := ecsResolveService(req.Cluster, req.Service)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFoundException", http.StatusBadRequest,
 			"The service %s does not exist.", req.Service)
 		return
 	}
@@ -190,7 +190,7 @@ func handleECSUpdateTaskSet(w http.ResponseWriter, r *http.Request) {
 		Scale   json.RawMessage `json:"scale"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -198,7 +198,7 @@ func handleECSUpdateTaskSet(w http.ResponseWriter, r *http.Request) {
 	}
 	ts, key, ok := ecsLookupTaskSet(req.Cluster, req.Service, req.TaskSet)
 	if !ok {
-		sim.AWSErrorf(w, "TaskSetNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TaskSetNotFoundException", http.StatusBadRequest,
 			"The specified task set does not exist.")
 		return
 	}
@@ -217,7 +217,7 @@ func handleECSUpdateServicePrimaryTaskSet(w http.ResponseWriter, r *http.Request
 		PrimaryTaskSet string `json:"primaryTaskSet"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -225,7 +225,7 @@ func handleECSUpdateServicePrimaryTaskSet(w http.ResponseWriter, r *http.Request
 	}
 	ts, key, ok := ecsLookupTaskSet(req.Cluster, req.Service, req.PrimaryTaskSet)
 	if !ok {
-		sim.AWSErrorf(w, "TaskSetNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TaskSetNotFoundException", http.StatusBadRequest,
 			"The specified task set does not exist.")
 		return
 	}
@@ -250,7 +250,7 @@ func handleECSDeleteTaskSet(w http.ResponseWriter, r *http.Request) {
 		Force   bool   `json:"force"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -258,7 +258,7 @@ func handleECSDeleteTaskSet(w http.ResponseWriter, r *http.Request) {
 	}
 	ts, key, ok := ecsLookupTaskSet(req.Cluster, req.Service, req.TaskSet)
 	if !ok {
-		sim.AWSErrorf(w, "TaskSetNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TaskSetNotFoundException", http.StatusBadRequest,
 			"The specified task set does not exist.")
 		return
 	}
@@ -266,7 +266,7 @@ func handleECSDeleteTaskSet(w http.ResponseWriter, r *http.Request) {
 	// scale: the caller scales it to zero first. The flag had been parsed and
 	// ignored.
 	if !req.Force && ecsTaskSetScaleValue(ts) > 0 {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The task set cannot be deleted while it is scaled above 0.")
 		return
 	}

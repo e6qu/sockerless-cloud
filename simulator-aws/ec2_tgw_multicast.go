@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file completes the Amazon EC2 Transit Gateway multicast, policy-table,
@@ -133,7 +133,7 @@ var (
 	ec2TGWRouteTableAnnouncement sim.Store[EC2TGWRouteTableAnnouncement]
 )
 
-func registerEC2TGWMulticast(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2TGWMulticast(r *AWSQueryRouter, srv *sim.Server) {
 	ec2TGWMulticastAssociations = sim.MakeStore[EC2TGWMulticastAssociation](srv.DB(), "ec2_tgw_multicast_associations")
 	ec2TGWMulticastGroups = sim.MakeStore[EC2TGWMulticastGroup](srv.DB(), "ec2_tgw_multicast_groups")
 	ec2TGWPolicyTables = sim.MakeStore[EC2TGWPolicyTable](srv.DB(), "ec2_tgw_policy_tables")

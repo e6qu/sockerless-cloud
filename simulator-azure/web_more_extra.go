@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_more_extra.go holds the slot config-section mirrors, deployment-slot
@@ -22,7 +22,7 @@ func webSlotStringDictPut(w http.ResponseWriter, r *http.Request) {
 	}
 	var req AzureSiteAppSettings
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	cfg, _ := siteConfigStore.Get(webResourceID(r))
@@ -59,7 +59,7 @@ func webSlotConnStringsPut(w http.ResponseWriter, r *http.Request) {
 	}
 	var req AzureSiteConnectionStrings
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	cfg, _ := siteConfigStore.Get(webResourceID(r))
@@ -96,7 +96,7 @@ func webSlotAzureStoragePut(w http.ResponseWriter, r *http.Request) {
 	}
 	var req AzureStoragePropertyDictionaryResource
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	store := webResourceStore(r)
@@ -158,7 +158,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		siteID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "siteName"))
 		if _, ok := azfSites.Get(siteID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' was not found.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -182,13 +182,13 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		siteID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s",
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "siteName"))
 		if _, ok := azfSites.Get(siteID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/sites/%s' was not found.", sim.PathParam(r, "siteName"))
 			return
 		}
 		var req Site
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		name := sim.PathParam(r, "siteName")
@@ -234,7 +234,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		// current integration either way.
 		if req.Properties.VirtualNetworkSubnetID != "" {
 			if err := applySiteVirtualNetworkSubnetID(r, slotSite, req.Properties.VirtualNetworkSubnetID); err != nil {
-				sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+				AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 					"failed to integrate slot %q into VNet: %v", slotSite.Name, err)
 				return
 			}
@@ -290,13 +290,13 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		id := planID(r)
 		plan, ok := azureAppServicePlans.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Server farm '%s' not found.", sim.PathParam(r, "planName"))
 			return
 		}
 		var req AppServicePlan
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Tags != nil {
@@ -313,7 +313,7 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		if _, ok := azureAppServicePlans.Get(planID(r)); ok {
 			return true
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Server farm '%s' not found.", sim.PathParam(r, "planName"))
 		return false
 	}
@@ -417,7 +417,7 @@ func registerWebGlobal(srv *sim.Server) {
 			Name string `json:"name"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		suffix := "/providers/Microsoft.Web/sites/" + req.Name

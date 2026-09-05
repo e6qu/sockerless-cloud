@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -69,7 +69,7 @@ func handleAzureFederatedClientCredentials(w http.ResponseWriter, r *http.Reques
 
 	audience, err := azureTokenAudienceFromRequest(r)
 	if err != nil {
-		sim.AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return true
 	}
 	now := time.Now()
@@ -91,7 +91,7 @@ func handleAzureFederatedClientCredentials(w http.ResponseWriter, r *http.Reques
 		"xms_fed_sub": subject,
 	})
 	if err != nil {
-		sim.AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
 		return true
 	}
 	w.Header().Set("Content-Type", "application/json")

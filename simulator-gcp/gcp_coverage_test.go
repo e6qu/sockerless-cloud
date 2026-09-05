@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // GCP operation-coverage gate — the Discovery-document analogue of the AWS

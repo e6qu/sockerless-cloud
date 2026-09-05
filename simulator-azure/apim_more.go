@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Additional Microsoft.ApiManagement ARM control-plane operations layered on
@@ -191,7 +191,7 @@ func apimChildPut(typeStr string, required []string) http.HandlerFunc {
 			Properties map[string]any `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties == nil {
@@ -201,7 +201,7 @@ func apimChildPut(typeStr string, required []string) http.HandlerFunc {
 			if value, ok := req.Properties[name]; ok && value != nil {
 				continue
 			}
-			sim.AzureErrorf(w, "ValidationError", http.StatusBadRequest,
+			AzureErrorf(w, "ValidationError", http.StatusBadRequest,
 				"Property %q is required for %s.", name, typeStr)
 			return
 		}
@@ -215,7 +215,7 @@ func apimChildGet(w http.ResponseWriter, r *http.Request) {
 	path := apimReqPath(r)
 	c, ok := apimChildren.Get(strings.ToLower(path))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "resource %q not found", apimLastSeg(path))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "resource %q not found", apimLastSeg(path))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, c)
@@ -225,14 +225,14 @@ func apimChildPatch(w http.ResponseWriter, r *http.Request) {
 	path := apimReqPath(r)
 	c, ok := apimChildren.Get(strings.ToLower(path))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "resource %q not found", apimLastSeg(path))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "resource %q not found", apimLastSeg(path))
 		return
 	}
 	var req struct {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if c.Properties == nil {
@@ -248,7 +248,7 @@ func apimChildPatch(w http.ResponseWriter, r *http.Request) {
 func apimChildDelete(w http.ResponseWriter, r *http.Request) {
 	path := apimReqPath(r)
 	if !apimChildren.Delete(strings.ToLower(path)) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "resource %q not found", apimLastSeg(path))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "resource %q not found", apimLastSeg(path))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -315,7 +315,7 @@ func handleAPIMPatchChildStore(kind apimStoreKind) http.HandlerFunc {
 			Properties map[string]any `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 			return
 		}
 		svcID := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
@@ -324,7 +324,7 @@ func handleAPIMPatchChildStore(kind apimStoreKind) http.HandlerFunc {
 			id := svcID + "/apis/" + sim.PathParam(r, "api")
 			a, ok := apimApis.Get(id)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
 				return
 			}
 			apimMergeProps(&a.Properties, req.Properties)
@@ -335,7 +335,7 @@ func handleAPIMPatchChildStore(kind apimStoreKind) http.HandlerFunc {
 			key := apimOperationKey(sub, rg, svc, api, op)
 			o, ok := apimOperations.Get(key)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "operation not found")
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "operation not found")
 				return
 			}
 			apimMergeProps(&o.Properties, req.Properties)
@@ -345,7 +345,7 @@ func handleAPIMPatchChildStore(kind apimStoreKind) http.HandlerFunc {
 			id := svcID + "/products/" + sim.PathParam(r, "product")
 			p, ok := apimProducts.Get(id)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
 				return
 			}
 			apimMergeProps(&p.Properties, req.Properties)
@@ -368,12 +368,12 @@ func handleAPIMUpdateService(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	s, ok := apimServices.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	var req APIMService
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Tags != nil {
@@ -390,7 +390,7 @@ func handleAPIMUpdateService(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIMListServiceSkus(w http.ResponseWriter, r *http.Request) {
 	if _, ok := apimServices.Get(apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	skus := []map[string]any{}
@@ -409,7 +409,7 @@ func handleAPIMListServiceSkus(w http.ResponseWriter, r *http.Request) {
 func handleAPIMGetSsoToken(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := apimServices.Get(apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), name)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	redirect := fmt.Sprintf("%s://%s/signin-sso?token=%s",
@@ -426,7 +426,7 @@ func handleAPIMServiceLRO(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	s, ok := apimServices.Get(apimServiceID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	location := s.Location
@@ -499,7 +499,7 @@ func handleAPIMCheckNameAvailability(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	taken := false
@@ -528,7 +528,7 @@ func handleAPIMListApiRevisions(w http.ResponseWriter, r *http.Request) {
 		"/apis/" + sim.PathParam(r, "api")
 	a, ok := apimApis.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
 		return
 	}
 	rev := "1"
@@ -566,7 +566,7 @@ func handleAPIMOperationsByTags(w http.ResponseWriter, r *http.Request) {
 	apiID := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/apis/" + sim.PathParam(r, "api")
 	if _, ok := apimApis.Get(apiID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
 		return
 	}
 	opTagType := "Microsoft.ApiManagement/service/apis/operations/tags"
@@ -630,13 +630,13 @@ func handleAPIMAddProductApi(w http.ResponseWriter, r *http.Request) {
 	svcID := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	productID := svcID + "/products/" + sim.PathParam(r, "product")
 	if _, ok := apimProducts.Get(productID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
 		return
 	}
 	apiID := svcID + "/apis/" + sim.PathParam(r, "api")
 	a, ok := apimApis.Get(apiID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
 		return
 	}
 	path := apimReqPath(r)
@@ -649,7 +649,7 @@ func handleAPIMAddProductApi(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIMRemoveProductApi(w http.ResponseWriter, r *http.Request) {
 	if !apimChildren.Delete(strings.ToLower(apimReqPath(r))) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product api link not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product api link not found")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -674,7 +674,7 @@ func handleAPIMAddProductGroup(w http.ResponseWriter, r *http.Request) {
 	svcID := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	productID := svcID + "/products/" + sim.PathParam(r, "product")
 	if _, ok := apimProducts.Get(productID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
 		return
 	}
 	group := sim.PathParam(r, "group")
@@ -688,7 +688,7 @@ func handleAPIMAddProductGroup(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIMRemoveProductGroup(w http.ResponseWriter, r *http.Request) {
 	if !apimChildren.Delete(strings.ToLower(apimReqPath(r))) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product group link not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product group link not found")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -743,14 +743,14 @@ func handleAPIMPatchSubscription(w http.ResponseWriter, r *http.Request) {
 		"/subscriptions/" + sim.PathParam(r, "sub")
 	s, ok := apimSubscriptions.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
 		return
 	}
 	var req struct {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	apimMergeProps(&s.Properties, req.Properties)
@@ -767,7 +767,7 @@ func handleAPIMRegenerateSubKey(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/subscriptions/" + sim.PathParam(r, "sub")
 	if _, ok := apimSubscriptions.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
 		return
 	}
 	slot := "apim-subscription-primary"
@@ -782,14 +782,14 @@ func handleAPIMPatchNamedValue(w http.ResponseWriter, r *http.Request) {
 	key := apimNamedValueKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "nv"))
 	nv, ok := apimNamedValues.Get(key)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue not found")
 		return
 	}
 	var req struct {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	apimMergeProps(&nv.Properties, req.Properties)
@@ -804,7 +804,7 @@ func handleAPIMListNamedValueValue(w http.ResponseWriter, r *http.Request) {
 	key := apimNamedValueKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "nv"))
 	nv, ok := apimNamedValues.Get(key)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue not found")
 		return
 	}
 	value, _ := nv.Properties["value"].(string)
@@ -815,7 +815,7 @@ func handleAPIMRefreshNamedValueSecret(w http.ResponseWriter, r *http.Request) {
 	key := apimNamedValueKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "nv"))
 	nv, ok := apimNamedValues.Get(key)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, apimRedactNamedValue(nv))
@@ -825,14 +825,14 @@ func handleAPIMPatchBackend(w http.ResponseWriter, r *http.Request) {
 	key := apimBackendKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "backend"))
 	be, ok := apimBackends.Get(key)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Backend not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Backend not found")
 		return
 	}
 	var req struct {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	apimMergeProps(&be.Properties, req.Properties)
@@ -843,7 +843,7 @@ func handleAPIMPatchBackend(w http.ResponseWriter, r *http.Request) {
 func handleAPIMBackendReconnect(w http.ResponseWriter, r *http.Request) {
 	key := apimBackendKey(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "backend"))
 	if _, ok := apimBackends.Get(key); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Backend not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Backend not found")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)

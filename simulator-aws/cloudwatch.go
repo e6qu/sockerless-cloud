@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch Logs types
@@ -90,7 +90,7 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string) {
 	})
 }
 
-func registerCloudWatchLogs(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	cwLogGroups = sim.MakeStore[CWLogGroup](srv.DB(), "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](srv.DB(), "cw_log_streams")
 	cwLogEvents = sim.MakeStore[[]CWLogEvent](srv.DB(), "cw_log_events")
@@ -136,11 +136,11 @@ func handleCWAssociateKmsKey(w http.ResponseWriter, r *http.Request) {
 		KmsKeyId     string `json:"kmsKeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwLogGroups.Update(req.LogGroupName, func(lg *CWLogGroup) { lg.KmsKeyId = req.KmsKeyId }) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
@@ -152,11 +152,11 @@ func handleCWDisassociateKmsKey(w http.ResponseWriter, r *http.Request) {
 		LogGroupName string `json:"logGroupName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwLogGroups.Update(req.LogGroupName, func(lg *CWLogGroup) { lg.KmsKeyId = "" }) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
@@ -171,16 +171,16 @@ func handleCWCreateLogGroup(w http.ResponseWriter, r *http.Request) {
 		Tags            map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupName == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
 		return
 	}
 
 	if _, exists := cwLogGroups.Get(req.LogGroupName); exists {
-		sim.AWSErrorf(w, "ResourceAlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceAlreadyExistsException", http.StatusBadRequest,
 			"The specified log group already exists: %s", req.LogGroupName)
 		return
 	}
@@ -205,7 +205,7 @@ func handleCWDescribeLogGroups(w http.ResponseWriter, r *http.Request) {
 		NextToken          string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -235,16 +235,16 @@ func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
 		LogGroupName string `json:"logGroupName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupName == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
 		return
 	}
 
 	if !cwLogGroups.Delete(req.LogGroupName) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
@@ -268,23 +268,23 @@ func handleCWCreateLogStream(w http.ResponseWriter, r *http.Request) {
 		LogStreamName string `json:"logStreamName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupName == "" || req.LogStreamName == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupName and logStreamName are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupName and logStreamName are required", http.StatusBadRequest)
 		return
 	}
 
 	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
 
 	key := cwEventsKey(req.LogGroupName, req.LogStreamName)
 	if _, exists := cwLogStreams.Get(key); exists {
-		sim.AWSErrorf(w, "ResourceAlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceAlreadyExistsException", http.StatusBadRequest,
 			"The specified log stream already exists: %s", req.LogStreamName)
 		return
 	}
@@ -312,17 +312,17 @@ func handleCWDescribeLogStreams(w http.ResponseWriter, r *http.Request) {
 		NextToken           string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupName == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
 		return
 	}
 	// Real DescribeLogStreams returns ResourceNotFoundException for a missing
 	// group rather than an empty list (RNFE is a declared error for the op).
 	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
@@ -377,17 +377,17 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 		SequenceToken string `json:"sequenceToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupName == "" || req.LogStreamName == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupName and logStreamName are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupName and logStreamName are required", http.StatusBadRequest)
 		return
 	}
 
 	key := cwEventsKey(req.LogGroupName, req.LogStreamName)
 	if _, ok := cwLogStreams.Get(key); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log stream does not exist: %s", req.LogStreamName)
 		return
 	}
@@ -474,17 +474,17 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		NextToken     string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupName == "" || req.LogStreamName == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupName and logStreamName are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupName and logStreamName are required", http.StatusBadRequest)
 		return
 	}
 	// Real GetLogEvents checks the group before the stream, so a missing group
 	// reports "log group does not exist", not "log stream does not exist".
 	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
@@ -492,7 +492,7 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 	key := cwEventsKey(req.LogGroupName, req.LogStreamName)
 	events, ok := cwLogEvents.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log stream does not exist: %s", req.LogStreamName)
 		return
 	}
@@ -510,7 +510,7 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Limit < 0 || req.Limit > cwGetLogEventsMaxEvents {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"1 validation error detected: Value '%d' at 'limit' failed to satisfy constraint: "+
 				"Member must have value less than or equal to %d", req.Limit, cwGetLogEventsMaxEvents)
 		return
@@ -583,17 +583,17 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 		Limit               int      `json:"limit"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupName == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
 		return
 	}
 	// logStreamNames and logStreamNamePrefix are mutually exclusive, exactly as
 	// real CloudWatch Logs rejects them.
 	if len(req.LogStreamNames) > 0 && req.LogStreamNamePrefix != "" {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"LogStreamNames and LogStreamNamePrefix are mutually exclusive.", http.StatusBadRequest)
 		return
 	}
@@ -601,7 +601,7 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 	// (ResourceNotFoundException is a declared error for the op); without this
 	// a missing group returns an empty event list, masking misconfiguration.
 	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
@@ -611,7 +611,7 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 	// empty result set.
 	pattern, err := cwCompileLogPattern(req.FilterPattern)
 	if err != nil {
-		sim.AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -681,16 +681,16 @@ func handleCWPutRetentionPolicy(w http.ResponseWriter, r *http.Request) {
 		RetentionInDays int    `json:"retentionInDays"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupName == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
 		return
 	}
 
 	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", req.LogGroupName)
 		return
 	}
@@ -721,7 +721,7 @@ func handleCWListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceArn string `json:"resourceArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	tags := map[string]string{}
@@ -739,12 +739,12 @@ func handleCWTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags        map[string]string `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	name, ok := cwLogGroupByArn(req.ResourceArn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "log group not found: %s", req.ResourceArn)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "log group not found: %s", req.ResourceArn)
 		return
 	}
 	cwLogGroups.Update(name, func(lg *CWLogGroup) {

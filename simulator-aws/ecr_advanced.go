@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Additional ECR control-plane slices: account settings, registry-wide
@@ -94,7 +94,7 @@ var (
 	ecrPullTimeUpdateExclusions sim.Store[ECRPullTimeUpdateExclusion]
 )
 
-func registerECRAdvanced(r *sim.AWSRouter, srv *sim.Server) {
+func registerECRAdvanced(r *AWSRouter, srv *sim.Server) {
 	ecrAccountSettings = sim.MakeStore[ECRAccountSetting](srv.DB(), "ecr_account_settings")
 	ecrRegistryScanningConfig = sim.MakeStore[ECRRegistryScanningConfiguration](srv.DB(), "ecr_registry_scanning_config")
 	ecrRepoCreationTemplates = sim.MakeStore[ECRRepositoryCreationTemplate](srv.DB(), "ecr_repo_creation_templates")
@@ -132,11 +132,11 @@ func handleECRGetAccountSetting(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name is required", http.StatusBadRequest)
 		return
 	}
 	value := ecrDefaultAccountSettingValue(req.Name)
@@ -155,11 +155,11 @@ func handleECRPutAccountSetting(w http.ResponseWriter, r *http.Request) {
 		Value string `json:"value"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Value == "" {
-		sim.AWSError(w, "InvalidParameterException", "name and value are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "name and value are required", http.StatusBadRequest)
 		return
 	}
 	ecrAccountSettings.Put(req.Name, ECRAccountSetting{Name: req.Name, Value: req.Value})
@@ -187,7 +187,7 @@ func ecrDefaultAccountSettingValue(name string) string {
 
 func handleECRGetRegistryScanningConfiguration(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &struct{}{}); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cfg, ok := ecrRegistryScanningConfig.Get(ecrRegistrySingletonKey)
@@ -207,7 +207,7 @@ func handleECRPutRegistryScanningConfiguration(w http.ResponseWriter, r *http.Re
 		Rules    []ECRRegistryScanningRule `json:"rules"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cfg := ECRRegistryScanningConfiguration{ScanType: req.ScanType, Rules: req.Rules}
@@ -237,7 +237,7 @@ func handleECRBatchGetRepositoryScanningConfiguration(w http.ResponseWriter, r *
 		RepositoryNames []string `json:"repositoryNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// Derive each repo's scanning config from the registry scanning config
@@ -280,19 +280,19 @@ func handleECRBatchGetRepositoryScanningConfiguration(w http.ResponseWriter, r *
 func handleECRCreateRepositoryCreationTemplate(w http.ResponseWriter, r *http.Request) {
 	var req ecrRepoCreationTemplateInput
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Prefix == "" {
-		sim.AWSError(w, "InvalidParameterException", "prefix is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "prefix is required", http.StatusBadRequest)
 		return
 	}
 	if len(req.AppliedFor) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "appliedFor is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "appliedFor is required", http.StatusBadRequest)
 		return
 	}
 	if _, exists := ecrRepoCreationTemplates.Get(req.Prefix); exists {
-		sim.AWSErrorf(w, "TemplateAlreadyExistsException", http.StatusBadRequest,
+		AWSErrorf(w, "TemplateAlreadyExistsException", http.StatusBadRequest,
 			"A repository creation template with the prefix '%s' already exists", req.Prefix)
 		return
 	}
@@ -310,16 +310,16 @@ func handleECRCreateRepositoryCreationTemplate(w http.ResponseWriter, r *http.Re
 func handleECRUpdateRepositoryCreationTemplate(w http.ResponseWriter, r *http.Request) {
 	var req ecrRepoCreationTemplateInput
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Prefix == "" {
-		sim.AWSError(w, "InvalidParameterException", "prefix is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "prefix is required", http.StatusBadRequest)
 		return
 	}
 	existing, ok := ecrRepoCreationTemplates.Get(req.Prefix)
 	if !ok {
-		sim.AWSErrorf(w, "TemplateNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TemplateNotFoundException", http.StatusBadRequest,
 			"The repository creation template with prefix '%s' does not exist", req.Prefix)
 		return
 	}
@@ -365,12 +365,12 @@ func handleECRDeleteRepositoryCreationTemplate(w http.ResponseWriter, r *http.Re
 		Prefix string `json:"prefix"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	tmpl, ok := ecrRepoCreationTemplates.Get(req.Prefix)
 	if !ok {
-		sim.AWSErrorf(w, "TemplateNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "TemplateNotFoundException", http.StatusBadRequest,
 			"The repository creation template with prefix '%s' does not exist", req.Prefix)
 		return
 	}
@@ -388,7 +388,7 @@ func handleECRDescribeRepositoryCreationTemplates(w http.ResponseWriter, r *http
 		MaxResults int      `json:"maxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var tmpls []ECRRepositoryCreationTemplate
@@ -473,12 +473,12 @@ func ecrNormalizeTemplate(t ECRRepositoryCreationTemplate) ECRRepositoryCreation
 
 func handleECRGetSigningConfiguration(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &struct{}{}); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cfg, ok := ecrSigningConfig.Get(ecrRegistrySingletonKey)
 	if !ok {
-		sim.AWSError(w, "SigningConfigurationNotFoundException",
+		AWSError(w, "SigningConfigurationNotFoundException",
 			"The signing configuration does not exist for the registry",
 			http.StatusBadRequest)
 		return
@@ -494,11 +494,11 @@ func handleECRPutSigningConfiguration(w http.ResponseWriter, r *http.Request) {
 		SigningConfiguration ECRSigningConfiguration `json:"signingConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.SigningConfiguration.Rules) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "signingConfiguration.rules is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "signingConfiguration.rules is required", http.StatusBadRequest)
 		return
 	}
 	ecrSigningConfig.Put(ecrRegistrySingletonKey, req.SigningConfiguration)
@@ -509,12 +509,12 @@ func handleECRPutSigningConfiguration(w http.ResponseWriter, r *http.Request) {
 
 func handleECRDeleteSigningConfiguration(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &struct{}{}); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cfg, ok := ecrSigningConfig.Get(ecrRegistrySingletonKey)
 	if !ok {
-		sim.AWSError(w, "SigningConfigurationNotFoundException",
+		AWSError(w, "SigningConfigurationNotFoundException",
 			"The signing configuration does not exist for the registry",
 			http.StatusBadRequest)
 		return
@@ -542,17 +542,17 @@ func handleECRDescribeImageSigningStatus(w http.ResponseWriter, r *http.Request)
 		} `json:"imageId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
 	img, ok := ecrResolveImage(req.RepositoryName, req.ImageId.ImageTag, req.ImageId.ImageDigest)
 	if !ok {
-		sim.AWSError(w, "ImageNotFoundException",
+		AWSError(w, "ImageNotFoundException",
 			"The image requested does not exist in the specified repository",
 			http.StatusBadRequest)
 		return
@@ -577,15 +577,15 @@ func handleECRRegisterPullTimeUpdateExclusion(w http.ResponseWriter, r *http.Req
 		PrincipalArn string `json:"principalArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PrincipalArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "principalArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "principalArn is required", http.StatusBadRequest)
 		return
 	}
 	if _, exists := ecrPullTimeUpdateExclusions.Get(req.PrincipalArn); exists {
-		sim.AWSError(w, "ExclusionAlreadyExistsException",
+		AWSError(w, "ExclusionAlreadyExistsException",
 			"The principal is already on the pull time update exclusion list",
 			http.StatusBadRequest)
 		return
@@ -606,11 +606,11 @@ func handleECRDeregisterPullTimeUpdateExclusion(w http.ResponseWriter, r *http.R
 		PrincipalArn string `json:"principalArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrPullTimeUpdateExclusions.Get(req.PrincipalArn); !ok {
-		sim.AWSError(w, "ExclusionNotFoundException",
+		AWSError(w, "ExclusionNotFoundException",
 			"The principal is not on the pull time update exclusion list",
 			http.StatusBadRequest)
 		return
@@ -627,7 +627,7 @@ func handleECRListPullTimeUpdateExclusions(w http.ResponseWriter, r *http.Reques
 		NextToken  string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	exclusions := ecrPullTimeUpdateExclusions.List()
@@ -652,16 +652,16 @@ func handleECRUpdatePullThroughCacheRule(w http.ResponseWriter, r *http.Request)
 		CustomRoleArn       string `json:"customRoleArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.EcrRepositoryPrefix == "" {
-		sim.AWSError(w, "InvalidParameterException", "ecrRepositoryPrefix is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "ecrRepositoryPrefix is required", http.StatusBadRequest)
 		return
 	}
 	rule, ok := ecrPullThroughCacheRules.Get(req.EcrRepositoryPrefix)
 	if !ok {
-		sim.AWSError(w, "PullThroughCacheRuleNotFoundException",
+		AWSError(w, "PullThroughCacheRuleNotFoundException",
 			"The pull-through cache rule does not exist",
 			http.StatusNotFound)
 		return
@@ -692,16 +692,16 @@ func handleECRValidatePullThroughCacheRule(w http.ResponseWriter, r *http.Reques
 		RegistryId          string `json:"registryId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.EcrRepositoryPrefix == "" {
-		sim.AWSError(w, "InvalidParameterException", "ecrRepositoryPrefix is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "ecrRepositoryPrefix is required", http.StatusBadRequest)
 		return
 	}
 	rule, ok := ecrPullThroughCacheRules.Get(req.EcrRepositoryPrefix)
 	if !ok {
-		sim.AWSError(w, "PullThroughCacheRuleNotFoundException",
+		AWSError(w, "PullThroughCacheRuleNotFoundException",
 			"The pull-through cache rule does not exist",
 			http.StatusNotFound)
 		return
@@ -739,11 +739,11 @@ func handleECRListImageReferrers(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"maxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
@@ -766,24 +766,24 @@ func handleECRUpdateImageStorageClass(w http.ResponseWriter, r *http.Request) {
 		TargetStorageClass string `json:"targetStorageClass"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
 	img, ok := ecrResolveImage(req.RepositoryName, req.ImageId.ImageTag, req.ImageId.ImageDigest)
 	if !ok {
-		sim.AWSError(w, "ImageNotFoundException",
+		AWSError(w, "ImageNotFoundException",
 			"The image requested does not exist in the specified repository",
 			http.StatusBadRequest)
 		return
 	}
 	target := strings.ToUpper(req.TargetStorageClass)
 	if target != "STANDARD" && target != "ARCHIVE" {
-		sim.AWSError(w, "InvalidParameterException",
+		AWSError(w, "InvalidParameterException",
 			"targetStorageClass must be STANDARD or ARCHIVE",
 			http.StatusBadRequest)
 		return

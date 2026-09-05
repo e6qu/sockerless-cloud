@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ecrAuthTestToken re-seeds the authorization-token store and issues one token,

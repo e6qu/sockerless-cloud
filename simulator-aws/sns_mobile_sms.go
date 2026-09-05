@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SNS mobile-push, SMS, and data-protection control-plane slices. These are
@@ -90,7 +90,7 @@ type snsOptOutEntry struct {
 // request, which has no SDK/CLI surface.
 const snsSandboxAccountKey = "account"
 
-func registerSNSMobileSMS(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerSNSMobileSMS(r *AWSQueryRouter, srv *sim.Server) {
 	snsPlatformApps = sim.MakeStore[SNSPlatformApplication](srv.DB(), "sns_platform_apps")
 	snsPlatformEndpts = sim.MakeStore[SNSPlatformEndpoint](srv.DB(), "sns_platform_endpoints")
 	snsSandboxNumbers = sim.MakeStore[SNSSandboxPhoneNumber](srv.DB(), "sns_sandbox_numbers")

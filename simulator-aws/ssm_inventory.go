@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -121,7 +121,7 @@ var (
 	ssmAccessRequests     sim.Store[SSMAccessRequest]
 )
 
-func registerSSMInventory(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMInventory(r *AWSRouter, srv *sim.Server) {
 	ssmInventory = sim.MakeStore[SSMInventoryEntry](srv.DB(), "ssm_inventory")
 	ssmComplianceItems = sim.MakeStore[SSMComplianceItem](srv.DB(), "ssm_compliance_items")
 	ssmManagedInstances = sim.MakeStore[SSMManagedInstance](srv.DB(), "ssm_managed_instances")
@@ -209,21 +209,21 @@ func handleSSMPutInventory(w http.ResponseWriter, r *http.Request) {
 		} `json:"Items"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.InstanceId == "" {
-		sim.AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
 		return
 	}
 	if len(req.Items) == 0 {
-		sim.AWSErrorf(w, "ItemContentMismatchException", http.StatusBadRequest,
+		AWSErrorf(w, "ItemContentMismatchException", http.StatusBadRequest,
 			"At least one inventory item is required.")
 		return
 	}
 	for _, it := range req.Items {
 		if it.TypeName == "" {
-			sim.AWSErrorf(w, "InvalidTypeNameException", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidTypeNameException", http.StatusBadRequest,
 				"The parameter type name isn't valid.")
 			return
 		}
@@ -250,7 +250,7 @@ func handleSSMGetInventory(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// Group the captured entries by node into result entities.
@@ -327,7 +327,7 @@ func handleSSMGetInventorySchema(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	types := ssmKnownInventoryTypes()
@@ -408,11 +408,11 @@ func handleSSMDeleteInventory(w http.ResponseWriter, r *http.Request) {
 		ClientToken        string `json:"ClientToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.TypeName == "" {
-		sim.AWSErrorf(w, "InvalidTypeNameException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidTypeNameException", http.StatusBadRequest,
 			"The parameter type name isn't valid.")
 		return
 	}
@@ -469,7 +469,7 @@ func handleSSMDescribeInventoryDeletions(w http.ResponseWriter, r *http.Request)
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmInventoryDeletions.List()
@@ -511,11 +511,11 @@ func handleSSMListInventoryEntries(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.InstanceId == "" || req.TypeName == "" {
-		sim.AWSError(w, "ValidationException", "InstanceId and TypeName are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "InstanceId and TypeName are required", http.StatusBadRequest)
 		return
 	}
 	entry, ok := ssmInventory.Get(ssmInvKey(req.InstanceId, req.TypeName))
@@ -568,11 +568,11 @@ func handleSSMPutComplianceItems(w http.ResponseWriter, r *http.Request) {
 		UploadType string `json:"UploadType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceId == "" || req.ComplianceType == "" {
-		sim.AWSError(w, "ValidationException", "ResourceId and ComplianceType are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ResourceId and ComplianceType are required", http.StatusBadRequest)
 		return
 	}
 	resourceType := req.ResourceType
@@ -630,7 +630,7 @@ func handleSSMListComplianceItems(w http.ResponseWriter, r *http.Request) {
 		MaxResults    int      `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmComplianceItems.List()
@@ -725,7 +725,7 @@ func handleSSMListComplianceSummaries(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// One summary item per compliance type.
@@ -767,7 +767,7 @@ func handleSSMListResourceComplianceSummaries(w http.ResponseWriter, r *http.Req
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// One summary per (resource, compliance type).
@@ -855,7 +855,7 @@ func handleSSMListNodes(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmManagedInstanceList()
@@ -904,7 +904,7 @@ func handleSSMListNodesSummary(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	// The first aggregator's AttributeName selects the grouping key.
@@ -957,7 +957,7 @@ func handleSSMDescribeInstanceInformation(w http.ResponseWriter, r *http.Request
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmManagedInstanceList()
@@ -1004,7 +1004,7 @@ func handleSSMDescribeInstanceProperties(w http.ResponseWriter, r *http.Request)
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmManagedInstanceList()
@@ -1047,11 +1047,11 @@ func handleSSMDeregisterManagedInstance(w http.ResponseWriter, r *http.Request) 
 		InstanceId string `json:"InstanceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmManagedInstances.Get(req.InstanceId); !ok {
-		sim.AWSErrorf(w, "InvalidInstanceId", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidInstanceId", http.StatusBadRequest,
 			"The following instance IDs aren't valid or don't exist: %s", req.InstanceId)
 		return
 	}
@@ -1065,12 +1065,12 @@ func handleSSMUpdateManagedInstanceRole(w http.ResponseWriter, r *http.Request) 
 		IamRole    string `json:"IamRole"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	mi, ok := ssmManagedInstances.Get(req.InstanceId)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidInstanceId", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidInstanceId", http.StatusBadRequest,
 			"The following instance IDs aren't valid or don't exist: %s", req.InstanceId)
 		return
 	}
@@ -1087,11 +1087,11 @@ func handleSSMDescribeDocumentPermission(w http.ResponseWriter, r *http.Request)
 		NextToken      string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmDocuments.Get(req.Name); !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
@@ -1127,16 +1127,16 @@ func handleSSMModifyDocumentPermission(w http.ResponseWriter, r *http.Request) {
 		SharedDocumentVersion string   `json:"SharedDocumentVersion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmDocuments.Get(req.Name); !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
 	if !strings.EqualFold(req.PermissionType, "Share") {
-		sim.AWSError(w, "ValidationException", "PermissionType must be Share", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "PermissionType must be Share", http.StatusBadRequest)
 		return
 	}
 	share, _ := ssmDocShares.Get(req.Name)
@@ -1177,12 +1177,12 @@ func handleSSMUpdateDocumentMetadata(w http.ResponseWriter, r *http.Request) {
 		} `json:"DocumentReviews"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
@@ -1219,12 +1219,12 @@ func handleSSMListDocumentMetadataHistory(w http.ResponseWriter, r *http.Request
 		MaxResults      int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
@@ -1268,7 +1268,7 @@ func handleSSMGetCalendarState(w http.ResponseWriter, r *http.Request) {
 		AtTime        string   `json:"AtTime"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	atTime := req.AtTime
@@ -1284,7 +1284,7 @@ func handleSSMGetCalendarState(w http.ResponseWriter, r *http.Request) {
 	for _, name := range req.CalendarNames {
 		doc, ok := ssmDocuments.Get(name)
 		if !ok {
-			sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 				"The specified SSM document doesn't exist.")
 			return
 		}
@@ -1319,15 +1319,15 @@ func handleSSMStartAccessRequest(w http.ResponseWriter, r *http.Request) {
 		} `json:"Targets"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Reason == "" {
-		sim.AWSError(w, "ValidationException", "Reason is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Reason is required", http.StatusBadRequest)
 		return
 	}
 	if len(req.Targets) == 0 {
-		sim.AWSError(w, "ValidationException", "Targets is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Targets is required", http.StatusBadRequest)
 		return
 	}
 	// An access-request id is "oi-" followed by exactly twelve hex digits.
@@ -1354,12 +1354,12 @@ func handleSSMGetAccessToken(w http.ResponseWriter, r *http.Request) {
 		AccessRequestId string `json:"AccessRequestId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	ar, ok := ssmAccessRequests.Get(req.AccessRequestId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified access request doesn't exist.")
 		return
 	}

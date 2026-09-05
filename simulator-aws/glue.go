@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -340,7 +340,7 @@ const glueResourcePolicyKey = "catalog"
 // glueCatalogSettingsKey is the single store key for catalog-wide settings.
 const glueCatalogSettingsKey = "catalog"
 
-func registerGlue(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlue(r *AWSRouter, srv *sim.Server) {
 	glueDatabases = sim.MakeStore[GlueDatabase](srv.DB(), "glue_databases")
 	glueTables = sim.MakeStore[GlueTable](srv.DB(), "glue_tables")
 	glueTableVersions = sim.MakeStore[GlueTableVersion](srv.DB(), "glue_table_versions")
@@ -1491,7 +1491,7 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 		},
 		ExtraHosts: hostMetadataExtraHosts(),
 		Labels:     map[string]string{"sockerless-glue-job-run": runID},
-		Sandbox:    sim.SandboxFargate,
+		Sandbox:    SandboxFargate,
 	}, sim.NoopSink{})
 	if err != nil {
 		glueCompleteRun(jobName, runID, "FAILED", 0, fmt.Sprintf("start job environment %s: %v", image, err))

@@ -26,12 +26,12 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // registerDDBPartiQL mounts the three PartiQL operations on the shared awsJson
 // router. The parent adds the single registerDDBPartiQL(awsRouter) call.
-func registerDDBPartiQL(r *sim.AWSRouter) {
+func registerDDBPartiQL(r *AWSRouter) {
 	reg := func(target string, h http.HandlerFunc) {
 		op := strings.TrimPrefix(target, "DynamoDB_20120810.")
 		r.Register(target, ddbRequire(ddbRequiredMembers[op], h))
@@ -1454,16 +1454,16 @@ func handleDDBExecuteStatement(w http.ResponseWriter, r *http.Request) {
 		ReturnValuesOnConditionCheckFailure string           `json:"ReturnValuesOnConditionCheckFailure"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(req.Statement) == "" {
-		sim.AWSError(w, "ValidationException", "Statement is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Statement is required", http.StatusBadRequest)
 		return
 	}
 	st, err := parsePartiQL(req.Statement, req.Parameters)
 	if err != nil {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest, "%v", err)
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest, "%v", err)
 		return
 	}
 	// The parsed statement names its table, so only that table's stripe is
@@ -1511,11 +1511,11 @@ func handleDDBBatchExecuteStatement(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity string `json:"ReturnConsumedCapacity"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if len(req.Statements) == 0 {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"1 validation error detected: Value at 'statements' failed to satisfy constraint: Member must have length greater than or equal to 1",
 			http.StatusBadRequest)
 		return
@@ -1594,11 +1594,11 @@ func handleDDBExecuteTransaction(w http.ResponseWriter, r *http.Request) {
 		ReturnConsumedCapacity string `json:"ReturnConsumedCapacity"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if n := len(req.TransactStatements); n == 0 || n > 100 {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"1 validation error detected: Value at 'transactStatements' failed to satisfy constraint: Member must have length less than or equal to 100 and at least 1",
 			http.StatusBadRequest)
 		return
@@ -1609,12 +1609,12 @@ func handleDDBExecuteTransaction(w http.ResponseWriter, r *http.Request) {
 	stmts := make([]*partiQLStmt, len(req.TransactStatements))
 	for i, s := range req.TransactStatements {
 		if strings.TrimSpace(s.Statement) == "" {
-			sim.AWSError(w, "ValidationException", "Statement is required", http.StatusBadRequest)
+			AWSError(w, "ValidationException", "Statement is required", http.StatusBadRequest)
 			return
 		}
 		st, err := parsePartiQL(s.Statement, s.Parameters)
 		if err != nil {
-			sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest, "%v", err)
+			AWSErrorf(w, "ValidationException", http.StatusBadRequest, "%v", err)
 			return
 		}
 		stmts[i] = st
@@ -1755,7 +1755,7 @@ func pqlWriteError(w http.ResponseWriter, perr *pqlError) {
 		writeDDBJSON(w, http.StatusBadRequest, body)
 		return
 	}
-	sim.AWSErrorf(w, perr.Code, http.StatusBadRequest, "%s", perr.Message)
+	AWSErrorf(w, perr.Code, http.StatusBadRequest, "%s", perr.Message)
 }
 
 // pqlBatchError renders a pqlError as a BatchStatementError ({Code, Message})

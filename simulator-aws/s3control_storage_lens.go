@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sort"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon S3 Storage Lens: dashboards over an account's storage, and the groups
@@ -144,7 +144,7 @@ func handleS3ListStorageLensConfigurations(w http.ResponseWriter, r *http.Reques
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"ListStorageLensConfigurationResult"`
 		Entries []entry  `xml:"StorageLensConfiguration"`
 	}{Entries: items})
@@ -286,7 +286,7 @@ func handleS3ListStorageLensGroups(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	// StorageLensGroupList is a flattened list, so each group sits directly
 	// under the result rather than inside a wrapper element.
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"ListStorageLensGroupsResult"`
 		Entries []entry  `xml:"StorageLensGroup"`
 	}{Entries: items})

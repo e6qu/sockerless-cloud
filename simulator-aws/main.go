@@ -1,7 +1,7 @@
-// Command simulator-aws runs the AWS service simulator.
-//
-// It simulates the subset of AWS APIs used by the Sockerless ECS and Lambda
-// backends: ECS, ECR, CloudWatch Logs, EFS, Cloud Map, Lambda, S3, EC2, IAM, and STS.
+// Command simulator-aws runs the AWS simulator: a local, wire-faithful
+// reimplementation of a slice of the AWS public API, served on one port to the
+// AWS SDKs, the AWS CLI and terraform-provider-aws. Every service slice
+// registers in buildSimulator below.
 //
 // Configure with environment variables:
 //
@@ -28,7 +28,7 @@ import (
 	"net/http"
 	"os"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func main() {
@@ -75,7 +75,7 @@ func main() {
 // simulated AWS service on it. Split from main so the spec-conformance
 // tests can build the full route / operation table in-process and
 // validate it against the vendored Smithy models (specs/cloud-api/aws/).
-func buildSimulator(cfg sim.Config) (*sim.Server, *sim.AWSRouter, *sim.AWSQueryRouter, error) {
+func buildSimulator(cfg sim.Config) (*sim.Server, *AWSRouter, *AWSQueryRouter, error) {
 	return buildSimulatorWithOptions(cfg, simulatorBuildOptions{startBackgroundEvaluators: true})
 }
 
@@ -83,7 +83,7 @@ type simulatorBuildOptions struct {
 	startBackgroundEvaluators bool
 }
 
-func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*sim.Server, *sim.AWSRouter, *sim.AWSQueryRouter, error) {
+func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*sim.Server, *AWSRouter, *AWSQueryRouter, error) {
 	// A directory bucket is addressed virtual-hosted style at its zonal
 	// endpoint, and only that way, so the bucket arrives in the hostname and is
 	// mapped onto the path the router works in.
@@ -104,7 +104,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	}
 
 	// Register AWS JSON services (X-Amz-Target header routing)
-	awsRouter := sim.NewAWSRouter()
+	awsRouter := NewAWSRouter()
 	// Secrets Manager replication restores replica resource policies while its
 	// durable store is opened, so the shared IAM resource-policy store must
 	// exist before any service slice performs recovery.
@@ -156,7 +156,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerBudgets(awsRouter, srv)
 
 	// Register AWS Query Protocol services (Action form parameter routing)
-	queryRouter := sim.NewAWSQueryRouter()
+	queryRouter := NewAWSQueryRouter()
 	registerEC2(queryRouter, srv)
 	registerIAM(queryRouter, srv)
 	registerSTS(queryRouter, srv)
@@ -258,8 +258,6 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 
 	// EventBridge Scheduler — REST/JSON protocol (path-based, no X-Amz-Target)
 	registerScheduler(srv)
-
-	// Dashboard summary endpoints for UI
 
 	// Embedded UI (no-op with -tags noui)
 	registerUI(srv)

@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // IAM policy simulation: SimulateCustomPolicy / SimulatePrincipalPolicy.
@@ -776,7 +774,7 @@ func iamXMLEscape(s string) string {
 	return r.Replace(s)
 }
 
-func registerIAMPolicySimulation(r *sim.AWSQueryRouter) {
+func registerIAMPolicySimulation(r *AWSQueryRouter) {
 	r.Register("SimulateCustomPolicy", handleIAMSimulateCustomPolicy)
 	r.Register("SimulatePrincipalPolicy", handleIAMSimulatePrincipalPolicy)
 }

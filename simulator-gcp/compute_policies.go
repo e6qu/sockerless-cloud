@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Compute Engine policy collections — security policies and firewall
@@ -132,7 +132,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 		key := computePolicyKey(r, f.base, name)
 		policy, ok := f.store.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
 			return "", nil, false
 		}
 		return key, policy, true
@@ -146,7 +146,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 	srv.HandleFunc("POST "+f.base, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if body == nil {
@@ -154,12 +154,12 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 		}
 		name, _ := body["name"].(string)
 		if name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		key := computePolicyKey(r, f.base, name)
 		if _, exists := f.store.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "policy %q already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "policy %q already exists", name)
 			return
 		}
 		body["kind"] = f.kind
@@ -204,7 +204,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 		}
 		var patch map[string]any
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		for name, value := range patch {
@@ -263,7 +263,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 			}
 			parent := r.URL.Query().Get("parentId")
 			if parent == "" {
-				sim.GCPError(w, http.StatusBadRequest, "parentId is required to move a policy", "INVALID_ARGUMENT")
+				GCPError(w, http.StatusBadRequest, "parentId is required to move a policy", "INVALID_ARGUMENT")
 				return
 			}
 			policy["parent"] = parent
@@ -279,7 +279,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 			}
 			source := r.URL.Query().Get(f.sourceQueryParam)
 			if source == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"%s is required to name the policy the rules are copied from", f.sourceQueryParam)
 				return
 			}
@@ -295,7 +295,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 				}
 			}
 			if copied == nil {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "source policy %q not found", source)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "source policy %q not found", source)
 				return
 			}
 			policy["rules"] = copied
@@ -314,7 +314,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 				LabelFingerprint string            `json:"labelFingerprint"`
 			}
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			policy["labels"] = body.Labels
@@ -357,12 +357,12 @@ func (f computePolicyFamily) registerRuleVerbs(
 		}
 		var rule map[string]any
 		if err := sim.ReadJSON(r, &rule); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		rules := computePolicyRules(policy, field)
 		if computePolicyRuleIndex(rules, computeRulePriority(rule)) >= 0 {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"a rule with priority %d already exists", computeRulePriority(rule))
 			return
 		}
@@ -387,7 +387,7 @@ func (f computePolicyFamily) registerRuleVerbs(
 		rules := computePolicyRules(policy, field)
 		at := computePolicyRuleIndex(rules, computeRequestedPriority(r))
 		if at < 0 {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no rule with priority %d", computeRequestedPriority(r))
 			return
 		}
@@ -402,13 +402,13 @@ func (f computePolicyFamily) registerRuleVerbs(
 		rules := computePolicyRules(policy, field)
 		at := computePolicyRuleIndex(rules, computeRequestedPriority(r))
 		if at < 0 {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no rule with priority %d", computeRequestedPriority(r))
 			return
 		}
 		var patch map[string]any
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		existing, _ := rules[at].(map[string]any)
@@ -432,7 +432,7 @@ func (f computePolicyFamily) registerRuleVerbs(
 		rules := computePolicyRules(policy, field)
 		at := computePolicyRuleIndex(rules, computeRequestedPriority(r))
 		if at < 0 {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no rule with priority %d", computeRequestedPriority(r))
 			return
 		}
@@ -469,7 +469,7 @@ func (f computePolicyFamily) registerAssociationVerbs(
 		}
 		var association map[string]any
 		if err := sim.ReadJSON(r, &association); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name, _ := association["name"].(string)
@@ -482,7 +482,7 @@ func (f computePolicyFamily) registerAssociationVerbs(
 			}
 		}
 		if at := find(policy, name); at >= 0 && r.URL.Query().Get("replaceExistingAssociation") != "true" {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"association %q already exists on this policy", name)
 			return
 		} else if at >= 0 {
@@ -505,7 +505,7 @@ func (f computePolicyFamily) registerAssociationVerbs(
 		}
 		at := find(policy, r.URL.Query().Get("name"))
 		if at < 0 {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no association named %q on this policy", r.URL.Query().Get("name"))
 			return
 		}
@@ -519,7 +519,7 @@ func (f computePolicyFamily) registerAssociationVerbs(
 		}
 		at := find(policy, r.URL.Query().Get("name"))
 		if at < 0 {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no association named %q on this policy", r.URL.Query().Get("name"))
 			return
 		}

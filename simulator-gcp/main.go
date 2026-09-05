@@ -1,13 +1,13 @@
-// Command simulator-gcp runs the GCP service simulator.
-//
-// It simulates the subset of GCP APIs used by the Sockerless Cloud Run and
-// Cloud Functions backends: Cloud Run Jobs, Cloud Logging, Cloud DNS, GCS,
-// Artifact Registry, and Cloud Functions v2.
+// Command simulator-gcp runs the Google Cloud simulator: a local,
+// wire-faithful reimplementation of a slice of the Google Cloud public API,
+// served over REST on one port and gRPC on the next to the Google Cloud client
+// libraries, gcloud and terraform-provider-google. Every service slice
+// registers in buildSimulator below.
 //
 // Configure with environment variables:
 //
 //	SIM_LISTEN_ADDR     — HTTP listen address (default ":4567")
-//	SIM_GCP_GRPC_PORT   — gRPC listen port for Cloud Logging (default: HTTP port + 1)
+//	SIM_GCP_GRPC_PORT   — gRPC listen port (default: HTTP port + 2, so the default coexists with the Azure simulator's :4568)
 //	SIM_TLS_CERT        — TLS certificate file (optional)
 //	SIM_TLS_KEY         — TLS key file (optional)
 //	SIM_RUNTIME         — "docker" by default; "process" starts API-only mode for runs that do not execute workloads
@@ -28,7 +28,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc"
 )
 
@@ -188,8 +188,6 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerComputeMetadata(srv)
 	registerTokenDiscovery(srv)
 
-	// Dashboard summary endpoints for UI
-
 	// Embedded UI (no-op with -tags noui)
 	registerUI(srv)
 
@@ -202,20 +200,20 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	return srv, nil
 }
 
-// grpcPortFromConfig derives the gRPC port from the HTTP listen address.
-// Default: HTTP port + 1.
+// grpcPortFromConfig derives the gRPC port from the HTTP listen address: the
+// HTTP port plus two. Plus one would put the default at :4568, which is the
+// Azure simulator's default HTTP port, and the two cannot both bind it on one
+// host.
 func grpcPortFromConfig(listenAddr string) string {
-	// Extract port from ":4567" or "0.0.0.0:4567"
 	_, portStr, err := net.SplitHostPort(listenAddr)
 	if err != nil {
-		// Might be just ":4567"
 		portStr = strings.TrimPrefix(listenAddr, ":")
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return "4568"
+		return "4569"
 	}
-	return strconv.Itoa(port + 1)
+	return strconv.Itoa(port + 2)
 }
 
 // registerAllGRPCServices mounts every gRPC service the simulator serves.

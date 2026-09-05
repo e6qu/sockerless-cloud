@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
 // armTokenAudiences are the canonical Azure Resource Manager token audiences.
@@ -137,5 +135,5 @@ func azureARMBearerUnauthorized(w http.ResponseWriter, r *http.Request, descript
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
 		`Bearer authorization_uri=%q, error="invalid_token", error_description=%q`,
 		azureAuthBaseURL(r)+"/common/oauth2/v2.0/authorize", description))
-	sim.AzureError(w, "invalid_token", description, http.StatusUnauthorized)
+	AzureError(w, "invalid_token", description, http.StatusUnauthorized)
 }

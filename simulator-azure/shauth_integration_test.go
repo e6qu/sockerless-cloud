@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 )
 
@@ -47,7 +47,7 @@ func ensureConsoleRegistered(srv *sim.Server) {
 	if _, pattern := srv.Mux().Handler(probe); pattern == "GET "+consoleConfigPath {
 		return
 	}
-	srv.RegisterUI(consoleAssets())
+	srv.RegisterUI(consoleAssets(), azureConsoleOptions(srv))
 }
 
 // Shauth is an ADDITION to the Azure simulator's own authentication, never a

@@ -303,20 +303,15 @@ Each test package's `TestMain` builds the simulator binary, finds a free port, b
 
 ## Known issues
 
-None open for the services covered here. Selected closed items:
-
-- **BUG-991** — `docker run --rm` against `backends/docker` used to fail with `No such container`. Fixed by removing the Store-direct shortcut in `handleContainerWait`.
-- **BUG-992** — `docker images` used to return empty even when the upstream daemon had images. Fixed by delegating to `s.self.ImageList`.
-- **issue #381** — ECS managed EBS volumes lived on the sim process's own filesystem and bind-mounted by path, so task containers launched as Docker siblings couldn't see the data. `CreateVpc`/`CreateSubnet` also hard-failed without host nftables even when only control-plane API calls were needed. Fixed: ECS EBS volumes now use Docker named volumes; VPC/Subnet store state unconditionally and set up real networking fabric lazily when host caps are present and a data-plane resource attaches.
+Open simulator bugs live in [BUGS.md](../BUGS.md).
 
 ## What's out of scope
 
 - **Edge propagation timing** — CloudFront distributions report `Status: Deployed` immediately; invalidations report `Completed` immediately. Real CloudFront cycles `InProgress → Deployed` over 5–15 minutes.
-- **DNS resolution** — Route 53 stores records but does not serve them via UDP/53. The sim's purpose is API-shape parity, not actual DNS resolution. Use a separate dnsmasq sidecar if you need lookups.
-- **WAF traffic inspection** — `GetSampledRequests` returns an empty list. The sim accepts WebACL rule definitions but doesn't actually filter traffic.
-- **ACM cert auto-validation** — `RequestCertificate` with `ValidationMethod=DNS` stays `PENDING_VALIDATION` until you `ImportCertificate` to flip a cert to `ISSUED`. Real ACM polls Route 53 for the challenge CNAME.
 - **Multi-region routing** — sim is single-region (defaults to `us-east-1`). Cross-region replication / failover is not modelled.
-- **Cost / billing surfaces** — `cur`, `pricing`, `cost-explorer` are absent.
-- **Real authentication** — the simulator accepts sigv4 headers without verifying them cryptographically.
+- **Cost / billing surfaces** — `cur`, `pricing` and `cost-explorer` are absent; AWS Budgets is served.
+- **Outbound delivery to carriers and push services** — Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those publishes fail naming the missing dependency (BUG-2712).
+
+Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (default `5353`), a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
 
 See also: [API_SPEC.md](API_SPEC.md).

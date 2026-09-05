@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // cwJSONStat renders a statistic value as a JSON number that always carries a
@@ -35,7 +35,7 @@ func cwJSONStat(f float64) json.Number {
 // period-bucketing + statistic helpers, so data pushed via any protocol reads
 // back through any other.
 
-func registerCloudWatchMetricsJSON(r *sim.AWSRouter) {
+func registerCloudWatchMetricsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutMetricData", handleCWJSONPutMetricData)
 	r.Register("GraniteServiceVersion20100801.GetMetricStatistics", handleCWJSONGetMetricStatistics)
 	r.Register("GraniteServiceVersion20100801.ListMetrics", handleCWJSONListMetrics)
@@ -59,11 +59,11 @@ func handleCWJSONPutMetricData(w http.ResponseWriter, r *http.Request) {
 		} `json:"MetricData"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Namespace == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter Namespace is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter Namespace is required.", http.StatusBadRequest)
 		return
 	}
 	for _, m := range req.MetricData {
@@ -97,7 +97,7 @@ func handleCWJSONGetMetricStatistics(w http.ResponseWriter, r *http.Request) {
 		Statistics []string      `json:"Statistics"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	period := req.Period
@@ -154,7 +154,7 @@ func handleCWJSONListMetrics(w http.ResponseWriter, r *http.Request) {
 		MetricName string `json:"MetricName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 

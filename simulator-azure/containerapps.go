@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/gorilla/websocket"
 	dockerclient "github.com/moby/moby/client"
 )
@@ -28,7 +28,7 @@ func stopACAExecutionProcesses(p *acaExecutionProcesses) {
 		return
 	}
 	if p.Main != nil {
-		sim.StopContainer(p.Main.ContainerID)
+		sim.StopContainer(p.Main.ContainerID, 10*time.Second)
 		p.Main.Cancel()
 	}
 	for _, h := range p.Sidecars {
@@ -228,12 +228,12 @@ func registerContainerApps(srv *sim.Server) {
 
 		var req ContainerAppJob
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if req.Location == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 
@@ -241,7 +241,7 @@ func registerContainerApps(srv *sim.Server) {
 
 		existing, exists := jobs.Get(resourceID)
 		if exists && existing.Properties.ProvisioningState == "Deleting" {
-			sim.AzureErrorf(w, "Conflict", http.StatusConflict,
+			AzureErrorf(w, "Conflict", http.StatusConflict,
 				"Container app job '%s' is being deleted and cannot be updated until the delete operation completes.", name)
 			return
 		}
@@ -303,7 +303,7 @@ func registerContainerApps(srv *sim.Server) {
 
 		job, ok := jobs.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/jobs/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -348,18 +348,18 @@ func registerContainerApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
 		job, ok := jobs.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/jobs/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
 		patch, err := io.ReadAll(r.Body)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		prior := job
 		if err := applyARMMergePatch(&job, patch); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// Identity and server-owned fields are not client-writable.
@@ -387,7 +387,7 @@ func registerContainerApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
 		job, ok := jobs.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/jobs/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -442,7 +442,7 @@ func registerContainerApps(srv *sim.Server) {
 
 		job, ok := jobs.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/jobs/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -453,7 +453,7 @@ func registerContainerApps(srv *sim.Server) {
 			InitContainers []JobContainer `json:"initContainers,omitempty"`
 		}
 		if err := sim.ReadJSON(r, &override); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 
@@ -586,7 +586,7 @@ func registerContainerApps(srv *sim.Server) {
 		name := sim.PathParam(r, "jobName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, name)
 		if _, ok := jobs.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/jobs/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -623,7 +623,7 @@ func registerContainerApps(srv *sim.Server) {
 
 		_, ok := jobs.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/jobs/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -649,7 +649,7 @@ func registerContainerApps(srv *sim.Server) {
 
 		exec, ok := executions.Get(execID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The execution '%s' for job '%s' was not found.", execName, jobName)
 			return
 		}
@@ -683,7 +683,7 @@ func registerContainerApps(srv *sim.Server) {
 		}
 
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The execution '%s' for job '%s' was not found.", execName, jobName)
 			return
 		}
@@ -739,13 +739,14 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 		return nil, nil, fmt.Errorf("inspect main container %q image platform: %w", main.Name, err)
 	}
 	mainHandle, err := sim.StartContainerSync(sim.ContainerConfig{
-		Image:        mainImage,
-		Architecture: mainPlatform,
-		Command:      main.Command,
-		Args:         main.Args,
-		Env:          envFor(main),
-		Timeout:      timeout,
-		Name:         fmt.Sprintf("sockerless-sim-azure-execution-%s", shortExecID),
+		CancelGracePeriod: 5 * time.Second,
+		Image:             mainImage,
+		Architecture:      mainPlatform,
+		Command:           main.Command,
+		Args:              main.Args,
+		Env:               envFor(main),
+		Timeout:           timeout,
+		Name:              fmt.Sprintf("sockerless-sim-azure-execution-%s", shortExecID),
 		Labels: map[string]string{
 			"sockerless-sim-type":                "aca-job-execution",
 			"sockerless-exec-id":                 execID,
@@ -755,7 +756,7 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 		NetworkAliases: netAliases,
 		Binds:          bindsFor(main),
 		ExtraHosts:     hostMetadataExtraHosts(),
-		Sandbox:        sim.SandboxACA,
+		Sandbox:        SandboxACA,
 	}, sink)
 	if err != nil {
 		return nil, nil, fmt.Errorf("start main container %q: %w", main.Name, err)
@@ -773,13 +774,14 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 			return nil, nil, fmt.Errorf("inspect sidecar container %q image platform: %w", c.Name, err)
 		}
 		handle, err := sim.StartContainerSync(sim.ContainerConfig{
-			Image:        sidecarImage,
-			Architecture: sidecarPlatform,
-			Command:      c.Command,
-			Args:         c.Args,
-			Env:          envFor(c),
-			Timeout:      timeout,
-			Name:         fmt.Sprintf("sockerless-sim-azure-execution-%s-sidecar-%d", shortExecID, i),
+			CancelGracePeriod: 5 * time.Second,
+			Image:             sidecarImage,
+			Architecture:      sidecarPlatform,
+			Command:           c.Command,
+			Args:              c.Args,
+			Env:               envFor(c),
+			Timeout:           timeout,
+			Name:              fmt.Sprintf("sockerless-sim-azure-execution-%s-sidecar-%d", shortExecID, i),
 			Labels: map[string]string{
 				"sockerless-sim-type":                "aca-job-execution",
 				"sockerless-exec-id":                 execID,
@@ -787,7 +789,7 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 			},
 			NetworkMode: "container:" + mainHandle.ContainerID,
 			Binds:       bindsFor(c),
-			Sandbox:     sim.SandboxACA,
+			Sandbox:     SandboxACA,
 		}, sink)
 		if err != nil {
 			mainHandle.Cancel()
@@ -812,7 +814,7 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 	execName := sim.PathParam(r, "execName")
 	command := r.URL.Query().Get("command")
 	if command == "" {
-		sim.AzureError(w, "BadRequest", "command query parameter is required", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "command query parameter is required", http.StatusBadRequest)
 		return
 	}
 
@@ -820,19 +822,19 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 		sub, rg, jobName, execName)
 	v, ok := acaProcessHandles.Load(execID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"No running execution container for '%s/%s'", jobName, execName)
 		return
 	}
 	procs, ok := v.(*acaExecutionProcesses)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"No running execution container for '%s/%s'", jobName, execName)
 		return
 	}
 	handle := procs.Main
 	if handle == nil {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"No running execution container for '%s/%s'", jobName, execName)
 		return
 	}

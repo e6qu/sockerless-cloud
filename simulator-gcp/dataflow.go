@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // dataflowJob mirrors the fields of the Cloud Dataflow v1b3 `Job` resource
@@ -129,7 +129,7 @@ func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 // id, recorded under (project, location), and enters JOB_STATE_RUNNING.
 func createDataflowJob(w http.ResponseWriter, project, location string, req dataflowJob) {
 	if req.Name == "" {
-		sim.GCPError(w, http.StatusBadRequest, "job name is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "job name is required", "INVALID_ARGUMENT")
 		return
 	}
 	if req.ID == "" {
@@ -154,7 +154,7 @@ func handleDataflowCreateJob(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	var req dataflowJob
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	createDataflowJob(w, project, location, req)
@@ -164,7 +164,7 @@ func handleDataflowCreateJobGlobal(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	var req dataflowJob
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	createDataflowJob(w, project, req.Location, req)
@@ -239,7 +239,7 @@ func handleDataflowGetJobGlobal(w http.ResponseWriter, r *http.Request) {
 func getDataflowJob(w http.ResponseWriter, project, location, id string) {
 	job, _, ok := findDataflowJob(project, location, id)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, job)
@@ -256,12 +256,12 @@ func handleDataflowUpdateJobGlobal(w http.ResponseWriter, r *http.Request) {
 func updateDataflowJob(w http.ResponseWriter, r *http.Request, project, location, id string) {
 	var req dataflowJob
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	_, key, ok := findDataflowJob(project, location, id)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
 	dataflowJobs.Update(key, func(job *dataflowJob) {
@@ -297,16 +297,16 @@ func handleDataflowJobPostActionGlobal(w http.ResponseWriter, r *http.Request) {
 func dataflowJobPostAction(w http.ResponseWriter, r *http.Request, project, location, jobAction string) {
 	jobID, action, found := strings.Cut(jobAction, ":")
 	if !found {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown job action %q", jobAction)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown job action %q", jobAction)
 		return
 	}
 	if action != "snapshot" {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown job action %q", action)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown job action %q", action)
 		return
 	}
 	job, _, ok := findDataflowJob(project, location, jobID)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", jobID)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", jobID)
 		return
 	}
 	var req struct {
@@ -343,7 +343,7 @@ func handleDataflowGetMetricsGlobal(w http.ResponseWriter, r *http.Request) {
 
 func dataflowGetMetrics(w http.ResponseWriter, project, location, id string) {
 	if _, _, ok := findDataflowJob(project, location, id); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
 	// A representative JobMetrics: one scalar MetricUpdate. The MetricUpdate
@@ -375,7 +375,7 @@ func handleDataflowListMessagesGlobal(w http.ResponseWriter, r *http.Request) {
 func dataflowListMessages(w http.ResponseWriter, project, location, id string) {
 	job, _, ok := findDataflowJob(project, location, id)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
 	resp := map[string]any{
@@ -396,7 +396,7 @@ func handleDataflowGetExecutionDetails(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	id := sim.PathParam(r, "job")
 	if _, _, ok := findDataflowJob(project, location, id); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
 	resp := map[string]any{
@@ -415,7 +415,7 @@ func handleDataflowGetStageExecutionDetails(w http.ResponseWriter, r *http.Reque
 	location := sim.PathParam(r, "location")
 	id := sim.PathParam(r, "job")
 	if _, _, ok := findDataflowJob(project, location, id); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
 	resp := map[string]any{
@@ -461,7 +461,7 @@ func dataflowCreateJobFromTemplate(w http.ResponseWriter, r *http.Request, proje
 		Parameters  map[string]string `json:"parameters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	loc := location
@@ -497,7 +497,7 @@ func dataflowLaunchTemplate(w http.ResponseWriter, r *http.Request, project, loc
 	loc := location
 	job := dataflowJob{Name: name, Type: "JOB_TYPE_BATCH", Environment: req.Environment}
 	if job.Name == "" {
-		sim.GCPError(w, http.StatusBadRequest, "job name is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "job name is required", "INVALID_ARGUMENT")
 		return
 	}
 	job.ID = generateUUID()
@@ -566,12 +566,12 @@ func handleDataflowGetTemplate(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("gcsPath")
 	bucket, object, found := strings.Cut(strings.TrimPrefix(path, "gs://"), "/")
 	if !found || bucket == "" || object == "" {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"gcsPath must name a Cloud Storage object, got %q", path)
 		return
 	}
 	if _, staged := gcsObjects.Get(bucket + "/" + object); !staged {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"no template is staged at %q", path)
 		return
 	}
@@ -653,7 +653,7 @@ func handleDataflowGetSnapshotGlobal(w http.ResponseWriter, r *http.Request) {
 func getDataflowSnapshot(w http.ResponseWriter, project, location, id string) {
 	s, _, ok := findDataflowSnapshot(project, location, id)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "snapshot %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "snapshot %q not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, s)
@@ -665,7 +665,7 @@ func handleDataflowDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "snapshot")
 	_, key, ok := findDataflowSnapshot(project, location, id)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "snapshot %q not found", id)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "snapshot %q not found", id)
 		return
 	}
 	dataflowSnapshots.Delete(key)

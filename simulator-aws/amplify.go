@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Amplify. Wire: REST + JSON, versionless paths (/apps, /apps/{id},

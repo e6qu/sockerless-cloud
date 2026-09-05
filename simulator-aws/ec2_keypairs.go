@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EC2KeyPair models an EC2 key pair. CreateKeyPair generates a real RSA key and

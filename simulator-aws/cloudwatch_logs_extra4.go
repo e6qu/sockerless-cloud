@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -40,7 +40,7 @@ var (
 	cwBearerTokenAuth sim.Store[bool]
 )
 
-func registerCloudWatchLogsExtra4(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudWatchLogsExtra4(r *AWSRouter, srv *sim.Server) {
 	cwS3TableSources = sim.MakeStore[CWS3TableSource](srv.DB(), "cw_s3_table_sources")
 	cwBearerTokenAuth = sim.MakeStore[bool](srv.DB(), "cw_bearer_token_auth")
 
@@ -66,11 +66,11 @@ func handleCWAssociateSourceToS3TableIntegration(w http.ResponseWriter, r *http.
 		} `json:"dataSource"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.IntegrationArn == "" || req.DataSource.Name == "" {
-		sim.AWSError(w, "InvalidParameterException", "integrationArn and dataSource.name are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "integrationArn and dataSource.name are required", http.StatusBadRequest)
 		return
 	}
 	id := uuid.New().String()
@@ -90,11 +90,11 @@ func handleCWDisassociateSourceFromS3TableIntegration(w http.ResponseWriter, r *
 		Identifier string `json:"identifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !cwS3TableSources.Delete(req.Identifier) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified data source association does not exist: %s", req.Identifier)
 		return
 	}
@@ -106,11 +106,11 @@ func handleCWListSourcesForS3TableIntegration(w http.ResponseWriter, r *http.Req
 		IntegrationArn string `json:"integrationArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.IntegrationArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "integrationArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "integrationArn is required", http.StatusBadRequest)
 		return
 	}
 	sources := []map[string]any{}
@@ -144,11 +144,11 @@ func handleCWGetLogFields(w http.ResponseWriter, r *http.Request) {
 		DataSourceType string `json:"dataSourceType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DataSourceName == "" || req.DataSourceType == "" {
-		sim.AWSError(w, "InvalidParameterException", "dataSourceName and dataSourceType are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "dataSourceName and dataSourceType are required", http.StatusBadRequest)
 		return
 	}
 	// A data source categorizes a log group's events. Discover the field set
@@ -210,16 +210,16 @@ func handleCWListLogGroupsForQuery(w http.ResponseWriter, r *http.Request) {
 		QueryId string `json:"queryId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.QueryId == "" {
-		sim.AWSError(w, "InvalidParameterException", "queryId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "queryId is required", http.StatusBadRequest)
 		return
 	}
 	q, ok := cwQueries.Get(req.QueryId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified query does not exist: %s", req.QueryId)
 		return
 	}
@@ -235,16 +235,16 @@ func handleCWPutBearerTokenAuthentication(w http.ResponseWriter, r *http.Request
 		BearerTokenAuthenticationEnabled bool   `json:"bearerTokenAuthenticationEnabled"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.LogGroupIdentifier == "" {
-		sim.AWSError(w, "InvalidParameterException", "logGroupIdentifier is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "logGroupIdentifier is required", http.StatusBadRequest)
 		return
 	}
 	name := cwLogGroupIdentifierToName(req.LogGroupIdentifier)
 	if _, ok := cwLogGroups.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", name)
 		return
 	}
@@ -259,11 +259,11 @@ func handleCWUpdateDeliveryConfiguration(w http.ResponseWriter, r *http.Request)
 		FieldDelimiter string   `json:"fieldDelimiter"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Id == "" {
-		sim.AWSError(w, "InvalidParameterException", "id is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "id is required", http.StatusBadRequest)
 		return
 	}
 	updated := cwDeliveries.Update(req.Id, func(d *CWDelivery) {
@@ -275,7 +275,7 @@ func handleCWUpdateDeliveryConfiguration(w http.ResponseWriter, r *http.Request)
 		}
 	})
 	if !updated {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified delivery does not exist: %s", req.Id)
 		return
 	}

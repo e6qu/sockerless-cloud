@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func registerOperations(srv *sim.Server) {
@@ -57,7 +57,7 @@ func registerOperations(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, op)
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 	})
 
 	// Get operation - v1 prefix
@@ -73,7 +73,7 @@ func registerOperations(srv *sim.Server) {
 		}
 		// Real GCP returns NOT_FOUND when an operation doesn't exist; a
 		// synthetic done=true response would mask a client-side bug.
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 	})
 
 	// Get operation - v2 prefix. Cloud Logging's scope-parented operations
@@ -90,6 +90,6 @@ func registerOperations(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, op)
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 	})
 }

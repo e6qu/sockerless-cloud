@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type ServiceUsageState struct {
@@ -121,11 +121,11 @@ func registerServiceUsage(srv *sim.Server) {
 		parentPrefix := fmt.Sprintf("projects/%s/services/", project)
 		names := r.URL.Query()["names"]
 		if len(names) == 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "names must name at least one service to retrieve")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "names must name at least one service to retrieve")
 			return
 		}
 		if len(names) > 30 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"a single request can get a maximum of 30 services at a time; got %d", len(names))
 			return
 		}
@@ -133,7 +133,7 @@ func registerServiceUsage(srv *sim.Server) {
 		for _, name := range names {
 			service := strings.TrimPrefix(name, parentPrefix)
 			if service == name || service == "" || strings.Contains(service, "/") {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"service name %q must be of the form %s{service}", name, parentPrefix)
 				return
 			}
@@ -173,7 +173,7 @@ func registerServiceUsage(srv *sim.Server) {
 			ServiceIds []string `json:"serviceIds"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 

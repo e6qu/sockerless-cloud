@@ -2,6 +2,6 @@
 
 package main
 
-import sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+import "github.com/e6qu/sockerless-cloud/sim"
 
 func registerUI(_ *sim.Server) {}

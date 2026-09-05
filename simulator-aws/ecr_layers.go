@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECR repository policy + image-layer data plane.
@@ -35,7 +35,7 @@ var (
 	ecrLayerUploads sim.Store[ecrLayerUpload] // uploadId -> in-progress session
 )
 
-func registerECRLayers(r *sim.AWSRouter, srv *sim.Server) {
+func registerECRLayers(r *AWSRouter, srv *sim.Server) {
 	ecrRepoPolicies = sim.MakeStore[string](srv.DB(), "ecr_repo_policies")
 	ecrLayers = sim.MakeStore[ecrLayer](srv.DB(), "ecr_layers")
 	ecrLayerUploads = sim.MakeStore[ecrLayerUpload](srv.DB(), "ecr_layer_uploads")
@@ -62,11 +62,11 @@ func handleECRSetRepositoryPolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyText     string `json:"policyText"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecrRepoExists(req.RepositoryName) {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist in the registry with id '%s'", req.RepositoryName, ecrRegistryId())
 		return
 	}
@@ -83,17 +83,17 @@ func handleECRGetRepositoryPolicy(w http.ResponseWriter, r *http.Request) {
 		RepositoryName string `json:"repositoryName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecrRepoExists(req.RepositoryName) {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist in the registry with id '%s'", req.RepositoryName, ecrRegistryId())
 		return
 	}
 	policy, ok := ecrRepoPolicies.Get(req.RepositoryName)
 	if !ok {
-		sim.AWSErrorf(w, "RepositoryPolicyNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryPolicyNotFoundException", http.StatusBadRequest,
 			"Repository policy does not exist for the repository with name '%s'", req.RepositoryName)
 		return
 	}
@@ -109,12 +109,12 @@ func handleECRDeleteRepositoryPolicy(w http.ResponseWriter, r *http.Request) {
 		RepositoryName string `json:"repositoryName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	policy, ok := ecrRepoPolicies.Get(req.RepositoryName)
 	if !ok {
-		sim.AWSErrorf(w, "RepositoryPolicyNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryPolicyNotFoundException", http.StatusBadRequest,
 			"Repository policy does not exist for the repository with name '%s'", req.RepositoryName)
 		return
 	}
@@ -131,11 +131,11 @@ func handleECRInitiateLayerUpload(w http.ResponseWriter, r *http.Request) {
 		RepositoryName string `json:"repositoryName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecrRepoExists(req.RepositoryName) {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist in the registry with id '%s'", req.RepositoryName, ecrRegistryId())
 		return
 	}
@@ -156,12 +156,12 @@ func handleECRUploadLayerPart(w http.ResponseWriter, r *http.Request) {
 		LayerPartBlob  []byte `json:"layerPartBlob"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	session, ok := ecrLayerUploads.Get(req.UploadId)
 	if !ok {
-		sim.AWSErrorf(w, "UploadNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "UploadNotFoundException", http.StatusBadRequest,
 			"Upload with id '%s' does not exist for the repository with name '%s'", req.UploadId, req.RepositoryName)
 		return
 	}
@@ -182,23 +182,23 @@ func handleECRCompleteLayerUpload(w http.ResponseWriter, r *http.Request) {
 		LayerDigests   []string `json:"layerDigests"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	session, ok := ecrLayerUploads.Get(req.UploadId)
 	if !ok {
-		sim.AWSErrorf(w, "UploadNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "UploadNotFoundException", http.StatusBadRequest,
 			"Upload with id '%s' does not exist for the repository with name '%s'", req.UploadId, req.RepositoryName)
 		return
 	}
 	if len(req.LayerDigests) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "layerDigests is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "layerDigests is required", http.StatusBadRequest)
 		return
 	}
 	declared := req.LayerDigests[0]
 	computed := fmt.Sprintf("sha256:%x", sha256.Sum256(session.Buffer))
 	if declared != computed {
-		sim.AWSErrorf(w, "InvalidLayerException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidLayerException", http.StatusBadRequest,
 			"Layer digest '%s' does not match the computed digest '%s'", declared, computed)
 		return
 	}
@@ -222,11 +222,11 @@ func handleECRGetDownloadUrlForLayer(w http.ResponseWriter, r *http.Request) {
 		LayerDigest    string `json:"layerDigest"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrLayers.Get(ecrLayerKey(req.RepositoryName, req.LayerDigest)); !ok {
-		sim.AWSErrorf(w, "LayerInaccessibleException", http.StatusBadRequest,
+		AWSErrorf(w, "LayerInaccessibleException", http.StatusBadRequest,
 			"Layer '%s' is not available in the repository with name '%s'", req.LayerDigest, req.RepositoryName)
 		return
 	}

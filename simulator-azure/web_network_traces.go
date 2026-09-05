@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A site's network traces.
@@ -62,7 +62,7 @@ func webStartNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("durationInSeconds"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed <= 0 {
-			sim.AzureError(w, "BadRequest",
+			AzureError(w, "BadRequest",
 				"durationInSeconds must be a positive number of seconds.", http.StatusBadRequest)
 			return
 		}
@@ -97,7 +97,7 @@ func webStopNetworkTrace(w http.ResponseWriter, r *http.Request) {
 		stopped++
 	}
 	if stopped == 0 {
-		sim.AzureError(w, "NotFound",
+		AzureError(w, "NotFound",
 			"No network trace is running on this site.", http.StatusNotFound)
 		return
 	}
@@ -112,7 +112,7 @@ func webGetNetworkTrace(w http.ResponseWriter, r *http.Request) {
 	operationID := sim.PathParam(r, "operationId")
 	trace, ok := webNetworkTraces.Get(operationID)
 	if !ok || trace.Site != webResourceID(r) {
-		sim.AzureError(w, "NotFound",
+		AzureError(w, "NotFound",
 			fmt.Sprintf("No network trace with operation id %q was started on this site.", operationID),
 			http.StatusNotFound)
 		return

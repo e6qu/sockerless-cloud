@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -276,31 +276,31 @@ func handleSpannerCreateBackup(w http.ResponseWriter, r *http.Request, instance 
 	project := sim.PathParam(r, "project")
 	instanceName := spannerInstanceName(project, instance)
 	if _, ok := spannerInstances.Get(instanceName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instanceName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instanceName)
 		return
 	}
 	backupID := spannerQueryParam(r, "backupId", "backup_id")
 	var req spannerBackup
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if backupID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "backupId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "backupId is required", "INVALID_ARGUMENT")
 		return
 	}
 	if req.Database == "" {
-		sim.GCPError(w, http.StatusBadRequest, "backup.database is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "backup.database is required", "INVALID_ARGUMENT")
 		return
 	}
 	expireTime, err := time.Parse(time.RFC3339Nano, req.ExpireTime)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "backup.expireTime is required and must be a timestamp: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "backup.expireTime is required and must be a timestamp: %v", err)
 		return
 	}
 	name := spannerBackupName(project, instance, backupID)
 	if _, exists := spannerBackups.Get(name); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "backup %q already exists", name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "backup %q already exists", name)
 		return
 	}
 	metadata := map[string]any{
@@ -324,7 +324,7 @@ func handleSpannerCopyBackup(w http.ResponseWriter, r *http.Request, instance st
 	project := sim.PathParam(r, "project")
 	instanceName := spannerInstanceName(project, instance)
 	if _, ok := spannerInstances.Get(instanceName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instanceName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instanceName)
 		return
 	}
 	var req struct {
@@ -333,31 +333,31 @@ func handleSpannerCopyBackup(w http.ResponseWriter, r *http.Request, instance st
 		ExpireTime   string `json:"expireTime"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.BackupID == "" || req.SourceBackup == "" {
-		sim.GCPError(w, http.StatusBadRequest, "backupId and sourceBackup are required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "backupId and sourceBackup are required", "INVALID_ARGUMENT")
 		return
 	}
 	expireTime, err := time.Parse(time.RFC3339Nano, req.ExpireTime)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "expireTime is required and must be a timestamp: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "expireTime is required and must be a timestamp: %v", err)
 		return
 	}
 	source, ok := spannerBackups.Get(req.SourceBackup)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.SourceBackup)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.SourceBackup)
 		return
 	}
 	sourceImage, ok := spannerBackupImages.Get(req.SourceBackup)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "backup %q holds no image", req.SourceBackup)
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "backup %q holds no image", req.SourceBackup)
 		return
 	}
 	name := spannerBackupName(project, instance, req.BackupID)
 	if _, exists := spannerBackups.Get(name); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "backup %q already exists", name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "backup %q already exists", name)
 		return
 	}
 	// A copy carries the source's captured bytes: restoring the copy gives back
@@ -385,7 +385,7 @@ func handleSpannerGetBackup(w http.ResponseWriter, r *http.Request, instance, ba
 	name := spannerBackupName(sim.PathParam(r, "project"), instance, backup)
 	stored, ok := spannerBackups.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, stored)
@@ -411,29 +411,29 @@ func handleSpannerUpdateBackup(w http.ResponseWriter, r *http.Request, instance,
 	name := spannerBackupName(sim.PathParam(r, "project"), instance, backup)
 	stored, ok := spannerBackups.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
 		return
 	}
 	var req spannerBackup
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	mask := spannerQueryParam(r, "updateMask", "update_mask")
 	if mask == "" {
-		sim.GCPError(w, http.StatusBadRequest, "updateMask is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "updateMask is required", "INVALID_ARGUMENT")
 		return
 	}
 	for _, field := range strings.Split(mask, ",") {
 		switch strings.TrimSpace(field) {
 		case "expireTime", "expire_time":
 			if _, err := time.Parse(time.RFC3339Nano, req.ExpireTime); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "expireTime must be a timestamp: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "expireTime must be a timestamp: %v", err)
 				return
 			}
 			stored.ExpireTime = req.ExpireTime
 		default:
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"field %q is not updatable on a Cloud Spanner backup", strings.TrimSpace(field))
 			return
 		}
@@ -445,7 +445,7 @@ func handleSpannerUpdateBackup(w http.ResponseWriter, r *http.Request, instance,
 func handleSpannerDeleteBackup(w http.ResponseWriter, r *http.Request, instance, backup string) {
 	name := spannerBackupName(sim.PathParam(r, "project"), instance, backup)
 	if !spannerBackups.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", name)
 		return
 	}
 	spannerBackupImages.Delete(name)
@@ -478,7 +478,7 @@ func handleSpannerRestoreDatabase(w http.ResponseWriter, r *http.Request, instan
 	project := sim.PathParam(r, "project")
 	instanceName := spannerInstanceName(project, instance)
 	if _, ok := spannerInstances.Get(instanceName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instanceName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instanceName)
 		return
 	}
 	var req struct {
@@ -486,26 +486,26 @@ func handleSpannerRestoreDatabase(w http.ResponseWriter, r *http.Request, instan
 		Backup     string `json:"backup"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if req.DatabaseID == "" || req.Backup == "" {
-		sim.GCPError(w, http.StatusBadRequest, "databaseId and backup are required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "databaseId and backup are required", "INVALID_ARGUMENT")
 		return
 	}
 	backup, ok := spannerBackups.Get(req.Backup)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.Backup)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup %q not found", req.Backup)
 		return
 	}
 	image, ok := spannerBackupImages.Get(req.Backup)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "backup %q holds no image", req.Backup)
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "backup %q holds no image", req.Backup)
 		return
 	}
 	name := spannerDatabaseName(project, instance, req.DatabaseID)
 	if _, exists := spannerDatabases.Get(name); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "database %q already exists", name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "database %q already exists", name)
 		return
 	}
 
@@ -526,7 +526,7 @@ func handleSpannerRestoreDatabase(w http.ResponseWriter, r *http.Request, instan
 	// the restored image already carries that schema and its rows.
 	if err := spannerMaterializeFromImage(r.Context(), name, image.Image); err != nil {
 		if dropErr := spannerDropBackend(name); dropErr != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", name, dropErr)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "release backing store for %q: %v", name, dropErr)
 			return
 		}
 		st := status.Convert(err)
@@ -579,27 +579,27 @@ func appendUniqueString(list []string, v string) []string {
 func handleSpannerCreateBackupSchedule(w http.ResponseWriter, r *http.Request, instance, database string) {
 	dbName := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
 	if _, ok := spannerDatabases.Get(dbName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", dbName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", dbName)
 		return
 	}
 	scheduleID := spannerQueryParam(r, "backupScheduleId", "backup_schedule_id")
 	var req spannerBackupSchedule
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	if scheduleID == "" {
-		sim.GCPError(w, http.StatusBadRequest, "backupScheduleId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "backupScheduleId is required", "INVALID_ARGUMENT")
 		return
 	}
 	schedule := req
 	schedule.Name = dbName + "/backupSchedules/" + scheduleID
 	if _, exists := spannerBackupSchedules.Get(schedule.Name); exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "backup schedule %q already exists", schedule.Name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "backup schedule %q already exists", schedule.Name)
 		return
 	}
 	if err := spannerValidateBackupSchedule(schedule); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
 	schedule.UpdateTime = nowTimestamp()
@@ -650,7 +650,7 @@ func handleSpannerGetBackupSchedule(w http.ResponseWriter, r *http.Request, data
 	name := database + "/backupSchedules/" + scheduleID
 	stored, ok := spannerBackupSchedules.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup schedule %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup schedule %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, stored)
@@ -659,7 +659,7 @@ func handleSpannerGetBackupSchedule(w http.ResponseWriter, r *http.Request, data
 func handleSpannerListBackupSchedules(w http.ResponseWriter, r *http.Request, instance, database string) {
 	dbName := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
 	if _, ok := spannerDatabases.Get(dbName); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", dbName)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", dbName)
 		return
 	}
 	prefix := dbName + "/backupSchedules/"
@@ -681,17 +681,17 @@ func handleSpannerUpdateBackupSchedule(w http.ResponseWriter, r *http.Request, d
 	name := database + "/backupSchedules/" + scheduleID
 	stored, ok := spannerBackupSchedules.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup schedule %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup schedule %q not found", name)
 		return
 	}
 	var req spannerBackupSchedule
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	mask := spannerQueryParam(r, "updateMask", "update_mask")
 	if mask == "" {
-		sim.GCPError(w, http.StatusBadRequest, "updateMask is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "updateMask is required", "INVALID_ARGUMENT")
 		return
 	}
 	for _, field := range strings.Split(mask, ",") {
@@ -703,13 +703,13 @@ func handleSpannerUpdateBackupSchedule(w http.ResponseWriter, r *http.Request, d
 		case "encryptionConfig", "encryption_config":
 			stored.EncryptionConfig = req.EncryptionConfig
 		default:
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"field %q is not updatable on a Cloud Spanner backup schedule", strings.TrimSpace(field))
 			return
 		}
 	}
 	if err := spannerValidateBackupSchedule(stored); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
 	stored.UpdateTime = nowTimestamp()
@@ -720,7 +720,7 @@ func handleSpannerUpdateBackupSchedule(w http.ResponseWriter, r *http.Request, d
 func handleSpannerDeleteBackupSchedule(w http.ResponseWriter, r *http.Request, database, scheduleID string) {
 	name := database + "/backupSchedules/" + scheduleID
 	if !spannerBackupSchedules.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup schedule %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backup schedule %q not found", name)
 		return
 	}
 	spannerBackupScheduleRuns.Delete(name)

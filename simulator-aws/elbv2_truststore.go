@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ELBv2TrustStore is a mutual-TLS trust store: a named resource holding a CA
@@ -50,7 +50,7 @@ var (
 	elbv2TrustStoreAssociations sim.Store[ELBv2TrustStoreAssociation]
 )
 
-func registerELBv2TrustStores(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerELBv2TrustStores(r *AWSQueryRouter, srv *sim.Server) {
 	elbv2TrustStores = sim.MakeStore[ELBv2TrustStore](srv.DB(), "elbv2_trust_stores")
 	elbv2TrustStoreAssociations = sim.MakeStore[ELBv2TrustStoreAssociation](srv.DB(), "elbv2_trust_store_associations")
 
