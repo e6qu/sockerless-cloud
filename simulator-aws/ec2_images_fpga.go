@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EC2FpgaImage models an Amazon FPGA Image (AFI). CreateFpgaImage records a
@@ -75,7 +75,7 @@ var (
 
 // registerEC2ImagesFpga registers the FPGA-image, AMI access-control, and
 // bundle/conversion/store-image-task ec2Query actions.
-func registerEC2ImagesFpga(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2ImagesFpga(r *AWSQueryRouter, srv *sim.Server) {
 	ec2FpgaImages = sim.MakeStore[EC2FpgaImage](srv.DB(), "ec2_fpga_images")
 	ec2AllowedImagesSettings = sim.MakeStore[EC2AllowedImagesSettings](srv.DB(), "ec2_allowed_images_settings")
 	ec2ImageBlockPublicAccess = sim.MakeStore[string](srv.DB(), "ec2_image_block_public_access")

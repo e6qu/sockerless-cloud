@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch Logs Insights `filter` expression grammar:

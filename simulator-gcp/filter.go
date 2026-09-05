@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // GCP list `filter` expression language — a faithful subset of AIP-160 / the

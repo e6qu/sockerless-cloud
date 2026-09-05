@@ -1,15 +1,16 @@
 # PLAN
 
-The application-observation delivery added one shared authenticated boundary
-to the three simulator binaries and published each at
-`GET /monitoring/observation`. The implementation merged in feature PR #95 and
-shipped from the immutable `v0.26.0` release. Production acceptance found that
-Google Cloud's cloud access-token verifier intercepted the monitoring bearer;
-the verifier now delegates only the canonical monitoring path to its dedicated
-authentication handler and still rejects that credential on cloud API routes.
-The owning infrastructure repository advances the corrected immutable release
-coordinate and supplies the independent credentials. Acceptance requires
-Shauth to collect fresh healthy `e6qu.monitoring/v2` observations for AWS,
-Google Cloud, and Microsoft Azure while the existing SDK, CLI, Terraform,
-browser, and simulator gates remain green. Current work items live in
-DO_NEXT.md; the repository snapshot lives in STATUS.md.
+The simulators serve their declared surfaces: every vendored AWS model is
+implemented or exempt in full, Google Cloud reads 5,486 of 5,486 Discovery
+method spellings and Azure 2,628 of 2,628 operations, with every remaining
+gap answering a declared 501 that names what is missing. The framework the
+three simulators are built on is one module, `sim/`, pinned by pseudo-version
+like the other support modules, and a gate holds every pin to the working
+tree's content.
+
+What remains is maintenance rather than a delivery: keeping the vendored
+specifications in sync with upstream and serving what a re-vendor adds,
+holding the measured floors, and closing the open bugs in `BUGS.md` as their
+external blockers lift. Current work items live in `DO_NEXT.md`; the repository
+snapshot lives in `STATUS.md`; the decisions behind the shape of the code live
+in `WHAT_WE_DID.md`.

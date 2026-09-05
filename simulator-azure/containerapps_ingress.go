@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // registerContainerAppsIngress implements Azure Container Apps ingress: an App
@@ -74,24 +74,24 @@ func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp) {
 	v, ok := acaAppReplicaHandles.Load(app.ID)
 	if !ok {
-		sim.AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
+		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
 		return
 	}
 	handles, _ := v.([]*sim.ContainerHandle)
 	if len(handles) == 0 || handles[0] == nil {
-		sim.AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
+		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
 		return
 	}
 	ip := sim.ContainerIPv4(handles[0].ContainerID)
 	if ip == "" {
-		sim.AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q replica has no reachable IP", app.Name)
+		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q replica has no reachable IP", app.Name)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 	if err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "read request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "read request body: %v", err)
 		return
 	}
 
@@ -117,7 +117,7 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp) {
 	for {
 		req, rerr := http.NewRequestWithContext(ctx, r.Method, target, bytes.NewReader(body))
 		if rerr != nil {
-			sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "build proxy request: %v", rerr)
+			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError, "build proxy request: %v", rerr)
 			return
 		}
 		copyProxyHeaders(req.Header, r.Header)
@@ -127,20 +127,20 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp) {
 		}
 		select {
 		case <-ctx.Done():
-			sim.AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, ctx.Err())
+			AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, ctx.Err())
 			return
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	if err != nil {
-		sim.AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, err)
+		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusSwitchingProtocols {
 		if terr := sim.TunnelUpgradedResponse(w, resp); terr != nil {
-			sim.AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, terr)
+			AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, terr)
 		}
 		return
 	}

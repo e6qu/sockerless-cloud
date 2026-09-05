@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type PublicDnsZone struct {
@@ -98,7 +98,7 @@ func registerPublicDNS(srv *sim.Server) {
 
 		var req PublicDnsZone
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -145,7 +145,7 @@ func registerPublicDNS(srv *sim.Server) {
 
 		zone, ok := zones.Get(publicDNSZoneID(sub, rg, zoneName))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/dnsZones/%s' under resource group '%s' was not found.", zoneName, rg)
 			return
 		}
@@ -199,14 +199,14 @@ func registerPublicDNS(srv *sim.Server) {
 				recordName := sim.PathParam(r, "recordName")
 				zoneID := publicDNSZoneID(sub, rg, zoneName)
 				if _, ok := zones.Get(zoneID); !ok {
-					sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+					AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 						"The Resource 'Microsoft.Network/dnsZones/%s' under resource group '%s' was not found.", zoneName, rg)
 					return
 				}
 
 				var req PublicRecordSet
 				if err := sim.ReadJSON(r, &req); err != nil {
-					sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+					AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 					return
 				}
 				recordID := publicDNSRecordID(zoneID, recordType, recordName)
@@ -233,7 +233,7 @@ func registerPublicDNS(srv *sim.Server) {
 
 				rs, ok := recordSets.Get(recordID)
 				if !ok {
-					sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+					AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 						"The record set '%s' of type '%s' in zone '%s' was not found.", recordName, recordType, zoneName)
 					return
 				}

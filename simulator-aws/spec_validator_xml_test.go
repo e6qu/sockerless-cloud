@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/rs/zerolog"
 )
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 const elbv2APIVersion = "2015-12-01"
@@ -175,7 +175,7 @@ var (
 	elbv2Listeners     sim.Store[ELBv2Listener]
 )
 
-func registerELBv2(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerELBv2(r *AWSQueryRouter, srv *sim.Server) {
 	elbv2LoadBalancers = sim.MakeStore[ELBv2LoadBalancer](srv.DB(), "elbv2_load_balancers")
 	elbv2TargetGroups = sim.MakeStore[ELBv2TargetGroup](srv.DB(), "elbv2_target_groups")
 	elbv2Listeners = sim.MakeStore[ELBv2Listener](srv.DB(), "elbv2_listeners")

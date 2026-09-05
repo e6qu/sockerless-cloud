@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type KinesisStream struct {
@@ -86,7 +86,7 @@ var (
 	kinesisMu        sync.Mutex
 )
 
-func registerKinesis(r *sim.AWSRouter, srv *sim.Server) {
+func registerKinesis(r *AWSRouter, srv *sim.Server) {
 	// Record-level ops are CloudTrail DATA events (excluded from LookupEvents).
 	cloudTrailDeclareDataEvents("kinesis.amazonaws.com",
 		"PutRecord", "PutRecords", "GetRecords", "GetShardIterator", "SubscribeToShard")
@@ -265,15 +265,15 @@ func handleKinesisCreateStream(w http.ResponseWriter, r *http.Request) {
 		Tags              map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.StreamName == "" {
-		sim.AWSError(w, "InvalidArgumentException", "StreamName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "StreamName is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := kinesisStreams.Get(req.StreamName); ok {
-		sim.AWSError(w, "ResourceInUseException", "Stream already exists", http.StatusBadRequest)
+		AWSError(w, "ResourceInUseException", "Stream already exists", http.StatusBadRequest)
 		return
 	}
 	mode := req.StreamModeDetails
@@ -312,7 +312,7 @@ func handleKinesisDeleteStream(w http.ResponseWriter, r *http.Request) {
 		StreamARN  string `json:"StreamARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
@@ -335,12 +335,12 @@ func handleKinesisDescribeStream(w http.ResponseWriter, r *http.Request) {
 		ExclusiveStartShardId string `json:"ExclusiveStartShardId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	desc := kinesisStreamDescription(stream)
@@ -377,12 +377,12 @@ func handleKinesisDescribeStreamSummary(w http.ResponseWriter, r *http.Request) 
 		StreamARN  string `json:"StreamARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	writeKinesisJSON(w, http.StatusOK, map[string]any{"StreamDescriptionSummary": kinesisStreamDescriptionSummary(stream)})
@@ -395,7 +395,7 @@ func handleKinesisListStreams(w http.ResponseWriter, r *http.Request) {
 		NextToken                string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -421,7 +421,7 @@ func handleKinesisListStreams(w http.ResponseWriter, r *http.Request) {
 		if name, ok := kinesisDecodeStreamToken(req.NextToken); ok {
 			start = name
 		} else {
-			sim.AWSError(w, "InvalidArgumentException", "Invalid NextToken", http.StatusBadRequest)
+			AWSError(w, "InvalidArgumentException", "Invalid NextToken", http.StatusBadRequest)
 			return
 		}
 	}
@@ -483,7 +483,7 @@ func handleKinesisListShards(w http.ResponseWriter, r *http.Request) {
 		ExclusiveStartShardId string `json:"ExclusiveStartShardId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -494,7 +494,7 @@ func handleKinesisListShards(w http.ResponseWriter, r *http.Request) {
 	if req.NextToken != "" {
 		tokStream, tokShard, ok := kinesisDecodeShardToken(req.NextToken)
 		if !ok {
-			sim.AWSError(w, "InvalidArgumentException", "Invalid NextToken", http.StatusBadRequest)
+			AWSError(w, "InvalidArgumentException", "Invalid NextToken", http.StatusBadRequest)
 			return
 		}
 		streamName, start = tokStream, tokShard
@@ -503,7 +503,7 @@ func handleKinesisListShards(w http.ResponseWriter, r *http.Request) {
 
 	stream, ok := kinesisStreamByNameOrARN(streamName, streamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 
@@ -567,12 +567,12 @@ func handleKinesisPutRecord(w http.ResponseWriter, r *http.Request) {
 		ExplicitHashKey string `json:"ExplicitHashKey"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	shardID, seq, err := kinesisAppendRecord(req.StreamName, req.StreamARN, req.Data, req.PartitionKey, req.ExplicitHashKey)
 	if err != nil {
-		sim.AWSError(w, "ResourceNotFoundException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
@@ -592,7 +592,7 @@ func handleKinesisPutRecords(w http.ResponseWriter, r *http.Request) {
 		} `json:"Records"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	out := make([]map[string]any, 0, len(req.Records))
@@ -661,16 +661,16 @@ func handleKinesisGetShardIterator(w http.ResponseWriter, r *http.Request) {
 		StartingSequenceNumber string `json:"StartingSequenceNumber"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	if !kinesisHasShard(stream, req.ShardId) {
-		sim.AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
 		return
 	}
 	records, _ := kinesisRecords.Get(kinesisShardRecordKey(stream.StreamName, req.ShardId))
@@ -710,12 +710,12 @@ func handleKinesisGetRecords(w http.ResponseWriter, r *http.Request) {
 		Limit         int    `json:"Limit"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	it, ok := kinesisIterators.Get(req.ShardIterator)
 	if !ok {
-		sim.AWSError(w, "ExpiredIteratorException", "Shard iterator expired", http.StatusBadRequest)
+		AWSError(w, "ExpiredIteratorException", "Shard iterator expired", http.StatusBadRequest)
 		return
 	}
 	records, _ := kinesisRecords.Get(kinesisShardRecordKey(it.StreamName, it.ShardID))
@@ -753,12 +753,12 @@ func handleKinesisAddTagsToStream(w http.ResponseWriter, r *http.Request) {
 		Tags       map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	if stream.Tags == nil {
@@ -778,12 +778,12 @@ func handleKinesisRemoveTagsFromStream(w http.ResponseWriter, r *http.Request) {
 		TagKeys    []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	for _, key := range req.TagKeys {
@@ -799,12 +799,12 @@ func handleKinesisListTagsForStream(w http.ResponseWriter, r *http.Request) {
 		StreamARN  string `json:"StreamARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	keys := make([]string, 0, len(stream.Tags))
@@ -837,12 +837,12 @@ func kinesisUpdateRetention(w http.ResponseWriter, r *http.Request) {
 		RetentionPeriodHours int64  `json:"RetentionPeriodHours"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	stream.RetentionPeriodHours = req.RetentionPeriodHours
@@ -865,12 +865,12 @@ func kinesisUpdateMonitoring(w http.ResponseWriter, r *http.Request, enable bool
 		ShardLevelMetrics []string `json:"ShardLevelMetrics"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	current := []string{}
@@ -920,12 +920,12 @@ func handleKinesisStartStreamEncryption(w http.ResponseWriter, r *http.Request) 
 		KeyId          string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	stream.EncryptionType = req.EncryptionType
@@ -940,12 +940,12 @@ func handleKinesisStopStreamEncryption(w http.ResponseWriter, r *http.Request) {
 		StreamARN  string `json:"StreamARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	stream.EncryptionType = ""
@@ -961,12 +961,12 @@ func handleKinesisUpdateShardCount(w http.ResponseWriter, r *http.Request) {
 		TargetShardCount int64  `json:"TargetShardCount"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	current := int64(len(stream.Shards))
@@ -1027,20 +1027,20 @@ func handleKinesisRegisterStreamConsumer(w http.ResponseWriter, r *http.Request)
 		Tags         map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.StreamARN == "" || req.ConsumerName == "" {
-		sim.AWSError(w, "InvalidArgumentException", "StreamARN and ConsumerName are required", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "StreamARN and ConsumerName are required", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByARN(req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	if _, exists := kinesisConsumerByStreamAndName(req.StreamARN, req.ConsumerName); exists {
-		sim.AWSError(w, "ResourceInUseException", "Consumer already exists", http.StatusBadRequest)
+		AWSError(w, "ResourceInUseException", "Consumer already exists", http.StatusBadRequest)
 		return
 	}
 	ts := time.Now().Unix()
@@ -1070,12 +1070,12 @@ func handleKinesisDeregisterStreamConsumer(w http.ResponseWriter, r *http.Reques
 		ConsumerARN  string `json:"ConsumerARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	consumer, ok := kinesisResolveConsumer(req.StreamARN, req.ConsumerName, req.ConsumerARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Consumer not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Consumer not found", http.StatusBadRequest)
 		return
 	}
 	kinesisConsumers.Delete(kinesisConsumerKey(consumer.ConsumerARN))
@@ -1102,12 +1102,12 @@ func handleKinesisDescribeStreamConsumer(w http.ResponseWriter, r *http.Request)
 		ConsumerARN  string `json:"ConsumerARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	consumer, ok := kinesisResolveConsumer(req.StreamARN, req.ConsumerName, req.ConsumerARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Consumer not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Consumer not found", http.StatusBadRequest)
 		return
 	}
 	writeKinesisJSON(w, http.StatusOK, map[string]any{
@@ -1128,7 +1128,7 @@ func handleKinesisListStreamConsumers(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -1139,17 +1139,17 @@ func handleKinesisListStreamConsumers(w http.ResponseWriter, r *http.Request) {
 	if req.NextToken != "" {
 		tokStream, tokConsumer, ok := kinesisDecodeShardToken(req.NextToken)
 		if !ok {
-			sim.AWSError(w, "InvalidArgumentException", "Invalid NextToken", http.StatusBadRequest)
+			AWSError(w, "InvalidArgumentException", "Invalid NextToken", http.StatusBadRequest)
 			return
 		}
 		streamARN, start = tokStream, tokConsumer
 	}
 	if streamARN == "" {
-		sim.AWSError(w, "InvalidArgumentException", "StreamARN is required", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "StreamARN is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := kinesisStreamByARN(streamARN); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 
@@ -1219,16 +1219,16 @@ func handleKinesisPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		Policy      string `json:"Policy"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Policy == "" {
-		sim.AWSError(w, "InvalidArgumentException", "Policy is required", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Policy is required", http.StatusBadRequest)
 		return
 	}
 	arn, ok := kinesisResolveResourceARN(req.ResourceARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
 	iamPutResourcePolicy(arn, req.Policy)
@@ -1240,17 +1240,17 @@ func handleKinesisGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		ResourceARN string `json:"ResourceARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	arn, ok := kinesisResolveResourceARN(req.ResourceARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
 	policy, ok := iamGetResourcePolicy(arn)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "No resource policy attached", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "No resource policy attached", http.StatusBadRequest)
 		return
 	}
 	writeKinesisJSON(w, http.StatusOK, map[string]any{"Policy": policy})
@@ -1261,12 +1261,12 @@ func handleKinesisDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		ResourceARN string `json:"ResourceARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	arn, ok := kinesisResolveResourceARN(req.ResourceARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
 	iamDeleteResourcePolicy(arn)
@@ -1281,20 +1281,20 @@ func handleKinesisMergeShards(w http.ResponseWriter, r *http.Request) {
 		AdjacentShardToMerge string `json:"AdjacentShardToMerge"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	kinesisMu.Lock()
 	defer kinesisMu.Unlock()
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	left, lok := kinesisFindShard(stream, req.ShardToMerge)
 	right, rok := kinesisFindShard(stream, req.AdjacentShardToMerge)
 	if !lok || !rok {
-		sim.AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
 		return
 	}
 	// Adjacency: the two shards' hash-key ranges must be contiguous. Order them
@@ -1307,7 +1307,7 @@ func handleKinesisMergeShards(w http.ResponseWriter, r *http.Request) {
 	lEnd, _ := new(big.Int).SetString(left.HashKeyRange["EndingHashKey"], 10)
 	rStart, _ = new(big.Int).SetString(right.HashKeyRange["StartingHashKey"], 10)
 	if new(big.Int).Add(lEnd, big.NewInt(1)).Cmp(rStart) != 0 {
-		sim.AWSError(w, "InvalidArgumentException", "Shards are not adjacent", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Shards are not adjacent", http.StatusBadRequest)
 		return
 	}
 
@@ -1340,31 +1340,31 @@ func handleKinesisSplitShard(w http.ResponseWriter, r *http.Request) {
 		NewStartingHashKey string `json:"NewStartingHashKey"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	kinesisMu.Lock()
 	defer kinesisMu.Unlock()
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	parent, ok := kinesisFindShard(stream, req.ShardToSplit)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Shard not found", http.StatusBadRequest)
 		return
 	}
 	newStart, valid := new(big.Int).SetString(req.NewStartingHashKey, 10)
 	if !valid {
-		sim.AWSError(w, "InvalidArgumentException", "NewStartingHashKey must be a valid integer", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "NewStartingHashKey must be a valid integer", http.StatusBadRequest)
 		return
 	}
 	start, _ := new(big.Int).SetString(parent.HashKeyRange["StartingHashKey"], 10)
 	end, _ := new(big.Int).SetString(parent.HashKeyRange["EndingHashKey"], 10)
 	// NewStartingHashKey must fall strictly inside (start, end].
 	if newStart.Cmp(start) <= 0 || newStart.Cmp(end) > 0 {
-		sim.AWSError(w, "InvalidArgumentException", "NewStartingHashKey is out of range for the shard", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "NewStartingHashKey is out of range for the shard", http.StatusBadRequest)
 		return
 	}
 
@@ -1469,12 +1469,12 @@ func handleKinesisTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags        map[string]string `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisTagStream(req.ResourceARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
 	if stream.Tags == nil {
@@ -1493,12 +1493,12 @@ func handleKinesisUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys     []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisTagStream(req.ResourceARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
 	for _, key := range req.TagKeys {
@@ -1513,12 +1513,12 @@ func handleKinesisListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceARN string `json:"ResourceARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisTagStream(req.ResourceARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Resource not found", http.StatusBadRequest)
 		return
 	}
 	keys := make([]string, 0, len(stream.Tags))
@@ -1539,21 +1539,21 @@ func handleKinesisUpdateStreamMode(w http.ResponseWriter, r *http.Request) {
 		StreamModeDetails map[string]string `json:"StreamModeDetails"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.StreamModeDetails == nil {
-		sim.AWSError(w, "InvalidArgumentException", "StreamModeDetails is required", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "StreamModeDetails is required", http.StatusBadRequest)
 		return
 	}
 	mode := req.StreamModeDetails["StreamMode"]
 	if mode != "PROVISIONED" && mode != "ON_DEMAND" {
-		sim.AWSError(w, "InvalidArgumentException", "StreamMode must be PROVISIONED or ON_DEMAND", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "StreamMode must be PROVISIONED or ON_DEMAND", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByARN(req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	stream.StreamModeDetails = map[string]string{"StreamMode": mode}
@@ -1581,12 +1581,12 @@ func handleKinesisUpdateAccountSettings(w http.ResponseWriter, r *http.Request) 
 		} `json:"MinimumThroughputBillingCommitment"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	status := req.MinimumThroughputBillingCommitment.Status
 	if status != "ENABLED" && status != "DISABLED" {
-		sim.AWSError(w, "InvalidArgumentException", "Status must be ENABLED or DISABLED", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Status must be ENABLED or DISABLED", http.StatusBadRequest)
 		return
 	}
 	settings := KinesisAccountSettings{Status: status}
@@ -1623,16 +1623,16 @@ func handleKinesisUpdateMaxRecordSize(w http.ResponseWriter, r *http.Request) {
 		MaxRecordSizeInKiB int64  `json:"MaxRecordSizeInKiB"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.MaxRecordSizeInKiB < 1024 || req.MaxRecordSizeInKiB > 10240 {
-		sim.AWSError(w, "ValidationException", "MaxRecordSizeInKiB must be between 1024 and 10240", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "MaxRecordSizeInKiB must be between 1024 and 10240", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	stream.MaxRecordSizeInKiB = req.MaxRecordSizeInKiB
@@ -1647,16 +1647,16 @@ func handleKinesisUpdateStreamWarmThroughput(w http.ResponseWriter, r *http.Requ
 		WarmThroughputMiBps int64  `json:"WarmThroughputMiBps"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.WarmThroughputMiBps < 0 {
-		sim.AWSError(w, "InvalidArgumentException", "WarmThroughputMiBps must be non-negative", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "WarmThroughputMiBps must be non-negative", http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByNameOrARN(req.StreamName, req.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "Stream not found", http.StatusBadRequest)
 		return
 	}
 	stream.WarmThroughputMiBps = req.WarmThroughputMiBps

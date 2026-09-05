@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // IAM service-linked roles (SLRs) + OIDC providers. Extends iam.go.
@@ -52,7 +52,7 @@ var (
 	iamSLRDeletions  sim.Store[string]
 )
 
-func registerIAMSLRandOIDC(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerIAMSLRandOIDC(r *AWSQueryRouter, srv *sim.Server) {
 	iamSLRs = sim.MakeStore[IAMServiceLinkedRole](srv.DB(), "iam_slrs")
 	iamOIDCProviders = sim.MakeStore[IAMOIDCProvider](srv.DB(), "iam_oidc_providers")
 	iamSLRDeletions = sim.MakeStore[string](srv.DB(), "iam_service_linked_role_deletions")

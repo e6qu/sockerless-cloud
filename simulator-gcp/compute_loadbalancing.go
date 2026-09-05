@@ -13,7 +13,7 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // returnRedirectsToClient stops a forwarding client following a backend's
@@ -51,11 +51,11 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		var hc ComputeHealthCheck
 		if err := sim.ReadJSON(r, &hc); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if hc.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		hc.Kind = "compute#healthCheck"
@@ -104,11 +104,11 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		var bs ComputeBackendService
 		if err := sim.ReadJSON(r, &bs); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if bs.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		bs.Kind = "compute#backendService"
@@ -149,7 +149,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		selfLink := computeGlobalLink(project, "backendServices", name)
 		var patch ComputeBackendService
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if !backendServices.Update(selfLink, func(bs *ComputeBackendService) {
@@ -175,7 +175,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 				bs.Backends = patch.Backends
 			}
 		}) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backend service %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backend service %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, selfLink, "patch"))
@@ -186,14 +186,14 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		selfLink := computeGlobalLink(project, "backendServices", name)
 		bs, ok := backendServices.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backend service %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backend service %q not found", name)
 			return
 		}
 		var req struct {
 			Group string `json:"group"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -209,11 +209,11 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		var um ComputeURLMap
 		if err := sim.ReadJSON(r, &um); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if um.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		um.Kind = "compute#urlMap"
@@ -241,11 +241,11 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		var proxy ComputeTargetHTTPProxy
 		if err := sim.ReadJSON(r, &proxy); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if proxy.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		proxy.Kind = "compute#targetHttpProxy"
@@ -272,11 +272,11 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		var fr ComputeForwardingRule
 		if err := sim.ReadJSON(r, &fr); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if fr.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		fr.Kind = "compute#forwardingRule"
@@ -289,7 +289,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		if fr.IPAddress == "" {
 			ip, err := realexec.ReserveGCPPublicIPv4(fr.SelfLink, nil)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to reserve real GCP public IPv4 lease: %v", err)
+				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to reserve real GCP public IPv4 lease: %v", err)
 				return
 			}
 			fr.IPAddress = ip.String()
@@ -346,7 +346,7 @@ func computeWriteGlobalResource[T computeNamedResource](w http.ResponseWriter, r
 	selfLink := computeGlobalLink(project, collection, name)
 	resource, ok := store.Get(selfLink)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", label, name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", label, name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, resource)

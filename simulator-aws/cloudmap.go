@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Map types
@@ -284,7 +284,7 @@ func cmFilterMatch(condition string, values []string, actual string) bool {
 	}
 }
 
-func registerCloudMap(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudMap(r *AWSRouter, srv *sim.Server) {
 	cmNamespaces = sim.MakeStore[CMNamespace](srv.DB(), "cloudmap_namespaces")
 	cmNamespaceVPCs = sim.MakeStore[string](srv.DB(), "cloudmap_namespace_vpcs")
 	cmServices = sim.MakeStore[CMService](srv.DB(), "cloudmap_services")
@@ -393,19 +393,19 @@ func handleCMCreatePrivateDnsNamespace(w http.ResponseWriter, r *http.Request) {
 		Tags             []cmTag          `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidInput", "Name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Name is required", http.StatusBadRequest)
 		return
 	}
 	if req.Vpc == "" {
-		sim.AWSError(w, "InvalidInput", "Vpc is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Vpc is required", http.StatusBadRequest)
 		return
 	}
 	if cmNamespaceNameTaken(req.Name) {
-		sim.AWSErrorf(w, "NamespaceAlreadyExists", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceAlreadyExists", http.StatusBadRequest,
 			"A namespace with the name '%s' already exists", req.Name)
 		return
 	}
@@ -438,15 +438,15 @@ func handleCMCreatePublicDnsNamespace(w http.ResponseWriter, r *http.Request) {
 		Tags             []cmTag          `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidInput", "Name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Name is required", http.StatusBadRequest)
 		return
 	}
 	if cmNamespaceNameTaken(req.Name) {
-		sim.AWSErrorf(w, "NamespaceAlreadyExists", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceAlreadyExists", http.StatusBadRequest,
 			"A namespace with the name '%s' already exists", req.Name)
 		return
 	}
@@ -477,15 +477,15 @@ func handleCMCreateHttpNamespace(w http.ResponseWriter, r *http.Request) {
 		Tags             []cmTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidInput", "Name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Name is required", http.StatusBadRequest)
 		return
 	}
 	if cmNamespaceNameTaken(req.Name) {
-		sim.AWSErrorf(w, "NamespaceAlreadyExists", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceAlreadyExists", http.StatusBadRequest,
 			"A namespace with the name '%s' already exists", req.Name)
 		return
 	}
@@ -510,17 +510,17 @@ func handleCMGetNamespace(w http.ResponseWriter, r *http.Request) {
 		Id string `json:"Id"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Id == "" {
-		sim.AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
 		return
 	}
 
 	ns, ok := cmNamespaces.Get(req.Id)
 	if !ok {
-		sim.AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 			"Namespace '%s' not found", req.Id)
 		return
 	}
@@ -535,22 +535,22 @@ func handleCMDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		Id string `json:"Id"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Id == "" {
-		sim.AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
 		return
 	}
 
 	ns, ok := cmNamespaces.Get(req.Id)
 	if !ok {
-		sim.AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 			"Namespace '%s' not found", req.Id)
 		return
 	}
 	if cmNamespaceHasServices(req.Id) {
-		sim.AWSErrorf(w, "ResourceInUse", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceInUse", http.StatusBadRequest,
 			"Namespace '%s' contains services and can't be deleted", req.Id)
 		return
 	}
@@ -603,15 +603,15 @@ func handleCMUpdateHttpNamespace(w http.ResponseWriter, r *http.Request) {
 		} `json:"Namespace"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Id == "" {
-		sim.AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cmNamespaces.Get(req.Id); !ok {
-		sim.AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 			"Namespace '%s' not found", req.Id)
 		return
 	}
@@ -650,15 +650,15 @@ func handleCMUpdateDnsNamespace(w http.ResponseWriter, r *http.Request) {
 		} `json:"Namespace"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Id == "" {
-		sim.AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cmNamespaces.Get(req.Id); !ok {
-		sim.AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 			"Namespace '%s' not found", req.Id)
 		return
 	}
@@ -694,11 +694,11 @@ func handleCMCreateService(w http.ResponseWriter, r *http.Request) {
 		Tags                    []cmTag                    `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "InvalidInput", "Name is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Name is required", http.StatusBadRequest)
 		return
 	}
 
@@ -708,7 +708,7 @@ func handleCMCreateService(w http.ResponseWriter, r *http.Request) {
 	}
 	if namespaceId != "" {
 		if _, ok := cmNamespaces.Get(namespaceId); !ok {
-			sim.AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
+			AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 				"Namespace '%s' not found", namespaceId)
 			return
 		}
@@ -716,7 +716,7 @@ func handleCMCreateService(w http.ResponseWriter, r *http.Request) {
 	// Service names are unique within a namespace.
 	for _, existing := range cmServices.List() {
 		if existing.NamespaceId == namespaceId && existing.Name == req.Name {
-			sim.AWSErrorf(w, "ServiceAlreadyExists", http.StatusBadRequest,
+			AWSErrorf(w, "ServiceAlreadyExists", http.StatusBadRequest,
 				"A service with the name '%s' already exists in namespace '%s'", req.Name, namespaceId)
 			return
 		}
@@ -754,17 +754,17 @@ func handleCMGetService(w http.ResponseWriter, r *http.Request) {
 		Id string `json:"Id"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Id == "" {
-		sim.AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
 		return
 	}
 
 	svc, ok := cmServices.Get(req.Id)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.Id)
 		return
 	}
@@ -811,16 +811,16 @@ func handleCMUpdateService(w http.ResponseWriter, r *http.Request) {
 		} `json:"Service"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Id == "" {
-		sim.AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
 		return
 	}
 	svc, ok := cmServices.Get(req.Id)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.Id)
 		return
 	}
@@ -858,16 +858,16 @@ func handleCMGetServiceAttributes(w http.ResponseWriter, r *http.Request) {
 		ServiceId string `json:"ServiceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
 		return
 	}
 	svc, ok := cmServices.Get(req.ServiceId)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
@@ -889,15 +889,15 @@ func handleCMUpdateServiceAttributes(w http.ResponseWriter, r *http.Request) {
 		Attributes map[string]string `json:"Attributes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cmServices.Get(req.ServiceId); !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
@@ -922,15 +922,15 @@ func handleCMDeleteServiceAttributes(w http.ResponseWriter, r *http.Request) {
 		Attributes []string `json:"Attributes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cmServices.Get(req.ServiceId); !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
@@ -955,23 +955,23 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 		CreatorRequestId string            `json:"CreatorRequestId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" || req.InstanceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId and InstanceId are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId and InstanceId are required", http.StatusBadRequest)
 		return
 	}
 
 	svc, ok := cmServices.Get(req.ServiceId)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
 	ns, nsOk := cmNamespaces.Get(svc.NamespaceId)
 	if !nsOk {
-		sim.AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 			"Namespace '%s' not found", svc.NamespaceId)
 		return
 	}
@@ -1015,7 +1015,7 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 		// name per instance IP — multi-name aware).
 		if err := syncCMNamespaceHosts(svc.NamespaceId); err != nil {
 			rollback()
-			sim.AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
+			AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
 				"failed to update Cloud Map task hosts: %v", err)
 			return
 		}
@@ -1026,7 +1026,7 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 		// hostname both point at the redis container).
 		if err := realizeCMContainerDockerAliases(ns, containerName); err != nil {
 			rollback()
-			sim.AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
+			AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
 				"failed to connect task container to Cloud Map namespace network: %v", err)
 			return
 		}
@@ -1342,22 +1342,22 @@ func handleCMDeregisterInstance(w http.ResponseWriter, r *http.Request) {
 		InstanceId string `json:"InstanceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" || req.InstanceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId and InstanceId are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId and InstanceId are required", http.StatusBadRequest)
 		return
 	}
 
 	if _, ok := cmServices.Get(req.ServiceId); !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
 	key := cmInstanceKey(req.ServiceId, req.InstanceId)
 	if !cmInstances.Delete(key) {
-		sim.AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
 			"Instance '%s' not found", req.InstanceId)
 		return
 	}
@@ -1376,7 +1376,7 @@ func handleCMDeregisterInstance(w http.ResponseWriter, r *http.Request) {
 		networkName, _ := cmNamespaceNetworks.Get(svc.NamespaceId)
 		if cmContainerUsesHostEntries(containerName) || cmNamespaceHasHostEntryTargets(svc.NamespaceId) {
 			if err := syncCMNamespaceHosts(svc.NamespaceId); err != nil {
-				sim.AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
+				AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
 					"failed to update Cloud Map task hosts: %v", err)
 				return
 			}
@@ -1401,15 +1401,15 @@ func handleCMListInstances(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cmServices.Get(req.ServiceId); !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
@@ -1437,7 +1437,7 @@ func handleCMListNamespaces(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 
@@ -1460,7 +1460,7 @@ func handleCMListNamespaces(w http.ResponseWriter, r *http.Request) {
 				case "RESOURCE_OWNER":
 					actual = awsAccountID()
 				default:
-					sim.AWSErrorf(w, "InvalidInput", http.StatusBadRequest,
+					AWSErrorf(w, "InvalidInput", http.StatusBadRequest,
 						"'%s' is not a valid namespace filter name", f.Name)
 					return
 				}
@@ -1499,7 +1499,7 @@ func handleCMListServices(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 
@@ -1517,7 +1517,7 @@ func handleCMListServices(w http.ResponseWriter, r *http.Request) {
 				case "RESOURCE_OWNER":
 					actual = awsAccountID()
 				default:
-					sim.AWSErrorf(w, "InvalidInput", http.StatusBadRequest,
+					AWSErrorf(w, "InvalidInput", http.StatusBadRequest,
 						"'%s' is not a valid service filter name", f.Name)
 					return
 				}
@@ -1580,22 +1580,22 @@ func handleCMDeleteService(w http.ResponseWriter, r *http.Request) {
 		Id string `json:"Id"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Id == "" {
-		sim.AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Id is required", http.StatusBadRequest)
 		return
 	}
 
 	svc, ok := cmServices.Get(req.Id)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.Id)
 		return
 	}
 	if cmServiceHasInstances(req.Id) {
-		sim.AWSErrorf(w, "ResourceInUse", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceInUse", http.StatusBadRequest,
 			"Service '%s' contains instances and can't be deleted", req.Id)
 		return
 	}
@@ -1643,17 +1643,17 @@ func handleCMGetOperation(w http.ResponseWriter, r *http.Request) {
 		OperationId string `json:"OperationId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.OperationId == "" {
-		sim.AWSError(w, "InvalidInput", "OperationId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "OperationId is required", http.StatusBadRequest)
 		return
 	}
 	op, ok := cmOperations.Get(req.OperationId)
 	if !ok {
-		sim.AWSErrorf(w, "OperationNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "OperationNotFound", http.StatusBadRequest,
 			"Operation '%s' not found", req.OperationId)
 		return
 	}
@@ -1684,15 +1684,15 @@ func handleCMListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceARN string `json:"ResourceARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.ResourceARN == "" {
-		sim.AWSError(w, "InvalidInput", "ResourceARN is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ResourceARN is required", http.StatusBadRequest)
 		return
 	}
 	if !cmResourceExists(req.ResourceARN) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Resource '%s' not found", req.ResourceARN)
 		return
 	}
@@ -1713,15 +1713,15 @@ func handleCMTagResource(w http.ResponseWriter, r *http.Request) {
 		Tags        []cmTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.ResourceARN == "" {
-		sim.AWSError(w, "InvalidInput", "ResourceARN is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ResourceARN is required", http.StatusBadRequest)
 		return
 	}
 	if !cmResourceExists(req.ResourceARN) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Resource '%s' not found", req.ResourceARN)
 		return
 	}
@@ -1732,13 +1732,13 @@ func handleCMTagResource(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, t := range req.Tags {
 		if t.Key == "" {
-			sim.AWSError(w, "InvalidInput", "Tag keys can't be empty", http.StatusBadRequest)
+			AWSError(w, "InvalidInput", "Tag keys can't be empty", http.StatusBadRequest)
 			return
 		}
 		merged[t.Key] = t.Value
 	}
 	if len(merged) > cmMaxTagsPerResource {
-		sim.AWSErrorf(w, "TooManyTagsException", http.StatusBadRequest,
+		AWSErrorf(w, "TooManyTagsException", http.StatusBadRequest,
 			"Resource '%s' would exceed the limit of %d tags", req.ResourceARN, cmMaxTagsPerResource)
 		return
 	}
@@ -1752,15 +1752,15 @@ func handleCMUntagResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys     []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.ResourceARN == "" {
-		sim.AWSError(w, "InvalidInput", "ResourceARN is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ResourceARN is required", http.StatusBadRequest)
 		return
 	}
 	if !cmResourceExists(req.ResourceARN) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Resource '%s' not found", req.ResourceARN)
 		return
 	}
@@ -1787,11 +1787,11 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 		OptionalParameters map[string]string `json:"OptionalParameters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.NamespaceName == "" || req.ServiceName == "" {
-		sim.AWSError(w, "InvalidInput", "NamespaceName and ServiceName are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "NamespaceName and ServiceName are required", http.StatusBadRequest)
 		return
 	}
 
@@ -1805,7 +1805,7 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if targetNs == nil {
-		sim.AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 			"Namespace '%s' not found", req.NamespaceName)
 		return
 	}
@@ -1820,7 +1820,7 @@ func handleCMDiscoverInstances(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if targetSvc == nil {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found in namespace '%s'", req.ServiceName, req.NamespaceName)
 		return
 	}
@@ -1948,21 +1948,21 @@ func handleCMGetInstance(w http.ResponseWriter, r *http.Request) {
 		InstanceId string `json:"InstanceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" || req.InstanceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId and InstanceId are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId and InstanceId are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cmServices.Get(req.ServiceId); !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
 	inst, ok := cmInstances.Get(cmInstanceKey(req.ServiceId, req.InstanceId))
 	if !ok {
-		sim.AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
 			"Instance '%s' not found", req.InstanceId)
 		return
 	}
@@ -1978,33 +1978,33 @@ func handleCMUpdateInstanceCustomHealthStatus(w http.ResponseWriter, r *http.Req
 		Status     string `json:"Status"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" || req.InstanceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId and InstanceId are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId and InstanceId are required", http.StatusBadRequest)
 		return
 	}
 	if req.Status != "HEALTHY" && req.Status != "UNHEALTHY" {
-		sim.AWSError(w, "InvalidInput", "Status must be HEALTHY or UNHEALTHY", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Status must be HEALTHY or UNHEALTHY", http.StatusBadRequest)
 		return
 	}
 	svc, ok := cmServices.Get(req.ServiceId)
 	if !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
 	key := cmInstanceKey(req.ServiceId, req.InstanceId)
 	if _, ok := cmInstances.Get(key); !ok {
-		sim.AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
 			"Instance '%s' not found", req.InstanceId)
 		return
 	}
 	// Only a service configured with HealthCheckCustomConfig reports health
 	// through this operation.
 	if svc.HealthCheckCustomConfig == nil {
-		sim.AWSErrorf(w, "CustomHealthNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "CustomHealthNotFound", http.StatusBadRequest,
 			"Service '%s' does not have a custom health check", req.ServiceId)
 		return
 	}
@@ -2023,15 +2023,15 @@ func handleCMGetInstancesHealthStatus(w http.ResponseWriter, r *http.Request) {
 		NextToken  string   `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ServiceId == "" {
-		sim.AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "ServiceId is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cmServices.Get(req.ServiceId); !ok {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
@@ -2055,7 +2055,7 @@ func handleCMGetInstancesHealthStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, id := range req.Instances {
 			if !found[id] {
-				sim.AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
+				AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
 					"Instance '%s' not found", id)
 				return
 			}
@@ -2080,11 +2080,11 @@ func handleCMDiscoverInstancesRevision(w http.ResponseWriter, r *http.Request) {
 		ServiceName   string `json:"ServiceName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.NamespaceName == "" || req.ServiceName == "" {
-		sim.AWSError(w, "InvalidInput", "NamespaceName and ServiceName are required", http.StatusBadRequest)
+		AWSError(w, "InvalidInput", "NamespaceName and ServiceName are required", http.StatusBadRequest)
 		return
 	}
 	var targetNs *CMNamespace
@@ -2096,7 +2096,7 @@ func handleCMDiscoverInstancesRevision(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if targetNs == nil {
-		sim.AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 			"Namespace '%s' not found", req.NamespaceName)
 		return
 	}
@@ -2109,7 +2109,7 @@ func handleCMDiscoverInstancesRevision(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if targetSvc == nil {
-		sim.AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ServiceNotFound", http.StatusBadRequest,
 			"Service '%s' not found in namespace '%s'", req.ServiceName, req.NamespaceName)
 		return
 	}
@@ -2130,7 +2130,7 @@ func handleCMListOperations(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
+		AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 

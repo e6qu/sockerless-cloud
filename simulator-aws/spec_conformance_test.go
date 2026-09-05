@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // These tests enforce the simulator's core fidelity invariant: every
@@ -152,7 +152,7 @@ func loadSmithyModels(t *testing.T) []*smithyService {
 	return out
 }
 
-func buildConformanceSimulator(t *testing.T) (*sim.Server, *sim.AWSRouter, *sim.AWSQueryRouter) {
+func buildConformanceSimulator(t *testing.T) (*sim.Server, *AWSRouter, *AWSQueryRouter) {
 	t.Helper()
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, jsonRouter, queryRouter, err := buildSimulatorWithOptions(

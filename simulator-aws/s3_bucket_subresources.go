@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // S3BucketConfig stores arbitrary per-bucket subresource configuration
@@ -143,7 +143,7 @@ func handleS3DeleteBucketDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 	if name, spec, ok := firstBucketSubresource(q); ok {
 		if !spec.hasDelete {
-			sim.S3ErrorXML(w, "MethodNotAllowed",
+			S3ErrorXML(w, "MethodNotAllowed",
 				fmt.Sprintf("DELETE is not supported on ?%s — clear via PUT with an empty configuration", name),
 				sim.PathParam(r, "bucket"), sim.RequestID(r.Context()), http.StatusMethodNotAllowed)
 			return
@@ -160,7 +160,7 @@ func handleS3DeleteBucketDispatch(w http.ResponseWriter, r *http.Request) {
 func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub string, spec bucketSubresource) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -172,7 +172,7 @@ func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub st
 	// wire-faithful.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody",
+		S3ErrorXML(w, "IncompleteBody",
 			"Failed to read request body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -207,7 +207,7 @@ func handleS3PutBucketSubresource(w http.ResponseWriter, r *http.Request, sub st
 func handleS3DeleteBucketSubresource(w http.ResponseWriter, r *http.Request, sub string) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -283,7 +283,7 @@ func emitStoredOr404(w http.ResponseWriter, r *http.Request, bucket, sub, errorC
 		_, _ = w.Write(body)
 		return
 	}
-	sim.S3ErrorXML(w, errorCode, errorMsg, bucket, sim.RequestID(r.Context()), http.StatusNotFound)
+	S3ErrorXML(w, errorCode, errorMsg, bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 }
 
 func emitStoredIDOr404(w http.ResponseWriter, r *http.Request, bucket, sub, id string) {
@@ -297,7 +297,7 @@ func emitStoredIDOr404(w http.ResponseWriter, r *http.Request, bucket, sub, id s
 		_, _ = w.Write(body)
 		return
 	}
-	sim.S3ErrorXML(w, "NoSuchConfiguration", "The specified configuration does not exist",
+	S3ErrorXML(w, "NoSuchConfiguration", "The specified configuration does not exist",
 		bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 }
 

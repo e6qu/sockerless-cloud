@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon Certificate Manager ACME consists of an AWS control plane and an
@@ -163,7 +163,7 @@ var (
 	acmAcmeNonces            sim.Store[acmAcmeNonce]
 )
 
-func registerACMAcme(r *sim.AWSRouter, srv *sim.Server) {
+func registerACMAcme(r *AWSRouter, srv *sim.Server) {
 	acmAcmeEndpoints = sim.MakeStore[acmAcmeEndpoint](srv.DB(), "acm_acme_endpoints")
 	acmAcmeDomainValidations = sim.MakeStore[acmAcmeDomainValidation](srv.DB(), "acm_acme_domain_validations")
 	acmAcmeBindings = sim.MakeStore[acmAcmeExternalAccountBinding](srv.DB(), "acm_acme_bindings")

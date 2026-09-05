@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // s3ImplementedOps enumerates the S3 operations the sim implements. S3 is REST:
@@ -175,13 +175,13 @@ var serviceConformanceCatalog = map[string][]string{
 // are recorded as that service's (see legacyQueryOwnership). An action nobody
 // here claims stays unattributed and is credited to NO service, so a service
 // can never be credited with an operation it does not serve.
-var legacyQueryRegistrars = map[string]func(r *sim.AWSQueryRouter, srv *sim.Server){
+var legacyQueryRegistrars = map[string]func(r *AWSQueryRouter, srv *sim.Server){
 	"AmazonEC2":                        registerEC2,
 	"AWSIdentityManagementV20100508":   registerIAM,
 	"AWSSecurityTokenServiceV20110615": registerSTS,
 	// Amazon CloudWatch's query surface is split across several registrars;
 	// together they are the service's unversioned-bucket registration.
-	"GraniteServiceVersion20100801": func(r *sim.AWSQueryRouter, _ *sim.Server) {
+	"GraniteServiceVersion20100801": func(r *AWSQueryRouter, _ *sim.Server) {
 		registerCloudWatchMetricsQuery(r)
 		registerCloudWatchAlarmsQuery(r)
 		registerCloudWatchAlarmOpsQuery(r)
@@ -203,7 +203,7 @@ func legacyQueryOwnership(t *testing.T, srv *sim.Server, bucket []string) (owner
 	owner = map[string]string{}
 	claimedBy := map[string][]string{}
 	for shape, register := range legacyQueryRegistrars {
-		probe := sim.NewAWSQueryRouter()
+		probe := NewAWSQueryRouter()
 		register(probe, srv)
 		for _, action := range probe.VersionedActions()[""] {
 			claimedBy[action] = append(claimedBy[action], shape)

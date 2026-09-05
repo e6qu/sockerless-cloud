@@ -192,9 +192,9 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action GraniteServiceVersion20100801.PutMetricData` | ✓ `simulator-aws/cloudwatch_metrics_json.go:39::handleCWJSONPutMetricData` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.GetMetricStatistics` | ✓ `simulator-aws/cloudwatch_metrics_json.go:40::handleCWJSONGetMetricStatistics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GraniteServiceVersion20100801.ListMetrics` | ✓ `simulator-aws/cloudwatch_metrics_json.go:41::handleCWJSONListMetrics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action PutMetricData` | ✓ `simulator-aws/cloudwatch_metrics_query.go:27::handleCWQueryPutMetricData` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetMetricStatistics` | ✓ `simulator-aws/cloudwatch_metrics_query.go:28::handleCWQueryGetMetricStatistics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListMetrics` | ✓ `simulator-aws/cloudwatch_metrics_query.go:29::handleCWQueryListMetrics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action PutMetricData` | ✓ `simulator-aws/cloudwatch_metrics_query.go:25::handleCWQueryPutMetricData` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetMetricStatistics` | ✓ `simulator-aws/cloudwatch_metrics_query.go:26::handleCWQueryGetMetricStatistics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ListMetrics` | ✓ `simulator-aws/cloudwatch_metrics_query.go:27::handleCWQueryListMetrics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetMetricData` | ✓ `simulator-aws/cloudwatch_misc_ops.go:526::handleCWQueryGetMetricData` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action PutAlarmMuteRule` | ✓ `simulator-aws/cloudwatch_misc_ops.go:527::handleCWQueryPutAlarmMuteRule` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetAlarmMuteRule` | ✓ `simulator-aws/cloudwatch_misc_ops.go:528::handleCWQueryGetAlarmMuteRule` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

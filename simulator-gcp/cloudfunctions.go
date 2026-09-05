@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	dockerclient "github.com/moby/moby/client"
 )
 
@@ -119,19 +119,19 @@ func registerCloudFunctions(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		functionID := r.URL.Query().Get("functionId")
 		if functionID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "functionId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "functionId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 
 		var fn storedFunction
 		if err := sim.ReadJSON(r, &fn); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
 		name := fmt.Sprintf("projects/%s/locations/%s/functions/%s", project, location, functionID)
 		if _, exists := functions.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "function %q already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "function %q already exists", name)
 			return
 		}
 
@@ -210,7 +210,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			return
 		}
 		if !found || collection != "functions" || verb != "generateUploadUrl" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown functions verb %q", sim.PathParam(r, "functionsVerb"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown functions verb %q", sim.PathParam(r, "functionsVerb"))
 			return
 		}
 		project := sim.PathParam(r, "project")
@@ -241,14 +241,14 @@ func registerCloudFunctions(srv *sim.Server) {
 				handleResourceIAM(w, r, gcpResourceIAMStore(), cloudFunctionName(project, location, id), action)
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on function %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on function %q", action, id)
 			return
 		}
 		name := cloudFunctionName(project, location, functionParam)
 
 		fn, ok := functions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, fn.wire())
@@ -266,12 +266,12 @@ func registerCloudFunctions(srv *sim.Server) {
 
 		fn, ok := functions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
 			return
 		}
 		var patch storedFunction
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		mask := r.URL.Query().Get("updateMask")
@@ -333,7 +333,7 @@ func registerCloudFunctions(srv *sim.Server) {
 		if fn != nil {
 			parts := strings.Split(fn.Name, "/") // projects/{project}/...
 			if len(parts) < 2 {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 					"function %q has a malformed resource name", fn.Name)
 				return
 			}
@@ -364,7 +364,7 @@ func registerCloudFunctions(srv *sim.Server) {
 
 		fn, ok := functions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
 			return
 		}
 
@@ -384,7 +384,7 @@ func registerCloudFunctions(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		id, action, found := strings.Cut(sim.PathParam(r, "functionAction"), ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown function action %q", sim.PathParam(r, "functionAction"))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown function action %q", sim.PathParam(r, "functionAction"))
 			return
 		}
 		name := cloudFunctionName(project, location, id)
@@ -398,7 +398,7 @@ func registerCloudFunctions(srv *sim.Server) {
 		// The remaining verbs operate on an existing function.
 		fn, ok := functions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "function %q not found", name)
 			return
 		}
 
@@ -450,7 +450,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			functions.Put(name, fn)
 			sim.WriteJSON(w, http.StatusOK, newLRO(project, location, fn.wire(), cloudFunctionTypeURL))
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on function %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on function %q", action, id)
 		}
 	})
 
@@ -841,7 +841,7 @@ func invokeOverlayContainerHTTPWithBody(image, functionID string, timeout time.D
 			"sockerless-sim-function": functionID,
 		},
 		ExtraHosts: hostMetadataExtraHosts(),
-		Sandbox:    sim.SandboxGCFGen2,
+		Sandbox:    SandboxGCFGen2,
 	})
 	if err != nil {
 		return nil, -1, fmt.Errorf("start overlay container: %w", err)

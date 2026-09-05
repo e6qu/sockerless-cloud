@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -163,7 +163,7 @@ var (
 	glueBlueprintRuns sim.Store[GlueBlueprintRun]
 )
 
-func registerGlueSessionsBlueprints(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlueSessionsBlueprints(r *AWSRouter, srv *sim.Server) {
 	glueSessions = sim.MakeStore[GlueSession](srv.DB(), "glue_sessions")
 	glueStatements = sim.MakeStore[GlueStatement](srv.DB(), "glue_statements")
 	glueDevEndpoints = sim.MakeStore[GlueDevEndpoint](srv.DB(), "glue_dev_endpoints")

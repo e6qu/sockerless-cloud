@@ -13,7 +13,6 @@ import (
 	"sync"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
 )
 
 var (
@@ -32,7 +31,7 @@ var (
 
 func azureRequireNetworkHost(w http.ResponseWriter) bool {
 	if err := azureNetworkHostError(); err != nil {
-		sim.AzureError(w, "OperationNotAllowed", err.Error(), http.StatusServiceUnavailable)
+		AzureError(w, "OperationNotAllowed", err.Error(), http.StatusServiceUnavailable)
 		return false
 	}
 	return true

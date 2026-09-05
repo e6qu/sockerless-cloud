@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
@@ -277,7 +277,7 @@ func registerWebCertificates(srv *sim.Server) {
 	srv.HandleFunc("GET "+webProvider+"/certificates/{name}", func(w http.ResponseWriter, r *http.Request) {
 		c, ok := webCertificates.Get(certID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/certificates/%s' under resource group '%s' was not found.",
 				sim.PathParam(r, "name"), sim.PathParam(r, "resourceGroupName"))
 			return
@@ -289,12 +289,12 @@ func registerWebCertificates(srv *sim.Server) {
 	srv.HandleFunc("PUT "+webProvider+"/certificates/{name}", func(w http.ResponseWriter, r *http.Request) {
 		var req webCertificatePutRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		props, msg := buildWebCertificateProperties(req)
 		if msg != "" {
-			sim.AzureError(w, "InvalidRequestContent", msg, http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", msg, http.StatusBadRequest)
 			return
 		}
 		cert := WebCertificate{
@@ -318,14 +318,14 @@ func registerWebCertificates(srv *sim.Server) {
 	srv.HandleFunc("PATCH "+webProvider+"/certificates/{name}", func(w http.ResponseWriter, r *http.Request) {
 		cert, ok := webCertificates.Get(certID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/certificates/%s' under resource group '%s' was not found.",
 				sim.PathParam(r, "name"), sim.PathParam(r, "resourceGroupName"))
 			return
 		}
 		updated, msg := patchWebCertificate(r, cert)
 		if msg != "" {
-			sim.AzureError(w, "InvalidRequestContent", msg, http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", msg, http.StatusBadRequest)
 			return
 		}
 		webCertificates.Put(updated.ID, updated)
@@ -391,7 +391,7 @@ func registerWebSiteCertificates(both func(string, string, http.HandlerFunc)) {
 		}
 		c, ok := webSiteCertificates.Get(certID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Certificate %q not found.", sim.PathParam(r, "certificateName"))
 			return
 		}
@@ -403,12 +403,12 @@ func registerWebSiteCertificates(both func(string, string, http.HandlerFunc)) {
 		}
 		var req webCertificatePutRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		props, msg := buildWebCertificateProperties(req)
 		if msg != "" {
-			sim.AzureError(w, "InvalidRequestContent", msg, http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", msg, http.StatusBadRequest)
 			return
 		}
 		site, _ := webResource(r)
@@ -437,13 +437,13 @@ func registerWebSiteCertificates(both func(string, string, http.HandlerFunc)) {
 		}
 		cert, ok := webSiteCertificates.Get(certID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Certificate %q not found.", sim.PathParam(r, "certificateName"))
 			return
 		}
 		updated, msg := patchWebCertificate(r, cert)
 		if msg != "" {
-			sim.AzureError(w, "InvalidRequestContent", msg, http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", msg, http.StatusBadRequest)
 			return
 		}
 		webSiteCertificates.Put(updated.ID, updated)

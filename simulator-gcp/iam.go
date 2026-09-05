@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type GCPServiceAccount struct {
@@ -205,7 +205,7 @@ func registerIAM(srv *sim.Server) {
 			} `json:"serviceAccount"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
@@ -213,7 +213,7 @@ func registerIAM(srv *sim.Server) {
 		// project's place in the resource hierarchy, so a policy set on the
 		// organization or an intervening folder reaches the project too.
 		if crmOrgPolicyBooleanEnforced("projects/"+project, crmConstraintDisableServiceAccountCreation) {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"Service account creation is not allowed on this project.", "FAILED_PRECONDITION")
 			return
 		}
@@ -222,7 +222,7 @@ func registerIAM(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 
 		if _, exists := serviceAccounts.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"Service account %s already exists within project projects/%s.", req.AccountId, project)
 			return
 		}
@@ -251,7 +251,7 @@ func registerIAM(srv *sim.Server) {
 
 		sa, ok := serviceAccounts.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, 404, "NOT_FOUND", "Service account %s not found", email)
+			GCPErrorf(w, 404, "NOT_FOUND", "Service account %s not found", email)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, sa)
@@ -269,7 +269,7 @@ func registerIAM(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		sa, ok := serviceAccounts.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
 			return
 		}
 		var req struct {
@@ -280,7 +280,7 @@ func registerIAM(srv *sim.Server) {
 			UpdateMask string `json:"updateMask"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// The mask also rides as a query param in some client paths; prefer
@@ -314,7 +314,7 @@ func registerIAM(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		sa, ok := serviceAccounts.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
 			return
 		}
 		var req struct {
@@ -322,7 +322,7 @@ func registerIAM(srv *sim.Server) {
 			Description string `json:"description"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		sa.DisplayName = req.DisplayName
@@ -364,11 +364,11 @@ func registerIAM(srv *sim.Server) {
 		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		sa, ok := serviceAccounts.Get(saName)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
 			return
 		}
 		if crmOrgPolicyBooleanEnforced("projects/"+project, crmConstraintDisableServiceAccountKeyCreation) {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"Key creation is not allowed on this service account.", "FAILED_PRECONDITION")
 			return
 		}
@@ -388,7 +388,7 @@ func registerIAM(srv *sim.Server) {
 		// material (a subsequent Get would return a phantom key).
 		privateKeyData, publicKeyPEM, certificatePEM, err := gcpMakeSAKeyJSON(project, keyID, email, sa.UniqueId)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "generate key: %v", err)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "generate key: %v", err)
 			return
 		}
 		saKeys.Put(keyName, key)
@@ -425,11 +425,11 @@ func registerIAM(srv *sim.Server) {
 		}
 		saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		if _, ok := serviceAccounts.Get(saName); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
 			return
 		}
 		if crmOrgPolicyBooleanEnforced("projects/"+project, crmConstraintDisableServiceAccountKeyUpload) {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"Key upload is not allowed on this service account.", "FAILED_PRECONDITION")
 			return
 		}
@@ -437,28 +437,28 @@ func registerIAM(srv *sim.Server) {
 			PublicKeyData string `json:"publicKeyData"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		raw, err := base64.StdEncoding.DecodeString(req.PublicKeyData)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "publicKeyData must be base64: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "publicKeyData must be base64: %v", err)
 			return
 		}
 		block, _ := pem.Decode(raw)
 		if block == nil || block.Type != "CERTIFICATE" {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"The public key must be an RSA public key wrapped in an X.509 v3 certificate, in PEM format.", "INVALID_ARGUMENT")
 			return
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid X.509 certificate: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid X.509 certificate: %v", err)
 			return
 		}
 		rsaPub, ok := cert.PublicKey.(*rsa.PublicKey)
 		if !ok {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"The certificate's public key must be an RSA key.", "INVALID_ARGUMENT")
 			return
 		}
@@ -472,24 +472,24 @@ func registerIAM(srv *sim.Server) {
 		case 2048:
 			algorithm = "KEY_ALG_RSA_2048"
 		default:
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"the certificate's RSA key is %d bits; service account keys must be RSA 1024 or 2048", rsaPub.N.BitLen())
 			return
 		}
 		keyID, err := serviceAccountKeyID(rsaPub)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "derive key id: %v", err)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "derive key id: %v", err)
 			return
 		}
 		keyName := saName + "/keys/" + keyID
 		if _, exists := saKeys.Get(keyName); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"a key with the same public key material already exists on service account %s", email)
 			return
 		}
 		pubDER, err := x509.MarshalPKIXPublicKey(rsaPub)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "marshal public key: %v", err)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "marshal public key: %v", err)
 			return
 		}
 		// The key's validity window is the certificate's own — the caller
@@ -535,11 +535,11 @@ func registerIAM(srv *sim.Server) {
 			// A system-managed key belongs to Google, not to the account's
 			// owner: it cannot be disabled, the same refusal Delete makes.
 			if system, ok := serviceAccountSystemManagedKey(serviceAccounts, saName, email); ok && system.Name == keyName {
-				sim.GCPError(w, http.StatusBadRequest,
+				GCPError(w, http.StatusBadRequest,
 					"Request contains an invalid argument.", "INVALID_ARGUMENT")
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
 			return
 		}
 		saKeys.Update(keyName, func(k *GCPServiceAccountKey) {
@@ -570,7 +570,7 @@ func registerIAM(srv *sim.Server) {
 			if publicKeyType != "" && hasMaterial {
 				data, err := serviceAccountPublicKeyData(publicKeyType, material.PublicKeyPEM, material.CertificatePEM)
 				if err != nil {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 					return
 				}
 				key.PublicKeyData = data
@@ -581,18 +581,18 @@ func registerIAM(srv *sim.Server) {
 
 		system, systemOK := serviceAccountSystemManagedKey(serviceAccounts, saName, email)
 		if !systemOK || system.Name != keyName {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
 			return
 		}
 		if publicKeyType != "" {
 			material, err := serviceAccountSigningKey(saName, email)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
 				return
 			}
 			data, err := serviceAccountPublicKeyData(publicKeyType, material.publicKeyPEM, material.certificatePEM)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 				return
 			}
 			system.PublicKeyData = data
@@ -639,11 +639,11 @@ func registerIAM(srv *sim.Server) {
 			// A system-managed key belongs to Google, not to the account's
 			// owner, so it is refused rather than reported missing.
 			if system, ok := serviceAccountSystemManagedKey(serviceAccounts, saName, email); ok && system.Name == keyName {
-				sim.GCPError(w, http.StatusBadRequest,
+				GCPError(w, http.StatusBadRequest,
 					"Request contains an invalid argument.", "INVALID_ARGUMENT")
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "key %s not found", keyID)
 			return
 		}
 		// A deleted key is revoked: the token endpoint stops accepting
@@ -675,7 +675,7 @@ func registerIAM(srv *sim.Server) {
 		}
 		name := fmt.Sprintf("projects/%s/serviceAccounts/%s", project, email)
 		if _, ok := serviceAccounts.Get(name); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Service account %s not found", email)
 			return
 		}
 		switch action {
@@ -716,12 +716,12 @@ func registerIAM(srv *sim.Server) {
 				Delegates []string `json:"delegates"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			lifetime, refusal := iamAccessTokenLifetime(req.Lifetime, email)
 			if refusal != "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", refusal)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", refusal)
 				return
 			}
 			now := time.Now()
@@ -743,11 +743,11 @@ func registerIAM(srv *sim.Server) {
 				Delegates    []string `json:"delegates"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if req.Audience == "" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "audience is required")
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "audience is required")
 				return
 			}
 			now := time.Now()
@@ -769,23 +769,23 @@ func registerIAM(srv *sim.Server) {
 				Delegates []string `json:"delegates"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			raw, err := base64.StdEncoding.DecodeString(req.Payload)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "payload must be base64: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "payload must be base64: %v", err)
 				return
 			}
 			material, err := serviceAccountSigningKey(name, email)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
 				return
 			}
 			digest := sha256.Sum256(raw)
 			sig, err := rsa.SignPKCS1v15(rand.Reader, material.key, crypto.SHA256, digest[:])
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "sign blob: %v", err)
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "sign blob: %v", err)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -803,17 +803,17 @@ func registerIAM(srv *sim.Server) {
 				Delegates []string `json:"delegates"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			material, err := serviceAccountSigningKey(name, email)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "resolve signing key: %v", err)
 				return
 			}
 			headerJSON, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": material.keyID})
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode JWT header: %v", err)
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode JWT header: %v", err)
 				return
 			}
 			headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
@@ -822,7 +822,7 @@ func registerIAM(srv *sim.Server) {
 			digest := sha256.Sum256([]byte(signingInput))
 			sig, err := rsa.SignPKCS1v15(rand.Reader, material.key, crypto.SHA256, digest[:])
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "sign JWT: %v", err)
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "sign JWT: %v", err)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -830,7 +830,7 @@ func registerIAM(srv *sim.Server) {
 				"signedJwt": signingInput + "." + base64.RawURLEncoding.EncodeToString(sig),
 			})
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported service-account action %q", action)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported service-account action %q", action)
 		}
 	})
 
@@ -922,7 +922,7 @@ func registerIAM(srv *sim.Server) {
 			PageToken        string `json:"pageToken"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		perms := gcpTestablePermissions()
@@ -954,7 +954,7 @@ func registerIAM(srv *sim.Server) {
 			} `json:"condition"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		results := []map[string]any{}
@@ -974,11 +974,11 @@ func registerIAM(srv *sim.Server) {
 			FullResourceName string `json:"fullResourceName"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if _, ok := gcpFullResourceHost(req.FullResourceName); !ok {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"fullResourceName must be a full resource name, e.g. //cloudresourcemanager.googleapis.com/projects/my-project", "INVALID_ARGUMENT")
 			return
 		}
@@ -1004,12 +1004,12 @@ func registerIAM(srv *sim.Server) {
 			PageToken        string `json:"pageToken"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		host, ok := gcpFullResourceHost(req.FullResourceName)
 		if !ok {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"fullResourceName must be a full resource name, e.g. //cloudresourcemanager.googleapis.com/projects/my-project", "INVALID_ARGUMENT")
 			return
 		}
@@ -1047,7 +1047,7 @@ func registerIAM(srv *sim.Server) {
 		if req.PageToken != "" {
 			decoded, err := strconv.Atoi(req.PageToken)
 			if err != nil || decoded < 0 || decoded > len(roles) {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", req.PageToken)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", req.PageToken)
 				return
 			}
 			start = decoded
@@ -1114,14 +1114,14 @@ func registerIAM(srv *sim.Server) {
 				return
 			}
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
 	})
 
 	// Bucket IAM - getIamPolicy
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/iam", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		if _, exists := gcsBuckets.Get(bucket); !exists {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 			return
 		}
 
@@ -1146,25 +1146,25 @@ func registerIAM(srv *sim.Server) {
 	srv.HandleFunc("PUT /storage/v1/b/{bucket}/iam", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		if _, exists := gcsBuckets.Get(bucket); !exists {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 			return
 		}
 
 		var policy IAMPolicy
 		if err := sim.ReadJSON(r, &policy); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// A policy is its bindings; the document requires them of this method,
 		// and a set with none is a set of nothing rather than a policy that
 		// grants nobody.
 		if len(policy.Bindings) == 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"the policy must carry at least one binding")
 			return
 		}
 		if err := validateIAMMembers(policy.Bindings); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 
@@ -1407,7 +1407,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		trimmed := strings.TrimPrefix(fullName, "//")
 		service, resourcePath, found := strings.Cut(trimmed, "/")
 		if fullName == "" || !strings.HasPrefix(fullName, "//") || !found || service == "" || resourcePath == "" {
-			sim.GCPError(w, http.StatusBadRequest, "fullResourceName must be a full Google Cloud resource name", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "fullResourceName must be a full Google Cloud resource name", "INVALID_ARGUMENT")
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1464,7 +1464,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		// SearchProjects' job.
 		parent := r.URL.Query().Get("parent")
 		if parent == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Request contains an invalid argument.")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Request contains an invalid argument.")
 			return
 		}
 		showDeleted := r.URL.Query().Get("showDeleted") == "true"
@@ -1485,15 +1485,15 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("POST /v3/projects", func(w http.ResponseWriter, r *http.Request) {
 		var req CRMProject
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if err := crmValidateProjectID(req.ProjectId); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 		if _, exists := projects.Get(req.ProjectId); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Requested entity already exists")
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Requested entity already exists")
 			return
 		}
 		p := CRMProject{
@@ -1526,7 +1526,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		}
 		var req CRMProject
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		mask := r.URL.Query().Get("updateMask")
@@ -1552,7 +1552,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		// DELETE_REQUESTED (30-day pending deletion) and only an ACTIVE
 		// project may be deleted.
 		if p.State != "ACTIVE" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Project \"%s\" has lifecycle state %s; delete requires ACTIVE", p.ProjectId, p.State)
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Project \"%s\" has lifecycle state %s; delete requires ACTIVE", p.ProjectId, p.State)
 			return
 		}
 		if crmProjectDeleteBlocked(w, p) {
@@ -1599,7 +1599,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			sim.WriteJSON(w, http.StatusOK, crmLRO(p, typeProject, crmMetaMoveProject))
 		case "undelete":
 			if p.State != "DELETE_REQUESTED" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Project \"%s\" has lifecycle state %s; undelete requires DELETE_REQUESTED", p.ProjectId, p.State)
+				GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Project \"%s\" has lifecycle state %s; undelete requires DELETE_REQUESTED", p.ProjectId, p.State)
 				return
 			}
 			p.State = "ACTIVE"
@@ -1644,7 +1644,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("POST /v3/folders", func(w http.ResponseWriter, r *http.Request) {
 		var req CRMFolder
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		f := CRMFolder{
@@ -1662,7 +1662,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("GET /v3/folders/{folder}", func(w http.ResponseWriter, r *http.Request) {
 		f, ok := folders.Get("folders/" + sim.PathParam(r, "folder"))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, f)
@@ -1671,12 +1671,12 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		name := "folders/" + sim.PathParam(r, "folder")
 		f, ok := folders.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
 			return
 		}
 		var req CRMFolder
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if req.DisplayName != "" {
@@ -1691,7 +1691,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		name := "folders/" + sim.PathParam(r, "folder")
 		f, ok := folders.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
 			return
 		}
 		f.State = "DELETE_REQUESTED"
@@ -1708,7 +1708,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		name := "folders/" + id
 		f, ok := folders.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder not found")
 			return
 		}
 		switch action {
@@ -1727,7 +1727,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			folders.Put(name, f)
 			sim.WriteJSON(w, http.StatusOK, crmLRO(f, typeFolder, crmMetaUndeleteFolder))
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported folder action %q", action)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported folder action %q", action)
 		}
 	})
 
@@ -1783,7 +1783,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 				return
 			}
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag key %q not found", ns)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag key %q not found", ns)
 	})
 	srv.HandleFunc("GET /v3/tagKeys", func(w http.ResponseWriter, r *http.Request) {
 		parent := r.URL.Query().Get("parent")
@@ -1802,7 +1802,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("POST /v3/tagKeys", func(w http.ResponseWriter, r *http.Request) {
 		var req CRMTagKey
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		k := CRMTagKey{
@@ -1823,7 +1823,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("GET /v3/tagKeys/{key}", func(w http.ResponseWriter, r *http.Request) {
 		k, ok := tagKeys.Get("tagKeys/" + sim.PathParam(r, "key"))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag key not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag key not found")
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, k)
@@ -1832,12 +1832,12 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		name := "tagKeys/" + sim.PathParam(r, "key")
 		k, ok := tagKeys.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag key not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag key not found")
 			return
 		}
 		var req CRMTagKey
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		mask := r.URL.Query().Get("updateMask")
@@ -1853,7 +1853,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		name := "tagKeys/" + sim.PathParam(r, "key")
 		k, ok := tagKeys.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag key not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag key not found")
 			return
 		}
 		tagKeys.Delete(name)
@@ -1863,7 +1863,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		if crmIamVerb(w, r, resourcePolicies, sim.PathParam(r, "keyAction"), "tagKey") {
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported tagKey action")
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported tagKey action")
 	})
 
 	srv.HandleFunc("GET /v3/tagValues/namespaced", func(w http.ResponseWriter, r *http.Request) {
@@ -1874,7 +1874,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 				return
 			}
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag value %q not found", ns)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag value %q not found", ns)
 	})
 	srv.HandleFunc("GET /v3/tagValues", func(w http.ResponseWriter, r *http.Request) {
 		parent := r.URL.Query().Get("parent")
@@ -1893,7 +1893,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("POST /v3/tagValues", func(w http.ResponseWriter, r *http.Request) {
 		var req CRMTagValue
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		v := CRMTagValue{
@@ -1912,7 +1912,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("GET /v3/tagValues/{val}", func(w http.ResponseWriter, r *http.Request) {
 		v, ok := tagValues.Get("tagValues/" + sim.PathParam(r, "val"))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag value not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag value not found")
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, v)
@@ -1921,12 +1921,12 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		name := "tagValues/" + sim.PathParam(r, "val")
 		v, ok := tagValues.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag value not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag value not found")
 			return
 		}
 		var req CRMTagValue
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		mask := r.URL.Query().Get("updateMask")
@@ -1942,7 +1942,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		name := "tagValues/" + sim.PathParam(r, "val")
 		v, ok := tagValues.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag value not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag value not found")
 			return
 		}
 		tagValues.Delete(name)
@@ -1966,7 +1966,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("POST /v3/tagValues/{val}/tagHolds", func(w http.ResponseWriter, r *http.Request) {
 		var req CRMTagHold
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		h := CRMTagHold{
@@ -1982,7 +1982,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("DELETE /v3/tagValues/{val}/tagHolds/{hold}", func(w http.ResponseWriter, r *http.Request) {
 		name := "tagValues/" + sim.PathParam(r, "val") + "/tagHolds/" + sim.PathParam(r, "hold")
 		if _, ok := tagHolds.Get(name); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag hold not found")
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "tag hold not found")
 			return
 		}
 		tagHolds.Delete(name)
@@ -1992,13 +1992,13 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		if crmIamVerb(w, r, resourcePolicies, sim.PathParam(r, "valAction"), "tagValue") {
 			return
 		}
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported tagValue action")
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported tagValue action")
 	})
 
 	srv.HandleFunc("POST /v3/tagBindings", func(w http.ResponseWriter, r *http.Request) {
 		var req CRMTagBinding
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		b := CRMTagBinding{
@@ -2367,7 +2367,7 @@ func registerCustomRoles(srv *sim.Server, store sim.Store[GCPCustomRole], scope,
 		name := parentPrefix(sim.PathParam(r, "parent")) + "/roles/" + sim.PathParam(r, "role")
 		role, ok := store.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, gcpCustomRoleJSON(role, true))
@@ -2386,16 +2386,16 @@ func registerCustomRoles(srv *sim.Server, store sim.Store[GCPCustomRole], scope,
 			} `json:"role"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if req.RoleId == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "roleId is required")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "roleId is required")
 			return
 		}
 		name := parent + "/roles/" + req.RoleId
 		if _, exists := store.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "A role named %s already exists.", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "A role named %s already exists.", name)
 			return
 		}
 		stage := req.Role.Stage
@@ -2419,13 +2419,13 @@ func registerCustomRoles(srv *sim.Server, store sim.Store[GCPCustomRole], scope,
 		roleAction := sim.PathParam(r, "roleAction")
 		roleID, action, found := strings.Cut(roleAction, ":")
 		if !found || action != "undelete" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported role action %q", roleAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported role action %q", roleAction)
 			return
 		}
 		name := parentPrefix(sim.PathParam(r, "parent")) + "/roles/" + roleID
 		role, ok := store.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
 			return
 		}
 		role.Deleted = false
@@ -2439,12 +2439,12 @@ func registerCustomRoles(srv *sim.Server, store sim.Store[GCPCustomRole], scope,
 		name := parentPrefix(sim.PathParam(r, "parent")) + "/roles/" + sim.PathParam(r, "role")
 		role, ok := store.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
 			return
 		}
 		var req GCPCustomRole
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// Honor optimistic concurrency: a stale etag on the request body is
@@ -2481,7 +2481,7 @@ func registerCustomRoles(srv *sim.Server, store sim.Store[GCPCustomRole], scope,
 		name := parentPrefix(sim.PathParam(r, "parent")) + "/roles/" + sim.PathParam(r, "role")
 		role, ok := store.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The role named %s was not found.", name)
 			return
 		}
 		role.Deleted = true
@@ -2740,7 +2740,7 @@ func gcpIAMETagConflict(w http.ResponseWriter, reqEtag, currentEtag string, pres
 		return false
 	}
 	if !present || reqEtag != currentEtag {
-		sim.GCPErrorf(w, http.StatusConflict, "ABORTED",
+		GCPErrorf(w, http.StatusConflict, "ABORTED",
 			"There were concurrent policy changes. Please retry the whole read-modify-write with exponential backoff.")
 		return true
 	}
@@ -2817,11 +2817,11 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 			Policy IAMPolicy `json:"policy"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if err := validateIAMMembers(req.Policy.Bindings); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 		current, present := store.Get(resource)
@@ -2839,7 +2839,7 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 			Permissions []string `json:"permissions"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		policy, _ := store.Get(resource)
@@ -3178,19 +3178,19 @@ func (c iamCollection) register() {
 			if verb == "listAttestationRules" {
 				name := c.name(r, base)
 				if _, ok := iamResources.Get(name); !ok {
-					sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+					GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 					return
 				}
 				sim.WriteJSON(w, http.StatusOK, map[string]any{"attestationRules": []any{}})
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported verb %q", verb)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported verb %q", verb)
 			return
 		}
 		name := c.name(r, id)
 		m, ok := iamResources.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, m)
@@ -3200,17 +3200,17 @@ func (c iamCollection) register() {
 	c.srv.HandleFunc("POST "+c.collPath, func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get(c.createParam)
 		if id == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s is required", c.createParam)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s is required", c.createParam)
 			return
 		}
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name := c.name(r, id)
 		if _, exists := iamResources.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s already exists", name)
 			return
 		}
 		res := map[string]any{}
@@ -3232,7 +3232,7 @@ func (c iamCollection) register() {
 		idAction := sim.PathParam(r, "idAction")
 		id, verb, found := strings.Cut(idAction, ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported request %q", idAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported request %q", idAction)
 			return
 		}
 		name := c.name(r, id)
@@ -3240,7 +3240,7 @@ func (c iamCollection) register() {
 		case "undelete":
 			res, ok := iamResources.Get(name)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 				return
 			}
 			if c.stateField {
@@ -3252,7 +3252,7 @@ func (c iamCollection) register() {
 		case "addAttestationRule", "removeAttestationRule", "setAttestationRules":
 			res, ok := iamResources.Get(name)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 				return
 			}
 			op := newIAMLRO(name, res, c.resType)
@@ -3262,7 +3262,7 @@ func (c iamCollection) register() {
 			// resource-IAM store so its policy round-trips like any other.
 			handleResourceIAM(w, r, gcpResourcePolicies, name, verb)
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported verb %q", verb)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported verb %q", verb)
 		}
 	})
 
@@ -3271,12 +3271,12 @@ func (c iamCollection) register() {
 		name := c.name(r, sim.PathParam(r, "id"))
 		res, ok := iamResources.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 			return
 		}
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		iamApplyMask(res, body, r.URL.Query().Get("updateMask"))
@@ -3291,7 +3291,7 @@ func (c iamCollection) register() {
 		name := c.name(r, sim.PathParam(r, "id"))
 		res, ok := iamResources.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 			return
 		}
 		if c.stateField {
@@ -3320,7 +3320,7 @@ func serveIAMOperation(w http.ResponseWriter, opName string) {
 		sim.WriteJSON(w, http.StatusOK, op)
 		return
 	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", opName)
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", opName)
 }
 
 // registerWorkloadIdentityPools mounts the project-scoped Workload Identity
@@ -3496,11 +3496,11 @@ func registerWorkforcePools(srv *sim.Server) {
 			sim.PathParam(r, "location"), sim.PathParam(r, "pool"), subject)
 		res, ok := iamResources.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 			return
 		}
 		if res["state"] != "DELETED" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "%s is not deleted", name)
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "%s is not deleted", name)
 			return
 		}
 		res["state"] = "ACTIVE"
@@ -3548,7 +3548,7 @@ func registerOAuthClients(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/{client}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := iamResources.Get(clientName(r))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", clientName(r))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", clientName(r))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, m)
@@ -3558,18 +3558,18 @@ func registerOAuthClients(srv *sim.Server) {
 	srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("oauthClientId")
 		if id == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "oauthClientId is required")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "oauthClientId is required")
 			return
 		}
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/oauthClients/%s",
 			sim.PathParam(r, "project"), sim.PathParam(r, "location"), id)
 		if _, exists := iamResources.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s already exists", name)
 			return
 		}
 		res := map[string]any{}
@@ -3589,14 +3589,14 @@ func registerOAuthClients(srv *sim.Server) {
 		clientAction := sim.PathParam(r, "clientAction")
 		id, verb, found := strings.Cut(clientAction, ":")
 		if !found || verb != "undelete" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported request %q", clientAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unsupported request %q", clientAction)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/oauthClients/%s",
 			sim.PathParam(r, "project"), sim.PathParam(r, "location"), id)
 		res, ok := iamResources.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", name)
 			return
 		}
 		res["state"] = "ACTIVE"
@@ -3608,12 +3608,12 @@ func registerOAuthClients(srv *sim.Server) {
 	srv.HandleFunc("PATCH "+base+"/{client}", func(w http.ResponseWriter, r *http.Request) {
 		res, ok := iamResources.Get(clientName(r))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", clientName(r))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", clientName(r))
 			return
 		}
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		iamApplyMask(res, body, r.URL.Query().Get("updateMask"))
@@ -3625,7 +3625,7 @@ func registerOAuthClients(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base+"/{client}", func(w http.ResponseWriter, r *http.Request) {
 		res, ok := iamResources.Get(clientName(r))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", clientName(r))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", clientName(r))
 			return
 		}
 		res["state"] = "DELETED"
@@ -3655,7 +3655,7 @@ func registerOAuthClients(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/{client}/credentials/{cred}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := iamResources.Get(credName(r))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", credName(r))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", credName(r))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, m)
@@ -3663,17 +3663,17 @@ func registerOAuthClients(srv *sim.Server) {
 	srv.HandleFunc("POST "+base+"/{client}/credentials", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("oauthClientCredentialId")
 		if id == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "oauthClientCredentialId is required")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "oauthClientCredentialId is required")
 			return
 		}
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name := clientName(r) + "/credentials/" + id
 		if _, exists := iamResources.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s already exists", name)
 			return
 		}
 		res := map[string]any{}
@@ -3688,12 +3688,12 @@ func registerOAuthClients(srv *sim.Server) {
 	srv.HandleFunc("PATCH "+base+"/{client}/credentials/{cred}", func(w http.ResponseWriter, r *http.Request) {
 		res, ok := iamResources.Get(credName(r))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", credName(r))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", credName(r))
 			return
 		}
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		iamApplyMask(res, body, r.URL.Query().Get("updateMask"))
@@ -3702,7 +3702,7 @@ func registerOAuthClients(srv *sim.Server) {
 	})
 	srv.HandleFunc("DELETE "+base+"/{client}/credentials/{cred}", func(w http.ResponseWriter, r *http.Request) {
 		if !iamResources.Delete(credName(r)) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", credName(r))
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s not found", credName(r))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})

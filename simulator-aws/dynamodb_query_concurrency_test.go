@@ -14,7 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A Query reads the item store under one lock, and copies only what it

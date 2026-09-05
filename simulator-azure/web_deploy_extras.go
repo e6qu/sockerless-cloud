@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_deploy_extras.go implements the Microsoft.Web deployment surface beyond
@@ -374,7 +374,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			}
 			rec, ok := webMSDeployOps.Get(webResourceID(r) + idSuffixExpand(r, idSuffix) + "/extensions/MSDeploy")
 			if !ok {
-				sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+				AzureErrorf(w, "NotFound", http.StatusNotFound,
 					"No MSDeploy deployment found for %q.", sim.PathParam(r, "siteName"))
 				return
 			}
@@ -388,7 +388,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			}
 			rec, ok := webMSDeployOps.Get(webResourceID(r) + idSuffixExpand(r, idSuffix) + "/extensions/MSDeploy")
 			if !ok {
-				sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+				AzureErrorf(w, "NotFound", http.StatusNotFound,
 					"No MSDeploy deployment found for %q.", sim.PathParam(r, "siteName"))
 				return
 			}
@@ -415,11 +415,11 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 				} `json:"properties"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+				AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 				return
 			}
 			if req.Properties.PackageURI == "" {
-				sim.AzureError(w, "InvalidRequestContent", "The MSDeploy request must name a packageUri.", http.StatusBadRequest)
+				AzureError(w, "InvalidRequestContent", "The MSDeploy request must name a packageUri.", http.StatusBadRequest)
 				return
 			}
 			resID := webResourceID(r)
@@ -427,7 +427,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			if existing, ok := webMSDeployOps.Get(recID); ok &&
 				(existing.ProvisioningState == "accepted" || existing.ProvisioningState == "running") {
 				// Real MSDeploy refuses a second deployment while one runs.
-				sim.AzureError(w, "Conflict", "Another MSDeploy operation is in progress.", http.StatusConflict)
+				AzureError(w, "Conflict", "Another MSDeploy operation is in progress.", http.StatusConflict)
 				return
 			}
 			now := time.Now().UTC().Format(time.RFC3339)
@@ -514,7 +514,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 		}
 		rec, ok := webOneDeployOps.Get(webResourceID(r) + "/extensions/onedeploy")
 		if !ok {
-			sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+			AzureErrorf(w, "NotFound", http.StatusNotFound,
 				"No OneDeploy deployment found for %q.", sim.PathParam(r, "siteName"))
 			return
 		}
@@ -531,11 +531,11 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.PackageURI == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The OneDeploy request must name a packageUri.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The OneDeploy request must name a packageUri.", http.StatusBadRequest)
 			return
 		}
 		resID := webResourceID(r)
@@ -567,7 +567,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 			status.Errors = []string{err.Error()}
 			webOneDeployOps.Put(recID, rec)
 			webDeploymentStatuses.Put(statusRecID, status)
-			sim.AzureError(w, "DeploymentFailed", err.Error(), http.StatusBadRequest)
+			AzureError(w, "DeploymentFailed", err.Error(), http.StatusBadRequest)
 			return
 		}
 		rec.Status = 4
@@ -600,7 +600,7 @@ func registerWebDeploymentExtras(both, site func(string, string, http.HandlerFun
 		}
 		rec, ok := webDeploymentStatuses.Get(webResourceID(r) + "/deploymentStatus/" + sim.PathParam(r, "deploymentStatusId"))
 		if !ok {
-			sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+			AzureErrorf(w, "NotFound", http.StatusNotFound,
 				"Deployment status %q not found.", sim.PathParam(r, "deploymentStatusId"))
 			return
 		}
@@ -675,11 +675,11 @@ func registerWebPublishingGlobals(srv *sim.Server) {
 			Properties WebPublishingUserRow `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.PublishingUserName == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The publishingUserName property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The publishingUserName property is required.", http.StatusBadRequest)
 			return
 		}
 		webPublishingUser.Put("web", req.Properties)
@@ -717,7 +717,7 @@ func registerWebPublishingGlobals(srv *sim.Server) {
 			Properties WebProviderSourceControlRow `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		row := req.Properties

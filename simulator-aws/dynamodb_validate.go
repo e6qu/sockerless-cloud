@@ -6,8 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // ddbRequiredMembers lists, per DynamoDB operation, the top-level input members
@@ -92,7 +90,7 @@ func ddbRequire(required []string, h http.HandlerFunc) http.HandlerFunc {
 		body, err := io.ReadAll(io.LimitReader(r.Body, ddbMaxValidateBody+1))
 		_ = r.Body.Close()
 		if err != nil || int64(len(body)) > ddbMaxValidateBody {
-			sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+			AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 			return
 		}
 		// Restore the body so the wrapped handler can read it again.
@@ -109,7 +107,7 @@ func ddbRequire(required []string, h http.HandlerFunc) http.HandlerFunc {
 		for _, m := range required {
 			raw, ok := fields[m]
 			if !ok || string(bytes.TrimSpace(raw)) == "null" {
-				sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+				AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 					"1 validation error detected: Value null at '%s' failed to satisfy constraint: Member must not be null",
 					ddbWireMemberLabel(m))
 				return

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements the S3 surfaces that sit outside the generic
@@ -76,12 +76,12 @@ type s3MetadataConfigurationBody struct {
 func handleS3CreateBucketMetadataConfiguration(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	if _, exists := s3MetadataConfigs.Get(bucket); exists {
-		sim.S3ErrorXML(w, "MetadataTableAlreadyExistsError",
+		S3ErrorXML(w, "MetadataTableAlreadyExistsError",
 			"A metadata configuration already exists for this bucket. Delete it before creating a new one.",
 			bucket, sim.RequestID(r.Context()), http.StatusConflict)
 		return
@@ -90,14 +90,14 @@ func handleS3CreateBucketMetadataConfiguration(w http.ResponseWriter, r *http.Re
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "Failed to read request body: "+err.Error(),
+		S3ErrorXML(w, "IncompleteBody", "Failed to read request body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	var doc s3MetadataConfigurationBody
 	if len(body) > 0 {
 		if err := xml.Unmarshal(body, &doc); err != nil {
-			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
+			S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
@@ -114,13 +114,13 @@ func handleS3CreateBucketMetadataConfiguration(w http.ResponseWriter, r *http.Re
 func handleS3GetBucketMetadataConfiguration(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	cfg, ok := s3MetadataConfigs.Get(bucket)
 	if !ok {
-		sim.S3ErrorXML(w, "MetadataTableConfigNotFoundError",
+		S3ErrorXML(w, "MetadataTableConfigNotFoundError",
 			"The metadata configuration does not exist for this bucket.",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -183,7 +183,7 @@ func handleS3GetBucketMetadataConfiguration(w http.ResponseWriter, r *http.Reque
 func handleS3DeleteBucketMetadataConfiguration(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -203,13 +203,13 @@ type s3InventoryTableUpdateBody struct {
 func handleS3UpdateBucketMetadataInventoryTable(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	cfg, ok := s3MetadataConfigs.Get(bucket)
 	if !ok {
-		sim.S3ErrorXML(w, "MetadataTableConfigNotFoundError",
+		S3ErrorXML(w, "MetadataTableConfigNotFoundError",
 			"The metadata configuration does not exist for this bucket.",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -219,7 +219,7 @@ func handleS3UpdateBucketMetadataInventoryTable(w http.ResponseWriter, r *http.R
 	var doc s3InventoryTableUpdateBody
 	if len(body) > 0 {
 		if err := xml.Unmarshal(body, &doc); err != nil {
-			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
+			S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
@@ -241,13 +241,13 @@ type s3AnnotationTableUpdateBody struct {
 func handleS3UpdateBucketMetadataAnnotationTable(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	cfg, ok := s3MetadataConfigs.Get(bucket)
 	if !ok {
-		sim.S3ErrorXML(w, "MetadataTableConfigNotFoundError",
+		S3ErrorXML(w, "MetadataTableConfigNotFoundError",
 			"The metadata configuration does not exist for this bucket.",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -257,13 +257,13 @@ func handleS3UpdateBucketMetadataAnnotationTable(w http.ResponseWriter, r *http.
 	var doc s3AnnotationTableUpdateBody
 	if len(body) > 0 {
 		if err := xml.Unmarshal(body, &doc); err != nil {
-			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
+			S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
 	}
 	if doc.ConfigurationState == "" {
-		sim.S3ErrorXML(w, "MalformedXML", "AnnotationTableConfiguration requires a ConfigurationState.",
+		S3ErrorXML(w, "MalformedXML", "AnnotationTableConfiguration requires a ConfigurationState.",
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
@@ -284,13 +284,13 @@ type s3JournalTableUpdateBody struct {
 func handleS3UpdateBucketMetadataJournalTable(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	cfg, ok := s3MetadataConfigs.Get(bucket)
 	if !ok {
-		sim.S3ErrorXML(w, "MetadataTableConfigNotFoundError",
+		S3ErrorXML(w, "MetadataTableConfigNotFoundError",
 			"The metadata configuration does not exist for this bucket.",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -300,7 +300,7 @@ func handleS3UpdateBucketMetadataJournalTable(w http.ResponseWriter, r *http.Req
 	var doc s3JournalTableUpdateBody
 	if len(body) > 0 {
 		if err := xml.Unmarshal(body, &doc); err != nil {
-			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
+			S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
@@ -323,12 +323,12 @@ type s3MetadataTableBody struct {
 func handleS3CreateBucketMetadataTableConfiguration(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	if _, exists := s3MetadataTableConfigs.Get(bucket); exists {
-		sim.S3ErrorXML(w, "MetadataTableAlreadyExistsError",
+		S3ErrorXML(w, "MetadataTableAlreadyExistsError",
 			"A metadata table configuration already exists for this bucket. Delete it before creating a new one.",
 			bucket, sim.RequestID(r.Context()), http.StatusConflict)
 		return
@@ -337,14 +337,14 @@ func handleS3CreateBucketMetadataTableConfiguration(w http.ResponseWriter, r *ht
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "Failed to read request body: "+err.Error(),
+		S3ErrorXML(w, "IncompleteBody", "Failed to read request body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	var doc s3MetadataTableBody
 	if len(body) > 0 {
 		if err := xml.Unmarshal(body, &doc); err != nil {
-			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
+			S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
@@ -359,13 +359,13 @@ func handleS3CreateBucketMetadataTableConfiguration(w http.ResponseWriter, r *ht
 func handleS3GetBucketMetadataTableConfiguration(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	cfg, ok := s3MetadataTableConfigs.Get(bucket)
 	if !ok {
-		sim.S3ErrorXML(w, "MetadataTableConfigNotFoundError",
+		S3ErrorXML(w, "MetadataTableConfigNotFoundError",
 			"The metadata table configuration does not exist for this bucket.",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
@@ -393,7 +393,7 @@ func handleS3GetBucketMetadataTableConfiguration(w http.ResponseWriter, r *http.
 func handleS3DeleteBucketMetadataTableConfiguration(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -411,21 +411,21 @@ type s3AbacStatusBody struct {
 func handleS3PutBucketAbac(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "Failed to read request body: "+err.Error(),
+		S3ErrorXML(w, "IncompleteBody", "Failed to read request body: "+err.Error(),
 			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	var doc s3AbacStatusBody
 	if len(body) > 0 {
 		if err := xml.Unmarshal(body, &doc); err != nil {
-			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
+			S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
@@ -437,7 +437,7 @@ func handleS3PutBucketAbac(w http.ResponseWriter, r *http.Request) {
 func handleS3GetBucketAbac(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
@@ -463,13 +463,13 @@ func handleS3RenameObject(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	destKey := sim.PathParam(r, "key")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	rename := r.Header.Get("x-amz-rename-source")
 	if rename == "" {
-		sim.S3ErrorXML(w, "InvalidRequest",
+		S3ErrorXML(w, "InvalidRequest",
 			"The x-amz-rename-source header is required for RenameObject.",
 			destKey, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -477,7 +477,7 @@ func handleS3RenameObject(w http.ResponseWriter, r *http.Request) {
 	// x-amz-rename-source is URL-encoded "/<bucket>/<key>" (or "<bucket>/<key>").
 	srcKey := s3RenameSourceKey(rename)
 	if srcKey == "" {
-		sim.S3ErrorXML(w, "InvalidArgument",
+		S3ErrorXML(w, "InvalidArgument",
 			"The x-amz-rename-source header value is malformed.",
 			destKey, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
@@ -485,20 +485,20 @@ func handleS3RenameObject(w http.ResponseWriter, r *http.Request) {
 	srcStoreKey := s3ObjectKey(bucket, srcKey)
 	obj, ok := s3Objects.Get(srcStoreKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			srcKey, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	// Destination conditional headers (optimistic concurrency on the target).
 	existing, exists := s3Objects.Get(s3ObjectKey(bucket, destKey))
 	if inm := r.Header.Get("If-None-Match"); inm == "*" && exists {
-		sim.S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
+		S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
 			destKey, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
 		return
 	}
 	if im := r.Header.Get("If-Match"); im != "" {
 		if !exists || strings.Trim(im, `"`) != strings.Trim(existing.ETag, `"`) {
-			sim.S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
+			S3ErrorXML(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold",
 				destKey, sim.RequestID(r.Context()), http.StatusPreconditionFailed)
 			return
 		}
@@ -549,28 +549,28 @@ func handleS3UpdateObjectEncryption(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")
 	if _, ok := s3Buckets_.Get(bucket); !ok {
-		sim.S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
+		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
 			bucket, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	storeKey := s3ObjectKey(bucket, key)
 	obj, ok := s3Objects.Get(storeKey)
 	if !ok {
-		sim.S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
+		S3ErrorXML(w, "NoSuchKey", "The specified key does not exist.",
 			key, sim.RequestID(r.Context()), http.StatusNotFound)
 		return
 	}
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.S3ErrorXML(w, "IncompleteBody", "Failed to read request body: "+err.Error(),
+		S3ErrorXML(w, "IncompleteBody", "Failed to read request body: "+err.Error(),
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return
 	}
 	var doc s3ObjectEncryptionBody
 	if len(body) > 0 {
 		if err := xml.Unmarshal(body, &doc); err != nil {
-			sim.S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
+			S3ErrorXML(w, "MalformedXML", "The XML you provided was not well-formed: "+err.Error(),
 				key, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
@@ -583,7 +583,7 @@ func handleS3UpdateObjectEncryption(w http.ResponseWriter, r *http.Request) {
 		obj.SSEAlgorithm = "AES256"
 		obj.SSEKMSKeyID = ""
 	default:
-		sim.S3ErrorXML(w, "InvalidRequest",
+		S3ErrorXML(w, "InvalidRequest",
 			"The ObjectEncryption body must specify SSE-KMS or SSE-S3.",
 			key, sim.RequestID(r.Context()), http.StatusBadRequest)
 		return

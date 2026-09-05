@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -152,7 +152,7 @@ var (
 	ssmCommands     sim.Store[SSMCommand]
 )
 
-func registerSSMAssociations(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMAssociations(r *AWSRouter, srv *sim.Server) {
 	ssmAssociations = sim.MakeStore[SSMAssociation](srv.DB(), "ssm_associations")
 	ssmAutomations = sim.MakeStore[SSMAutomationExecution](srv.DB(), "ssm_automations")
 	ssmPreviews = sim.MakeStore[SSMExecutionPreview](srv.DB(), "ssm_execution_previews")
@@ -376,11 +376,11 @@ func ssmNewAssociationExec(a SSMAssociation) SSMAssociationExec {
 func handleSSMCreateAssociation(w http.ResponseWriter, r *http.Request) {
 	var req ssmCreateAssociationReq
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ssmDocExists(req.Name) {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
@@ -396,7 +396,7 @@ func handleSSMCreateAssociationBatch(w http.ResponseWriter, r *http.Request) {
 		Entries []ssmCreateAssociationReq `json:"Entries"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	successful := []map[string]any{}
@@ -441,12 +441,12 @@ func handleSSMDeleteAssociation(w http.ResponseWriter, r *http.Request) {
 		InstanceId    string `json:"InstanceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := ssmResolveAssociation(req.AssociationId, req.Name, req.InstanceId)
 	if !ok {
-		sim.AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
 			"The specified association doesn't exist.")
 		return
 	}
@@ -484,12 +484,12 @@ func handleSSMDescribeAssociation(w http.ResponseWriter, r *http.Request) {
 		AssociationVersion string `json:"AssociationVersion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := ssmResolveAssociation(req.AssociationId, req.Name, req.InstanceId)
 	if !ok {
-		sim.AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
 			"The specified association doesn't exist.")
 		return
 	}
@@ -514,12 +514,12 @@ func handleSSMUpdateAssociation(w http.ResponseWriter, r *http.Request) {
 		SyncCompliance     string              `json:"SyncCompliance"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := ssmAssociations.Get(req.AssociationId)
 	if !ok {
-		sim.AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
 			"The specified association doesn't exist.")
 		return
 	}
@@ -595,12 +595,12 @@ func handleSSMUpdateAssociationStatus(w http.ResponseWriter, r *http.Request) {
 		} `json:"AssociationStatus"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := ssmResolveAssociation("", req.Name, req.InstanceId)
 	if !ok {
-		sim.AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
 			"The specified association doesn't exist.")
 		return
 	}
@@ -625,7 +625,7 @@ func handleSSMListAssociations(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmAssociations.Filter(func(a SSMAssociation) bool {
@@ -695,12 +695,12 @@ func handleSSMListAssociationVersions(w http.ResponseWriter, r *http.Request) {
 		NextToken     string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := ssmAssociations.Get(req.AssociationId)
 	if !ok {
-		sim.AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
 			"The specified association doesn't exist.")
 		return
 	}
@@ -742,12 +742,12 @@ func handleSSMDescribeAssociationExecutions(w http.ResponseWriter, r *http.Reque
 		NextToken     string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := ssmAssociations.Get(req.AssociationId)
 	if !ok {
-		sim.AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
 			"The specified association doesn't exist.")
 		return
 	}
@@ -784,18 +784,18 @@ func handleSSMDescribeAssociationExecutionTargets(w http.ResponseWriter, r *http
 		NextToken     string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	a, ok := ssmAssociations.Get(req.AssociationId)
 	if !ok {
-		sim.AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
 			"The specified association doesn't exist.")
 		return
 	}
 	a = ssmSettleAssociation(a)
 	if len(a.Executions) == 0 {
-		sim.AWSErrorf(w, "AssociationExecutionDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "AssociationExecutionDoesNotExist", http.StatusBadRequest,
 			"The specified execution ID doesn't exist.")
 		return
 	}
@@ -837,11 +837,11 @@ func handleSSMDescribeEffectiveInstanceAssociations(w http.ResponseWriter, r *ht
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.InstanceId == "" {
-		sim.AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
 		return
 	}
 	matched := ssmAssociationsForInstance(req.InstanceId)
@@ -875,11 +875,11 @@ func handleSSMDescribeInstanceAssociationsStatus(w http.ResponseWriter, r *http.
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.InstanceId == "" {
-		sim.AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
 		return
 	}
 	matched := ssmAssociationsForInstance(req.InstanceId)
@@ -932,13 +932,13 @@ func handleSSMStartAssociationsOnce(w http.ResponseWriter, r *http.Request) {
 		AssociationIds []string `json:"AssociationIds"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	for _, id := range req.AssociationIds {
 		a, ok := ssmAssociations.Get(id)
 		if !ok {
-			sim.AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
+			AWSErrorf(w, "AssociationDoesNotExist", http.StatusBadRequest,
 				"The specified association doesn't exist.")
 			return
 		}
@@ -991,11 +991,11 @@ func handleSSMStartAutomationExecution(w http.ResponseWriter, r *http.Request) {
 		Targets         []SSMTarget         `json:"Targets"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ssmDocExists(req.DocumentName) {
-		sim.AWSErrorf(w, "AutomationDefinitionNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "AutomationDefinitionNotFoundException", http.StatusBadRequest,
 			"An Automation runbook with the specified name couldn't be found.")
 		return
 	}
@@ -1016,12 +1016,12 @@ func handleSSMStopAutomationExecution(w http.ResponseWriter, r *http.Request) {
 		Type                  string `json:"Type"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	exec, ok := ssmAutomations.Get(req.AutomationExecutionId)
 	if !ok {
-		sim.AWSErrorf(w, "AutomationExecutionNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "AutomationExecutionNotFoundException", http.StatusBadRequest,
 			"Automation execution %s couldn't be found.", req.AutomationExecutionId)
 		return
 	}
@@ -1077,12 +1077,12 @@ func handleSSMGetAutomationExecution(w http.ResponseWriter, r *http.Request) {
 		AutomationExecutionId string `json:"AutomationExecutionId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	exec, ok := ssmAutomations.Get(req.AutomationExecutionId)
 	if !ok {
-		sim.AWSErrorf(w, "AutomationExecutionNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "AutomationExecutionNotFoundException", http.StatusBadRequest,
 			"Automation execution %s couldn't be found.", req.AutomationExecutionId)
 		return
 	}
@@ -1097,7 +1097,7 @@ func handleSSMDescribeAutomationExecutions(w http.ResponseWriter, r *http.Reques
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmAutomations.List()
@@ -1141,12 +1141,12 @@ func handleSSMDescribeAutomationStepExecutions(w http.ResponseWriter, r *http.Re
 		NextToken             string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	exec, ok := ssmAutomations.Get(req.AutomationExecutionId)
 	if !ok {
-		sim.AWSErrorf(w, "AutomationExecutionNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "AutomationExecutionNotFoundException", http.StatusBadRequest,
 			"Automation execution %s couldn't be found.", req.AutomationExecutionId)
 		return
 	}
@@ -1171,11 +1171,11 @@ func handleSSMSendAutomationSignal(w http.ResponseWriter, r *http.Request) {
 		SignalType            string `json:"SignalType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmAutomations.Get(req.AutomationExecutionId); !ok {
-		sim.AWSErrorf(w, "AutomationExecutionNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "AutomationExecutionNotFoundException", http.StatusBadRequest,
 			"Automation execution %s couldn't be found.", req.AutomationExecutionId)
 		return
 	}
@@ -1190,11 +1190,11 @@ func handleSSMStartChangeRequestExecution(w http.ResponseWriter, r *http.Request
 		ChangeRequestName string              `json:"ChangeRequestName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ssmDocExists(req.DocumentName) {
-		sim.AWSErrorf(w, "AutomationDefinitionNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "AutomationDefinitionNotFoundException", http.StatusBadRequest,
 			"An Automation runbook with the specified name couldn't be found.")
 		return
 	}
@@ -1211,11 +1211,11 @@ func handleSSMStartExecutionPreview(w http.ResponseWriter, r *http.Request) {
 		DocumentVersion string `json:"DocumentVersion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ssmDocExists(req.DocumentName) {
-		sim.AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
@@ -1236,12 +1236,12 @@ func handleSSMGetExecutionPreview(w http.ResponseWriter, r *http.Request) {
 		ExecutionPreviewId string `json:"ExecutionPreviewId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	p, ok := ssmPreviews.Get(req.ExecutionPreviewId)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified execution preview doesn't exist.")
 		return
 	}
@@ -1275,11 +1275,11 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 		TimeoutSeconds  int                 `json:"TimeoutSeconds"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ssmDocExists(req.DocumentName) {
-		sim.AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
 			"The specified SSM document doesn't exist.")
 		return
 	}
@@ -1370,12 +1370,12 @@ func handleSSMCancelCommand(w http.ResponseWriter, r *http.Request) {
 		InstanceIds []string `json:"InstanceIds"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cmd, ok := ssmCommands.Get(req.CommandId)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidCommandId", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidCommandId", http.StatusBadRequest,
 			"The specified command ID isn't valid.")
 		return
 	}
@@ -1398,7 +1398,7 @@ func handleSSMListCommands(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmCommands.Filter(func(c SSMCommand) bool {
@@ -1441,7 +1441,7 @@ func handleSSMListCommandInvocations(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	type inv struct {
@@ -1503,12 +1503,12 @@ func handleSSMGetCommandInvocation(w http.ResponseWriter, r *http.Request) {
 		PluginName string `json:"PluginName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cmd, ok := ssmCommands.Get(req.CommandId)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidCommandId", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidCommandId", http.StatusBadRequest,
 			"The specified command ID isn't valid.")
 		return
 	}
@@ -1520,7 +1520,7 @@ func handleSSMGetCommandInvocation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if found == nil {
-		sim.AWSErrorf(w, "InvocationDoesNotExist", http.StatusBadRequest,
+		AWSErrorf(w, "InvocationDoesNotExist", http.StatusBadRequest,
 			"The command ID and managed node ID you specified didn't match any invocations.")
 		return
 	}

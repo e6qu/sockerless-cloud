@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.ApiManagement ARM control plane. Real Azure exposes
@@ -194,7 +194,7 @@ func handleAPIMCreateOperation(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	o := APIMOperation{
@@ -210,7 +210,7 @@ func handleAPIMGetOperation(w http.ResponseWriter, r *http.Request) {
 	sub, rg, svc, api, op := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "api"), sim.PathParam(r, "op")
 	o, ok := apimOperations.Get(apimOperationKey(sub, rg, svc, api, op))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found", op)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found", op)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, o)
@@ -218,7 +218,7 @@ func handleAPIMGetOperation(w http.ResponseWriter, r *http.Request) {
 func handleAPIMDeleteOperation(w http.ResponseWriter, r *http.Request) {
 	sub, rg, svc, api, op := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "api"), sim.PathParam(r, "op")
 	if !apimOperations.Delete(apimOperationKey(sub, rg, svc, api, op)) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found", op)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Operation %q not found", op)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -239,7 +239,7 @@ func handleAPIMCreateBackend(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	be := APIMBackend{
@@ -255,7 +255,7 @@ func handleAPIMGetBackend(w http.ResponseWriter, r *http.Request) {
 	sub, rg, svc, b := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "backend")
 	be, ok := apimBackends.Get(apimBackendKey(sub, rg, svc, b))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Backend %q not found", b)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Backend %q not found", b)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, be)
@@ -263,7 +263,7 @@ func handleAPIMGetBackend(w http.ResponseWriter, r *http.Request) {
 func handleAPIMDeleteBackend(w http.ResponseWriter, r *http.Request) {
 	sub, rg, svc, b := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "backend")
 	if !apimBackends.Delete(apimBackendKey(sub, rg, svc, b)) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Backend %q not found", b)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Backend %q not found", b)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -284,7 +284,7 @@ func handleAPIMCreateNamedValue(w http.ResponseWriter, r *http.Request) {
 		Properties map[string]any `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	nv := APIMNamedValue{
@@ -300,7 +300,7 @@ func handleAPIMGetNamedValue(w http.ResponseWriter, r *http.Request) {
 	sub, rg, svc, n := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "nv")
 	nv, ok := apimNamedValues.Get(apimNamedValueKey(sub, rg, svc, n))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue %q not found", n)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue %q not found", n)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, apimRedactNamedValue(nv))
@@ -308,7 +308,7 @@ func handleAPIMGetNamedValue(w http.ResponseWriter, r *http.Request) {
 func handleAPIMDeleteNamedValue(w http.ResponseWriter, r *http.Request) {
 	sub, rg, svc, n := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "nv")
 	if !apimNamedValues.Delete(apimNamedValueKey(sub, rg, svc, n)) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue %q not found", n)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NamedValue %q not found", n)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -336,7 +336,7 @@ func handleAPIMCreateService(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	var req APIMService
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := apimServiceID(sub, rg, name)
@@ -371,7 +371,7 @@ func handleAPIMGetService(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	s, ok := apimServices.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, s)
@@ -386,7 +386,7 @@ func handleAPIMDeleteService(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sub, sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	svc, ok := apimServices.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	apimServices.Delete(id)
@@ -448,7 +448,7 @@ func handleAPIMGetDeletedService(w http.ResponseWriter, r *http.Request) {
 	sub, location, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "location"), sim.PathParam(r, "name")
 	svc, ok := apimDeleted.Get(apimDeletedKey(sub, location, name))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "deleted service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "deleted service not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -466,7 +466,7 @@ func handleAPIMGetDeletedService(w http.ResponseWriter, r *http.Request) {
 func handleAPIMPurgeDeletedService(w http.ResponseWriter, r *http.Request) {
 	sub, location, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "location"), sim.PathParam(r, "name")
 	if !apimDeleted.Delete(apimDeletedKey(sub, location, name)) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "deleted service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "deleted service not found")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -484,7 +484,7 @@ func handleAPIMListServicesByRG(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	filtered, err := azureApplyListQuery(all, r)
 	if err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	all = filtered
@@ -502,13 +502,13 @@ func handleAPIMListServicesByRG(w http.ResponseWriter, r *http.Request) {
 func handleAPIMCreateApi(w http.ResponseWriter, r *http.Request) {
 	parent := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := apimServices.Get(parent); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	apiName := sim.PathParam(r, "api")
 	var req APIMApi
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := parent + "/apis/" + apiName
@@ -549,7 +549,7 @@ func handleAPIMGetApi(w http.ResponseWriter, r *http.Request) {
 		"/apis/" + sim.PathParam(r, "api")
 	a, ok := apimApis.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, a)
@@ -559,7 +559,7 @@ func handleAPIMDeleteApi(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/apis/" + sim.PathParam(r, "api")
 	if !apimApis.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "api not found")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -576,7 +576,7 @@ func handleAPIMListApis(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	filtered, err := azureApplyListQuery(all, r)
 	if err != nil {
-		sim.AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
 	all = filtered
@@ -594,13 +594,13 @@ func handleAPIMListApis(w http.ResponseWriter, r *http.Request) {
 func handleAPIMCreateProduct(w http.ResponseWriter, r *http.Request) {
 	parent := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := apimServices.Get(parent); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	pName := sim.PathParam(r, "product")
 	var req APIMProduct
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := parent + "/products/" + pName
@@ -622,7 +622,7 @@ func handleAPIMGetProduct(w http.ResponseWriter, r *http.Request) {
 		"/products/" + sim.PathParam(r, "product")
 	p, ok := apimProducts.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, p)
@@ -632,7 +632,7 @@ func handleAPIMDeleteProduct(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/products/" + sim.PathParam(r, "product")
 	if !apimProducts.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "product not found")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -655,13 +655,13 @@ func handleAPIMListProducts(w http.ResponseWriter, r *http.Request) {
 func handleAPIMCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	parent := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := apimServices.Get(parent); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "service not found")
 		return
 	}
 	sName := sim.PathParam(r, "sub")
 	var req APIMSubscription
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	// The contract requires both the scope the subscription is for and its
@@ -672,7 +672,7 @@ func handleAPIMCreateSubscription(w http.ResponseWriter, r *http.Request) {
 		req.Properties = map[string]any{}
 	}
 	if scope, ok := req.Properties["scope"].(string); !ok || scope == "" {
-		sim.AzureErrorf(w, "ValidationError", http.StatusBadRequest,
+		AzureErrorf(w, "ValidationError", http.StatusBadRequest,
 			"Property \"scope\" is required for Microsoft.ApiManagement/service/subscriptions.")
 		return
 	}
@@ -693,7 +693,7 @@ func handleAPIMGetSubscription(w http.ResponseWriter, r *http.Request) {
 		"/subscriptions/" + sim.PathParam(r, "sub")
 	s, ok := apimSubscriptions.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, s)
@@ -703,7 +703,7 @@ func handleAPIMDeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/subscriptions/" + sim.PathParam(r, "sub")
 	if !apimSubscriptions.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
 		return
 	}
 	apimDropSubscriptionKeyGens(id)
@@ -718,7 +718,7 @@ func handleAPIMListSubscriptionSecrets(w http.ResponseWriter, r *http.Request) {
 	id := apimServiceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/subscriptions/" + sim.PathParam(r, "sub")
 	if _, ok := apimSubscriptions.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, apimSubscriptionKeysBody(id))

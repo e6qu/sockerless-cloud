@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // enumString accepts both proto-JSON enum encodings: the canonical
@@ -353,7 +353,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		Labels:     map[string]string{"sockerless-sim-service": serviceID},
 		Binds:      bindsFor(main),
 		ExtraHosts: hostMetadataExtraHosts(),
-		Sandbox:    sim.SandboxCloudRun,
+		Sandbox:    SandboxCloudRun,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start service container: %w", err)
@@ -380,19 +380,20 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			return nil, err
 		}
 		handle, err := sim.StartContainerSync(sim.ContainerConfig{
-			Image:        sidecarImage,
-			Architecture: sidecarPlatform,
-			Command:      sidecar.Command,
-			Args:         sidecar.Args,
-			Env:          mergeEnv(containerEnvMap(sidecar.Env), hostMetadataEnv()),
-			Name:         fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-sidecar-%d-%d", serviceID, i, hostPort),
+			CancelGracePeriod: 5 * time.Second,
+			Image:             sidecarImage,
+			Architecture:      sidecarPlatform,
+			Command:           sidecar.Command,
+			Args:              sidecar.Args,
+			Env:               mergeEnv(containerEnvMap(sidecar.Env), hostMetadataEnv()),
+			Name:              fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-sidecar-%d-%d", serviceID, i, hostPort),
 			Labels: map[string]string{
 				"sockerless-sim-service":           serviceID,
 				"sockerless-sim-service-container": sidecar.Name,
 			},
 			NetworkMode: "container:" + containerID,
 			Binds:       bindsFor(sidecar),
-			Sandbox:     sim.SandboxCloudRun,
+			Sandbox:     SandboxCloudRun,
 		}, sink)
 		if err != nil {
 			sim.StopAndRemoveContainer(containerID)
@@ -675,19 +676,19 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		serviceID := r.URL.Query().Get("serviceId")
 		if serviceID == "" {
-			sim.GCPError(w, http.StatusBadRequest, "serviceId query parameter is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "serviceId query parameter is required", "INVALID_ARGUMENT")
 			return
 		}
 
 		var svc ServiceV2
 		if err := sim.ReadJSON(r, &svc); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
 		if _, exists := services.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "service %q already exists", name)
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "service %q already exists", name)
 			return
 		}
 
@@ -730,13 +731,13 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 				fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, id), action) {
 				return
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on service %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on service %q", action, id)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceParam)
 		svc, ok := services.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, svc)
@@ -773,7 +774,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
 		svc, ok := services.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
 			return
 		}
 		if !cloudRunEtagOK(w, "service", svc.Name, svc.Etag, r.URL.Query().Get("etag")) {
@@ -804,13 +805,13 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 
 		existing, ok := services.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
 			return
 		}
 
 		var update ServiceV2
 		if err := sim.ReadJSON(r, &update); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// The etag is read off the request as sent, before any mask merge
@@ -831,7 +832,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		if mask := r.URL.Query().Get("updateMask"); mask != "" {
 			merged, err := applyServiceUpdateMask(existing, update, mask)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 				return
 			}
 			update = merged
@@ -882,7 +883,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/%s", project, location, serviceID, revisionID)
 		rev, ok := revisions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, rev)
@@ -915,7 +916,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/%s", project, location, serviceID, revisionID)
 		rev, ok := revisions.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
 			return
 		}
 		if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
@@ -933,7 +934,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		serviceAction := sim.PathParam(r, "serviceAction")
 		id, action, found := strings.Cut(serviceAction, ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on service %q", serviceAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on service %q", serviceAction)
 			return
 		}
 		switch action {
@@ -944,7 +945,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			cloudRunExportImage(w, r,
 				fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, id))
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on service %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on service %q", action, id)
 		}
 	})
 
@@ -956,7 +957,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		opID := sim.PathParam(r, "operation")
 		name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID)
 		if !crOperations.Delete(name) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 			return
 		}
 		// google.longrunning.DeleteOperation returns google.protobuf.Empty.
@@ -975,7 +976,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		opAction := sim.PathParam(r, "opAction")
 		opID, action, found := strings.Cut(opAction, ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)
 			return
 		}
 		name := gcpLocationOperationName(project, location, opID)
@@ -983,7 +984,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		case "wait":
 			op, ok := gcpLookupOperation(name)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 				return
 			}
 			// The sim does no async work — every LRO is already done — so
@@ -993,7 +994,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		case "cancel":
 			handleGCPCancelOperation(w, name)
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)
 		}
 	}
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/operations/{opAction}", operationVerb)
@@ -1016,11 +1017,11 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
 		svc, ok := services.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found", name)
 			return
 		}
 		if svc.Template == nil || len(svc.Template.Containers) == 0 || svc.Template.Containers[0].Image == "" {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "service %q has no container image", name)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "service %q has no container image", name)
 			return
 		}
 		// Cloud Run invoke body is the user's HTTP request payload.
@@ -1031,13 +1032,13 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		// error rather than being silently stored mis-decoded.
 		rc, err := openStreamingBody(r)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT", "%s", err.Error())
+			GCPErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT", "%s", err.Error())
 			return
 		}
 		bodyBytes, readErr := io.ReadAll(rc)
 		_ = rc.Close()
 		if readErr != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "failed to read invoke body: %v", readErr)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "failed to read invoke body: %v", readErr)
 			return
 		}
 		ct := r.Header.Get("Content-Type")
@@ -1050,7 +1051,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		defer cancel()
 		inst, err := ensureCloudRunServiceInstance(ctx, name, serviceID, svc.Template.Containers, svc.Template.Volumes, sink)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "invoke service %q: %v", name, err)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "invoke service %q: %v", name, err)
 			return
 		}
 		requestPath := "/"
@@ -1059,7 +1060,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		}
 		respBody, exitCode, err := postCloudRunServiceInstance(ctx, inst, requestPath, r.URL.RawQuery, body, ct)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "invoke service %q: %v", name, err)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "invoke service %q: %v", name, err)
 			return
 		}
 		w.Header().Set("X-Sockerless-Exit-Code", strconv.Itoa(exitCode))

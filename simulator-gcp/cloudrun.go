@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Run v1 services slice. Shipped for parity completeness — the
@@ -449,11 +449,11 @@ func registerCloudRun(srv *sim.Server) {
 
 		var svc CRService
 		if err := sim.ReadJSON(r, &svc); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
 			return
 		}
 		if svc.Metadata.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
 			return
 		}
 		// Namespace in URL wins over body.
@@ -461,7 +461,7 @@ func registerCloudRun(srv *sim.Server) {
 		key := svcKey(namespace, svc.Metadata.Name)
 
 		if _, exists := services.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"service %q already exists in namespace %q", svc.Metadata.Name, namespace)
 			return
 		}
@@ -499,7 +499,7 @@ func registerCloudRun(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		svc, ok := services.Get(svcKey(namespace, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"service %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -528,14 +528,14 @@ func registerCloudRun(srv *sim.Server) {
 
 		existing, ok := services.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"service %q not found in namespace %q", name, namespace)
 			return
 		}
 
 		var update CRService
 		if err := sim.ReadJSON(r, &update); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
 			return
 		}
 		if !knativeReplaceAllowed(w, "service", name, namespace,
@@ -576,7 +576,7 @@ func registerCloudRun(srv *sim.Server) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
 		if !services.Delete(svcKey(namespace, name)) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"service %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -605,7 +605,7 @@ func registerCloudRun(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		cfg, ok := configurations.Get(svcKey(namespace, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"configuration %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -631,7 +631,7 @@ func registerCloudRun(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		rev, ok := revisions.Get(svcKey(namespace, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"revision %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -651,7 +651,7 @@ func registerCloudRun(srv *sim.Server) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
 		if !revisions.Delete(svcKey(namespace, name)) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"revision %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -669,7 +669,7 @@ func registerCloudRun(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		rt, ok := routes.Get(svcKey(namespace, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"route %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -696,17 +696,17 @@ func registerCloudRun(srv *sim.Server) {
 		namespace := sim.PathParam(r, "namespace")
 		var dm CRDomainMapping
 		if err := sim.ReadJSON(r, &dm); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid domain mapping body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid domain mapping body: %v", err)
 			return
 		}
 		if dm.Metadata.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
 			return
 		}
 		dm.Metadata.Namespace = namespace
 		key := svcKey(namespace, dm.Metadata.Name)
 		if _, exists := domainmappings.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"domain mapping %q already exists in namespace %q", dm.Metadata.Name, namespace)
 			return
 		}
@@ -738,7 +738,7 @@ func registerCloudRun(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		dm, ok := domainmappings.Get(svcKey(namespace, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"domain mapping %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -758,7 +758,7 @@ func registerCloudRun(srv *sim.Server) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
 		if !domainmappings.Delete(svcKey(namespace, name)) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"domain mapping %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -791,17 +791,17 @@ func registerCloudRun(srv *sim.Server) {
 		namespace := sim.PathParam(r, "namespace")
 		var svc CRService
 		if err := sim.ReadJSON(r, &svc); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
 			return
 		}
 		if svc.Metadata.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
 			return
 		}
 		svc.Metadata.Namespace = namespace
 		key := svcKey(namespace, svc.Metadata.Name)
 		if _, exists := services.Get(key); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"service %q already exists in namespace %q", svc.Metadata.Name, namespace)
 			return
 		}
@@ -838,7 +838,7 @@ func registerCloudRun(srv *sim.Server) {
 		}
 		svc, ok := services.Get(svcKey(namespace, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"service %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -860,13 +860,13 @@ func registerCloudRun(srv *sim.Server) {
 		key := svcKey(namespace, name)
 		existing, ok := services.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"service %q not found in namespace %q", name, namespace)
 			return
 		}
 		var update CRService
 		if err := sim.ReadJSON(r, &update); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid service body: %v", err)
 			return
 		}
 		if !knativeReplaceAllowed(w, "service", name, namespace,
@@ -902,7 +902,7 @@ func registerCloudRun(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		key := svcKey(namespace, name)
 		if !services.Delete(key) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"service %q not found in namespace %q", name, namespace)
 			return
 		}
@@ -926,7 +926,7 @@ func registerCloudRun(srv *sim.Server) {
 		nameAction := sim.PathParam(r, "nameAction")
 		id, action, found := strings.Cut(nameAction, ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on service %q", nameAction)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on service %q", nameAction)
 			return
 		}
 		handleResourceIAM(w, r, gcpResourceIAMStore(),

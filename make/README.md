@@ -8,8 +8,8 @@ Shared make infrastructure included by the repo-root Makefile and every leaf (pe
 |---|---|---|
 | `colors.mk` | everything else | TTY-detected ANSI colour variables (empty in CI logs) + the `STEP` banner macro. |
 | `help.mk` | root + leaf Makefiles | Auto-generated `make help` listing every target with a `## description` comment; sets `help` as the default goal. |
-| `go-app.mk` | Go-binary apps (backends, simulators, admin, …) | Standardized recipes for Go binaries. Leaf sets `APP_NAME` + `GO_PACKAGE` (optionally `UI_PACKAGE` for embedded UI bundles, `RUN_FLAGS` / `RUN_ENV` / `DEFAULT_PORT`, `GO_ENV`, `FAAS_SMOKE_TESTS`) before including. |
-| `go-lib.mk` | Go library modules (e.g. [`realexec`](../realexec/README.md), [`ui-auth`](../ui-auth), [`testutil`](../testutil)) | Library recipes: `build` is a compile-check, `test` / `test-integration` (sim target) / `test-integration-cloud`, `lint` (vet + gofmt + golangci-lint when available), `upgrade-deps`. |
+| `go-app.mk` | Go-binary apps (the three simulators) | Standardized recipes for Go binaries. Leaf sets `APP_NAME` + `GO_PACKAGE` (optionally `UI_PACKAGE` for embedded UI bundles, `RUN_FLAGS` / `RUN_ENV` / `DEFAULT_PORT`, `GO_ENV`, `FAAS_SMOKE_TESTS`) before including. |
+| `go-lib.mk` | Go library modules ([`sim`](../sim/README.md), [`realexec`](../realexec/README.md), [`ui-auth`](../ui-auth), [`testutil`](../testutil)) | Library recipes: `build` is a compile-check, `test` / `test-integration` (sim target) / `test-integration-cloud`, `lint` (vet + gofmt + golangci-lint when available), `upgrade-deps`. |
 | `ui-app.mk` | `ui/packages/<x>/` Vite/Bun packages | UI recipes driven by `bun --filter` against the workspace root; leaf sets `UI_PACKAGE` to the full `@sockerless/...` package name. |
 
 ## Subdirectories

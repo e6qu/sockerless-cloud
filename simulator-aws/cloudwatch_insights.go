@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch Logs Insights — StartQuery / GetQueryResults / StopQuery /
@@ -31,7 +31,7 @@ type CWQuery struct {
 
 var cwQueries sim.Store[CWQuery]
 
-func registerCloudWatchInsights(r *sim.AWSRouter) {
+func registerCloudWatchInsights(r *AWSRouter) {
 	r.Register("Logs_20140328.StartQuery", handleCWStartQuery)
 	r.Register("Logs_20140328.GetQueryResults", handleCWGetQueryResults)
 	r.Register("Logs_20140328.StopQuery", handleCWStopQuery)
@@ -48,11 +48,11 @@ func handleCWStartQuery(w http.ResponseWriter, r *http.Request) {
 		Limit         int      `json:"limit"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.QueryString == "" {
-		sim.AWSError(w, "InvalidParameterException", "queryString is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "queryString is required", http.StatusBadRequest)
 		return
 	}
 	groups := req.LogGroupNames
@@ -65,7 +65,7 @@ func handleCWStartQuery(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// A malformed query string is a MalformedQueryException in real
 		// CloudWatch Logs, not a silently empty (or all-rows) result.
-		sim.AWSError(w, "MalformedQueryException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "MalformedQueryException", err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -88,12 +88,12 @@ func handleCWGetQueryResults(w http.ResponseWriter, r *http.Request) {
 		QueryID string `json:"queryId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	q, ok := cwQueries.Get(req.QueryID)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Query %s does not exist", req.QueryID)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Query %s does not exist", req.QueryID)
 		return
 	}
 	// Real GetQueryResults returns results/status/statistics — not queryId.

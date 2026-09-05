@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sort"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type VPCAccessConnector struct {
@@ -34,7 +34,7 @@ func registerVPCAccess(srv *sim.Server) {
 
 		var req VPCAccessConnector
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
@@ -44,7 +44,7 @@ func registerVPCAccess(srv *sim.Server) {
 		hasNetwork := req.Network != "" && req.IpCidrRange != ""
 		hasSubnet := req.Subnet != nil && req.Subnet.Name != ""
 		if !hasNetwork && !hasSubnet {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"connector must specify either network and ipCidrRange, or a subnet")
 			return
 		}
@@ -88,13 +88,13 @@ func registerVPCAccess(srv *sim.Server) {
 
 		existing, ok := connectors.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Connector %s not found", connName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Connector %s not found", connName)
 			return
 		}
 
 		var req VPCAccessConnector
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
@@ -132,7 +132,7 @@ func registerVPCAccess(srv *sim.Server) {
 
 		conn, ok := connectors.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, 404, "NOT_FOUND", "Connector %s not found", connName)
+			GCPErrorf(w, 404, "NOT_FOUND", "Connector %s not found", connName)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, conn)

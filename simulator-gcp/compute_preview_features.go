@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A project's enrolment in Compute Engine's preview features.
@@ -40,7 +40,7 @@ func registerComputePreviewFeatures(srv *sim.Server) {
 	srv.HandleFunc("PATCH "+base+"/{previewFeature}", func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name := sim.PathParam(r, "previewFeature")
@@ -68,7 +68,7 @@ func registerComputePreviewFeatures(srv *sim.Server) {
 	srv.HandleFunc("GET "+base+"/{previewFeature}", func(w http.ResponseWriter, r *http.Request) {
 		held, ok := gcpComputePreviewFeatures.Get(key(r))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"preview feature %q not found", sim.PathParam(r, "previewFeature"))
 			return
 		}

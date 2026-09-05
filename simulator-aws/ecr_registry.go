@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECR control-plane slices that operate on the registry as a whole or
@@ -64,7 +64,7 @@ var (
 
 const ecrRegistrySingletonKey = "registry"
 
-func registerECRRegistry(r *sim.AWSRouter, srv *sim.Server) {
+func registerECRRegistry(r *AWSRouter, srv *sim.Server) {
 	ecrRegistryPolicy = sim.MakeStore[ECRRegistryPolicy](srv.DB(), "ecr_registry_policy")
 	ecrReplicationConfig = sim.MakeStore[ECRReplicationConfiguration](srv.DB(), "ecr_replication_config")
 
@@ -105,15 +105,15 @@ func handleECRPutImageTagMutability(w http.ResponseWriter, r *http.Request) {
 		ImageTagMutabilityExclusionFilters []ECRImageTagMutabilityExclusionFilter `json:"imageTagMutabilityExclusionFilters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.RepositoryName == "" || req.ImageTagMutability == "" {
-		sim.AWSError(w, "InvalidParameterException", "repositoryName and imageTagMutability are required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "repositoryName and imageTagMutability are required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
@@ -139,15 +139,15 @@ func handleECRPutImageScanningConfiguration(w http.ResponseWriter, r *http.Reque
 		ImageScanningConfiguration ECRImageScanningConfiguration `json:"imageScanningConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.RepositoryName == "" {
-		sim.AWSError(w, "InvalidParameterException", "repositoryName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "repositoryName is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
@@ -170,17 +170,17 @@ func handleECRStartImageScan(w http.ResponseWriter, r *http.Request) {
 		} `json:"imageId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
 	img, ok := ecrResolveImage(req.RepositoryName, req.ImageId.ImageTag, req.ImageId.ImageDigest)
 	if !ok {
-		sim.AWSError(w, "ImageNotFoundException",
+		AWSError(w, "ImageNotFoundException",
 			"The image requested does not exist in the specified repository",
 			http.StatusBadRequest)
 		return
@@ -211,17 +211,17 @@ func handleECRDescribeImageScanFindings(w http.ResponseWriter, r *http.Request) 
 		} `json:"imageId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
 	img, ok := ecrResolveImage(req.RepositoryName, req.ImageId.ImageTag, req.ImageId.ImageDigest)
 	if !ok {
-		sim.AWSError(w, "ImageNotFoundException",
+		AWSError(w, "ImageNotFoundException",
 			"The image requested does not exist in the specified repository",
 			http.StatusBadRequest)
 		return
@@ -257,11 +257,11 @@ func handleECRStartLifecyclePolicyPreview(w http.ResponseWriter, r *http.Request
 		LifecyclePolicyText string `json:"lifecyclePolicyText"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
@@ -273,7 +273,7 @@ func handleECRStartLifecyclePolicyPreview(w http.ResponseWriter, r *http.Request
 		if pol, ok := ecrLifecyclePolicies.Get(req.RepositoryName); ok {
 			policyText = pol.LifecyclePolicyText
 		} else {
-			sim.AWSError(w, "LifecyclePolicyNotFoundException",
+			AWSError(w, "LifecyclePolicyNotFoundException",
 				"Lifecycle policy does not exist for the repository",
 				http.StatusBadRequest)
 			return
@@ -293,17 +293,17 @@ func handleECRGetLifecyclePolicyPreview(w http.ResponseWriter, r *http.Request) 
 		LifecyclePolicyText string `json:"lifecyclePolicyText"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
 	pol, ok := ecrLifecyclePolicies.Get(req.RepositoryName)
 	if !ok {
-		sim.AWSError(w, "LifecyclePolicyPreviewNotFoundException",
+		AWSError(w, "LifecyclePolicyPreviewNotFoundException",
 			"There is no lifecycle policy preview for the repository",
 			http.StatusBadRequest)
 		return
@@ -325,7 +325,7 @@ func handleECRGetLifecyclePolicyPreview(w http.ResponseWriter, r *http.Request) 
 
 func handleECRDescribeRegistry(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &struct{}{}); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cfg, ok := ecrReplicationConfig.Get(ecrRegistrySingletonKey)
@@ -347,11 +347,11 @@ func handleECRPutRegistryPolicy(w http.ResponseWriter, r *http.Request) {
 		PolicyText string `json:"policyText"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.PolicyText == "" {
-		sim.AWSError(w, "InvalidParameterException", "policyText is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "policyText is required", http.StatusBadRequest)
 		return
 	}
 	ecrRegistryPolicy.Put(ecrRegistrySingletonKey, ECRRegistryPolicy{
@@ -366,12 +366,12 @@ func handleECRPutRegistryPolicy(w http.ResponseWriter, r *http.Request) {
 
 func handleECRGetRegistryPolicy(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &struct{}{}); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	pol, ok := ecrRegistryPolicy.Get(ecrRegistrySingletonKey)
 	if !ok {
-		sim.AWSError(w, "RegistryPolicyNotFoundException",
+		AWSError(w, "RegistryPolicyNotFoundException",
 			"The registry policy does not exist",
 			http.StatusBadRequest)
 		return
@@ -384,12 +384,12 @@ func handleECRGetRegistryPolicy(w http.ResponseWriter, r *http.Request) {
 
 func handleECRDeleteRegistryPolicy(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &struct{}{}); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	pol, ok := ecrRegistryPolicy.Get(ecrRegistrySingletonKey)
 	if !ok {
-		sim.AWSError(w, "RegistryPolicyNotFoundException",
+		AWSError(w, "RegistryPolicyNotFoundException",
 			"The registry policy does not exist",
 			http.StatusBadRequest)
 		return
@@ -406,7 +406,7 @@ func handleECRPutReplicationConfiguration(w http.ResponseWriter, r *http.Request
 		ReplicationConfiguration ECRReplicationConfiguration `json:"replicationConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cfg := req.ReplicationConfiguration
@@ -428,17 +428,17 @@ func handleECRDescribeImageReplicationStatus(w http.ResponseWriter, r *http.Requ
 		} `json:"imageId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ecrRepositories.Get(req.RepositoryName); !ok {
-		sim.AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
+		AWSErrorf(w, "RepositoryNotFoundException", http.StatusBadRequest,
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
 	img, ok := ecrResolveImage(req.RepositoryName, req.ImageId.ImageTag, req.ImageId.ImageDigest)
 	if !ok {
-		sim.AWSError(w, "ImageNotFoundException",
+		AWSError(w, "ImageNotFoundException",
 			"The image requested does not exist in the specified repository",
 			http.StatusBadRequest)
 		return

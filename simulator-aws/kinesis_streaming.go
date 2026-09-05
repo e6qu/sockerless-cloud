@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Kinesis Data Streams enhanced fan-out streaming.
@@ -16,7 +16,7 @@ import (
 // raw http.ResponseWriter and writes SubscribeToShardEvent frames using the
 // same awsEventStreamMessage framing Lambda's InvokeWithResponseStream uses, so
 // aws-sdk-go-v2's eventstream decoder reassembles them natively.
-func registerKinesisStreaming(r *sim.AWSRouter, srv *sim.Server) {
+func registerKinesisStreaming(r *AWSRouter, srv *sim.Server) {
 	_ = srv
 	r.Register("Kinesis_20131202.SubscribeToShard", handleKinesisSubscribeToShard)
 }
@@ -39,29 +39,29 @@ func handleKinesisSubscribeToShard(w http.ResponseWriter, r *http.Request) {
 		} `json:"StartingPosition"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ConsumerARN == "" || req.ShardId == "" {
-		sim.AWSError(w, "InvalidArgumentException",
+		AWSError(w, "InvalidArgumentException",
 			"ConsumerARN and ShardId are required", http.StatusBadRequest)
 		return
 	}
 
 	consumer, ok := kinesisConsumers.Get(kinesisConsumerKey(req.ConsumerARN))
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException",
+		AWSError(w, "ResourceNotFoundException",
 			"Consumer not found: "+req.ConsumerARN, http.StatusBadRequest)
 		return
 	}
 	stream, ok := kinesisStreamByARN(consumer.StreamARN)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException",
+		AWSError(w, "ResourceNotFoundException",
 			"Stream not found for consumer", http.StatusBadRequest)
 		return
 	}
 	if !kinesisHasShard(stream, req.ShardId) {
-		sim.AWSError(w, "ResourceNotFoundException",
+		AWSError(w, "ResourceNotFoundException",
 			"Shard not found: "+req.ShardId, http.StatusBadRequest)
 		return
 	}

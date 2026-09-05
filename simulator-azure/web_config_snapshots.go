@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_config_snapshots.go implements the SiteConfig snapshot history:
@@ -94,7 +94,7 @@ func registerWebConfigSnapshots(srv *sim.Server, both func(string, string, http.
 		}
 		row, ok := webConfigSnapshots.Get(snapID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Configuration snapshot %q not found.", sim.PathParam(r, "snapshotId"))
 			return
 		}
@@ -110,7 +110,7 @@ func registerWebConfigSnapshots(srv *sim.Server, both func(string, string, http.
 		}
 		row, ok := webConfigSnapshots.Get(snapID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Configuration snapshot %q not found.", sim.PathParam(r, "snapshotId"))
 			return
 		}

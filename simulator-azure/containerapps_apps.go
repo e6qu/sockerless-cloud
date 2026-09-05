@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Container Apps "Apps" slice (Microsoft.App/containerApps). Parallel
@@ -245,18 +245,18 @@ func registerContainerAppsApps(srv *sim.Server) {
 
 		var req ContainerApp
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Location == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		existing, exists := apps.Get(resourceID)
 		if exists && existing.Properties.ProvisioningState == "Deleting" {
-			sim.AzureErrorf(w, "Conflict", http.StatusConflict,
+			AzureErrorf(w, "Conflict", http.StatusConflict,
 				"Container app '%s' is being deleted and cannot be updated until the delete operation completes.", name)
 			return
 		}
@@ -321,7 +321,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		stampContainerAppServerDefaults(&app, fqdn)
 
 		if err := startACAAppReplicas(r.Context(), resourceID, app); err != nil {
-			sim.AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
+			AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
 				"failed to start container app replica for %s: %v", name, err)
 			return
 		}
@@ -346,7 +346,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -383,7 +383,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -408,7 +408,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -453,24 +453,24 @@ func registerContainerAppsApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
 		if app.Properties.ProvisioningState == "Deleting" {
-			sim.AzureErrorf(w, "Conflict", http.StatusConflict,
+			AzureErrorf(w, "Conflict", http.StatusConflict,
 				"Container app '%s' is being deleted and cannot be updated until the delete operation completes.", name)
 			return
 		}
 
 		patch, err := io.ReadAll(r.Body)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		prior := app
 		if err := applyARMMergePatch(&app, patch); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// Identity and server-owned fields are not client-writable.
@@ -486,7 +486,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		}
 
 		if err := startACAAppReplicas(r.Context(), resourceID, app); err != nil {
-			sim.AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
+			AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
 				"failed to start container app replica for %s: %v", name, err)
 			return
 		}
@@ -503,12 +503,12 @@ func registerContainerAppsApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
 		if err := startACAAppReplicas(r.Context(), resourceID, app); err != nil {
-			sim.AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
+			AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
 				"failed to start container app replica for %s: %v", name, err)
 			return
 		}
@@ -523,7 +523,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -541,7 +541,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -567,7 +567,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		name := sim.PathParam(r, "appName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
 		if _, ok := apps.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -713,12 +713,13 @@ func startACAAppContainer(ctx context.Context, resourceID string, app ContainerA
 		return nil, err
 	}
 	return sim.StartContainerSync(sim.ContainerConfig{
-		Image:        localImage,
-		Architecture: platform,
-		Command:      c.Command,
-		Args:         c.Args,
-		Env:          mergeEnv(cmdEnv, hostMetadataEnv()),
-		Name:         containerName,
+		CancelGracePeriod: 5 * time.Second,
+		Image:             localImage,
+		Architecture:      platform,
+		Command:           c.Command,
+		Args:              c.Args,
+		Env:               mergeEnv(cmdEnv, hostMetadataEnv()),
+		Name:              containerName,
 		Labels: map[string]string{
 			"sockerless-sim-type": "aca-app-replica",
 			"sockerless-app-id":   resourceID,
@@ -729,7 +730,7 @@ func startACAAppContainer(ctx context.Context, resourceID string, app ContainerA
 		NetworkMode:    networkMode,
 		Binds:          binds,
 		ExtraHosts:     extraHosts,
-		Sandbox:        sim.SandboxACA,
+		Sandbox:        SandboxACA,
 	}, sink)
 }
 

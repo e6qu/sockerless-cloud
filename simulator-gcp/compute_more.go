@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file ratchets up the Compute Engine (compute v1) control-plane
@@ -275,7 +275,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			project := sim.PathParam(r, "project")
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if body == nil {
@@ -283,7 +283,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			}
 			name, _ := body["name"].(string)
 			if name == "" {
-				sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+				GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 				return
 			}
 			key := relPath(r, name)
@@ -317,7 +317,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			key := relPath(r, sim.PathParam(r, "name"))
 			m, ok := res.store.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, sim.PathParam(r, "name"))
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, m)
@@ -428,7 +428,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			key := relPath(r, sim.PathParam(r, "name"))
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			ok := res.store.Update(key, func(m *map[string]any) {
@@ -442,7 +442,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				}
 			})
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, sim.PathParam(r, "name"))
 				return
 			}
 			if res.reconcile != nil {
@@ -464,7 +464,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			key := relPath(r, name)
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			ok := res.store.Update(key, func(m *map[string]any) {
@@ -485,7 +485,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				*m = replaced
 			})
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
 				return
 			}
 			if res.reconcile != nil {
@@ -503,17 +503,17 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			key := relPath(r, name)
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			value, sent := body[verb.member]
 			if !sent {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"%s needs %s in its request body", verb.verb, verb.member)
 				return
 			}
 			if !res.store.Update(key, func(m *map[string]any) { (*m)[verb.target()] = value }) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
 				return
 			}
 			if res.reconcile != nil {
@@ -530,7 +530,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			key := relPath(r, name)
 			held, ok := res.store.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
 				return
 			}
 			status := verb.read(held)
@@ -538,7 +538,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				status = verb.initial
 			}
 			if status != verb.from {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"a %s in %s cannot be %s", res.collection, status, verb.done)
 				return
 			}
@@ -554,7 +554,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 			name := sim.PathParam(r, "name")
 			held, ok := res.store.Get(relPath(r, name))
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, name)
 				return
 			}
 			body := map[string]any{read.wrap: read.status(held)}
@@ -575,7 +575,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				LabelFingerprint string            `json:"labelFingerprint"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			ok := res.store.Update(key, func(m *map[string]any) {
@@ -588,7 +588,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				cur["labelFingerprint"] = computeFingerprint()
 			})
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", res.collection, sim.PathParam(r, "name"))
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(res.scope, r), computeSelfLink(key), "setLabels"))
@@ -750,7 +750,7 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 				}
 			})
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
 				return
 			}
 			reconcile(key)
@@ -764,7 +764,7 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 				InstanceTemplate string `json:"instanceTemplate"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			ok := store.Update(key, func(m *map[string]any) {
@@ -773,7 +773,7 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 				}
 			})
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, computeScopeSegment(scope, r), computeSelfLink(key), "setInstanceTemplate"))
@@ -782,7 +782,7 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 		srv.HandleFunc("POST "+base+"/{name}/listManagedInstances", func(w http.ResponseWriter, r *http.Request) {
 			key := relPath(r)
 			if _, ok := store.Get(key); !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceGroupManager %q not found", sim.PathParam(r, "name"))
 				return
 			}
 			computeListManagedInstances(w, key)
@@ -943,7 +943,7 @@ func registerComputeOperationsMore(srv *sim.Server) {
 
 	delOp := func(w http.ResponseWriter, r *http.Request) {
 		if !computeOpKnown(sim.PathParam(r, "name")) {
-			sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", sim.PathParam(r, "name"))
+			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", sim.PathParam(r, "name"))
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1069,7 +1069,7 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(sim.PathParam(r, "project"), sim.PathParam(r, "zone"), computeSelfLink(instSelfLink(r)), opType))
 	}
 	notFound := func(w http.ResponseWriter, r *http.Request) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", sim.PathParam(r, "name"))
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", sim.PathParam(r, "name"))
 	}
 	exists := func(r *http.Request) bool {
 		if gcpInstances == nil {
@@ -1096,7 +1096,7 @@ func registerComputeInstanceActions(srv *sim.Server) {
 			MachineType string `json:"machineType"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		gcpInstances.Update(instSelfLink(r), func(in *ComputeInstance) {
@@ -1114,7 +1114,7 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		}
 		var req ComputeInstanceMetadata
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		gcpInstances.Update(instSelfLink(r), func(in *ComputeInstance) {
@@ -1133,7 +1133,7 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		}
 		var disk ComputeInstanceDisk
 		if err := sim.ReadJSON(r, &disk); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		gcpInstances.Update(instSelfLink(r), func(in *ComputeInstance) {

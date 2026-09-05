@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // STS: AssumeRole / AssumeRoleWithWebIdentity / GetSessionToken / GetCallerIdentity.
@@ -43,7 +43,7 @@ func stsRequestMFA(r *http.Request) bool {
 
 var iamTempCreds sim.Store[IAMTempCred]
 
-func registerSTS(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerSTS(r *AWSQueryRouter, srv *sim.Server) {
 	iamTempCreds = sim.MakeStore[IAMTempCred](srv.DB(), "iam_temp_creds")
 	r.Register("GetCallerIdentity", handleGetCallerIdentity)
 	r.Register("AssumeRole", handleSTSAssumeRole)

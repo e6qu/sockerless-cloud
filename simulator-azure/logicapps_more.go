@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Extended Microsoft.Logic ARM control plane: workflow versions/triggers/run
@@ -149,7 +149,7 @@ func handleLogicResourcePut(store sim.Store[LogicResource], typ string, status i
 		id := r.URL.Path
 		var req LogicResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		props := map[string]any{}
@@ -182,7 +182,7 @@ func handleLogicResourcePatch(store sim.Store[LogicResource], label string) http
 		id := r.URL.Path
 		var req LogicResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		if !store.Update(id, func(res *LogicResource) {
@@ -204,7 +204,7 @@ func handleLogicResourcePatch(store sim.Store[LogicResource], label string) http
 				}
 			}
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The %s %q was not found.", label, logicLastSeg(id))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The %s %q was not found.", label, logicLastSeg(id))
 			return
 		}
 		res, _ := store.Get(id)
@@ -216,7 +216,7 @@ func handleLogicResourceGet(store sim.Store[LogicResource], label string) http.H
 	return func(w http.ResponseWriter, r *http.Request) {
 		res, ok := store.Get(r.URL.Path)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The %s %q was not found.", label, logicLastSeg(r.URL.Path))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The %s %q was not found.", label, logicLastSeg(r.URL.Path))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, res)
@@ -226,7 +226,7 @@ func handleLogicResourceGet(store sim.Store[LogicResource], label string) http.H
 func handleLogicResourceDelete(store sim.Store[LogicResource]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !store.Delete(r.URL.Path) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The resource %q was not found.", logicLastSeg(r.URL.Path))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The resource %q was not found.", logicLastSeg(r.URL.Path))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -277,7 +277,7 @@ func logicRunMissing(w http.ResponseWriter, r *http.Request) bool {
 	if _, ok := logicRuns.Get(id); ok {
 		return false
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"Run %q not found.", sim.PathParam(r, "runName"))
 	return true
 }
@@ -297,7 +297,7 @@ func handleLogicNestedNotFound(label string) http.HandlerFunc {
 		if logicRunMissing(w, r) {
 			return
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The %s %q was not found.", label, logicLastSeg(r.URL.Path))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The %s %q was not found.", label, logicLastSeg(r.URL.Path))
 	}
 }
 
@@ -335,7 +335,7 @@ func handleLogicOperationsList(w http.ResponseWriter, _ *http.Request) {
 func handleLogicWorkflowGenerateUpgradedDefinition(w http.ResponseWriter, r *http.Request) {
 	wf, ok := logicWorkflows.Get(strings.TrimSuffix(r.URL.Path, "/generateUpgradedDefinition"))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	def, _ := wf.Properties["definition"].(map[string]any)
@@ -348,7 +348,7 @@ func handleLogicWorkflowGenerateUpgradedDefinition(w http.ResponseWriter, r *htt
 func handleLogicWorkflowListSwagger(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "workflowName")
 	if _, ok := logicWorkflows.Get(strings.TrimSuffix(r.URL.Path, "/listSwagger")); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", name)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -424,7 +424,7 @@ func handleLogicWorkflowListCallbackURL(w http.ResponseWriter, r *http.Request) 
 	id := strings.TrimSuffix(r.URL.Path, "/listCallbackUrl")
 	wf, ok := logicWorkflows.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	// The workflow's accessEndpoint is the base path, exactly as the published
@@ -449,7 +449,7 @@ func handleLogicWorkflowListCallbackURL(w http.ResponseWriter, r *http.Request) 
 func handleLogicWorkflowRegenerateAccessKey(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/regenerateAccessKey")
 	if _, ok := logicWorkflows.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	var req struct {
@@ -458,7 +458,7 @@ func handleLogicWorkflowRegenerateAccessKey(w http.ResponseWriter, r *http.Reque
 	_ = sim.ReadJSON(r, &req)
 	slot := logicAccessKeySlot(req.KeyType)
 	if slot == "" {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
 			"The value '%s' is not valid for property 'keyType'.", req.KeyType)
 		return
 	}
@@ -469,11 +469,11 @@ func handleLogicWorkflowRegenerateAccessKey(w http.ResponseWriter, r *http.Reque
 func handleLogicWorkflowValidateByLocation(w http.ResponseWriter, r *http.Request) {
 	var req LogicWorkflow
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Properties == nil {
-		sim.AzureError(w, "InvalidWorkflow", "Workflow properties are required.", http.StatusBadRequest)
+		AzureError(w, "InvalidWorkflow", "Workflow properties are required.", http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -483,7 +483,7 @@ func handleLogicWorkflowMove(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/move")
 	wf, ok := logicWorkflows.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	var ref struct {
@@ -587,7 +587,7 @@ func logicResolveWorkflowForTrigger(r *http.Request) (LogicWorkflow, bool) {
 func handleLogicTriggerList(w http.ResponseWriter, r *http.Request) {
 	wf, ok := logicResolveWorkflowForTrigger(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	prefix := wf.ID + "/triggers/"
@@ -599,12 +599,12 @@ func handleLogicTriggerList(w http.ResponseWriter, r *http.Request) {
 
 func handleLogicTriggerGet(w http.ResponseWriter, r *http.Request) {
 	if _, ok := logicResolveWorkflowForTrigger(r); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	trigger, ok := logicTriggers.Get(r.URL.Path)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", sim.PathParam(r, "triggerName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", sim.PathParam(r, "triggerName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, trigger)
@@ -612,7 +612,7 @@ func handleLogicTriggerGet(w http.ResponseWriter, r *http.Request) {
 
 func handleLogicTriggerSchemaJSON(w http.ResponseWriter, r *http.Request) {
 	if _, ok := logicResolveWorkflowForTrigger(r); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -678,7 +678,7 @@ func logicWorkflowIDForPath(r *http.Request) string {
 
 func handleLogicTriggerReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := logicResolveWorkflowForTrigger(r); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -686,7 +686,7 @@ func handleLogicTriggerReset(w http.ResponseWriter, r *http.Request) {
 
 func handleLogicTriggerSetState(w http.ResponseWriter, r *http.Request) {
 	if _, ok := logicResolveWorkflowForTrigger(r); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	var body struct {
@@ -698,7 +698,7 @@ func handleLogicTriggerSetState(w http.ResponseWriter, r *http.Request) {
 
 func handleLogicTriggerHistoryList(w http.ResponseWriter, r *http.Request) {
 	if _, ok := logicResolveWorkflowForTrigger(r); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	prefix := strings.TrimSuffix(r.URL.Path, "/histories") + "/histories/"
@@ -708,7 +708,7 @@ func handleLogicTriggerHistoryList(w http.ResponseWriter, r *http.Request) {
 func handleLogicTriggerHistoryResubmit(w http.ResponseWriter, r *http.Request) {
 	histID := strings.TrimSuffix(r.URL.Path, "/resubmit")
 	if _, ok := logicTriggerHistories.Get(histID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger history %q not found.", sim.PathParam(r, "historyName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger history %q not found.", sim.PathParam(r, "historyName"))
 		return
 	}
 	if wf, ok := logicResolveWorkflowForTrigger(r); ok {
@@ -776,7 +776,7 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 func handleLogicIntegrationAccountDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path
 	if !logicIntegrationAccts.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
 		return
 	}
 	logicDropWorkflowKeyGens(id)
@@ -800,7 +800,7 @@ func handleLogicIntegrationAccountListBySub(w http.ResponseWriter, r *http.Reque
 func handleLogicIntegrationAccountCallbackURL(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/listCallbackUrl")
 	if _, ok := logicIntegrationAccts.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
 		return
 	}
 	endpoint := azureRequestScheme(r) + "://" + r.Host + id + "/callback"
@@ -812,7 +812,7 @@ func handleLogicIntegrationAccountCallbackURL(w http.ResponseWriter, r *http.Req
 func handleLogicIntegrationAccountKeyVaultKeys(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/listKeyVaultKeys")
 	if _, ok := logicIntegrationAccts.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
@@ -821,7 +821,7 @@ func handleLogicIntegrationAccountKeyVaultKeys(w http.ResponseWriter, r *http.Re
 func handleLogicIntegrationAccountLogTrackingEvents(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/logTrackingEvents")
 	if _, ok := logicIntegrationAccts.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -835,7 +835,7 @@ func handleLogicIntegrationAccountRegenerateAccessKey(w http.ResponseWriter, r *
 	id := strings.TrimSuffix(r.URL.Path, "/regenerateAccessKey")
 	acct, ok := logicIntegrationAccts.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration account %q not found.", sim.PathParam(r, "integrationAccountName"))
 		return
 	}
 	var req struct {
@@ -844,7 +844,7 @@ func handleLogicIntegrationAccountRegenerateAccessKey(w http.ResponseWriter, r *
 	_ = sim.ReadJSON(r, &req)
 	slot := logicAccessKeySlot(req.KeyType)
 	if slot == "" {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
 			"The value '%s' is not valid for property 'keyType'.", req.KeyType)
 		return
 	}
@@ -905,7 +905,7 @@ func logicRegisterArtifact(srv *sim.Server, seg, typ string, timestamps bool) {
 func handleLogicArtifactContentCallbackURL(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/listContentCallbackUrl")
 	if _, ok := logicIAArtifacts.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The artifact %q was not found.", logicLastSeg(id))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The artifact %q was not found.", logicLastSeg(id))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -918,7 +918,7 @@ func handleLogicServiceEnvPut(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path
 	var req LogicResource
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	props := map[string]any{}
@@ -951,12 +951,12 @@ func handleLogicServiceEnvPatch(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path
 	res, ok := logicServiceEnvs.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration service environment %q not found.", sim.PathParam(r, "integrationServiceEnvironmentName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration service environment %q not found.", sim.PathParam(r, "integrationServiceEnvironmentName"))
 		return
 	}
 	var req LogicResource
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	logicServiceEnvs.Update(id, func(stored *LogicResource) {
@@ -985,7 +985,7 @@ func handleLogicServiceEnvPatch(w http.ResponseWriter, r *http.Request) {
 func handleLogicServiceEnvDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path
 	if !logicServiceEnvs.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration service environment %q not found.", sim.PathParam(r, "integrationServiceEnvironmentName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration service environment %q not found.", sim.PathParam(r, "integrationServiceEnvironmentName"))
 		return
 	}
 	for _, api := range logicSEManagedApis.Filter(func(m LogicResource) bool { return strings.HasPrefix(m.ID, id+"/") }) {
@@ -1005,7 +1005,7 @@ func handleLogicServiceEnvListBySub(w http.ResponseWriter, r *http.Request) {
 func handleLogicServiceEnvRestart(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/restart")
 	if _, ok := logicServiceEnvs.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration service environment %q not found.", sim.PathParam(r, "integrationServiceEnvironmentName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration service environment %q not found.", sim.PathParam(r, "integrationServiceEnvironmentName"))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1014,7 +1014,7 @@ func handleLogicServiceEnvRestart(w http.ResponseWriter, r *http.Request) {
 func handleLogicServiceEnvNetworkHealth(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/health/network")
 	if _, ok := logicServiceEnvs.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration service environment %q not found.", sim.PathParam(r, "integrationServiceEnvironmentName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Integration service environment %q not found.", sim.PathParam(r, "integrationServiceEnvironmentName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -1044,7 +1044,7 @@ func handleLogicServiceEnvManagedApiDelete(w http.ResponseWriter, r *http.Reques
 	id := r.URL.Path
 	res, ok := logicSEManagedApis.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Managed API %q not found.", sim.PathParam(r, "apiName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Managed API %q not found.", sim.PathParam(r, "apiName"))
 		return
 	}
 	opID := issueAzureAsyncOperation(func() { logicSEManagedApis.Delete(id) })

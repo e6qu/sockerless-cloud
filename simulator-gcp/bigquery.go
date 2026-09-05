@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // BigQuery v2 REST surface. The simulator implements dataset/table
@@ -375,17 +375,17 @@ func handleBQInsertDataset(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	var req BQDataset
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid dataset body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid dataset body: %v", err)
 		return
 	}
 	dataset := req.DatasetReference.DatasetID
 	if dataset == "" {
-		sim.GCPError(w, http.StatusBadRequest, "datasetReference.datasetId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "datasetReference.datasetId is required", "INVALID_ARGUMENT")
 		return
 	}
 	key := bqDatasetKey(project, dataset)
 	if _, ok := bqDatasets.Get(key); ok {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Dataset %s:%s", project, dataset)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Dataset %s:%s", project, dataset)
 		return
 	}
 	req = bqApplyDatasetDefaults(r, req, project, dataset)
@@ -397,7 +397,7 @@ func handleBQGetDataset(w http.ResponseWriter, r *http.Request) {
 	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
 	d, ok := bqDatasets.Get(bqDatasetKey(project, dataset))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, d)
@@ -437,12 +437,12 @@ func handleBQPatchDataset(w http.ResponseWriter, r *http.Request) {
 	key := bqDatasetKey(project, dataset)
 	current, ok := bqDatasets.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
 		return
 	}
 	var req BQDataset
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid dataset body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid dataset body: %v", err)
 		return
 	}
 	if req.FriendlyName != "" {
@@ -465,7 +465,7 @@ func handleBQPatchDataset(w http.ResponseWriter, r *http.Request) {
 func handleBQDeleteDataset(w http.ResponseWriter, r *http.Request) {
 	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
 	if !bqDatasets.Delete(bqDatasetKey(project, dataset)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
 		return
 	}
 	prefix := project + "/" + dataset + "/"
@@ -482,22 +482,22 @@ func handleBQDeleteDataset(w http.ResponseWriter, r *http.Request) {
 func handleBQInsertTable(w http.ResponseWriter, r *http.Request) {
 	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
 	if _, ok := bqDatasets.Get(bqDatasetKey(project, dataset)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
 		return
 	}
 	var req BQTable
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid table body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid table body: %v", err)
 		return
 	}
 	table := req.TableReference.TableID
 	if table == "" {
-		sim.GCPError(w, http.StatusBadRequest, "tableReference.tableId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "tableReference.tableId is required", "INVALID_ARGUMENT")
 		return
 	}
 	key := bqTableKey(project, dataset, table)
 	if _, ok := bqTables.Get(key); ok {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	req = bqApplyTableDefaults(r, req, project, dataset, table)
@@ -510,7 +510,7 @@ func handleBQGetTable(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
 	t, ok := bqTables.Get(bqTableKey(project, dataset, table))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, bqApplyTableDefaults(r, t, project, dataset, table))
@@ -549,12 +549,12 @@ func handleBQPatchTable(w http.ResponseWriter, r *http.Request) {
 	key := bqTableKey(project, dataset, table)
 	current, ok := bqTables.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	var req BQTable
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid table body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid table body: %v", err)
 		return
 	}
 	if req.FriendlyName != "" {
@@ -578,7 +578,7 @@ func handleBQDeleteTable(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
 	key := bqTableKey(project, dataset, table)
 	if !bqTables.Delete(key) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	bqRows.Delete(key)
@@ -589,7 +589,7 @@ func handleBQInsertAll(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
 	key := bqTableKey(project, dataset, table)
 	if _, ok := bqTables.Get(key); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	var req struct {
@@ -599,7 +599,7 @@ func handleBQInsertAll(w http.ResponseWriter, r *http.Request) {
 		} `json:"rows"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid insertAll body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid insertAll body: %v", err)
 		return
 	}
 	rowSet, _ := bqRows.Get(key)
@@ -622,7 +622,7 @@ func handleBQTableDataList(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
 	t, ok := bqTables.Get(bqTableKey(project, dataset, table))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	rowSet, _ := bqRows.Get(bqTableKey(project, dataset, table))
@@ -633,7 +633,7 @@ func handleBQTableDataList(w http.ResponseWriter, r *http.Request) {
 	if s := r.URL.Query().Get("startIndex"); s != "" {
 		v, err := strconv.Atoi(s)
 		if err != nil || v < 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for parameter 'startIndex': %s", s)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for parameter 'startIndex': %s", s)
 			return
 		}
 		start = v
@@ -642,7 +642,7 @@ func handleBQTableDataList(w http.ResponseWriter, r *http.Request) {
 	if s := r.URL.Query().Get("maxResults"); s != "" {
 		v, err := strconv.Atoi(s)
 		if err != nil || v < 0 {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for parameter 'maxResults': %s", s)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for parameter 'maxResults': %s", s)
 			return
 		}
 		max = v
@@ -676,12 +676,12 @@ func handleBQQuery(w http.ResponseWriter, r *http.Request) {
 		Location string `json:"location,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid query body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid query body: %v", err)
 		return
 	}
 	result, err := bqEvaluateQuery(project, req.Query)
 	if err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
 	}
 	jobID := "job_" + generateUUID()
@@ -695,7 +695,7 @@ func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	var req BQJob
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
 		return
 	}
 	jobID := req.JobReference.JobID
@@ -712,7 +712,7 @@ func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
 		var err error
 		result, err = bqEvaluateQuery(project, query)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 	}
@@ -726,7 +726,7 @@ func handleBQGetJob(w http.ResponseWriter, r *http.Request) {
 	project, jobID := sim.PathParam(r, "project"), sim.PathParam(r, "job")
 	job, ok := bqJobs.Get(bqJobKey(project, jobID))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, job.BQJob)
@@ -767,7 +767,7 @@ func handleBQGetQueryResults(w http.ResponseWriter, r *http.Request) {
 	project, jobID := sim.PathParam(r, "project"), sim.PathParam(r, "job")
 	job, ok := bqJobs.Get(bqJobKey(project, jobID))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
 		return
 	}
 	result := job.Result
@@ -928,7 +928,7 @@ func handleBQCancelJob(w http.ResponseWriter, r *http.Request) {
 	project, jobID := sim.PathParam(r, "project"), sim.PathParam(r, "job")
 	job, ok := bqJobs.Get(bqJobKey(project, jobID))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
 		return
 	}
 	// Query jobs in the sim complete synchronously, so a cancel request on an
@@ -943,7 +943,7 @@ func handleBQCancelJob(w http.ResponseWriter, r *http.Request) {
 func handleBQDeleteJob(w http.ResponseWriter, r *http.Request) {
 	project, jobID := sim.PathParam(r, "project"), sim.PathParam(r, "job")
 	if !bqJobs.Delete(bqJobKey(project, jobID)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -957,14 +957,14 @@ func handleBQDatasetVerb(w http.ResponseWriter, r *http.Request) {
 		key := bqDatasetKey(project, name)
 		d, ok := bqDatasets.Get(key)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, name)
 			return
 		}
 		d = bqApplyDatasetDefaults(r, d, project, name)
 		bqDatasets.Put(key, d)
 		sim.WriteJSON(w, http.StatusOK, d)
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown dataset verb: %s", verb)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown dataset verb: %s", verb)
 	}
 }
 
@@ -976,7 +976,7 @@ func handleBQTableVerb(w http.ResponseWriter, r *http.Request) {
 		resource := "bigquery:" + bqTableKey(project, dataset, name)
 		handleResourceIAM(w, r, gcpResourceIAMStore(), resource, verb)
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown table verb: %s", verb)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown table verb: %s", verb)
 	}
 }
 
@@ -999,7 +999,7 @@ func bqApplyModelDefaults(m BQModel, project, dataset, model string) BQModel {
 func handleBQListModels(w http.ResponseWriter, r *http.Request) {
 	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
 	if _, ok := bqDatasets.Get(bqDatasetKey(project, dataset)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
 		return
 	}
 	all := bqModels.Filter(func(m BQModel) bool {
@@ -1025,7 +1025,7 @@ func handleBQGetModel(w http.ResponseWriter, r *http.Request) {
 	project, dataset, model := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "model")
 	m, ok := bqModels.Get(bqModelKey(project, dataset, model))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Model %s:%s.%s", project, dataset, model)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Model %s:%s.%s", project, dataset, model)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, m)
@@ -1036,12 +1036,12 @@ func handleBQPatchModel(w http.ResponseWriter, r *http.Request) {
 	key := bqModelKey(project, dataset, model)
 	current, ok := bqModels.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Model %s:%s.%s", project, dataset, model)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Model %s:%s.%s", project, dataset, model)
 		return
 	}
 	var req BQModel
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid model body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid model body: %v", err)
 		return
 	}
 	if req.FriendlyName != "" {
@@ -1064,7 +1064,7 @@ func handleBQPatchModel(w http.ResponseWriter, r *http.Request) {
 func handleBQDeleteModel(w http.ResponseWriter, r *http.Request) {
 	project, dataset, model := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "model")
 	if !bqModels.Delete(bqModelKey(project, dataset, model)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Model %s:%s.%s", project, dataset, model)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Model %s:%s.%s", project, dataset, model)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1086,7 +1086,7 @@ func bqApplyRoutineDefaults(rt BQRoutine, project, dataset, routine string) BQRo
 func handleBQListRoutines(w http.ResponseWriter, r *http.Request) {
 	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
 	if _, ok := bqDatasets.Get(bqDatasetKey(project, dataset)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
 		return
 	}
 	all := bqRoutines.Filter(func(rt BQRoutine) bool {
@@ -1111,22 +1111,22 @@ func handleBQListRoutines(w http.ResponseWriter, r *http.Request) {
 func handleBQInsertRoutine(w http.ResponseWriter, r *http.Request) {
 	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
 	if _, ok := bqDatasets.Get(bqDatasetKey(project, dataset)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
 		return
 	}
 	var req BQRoutine
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid routine body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid routine body: %v", err)
 		return
 	}
 	routine := req.RoutineReference.RoutineID
 	if routine == "" {
-		sim.GCPError(w, http.StatusBadRequest, "routineReference.routineId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "routineReference.routineId is required", "INVALID_ARGUMENT")
 		return
 	}
 	key := bqRoutineKey(project, dataset, routine)
 	if _, ok := bqRoutines.Get(key); ok {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Routine %s:%s.%s", project, dataset, routine)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Routine %s:%s.%s", project, dataset, routine)
 		return
 	}
 	req = bqApplyRoutineDefaults(req, project, dataset, routine)
@@ -1138,7 +1138,7 @@ func handleBQGetRoutine(w http.ResponseWriter, r *http.Request) {
 	project, dataset, routine := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "routine")
 	rt, ok := bqRoutines.Get(bqRoutineKey(project, dataset, routine))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Routine %s:%s.%s", project, dataset, routine)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Routine %s:%s.%s", project, dataset, routine)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, rt)
@@ -1149,12 +1149,12 @@ func handleBQUpdateRoutine(w http.ResponseWriter, r *http.Request) {
 	key := bqRoutineKey(project, dataset, routine)
 	current, ok := bqRoutines.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Routine %s:%s.%s", project, dataset, routine)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Routine %s:%s.%s", project, dataset, routine)
 		return
 	}
 	var req BQRoutine
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid routine body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid routine body: %v", err)
 		return
 	}
 	// routines.update is a full PUT replacement; preserve immutable creation
@@ -1168,7 +1168,7 @@ func handleBQUpdateRoutine(w http.ResponseWriter, r *http.Request) {
 func handleBQDeleteRoutine(w http.ResponseWriter, r *http.Request) {
 	project, dataset, routine := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "routine")
 	if !bqRoutines.Delete(bqRoutineKey(project, dataset, routine)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Routine %s:%s.%s", project, dataset, routine)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Routine %s:%s.%s", project, dataset, routine)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1182,7 +1182,7 @@ func handleBQRoutineVerb(w http.ResponseWriter, r *http.Request) {
 		resource := "bigquery:" + bqRoutineKey(project, dataset, name)
 		handleResourceIAM(w, r, gcpResourceIAMStore(), resource, verb)
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown routine verb: %s", verb)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown routine verb: %s", verb)
 	}
 }
 
@@ -1203,7 +1203,7 @@ func bqApplyRAPDefaults(rap BQRowAccessPolicy, project, dataset, table, policy s
 func handleBQListRAPs(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
 	if _, ok := bqTables.Get(bqTableKey(project, dataset, table)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	all := bqRAPs.Filter(func(rap BQRowAccessPolicy) bool {
@@ -1231,22 +1231,22 @@ func handleBQListRAPs(w http.ResponseWriter, r *http.Request) {
 func handleBQInsertRAP(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
 	if _, ok := bqTables.Get(bqTableKey(project, dataset, table)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	var req BQRowAccessPolicy
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid row access policy body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid row access policy body: %v", err)
 		return
 	}
 	policy := req.RowAccessPolicyReference.PolicyID
 	if policy == "" {
-		sim.GCPError(w, http.StatusBadRequest, "rowAccessPolicyReference.policyId is required", "INVALID_ARGUMENT")
+		GCPError(w, http.StatusBadRequest, "rowAccessPolicyReference.policyId is required", "INVALID_ARGUMENT")
 		return
 	}
 	key := bqRAPKey(project, dataset, table, policy)
 	if _, ok := bqRAPs.Get(key); ok {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Row access policy %s", policy)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Row access policy %s", policy)
 		return
 	}
 	req = bqApplyRAPDefaults(req, project, dataset, table, policy)
@@ -1258,7 +1258,7 @@ func handleBQGetRAP(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table, policy := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table"), sim.PathParam(r, "policy")
 	rap, ok := bqRAPs.Get(bqRAPKey(project, dataset, table, policy))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Row access policy %s", policy)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Row access policy %s", policy)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, rap)
@@ -1269,12 +1269,12 @@ func handleBQUpdateRAP(w http.ResponseWriter, r *http.Request) {
 	key := bqRAPKey(project, dataset, table, policy)
 	current, ok := bqRAPs.Get(key)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Row access policy %s", policy)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Row access policy %s", policy)
 		return
 	}
 	var req BQRowAccessPolicy
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid row access policy body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid row access policy body: %v", err)
 		return
 	}
 	req.CreationTime = current.CreationTime
@@ -1286,7 +1286,7 @@ func handleBQUpdateRAP(w http.ResponseWriter, r *http.Request) {
 func handleBQDeleteRAP(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table, policy := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table"), sim.PathParam(r, "policy")
 	if !bqRAPs.Delete(bqRAPKey(project, dataset, table, policy)) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Row access policy %s", policy)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Row access policy %s", policy)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1295,7 +1295,7 @@ func handleBQDeleteRAP(w http.ResponseWriter, r *http.Request) {
 func handleBQBatchDeleteRAP(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
 	if _, ok := bqTables.Get(bqTableKey(project, dataset, table)); !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
 	}
 	var req struct {
@@ -1303,13 +1303,13 @@ func handleBQBatchDeleteRAP(w http.ResponseWriter, r *http.Request) {
 		Force     bool     `json:"force"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid batchDelete body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid batchDelete body: %v", err)
 		return
 	}
 	for _, policy := range req.PolicyIds {
 		key := bqRAPKey(project, dataset, table, policy)
 		if !bqRAPs.Delete(key) && !req.Force {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Row access policy %s", policy)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Row access policy %s", policy)
 			return
 		}
 	}
@@ -1327,7 +1327,7 @@ func handleBQRAPVerb(w http.ResponseWriter, r *http.Request) {
 		resource := "bigquery:" + bqRAPKey(project, dataset, table, name)
 		handleResourceIAM(w, r, gcpResourceIAMStore(), resource, verb)
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown row access policy verb: %s", verb)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Unknown row access policy verb: %s", verb)
 	}
 }
 

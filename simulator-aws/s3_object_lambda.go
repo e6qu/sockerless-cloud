@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon S3 Object Lambda, and the S3 access points it is built on.
@@ -218,7 +218,7 @@ func handleS3CreateAccessPoint(w http.ResponseWriter, r *http.Request) {
 		ap.VPCID = req.VpcConfiguration.VpcID
 	}
 	s3AccessPoints.Put(s3AccessPointKey(account, name), ap)
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName        xml.Name `xml:"CreateAccessPointResult"`
 		AccessPointArn string   `xml:"AccessPointArn"`
 		Alias          string   `xml:"Alias"`
@@ -232,7 +232,7 @@ func handleS3GetAccessPoint(w http.ResponseWriter, r *http.Request) {
 		s3ControlError(w, "NoSuchAccessPoint", "The specified accesspoint does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName        xml.Name `xml:"GetAccessPointResult"`
 		Name           string   `xml:"Name"`
 		Bucket         string   `xml:"Bucket"`
@@ -292,7 +292,7 @@ func handleS3ListAccessPoints(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName      xml.Name `xml:"ListAccessPointsResult"`
 		AccessPoints []entry  `xml:"AccessPointList>AccessPoint"`
 	}{AccessPoints: items})
@@ -322,7 +322,7 @@ func handleS3GetAccessPointPolicy(w http.ResponseWriter, r *http.Request) {
 		s3ControlError(w, "NoSuchAccessPointPolicy", "The specified accesspoint policy does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"GetAccessPointPolicyResult"`
 		Policy  string   `xml:"Policy"`
 	}{Policy: ap.Policy})
@@ -344,7 +344,7 @@ func handleS3GetAccessPointPolicyStatus(w http.ResponseWriter, r *http.Request) 
 		s3ControlError(w, "NoSuchAccessPoint", "The specified accesspoint does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName  xml.Name `xml:"GetAccessPointPolicyStatusResult"`
 		IsPublic bool     `xml:"PolicyStatus>IsPublic"`
 	}{IsPublic: s3PolicyIsPublic(ap.Policy)})
@@ -431,7 +431,7 @@ func handleS3CreateAccessPointForObjectLambda(w http.ResponseWriter, r *http.Req
 		CreationDate:  time.Now().UTC().Format(time.RFC3339),
 		Configuration: req.Configuration,
 	})
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName                    xml.Name `xml:"CreateAccessPointForObjectLambdaResult"`
 		ObjectLambdaAccessPointArn string   `xml:"ObjectLambdaAccessPointArn"`
 		Alias                      struct {
@@ -487,7 +487,7 @@ func handleS3GetAccessPointForObjectLambda(w http.ResponseWriter, r *http.Reques
 		s3ControlError(w, "NoSuchAccessPoint", "The specified accesspoint does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName                        xml.Name `xml:"GetAccessPointForObjectLambdaResult"`
 		Name                           string   `xml:"Name"`
 		PublicAccessBlockConfiguration struct {
@@ -548,7 +548,7 @@ func handleS3ListAccessPointsForObjectLambda(w http.ResponseWriter, r *http.Requ
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName      xml.Name `xml:"ListAccessPointsForObjectLambdaResult"`
 		AccessPoints []entry  `xml:"ObjectLambdaAccessPointList>ObjectLambdaAccessPoint"`
 	}{AccessPoints: items})
@@ -561,7 +561,7 @@ func handleS3GetAccessPointConfigurationForObjectLambda(w http.ResponseWriter, r
 		s3ControlError(w, "NoSuchAccessPoint", "The specified accesspoint does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName       xml.Name                    `xml:"GetAccessPointConfigurationForObjectLambdaResult"`
 		Configuration S3ObjectLambdaConfiguration `xml:"Configuration"`
 	}{Configuration: olap.Configuration})
@@ -619,7 +619,7 @@ func handleS3GetAccessPointPolicyForObjectLambda(w http.ResponseWriter, r *http.
 		s3ControlError(w, "NoSuchAccessPointPolicy", "The specified accesspoint policy does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"GetAccessPointPolicyForObjectLambdaResult"`
 		Policy  string   `xml:"Policy"`
 	}{Policy: olap.Policy})
@@ -641,7 +641,7 @@ func handleS3GetAccessPointPolicyStatusForObjectLambda(w http.ResponseWriter, r 
 		s3ControlError(w, "NoSuchAccessPoint", "The specified accesspoint does not exist", http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName  xml.Name `xml:"GetAccessPointPolicyStatusForObjectLambdaResult"`
 		IsPublic bool     `xml:"PolicyStatus>IsPublic"`
 	}{IsPublic: s3PolicyIsPublic(olap.Policy)})
@@ -653,7 +653,7 @@ func handleS3GetAccessPointPolicyStatusForObjectLambda(w http.ResponseWriter, r 
 // document is a bare Error element — the shape an S3 client parses the code
 // out of.
 func s3ObjectLambdaError(w http.ResponseWriter, r *http.Request, code, message string, status int) {
-	sim.S3ErrorXML(w, code, message, r.URL.Path, sim.RequestID(r.Context()), status)
+	S3ErrorXML(w, code, message, r.URL.Path, sim.RequestID(r.Context()), status)
 }
 
 // s3ObjectLambdaHostAccessPoint reads the Object Lambda access point a request

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type PublicIPAddress struct {
@@ -265,7 +265,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 		name := sim.PathParam(r, "publicIPName")
 		var req PublicIPAddress
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPAddresses/%s", sub, rg, name)
@@ -308,7 +308,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 		if pip.Properties.PublicIPAddress == "" && strings.EqualFold(pip.Properties.PublicIPAllocationMethod, "Static") {
 			ip, err := realexec.ReserveAzurePublicIPv4(id, nil)
 			if err != nil {
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to reserve real public IPv4 lease: %v", err)
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to reserve real public IPv4 lease: %v", err)
 				return
 			}
 			pip.Properties.PublicIPAddress = ip.String()
@@ -322,7 +322,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "publicIPName"))
 		pip, ok := azurePublicIPs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, pip)
@@ -358,7 +358,7 @@ func registerPublicIPPrefixes(srv *sim.Server) {
 		name := sim.PathParam(r, "publicIPPrefixName")
 		var req PublicIPPrefix
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := azurePublicIPPrefixID(sub, rg, name)
@@ -402,7 +402,7 @@ func registerPublicIPPrefixes(srv *sim.Server) {
 		id := azurePublicIPPrefixID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "publicIPPrefixName"))
 		prefix, ok := azurePublicIPPrefixes.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, prefix)
@@ -451,7 +451,7 @@ func registerLoadBalancers(srv *sim.Server) {
 		name := sim.PathParam(r, "loadBalancerName")
 		var req LoadBalancer
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := azureLoadBalancerID(sub, rg, name)
@@ -482,7 +482,7 @@ func registerLoadBalancers(srv *sim.Server) {
 		id := azureLoadBalancerID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "loadBalancerName"))
 		lb, ok := azureLBs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, lb)
@@ -529,14 +529,14 @@ func registerLoadBalancerChild(srv *sim.Server, collection, paramName, resourceT
 		lbID := azureLoadBalancerID(sub, rg, lbName)
 		var req LoadBalancerChild
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		child := normalizeLoadBalancerChild(lbID, collection, resourceType, childName, req)
 		if !azureLBs.Update(lbID, func(lb *LoadBalancer) {
 			upsertLoadBalancerChild(children(lb), child)
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", lbID)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", lbID)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, child)
@@ -559,7 +559,7 @@ func registerLoadBalancerChild(srv *sim.Server, collection, paramName, resourceT
 		childName := sim.PathParam(r, paramName)
 		lb, ok := azureLBs.Get(lbID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", lbID)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", lbID)
 			return
 		}
 		for _, child := range *children(&lb) {
@@ -568,7 +568,7 @@ func registerLoadBalancerChild(srv *sim.Server, collection, paramName, resourceT
 				return
 			}
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", lbID+"/"+collection+"/"+childName)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", lbID+"/"+collection+"/"+childName)
 	})
 
 }
@@ -988,7 +988,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 		name := sim.PathParam(r, "networkInterfaceName")
 		var req NetworkInterface
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s", sub, rg, name)
@@ -1020,7 +1020,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 				ipcfg.Properties.Primary = true
 			}
 			if ipcfg.Properties.Subnet == nil {
-				sim.AzureError(w, "InvalidRequestFormat", "network interface IP configuration requires a subnet reference.", http.StatusBadRequest)
+				AzureError(w, "InvalidRequestFormat", "network interface IP configuration requires a subnet reference.", http.StatusBadRequest)
 				return
 			}
 			if !azureRequireNetworkHost(w) {
@@ -1028,7 +1028,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 			}
 			privateIP, mac, err := azureCreateRealNIC(r.Context(), id, ipcfg.Properties.Subnet.ID, ipcfg.Properties.PrivateIPAddress, azureNICMAC(id))
 			if err != nil {
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to create real network interface fabric: %v", err)
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to create real network interface fabric: %v", err)
 				return
 			}
 			ipcfg.Properties.PrivateIPAddress = privateIP
@@ -1036,7 +1036,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 		}
 		azureNICs.Put(id, nic)
 		if err := azureApplyRealNSGsToNIC(r.Context(), nic); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, nic)
@@ -1047,7 +1047,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
 		nic, ok := azureNICs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, nic)
@@ -1068,7 +1068,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
 		azureNICs.Delete(id)
 		if err := azureDeleteRealNIC(r.Context(), id); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real network interface fabric: %v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real network interface fabric: %v", err)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -1095,7 +1095,7 @@ func registerVirtualMachines(srv *sim.Server) {
 		name := sim.PathParam(r, "vmName")
 		var req VirtualMachine
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s", sub, rg, name)
@@ -1117,7 +1117,7 @@ func registerVirtualMachines(srv *sim.Server) {
 		// client's error, reported as 400/404, not as the 503 that a host that
 		// failed to boot the machine earns.
 		if fault := azureValidateVMNetworkProfile(vm); fault != nil {
-			sim.AzureError(w, fault.code, fault.message, fault.status)
+			AzureError(w, fault.code, fault.message, fault.status)
 			return
 		}
 		if err := azureStartRealVM(r.Context(), vm); err != nil {
@@ -1127,7 +1127,7 @@ func registerVirtualMachines(srv *sim.Server) {
 				Str("resource_group", rg).
 				Str("vm", name).
 				Msg("failed to boot real Azure virtual machine")
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to boot real virtual machine: %v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to boot real virtual machine: %v", err)
 			return
 		}
 		azureVMs.Put(id, vm)
@@ -1160,7 +1160,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if !azureVMs.Update(id, func(vm *VirtualMachine) {
@@ -1184,7 +1184,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			}
 			stripVMAdminPassword(vm)
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		vm, _ := azureVMs.Get(id)
@@ -1196,7 +1196,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
 		vm, ok := azureVMs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		if state, _ := azureVMStates.Get(id); state == "PowerState/running" && !azureRealVMAlive(id) {
@@ -1213,7 +1213,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
 		vm, ok := azureVMs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		if state, _ := azureVMStates.Get(id); state == "PowerState/running" && !azureRealVMAlive(id) {
@@ -1270,11 +1270,11 @@ func registerVirtualMachines(srv *sim.Server) {
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
 		vm, ok := azureVMs.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		if err := azureDeleteRealVM(r.Context(), vm); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real virtual machine: %v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real virtual machine: %v", err)
 			return
 		}
 		azureVMs.Delete(id)
@@ -1292,27 +1292,27 @@ func registerVirtualMachines(srv *sim.Server) {
 				sub, rg, name)
 			vm, ok := azureVMs.Get(id)
 			if !ok {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 				return
 			}
 			state := "PowerState/running"
 			if action == "powerOff" {
 				if err := azureStopRealVM(r.Context(), id); err != nil {
-					sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to power off real virtual machine: %v", err)
+					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to power off real virtual machine: %v", err)
 					return
 				}
 				state = "PowerState/stopped"
 			}
 			if action == "deallocate" {
 				if err := azureStopRealVM(r.Context(), id); err != nil {
-					sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to deallocate real virtual machine: %v", err)
+					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to deallocate real virtual machine: %v", err)
 					return
 				}
 				state = "PowerState/deallocated"
 			}
 			if action == "restart" {
 				if err := azureStopRealVM(r.Context(), id); err != nil {
-					sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to restart real virtual machine: %v", err)
+					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to restart real virtual machine: %v", err)
 					return
 				}
 				if err := azureStartRealVM(r.Context(), vm); err != nil {
@@ -1322,7 +1322,7 @@ func registerVirtualMachines(srv *sim.Server) {
 						Str("resource_group", rg).
 						Str("vm", name).
 						Msg("failed to restart real Azure virtual machine")
-					sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to restart real virtual machine: %v", err)
+					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to restart real virtual machine: %v", err)
 					return
 				}
 			}
@@ -1334,7 +1334,7 @@ func registerVirtualMachines(srv *sim.Server) {
 						Str("resource_group", rg).
 						Str("vm", name).
 						Msg("failed to start real Azure virtual machine")
-					sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to start real virtual machine: %v", err)
+					AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to start real virtual machine: %v", err)
 					return
 				}
 			}

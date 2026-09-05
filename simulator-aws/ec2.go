@@ -14,7 +14,7 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	dockerclient "github.com/moby/moby/client"
 )
 
@@ -551,7 +551,7 @@ func ensureSimDefaults() {
 	}
 }
 
-func registerEC2(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	ec2Vpcs = sim.MakeStore[EC2Vpc](srv.DB(), "ec2_vpcs")
 	ec2Subnets = sim.MakeStore[EC2Subnet](srv.DB(), "ec2_subnets")
 	ec2InternetGateways = sim.MakeStore[EC2InternetGateway](srv.DB(), "ec2_internet_gateways")
@@ -3436,7 +3436,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	subnet, ok := ec2Subnets.Get(subnetID)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidSubnetID.NotFound", http.StatusBadRequest, "The subnet ID %q does not exist", subnetID)
+		AWSErrorf(w, "InvalidSubnetID.NotFound", http.StatusBadRequest, "The subnet ID %q does not exist", subnetID)
 		return
 	}
 	// The instance is always modeled at the control plane (reaches "running",
@@ -3519,7 +3519,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 			ip, err := AllocateSubnetIP(subnetID)
 			if err != nil {
 				if i < minCount {
-					sim.AWSError(w, "InsufficientFreeAddressesInSubnet", err.Error(), http.StatusBadRequest)
+					AWSError(w, "InsufficientFreeAddressesInSubnet", err.Error(), http.StatusBadRequest)
 					return
 				}
 				break
@@ -3773,7 +3773,7 @@ func handleDescribeInstances(w http.ResponseWriter, r *http.Request) {
 		for _, id := range instanceIDs {
 			inst, ok := ec2Instances.Get(id)
 			if !ok {
-				sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+				AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
 				return
 			}
 			instances = append(instances, inst)
@@ -3985,7 +3985,7 @@ func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next strin
 	for _, id := range instanceIDs {
 		inst, ok := ec2Instances.Get(id)
 		if !ok {
-			sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
+			AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", id)
 			return
 		}
 		prev := inst.State
@@ -4139,7 +4139,7 @@ func handleDescribeInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	inst, ok := ec2Instances.Get(instanceID)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
+		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
 		return
 	}
 	attribute := r.FormValue("Attribute")
@@ -4182,7 +4182,7 @@ func handleDescribeInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2Instances.Get(instanceID); !ok {
-		sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
+		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
 		return
 	}
 	// Persist the modified attributes (previously a no-op: the set succeeded but
@@ -4216,7 +4216,7 @@ func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 func handleModifyInstanceMetadataOptions(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2Instances.Get(instanceID); !ok {
-		sim.AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
+		AWSErrorf(w, "InvalidInstanceID.NotFound", http.StatusBadRequest, "The instance ID %q does not exist", instanceID)
 		return
 	}
 	ec2Instances.Update(instanceID, func(inst *EC2Instance) {
@@ -5539,7 +5539,7 @@ func handleDescribeNetworkInterfaces(w http.ResponseWriter, r *http.Request) {
 		for _, id := range ids {
 			eni, ok := ec2NetworkInterfaces.Get(id)
 			if !ok {
-				sim.AWSErrorf(w, "InvalidNetworkInterfaceID.NotFound", http.StatusBadRequest, "The networkInterface ID %q does not exist", id)
+				AWSErrorf(w, "InvalidNetworkInterfaceID.NotFound", http.StatusBadRequest, "The networkInterface ID %q does not exist", id)
 				return
 			}
 			enis = append(enis, eni)

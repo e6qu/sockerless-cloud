@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon S3 Access Grants: an account-level instance, the locations it manages
@@ -187,7 +187,7 @@ func s3WriteAccessGrantsInstance(w http.ResponseWriter, element string, instance
 		IdentityCenterInstanceArn    string `xml:"IdentityCenterInstanceArn,omitempty"`
 		IdentityCenterApplicationArn string `xml:"IdentityCenterApplicationArn,omitempty"`
 	}
-	sim.WriteXML(w, http.StatusOK, result{
+	WriteXML(w, http.StatusOK, result{
 		XMLName:                      xml.Name{Local: element},
 		CreatedAt:                    instance.CreatedAt,
 		AccessGrantsInstanceID:       instance.InstanceID,
@@ -253,7 +253,7 @@ func handleS3ListAccessGrantsInstances(w http.ResponseWriter, r *http.Request) {
 			IdentityCenterApplicationArn: instance.IdentityCenterApplicationArn,
 		})
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"ListAccessGrantsInstancesResult"`
 		Entries []entry  `xml:"AccessGrantsInstancesList>AccessGrantsInstance"`
 	}{Entries: items})
@@ -277,7 +277,7 @@ func handleS3GetAccessGrantsInstanceForPrefix(w http.ResponseWriter, r *http.Req
 			"No Access Grants location covers "+prefix, http.StatusNotFound)
 		return
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName                 xml.Name `xml:"GetAccessGrantsInstanceForPrefixResult"`
 		AccessGrantsInstanceArn string   `xml:"AccessGrantsInstanceArn"`
 		AccessGrantsInstanceID  string   `xml:"AccessGrantsInstanceId"`
@@ -377,7 +377,7 @@ func s3WriteAccessGrantsPolicy(w http.ResponseWriter, element, policy, organizat
 		Organization string `xml:"Organization,omitempty"`
 		CreatedAt    string `xml:"CreatedAt,omitempty"`
 	}
-	sim.WriteXML(w, http.StatusOK, result{
+	WriteXML(w, http.StatusOK, result{
 		XMLName: xml.Name{Local: element}, Policy: policy,
 		Organization: organization, CreatedAt: created,
 	})
@@ -453,7 +453,7 @@ func s3WriteAccessGrantsLocation(w http.ResponseWriter, element string, location
 		LocationScope           string `xml:"LocationScope"`
 		IAMRoleArn              string `xml:"IAMRoleArn"`
 	}
-	sim.WriteXML(w, http.StatusOK, result{
+	WriteXML(w, http.StatusOK, result{
 		XMLName:                 xml.Name{Local: element},
 		CreatedAt:               location.CreatedAt,
 		AccessGrantsLocationID:  location.LocationID,
@@ -544,7 +544,7 @@ func handleS3ListAccessGrantsLocations(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].AccessGrantsLocationID < items[j].AccessGrantsLocationID })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"ListAccessGrantsLocationsResult"`
 		Entries []entry  `xml:"AccessGrantsLocationsList>AccessGrantsLocation"`
 	}{Entries: items})
@@ -645,7 +645,7 @@ func s3WriteAccessGrant(w http.ResponseWriter, element string, grant S3AccessGra
 	if grant.S3SubPrefix != "" {
 		out.AccessGrantsLocationConfiguration = &locationConfig{S3SubPrefix: grant.S3SubPrefix}
 	}
-	sim.WriteXML(w, http.StatusOK, out)
+	WriteXML(w, http.StatusOK, out)
 }
 
 func handleS3GetAccessGrant(w http.ResponseWriter, r *http.Request) {
@@ -716,7 +716,7 @@ func handleS3ListAccessGrants(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].AccessGrantID < items[j].AccessGrantID })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"ListAccessGrantsResult"`
 		Entries []entry  `xml:"AccessGrantsList>AccessGrant"`
 	}{Entries: items})
@@ -749,7 +749,7 @@ func handleS3ListCallerAccessGrants(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].GrantScope < items[j].GrantScope })
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"ListCallerAccessGrantsResult"`
 		Entries []entry  `xml:"CallerAccessGrantsList>AccessGrant"`
 	}{Entries: items})
@@ -832,7 +832,7 @@ func handleS3GetDataAccess(w http.ResponseWriter, r *http.Request) {
 		GranteeType       string `xml:"GranteeType,omitempty"`
 		GranteeIdentifier string `xml:"GranteeIdentifier,omitempty"`
 	}
-	sim.WriteXML(w, http.StatusOK, struct {
+	WriteXML(w, http.StatusOK, struct {
 		XMLName            xml.Name    `xml:"GetDataAccessResult"`
 		Credentials        credentials `xml:"Credentials"`
 		MatchedGrantTarget string      `xml:"MatchedGrantTarget"`

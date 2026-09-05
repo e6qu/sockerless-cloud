@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon VPC IP Address Manager internet-registry associations and routing
@@ -82,7 +82,7 @@ const ipamRegistryUnreachable = "enabling an internet registry association begin
 	"routing policy registrations under it, are real state: create, describe, modify and delete " +
 	"all behave; only the exchange with the registry is impossible."
 
-func registerEC2IpamRegistry(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2IpamRegistry(r *AWSQueryRouter, srv *sim.Server) {
 	ec2IpamRegistryAssociations = sim.MakeStore[EC2IpamInternetRegistryAssociation](srv.DB(), "ec2_ipam_registry_associations")
 	ec2IpamRoutingRegistrations = sim.MakeStore[EC2IpamRoutingPolicyRegistration](srv.DB(), "ec2_ipam_routing_registrations")
 	ec2IpamRoutingDeltas = sim.MakeStore[EC2IpamRoutingPolicyRegistrationDelta](srv.DB(), "ec2_ipam_routing_deltas")

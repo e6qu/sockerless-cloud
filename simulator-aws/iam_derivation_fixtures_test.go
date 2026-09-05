@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // The resources the state-resolving derivations look up, created through the
@@ -31,7 +29,7 @@ import (
 // member: DisassociateRouteTable and DisassociateAddress both say
 // AssociationId and mean associations of different kinds.
 func iamSeedDerivationFixtures(t *testing.T,
-	queryRouter *sim.AWSQueryRouter, jsonRouter *sim.AWSRouter,
+	queryRouter *AWSQueryRouter, jsonRouter *AWSRouter,
 ) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -245,7 +243,7 @@ func iamSeedDerivationFixtures(t *testing.T,
 // fixture real is that the resource is built by the service's own creation
 // logic, and whether the request was signed is a question about a different
 // layer.
-func iamFixtureEC2(t *testing.T, queryRouter *sim.AWSQueryRouter, action string,
+func iamFixtureEC2(t *testing.T, queryRouter *AWSQueryRouter, action string,
 	params map[string]string, pattern string,
 ) string {
 	t.Helper()
@@ -254,7 +252,7 @@ func iamFixtureEC2(t *testing.T, queryRouter *sim.AWSQueryRouter, action string,
 
 // iamFixtureQuery performs one query-protocol call at a service's own API
 // version and reads the identifier the service assigned out of the response.
-func iamFixtureQuery(t *testing.T, queryRouter *sim.AWSQueryRouter,
+func iamFixtureQuery(t *testing.T, queryRouter *AWSQueryRouter,
 	version, action string, params map[string]string, pattern string,
 ) string {
 	t.Helper()
@@ -284,7 +282,7 @@ func iamFixtureQuery(t *testing.T, queryRouter *sim.AWSQueryRouter,
 
 // iamFixtureJSON performs one awsJson call and reads an identifier out of the
 // response, reaching the target's handler the same way iamFixtureEC2 does.
-func iamFixtureJSON(t *testing.T, jsonRouter *sim.AWSRouter,
+func iamFixtureJSON(t *testing.T, jsonRouter *AWSRouter,
 	target, body, pattern string,
 ) string {
 	t.Helper()

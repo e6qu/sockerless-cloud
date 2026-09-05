@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cross-slice enumeration for the Azure Resource Manager resource lists —
@@ -698,7 +698,7 @@ func handleAzureResourceList(w http.ResponseWriter, r *http.Request, sub, resour
 
 	filter, err := parseAzureResourceFilter(query.Get("$filter"))
 	if err != nil {
-		sim.AzureErrorf(w, "InvalidFilterInQueryString", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidFilterInQueryString", http.StatusBadRequest,
 			"The filter '%s' is invalid: %v.", query.Get("$filter"), err)
 		return
 	}
@@ -710,7 +710,7 @@ func handleAzureResourceList(w http.ResponseWriter, r *http.Request, sub, resour
 			continue
 		}
 		if !azureExpandMembers[member] {
-			sim.AzureErrorf(w, "InvalidExpandQueryOptionValue", http.StatusBadRequest,
+			AzureErrorf(w, "InvalidExpandQueryOptionValue", http.StatusBadRequest,
 				"The $expand query option value '%s' is invalid.", member)
 			return
 		}

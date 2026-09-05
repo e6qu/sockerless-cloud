@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Two Compute Engine collections the meta-resource registrar cannot express:
@@ -36,7 +36,7 @@ func registerComputeWireGroups(srv *sim.Server) {
 		k := key(r, sim.PathParam(r, "wireGroup"))
 		group, ok := groups.Get(k)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"wire group %q not found", sim.PathParam(r, "wireGroup"))
 			return "", nil, false
 		}
@@ -46,12 +46,12 @@ func registerComputeWireGroups(srv *sim.Server) {
 	srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
 		var group map[string]any
 		if err := sim.ReadJSON(r, &group); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		name, _ := group["name"].(string)
 		if name == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "a wire group needs a name")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "a wire group needs a name")
 			return
 		}
 		// The cross-site network has to exist: a wire group is addressed
@@ -60,7 +60,7 @@ func registerComputeWireGroups(srv *sim.Server) {
 		network := fmt.Sprintf("projects/%s/global/crossSiteNetworks/%s",
 			sim.PathParam(r, "project"), sim.PathParam(r, "crossSiteNetwork"))
 		if _, ok := gcpComputeCrossSiteNetworks.Get(network); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"cross-site network %q not found", sim.PathParam(r, "crossSiteNetwork"))
 			return
 		}
@@ -113,7 +113,7 @@ func registerComputeWireGroups(srv *sim.Server) {
 		}
 		var patch map[string]any
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		for field, value := range patch {
@@ -151,7 +151,7 @@ func registerComputeRegionalPublicDelegatedPrefixes(srv *sim.Server) {
 		k := computeScopedKey(r, cScopeRegion, "publicDelegatedPrefixes", name)
 		prefix, ok := prefixes.Get(k)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"public delegated prefix %q not found", name)
 			return "", nil, false
 		}
@@ -178,7 +178,7 @@ func registerComputeRegionalPublicDelegatedPrefixes(srv *sim.Server) {
 				status = "INITIALIZING"
 			}
 			if status != want.from {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"a prefix in %s cannot be %s", status, want.done)
 				return
 			}

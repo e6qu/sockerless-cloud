@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.Logic/workflows ARM control plane. The slice stores the full
@@ -93,7 +93,7 @@ func handleLogicWorkflowPut(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "workflowName")
 	var req LogicWorkflow
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := logicWorkflowID(sub, rg, name)
@@ -144,7 +144,7 @@ func handleLogicWorkflowPatch(w http.ResponseWriter, r *http.Request) {
 	id := logicWorkflowID(sub, rg, name)
 	var req LogicWorkflow
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	ok := logicWorkflows.Update(id, func(wf *LogicWorkflow) {
@@ -166,7 +166,7 @@ func handleLogicWorkflowPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", name)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", name)
 		return
 	}
 	wf, _ := logicWorkflows.Get(id)
@@ -204,7 +204,7 @@ func handleLogicWorkflowGet(w http.ResponseWriter, r *http.Request) {
 	id := logicWorkflowID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "workflowName"))
 	wf, ok := logicWorkflows.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, wf)
@@ -213,7 +213,7 @@ func handleLogicWorkflowGet(w http.ResponseWriter, r *http.Request) {
 func handleLogicWorkflowDelete(w http.ResponseWriter, r *http.Request) {
 	id := logicWorkflowID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "workflowName"))
 	if !logicWorkflows.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	logicDropWorkflowKeyGens(id)
@@ -264,7 +264,7 @@ func logicWorkflowSetState(w http.ResponseWriter, r *http.Request, state string)
 		wf.Properties["state"] = state
 		wf.Properties["changedTime"] = time.Now().UTC().Format(time.RFC3339Nano)
 	}) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -273,11 +273,11 @@ func logicWorkflowSetState(w http.ResponseWriter, r *http.Request, state string)
 func handleLogicWorkflowValidate(w http.ResponseWriter, r *http.Request) {
 	var req LogicWorkflow
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Properties == nil {
-		sim.AzureError(w, "InvalidWorkflow", "Workflow properties are required.", http.StatusBadRequest)
+		AzureError(w, "InvalidWorkflow", "Workflow properties are required.", http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -291,15 +291,15 @@ func handleLogicWorkflowTriggerRun(w http.ResponseWriter, r *http.Request) {
 	workflowID := logicWorkflowID(sub, rg, workflowName)
 	wf, ok := logicWorkflows.Get(workflowID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", workflowName)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", workflowName)
 		return
 	}
 	if state, _ := wf.Properties["state"].(string); strings.EqualFold(state, "Disabled") {
-		sim.AzureErrorf(w, "WorkflowTriggerIsDisabled", http.StatusBadRequest, "Workflow %q is disabled.", workflowName)
+		AzureErrorf(w, "WorkflowTriggerIsDisabled", http.StatusBadRequest, "Workflow %q is disabled.", workflowName)
 		return
 	}
 	if !logicWorkflowHasTrigger(wf, triggerName) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", triggerName)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Trigger %q not found.", triggerName)
 		return
 	}
 	logicRecordTriggerRun(wf, triggerName)
@@ -330,7 +330,7 @@ func handleLogicWorkflowRunGet(w http.ResponseWriter, r *http.Request) {
 	id := logicWorkflowRunID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "workflowName"), sim.PathParam(r, "runName"))
 	run, ok := logicRuns.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, run)
@@ -345,7 +345,7 @@ func handleLogicWorkflowRunCancel(w http.ResponseWriter, r *http.Request) {
 		run.Properties["status"] = "Cancelled"
 		run.Properties["endTime"] = time.Now().UTC().Format(time.RFC3339Nano)
 	}) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Run %q not found.", sim.PathParam(r, "runName"))
 		return
 	}
 	w.WriteHeader(http.StatusOK)

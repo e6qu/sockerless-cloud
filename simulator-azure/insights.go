@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AppInsightsPurge tracks an asynchronous data-purge operation
@@ -89,12 +89,12 @@ func registerApplicationInsights(srv *sim.Server) {
 
 		var req AppInsightsComponent
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if req.Location == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 
@@ -181,7 +181,7 @@ func registerApplicationInsights(srv *sim.Server) {
 
 		comp, ok := components.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Insights/components/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -212,7 +212,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s", sub, rg, name)
 		comp, ok := components.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Insights/components/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -220,7 +220,7 @@ func registerApplicationInsights(srv *sim.Server) {
 			Tags map[string]string `json:"tags"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Tags == nil {
@@ -268,7 +268,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		name := sim.PathParam(r, "componentName")
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s", sub, rg, name)
 		if _, ok := components.Get(resourceID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Insights/components/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
@@ -277,11 +277,11 @@ func registerApplicationInsights(srv *sim.Server) {
 			Filters []any  `json:"filters"`
 		}
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if body.Table == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'table' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'table' property is required.", http.StatusBadRequest)
 			return
 		}
 		purgeID := generateUUID()
@@ -295,7 +295,7 @@ func registerApplicationInsights(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/components/{componentName}/operations/{purgeId}", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := purges.Get(sim.PathParam(r, "purgeId"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Purge operation %q not found.", sim.PathParam(r, "purgeId"))
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Purge operation %q not found.", sim.PathParam(r, "purgeId"))
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"status": p.Status})
@@ -331,7 +331,7 @@ func registerApplicationInsights(srv *sim.Server) {
 	srv.HandleFunc("PUT "+armBase+"/components/{componentName}/currentbillingfeatures", func(w http.ResponseWriter, r *http.Request) {
 		b := insightsDefaultBilling(defaultBilling)
 		if err := sim.ReadJSON(r, &b); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// ResetTime / MaxHistoryCap are server-computed read-only fields.

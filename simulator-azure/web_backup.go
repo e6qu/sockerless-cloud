@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_backup.go implements the Microsoft.Web backup, restore and snapshot

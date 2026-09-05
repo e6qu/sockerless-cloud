@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECR OCI Distribution data plane. The ECR control plane
@@ -31,7 +31,7 @@ func registerECROCI(srv *sim.Server) {
 		// image from that rule's upstream registry and caches it here, which is
 		// what the rule is for.
 		HydrateManifest: ecrHydrateFromPullThroughCache,
-		OnManifestPut: func(repo, ref, contentType string, data []byte) {
+		OnManifestPut: func(_, repo, ref, contentType string, data []byte) {
 			digest := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 			detail := ECRImageDetail{
 				RegistryId:     ecrRegistryId(),

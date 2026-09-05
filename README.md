@@ -41,13 +41,12 @@ Full statement and rationale in [AGENTS.md → Simulator architecture — cloud-
 | Simulator | HTTP | gRPC (where used) |
 |---|---|---|
 | AWS | `:4566` | n/a |
-| GCP | `:4567` | `:4568` (Cloud Logging) |
+| GCP | `:4567` | `:4569` (Cloud Logging, Bigtable, Firestore, Pub/Sub, Spanner, Cloud KMS, Secret Manager; `SIM_GCP_GRPC_PORT`) |
 | Azure | `:4568` | n/a |
 
 ## Quick start — all three at once
 
 ```sh
-cd simulators
 docker compose up
 ```
 
@@ -197,7 +196,7 @@ Every simulator ships four test surfaces:
 - `sdk-tests/` — official cloud SDK against the running sim.
 - `cli-tests/` — official cloud CLI against the running sim.
 - `terraform-tests/` — real Terraform provider with `endpoints {}` overrides against the running sim.
-- `bash-tests/` (where present) — standalone bash scripts validating CLI behaviour in text + JSON modes.
+- `bash-tests/` — standalone bash scripts validating CLI behaviour in text + JSON modes.
 
 ```sh
 # Per-cloud run-all
@@ -217,7 +216,7 @@ make test-integration             # Simulator-backend integration tests (every G
 
 `make docker-test` builds the shared `Dockerfile.test` image, mounts the repository root plus the host Docker socket, and runs each simulator's existing `test-all` target. The Docker path is a real-client validation harness, not a reduced smoke test.
 
-CI runs all four on every PR — see `.github/workflows/ci.yml` `sim (aws)`, `sim (gcp)`, `sim (azure)` jobs.
+CI runs all of them on every PR — the `sim (<cloud> sdk …)`, `sim (<cloud> cli …)` and `tf (<cloud> …)` jobs in `.github/workflows/ci.yml`, sharded per cloud, with `race (simulator-<cloud>)` and `race (sim)` running the module unit tests under the race detector.
 
 ### Spec-based validation
 
@@ -243,24 +242,17 @@ Discovery documents, Azure Swagger):
   are JSON arrays of stream elements on the real wire too). Any new
   violation fails CI until the simulator matches.
 
-### Test counts (approximate)
-
-| Cloud | SDK test funcs | CLI test funcs | Bash checks | Terraform test funcs |
-|---|---|---|---|---|
-| AWS | ≈ 370 | ≈ 170 | ≈ 40 | 9 (incl. `TestStackProductionShape`, ≈ 90s end-to-end) |
-| GCP | ≈ 190 | ≈ 50 | ≈ 34 | 4 |
-| Azure | ≈ 180 | ≈ 55 | ≈ 42 | 1 (TLS; macOS delegates to Docker) |
-
 ## Shared framework
 
-The `shared/` directory (vendored into each simulator as a Go-module `replace`) provides:
-
-- **server.go** — HTTP server with health check, graceful shutdown, optional TLS.
-- **middleware.go** — request ID, structured logging, auth passthrough (extracts identity from SigV4 / Bearer tokens).
-- **router.go** — provider-specific routing: `AWSRouter` (X-Amz-Target header), `AWSQueryRouter` (Action parameter), `GCPRouter`/`AzureRouter` (path-based).
-- **state.go** — generic `StateStore[T]` with thread-safe CRUD operations.
-- **errors.go** — error-response formatting per provider (AWS JSON, EC2 XML, S3 XML, GCP JSON, Azure JSON).
-- **config.go** — environment-variable configuration loading.
+The three simulators are built on one framework module, [`sim/`](sim/README.md)
+(`github.com/e6qu/sockerless-cloud/sim`), pinned by each simulator like the
+other support modules (`realexec/`, `ui-auth/`): the HTTP server and its
+console and monitoring routes, the container-engine layer every workload runs
+on, durable state on SQLite, the OCI Distribution data plane the registries
+mount, request logging and tracing, and the bounds-safe parsing primitives.
+The framework is cloud-neutral; each cloud's error shape, protocol router,
+sandbox profile and console coordinates live in its own module and reach the
+framework through hooks.
 
 ## Design philosophy
 
@@ -314,15 +306,15 @@ The ECS simulator supports `ExecuteCommand` with WebSocket-based session bridgin
 
 ## Known issues
 
-Active simulator bugs live in [`BUGS.md`](BUGS.md). Each per-cloud README and [`PLAN.md`](PLAN.md) record the cross-cloud quirks that are not bugs.
+Open simulator bugs live in [`BUGS.md`](BUGS.md); the tooling quirks that are not simulator defects are recorded in [`DO_NEXT.md`](DO_NEXT.md).
 
 ## What's out of scope
 
 - **Cloud-side production deployments.** Simulators are for local development and CI. A production deployment talks to the real cloud endpoints; the point of the simulators is that the same client code reaches both.
 - **Multi-region / cross-region replication.** Each sim is single-region; multi-region routing belongs to real cloud infra.
-- **Billing / pricing / quota surfaces.** Absent except where load-bearing for testing (e.g. `SIM_GCP_CPU_QUOTA_PER_REGION` for Cloud Run quota-rejection tests).
-- **Real authentication.** The simulators accept bearer tokens / SigV4 / OAuth tokens without verifying them cryptographically.
-- **DNS resolution at the UDP/53 layer.** Sims store records but don't serve DNS queries. Pair with dnsmasq if you need real lookups.
+- **Published price sheets and vendor catalogs.** Google Cloud Billing's SKU catalog and the like are somebody else's published data; a partial copy would be fabrication, so those surfaces answer with what this installation publishes, which is nothing. Quota enforcement exists where a cloud enforces it (`SIM_GCP_CPU_QUOTA_PER_REGION` wires Cloud Run's regional CPU budget).
+- **Identity providers outside the simulator.** Every credential is verified — SigV4 signatures against the principal's stored secret, Google Cloud and Microsoft Entra bearers against the simulator's own signing keys — but the identities are the ones the simulator's IAM, Google Cloud IAM and Microsoft Entra slices minted. A real external identity provider is a coordinate the deployment supplies, not something the simulator stands in for.
+- **Outbound delivery to carriers and push services.** Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those deliveries fail naming the missing dependency (BUG-2712).
 
 ## Per-cloud guides
 

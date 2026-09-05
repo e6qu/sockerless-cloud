@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The AWS Glue Data Catalog business-context API stores glossaries, form
@@ -88,7 +88,7 @@ var (
 	glueBusinessTokens     sim.Store[string]
 )
 
-func registerGlueBusinessContext(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlueBusinessContext(r *AWSRouter, srv *sim.Server) {
 	glueBusinessGlossaries = sim.MakeStore[GlueBusinessGlossary](srv.DB(), "glue_business_glossaries")
 	glueBusinessTerms = sim.MakeStore[GlueBusinessGlossaryTerm](srv.DB(), "glue_business_glossary_terms")
 	glueBusinessFormTypes = sim.MakeStore[GlueBusinessFormType](srv.DB(), "glue_business_form_types")
@@ -101,7 +101,7 @@ func registerGlueBusinessContext(r *sim.AWSRouter, srv *sim.Server) {
 	registerGlueEntityOperations(r)
 }
 
-func registerGlueGlossaryOperations(r *sim.AWSRouter) {
+func registerGlueGlossaryOperations(r *AWSRouter) {
 	r.Register("AWSGlue.CreateGlossary", handleGlueCreateGlossary)
 	r.Register("AWSGlue.GetGlossary", handleGlueGetGlossary)
 	r.Register("AWSGlue.UpdateGlossary", handleGlueUpdateGlossary)
@@ -116,7 +116,7 @@ func registerGlueGlossaryOperations(r *sim.AWSRouter) {
 	r.Register("AWSGlue.DisassociateGlossaryTerms", handleGlueDisassociateGlossaryTerms)
 }
 
-func registerGlueAssetOperations(r *sim.AWSRouter) {
+func registerGlueAssetOperations(r *AWSRouter) {
 	r.Register("AWSGlue.PutFormType", handleGluePutFormType)
 	r.Register("AWSGlue.GetFormType", handleGlueGetFormType)
 	r.Register("AWSGlue.DeleteFormType", handleGlueDeleteFormType)
@@ -137,7 +137,7 @@ func registerGlueAssetOperations(r *sim.AWSRouter) {
 	r.Register("AWSGlue.BatchGetIterableForms", handleGlueBatchGetIterableForms)
 }
 
-func registerGlueEntityOperations(r *sim.AWSRouter) {
+func registerGlueEntityOperations(r *AWSRouter) {
 	r.Register("AWSGlue.BatchGetDataQualityRulesetEvaluationRun", handleGlueBatchGetDataQualityRulesetEvaluationRun)
 	r.Register("AWSGlue.ListEntities", handleGlueListEntities)
 	r.Register("AWSGlue.DescribeEntity", handleGlueDescribeEntity)

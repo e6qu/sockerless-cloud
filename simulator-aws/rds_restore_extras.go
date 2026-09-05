@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // registerRDSRestoreExtras mounts the second tranche of Amazon RDS
@@ -22,7 +22,7 @@ import (
 // named resources persist and read back; toggles flip a status field)
 // and renders the exact awsQuery XML shapes RDS returns, matching the
 // rds.smithy.json.gz spec the runtime validator checks against.
-func registerRDSRestoreExtras(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerRDSRestoreExtras(r *AWSQueryRouter, srv *sim.Server) {
 	rdsReservedInstances = sim.MakeStore[RDSReservedInstance](srv.DB(), "rds_reserved_instances")
 	rdsBlueGreenDeployments = sim.MakeStore[RDSBlueGreenDeployment](srv.DB(), "rds_bluegreen_deployments")
 	rdsIntegrations = sim.MakeStore[RDSIntegration](srv.DB(), "rds_integrations")

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // storeReopenRoundTrip persists one record into a fresh SQLite-backed store,

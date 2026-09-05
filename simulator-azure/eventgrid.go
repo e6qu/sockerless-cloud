@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.EventGrid ARM control plane plus custom-topic publish
@@ -230,7 +230,7 @@ func handleEventGridCreateTopic(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "topicName")
 	var req EventGridTopic
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := eventGridTopicID(sub, rg, name)
@@ -245,7 +245,7 @@ func handleEventGridCreateTopic(w http.ResponseWriter, r *http.Request) {
 	switch fmt.Sprint(props["inputSchema"]) {
 	case "EventGridSchema", "CloudEventSchemaV1_0", "CustomEventSchema":
 	default:
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
 			"inputSchema %q is invalid; must be one of EventGridSchema, CloudEventSchemaV1_0, CustomEventSchema", props["inputSchema"])
 		return
 	}
@@ -275,7 +275,7 @@ func handleEventGridGetTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "topicName"))
 	topic, ok := eventGridTopics.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic %q not found", id)
 		return
 	}
 	// Pure read: derive the endpoint into the response copy without persisting
@@ -287,7 +287,7 @@ func handleEventGridGetTopic(w http.ResponseWriter, r *http.Request) {
 func handleEventGridListTopicKeys(w http.ResponseWriter, r *http.Request) {
 	id := eventGridTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "topicName"))
 	if _, ok := eventGridTopics.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic %q not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, eventGridListKeysResponse(id))
@@ -296,7 +296,7 @@ func handleEventGridListTopicKeys(w http.ResponseWriter, r *http.Request) {
 func handleEventGridDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "topicName"))
 	if !eventGridTopics.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic %q not found", id)
 		return
 	}
 	for _, sub := range eventGridSubscriptions.List() {
@@ -354,7 +354,7 @@ func handleEventGridGetDomain(w http.ResponseWriter, r *http.Request) {
 func handleEventGridListDomainKeys(w http.ResponseWriter, r *http.Request) {
 	id := eventGridDomainID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"))
 	if _, ok := eventGridDomains.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain %q not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, eventGridListKeysResponse(id))
@@ -363,7 +363,7 @@ func handleEventGridListDomainKeys(w http.ResponseWriter, r *http.Request) {
 func handleEventGridDeleteDomain(w http.ResponseWriter, r *http.Request) {
 	id := eventGridDomainID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"))
 	if !eventGridDomains.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain %q not found", id)
 		return
 	}
 	for _, topic := range eventGridDomainTopics.List() {
@@ -392,7 +392,7 @@ func handleEventGridListDomainsBySubscription(w http.ResponseWriter, r *http.Req
 func handleEventGridCreateDomainTopic(w http.ResponseWriter, r *http.Request) {
 	domainID := eventGridDomainID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"))
 	if _, ok := eventGridDomains.Get(domainID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain %q not found", domainID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain %q not found", domainID)
 		return
 	}
 	id := eventGridDomainTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"), sim.PathParam(r, "domainTopicName"))
@@ -417,7 +417,7 @@ func handleEventGridGetDomainTopic(w http.ResponseWriter, r *http.Request) {
 func handleEventGridDeleteDomainTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridDomainTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"), sim.PathParam(r, "domainTopicName"))
 	if !eventGridDomainTopics.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "domain topic %q not found", id)
 		return
 	}
 	deleteEventGridScope(id)
@@ -446,7 +446,7 @@ func handleEventGridGetSystemTopic(w http.ResponseWriter, r *http.Request) {
 func handleEventGridDeleteSystemTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridSystemTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "systemTopicName"))
 	if !eventGridSystemTopics.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "system topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "system topic %q not found", id)
 		return
 	}
 	deleteEventGridScope(id)
@@ -480,12 +480,12 @@ func handleEventGridUpdatePartnerTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridPartnerTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerTopicName"))
 	existing, ok := eventGridPartnerTopics.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
 		return
 	}
 	var req EventGridTopic
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Tags != nil {
@@ -511,7 +511,7 @@ func handleEventGridActivatePartnerTopic(w http.ResponseWriter, r *http.Request)
 	id := eventGridPartnerTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerTopicName"))
 	topic, ok := eventGridPartnerTopics.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
 		return
 	}
 	if topic.Properties == nil {
@@ -527,7 +527,7 @@ func handleEventGridDeactivatePartnerTopic(w http.ResponseWriter, r *http.Reques
 	id := eventGridPartnerTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerTopicName"))
 	topic, ok := eventGridPartnerTopics.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
 		return
 	}
 	if topic.Properties == nil {
@@ -542,7 +542,7 @@ func handleEventGridDeactivatePartnerTopic(w http.ResponseWriter, r *http.Reques
 func handleEventGridDeletePartnerTopic(w http.ResponseWriter, r *http.Request) {
 	id := eventGridPartnerTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "partnerTopicName"))
 	if !eventGridPartnerTopics.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "partner topic %q not found", id)
 		return
 	}
 	deleteEventGridScope(id)
@@ -573,7 +573,7 @@ func eventGridCreateARMResource(w http.ResponseWriter, r *http.Request, store si
 func eventGridCreateARMResourceStatus(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, name, resourceType string, status int, mutate func(map[string]any)) {
 	var req EventGridTopic
 	if err := sim.ReadJSON(r, &req); err != nil && r.ContentLength != 0 {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	props := req.Properties
@@ -600,7 +600,7 @@ func eventGridCreateARMResourceStatus(w http.ResponseWriter, r *http.Request, st
 func eventGridGetARMResource(w http.ResponseWriter, store sim.Store[EventGridTopic], id, label string) {
 	resource, ok := store.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "%s %q not found", label, id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, resource)
@@ -628,17 +628,17 @@ func deleteEventGridScope(scopeID string) {
 func handleEventGridCreateEventSubscription(w http.ResponseWriter, r *http.Request) {
 	scopeID, store, ok := eventGridScopeFromRequest(r)
 	if !ok {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
 		return
 	}
 	if _, ok := store.Get(scopeID); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription scope %q not found", scopeID)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription scope %q not found", scopeID)
 		return
 	}
 	name := sim.PathParam(r, "eventSubscriptionName")
 	var req EventGridEventSubscription
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	props := req.Properties
@@ -661,13 +661,13 @@ func handleEventGridCreateEventSubscription(w http.ResponseWriter, r *http.Reque
 func handleEventGridGetEventSubscription(w http.ResponseWriter, r *http.Request) {
 	scopeID, _, ok := eventGridScopeFromRequest(r)
 	if !ok {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
 		return
 	}
 	id := eventGridSubscriptionIDForRequest(r, scopeID, sim.PathParam(r, "eventSubscriptionName"))
 	es, ok := eventGridSubscriptions.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, es)
@@ -676,12 +676,12 @@ func handleEventGridGetEventSubscription(w http.ResponseWriter, r *http.Request)
 func handleEventGridDeleteEventSubscription(w http.ResponseWriter, r *http.Request) {
 	scopeID, _, ok := eventGridScopeFromRequest(r)
 	if !ok {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
 		return
 	}
 	id := eventGridSubscriptionIDForRequest(r, scopeID, sim.PathParam(r, "eventSubscriptionName"))
 	if !eventGridSubscriptions.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "event subscription %q not found", id)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -690,7 +690,7 @@ func handleEventGridDeleteEventSubscription(w http.ResponseWriter, r *http.Reque
 func handleEventGridListEventSubscriptions(w http.ResponseWriter, r *http.Request) {
 	scopeID, _, ok := eventGridScopeFromRequest(r)
 	if !ok {
-		sim.AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
+		AzureErrorf(w, "InvalidRequest", http.StatusBadRequest, "event subscription scope is not supported")
 		return
 	}
 	prefix := scopeID + "/providers/Microsoft.EventGrid/eventSubscriptions/"
@@ -707,7 +707,7 @@ func handleEventGridListEventSubscriptions(w http.ResponseWriter, r *http.Reques
 func handleEventGridPublishEvents(w http.ResponseWriter, r *http.Request) {
 	scope, ok := eventGridPublishScopeFromHost(r.Host)
 	if !ok {
-		sim.AzureErrorf(w, "TopicNotFound", http.StatusNotFound, "event grid topic host %q not found", r.Host)
+		AzureErrorf(w, "TopicNotFound", http.StatusNotFound, "event grid topic host %q not found", r.Host)
 		return
 	}
 	publishEventGridScope(w, r, scope)
@@ -730,12 +730,12 @@ func publishEventGridScope(w http.ResponseWriter, r *http.Request, scope eventGr
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "failed to read request body: %v", err)
+		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "failed to read request body: %v", err)
 		return
 	}
 	events, err := validateEventGridPublishBody(body, scope.isDomain)
 	if err != nil {
-		sim.AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "%v", err)
+		AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "%v", err)
 		return
 	}
 	if !scope.isDomain {
@@ -749,7 +749,7 @@ func publishEventGridScope(w http.ResponseWriter, r *http.Request, scope eventGr
 	for i, event := range events {
 		single, marshalErr := json.Marshal([]json.RawMessage{rawEventGridEvent(body, i)})
 		if marshalErr != nil {
-			sim.AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "event %d could not be re-encoded: %v", i, marshalErr)
+			AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "event %d could not be re-encoded: %v", i, marshalErr)
 			return
 		}
 		deliverEventGridBatch(eventGridDomainTopicScopeID(scope.resource.ID, event.Topic), single)

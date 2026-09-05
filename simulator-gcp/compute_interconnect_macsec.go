@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The MACsec configuration of a Cloud Interconnect.
@@ -31,7 +31,7 @@ func registerComputeInterconnectMacsec(srv *sim.Server) {
 			key := "projects/" + sim.PathParam(r, "project") + "/global/interconnects/" + name
 			held, ok := gcpComputeInterconnects.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "interconnect %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "interconnect %q not found", name)
 				return
 			}
 

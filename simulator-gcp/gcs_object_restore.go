@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A delete under a soft-delete policy retires the object and keeps its bytes
@@ -129,7 +129,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 	bucketOr404 := func(w http.ResponseWriter, name string) (Bucket, bool) {
 		bucket, ok := buckets.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
 			return Bucket{}, false
 		}
 		return bucket, true
@@ -142,18 +142,18 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		}
 		generation := strings.TrimSpace(r.URL.Query().Get("generation"))
 		if generation == "" {
-			sim.GCPError(w, http.StatusBadRequest, "generation is required to restore an object", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "generation is required to restore an object", "INVALID_ARGUMENT")
 			return
 		}
 		gcsPurgeExpiredSoftDeletes(bucketName)
 		entry, ok := gcsSoftDeletedObjects.Get(gcsSoftDeleteKey(bucketName, objectName, generation))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no soft-deleted object %q with generation %s in bucket %q", objectName, generation, bucketName)
 			return
 		}
 		if _, live := objects.Get(bucketName + "/" + objectName); live {
-			sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+			GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 				"object %q already exists in bucket %q", objectName, bucketName)
 			return
 		}
@@ -180,7 +180,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			SoftDeletedBeforeTime string   `json:"softDeletedBeforeTime"`
 		}
 		if err := sim.ReadJSON(r, &request); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		restored := 0
@@ -226,24 +226,24 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			return
 		}
 		if !gcsHierarchicalNamespace(bucket) {
-			sim.GCPError(w, http.StatusBadRequest,
+			GCPError(w, http.StatusBadRequest,
 				"The bucket does not have hierarchical namespace enabled, which objects.move requires.",
 				"INVALID_ARGUMENT")
 			return
 		}
 		obj, found := objects.Get(bucketName + "/" + source)
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", source, bucketName)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", source, bucketName)
 			return
 		}
 		if _, exists := objects.Get(bucketName + "/" + destination); exists {
-			sim.GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
+			GCPErrorf(w, http.StatusPreconditionFailed, "FAILED_PRECONDITION",
 				"object %q already exists in bucket %q", destination, bucketName)
 			return
 		}
 		data, err := gcsObjectBytes(obj, bucketName, source)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read source object: %v", err)
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read source object: %v", err)
 			return
 		}
 		moved, err := persistGCSObject(objects, bucketName, destination, data, obj)

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Service endpoint policies (Microsoft.Network/serviceEndpointPolicies) narrow
@@ -130,7 +130,7 @@ func registerServiceEndpointPolicyDefinitions(srv *sim.Server) {
 	srv.HandleFunc("PUT "+base+"/{serviceEndpointPolicyDefinitionName}", func(w http.ResponseWriter, r *http.Request) {
 		var req ServiceEndpointPolicyDefinition
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		req.Name = sim.PathParam(r, "serviceEndpointPolicyDefinitionName")
@@ -166,7 +166,7 @@ func registerServiceEndpointPolicyDefinitions(srv *sim.Server) {
 				return
 			}
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Service endpoint policy definition %q was not found.", want)
 	})
 

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements faithful control-plane CRUD for the EC2 networking-misc
@@ -110,7 +110,7 @@ var (
 	ec2VpnConcentrators  sim.Store[EC2VpnConcentrator]
 )
 
-func registerEC2NetworkingMisc(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2NetworkingMisc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2AddressTransfers = sim.MakeStore[EC2AddressTransfer](srv.DB(), "ec2_address_transfers")
 	ec2ByoipCidrs = sim.MakeStore[EC2ByoipCidr](srv.DB(), "ec2_byoip_cidrs")
 	ec2PublicIpv4Pools = sim.MakeStore[EC2PublicIpv4Pool](srv.DB(), "ec2_public_ipv4_pools")

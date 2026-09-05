@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The hosting data plane resolves a branch's newest successful job, that job's

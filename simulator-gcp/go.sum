@@ -38,10 +38,12 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
-github.com/e6qu/sockerless-cloud/realexec v0.1.0 h1:AgkTtmimyfPXiwM8qTAM5Wn+M5iCkpZ10w9iGja9q7M=
-github.com/e6qu/sockerless-cloud/realexec v0.1.0/go.mod h1:Le0q9MvLaJgVoa6WRL73ZfH8OccO4C1crlvKXGqKwkU=
-github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260828135648-2834ff5ae633 h1:WN4PTAwYb12uuG6X04t8BUJxYZ2LLMdP4fXDfOOt+w8=
-github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260828135648-2834ff5ae633/go.mod h1:Xs+zY+sL+X262gWWFCyZf42pmXDc49WBmSU0KJOF88o=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260905112959-24dd57dfc0c6 h1:o04dBMOxWCGpD0xnSiAzKkqL0c0ydLhzaYwAeMmYzV0=
+github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260905112959-24dd57dfc0c6/go.mod h1:ti4TI6cQ5vQHioqlGmDtkBVweHmLHKxIAS5H+90FxU0=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20260905163159-5c8c5f64ebd1 h1:JhPNb/IOUpEIwi42/1v5IHOtizKxSMf3Iq3XQEra6G4=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20260905163159-5c8c5f64ebd1/go.mod h1:MSNvFMer3d3+F+d3V6gHkTTRNBPXVk7/MQ1+4RXVC4k=
+github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905112959-24dd57dfc0c6 h1:gw3pIyjqxdkLRgYxakOmkh2CeM/dGwuucEETCromrR0=
+github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905112959-24dd57dfc0c6/go.mod h1:xoBHEyXuJRea+OxATpPAM+UzxeqYeBxlwfGEpbTF90M=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
 github.com/go-jose/go-jose/v4 v4.1.5 h1:RjgjO2LOtWOJKUC5wpwY9LR3B3vwVAz6JS2YHfYU6eA=

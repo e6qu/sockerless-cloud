@@ -10,7 +10,7 @@ import (
 	"sort"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch monitoring extras.
@@ -59,7 +59,7 @@ var (
 
 const cwOTelEnrichmentKey = "account"
 
-func registerCloudWatchMonitoringExtra(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudWatchMonitoringExtra(r *AWSRouter, srv *sim.Server) {
 	cwDatasets = sim.MakeStore[CWDataset](srv.DB(), "cw_datasets")
 	cwManagedRules = sim.MakeStore[CWManagedRule](srv.DB(), "cw_managed_rules")
 	cwOTelEnrichment = sim.MakeStore[string](srv.DB(), "cw_otel_enrichment")
@@ -258,11 +258,11 @@ func handleCWJSONGetDataset(w http.ResponseWriter, r *http.Request) {
 		DatasetIdentifier string `json:"DatasetIdentifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DatasetIdentifier == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter DatasetIdentifier is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter DatasetIdentifier is required.", http.StatusBadRequest)
 		return
 	}
 	ds := cwResolveDataset(req.DatasetIdentifier)
@@ -279,11 +279,11 @@ func handleCWJSONAssociateDatasetKmsKey(w http.ResponseWriter, r *http.Request) 
 		KmsKeyArn         string `json:"KmsKeyArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DatasetIdentifier == "" || req.KmsKeyArn == "" {
-		sim.AWSError(w, "MissingParameter", "DatasetIdentifier and KmsKeyArn are required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "DatasetIdentifier and KmsKeyArn are required.", http.StatusBadRequest)
 		return
 	}
 	cwSetDatasetKey(req.DatasetIdentifier, req.KmsKeyArn)
@@ -295,11 +295,11 @@ func handleCWJSONDisassociateDatasetKmsKey(w http.ResponseWriter, r *http.Reques
 		DatasetIdentifier string `json:"DatasetIdentifier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DatasetIdentifier == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter DatasetIdentifier is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter DatasetIdentifier is required.", http.StatusBadRequest)
 		return
 	}
 	cwSetDatasetKey(req.DatasetIdentifier, "")
@@ -329,7 +329,7 @@ func handleCWJSONPutManagedInsightRules(w http.ResponseWriter, r *http.Request) 
 		} `json:"ManagedRules"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	inputs := make([]cwManagedRuleInput, 0, len(req.ManagedRules))
@@ -353,11 +353,11 @@ func handleCWJSONListManagedInsightRules(w http.ResponseWriter, r *http.Request)
 		ResourceARN string `json:"ResourceARN"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceARN == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter ResourceARN is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter ResourceARN is required.", http.StatusBadRequest)
 		return
 	}
 	out := make([]map[string]any, 0)
@@ -380,15 +380,15 @@ func handleCWJSONGetInsightRuleReport(w http.ResponseWriter, r *http.Request) {
 		Metrics   []string `json:"Metrics"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.RuleName == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter RuleName is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter RuleName is required.", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cwInsightRules.Get(req.RuleName); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "The specified rule does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "The specified rule does not exist.", http.StatusNotFound)
 		return
 	}
 	buckets := cwInsightReportBuckets(int64(req.StartTime), int64(req.EndTime), req.Period)
@@ -423,15 +423,15 @@ func handleCWJSONDescribeAlarmContributors(w http.ResponseWriter, r *http.Reques
 		AlarmName string `json:"AlarmName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AlarmName == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter AlarmName is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter AlarmName is required.", http.StatusBadRequest)
 		return
 	}
 	if _, ok := cwAlarms.Get(req.AlarmName); !ok {
-		sim.AWSError(w, "ResourceNotFound", "The named alarm does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFound", "The named alarm does not exist.", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"AlarmContributors": []map[string]any{}})
@@ -443,16 +443,16 @@ func handleCWJSONGetMetricWidgetImage(w http.ResponseWriter, r *http.Request) {
 		OutputFormat string `json:"OutputFormat"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.MetricWidget == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter MetricWidget is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter MetricWidget is required.", http.StatusBadRequest)
 		return
 	}
 	var widget map[string]any
 	if err := json.Unmarshal([]byte(req.MetricWidget), &widget); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "MetricWidget is not valid JSON.", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "MetricWidget is not valid JSON.", http.StatusBadRequest)
 		return
 	}
 	// MetricWidgetImage is a Blob; the awsJson encoder base64-encodes a []byte

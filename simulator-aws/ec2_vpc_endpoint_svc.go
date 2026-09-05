@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements five EC2 (ec2Query) control-plane families that front the
@@ -150,7 +150,7 @@ var (
 )
 
 // registerEC2VpcEndpointSvc registers this EC2 sub-service's ec2Query actions.
-func registerEC2VpcEndpointSvc(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2VpcEndpointSvc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2VpcEndpointServices = sim.MakeStore[EC2VpcEndpointServiceConfiguration](srv.DB(), "ec2_vpc_endpoint_services")
 	ec2VpcCidrAssocs = sim.MakeStore[EC2VpcCidrAssoc](srv.DB(), "ec2_vpc_cidr_assocs")
 	ec2SubnetCidrReservations = sim.MakeStore[EC2SubnetCidrReservation](srv.DB(), "ec2_subnet_cidr_reservations")

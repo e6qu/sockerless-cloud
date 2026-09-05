@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type azureMetadataVM struct {
@@ -434,7 +434,7 @@ func registerAzureInstanceAttestation(srv *sim.Server) {
 		nonce := r.URL.Query().Get("nonce")
 		signature, err := azureSignAttestedDocument(r, nonce)
 		if err != nil {
-			sim.AzureError(w, "InternalServerError",
+			AzureError(w, "InternalServerError",
 				"Could not sign the attested document: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

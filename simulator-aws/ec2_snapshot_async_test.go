@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CreateSnapshot is asynchronous on real EC2: it registers the snapshot, returns

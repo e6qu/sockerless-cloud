@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -433,7 +433,7 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 		Env:     env,
 		Timeout: amplifyBuildTimeout,
 		Labels:  map[string]string{"sockerless-amplify-job": jobID},
-		Sandbox: sim.SandboxFargate,
+		Sandbox: SandboxFargate,
 	}, buildLog)
 	if err != nil {
 		buildLog.Printf("# start build container: %v", err)

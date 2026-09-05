@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // azureKeyGenRow tracks how many times one key slot of a resource has been

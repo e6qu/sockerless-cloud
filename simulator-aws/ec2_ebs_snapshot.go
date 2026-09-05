@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements the EC2 EBS-encryption-by-default, fast-snapshot-restore,
@@ -84,7 +84,7 @@ var (
 // it; RestoreSnapshotFromRecycleBin pulls it back into ec2Snapshots.
 var ec2RecycledSnapshots sim.Store[EC2Snapshot]
 
-func registerEC2EBSSnapshot(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2EBSSnapshot(r *AWSQueryRouter, srv *sim.Server) {
 	ec2RecycledSnapshots = sim.MakeStore[EC2Snapshot](srv.DB(), "ec2_recycled_snapshots")
 	ec2EBSEncryption = sim.MakeStore[ebsEncryptionState](srv.DB(), "ec2_ebs_encryption")
 	ec2SnapshotBPA = sim.MakeStore[string](srv.DB(), "ec2_snapshot_block_public_access")

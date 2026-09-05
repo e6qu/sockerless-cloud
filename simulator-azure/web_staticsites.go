@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure Static Web Apps (Microsoft.Web/staticSites) — the full StaticSites_*
@@ -311,7 +311,7 @@ func staticSiteARMID(r *http.Request) string {
 func staticSiteOr404(w http.ResponseWriter, r *http.Request) (StaticSiteResource, bool) {
 	ss, ok := webStaticSites.Get(staticSiteARMID(r))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Web/staticSites/%s' was not found.", sim.PathParam(r, "name"))
 		return ss, false
 	}
@@ -330,7 +330,7 @@ func staticSiteBuildOr404(w http.ResponseWriter, r *http.Request) (StaticSiteBui
 	}
 	b, ok := webStaticSiteBuilds.Get(staticSiteBuildARMID(r))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Web/staticSites/%s/builds/%s' was not found.",
 			sim.PathParam(r, "name"), sim.PathParam(r, "environmentName"))
 		return b, false
@@ -532,11 +532,11 @@ func handleStaticSiteGet(w http.ResponseWriter, r *http.Request) {
 func handleStaticSitePut(w http.ResponseWriter, r *http.Request) {
 	var req StaticSiteResource
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Location == "" {
-		sim.AzureError(w, "LocationRequired", "The location property is required for this definition.", http.StatusBadRequest)
+		AzureError(w, "LocationRequired", "The location property is required for this definition.", http.StatusBadRequest)
 		return
 	}
 	name := sim.PathParam(r, "name")
@@ -642,7 +642,7 @@ func handleStaticSitePatch(w http.ResponseWriter, r *http.Request) {
 	}
 	var req StaticSiteResource
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Tags != nil {
@@ -785,7 +785,7 @@ func handleStaticSiteResetAPIKey(w http.ResponseWriter, r *http.Request) {
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	secrets, _ := webStaticSiteSecrets.Get(ss.ID)
@@ -832,7 +832,7 @@ func staticSiteSettingsUpsert(w http.ResponseWriter, r *http.Request, scopeID st
 		Properties map[string]string `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Properties == nil {
@@ -927,7 +927,7 @@ func handleStaticSiteBuildDelete(w http.ResponseWriter, r *http.Request) {
 	if env == "default" {
 		// Real Azure refuses to delete the production environment; it is
 		// deleted with the site.
-		sim.AzureError(w, "BadRequest",
+		AzureError(w, "BadRequest",
 			"The default build of a static site cannot be deleted. Delete the static site instead.",
 			http.StatusBadRequest)
 		return
@@ -971,7 +971,7 @@ func staticSiteZipDeploy(w http.ResponseWriter, r *http.Request, ss StaticSiteRe
 		Properties StaticSiteZipDeployment `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	buildID := ss.ID + "/builds/" + env
@@ -1078,13 +1078,13 @@ func handleStaticSiteUserUpdate(w http.ResponseWriter, r *http.Request) {
 	id := ss.ID + "/authproviders/" + provider + "/users/" + userID
 	var req StaticSiteUserARMResource
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if !webStaticSiteUsers.Update(id, func(u *StaticSiteUserARMResource) {
 		u.Properties.Roles = req.Properties.Roles
 	}) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The user '%s' was not found on static site '%s'.", userID, ss.Name)
 		return
 	}
@@ -1100,7 +1100,7 @@ func handleStaticSiteUserDelete(w http.ResponseWriter, r *http.Request) {
 	provider := sim.PathParam(r, "authprovider")
 	userID := sim.PathParam(r, "userid")
 	if !webStaticSiteUsers.Delete(ss.ID + "/authproviders/" + provider + "/users/" + userID) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The user '%s' was not found on static site '%s'.", userID, ss.Name)
 		return
 	}
@@ -1122,12 +1122,12 @@ func handleStaticSiteCreateUserInvitation(w http.ResponseWriter, r *http.Request
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	p := req.Properties
 	if p.Provider == "" || p.UserDetails == "" {
-		sim.AzureError(w, "BadRequest", "provider and userDetails are required.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "provider and userDetails are required.", http.StatusBadRequest)
 		return
 	}
 	// The invitation domain must be one the site serves — its default
@@ -1144,7 +1144,7 @@ func handleStaticSiteCreateUserInvitation(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if !valid {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 			"The domain '%s' is not a valid domain for this static site.", p.Domain)
 		return
 	}
@@ -1300,7 +1300,7 @@ func handleStaticSiteCustomDomainGet(w http.ResponseWriter, r *http.Request) {
 	}
 	d, found := webStaticSiteDomains.Get(ss.ID + "/customDomains/" + sim.PathParam(r, "domainName"))
 	if !found {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The custom domain '%s' was not found on static site '%s'.", sim.PathParam(r, "domainName"), ss.Name)
 		return
 	}
@@ -1318,7 +1318,7 @@ func handleStaticSiteCustomDomainPut(w http.ResponseWriter, r *http.Request) {
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	method := req.Properties.ValidationMethod
@@ -1363,7 +1363,7 @@ func handleStaticSiteCustomDomainDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !webStaticSiteDomains.Delete(ss.ID + "/customDomains/" + sim.PathParam(r, "domainName")) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The custom domain '%s' was not found on static site '%s'.", sim.PathParam(r, "domainName"), ss.Name)
 		return
 	}
@@ -1381,7 +1381,7 @@ func handleStaticSiteCustomDomainValidate(w http.ResponseWriter, r *http.Request
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	method := req.Properties.ValidationMethod
@@ -1396,7 +1396,7 @@ func handleStaticSiteCustomDomainValidate(w http.ResponseWriter, r *http.Request
 		return strings.HasSuffix(strings.ToLower(d.ID), strings.ToLower(suffix))
 	}) {
 		if !strings.HasPrefix(d.ID, ss.ID+"/") {
-			sim.AzureErrorf(w, "Conflict", http.StatusConflict,
+			AzureErrorf(w, "Conflict", http.StatusConflict,
 				"The custom domain '%s' is already associated with another static site.", domainName)
 			return
 		}
@@ -1416,7 +1416,7 @@ func handleStaticSiteCustomDomainValidate(w http.ResponseWriter, r *http.Request
 		token = d.Properties.ValidationToken
 	}
 	if validated, why := staticSiteDomainDNSValidated(method, domainName, token, hostname); !validated {
-		sim.AzureError(w, "BadRequest", why, http.StatusBadRequest)
+		AzureError(w, "BadRequest", why, http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1474,11 +1474,11 @@ func handleStaticSiteBasicAuthPut(w http.ResponseWriter, r *http.Request) {
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Properties.ApplicableEnvironmentsMode == "" {
-		sim.AzureError(w, "BadRequest", "applicableEnvironmentsMode is required.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "applicableEnvironmentsMode is required.", http.StatusBadRequest)
 		return
 	}
 	ba := staticSiteDefaultBasicAuth(ss.ID)
@@ -1548,7 +1548,7 @@ func registerStaticSiteDatabaseConnections(srv *sim.Server, pattern, scope strin
 			}
 			c, found := webStaticSiteDBConns.Get(scopeID + "/databaseConnections/" + sim.PathParam(r, "databaseConnectionName"))
 			if !found {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"The database connection '%s' was not found.", sim.PathParam(r, "databaseConnectionName"))
 				return
 			}
@@ -1569,11 +1569,11 @@ func registerStaticSiteDatabaseConnections(srv *sim.Server, pattern, scope strin
 		}
 		var req DatabaseConnection
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.ResourceID == "" || req.Properties.Region == "" {
-			sim.AzureError(w, "BadRequest", "resourceId and region are required.", http.StatusBadRequest)
+			AzureError(w, "BadRequest", "resourceId and region are required.", http.StatusBadRequest)
 			return
 		}
 		name := sim.PathParam(r, "databaseConnectionName")
@@ -1593,7 +1593,7 @@ func registerStaticSiteDatabaseConnections(srv *sim.Server, pattern, scope strin
 		}
 		var req DatabaseConnection
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := scopeID + "/databaseConnections/" + sim.PathParam(r, "databaseConnectionName")
@@ -1611,7 +1611,7 @@ func registerStaticSiteDatabaseConnections(srv *sim.Server, pattern, scope strin
 				c.Properties.Region = req.Properties.Region
 			}
 		}) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The database connection '%s' was not found.", sim.PathParam(r, "databaseConnectionName"))
 			return
 		}
@@ -1696,7 +1696,7 @@ func registerStaticSiteLinkedBackends(srv *sim.Server, pattern, scope string) {
 		}
 		b, found := webStaticSiteBackends.Get(scopeID + "/linkedBackends/" + sim.PathParam(r, "linkedBackendName"))
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The linked backend '%s' was not found.", sim.PathParam(r, "linkedBackendName"))
 			return
 		}
@@ -1709,15 +1709,15 @@ func registerStaticSiteLinkedBackends(srv *sim.Server, pattern, scope string) {
 		}
 		var req StaticSiteLinkedBackendARMResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.BackendResourceID == "" {
-			sim.AzureError(w, "BadRequest", "backendResourceId is required.", http.StatusBadRequest)
+			AzureError(w, "BadRequest", "backendResourceId is required.", http.StatusBadRequest)
 			return
 		}
 		if why, ok := staticSiteResolveBackend(req.Properties.BackendResourceID); !ok {
-			sim.AzureError(w, "BadRequest", why, http.StatusBadRequest)
+			AzureError(w, "BadRequest", why, http.StatusBadRequest)
 			return
 		}
 		name := sim.PathParam(r, "linkedBackendName")
@@ -1752,15 +1752,15 @@ func registerStaticSiteLinkedBackends(srv *sim.Server, pattern, scope string) {
 		}
 		var req StaticSiteLinkedBackendARMResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.BackendResourceID == "" {
-			sim.AzureError(w, "BadRequest", "backendResourceId is required.", http.StatusBadRequest)
+			AzureError(w, "BadRequest", "backendResourceId is required.", http.StatusBadRequest)
 			return
 		}
 		if why, ok := staticSiteResolveBackend(req.Properties.BackendResourceID); !ok {
-			sim.AzureError(w, "BadRequest", why, http.StatusBadRequest)
+			AzureError(w, "BadRequest", why, http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1806,7 +1806,7 @@ func registerStaticSiteUserProvidedFunctionApps(srv *sim.Server, pattern, scope 
 		}
 		f, found := webStaticSiteFnApps.Get(scopeID + "/userProvidedFunctionApps/" + sim.PathParam(r, "functionAppName"))
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The user provided function app '%s' was not found.", sim.PathParam(r, "functionAppName"))
 			return
 		}
@@ -1819,17 +1819,17 @@ func registerStaticSiteUserProvidedFunctionApps(srv *sim.Server, pattern, scope 
 		}
 		var req StaticSiteUserProvidedFunctionAppARMResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		fnID := req.Properties.FunctionAppResourceID
 		if fnID == "" {
-			sim.AzureError(w, "BadRequest", "functionAppResourceId is required.", http.StatusBadRequest)
+			AzureError(w, "BadRequest", "functionAppResourceId is required.", http.StatusBadRequest)
 			return
 		}
 		resolved := azfSites.Filter(func(s Site) bool { return strings.EqualFold(s.ID, fnID) })
 		if len(resolved) == 0 {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"The function app '%s' does not exist.", fnID)
 			return
 		}
@@ -1885,7 +1885,7 @@ func handleStaticSitePECGet(w http.ResponseWriter, r *http.Request) {
 	}
 	c, found := webStaticSitePECs.Get(ss.ID + "/privateEndpointConnections/" + sim.PathParam(r, "privateEndpointConnectionName"))
 	if !found {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The private endpoint connection '%s' was not found.", sim.PathParam(r, "privateEndpointConnectionName"))
 		return
 	}
@@ -1899,7 +1899,7 @@ func handleStaticSitePECPut(w http.ResponseWriter, r *http.Request) {
 	}
 	var req StaticSiteRemotePrivateEndpointConnection
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	id := ss.ID + "/privateEndpointConnections/" + sim.PathParam(r, "privateEndpointConnectionName")
@@ -1968,12 +1968,12 @@ func handleStaticSitePreviewWorkflow(w http.ResponseWriter, r *http.Request) {
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 		return
 	}
 	p := req.Properties
 	if p.RepositoryURL == "" || p.Branch == "" {
-		sim.AzureError(w, "BadRequest", "repositoryUrl and branch are required.", http.StatusBadRequest)
+		AzureError(w, "BadRequest", "repositoryUrl and branch are required.", http.StatusBadRequest)
 		return
 	}
 	bp := p.BuildProperties

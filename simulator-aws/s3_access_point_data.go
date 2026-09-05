@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The access point data plane.
@@ -126,5 +126,5 @@ func s3ScopeAdmitsPrefix(prefixes []string, key string) bool {
 }
 
 func s3AccessPointDenied(w http.ResponseWriter, r *http.Request, bucket, message string) {
-	sim.S3ErrorXML(w, "AccessDenied", message, bucket, sim.RequestID(r.Context()), http.StatusForbidden)
+	S3ErrorXML(w, "AccessDenied", message, bucket, sim.RequestID(r.Context()), http.StatusForbidden)
 }

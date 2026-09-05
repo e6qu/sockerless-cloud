@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // eventGridSASFor builds a Shared Access Signature exactly as Microsoft's

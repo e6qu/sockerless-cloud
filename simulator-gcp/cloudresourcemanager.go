@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // crmProjects is the Cloud Resource Manager project store, keyed by project
@@ -79,7 +79,7 @@ func crmResolveProject(ref string) (CRMProject, bool) {
 // for a project the caller cannot see: 403 PERMISSION_DENIED, never 404 —
 // the API does not disclose whether an inaccessible project exists.
 func crmProjectPermissionDenied(w http.ResponseWriter) {
-	sim.GCPErrorf(w, http.StatusForbidden, "PERMISSION_DENIED", "The caller does not have permission")
+	GCPErrorf(w, http.StatusForbidden, "PERMISSION_DENIED", "The caller does not have permission")
 }
 
 // crmProjectIDPattern is the documented project-ID shape: 6–30 characters,
@@ -325,7 +325,7 @@ func crmProjectDeleteBlocked(w http.ResponseWriter, p CRMProject) bool {
 	if _, held := crmProjectDeleteLien(p); !held {
 		return false
 	}
-	sim.GCPError(w, http.StatusBadRequest, "Precondition check failed.", "FAILED_PRECONDITION")
+	GCPError(w, http.StatusBadRequest, "Precondition check failed.", "FAILED_PRECONDITION")
 	return true
 }
 
@@ -333,7 +333,7 @@ func crmProjectDeleteBlocked(w http.ResponseWriter, p CRMProject) bool {
 func crmCreateLien(w http.ResponseWriter, r *http.Request) {
 	var req CRMLien
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	l := CRMLien{
@@ -368,7 +368,7 @@ func crmListLiens(w http.ResponseWriter, r *http.Request) {
 func crmGetLien(w http.ResponseWriter, r *http.Request) {
 	l, ok := crmLiens.Get("liens/" + sim.PathParam(r, "lien"))
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "lien not found")
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "lien not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, l)
@@ -378,7 +378,7 @@ func crmGetLien(w http.ResponseWriter, r *http.Request) {
 func crmDeleteLien(w http.ResponseWriter, r *http.Request) {
 	name := "liens/" + sim.PathParam(r, "lien")
 	if !crmLiens.Delete(name) {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "lien not found")
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "lien not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -517,7 +517,7 @@ func crmGetOperation(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, op)
 		return
 	}
-	sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 }
 
 // crmV1ProjectPOSTMethods are the POST custom methods the simulator serves on
@@ -576,15 +576,15 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 	srv.HandleFunc("POST /v1/projects", func(w http.ResponseWriter, r *http.Request) {
 		var req crmV1ProjectMsg
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if err := crmValidateProjectID(req.ProjectID); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 		if _, exists := crmProjects.Get(req.ProjectID); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Requested entity already exists")
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Requested entity already exists")
 			return
 		}
 		p := CRMProject{
@@ -615,7 +615,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 			return ok
 		})
 		if filterErr != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", filterErr)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", filterErr)
 			return
 		}
 		sort.Slice(rows, func(i, j int) bool { return rows[i].ProjectId < rows[j].ProjectId })
@@ -643,7 +643,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 			return
 		}
 		if p.State != "ACTIVE" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Project \"%s\" has lifecycle state %s; delete requires ACTIVE", p.ProjectId, p.State)
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Project \"%s\" has lifecycle state %s; delete requires ACTIVE", p.ProjectId, p.State)
 			return
 		}
 		if crmProjectDeleteBlocked(w, p) {
@@ -666,7 +666,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 		}
 		var req crmV1ProjectMsg
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		p.DisplayName = req.Name
@@ -724,7 +724,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 		// above, so undelete is the only method crmV1ProjectPOSTMethods still
 		// admits here.
 		if p.State != "DELETE_REQUESTED" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Project \"%s\" has lifecycle state %s; undelete requires DELETE_REQUESTED", p.ProjectId, p.State)
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "Project \"%s\" has lifecycle state %s; undelete requires DELETE_REQUESTED", p.ProjectId, p.State)
 			return
 		}
 		p.State = "ACTIVE"
@@ -771,7 +771,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 			PageToken string `json:"pageToken"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		rows := crmOrganizations.Filter(func(o CRMOrganization) bool { return crmOrganizationMatch(o, req.Filter) })

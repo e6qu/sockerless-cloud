@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
 )
 
 // SigV4 request-authentication gate.
@@ -430,7 +428,7 @@ func sigv4ExemptControlPlaneAction(action string) bool {
 func sigv4WriteControlPlaneError(w http.ResponseWriter, r *http.Request, serr *sigv4Error) {
 	jsonCode, queryCode := sigv4ErrorCodes(serr.kind)
 	if r.Header.Get("X-Amz-Target") != "" {
-		sim.AWSError(w, jsonCode, serr.message, http.StatusForbidden)
+		AWSError(w, jsonCode, serr.message, http.StatusForbidden)
 		return
 	}
 	if sigv4RequestService(r) == "ec2" {
@@ -443,7 +441,7 @@ func sigv4WriteControlPlaneError(w http.ResponseWriter, r *http.Request, serr *s
 func sigv4WriteControlPlaneMissingAuth(w http.ResponseWriter, r *http.Request) {
 	const msg = "Request is missing Authentication Token"
 	if r.Header.Get("X-Amz-Target") != "" {
-		sim.AWSError(w, "MissingAuthenticationTokenException", msg, http.StatusForbidden)
+		AWSError(w, "MissingAuthenticationTokenException", msg, http.StatusForbidden)
 		return
 	}
 	if sigv4RequestService(r) == "ec2" {
@@ -486,14 +484,14 @@ func sigv4WriteS3Error(w http.ResponseWriter, r *http.Request, serr *sigv4Error)
 	resource := strings.TrimPrefix(r.URL.Path, "/")
 	switch serr.kind {
 	case sigErrInvalidClientToken:
-		sim.S3ErrorXML(w, "InvalidAccessKeyId",
+		S3ErrorXML(w, "InvalidAccessKeyId",
 			"The AWS Access Key Id you provided does not exist in our records.",
 			resource, generateUUID(), http.StatusForbidden)
 	case sigErrExpiredToken:
-		sim.S3ErrorXML(w, "ExpiredToken", "The provided token has expired.",
+		S3ErrorXML(w, "ExpiredToken", "The provided token has expired.",
 			resource, generateUUID(), http.StatusForbidden)
 	default:
-		sim.S3ErrorXML(w, "SignatureDoesNotMatch", serr.message,
+		S3ErrorXML(w, "SignatureDoesNotMatch", serr.message,
 			resource, generateUUID(), http.StatusForbidden)
 	}
 }

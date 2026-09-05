@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // EventBridge Scheduler — terraform-provider-aws declares `aws_scheduler_schedule`

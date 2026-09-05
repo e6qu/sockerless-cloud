@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -161,7 +161,7 @@ var (
 	cbBuildCancels      = map[string]func(){}
 )
 
-func registerCodeBuild(r *sim.AWSRouter, srv *sim.Server) {
+func registerCodeBuild(r *AWSRouter, srv *sim.Server) {
 	cbProjects = sim.MakeStore[CBProject](srv.DB(), "codebuild_projects")
 	cbBuilds = sim.MakeStore[CBBuild](srv.DB(), "codebuild_builds")
 	cbReportGrps = sim.MakeStore[CBReportGroup](srv.DB(), "codebuild_report_groups")
@@ -813,7 +813,7 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 		ExtraHosts:   hostMetadataExtraHosts(),
 		Timeout:      cbBuildTimeout(project),
 		Labels:       map[string]string{"sockerless-codebuild-build": buildID},
-		Sandbox:      sim.SandboxFargate,
+		Sandbox:      SandboxFargate,
 	}, sim.NoopSink{})
 	if err != nil {
 		return -1, fmt.Sprintf("start build environment %s: %v", image, err)

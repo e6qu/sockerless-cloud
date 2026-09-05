@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // SSM Parameter Store — runner workflows pull configuration values
@@ -75,7 +75,7 @@ func ssmParameterExists(resourceID string) bool {
 	return ok
 }
 
-func registerSSMParameterStore(r *sim.AWSRouter, srv *sim.Server) {
+func registerSSMParameterStore(r *AWSRouter, srv *sim.Server) {
 	ssmParams = sim.MakeStore[SSMParameter](srv.DB(), "ssm_parameters")
 	ssmResourceTags = sim.MakeStore[[]SSMTag](srv.DB(), "ssm_resource_tags")
 
@@ -103,16 +103,16 @@ func handleSSMAddTagsToResource(w http.ResponseWriter, r *http.Request) {
 		Tags         []SSMTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceType == "" || req.ResourceId == "" {
-		sim.AWSError(w, "InvalidResourceId", "ResourceType and ResourceId are required", http.StatusBadRequest)
+		AWSError(w, "InvalidResourceId", "ResourceType and ResourceId are required", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceType == "Parameter" {
 		if !ssmParameterExists(req.ResourceId) {
-			sim.AWSErrorf(w, "InvalidResourceId", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidResourceId", http.StatusBadRequest,
 				"The Parameter %q does not exist", req.ResourceId)
 			return
 		}
@@ -144,11 +144,11 @@ func handleSSMRemoveTagsFromResource(w http.ResponseWriter, r *http.Request) {
 		TagKeys      []string `json:"TagKeys"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceType == "" || req.ResourceId == "" {
-		sim.AWSError(w, "InvalidResourceId", "ResourceType and ResourceId are required", http.StatusBadRequest)
+		AWSError(w, "InvalidResourceId", "ResourceType and ResourceId are required", http.StatusBadRequest)
 		return
 	}
 	key := ssmTagKey(req.ResourceType, req.ResourceId)
@@ -177,17 +177,17 @@ func handleSSMListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		ResourceId   string `json:"ResourceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ResourceType == "" || req.ResourceId == "" {
-		sim.AWSError(w, "InvalidResourceId", "ResourceType and ResourceId are required", http.StatusBadRequest)
+		AWSError(w, "InvalidResourceId", "ResourceType and ResourceId are required", http.StatusBadRequest)
 		return
 	}
 	// Validate the underlying resource exists when we model it.
 	if req.ResourceType == "Parameter" {
 		if !ssmParameterExists(req.ResourceId) {
-			sim.AWSErrorf(w, "InvalidResourceId", http.StatusBadRequest,
+			AWSErrorf(w, "InvalidResourceId", http.StatusBadRequest,
 				"The Parameter %q does not exist", req.ResourceId)
 			return
 		}
@@ -214,11 +214,11 @@ func handleSSMPutParameter(w http.ResponseWriter, r *http.Request) {
 		DataType       string `json:"DataType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" || req.Value == "" {
-		sim.AWSError(w, "ValidationException", "Name and Value are required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "Name and Value are required", http.StatusBadRequest)
 		return
 	}
 	if req.Type == "" {
@@ -232,7 +232,7 @@ func handleSSMPutParameter(w http.ResponseWriter, r *http.Request) {
 	}
 	existing, exists := ssmParams.Get(req.Name)
 	if exists && !req.Overwrite {
-		sim.AWSErrorf(w, "ParameterAlreadyExists", http.StatusBadRequest,
+		AWSErrorf(w, "ParameterAlreadyExists", http.StatusBadRequest,
 			"The parameter already exists. To overwrite this value, set the overwrite option in the request to true.")
 		return
 	}
@@ -296,12 +296,12 @@ func handleSSMGetParameter(w http.ResponseWriter, r *http.Request) {
 		WithDecryption bool   `json:"WithDecryption"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	param, ok := ssmParams.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
 			"Parameter %s not found.", req.Name)
 		return
 	}
@@ -316,7 +316,7 @@ func handleSSMGetParameters(w http.ResponseWriter, r *http.Request) {
 		WithDecryption bool     `json:"WithDecryption"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var found []SSMParameter
@@ -350,7 +350,7 @@ func handleSSMGetParametersByPath(w http.ResponseWriter, r *http.Request) {
 		ParameterFilters []ssmParameterFilter `json:"ParameterFilters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	prefix := ensureLeadingSlash(req.Path)
@@ -431,7 +431,7 @@ func handleSSMDescribeParameters(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	all := ssmParams.List()
@@ -464,11 +464,11 @@ func handleSSMDeleteParameter(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if _, ok := ssmParams.Get(req.Name); !ok {
-		sim.AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
+		AWSErrorf(w, "ParameterNotFound", http.StatusBadRequest,
 			"Parameter %s not found.", req.Name)
 		return
 	}
@@ -481,7 +481,7 @@ func handleSSMDeleteParameters(w http.ResponseWriter, r *http.Request) {
 		Names []string `json:"Names"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var deleted, invalid []string

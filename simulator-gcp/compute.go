@@ -14,7 +14,7 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // gcpInt64 round-trips int64 quoted-as-string (real GCP discovery
@@ -215,7 +215,7 @@ func computeOpJSON(rec ComputeOperationRecord) map[string]any {
 func computeWriteOperation(w http.ResponseWriter, name string) {
 	rec, ok := computeOpRegistry.Get(name)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
+		GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, computeOpJSON(rec))
@@ -245,7 +245,7 @@ func computeWaitOperation(w http.ResponseWriter, r *http.Request, name string) {
 	for {
 		rec, ok := computeOpRegistry.Get(name)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
 			return
 		}
 		if rec.Status == "DONE" || time.Now().After(deadline) {
@@ -306,7 +306,7 @@ func newComputeOpRecord(project, scope, targetLink, operationType string) Comput
 // return immediately.
 func computeConflict(w http.ResponseWriter, exists bool, resource, name string) bool {
 	if exists {
-		sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "The resource '%s' named '%s' already exists", resource, name)
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "The resource '%s' named '%s' already exists", resource, name)
 		return true
 	}
 	return false
@@ -317,7 +317,7 @@ func computeConflict(w http.ResponseWriter, exists bool, resource, name string) 
 // Delete reported; when false the handler must return immediately.
 func computeNotFound(w http.ResponseWriter, deleted bool, resource, name string) bool {
 	if !deleted {
-		sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The resource '%s' named '%s' was not found", resource, name)
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The resource '%s' named '%s' was not found", resource, name)
 		return true
 	}
 	return false
@@ -867,7 +867,7 @@ func registerCompute(srv *sim.Server) {
 			} `json:"routingConfig"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
@@ -892,7 +892,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		if err := gcpCreateRealNetwork(r.Context(), selfLink); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to create real VPC network fabric: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to create real VPC network fabric: %v", err)
 			return
 		}
 		networks.Put(selfLink, net)
@@ -909,7 +909,7 @@ func registerCompute(srv *sim.Server) {
 
 		net, ok := networks.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, 404, "NOT_FOUND", "Network %s not found", name)
+			GCPErrorf(w, 404, "NOT_FOUND", "Network %s not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, net)
@@ -945,7 +945,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		if err := gcpDeleteRealNetwork(r.Context(), selfLink); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to delete real VPC network fabric: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to delete real VPC network fabric: %v", err)
 			return
 		}
 		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
@@ -967,7 +967,7 @@ func registerCompute(srv *sim.Server) {
 			} `json:"routingConfig"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
@@ -986,11 +986,11 @@ func registerCompute(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		var req ComputeInstanceTemplate
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if req.Name == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "name is required")
 			return
 		}
 		selfLink := fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/global/instanceTemplates/%s", project, req.Name)
@@ -1013,7 +1013,7 @@ func registerCompute(srv *sim.Server) {
 		storeKey := fmt.Sprintf("projects/%s/global/instanceTemplates/%s", project, name)
 		tmpl, ok := instanceTemplates.Get(storeKey)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceTemplate %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instanceTemplate %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, tmpl)
@@ -1079,7 +1079,7 @@ func registerCompute(srv *sim.Server) {
 			PrivateIpGoogleAccess bool   `json:"privateIpGoogleAccess"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
@@ -1103,7 +1103,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		if err := gcpCreateRealSubnetwork(r.Context(), subnet); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to create real subnet network fabric: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to create real subnet network fabric: %v", err)
 			return
 		}
 		subnetworks.Put(selfLink, subnet)
@@ -1121,7 +1121,7 @@ func registerCompute(srv *sim.Server) {
 
 		subnet, ok := subnetworks.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, subnet)
@@ -1161,23 +1161,23 @@ func registerCompute(srv *sim.Server) {
 			IpCidrRange string `json:"ipCidrRange"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil || req.IpCidrRange == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"expandIpCidrRange needs the range to expand to")
 			return
 		}
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
 		held, ok := subnetworks.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
 			return
 		}
 		wider, err := computeRangeIsWider(held.IpCidrRange, req.IpCidrRange)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 		if !wider {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"a subnetwork range can only expand: %s is not wider than %s", req.IpCidrRange, held.IpCidrRange)
 			return
 		}
@@ -1193,17 +1193,17 @@ func registerCompute(srv *sim.Server) {
 		project, region, name := sim.PathParam(r, "project"), sim.PathParam(r, "region"), sim.PathParam(r, "name")
 		var body map[string]any
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
 		found, err := computeTypedWrite(subnetworks, selfLink, body, false)
 		if err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid subnetwork: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid subnetwork: %v", err)
 			return
 		}
 		if !found {
-			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK,
@@ -1218,12 +1218,12 @@ func registerCompute(srv *sim.Server) {
 			PrivateIpGoogleAccess bool `json:"privateIpGoogleAccess"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
 		if !subnetworks.Update(selfLink, func(s *ComputeSubnetwork) { s.PrivateIpGoogleAccess = req.PrivateIpGoogleAccess }) {
-			sim.GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
+			GCPErrorf(w, 404, "NOT_FOUND", "Subnetwork %s not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK,
@@ -1240,7 +1240,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		if err := gcpDeleteRealSubnetwork(r.Context(), selfLink); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to delete real subnet network fabric: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to delete real subnet network fabric: %v", err)
 			return
 		}
 		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
@@ -1263,11 +1263,11 @@ func registerCompute(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		var fw ComputeFirewall
 		if err := sim.ReadJSON(r, &fw); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if fw.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		fw.Kind = "compute#firewall"
@@ -1285,7 +1285,7 @@ func registerCompute(srv *sim.Server) {
 		}
 		firewalls.Put(fw.SelfLink, fw)
 		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
 			return
 		}
 		op := newComputeOp(project, "global", fw.SelfLink)
@@ -1298,7 +1298,7 @@ func registerCompute(srv *sim.Server) {
 		selfLink := fmt.Sprintf("projects/%s/global/firewalls/%s", project, name)
 		fw, ok := firewalls.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewall %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewall %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, fw)
@@ -1331,7 +1331,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
 			return
 		}
 		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
@@ -1347,7 +1347,7 @@ func registerCompute(srv *sim.Server) {
 		selfLink := fmt.Sprintf("projects/%s/global/firewalls/%s", project, name)
 		var patch ComputeFirewall
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ok := firewalls.Update(selfLink, func(fw *ComputeFirewall) {
@@ -1378,11 +1378,11 @@ func registerCompute(srv *sim.Server) {
 			fw.Disabled = patch.Disabled
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewall %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewall %q not found", name)
 			return
 		}
 		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
 			return
 		}
 		op := newComputeOp(project, "global", selfLink)
@@ -1406,11 +1406,11 @@ func registerCompute(srv *sim.Server) {
 		region := sim.PathParam(r, "region")
 		var addr ComputeAddress
 		if err := sim.ReadJSON(r, &addr); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if addr.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		addr.Kind = "compute#address"
@@ -1436,7 +1436,7 @@ func registerCompute(srv *sim.Server) {
 		if addr.Address == "" && strings.EqualFold(addr.IPVersion, "IPV4") {
 			ip, err := realexec.ReserveGCPPublicIPv4(addr.SelfLink, nil)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to reserve real public IPv4 lease: %v", err)
+				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to reserve real public IPv4 lease: %v", err)
 				return
 			}
 			addr.Address = ip.String()
@@ -1455,7 +1455,7 @@ func registerCompute(srv *sim.Server) {
 		selfLink := computeRegionalAddressLink(project, region, name)
 		addr, ok := addresses.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "address %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "address %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, addr)
@@ -1491,7 +1491,7 @@ func registerCompute(srv *sim.Server) {
 			LabelFingerprint string            `json:"labelFingerprint"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ok := addresses.Update(selfLink, func(addr *ComputeAddress) {
@@ -1499,7 +1499,7 @@ func registerCompute(srv *sim.Server) {
 			addr.LabelFingerprint = computeFingerprint()
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "address %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "address %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "regions/"+region, selfLink, "setLabels"))
@@ -1524,15 +1524,15 @@ func registerCompute(srv *sim.Server) {
 		region := sim.PathParam(r, "region")
 		var rt ComputeRouter
 		if err := sim.ReadJSON(r, &rt); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if rt.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		if err := validateRouterNATAddresses(project, region, rt.Nats, addresses); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err)
 			return
 		}
 		rt.Kind = "compute#router"
@@ -1549,7 +1549,7 @@ func registerCompute(srv *sim.Server) {
 				return
 			}
 			if err := gcpConfigureRealRouterNAT(r.Context(), rt); err != nil {
-				sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to program real Cloud NAT fabric: %v", err)
+				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to program real Cloud NAT fabric: %v", err)
 				return
 			}
 		}
@@ -1565,7 +1565,7 @@ func registerCompute(srv *sim.Server) {
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/routers/%s", project, region, name)
 		rt, ok := routers.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, rt)
@@ -1610,11 +1610,11 @@ func registerCompute(srv *sim.Server) {
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/routers/%s", project, region, name)
 		var patch ComputeRouter
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if err := validateRouterNATAddresses(project, region, patch.Nats, addresses); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err)
 			return
 		}
 		ok := routers.Update(selfLink, func(rt *ComputeRouter) {
@@ -1633,7 +1633,7 @@ func registerCompute(srv *sim.Server) {
 			}
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
 		}
 		if rt, ok := routers.Get(selfLink); ok && len(rt.Nats) > 0 {
@@ -1641,7 +1641,7 @@ func registerCompute(srv *sim.Server) {
 				return
 			}
 			if err := gcpConfigureRealRouterNAT(r.Context(), rt); err != nil {
-				sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to program real Cloud NAT fabric: %v", err)
+				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to program real Cloud NAT fabric: %v", err)
 				return
 			}
 		}
@@ -1656,7 +1656,7 @@ func registerCompute(srv *sim.Server) {
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/routers/%s", project, region, name)
 		rt, ok := routers.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1890,11 +1890,11 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 		zone := sim.PathParam(r, "zone")
 		var group ComputeInstanceGroup
 		if err := sim.ReadJSON(r, &group); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if group.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		group.Kind = "compute#instanceGroup"
@@ -1913,7 +1913,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		group, ok := groups.Get(instanceGroupSelfLink(project, zone, name))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, wireInstanceGroup(group))
@@ -1949,7 +1949,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 			Instances []ComputeInstanceGroupInstance `json:"instances"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if !groups.Update(selfLink, func(group *storedComputeInstanceGroup) {
@@ -1960,7 +1960,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 			}
 			group.Fingerprint = computeFingerprint()
 		}) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "addInstances"))
@@ -1975,7 +1975,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 			Instances []ComputeInstanceGroupInstance `json:"instances"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		remove := map[string]bool{}
@@ -1992,7 +1992,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 			group.Instances = filtered
 			group.Fingerprint = computeFingerprint()
 		}) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "removeInstances"))
@@ -2005,7 +2005,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 		selfLink := instanceGroupSelfLink(project, zone, name)
 		group, ok := groups.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
 			return
 		}
 		items := make([]map[string]any, 0, len(group.Instances))
@@ -2032,7 +2032,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 			NamedPorts  []ComputeInstanceGroupNamedPort `json:"namedPorts"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		var conflict bool
@@ -2046,11 +2046,11 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 			group.NamedPorts = req.NamedPorts
 			group.Fingerprint = computeFingerprint()
 		}) {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance group %q not found", name)
 			return
 		}
 		if conflict {
-			sim.GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "named ports fingerprint mismatch; the resource was modified concurrently")
+			GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "named ports fingerprint mismatch; the resource was modified concurrently")
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "setNamedPorts"))
@@ -2308,7 +2308,7 @@ func registerComputeCatalog(srv *sim.Server) {
 			return
 		}
 		if second != "getIamPolicy" {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no such image method %q", second)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no such image method %q", second)
 			return
 		}
 		handleResourceIAM(w, r, gcpResourcePolicies,
@@ -2509,11 +2509,11 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		zone := sim.PathParam(r, "zone")
 		var inst ComputeInstance
 		if err := sim.ReadJSON(r, &inst); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if inst.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		if _, exists := instances.Get(instanceSelfLink(project, zone, inst.Name)); computeConflict(w, exists, "instance", inst.Name) {
@@ -2523,7 +2523,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			return
 		}
 		if err := normalizeInstance(r.Context(), project, zone, &inst); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to attach real instance network interface: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to attach real instance network interface: %v", err)
 			return
 		}
 
@@ -2576,7 +2576,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		selfLink := instanceSelfLink(project, zone, name)
 		inst, ok := instances.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
 		}
 		if inst.Status == ComputeInstanceRunning && !gcpRealVMAlive(inst.SelfLink) {
@@ -2641,7 +2641,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		selfLink := instanceSelfLink(project, zone, name)
 		inst, ok := instances.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
 		}
 		_ = gcpDeleteRealVM(r.Context(), inst)
@@ -2655,11 +2655,11 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		name := sim.PathParam(r, "name")
 		selfLink := instanceSelfLink(project, zone, name)
 		if err := gcpStopRealVM(r.Context(), selfLink); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to stop real Compute Engine instance: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to stop real Compute Engine instance: %v", err)
 			return
 		}
 		if ok := instances.Update(selfLink, func(inst *ComputeInstance) { inst.Status = ComputeInstanceTerminated }); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "stop"))
@@ -2672,7 +2672,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		selfLink := instanceSelfLink(project, zone, name)
 		inst, ok := instances.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
 		}
 		if err := gcpStartRealVM(r.Context(), &inst); err != nil {
@@ -2682,7 +2682,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 				Str("zone", zone).
 				Str("instance", inst.Name).
 				Msg("failed to start real Compute Engine instance")
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to start real Compute Engine instance: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to start real Compute Engine instance: %v", err)
 			return
 		}
 		inst.Status = ComputeInstanceRunning
@@ -2700,7 +2700,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			LabelFingerprint string            `json:"labelFingerprint"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		var conflict bool
@@ -2713,11 +2713,11 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			inst.LabelFingerprint = computeFingerprint()
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
 		}
 		if conflict {
-			sim.GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "labelFingerprint mismatch; the resource was modified concurrently")
+			GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "labelFingerprint mismatch; the resource was modified concurrently")
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "setLabels"))
@@ -2730,7 +2730,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		selfLink := instanceSelfLink(project, zone, name)
 		var req ComputeInstanceTags
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		var conflict bool
@@ -2747,15 +2747,15 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			inst.Tags.Fingerprint = computeFingerprint()
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
 		}
 		if conflict {
-			sim.GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "tags fingerprint mismatch; the resource was modified concurrently")
+			GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "tags fingerprint mismatch; the resource was modified concurrently")
 			return
 		}
 		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
+			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "setTags"))
@@ -2779,11 +2779,11 @@ func registerComputeDisks(srv *sim.Server) {
 		zone := sim.PathParam(r, "zone")
 		var d ComputeDisk
 		if err := sim.ReadJSON(r, &d); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if d.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
 		d.Kind = "compute#disk"
@@ -2811,7 +2811,7 @@ func registerComputeDisks(srv *sim.Server) {
 		selfLink := fmt.Sprintf("projects/%s/zones/%s/disks/%s", project, zone, name)
 		d, ok := disks.Get(selfLink)
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found in zone %q", name, zone)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, d)
@@ -2841,7 +2841,7 @@ func registerComputeDisks(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		selfLink := fmt.Sprintf("projects/%s/zones/%s/disks/%s", project, zone, name)
 		if _, ok := disks.Get(selfLink); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found in zone %q", name, zone)
 			return
 		}
 		disks.Delete(selfLink)
@@ -2858,7 +2858,7 @@ func registerComputeDisks(srv *sim.Server) {
 			SizeGb gcpInt64 `json:"sizeGb"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		ok := disks.Update(selfLink, func(d *ComputeDisk) {
@@ -2867,7 +2867,7 @@ func registerComputeDisks(srv *sim.Server) {
 			}
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found in zone %q", name, zone)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "resize"))
@@ -2884,7 +2884,7 @@ func registerComputeDisks(srv *sim.Server) {
 			LabelFingerprint string            `json:"labelFingerprint"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		var conflict bool
@@ -2897,11 +2897,11 @@ func registerComputeDisks(srv *sim.Server) {
 			d.LabelFingerprint = computeFingerprint()
 		})
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found in zone %q", name, zone)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "disk %q not found in zone %q", name, zone)
 			return
 		}
 		if conflict {
-			sim.GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "labelFingerprint mismatch; the resource was modified concurrently")
+			GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "labelFingerprint mismatch; the resource was modified concurrently")
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "setLabels"))

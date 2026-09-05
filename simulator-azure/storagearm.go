@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.Storage ARM management-plane control surface beyond the storage
@@ -58,13 +58,13 @@ func requireStorageAccount(w http.ResponseWriter, r *http.Request) (acctID, acco
 	account = sim.PathParam(r, "accountName")
 	acctID = storageAcctResourceID(sub, rg, account)
 	if azStorageAccounts == nil {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Storage/storageAccounts/%s' was not found.", account)
 		return "", account, false
 	}
 	if _, exists := azStorageAccounts.Get(acctID); !exists {
 		rg := sim.PathParam(r, "resourceGroupName")
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Storage/storageAccounts/%s' under resource group '%s' was not found.", account, rg)
 		return "", account, false
 	}
@@ -316,7 +316,7 @@ func storageChildPut(store sim.Store[storageARMChild], collection, typeStr, name
 		name := sim.PathParam(r, nameParam)
 		props, err := readARMProperties(r)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if finalize != nil {
@@ -338,7 +338,7 @@ func storageChildGet(store sim.Store[storageARMChild], collection, nameParam str
 		name := sim.PathParam(r, nameParam)
 		child, found := store.Get(storageChildID(acctID, collection, name))
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The resource %q was not found.", name)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The resource %q was not found.", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, child)
@@ -387,7 +387,7 @@ func storageEncryptionScopePut(store sim.Store[storageARMChild], finalize func(m
 		name := sim.PathParam(r, "encryptionScopeName")
 		props, err := readARMProperties(r)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := storageChildID(acctID, "encryptionScopes", name)
@@ -470,7 +470,7 @@ func handleStorageCheckNameAvailability(w http.ResponseWriter, r *http.Request) 
 		Type string `json:"type"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	taken := false
@@ -519,7 +519,7 @@ func handleStorageDeletedAccountsList(w http.ResponseWriter, r *http.Request) {
 
 func handleStorageDeletedAccountGet(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "deletedAccountName")
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The deleted account %q was not found.", name)
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The deleted account %q was not found.", name)
 }
 
 func handleStorageAccountsListByRG(w http.ResponseWriter, r *http.Request) {
@@ -569,7 +569,7 @@ func handleStorageRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	// kerb2 exist only on accounts with Azure AD DS authentication, which the
 	// simulator does not model.
 	if req.KeyName != "key1" && req.KeyName != "key2" {
-		sim.AzureErrorf(w, "InvalidRequestPropertyValue", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestPropertyValue", http.StatusBadRequest,
 			"The value '%s' is not valid for property 'keyName'.", req.KeyName)
 		return
 	}
@@ -708,7 +708,7 @@ func storageServiceSetHandler(service, typeStr string, store sim.Store[map[strin
 		}
 		props, err := readARMProperties(r)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		store.Put(acctID+"/"+service, props)
@@ -727,12 +727,12 @@ func requireBlobContainer(w http.ResponseWriter, r *http.Request) (BlobContainer
 	}
 	name := sim.PathParam(r, "containerName")
 	if azBlobContainers == nil {
-		sim.AzureErrorf(w, "ContainerNotFound", http.StatusNotFound, "The specified container %q was not found.", name)
+		AzureErrorf(w, "ContainerNotFound", http.StatusNotFound, "The specified container %q was not found.", name)
 		return BlobContainer{}, false
 	}
 	c, found := azBlobContainers.Get(storageContainerID(acctID, name))
 	if !found {
-		sim.AzureErrorf(w, "ContainerNotFound", http.StatusNotFound, "The specified container %q was not found.", name)
+		AzureErrorf(w, "ContainerNotFound", http.StatusNotFound, "The specified container %q was not found.", name)
 		return BlobContainer{}, false
 	}
 	return c, true
@@ -843,7 +843,7 @@ func storageImmutabilityPut(store sim.Store[storageARMChild]) http.HandlerFunc {
 		}
 		props, err := readARMProperties(r)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		props["state"] = "Unlocked"
@@ -870,7 +870,7 @@ func storageImmutabilityGet(store sim.Store[storageARMChild]) http.HandlerFunc {
 		}
 		policy, found := store.Get(c.ID + "/immutabilityPolicies/default")
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "No immutability policy found on container %q.", c.Name)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "No immutability policy found on container %q.", c.Name)
 			return
 		}
 		w.Header().Set("ETag", policy.Etag)
@@ -887,7 +887,7 @@ func storageImmutabilityDelete(store sim.Store[storageARMChild]) http.HandlerFun
 		id := c.ID + "/immutabilityPolicies/default"
 		policy, found := store.Get(id)
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "No immutability policy found on container %q.", c.Name)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "No immutability policy found on container %q.", c.Name)
 			return
 		}
 		store.Delete(id)
@@ -906,7 +906,7 @@ func storageImmutabilityMutate(store sim.Store[storageARMChild], lock bool) http
 		id := c.ID + "/immutabilityPolicies/default"
 		policy, found := store.Get(id)
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "No immutability policy found on container %q.", c.Name)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "No immutability policy found on container %q.", c.Name)
 			return
 		}
 		if lock {
@@ -973,12 +973,12 @@ func requireFileShare(w http.ResponseWriter, r *http.Request) (FileShare, bool) 
 	name := sim.PathParam(r, "shareName")
 	shareID := acctID + "/fileServices/default/shares/" + name
 	if azFileShares == nil {
-		sim.AzureErrorf(w, "ShareNotFound", http.StatusNotFound, "The file share %q was not found.", name)
+		AzureErrorf(w, "ShareNotFound", http.StatusNotFound, "The file share %q was not found.", name)
 		return FileShare{}, false
 	}
 	share, found := azFileShares.Get(shareID)
 	if !found {
-		sim.AzureErrorf(w, "ShareNotFound", http.StatusNotFound, "The file share %q was not found.", name)
+		AzureErrorf(w, "ShareNotFound", http.StatusNotFound, "The file share %q was not found.", name)
 		return FileShare{}, false
 	}
 	return share, true
@@ -1066,7 +1066,7 @@ func storageQueuePut(store sim.Store[storageARMChild]) http.HandlerFunc {
 		}
 		if r.Body != nil {
 			if err := sim.ReadJSON(r, &req); err != nil && err != io.EOF {
-				sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+				AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
@@ -1095,7 +1095,7 @@ func storageQueueGet(store sim.Store[storageARMChild]) http.HandlerFunc {
 		name := sim.PathParam(r, "queueName")
 		q, found := store.Get(storageQueueID(acctID, name))
 		if !found {
-			sim.AzureErrorf(w, "QueueNotFound", http.StatusNotFound, "The specified queue %q was not found.", name)
+			AzureErrorf(w, "QueueNotFound", http.StatusNotFound, "The specified queue %q was not found.", name)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, q)
@@ -1113,7 +1113,7 @@ func storageQueueDelete(store sim.Store[storageARMChild]) http.HandlerFunc {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		sim.AzureErrorf(w, "QueueNotFound", http.StatusNotFound, "The specified queue %q was not found.", name)
+		AzureErrorf(w, "QueueNotFound", http.StatusNotFound, "The specified queue %q was not found.", name)
 	}
 }
 

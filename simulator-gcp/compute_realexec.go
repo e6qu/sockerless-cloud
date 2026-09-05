@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
 )
 
 var (
@@ -30,7 +29,7 @@ var (
 
 func gcpRequireNetworkHost(w http.ResponseWriter) bool {
 	if err := realexec.DetectNetworkCapabilities().Require(); err != nil {
-		sim.GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
+		GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
 			"real Compute networking requires Linux network namespace, bridge, veth, route, and nftables host capabilities: %v", err)
 		return false
 	}

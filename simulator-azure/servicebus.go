@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.ServiceBus ARM control plane. Real Azure exposes
@@ -277,7 +277,7 @@ func handleSBCreateNamespace(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	var req SBNamespace
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := sbNamespaceID(sub, rg, name)
@@ -326,7 +326,7 @@ func handleSBGetNamespace(w http.ResponseWriter, r *http.Request) {
 	id := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	n, ok := sbNamespaces.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, n)
@@ -335,7 +335,7 @@ func handleSBGetNamespace(w http.ResponseWriter, r *http.Request) {
 func handleSBDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	id := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if !sbNamespaces.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	prefix := id + "/"
@@ -394,12 +394,12 @@ func handleSBUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 	id := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	n, ok := sbNamespaces.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	var req SBNamespace
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Location != "" {
@@ -470,7 +470,7 @@ func handleSBGetNamespaceNetworkRuleSet(w http.ResponseWriter, r *http.Request) 
 	sub, rg, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")
 	id := sbNetworkRuleSetID(sub, rg, name)
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	ruleSet, ok := sbNetworkRules.Get(id)
@@ -483,12 +483,12 @@ func handleSBGetNamespaceNetworkRuleSet(w http.ResponseWriter, r *http.Request) 
 func handleSBPutNamespaceNetworkRuleSet(w http.ResponseWriter, r *http.Request) {
 	sub, rg, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	var req SBNetworkRuleSet
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := sbNetworkRuleSetID(sub, rg, name)
@@ -505,7 +505,7 @@ func handleSBListNamespaceNetworkRuleSets(w http.ResponseWriter, r *http.Request
 	sub, rg, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")
 	id := sbNetworkRuleSetID(sub, rg, name)
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	ruleSet, ok := sbNetworkRules.Get(id)
@@ -525,7 +525,7 @@ func sbMigrationConfigID(sub, rg, name, config string) string {
 
 func handleSBListDisasterRecoveryConfigs(w http.ResponseWriter, r *http.Request) {
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/disasterRecoveryConfigs/"
@@ -544,7 +544,7 @@ func handleSBGetDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
 	id := sbDisasterRecoveryID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias"))
 	dr, ok := sbDRConfigs.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, dr)
@@ -553,12 +553,12 @@ func handleSBGetDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
 func handleSBPutDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
 	sub, rg, name, alias := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias")
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	var req SBDisasterRecovery
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := sbDisasterRecoveryID(sub, rg, name, alias)
@@ -586,7 +586,7 @@ func handleSBPutDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
 func handleSBDeleteDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
 	id := sbDisasterRecoveryID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias"))
 	if !sbDRConfigs.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -597,7 +597,7 @@ func handleSBDeleteDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request
 func handleSBDisasterRecoveryBreakPairing(w http.ResponseWriter, r *http.Request) {
 	id := sbDisasterRecoveryID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias"))
 	if _, ok := sbDRConfigs.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
 		return
 	}
 	sbDRConfigs.Update(id, func(dr *SBDisasterRecovery) {
@@ -613,7 +613,7 @@ func handleSBDisasterRecoveryBreakPairing(w http.ResponseWriter, r *http.Request
 func handleSBDisasterRecoveryFailover(w http.ResponseWriter, r *http.Request) {
 	id := sbDisasterRecoveryID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias"))
 	if _, ok := sbDRConfigs.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
 		return
 	}
 	sbDRConfigs.Update(id, func(dr *SBDisasterRecovery) {
@@ -639,7 +639,7 @@ func sbDRAuthRuleParent(r *http.Request) (string, bool) {
 func handleSBListDRAuthorizationRules(w http.ResponseWriter, r *http.Request) {
 	parent, ok := sbDRAuthRuleParent(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
 		return
 	}
 	prefix := parent + "/authorizationRules/"
@@ -658,12 +658,12 @@ func handleSBListDRAuthorizationRules(w http.ResponseWriter, r *http.Request) {
 func handleSBGetDRAuthorizationRule(w http.ResponseWriter, r *http.Request) {
 	parent, ok := sbDRAuthRuleParent(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
 		return
 	}
 	rule, ok := sbAuthRules.Get(parent + "/authorizationRules/" + sim.PathParam(r, "rule"))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, rule)
@@ -672,13 +672,13 @@ func handleSBGetDRAuthorizationRule(w http.ResponseWriter, r *http.Request) {
 func handleSBListDRAuthorizationRuleKeys(w http.ResponseWriter, r *http.Request) {
 	parent, ok := sbDRAuthRuleParent(r)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "disaster recovery config not found")
 		return
 	}
 	ruleName := sim.PathParam(r, "rule")
 	id := parent + "/authorizationRules/" + ruleName
 	if _, ok := sbAuthRules.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, sbAuthRuleListKeysBody(r, id, sim.PathParam(r, "name"), ruleName))
@@ -686,7 +686,7 @@ func handleSBListDRAuthorizationRuleKeys(w http.ResponseWriter, r *http.Request)
 
 func handleSBListMigrationConfigurations(w http.ResponseWriter, r *http.Request) {
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/migrationConfigurations/"
@@ -705,7 +705,7 @@ func handleSBGetMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
 	id := sbMigrationConfigID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "config"))
 	mc, ok := sbMigrations.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration configuration not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration configuration not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, mc)
@@ -714,12 +714,12 @@ func handleSBGetMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
 func handleSBPutMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
 	sub, rg, name, config := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "config")
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	var req SBMigrationConfig
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := sbMigrationConfigID(sub, rg, name, config)
@@ -747,7 +747,7 @@ func handleSBPutMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
 func handleSBDeleteMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
 	id := sbMigrationConfigID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "config"))
 	if !sbMigrations.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration configuration not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration configuration not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -758,7 +758,7 @@ func handleSBDeleteMigrationConfiguration(w http.ResponseWriter, r *http.Request
 func handleSBCompleteMigration(w http.ResponseWriter, r *http.Request) {
 	id := sbMigrationConfigID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "config"))
 	if _, ok := sbMigrations.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration configuration not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration configuration not found")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -768,7 +768,7 @@ func handleSBCompleteMigration(w http.ResponseWriter, r *http.Request) {
 func handleSBRevertMigration(w http.ResponseWriter, r *http.Request) {
 	id := sbMigrationConfigID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "config"))
 	if _, ok := sbMigrations.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration configuration not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "migration configuration not found")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -783,7 +783,7 @@ func sbPrivateEndpointConnectionID(sub, rg, name, pec string) string {
 func handleSBListPrivateEndpointConnections(w http.ResponseWriter, r *http.Request) {
 	sub, rg, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	prefix := sbNamespaceID(sub, rg, name) + "/privateEndpointConnections/"
@@ -802,7 +802,7 @@ func handleSBGetPrivateEndpointConnection(w http.ResponseWriter, r *http.Request
 	id := sbPrivateEndpointConnectionID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "pec"))
 	pec, ok := sbPrivateConns.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, pec)
@@ -811,12 +811,12 @@ func handleSBGetPrivateEndpointConnection(w http.ResponseWriter, r *http.Request
 func handleSBPutPrivateEndpointConnection(w http.ResponseWriter, r *http.Request) {
 	sub, rg, name, pecName := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "pec")
 	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	var req SBPrivateEndpointConnection
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := sbPrivateEndpointConnectionID(sub, rg, name, pecName)
@@ -838,7 +838,7 @@ func handleSBPutPrivateEndpointConnection(w http.ResponseWriter, r *http.Request
 func handleSBDeletePrivateEndpointConnection(w http.ResponseWriter, r *http.Request) {
 	id := sbPrivateEndpointConnectionID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "pec"))
 	if !sbPrivateConns.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "private endpoint connection not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -850,7 +850,7 @@ func handleSBListPrivateLinkResources(w http.ResponseWriter, r *http.Request) {
 	sub, rg, name := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")
 	id := sbNamespaceID(sub, rg, name)
 	if _, ok := sbNamespaces.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -899,13 +899,13 @@ func applySBNetworkRuleSetDefaults(props map[string]any) {
 func handleSBCreateQueue(w http.ResponseWriter, r *http.Request) {
 	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := sbNamespaces.Get(parent); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	qName := sim.PathParam(r, "queue")
 	var req SBQueue
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := parent + "/queues/" + qName
@@ -927,7 +927,7 @@ func handleSBGetQueue(w http.ResponseWriter, r *http.Request) {
 		"/queues/" + sim.PathParam(r, "queue")
 	q, ok := sbQueues.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "queue not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "queue not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, q)
@@ -937,7 +937,7 @@ func handleSBDeleteQueue(w http.ResponseWriter, r *http.Request) {
 	id := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/queues/" + sim.PathParam(r, "queue")
 	if !sbQueues.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "queue not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "queue not found")
 		return
 	}
 	// Real Service Bus deletes the queue's scoped authorization rules with it.
@@ -961,13 +961,13 @@ func handleSBListQueues(w http.ResponseWriter, r *http.Request) {
 func handleSBCreateTopic(w http.ResponseWriter, r *http.Request) {
 	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := sbNamespaces.Get(parent); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
 	tName := sim.PathParam(r, "topic")
 	var req SBTopic
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := parent + "/topics/" + tName
@@ -989,7 +989,7 @@ func handleSBGetTopic(w http.ResponseWriter, r *http.Request) {
 		"/topics/" + sim.PathParam(r, "topic")
 	t, ok := sbTopics.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, t)
@@ -999,7 +999,7 @@ func handleSBDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	id := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/topics/" + sim.PathParam(r, "topic")
 	if !sbTopics.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic not found")
 		return
 	}
 	// Cascade subscriptions under this topic.
@@ -1036,13 +1036,13 @@ func handleSBCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/topics/" + sim.PathParam(r, "topic")
 	if _, ok := sbTopics.Get(parent); !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic not found")
 		return
 	}
 	sName := sim.PathParam(r, "sub")
 	var req SBSubscription
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := parent + "/subscriptions/" + sName
@@ -1064,7 +1064,7 @@ func handleSBGetSubscription(w http.ResponseWriter, r *http.Request) {
 		"/topics/" + sim.PathParam(r, "topic") + "/subscriptions/" + sim.PathParam(r, "sub")
 	s, ok := sbSubscriptions.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, s)
@@ -1074,7 +1074,7 @@ func handleSBDeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	id := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/topics/" + sim.PathParam(r, "topic") + "/subscriptions/" + sim.PathParam(r, "sub")
 	if !sbSubscriptions.Delete(id) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "subscription not found")
 		return
 	}
 	for _, rule := range sbRules.List() {
@@ -1119,13 +1119,13 @@ func sbAuthRuleCreate(armType, scope string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parent := sbAuthRuleParentID(r, scope)
 		if !sbAuthRuleParentExists(parent, scope) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource not found: %s", parent)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource not found: %s", parent)
 			return
 		}
 		rule := sim.PathParam(r, "rule")
 		var req SBAuthorizationRule
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		rights := req.Properties.Rights
@@ -1151,7 +1151,7 @@ func sbAuthRuleGet(scope string) http.HandlerFunc {
 		id := sbAuthRuleParentID(r, scope) + "/authorizationRules/" + sim.PathParam(r, "rule")
 		rule, ok := sbAuthRules.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, rule)
@@ -1177,7 +1177,7 @@ func sbAuthRuleDelete(scope string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := sbAuthRuleParentID(r, scope) + "/authorizationRules/" + sim.PathParam(r, "rule")
 		if !sbAuthRules.Delete(id) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
 			return
 		}
 		sbDropAuthRuleKeyGens(id)
@@ -1229,7 +1229,7 @@ func sbAuthRuleListKeys(scope string) http.HandlerFunc {
 		ruleName := sim.PathParam(r, "rule")
 		id := sbAuthRuleParentID(r, scope) + "/authorizationRules/" + ruleName
 		if _, ok := sbAuthRules.Get(id); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
 			return
 		}
 		ns := sim.PathParam(r, "name")
@@ -1242,7 +1242,7 @@ func sbAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 		ruleName := sim.PathParam(r, "rule")
 		id := sbAuthRuleParentID(r, scope) + "/authorizationRules/" + ruleName
 		if _, ok := sbAuthRules.Get(id); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "authorization rule not found: %s", id)
 			return
 		}
 		// RegenerateAccessKeyParameters: keyType selects the slot; the optional
@@ -1259,7 +1259,7 @@ func sbAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 		case "SecondaryKey":
 			azureBumpKeyGen(id, "secondary", req.Key)
 		default:
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"keyType must be 'PrimaryKey' or 'SecondaryKey', got %q", req.KeyType)
 			return
 		}

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	amqp "github.com/Azure/go-amqp"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type EHNamespace struct {
@@ -186,7 +186,7 @@ func handleEHCreateNamespace(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	var req EHNamespace
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	now := time.Now().UTC()
@@ -247,7 +247,7 @@ func handleEHGetNamespace(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	n, ok := ehNamespaces.Get(id)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	ehApplyNamespaceDefaults(&n, r)
@@ -257,7 +257,7 @@ func handleEHGetNamespace(w http.ResponseWriter, r *http.Request) {
 func handleEHDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if !ehNamespaces.Delete(id) {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	prefix := id + "/"
@@ -319,7 +319,7 @@ func ehDefaultNetworkRuleSet(id string) EHNetworkRuleSet {
 func handleEHGetNamespaceNetworkRuleSet(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	ruleSet, ok := ehNetworkRules.Get(id)
@@ -332,12 +332,12 @@ func handleEHGetNamespaceNetworkRuleSet(w http.ResponseWriter, r *http.Request) 
 func handleEHPutNamespaceNetworkRuleSet(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	var req EHNetworkRuleSet
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	ruleSet := ehDefaultNetworkRuleSet(id)
@@ -351,7 +351,7 @@ func handleEHPutNamespaceNetworkRuleSet(w http.ResponseWriter, r *http.Request) 
 func handleEHListNamespaceNetworkRuleSets(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	ruleSet, ok := ehNetworkRules.Get(id)
@@ -366,12 +366,12 @@ func handleEHUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	n, ok := ehNamespaces.Get(id)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	var req EHNamespace
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	if req.Location != "" {
@@ -420,7 +420,7 @@ func ehPrivateEndpointConnectionID(sub, rg, name, pec string) string {
 func handleEHListPrivateEndpointConnections(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	prefix := id + "/privateEndpointConnections/"
@@ -440,7 +440,7 @@ func handleEHGetPrivateEndpointConnection(w http.ResponseWriter, r *http.Request
 	id := ehPrivateEndpointConnectionID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "pec"))
 	pec, ok := ehPrivateConns.Get(id)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "private endpoint connection not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "private endpoint connection not found", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, pec)
@@ -449,12 +449,12 @@ func handleEHGetPrivateEndpointConnection(w http.ResponseWriter, r *http.Request
 func handleEHPutPrivateEndpointConnection(w http.ResponseWriter, r *http.Request) {
 	sub, rg, name, pecName := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "pec")
 	if _, ok := ehNamespaces.Get(ehNamespaceID(sub, rg, name)); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	var req EHPrivateEndpointConnection
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	id := ehPrivateEndpointConnectionID(sub, rg, name, pecName)
@@ -476,7 +476,7 @@ func handleEHPutPrivateEndpointConnection(w http.ResponseWriter, r *http.Request
 func handleEHDeletePrivateEndpointConnection(w http.ResponseWriter, r *http.Request) {
 	id := ehPrivateEndpointConnectionID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "pec"))
 	if !ehPrivateConns.Delete(id) {
-		sim.AzureError(w, "ResourceNotFound", "private endpoint connection not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "private endpoint connection not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -487,7 +487,7 @@ func handleEHDeletePrivateEndpointConnection(w http.ResponseWriter, r *http.Requ
 func handleEHListPrivateLinkResources(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -510,7 +510,7 @@ func handleEHListPrivateLinkResources(w http.ResponseWriter, r *http.Request) {
 func handleEHListNetworkSecurityPerimeterConfigs(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
@@ -519,16 +519,16 @@ func handleEHListNetworkSecurityPerimeterConfigs(w http.ResponseWriter, r *http.
 func handleEHGetNetworkSecurityPerimeterConfig(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
-	sim.AzureError(w, "ResourceNotFound", "network security perimeter configuration not found", http.StatusNotFound)
+	AzureError(w, "ResourceNotFound", "network security perimeter configuration not found", http.StatusNotFound)
 }
 
 func handleEHReconcileNetworkSecurityPerimeterConfig(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -546,7 +546,7 @@ func ehDRAuthRuleParent(r *http.Request) (string, bool) {
 func handleEHListDRAuthorizationRules(w http.ResponseWriter, r *http.Request) {
 	parent, ok := ehDRAuthRuleParent(r)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	prefix := parent + "/authorizationRules/"
@@ -565,12 +565,12 @@ func handleEHListDRAuthorizationRules(w http.ResponseWriter, r *http.Request) {
 func handleEHGetDRAuthorizationRule(w http.ResponseWriter, r *http.Request) {
 	parent, ok := ehDRAuthRuleParent(r)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	rule, ok := ehAuthRules.Get(parent + "/authorizationRules/" + sim.PathParam(r, "rule"))
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "authorization rule not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "authorization rule not found", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, rule)
@@ -579,13 +579,13 @@ func handleEHGetDRAuthorizationRule(w http.ResponseWriter, r *http.Request) {
 func handleEHListDRAuthorizationRuleKeys(w http.ResponseWriter, r *http.Request) {
 	parent, ok := ehDRAuthRuleParent(r)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	ruleName := sim.PathParam(r, "rule")
 	ruleID := parent + "/authorizationRules/" + ruleName
 	if _, ok := ehAuthRules.Get(ruleID); !ok {
-		sim.AzureError(w, "ResourceNotFound", "authorization rule not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "authorization rule not found", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, ehAuthKeysBody(r, ruleID, sim.PathParam(r, "name"), ruleName, "namespaces"))
@@ -642,12 +642,12 @@ func ehApplyNamespaceDefaults(n *EHNamespace, r *http.Request) {
 func handleEHCreateEventHub(w http.ResponseWriter, r *http.Request) {
 	sub, rg, nsName, hubName := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "eventhub")
 	if _, ok := ehNamespaces.Get(ehNamespaceID(sub, rg, nsName)); !ok {
-		sim.AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "namespace not found", http.StatusNotFound)
 		return
 	}
 	var req EHEventHub
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	now := time.Now().UTC()
@@ -692,7 +692,7 @@ func handleEHGetEventHub(w http.ResponseWriter, r *http.Request) {
 	id := ehEventHubID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "eventhub"))
 	hub, ok := ehEventHubs.Get(id)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "event hub not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "event hub not found", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, hub)
@@ -701,7 +701,7 @@ func handleEHGetEventHub(w http.ResponseWriter, r *http.Request) {
 func handleEHDeleteEventHub(w http.ResponseWriter, r *http.Request) {
 	id := ehEventHubID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "eventhub"))
 	if !ehEventHubs.Delete(id) {
-		sim.AzureError(w, "ResourceNotFound", "event hub not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "event hub not found", http.StatusNotFound)
 		return
 	}
 	prefix := id + "/"
@@ -735,12 +735,12 @@ func handleEHListEventHubs(w http.ResponseWriter, r *http.Request) {
 func handleEHCreateConsumerGroup(w http.ResponseWriter, r *http.Request) {
 	sub, rg, nsName, hubName, groupName := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "eventhub"), sim.PathParam(r, "consumerGroup")
 	if _, ok := ehEventHubs.Get(ehEventHubID(sub, rg, nsName, hubName)); !ok {
-		sim.AzureError(w, "ResourceNotFound", "event hub not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "event hub not found", http.StatusNotFound)
 		return
 	}
 	var req EHConsumerGroup
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
 	now := time.Now().UTC()
@@ -765,7 +765,7 @@ func handleEHGetConsumerGroup(w http.ResponseWriter, r *http.Request) {
 	id := ehConsumerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "eventhub"), sim.PathParam(r, "consumerGroup"))
 	group, ok := ehConsumerGroups.Get(id)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "consumer group not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "consumer group not found", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, group)
@@ -774,7 +774,7 @@ func handleEHGetConsumerGroup(w http.ResponseWriter, r *http.Request) {
 func handleEHDeleteConsumerGroup(w http.ResponseWriter, r *http.Request) {
 	id := ehConsumerGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "eventhub"), sim.PathParam(r, "consumerGroup"))
 	if !ehConsumerGroups.Delete(id) {
-		sim.AzureError(w, "ResourceNotFound", "consumer group not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "consumer group not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -798,13 +798,13 @@ func ehAuthRuleCreate(resourceType, scope string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parent, ok := ehAuthRuleParentID(r, scope)
 		if !ok {
-			sim.AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
+			AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
 			return
 		}
 		ruleName := sim.PathParam(r, "rule")
 		var req EHAuthorizationRule
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		rights := []string{"Listen", "Send"}
@@ -831,12 +831,12 @@ func ehAuthRuleGet(scope string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parent, ok := ehAuthRuleParentID(r, scope)
 		if !ok {
-			sim.AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
+			AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
 			return
 		}
 		rule, ok := ehAuthRules.Get(parent + "/authorizationRules/" + sim.PathParam(r, "rule"))
 		if !ok {
-			sim.AzureError(w, "ResourceNotFound", "authorization rule not found", http.StatusNotFound)
+			AzureError(w, "ResourceNotFound", "authorization rule not found", http.StatusNotFound)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, rule)
@@ -855,7 +855,7 @@ func ehAuthRuleDelete(scope string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parent, ok := ehAuthRuleParentID(r, scope)
 		if !ok {
-			sim.AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
+			AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
 			return
 		}
 		ehDropAuthRule(parent + "/authorizationRules/" + sim.PathParam(r, "rule"))
@@ -867,7 +867,7 @@ func ehAuthRuleList(scope string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parent, ok := ehAuthRuleParentID(r, scope)
 		if !ok {
-			sim.AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
+			AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
 			return
 		}
 		prefix := parent + "/authorizationRules/"
@@ -914,7 +914,7 @@ func ehAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 		case "SecondaryKey":
 			azureBumpKeyGen(ruleID, "secondary", req.Key)
 		default:
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"keyType must be 'PrimaryKey' or 'SecondaryKey', got %q", req.KeyType)
 			return
 		}
@@ -927,12 +927,12 @@ func ehAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 func ehResolveAuthRule(w http.ResponseWriter, r *http.Request, scope string) (parent, ruleID string, ok bool) {
 	parent, ok = ehAuthRuleParentID(r, scope)
 	if !ok {
-		sim.AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "parent not found", http.StatusNotFound)
 		return "", "", false
 	}
 	ruleID = parent + "/authorizationRules/" + sim.PathParam(r, "rule")
 	if _, ok := ehAuthRules.Get(ruleID); !ok {
-		sim.AzureError(w, "ResourceNotFound", "authorization rule not found", http.StatusNotFound)
+		AzureError(w, "ResourceNotFound", "authorization rule not found", http.StatusNotFound)
 		return "", "", false
 	}
 	return parent, ruleID, true

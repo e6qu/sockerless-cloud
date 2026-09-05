@@ -1,8 +1,8 @@
-// Command simulator-azure runs the Azure service simulator.
-//
-// It simulates the subset of Azure APIs used by the Sockerless ACA and
-// Azure Functions backends: Container Apps Jobs, Azure Monitor, Azure Files,
-// ACR, Private DNS, Azure Functions, and Application Insights.
+// Command simulator-azure runs the Microsoft Azure simulator: a local,
+// wire-faithful reimplementation of a slice of the Azure public API — Azure
+// Resource Manager, Microsoft Entra and the data planes — served on one port
+// to the Azure SDKs, the Azure CLI and terraform-provider-azurerm. Every
+// service slice registers in buildSimulator below.
 //
 // Configure with environment variables:
 //
@@ -23,7 +23,7 @@ import (
 	"log"
 	"os"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func main() {
@@ -99,6 +99,18 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// (resource_move.go), so the tracked set starts empty here: a second build
 	// in the same process must scan its own stores, not the previous build's.
 	sim.ResetTrackedStores()
+	// The console federation broker's coordinates fail loud at startup exactly
+	// like the OIDC config the server validates: an operator who sets any
+	// SOCKERLESS_CONSOLE_FEDERATION_* coordinate but not all of them has a
+	// deployment error, never a silently degraded broker.
+	federation, err := loadConsoleFederation()
+	if err != nil {
+		return nil, err
+	}
+	azureConsoleFederation = federation
+	// Azure Resource Manager matches paths case-insensitively and its clients
+	// spell them differently, so every request is canonicalized before routing.
+	cfg.RewriteRequest = azureNormalizeRequestPath
 	srv, err := sim.NewServer(cfg)
 	if err != nil {
 		return nil, err
@@ -135,7 +147,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// bearer and api-version middlewares run, exactly as real Azure's edge
 	// answers a preflight ahead of the resource provider's own auth check —
 	// the request carries neither a bearer token nor api-version by design.
-	srv.WrapHandler(sim.AzureCORSMiddleware)
+	srv.WrapHandler(AzureCORSMiddleware)
 
 	// Register Azure service routes
 	// Entra registers first: it initializes the directory stores (and the

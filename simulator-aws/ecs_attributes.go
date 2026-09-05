@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sort"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS attributes — name/value labels applied to a resource (typically a
@@ -15,7 +15,7 @@ import (
 
 var ecsAttributes sim.Store[ECSAttribute]
 
-func registerECSAttributes(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSAttributes(r *AWSRouter, srv *sim.Server) {
 	ecsAttributes = sim.MakeStore[ECSAttribute](srv.DB(), "ecs_attributes")
 
 	r.Register("AmazonEC2ContainerServiceV20141113.PutAttributes", handleECSPutAttributes)
@@ -33,20 +33,20 @@ func handleECSPutAttributes(w http.ResponseWriter, r *http.Request) {
 		Attributes []ECSAttribute `json:"attributes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
 		return
 	}
 	if len(req.Attributes) == 0 {
-		sim.AWSError(w, "InvalidParameterException", "attributes cannot be empty", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "attributes cannot be empty", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)
 	for _, a := range req.Attributes {
 		if a.Name == "" {
-			sim.AWSError(w, "InvalidParameterException", "attribute name is required", http.StatusBadRequest)
+			AWSError(w, "InvalidParameterException", "attribute name is required", http.StatusBadRequest)
 			return
 		}
 		stored := a
@@ -62,7 +62,7 @@ func handleECSDeleteAttributes(w http.ResponseWriter, r *http.Request) {
 		Attributes []ECSAttribute `json:"attributes"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
@@ -85,14 +85,14 @@ func handleECSListAttributes(w http.ResponseWriter, r *http.Request) {
 		NextToken      string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if !ecsRequireCluster(w, req.Cluster) {
 		return
 	}
 	if req.TargetType == "" {
-		sim.AWSError(w, "InvalidParameterException", "targetType is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "targetType is required", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.Cluster)

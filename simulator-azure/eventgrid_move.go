@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cross-resource-group move for the Microsoft.EventGrid types Azure Resource

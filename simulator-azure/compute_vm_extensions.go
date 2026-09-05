@@ -9,7 +9,7 @@ import (
 	"time"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure virtual machine extensions. An extension is not a record that something
@@ -83,7 +83,7 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 		}
 		var body VirtualMachineExtension
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		name := sim.PathParam(r, "vmExtensionName")
@@ -96,7 +96,7 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 
 		view, err := azureRunVMExtension(r.Context(), vm, name, body.Properties)
 		if err != nil {
-			sim.AzureErrorf(w, "VMExtensionHandlerNotFound", http.StatusBadRequest, "%v", err)
+			AzureErrorf(w, "VMExtensionHandlerNotFound", http.StatusBadRequest, "%v", err)
 			return
 		}
 		body.Properties.InstanceView = view
@@ -116,12 +116,12 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 		id := azureVMExtensionID(r)
 		existing, found := azureVMExtensions.Get(id)
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		var patch VirtualMachineExtension
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
+			AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
 		azureMergeVMExtensionProperties(&existing.Properties, patch.Properties)
@@ -133,7 +133,7 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 		// describing the previous run.
 		view, err := azureRunVMExtension(r.Context(), vm, existing.Name, existing.Properties)
 		if err != nil {
-			sim.AzureErrorf(w, "VMExtensionHandlerNotFound", http.StatusBadRequest, "%v", err)
+			AzureErrorf(w, "VMExtensionHandlerNotFound", http.StatusBadRequest, "%v", err)
 			return
 		}
 		existing.Properties.InstanceView = view
@@ -149,7 +149,7 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 		id := azureVMExtensionID(r)
 		extension, ok := azureVMExtensions.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, azureVMExtensionResponse(extension, r))

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Microsoft.Resources control-plane surface beyond resource groups and the
@@ -115,7 +115,7 @@ func registerResourcesARM(srv *sim.Server) {
 	})
 
 	byID := func(w http.ResponseWriter, r *http.Request) {
-		sim.AzureError(w, "MissingSubscription",
+		AzureError(w, "MissingSubscription",
 			"The request did not have a subscription or a valid tenant level resource provider.",
 			http.StatusNotFound)
 	}
@@ -176,11 +176,11 @@ func handleGenericProviderResource(w http.ResponseWriter, r *http.Request) {
 	requested := sim.PathParam(r, "resourceProviderNamespace")
 	ns, known := azureKnownProvider(requested)
 	if !known {
-		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound,
+		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound,
 			"The resource namespace %q is invalid.", requested)
 		return
 	}
-	sim.AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+	AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 		"The simulator's %s provider serves no handler for the resource path %s/%s/%s.",
 		ns, sim.PathParam(r, "parentResourcePath"), sim.PathParam(r, "resourceType"), sim.PathParam(r, "resourceName"))
 }
@@ -267,7 +267,7 @@ func handleProvidersListTenant(w http.ResponseWriter, _ *http.Request) {
 func handleProviderGetTenant(w http.ResponseWriter, r *http.Request) {
 	ns, ok := azureKnownProvider(sim.PathParam(r, "resourceProviderNamespace"))
 	if !ok {
-		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
+		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, azureProviderObject("", ns))
@@ -276,7 +276,7 @@ func handleProviderGetTenant(w http.ResponseWriter, r *http.Request) {
 func handleProviderGet(w http.ResponseWriter, r *http.Request) {
 	ns, ok := azureKnownProvider(sim.PathParam(r, "resourceProviderNamespace"))
 	if !ok {
-		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
+		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, azureProviderObject(sim.PathParam(r, "subscriptionId"), ns))
@@ -285,7 +285,7 @@ func handleProviderGet(w http.ResponseWriter, r *http.Request) {
 func handleProviderResourceTypes(w http.ResponseWriter, r *http.Request) {
 	ns, ok := azureKnownProvider(sim.PathParam(r, "resourceProviderNamespace"))
 	if !ok {
-		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
+		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": azureProviderResourceTypeEntries(ns)})
@@ -298,7 +298,7 @@ func handleProviderPermissions(w http.ResponseWriter, _ *http.Request) {
 func handleProviderRegister(w http.ResponseWriter, r *http.Request) {
 	ns, ok := azureKnownProvider(sim.PathParam(r, "resourceProviderNamespace"))
 	if !ok {
-		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
+		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
 	// Registering is what makes the state Registered, and the state has to
@@ -312,7 +312,7 @@ func handleProviderRegister(w http.ResponseWriter, r *http.Request) {
 func handleProviderUnregister(w http.ResponseWriter, r *http.Request) {
 	ns, ok := azureKnownProvider(sim.PathParam(r, "resourceProviderNamespace"))
 	if !ok {
-		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
+		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
 	sub := sim.PathParam(r, "subscriptionId")
@@ -327,7 +327,7 @@ func handleResourceGroupUpdate(w http.ResponseWriter, r *http.Request) {
 	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
 	rg, ok := azureResourceGroups.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceGroupNotFound", http.StatusNotFound, "Resource group %q could not be found.", rgName)
+		AzureErrorf(w, "ResourceGroupNotFound", http.StatusNotFound, "Resource group %q could not be found.", rgName)
 		return
 	}
 	var req struct {
@@ -335,7 +335,7 @@ func handleResourceGroupUpdate(w http.ResponseWriter, r *http.Request) {
 		ManagedBy *string           `json:"managedBy,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Tags != nil {
@@ -350,7 +350,7 @@ func handleResourceGroupExportTemplate(w http.ResponseWriter, r *http.Request) {
 	rgName := sim.PathParam(r, "resourceGroupName")
 	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
 	if _, ok := azureResourceGroups.Get(id); !ok {
-		sim.AzureErrorf(w, "ResourceGroupNotFound", http.StatusNotFound, "Resource group %q could not be found.", rgName)
+		AzureErrorf(w, "ResourceGroupNotFound", http.StatusNotFound, "Resource group %q could not be found.", rgName)
 		return
 	}
 	template := map[string]any{
@@ -380,7 +380,7 @@ func handleMoveResources(w http.ResponseWriter, r *http.Request) {
 		TargetResourceGroup string   `json:"targetResourceGroup"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	validateOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/validateMoveResources")
@@ -389,7 +389,7 @@ func handleMoveResources(w http.ResponseWriter, r *http.Request) {
 			writeAzureMoveValidationError(w, sub, moveErr)
 			return
 		}
-		sim.AzureError(w, moveErr.Code, moveErr.Message, azureMoveErrorStatus(moveErr.Code))
+		AzureError(w, moveErr.Code, moveErr.Message, azureMoveErrorStatus(moveErr.Code))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -573,7 +573,7 @@ func parseMovableResourceID(resID string) (typeKey, rg string, ok bool) {
 // body; the registration is reflected on subsequent provider reads.
 func handleProviderRegisterAtMG(w http.ResponseWriter, r *http.Request) {
 	if _, ok := azureKnownProvider(sim.PathParam(r, "resourceProviderNamespace")); !ok {
-		sim.AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
+		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -655,7 +655,7 @@ func handleTagValueCreate(w http.ResponseWriter, r *http.Request) {
 	key := predefinedTagKey(sub, tagName)
 	t, exists := predefinedTags.Get(key)
 	if !exists {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Tag name %q does not exist.", tagName)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Tag name %q does not exist.", tagName)
 		return
 	}
 	had := false

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements faithful control-plane CRUD for Amazon EC2 IP Address
@@ -145,7 +145,7 @@ type ec2IpamAdminAccount struct {
 	AccountId string
 }
 
-func registerEC2IPAM(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2IPAM(r *AWSQueryRouter, srv *sim.Server) {
 	ec2Ipams = sim.MakeStore[EC2Ipam](srv.DB(), "ec2_ipams")
 	ec2IpamScopes = sim.MakeStore[EC2IpamScope](srv.DB(), "ec2_ipam_scopes")
 	ec2IpamPools = sim.MakeStore[EC2IpamPool](srv.DB(), "ec2_ipam_pools")

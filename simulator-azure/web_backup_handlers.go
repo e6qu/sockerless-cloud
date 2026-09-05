@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_backup_handlers.go mounts the Microsoft.Web backup, restore and snapshot
@@ -116,11 +116,11 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		var req backupRequestBody
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if _, code, msg := webParseBackupStorageURL(req.Properties.StorageAccountURL); code != "" {
-			sim.AzureError(w, code, msg, http.StatusBadRequest)
+			AzureError(w, code, msg, http.StatusBadRequest)
 			return
 		}
 		row := WebBackupConfigRow{
@@ -162,7 +162,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		row, ok := webBackupConfigs.Get(webResourceID(r))
 		if !ok {
-			sim.AzureErrorf(w, "NotFound", http.StatusNotFound,
+			AzureErrorf(w, "NotFound", http.StatusNotFound,
 				"No backup configuration found for %q.", webSiteNameFromID(webResourceID(r)))
 			return
 		}
@@ -179,7 +179,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		var req backupRequestBody
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		resID := webResourceID(r)
@@ -192,7 +192,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		if storageURL == "" {
 			cfg, ok := webBackupConfigs.Get(resID)
 			if !ok {
-				sim.AzureError(w, "InvalidRequestContent",
+				AzureError(w, "InvalidRequestContent",
 					"The storageAccountUrl property is required when the app has no backup configuration.",
 					http.StatusBadRequest)
 				return
@@ -207,7 +207,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		target, code, msg := webParseBackupStorageURL(storageURL)
 		if code != "" {
-			sim.AzureError(w, code, msg, http.StatusBadRequest)
+			AzureError(w, code, msg, http.StatusBadRequest)
 			return
 		}
 		site, _ := webSiteRecord(resID)
@@ -286,7 +286,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		row, ok := webBackupItems.Get(webBackupID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Backup %q not found.", sim.PathParam(r, "backupId"))
 			return
 		}
@@ -305,18 +305,18 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		id := webBackupID(r)
 		row, ok := webBackupItems.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Backup %q not found.", sim.PathParam(r, "backupId"))
 			return
 		}
 		var req backupRequestBody
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if url := req.Properties.StorageAccountURL; url != "" && url != row.StorageAccountURL {
 			if _, code, msg := webParseBackupStorageURL(url); code != "" {
-				sim.AzureError(w, code, msg, http.StatusBadRequest)
+				AzureError(w, code, msg, http.StatusBadRequest)
 				return
 			}
 			webBackupItems.Update(id, func(cur *WebBackupItemRow) { cur.StorageAccountURL = url })
@@ -336,7 +336,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		id := webBackupID(r)
 		row, ok := webBackupItems.Get(id)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Backup %q not found.", sim.PathParam(r, "backupId"))
 			return
 		}
@@ -359,28 +359,28 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		var req restoreRequestBody
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		target, code, msg := webParseBackupStorageURL(req.Properties.StorageAccountURL)
 		if code != "" {
-			sim.AzureError(w, code, msg, http.StatusBadRequest)
+			AzureError(w, code, msg, http.StatusBadRequest)
 			return
 		}
 		blobName := req.Properties.BlobName
 		if blobName == "" {
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"The blobName property is required to discover a backup.", http.StatusBadRequest)
 			return
 		}
 		if _, ok := webGetBackupBlob(target, blobName); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The backup blob %q was not found in container %q.", blobName, target.container)
 			return
 		}
 		manifest, ok := webGetBackupBlob(target, webManifestBlobName(blobName))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The backup manifest %q was not found in container %q.",
 				webManifestBlobName(blobName), target.container)
 			return
@@ -409,12 +409,12 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		var req restoreRequestBody
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		item, ok := webBackupItems.Get(webBackupID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Backup %q not found.", sim.PathParam(r, "backupId"))
 			return
 		}
@@ -436,11 +436,11 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		var req restoreRequestBody
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.BlobName == "" {
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"The blobName property is required to restore from a backup blob.", http.StatusBadRequest)
 			return
 		}
@@ -454,7 +454,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		var req snapshotRestoreRequestBody
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		resID := webResourceID(r)
@@ -467,7 +467,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		snapshots := webSnapshotsFor(sourceID, req.Properties.UseDRSecondary)
 		if len(snapshots) == 0 {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"No snapshots exist for app %q.", webSiteNameFromID(sourceID))
 			return
 		}
@@ -481,7 +481,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 				}
 			}
 			if !found {
-				sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"No snapshot of app %q was taken at %q.",
 					webSiteNameFromID(sourceID), req.Properties.SnapshotTime)
 				return
@@ -489,7 +489,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		if !req.Properties.Overwrite {
 			if len(webSiteContentFiles(resID)) > 0 {
-				sim.AzureError(w, "Conflict",
+				AzureError(w, "Conflict",
 					"The target app already has content; set overwrite to true to replace it.",
 					http.StatusConflict)
 				return
@@ -497,7 +497,7 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		files, err := webReadBackupArchive(chosen.Archive)
 		if err != nil {
-			sim.AzureError(w, "RestoreFailed", err.Error(), http.StatusBadRequest)
+			AzureError(w, "RestoreFailed", err.Error(), http.StatusBadRequest)
 			return
 		}
 		recoverConfig := req.Properties.RecoverConfiguration
@@ -523,23 +523,23 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		}
 		var req deletedAppRestoreRequestBody
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Properties.DeletedSiteID == "" {
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"The deletedSiteId property is required.", http.StatusBadRequest)
 			return
 		}
 		deleted, ok := webDeletedSiteByRequest(req.Properties.DeletedSiteID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The deleted app with id '%s' was not found.", req.Properties.DeletedSiteID)
 			return
 		}
 		files, err := webReadBackupArchive(deleted.Archive)
 		if err != nil {
-			sim.AzureError(w, "RestoreFailed", err.Error(), http.StatusBadRequest)
+			AzureError(w, "RestoreFailed", err.Error(), http.StatusBadRequest)
 			return
 		}
 		resID := webResourceID(r)
@@ -586,24 +586,24 @@ func webRestoreFromBlob(w http.ResponseWriter, r *http.Request, storageURL, blob
 	req restoreRequestBody, backupItemID string) {
 	target, code, msg := webParseBackupStorageURL(storageURL)
 	if code != "" {
-		sim.AzureError(w, code, msg, http.StatusBadRequest)
+		AzureError(w, code, msg, http.StatusBadRequest)
 		return
 	}
 	data, ok := webGetBackupBlob(target, blobName)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The backup blob %q was not found in container %q.", blobName, target.container)
 		return
 	}
 	files, err := webReadBackupArchive(data)
 	if err != nil {
-		sim.AzureError(w, "RestoreFailed", err.Error(), http.StatusBadRequest)
+		AzureError(w, "RestoreFailed", err.Error(), http.StatusBadRequest)
 		return
 	}
 	resID := webResourceID(r)
 	// "true is needed if trying to restore over an existing app."
 	if !req.Properties.Overwrite && len(webSiteContentFiles(resID)) > 0 {
-		sim.AzureError(w, "Conflict",
+		AzureError(w, "Conflict",
 			"The target app already has content; set overwrite to true to restore over it.",
 			http.StatusConflict)
 		return

@@ -29,7 +29,7 @@ allowlist="scripts/locked-helpers-allowlist.txt"
 # The Go source this repository owns. The sockerless monorepo's backends/,
 # agent/, simulators/, core/ and cmd/ are not among its directories, and a
 # find naming those listed no files here.
-SCAN_DIRS="simulator-aws simulator-azure simulator-gcp realexec testutil ui-auth"
+SCAN_DIRS="sim simulator-aws simulator-azure simulator-gcp realexec testutil ui-auth"
 
 # A gate that scans nothing passes for the wrong reason. Prove the scan set is
 # non-empty before trusting a clean result.

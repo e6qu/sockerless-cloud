@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file completes the Lambda restJson1 control-plane slice: the
@@ -90,7 +90,7 @@ func handleLambdaGetFunctionConfiguration(w http.ResponseWriter, r *http.Request
 	name := sim.PathParam(r, "name")
 	fn, _, ok := lambdaResolveInvocationTarget(name, r.URL.Query().Get("Qualifier"))
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Function or version not found: %s", name)
 		return
 	}
@@ -102,7 +102,7 @@ func handleLambdaGetFunctionConfiguration(w http.ResponseWriter, r *http.Request
 func handleLambdaUpdateFunctionCode(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Function not found: %s", lambdaArn(name))
 		return
 	}
@@ -119,7 +119,7 @@ func handleLambdaUpdateFunctionCode(w http.ResponseWriter, r *http.Request) {
 		RevisionId      string   `json:"RevisionId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	newCode := &LambdaFunctionCode{
@@ -132,24 +132,24 @@ func handleLambdaUpdateFunctionCode(w http.ResponseWriter, r *http.Request) {
 	}
 	fn, _ := lambdaFunctions.Get(name)
 	if req.RevisionId != "" && req.RevisionId != fn.RevisionId {
-		sim.AWSError(w, "PreconditionFailedException",
+		AWSError(w, "PreconditionFailedException",
 			"The RevisionId provided does not match the latest RevisionId for the function",
 			http.StatusPreconditionFailed)
 		return
 	}
 	if fn.PackageType == "Image" {
 		if req.ImageUri == "" {
-			sim.AWSError(w, "InvalidParameterValueException",
+			AWSError(w, "InvalidParameterValueException",
 				"ImageUri is required for an Image function", http.StatusBadRequest)
 			return
 		}
 	} else if err := validateLambdaDeploymentPackage(newCode); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	codeSize, err := lambdaDeploymentPackageSize(newCode)
 	if err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", err.Error(), http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	// DryRun validates without persisting; return the current config unchanged.
@@ -203,7 +203,7 @@ var lambdaScalingCfgs sim.Store[lambdaStoredScalingConfig]
 func handleLambdaGetFunctionScalingConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Function not found: %s", lambdaArn(name))
 		return
 	}
@@ -221,7 +221,7 @@ func handleLambdaGetFunctionScalingConfig(w http.ResponseWriter, r *http.Request
 func handleLambdaPutFunctionScalingConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Function not found: %s", lambdaArn(name))
 		return
 	}
@@ -230,11 +230,11 @@ func handleLambdaPutFunctionScalingConfig(w http.ResponseWriter, r *http.Request
 		FunctionScalingConfig *lambdaFunctionScalingConfig `json:"FunctionScalingConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.FunctionScalingConfig == nil {
-		sim.AWSError(w, "InvalidParameterValueException", "FunctionScalingConfig is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "FunctionScalingConfig is required", http.StatusBadRequest)
 		return
 	}
 	lambdaScalingCfgs.Put(lambdaEICKey(name, qualifier), lambdaStoredScalingConfig{
@@ -249,7 +249,7 @@ func handleLambdaPutFunctionScalingConfig(w http.ResponseWriter, r *http.Request
 func handleLambdaListFunctionsByCodeSigningConfig(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
 	if _, ok := lambdaCSCStore.Get(arn); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The code signing configuration cannot be found.")
 		return
 	}
@@ -330,28 +330,28 @@ func handleLambdaCreateCapacityProvider(w http.ResponseWriter, r *http.Request) 
 		PropagateTags                 map[string]any `json:"PropagateTags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.CapacityProviderName == "" {
-		sim.AWSError(w, "InvalidParameterValueException", "CapacityProviderName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "CapacityProviderName is required", http.StatusBadRequest)
 		return
 	}
 	operatorRole, _ := req.PermissionsConfig["CapacityProviderOperatorRoleArn"].(string)
 	if operatorRole == "" {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"PermissionsConfig.CapacityProviderOperatorRoleArn is required", http.StatusBadRequest)
 		return
 	}
 	subnetIDs, subnetOK := req.VpcConfig["SubnetIds"].([]any)
 	securityGroupIDs, securityGroupOK := req.VpcConfig["SecurityGroupIds"].([]any)
 	if !subnetOK || len(subnetIDs) == 0 || !securityGroupOK || len(securityGroupIDs) == 0 {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"VpcConfig.SubnetIds and VpcConfig.SecurityGroupIds are required", http.StatusBadRequest)
 		return
 	}
 	if _, exists := lambdaCapacityProviders.Get(req.CapacityProviderName); exists {
-		sim.AWSErrorf(w, "ResourceConflictException", http.StatusConflict,
+		AWSErrorf(w, "ResourceConflictException", http.StatusConflict,
 			"Capacity provider already exists: %s", req.CapacityProviderName)
 		return
 	}
@@ -377,7 +377,7 @@ func handleLambdaGetCapacityProvider(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "cpname")
 	cp, ok := lambdaCapacityProviders.Get(name)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Capacity provider not found: %s", name)
 		return
 	}
@@ -401,7 +401,7 @@ func handleLambdaListCapacityProviders(w http.ResponseWriter, r *http.Request) {
 func handleLambdaUpdateCapacityProvider(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "cpname")
 	if _, ok := lambdaCapacityProviders.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Capacity provider not found: %s", name)
 		return
 	}
@@ -410,7 +410,7 @@ func handleLambdaUpdateCapacityProvider(w http.ResponseWriter, r *http.Request) 
 		PropagateTags                 map[string]any `json:"PropagateTags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	lambdaCapacityProviders.Update(name, func(cp *LambdaCapacityProvider) {
@@ -431,13 +431,13 @@ func handleLambdaDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) 
 	name := sim.PathParam(r, "cpname")
 	cp, ok := lambdaCapacityProviders.Get(name)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Capacity provider not found: %s", name)
 		return
 	}
 	for _, function := range lambdaFunctions.List() {
 		if lambdaCapacityProviderARN(function.CapacityProviderConfig) == cp.CapacityProviderArn {
-			sim.AWSError(w, "ResourceConflictException",
+			AWSError(w, "ResourceConflictException",
 				"Capacity provider is currently used by a Lambda function version", http.StatusConflict)
 			return
 		}
@@ -452,7 +452,7 @@ func handleLambdaDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if inUse {
-		sim.AWSError(w, "ResourceConflictException",
+		AWSError(w, "ResourceConflictException",
 			"Capacity provider is currently used by a Lambda function version", http.StatusConflict)
 		return
 	}
@@ -470,7 +470,7 @@ func handleLambdaListFunctionVersionsByCapacityProvider(w http.ResponseWriter, r
 	name := sim.PathParam(r, "cpname")
 	cp, ok := lambdaCapacityProviders.Get(name)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Capacity provider not found: %s", name)
 		return
 	}
@@ -531,13 +531,13 @@ func handleLambdaInvokeAsync(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	fn, _, ok := lambdaResolveInvocationTarget(name, r.URL.Query().Get("Qualifier"))
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Function not found: %s", lambdaArn(name))
 		return
 	}
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.AWSError(w, "InvalidRequestContentException",
+		AWSError(w, "InvalidRequestContentException",
 			"failed to read invoke args: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -585,7 +585,7 @@ func handleLambdaInvokeWithResponseStream(w http.ResponseWriter, r *http.Request
 	name := sim.PathParam(r, "name")
 	fn, executedVersion, ok := lambdaResolveInvocationTarget(name, r.URL.Query().Get("Qualifier"))
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Function not found: %s", lambdaArn(name))
 		return
 	}
@@ -597,7 +597,7 @@ func handleLambdaInvokeWithResponseStream(w http.ResponseWriter, r *http.Request
 	}
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
-		sim.AWSError(w, "InvalidRequestContentException",
+		AWSError(w, "InvalidRequestContentException",
 			"failed to read payload: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1133,7 +1133,7 @@ func handleLambdaGetDurableExecution(w http.ResponseWriter, r *http.Request) {
 	}
 	lambdaDurableMu.RUnlock()
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Durable execution not found: %s", arn)
 		return
 	}
@@ -1173,12 +1173,12 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 	arn := lambdaDurableArnFromLabel(r)
 	fnName, _, ok := lambdaParseDurableArn(arn)
 	if !ok {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"Invalid DurableExecutionArn: "+arn, http.StatusBadRequest)
 		return
 	}
 	if _, exists := lambdaFunctions.Get(fnName); !exists {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Function not found: %s", lambdaArn(fnName))
 		return
 	}
@@ -1202,7 +1202,7 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 		ClientToken string `json:"ClientToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	now := lambdaNowEpoch()
@@ -1210,19 +1210,19 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 	de, exists := lambdaDurableExecs[arn]
 	if !exists {
 		lambdaDurableMu.Unlock()
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Durable execution not found: %s", arn)
 		return
 	}
 	if de.Status != "RUNNING" {
 		lambdaDurableMu.Unlock()
-		sim.AWSError(w, "InvalidStateException",
+		AWSError(w, "InvalidStateException",
 			"Only a running durable execution can be checkpointed", http.StatusConflict)
 		return
 	}
 	if req.CheckpointToken == "" || req.CheckpointToken != de.CheckpointToken {
 		lambdaDurableMu.Unlock()
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"CheckpointToken is missing, expired, or out of order", http.StatusBadRequest)
 		return
 	}
@@ -1250,7 +1250,7 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 	for _, u := range req.Updates {
 		if u.Id == "" || u.Type == "" || u.Action == "" {
 			lambdaDurableMu.Unlock()
-			sim.AWSError(w, "InvalidParameterValueException",
+			AWSError(w, "InvalidParameterValueException",
 				"Each update requires Id, Type, and Action", http.StatusBadRequest)
 			return
 		}
@@ -1264,13 +1264,13 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 		action := strings.ToUpper(u.Action)
 		if action == "START" && index >= 0 {
 			lambdaDurableMu.Unlock()
-			sim.AWSError(w, "InvalidParameterValueException",
+			AWSError(w, "InvalidParameterValueException",
 				"Operation "+u.Id+" has already started", http.StatusBadRequest)
 			return
 		}
 		if action != "START" && index < 0 {
 			lambdaDurableMu.Unlock()
-			sim.AWSError(w, "InvalidParameterValueException",
+			AWSError(w, "InvalidParameterValueException",
 				"Operation "+u.Id+" has not started", http.StatusBadRequest)
 			return
 		}
@@ -1296,7 +1296,7 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 				waitSeconds, valid := lambdaNumber(u.WaitOptions["WaitSeconds"])
 				if !valid || waitSeconds < 0 {
 					lambdaDurableMu.Unlock()
-					sim.AWSError(w, "InvalidParameterValueException",
+					AWSError(w, "InvalidParameterValueException",
 						"WAIT operations require a non-negative WaitSeconds", http.StatusBadRequest)
 					return
 				}
@@ -1315,7 +1315,7 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 				)
 				if !timeoutOK || !heartbeatOK {
 					lambdaDurableMu.Unlock()
-					sim.AWSError(w, "InvalidParameterValueException",
+					AWSError(w, "InvalidParameterValueException",
 						"Callback timeout values must be non-negative integers", http.StatusBadRequest)
 					return
 				}
@@ -1411,7 +1411,7 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 			op.EndTimestamp = now
 		default:
 			lambdaDurableMu.Unlock()
-			sim.AWSError(w, "InvalidParameterValueException",
+			AWSError(w, "InvalidParameterValueException",
 				"Unknown operation action: "+u.Action, http.StatusBadRequest)
 			return
 		}
@@ -1545,7 +1545,7 @@ func handleLambdaGetDurableExecutionHistory(w http.ResponseWriter, r *http.Reque
 	}
 	lambdaDurableMu.RUnlock()
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Durable execution not found: %s", arn)
 		return
 	}
@@ -1558,7 +1558,7 @@ func handleLambdaGetDurableExecutionHistory(w http.ResponseWriter, r *http.Reque
 	if raw := r.URL.Query().Get("MaxItems"); raw != "" {
 		parsed, parseErr := strconv.Atoi(raw)
 		if parseErr != nil || parsed < 0 || parsed > 1000 {
-			sim.AWSError(w, "InvalidParameterValueException",
+			AWSError(w, "InvalidParameterValueException",
 				"MaxItems must be between 0 and 1000", http.StatusBadRequest)
 			return
 		}
@@ -1586,12 +1586,12 @@ func handleLambdaGetDurableExecutionState(w http.ResponseWriter, r *http.Request
 	}
 	lambdaDurableMu.RUnlock()
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Durable execution not found: %s", arn)
 		return
 	}
 	if token := r.URL.Query().Get("CheckpointToken"); token == "" || token != checkpointToken {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"CheckpointToken is missing, expired, or out of order", http.StatusBadRequest)
 		return
 	}
@@ -1602,7 +1602,7 @@ func handleLambdaGetDurableExecutionState(w http.ResponseWriter, r *http.Request
 				maxItems = parsed
 			}
 		} else {
-			sim.AWSError(w, "InvalidParameterValueException",
+			AWSError(w, "InvalidParameterValueException",
 				"MaxItems must be between 0 and 1000", http.StatusBadRequest)
 			return
 		}
@@ -1618,7 +1618,7 @@ func handleLambdaGetDurableExecutionState(w http.ResponseWriter, r *http.Request
 func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Function not found: %s", lambdaArn(name))
 		return
 	}
@@ -1630,7 +1630,7 @@ func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.
 	if qualifier != "" {
 		_, resolvedVersion, resolved := lambdaResolveInvocationTarget(name, qualifier)
 		if !resolved {
-			sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 				"Function not found: %s:%s", fnArn, qualifier)
 			return
 		}
@@ -1638,13 +1638,13 @@ func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.
 	}
 	startedAfter, parseErr := lambdaOptionalRFC3339(r.URL.Query().Get("StartedAfter"))
 	if parseErr != nil {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"StartedAfter must be an ISO 8601 timestamp", http.StatusBadRequest)
 		return
 	}
 	startedBefore, parseErr := lambdaOptionalRFC3339(r.URL.Query().Get("StartedBefore"))
 	if parseErr != nil {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"StartedBefore must be an ISO 8601 timestamp", http.StatusBadRequest)
 		return
 	}
@@ -1707,7 +1707,7 @@ func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.
 	if raw := r.URL.Query().Get("MaxItems"); raw != "" {
 		parsed, maxErr := strconv.Atoi(raw)
 		if maxErr != nil || parsed < 1 || parsed > 1000 {
-			sim.AWSError(w, "InvalidParameterValueException",
+			AWSError(w, "InvalidParameterValueException",
 				"MaxItems must be between 1 and 1000", http.StatusBadRequest)
 			return
 		}
@@ -1740,7 +1740,7 @@ func handleLambdaStopDurableExecution(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		if de.Status != "RUNNING" {
 			lambdaDurableMu.Unlock()
-			sim.AWSError(w, "InvalidStateException",
+			AWSError(w, "InvalidStateException",
 				"Only a running durable execution can be stopped", http.StatusConflict)
 			return
 		}
@@ -1760,7 +1760,7 @@ func handleLambdaStopDurableExecution(w http.ResponseWriter, r *http.Request) {
 	}
 	lambdaDurableMu.Unlock()
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Durable execution not found: %s", arn)
 		return
 	}
@@ -1823,12 +1823,12 @@ func handleLambdaSendDurableCallbackSuccess(w http.ResponseWriter, r *http.Reque
 	id := sim.PathParam(r, "cbid")
 	result, err := io.ReadAll(io.LimitReader(r.Body, 256*1024+1))
 	if err != nil || len(result) > 256*1024 {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"Callback result exceeds the 256 KB limit", http.StatusBadRequest)
 		return
 	}
 	if !lambdaAdvanceCallback(id, "SUCCEEDED", string(result), nil) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Callback not found: %s", id)
 		return
 	}
@@ -1841,11 +1841,11 @@ func handleLambdaSendDurableCallbackFailure(w http.ResponseWriter, r *http.Reque
 		Error map[string]any `json:"Error"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil || req.Error == nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Error is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Error is required", http.StatusBadRequest)
 		return
 	}
 	if !lambdaAdvanceCallback(id, "FAILED", "", req.Error) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Callback not found: %s", id)
 		return
 	}
@@ -1855,7 +1855,7 @@ func handleLambdaSendDurableCallbackFailure(w http.ResponseWriter, r *http.Reque
 func handleLambdaSendDurableCallbackHeartbeat(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "cbid")
 	if !lambdaAdvanceCallback(id, "", "", nil) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Callback not found: %s", id)
 		return
 	}

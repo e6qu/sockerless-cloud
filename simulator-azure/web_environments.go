@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // App Service Environments (Microsoft.Web/hostingEnvironments) and Kubernetes
@@ -253,7 +253,7 @@ func kubeResourceID(r *http.Request) string {
 func aseLookup(w http.ResponseWriter, r *http.Request) (AppServiceEnvironmentResource, bool) {
 	ase, ok := webHostingEnvironments.Get(aseResourceID(r))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Web/hostingEnvironments/%s' under resource group '%s' was not found.",
 			sim.PathParam(r, "name"), sim.PathParam(r, "resourceGroupName"))
 		return AppServiceEnvironmentResource{}, false
@@ -461,7 +461,7 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 	ase("PUT", "", func(w http.ResponseWriter, r *http.Request) {
 		var req AppServiceEnvironmentResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := aseResourceID(r)
@@ -469,18 +469,18 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 		existing, updating := webHostingEnvironments.Get(id)
 
 		if req.Location == "" && !updating {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 		if req.Properties.VirtualNetwork == nil || req.Properties.VirtualNetwork.ID == "" {
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"The 'properties.virtualNetwork.id' property is required: an App Service Environment is deployed into a subnet.",
 				http.StatusBadRequest)
 			return
 		}
 		profile, subnetPrefix, err := aseResolveVirtualNetwork(*req.Properties.VirtualNetwork)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -520,7 +520,7 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 			next.Properties.DNSSuffix = aseDNSSuffix(name, aseIsInternal(next))
 		}
 		if err := aseAssignAddresses(&next, existing, updating, subnetPrefix); err != nil {
-			sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "%v", err)
+			AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "%v", err)
 			return
 		}
 		webHostingEnvironments.Put(id, next)
@@ -548,7 +548,7 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 		}
 		var patch AppServiceEnvironmentResource
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if patch.Kind != "" {
@@ -558,12 +558,12 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 		if p.VirtualNetwork != nil && p.VirtualNetwork.ID != "" {
 			profile, prefix, err := aseResolveVirtualNetwork(*p.VirtualNetwork)
 			if err != nil {
-				sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+				AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 				return
 			}
 			row.Properties.VirtualNetwork = &profile
 			if err := aseRederiveInternalAddress(&row, prefix); err != nil {
-				sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "%v", err)
+				AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "%v", err)
 				return
 			}
 		}
@@ -612,7 +612,7 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 		// An environment still hosting App Service plans cannot be deleted;
 		// the resource provider refuses rather than orphaning them.
 		if plans := asePlans(row.ID); len(plans) > 0 && !strings.EqualFold(r.URL.Query().Get("forceDelete"), "true") {
-			sim.AzureErrorf(w, "Conflict", http.StatusConflict,
+			AzureErrorf(w, "Conflict", http.StatusConflict,
 				"App Service Environment '%s' cannot be deleted because %d App Service plan(s) are still deployed in it. Delete them first, or repeat the request with forceDelete=true.",
 				row.Name, len(plans))
 			return
@@ -855,7 +855,7 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		}
 		var req ASEConfigurationResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		var patch ASENetworkingProperties
@@ -902,7 +902,7 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		}
 		var req ASEConfigurationResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		var props ASECustomDNSSuffixProperties
@@ -910,7 +910,7 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 			_ = json.Unmarshal(raw, &props)
 		}
 		if props.DNSSuffix == "" {
-			sim.AzureError(w, "InvalidRequestContent",
+			AzureError(w, "InvalidRequestContent",
 				"The 'properties.dnsSuffix' property is required to configure a custom domain suffix.",
 				http.StatusBadRequest)
 			return
@@ -1120,7 +1120,7 @@ func asePoolRead(collection string) http.HandlerFunc {
 		name := asePoolName(r, collection)
 		pool, found := webEnvironmentPools.Get(asePoolID(row.ID, collection, name))
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/hostingEnvironments/%s/%s/%s' was not found.", row.Name, collection, name)
 			return
 		}
@@ -1140,12 +1140,12 @@ func asePoolWrite(collection string, merge bool) http.HandlerFunc {
 		id := asePoolID(row.ID, collection, name)
 		var req WebWorkerPoolResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		existing, found := webEnvironmentPools.Get(id)
 		if merge && !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/hostingEnvironments/%s/%s/%s' was not found.", row.Name, collection, name)
 			return
 		}
@@ -1223,7 +1223,7 @@ func asePoolSKUs(collection string) http.HandlerFunc {
 		name := asePoolName(r, collection)
 		pool, found := webEnvironmentPools.Get(asePoolID(row.ID, collection, name))
 		if !found {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Web/hostingEnvironments/%s/%s/%s' was not found.", row.Name, collection, name)
 			return
 		}
@@ -1381,21 +1381,21 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 		}
 		var req VirtualNetworkProfile
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.ID == "" {
-			sim.AzureError(w, "InvalidRequestContent", "The 'id' property of the virtual network profile is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'id' property of the virtual network profile is required.", http.StatusBadRequest)
 			return
 		}
 		profile, prefix, err := aseResolveVirtualNetwork(req)
 		if err != nil {
-			sim.AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 			return
 		}
 		row.Properties.VirtualNetwork = &profile
 		if err := aseRederiveInternalAddress(&row, prefix); err != nil {
-			sim.AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "%v", err)
+			AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "%v", err)
 			return
 		}
 		webHostingEnvironments.Put(row.ID, row)
@@ -1445,7 +1445,7 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 			return
 		}
 		if !strings.EqualFold(row.Properties.UpgradeAvailability, "Ready") {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest,
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"No upgrade is available for App Service Environment '%s'.", row.Name)
 			return
 		}
@@ -1486,7 +1486,7 @@ func aseAcceptedCollection(w http.ResponseWriter, r *http.Request, row AppServic
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		sim.AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 			"The operation result could not be rendered: %v", err)
 		return
 	}
@@ -1571,7 +1571,7 @@ func registerWebEnvironmentPrivateEndpoints(ase func(string, string, http.Handle
 			} `json:"properties"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if conn.Properties == nil {
@@ -1621,7 +1621,7 @@ func aseLookupPEC(w http.ResponseWriter, r *http.Request) (WebSitePrivateEndpoin
 	name := sim.PathParam(r, "privateEndpointConnectionName")
 	conn, found := webEnvironmentPECs.Get(row.ID + "/privateEndpointConnections/" + name)
 	if !found {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Private endpoint connection '%s' not found.", name)
 		return WebSitePrivateEndpointConnection{}, false
 	}
@@ -1667,14 +1667,14 @@ func registerWebKubeEnvironments(srv *sim.Server) {
 	kube("PUT", "", func(w http.ResponseWriter, r *http.Request) {
 		var req KubeEnvironmentResource
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := kubeResourceID(r)
 		name := sim.PathParam(r, "name")
 		existing, updating := webKubeEnvironments.Get(id)
 		if req.Location == "" && !updating {
-			sim.AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "The 'location' property is required.", http.StatusBadRequest)
 			return
 		}
 		next := KubeEnvironmentResource{
@@ -1730,7 +1730,7 @@ func registerWebKubeEnvironments(srv *sim.Server) {
 		}
 		var patch KubeEnvironmentResource
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if patch.Kind != "" {
@@ -1780,7 +1780,7 @@ func registerWebKubeEnvironments(srv *sim.Server) {
 func kubeLookup(w http.ResponseWriter, r *http.Request) (KubeEnvironmentResource, bool) {
 	row, ok := webKubeEnvironments.Get(kubeResourceID(r))
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Web/kubeEnvironments/%s' under resource group '%s' was not found.",
 			sim.PathParam(r, "name"), sim.PathParam(r, "resourceGroupName"))
 		return KubeEnvironmentResource{}, false

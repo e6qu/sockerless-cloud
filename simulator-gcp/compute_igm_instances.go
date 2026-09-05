@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A managed instance group's instances, per-instance configurations and resize
@@ -98,7 +98,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 		load := func(w http.ResponseWriter, r *http.Request) (string, bool) {
 			key := groupKey(r)
 			if _, ok := store.Get(key); !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"instanceGroupManager %q not found", sim.PathParam(r, "name"))
 				return "", false
 			}
@@ -130,13 +130,13 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 				} `json:"instances"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			project, zone := sim.PathParam(r, "project"), instanceZone(r)
 			for _, wanted := range req.Instances {
 				if wanted.Name == "" {
-					sim.GCPError(w, http.StatusBadRequest,
+					GCPError(w, http.StatusBadRequest,
 						"each instance must be named to be created", "INVALID_ARGUMENT")
 					return
 				}
@@ -209,7 +209,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 					Instances []string `json:"instances"`
 				}
 				if err := sim.ReadJSON(r, &req); err != nil {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 					return
 				}
 				for _, ref := range req.Instances {
@@ -217,7 +217,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 					recordKey := computeManagedInstanceKey(key, name)
 					instance, held := computeManagedInstances.Get(recordKey)
 					if !held {
-						sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+						GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 							"the group manages no instance named %q", name)
 						return
 					}
@@ -240,7 +240,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 				TargetPools []string `json:"targetPools"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			store.Update(key, func(m *map[string]any) { (*m)["targetPools"] = req.TargetPools })
@@ -286,12 +286,12 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 					} `json:"perInstanceConfigs"`
 				}
 				if err := sim.ReadJSON(r, &req); err != nil {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 					return
 				}
 				for _, wanted := range req.PerInstanceConfigs {
 					if wanted.Name == "" {
-						sim.GCPError(w, http.StatusBadRequest,
+						GCPError(w, http.StatusBadRequest,
 							"each per-instance configuration must name its instance", "INVALID_ARGUMENT")
 						return
 					}
@@ -328,12 +328,12 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 				Names []string `json:"names"`
 			}
 			if err := sim.ReadJSON(r, &req); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			for _, name := range req.Names {
 				if !computePerInstanceConfigs.Delete(computeManagedInstanceKey(key, name)) {
-					sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+					GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 						"the group holds no configuration for %q", name)
 					return
 				}
@@ -352,11 +352,11 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 			}
 			var body ComputeInstanceGroupResizeRequest
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			if body.Name == "" {
-				sim.GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+				GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 				return
 			}
 			body.Group = key
@@ -388,7 +388,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 			}
 			request, held := computeResizeRequests.Get(requestKey(r))
 			if !held {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"resize request %q not found", sim.PathParam(r, "resizeRequest"))
 				return
 			}
@@ -400,7 +400,7 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 				return
 			}
 			if !computeResizeRequests.Delete(requestKey(r)) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"resize request %q not found", sim.PathParam(r, "resizeRequest"))
 				return
 			}
@@ -413,12 +413,12 @@ func registerComputeInstanceGroupInstances(srv *sim.Server, store sim.Store[map[
 			}
 			request, held := computeResizeRequests.Get(requestKey(r))
 			if !held {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"resize request %q not found", sim.PathParam(r, "resizeRequest"))
 				return
 			}
 			if request.State == "CANCELLED" {
-				sim.GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
 					"resize request %q is already cancelled", request.Name)
 				return
 			}

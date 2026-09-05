@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type ResourceGroup struct {
@@ -38,7 +38,7 @@ func registerResourceGroups(srv *sim.Server) {
 			Tags     map[string]string `json:"tags,omitempty"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -71,7 +71,7 @@ func registerResourceGroups(srv *sim.Server) {
 
 		rg, ok := resourceGroups.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceGroupNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceGroupNotFound", http.StatusNotFound,
 				"Resource group '%s' could not be found.", rgName)
 			return
 		}

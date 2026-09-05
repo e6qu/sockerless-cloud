@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // interconnectRemoteLocations.list and .get — the third-party facilities Cloud
@@ -83,7 +83,7 @@ func registerComputeInterconnectRemoteLocations(srv *sim.Server) {
 					return
 				}
 			}
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"The resource 'projects/%s/global/interconnectRemoteLocations/%s' was not found", project, name)
 		})
 }

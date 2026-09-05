@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type PrivateDnsZone struct {
@@ -149,7 +149,7 @@ func registerPrivateDNS(srv *sim.Server) {
 
 		var req PrivateDnsZone
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -249,7 +249,7 @@ func registerPrivateDNS(srv *sim.Server) {
 
 		zone, ok := zones.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/privateDnsZones/%s' under resource group '%s' was not found.", zoneName, rg)
 			return
 		}
@@ -292,7 +292,7 @@ func registerPrivateDNS(srv *sim.Server) {
 
 		rs, ok := recordSets.Get(recordID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The record set '%s' of type 'SOA' in zone '%s' was not found.", recordName, zoneName)
 			return
 		}
@@ -311,14 +311,14 @@ func registerPrivateDNS(srv *sim.Server) {
 		zoneID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
 			sub, rg, zoneName)
 		if _, ok := zones.Get(zoneID); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/privateDnsZones/%s' under resource group '%s' was not found.", zoneName, rg)
 			return
 		}
 
 		var req RecordSet
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -369,7 +369,7 @@ func registerPrivateDNS(srv *sim.Server) {
 
 		rs, ok := recordSets.Get(recordID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The record set '%s' of type 'A' in zone '%s' was not found.", recordName, zoneName)
 			return
 		}
@@ -439,13 +439,13 @@ func registerPrivateDNS(srv *sim.Server) {
 					"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
 					sub, rg, zoneName)
 				if _, ok := zones.Get(zoneID); !ok {
-					sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+					AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 						"Zone %q not found in resource group %q", zoneName, rg)
 					return
 				}
 				var req RecordSet
 				if err := sim.ReadJSON(r, &req); err != nil {
-					sim.AzureError(w, "InvalidRequestContent",
+					AzureError(w, "InvalidRequestContent",
 						"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 					return
 				}
@@ -503,7 +503,7 @@ func registerPrivateDNS(srv *sim.Server) {
 					sub, rg, zoneName, recordType, recordName)
 				rs, ok := recordSets.Get(recordID)
 				if !ok {
-					sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+					AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 						"The record set '%s' of type '%s' in zone '%s' was not found.",
 						recordName, recordType, zoneName)
 					return
@@ -563,7 +563,7 @@ func registerPrivateDNS(srv *sim.Server) {
 
 		var req VNetLink
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body", http.StatusBadRequest)
 			return
 		}
 
@@ -613,7 +613,7 @@ func registerPrivateDNS(srv *sim.Server) {
 
 		link, ok := vnetLinks.Get(resourceID)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Virtual network link '%s' not found.", linkName)
 			return
 		}

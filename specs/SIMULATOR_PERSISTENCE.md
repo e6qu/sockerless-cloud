@@ -1,31 +1,44 @@
 # Simulator Persistence Specification
 
-How cloud simulators persist state across restarts via SQLite.
+How the cloud simulators persist state across restarts via SQLite.
 
 ## Architecture
 
-Each simulator (AWS, GCP, Azure) uses a generic `Store[T]` interface with two implementations:
+Every simulator keeps its resources in `Store[T]` instances with two
+implementations:
 
-- **MemoryStore[T]**: In-memory `map[string]T` (default, for tests and ephemeral use)
-- **SQLiteStore[T]**: Persistent `(key TEXT, value BLOB)` table per store instance
+- **MemoryStore[T]**: an in-memory `map[string]T`, the default.
+- **SQLiteStore[T]**: one `(key TEXT, value BLOB)` table per store instance.
 
-Source: `simulator-{aws,gcp,azure}/shared/state.go`, `state_sqlite.go`, `db.go`
+Source: `sim/state.go`, `sim/state_sqlite.go`, `sim/db.go`, `sim/index.go`,
+`sim/store_scan.go`.
 
 ## Configuration
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `SIM_PERSIST` | `false` | Enable SQLite persistence (`true` or `1`) |
-| `SIM_DATA_DIR` | `/tmp/sockerless-sim-{cloud}` | Directory for database and PID files |
+| `SIM_DATA_DIR` | `/tmp/sockerless-sim-{cloud}` | Directory for the database; resolved to an absolute path at startup |
 
-When persistence is disabled, all stores are in-memory and state is lost on restart. When enabled, SQLite stores data at `{SIM_DATA_DIR}/simulator.db`.
+When persistence is disabled every store is in memory and state is lost on
+restart. When enabled, SQLite stores data at `{SIM_DATA_DIR}/simulator.db`, and
+the state directory becomes the simulator's identity to the workload sweep: a
+run collects what an earlier run over the same directory left behind, and a
+concurrent suite's workloads under another directory are never touched.
 
 ## SQLite Configuration
 
-- **Journal mode**: WAL (concurrent reads during writes)
-- **Busy timeout**: 5000ms (wait for lock instead of failing)
-- **Synchronous**: NORMAL (safe with WAL, better performance)
-- **Driver**: `modernc.org/sqlite` (CGO-free, cross-platform)
+- **Journal mode**: WAL, so reads proceed during writes.
+- **Busy timeout**: 5000ms, waiting for a lock instead of failing.
+- **Synchronous**: NORMAL. FULL fsynced the WAL on every commit and serialized
+  every write behind that fsync; NORMAL still fsyncs at every checkpoint and is
+  safe against a process crash, giving up only the case of the host losing
+  power between a commit and its next checkpoint.
+- **Driver**: `modernc.org/sqlite`, CGO-free.
+
+Orderly shutdown drains every background worker the server started before it
+checkpoints and closes the database, so no service can query durable state
+after the database is closed.
 
 ## Schema
 
@@ -38,37 +51,19 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 );
 ```
 
-Values are JSON-serialized. The generic KV schema avoids per-type migrations — adding a field to a Go struct automatically persists via JSON.
+Values are JSON-serialized inside a persistence envelope. Resource structs
+double as the cloud's wire shapes, so a field tagged `json:"-"` is hidden from
+API responses; the envelope stores those exported fields in a sidecar so they
+survive a restart, and a field tagged `persist:"-"` (a channel, a process
+handle) is left out. Rows written before the envelope existed remain readable.
 
 ## Table Naming Convention
 
-`{service}_{resource}` in lowercase:
-
-### AWS (32 tables)
-| Table | Go Type | Service |
-|-------|---------|---------|
-| `ecs_clusters` | `ECSCluster` | ECS |
-| `ecs_task_definitions` | `ECSTaskDefinition` | ECS |
-| `ecs_tasks` | `ECSTask` | ECS |
-| `lambda_functions` | `LambdaFunction` | Lambda |
-| `ecr_repositories` | `ECRRepository` | ECR |
-| `ecr_images` | `ECRImageDetail` | ECR |
-| `s3_buckets` | `S3Bucket` | S3 |
-| `s3_objects` | `S3Object` | S3 |
-| `cw_log_groups` | `CWLogGroup` | CloudWatch |
-| `cw_log_streams` | `CWLogStream` | CloudWatch |
-| `cw_log_events` | `[]CWLogEvent` | CloudWatch |
-| `ec2_vpcs` | `EC2Vpc` | EC2 |
-| `ec2_subnets` | `EC2Subnet` | EC2 |
-| `ec2_security_groups` | `EC2SecurityGroup` | EC2 |
-| `iam_roles` | `IAMRole` | IAM |
-| ... | ... | ... |
-
-### GCP (21 tables)
-`crj_jobs`, `crj_executions`, `gcf_functions`, `logging_entries`, `dns_zones`, `dns_record_sets`, `gcs_buckets`, `gcs_objects`, `ar_repos`, `ar_docker_images`, `ar_manifests`, `ar_blobs`, `compute_networks`, `iam_service_accounts`, `operations`, `service_usage`, `vpc_connectors`, ...
-
-### Azure (27 tables)
-`aca_jobs`, `aca_executions`, `aca_environments`, `acr_registries`, `acr_manifests`, `storage_accounts`, `file_shares`, `azf_sites`, `monitor_logs`, `dns_zones`, `network_vnets`, `network_nsgs`, `resource_groups`, ...
+`{service}_{resource}` in lowercase — `ecs_clusters`, `gcs_objects`,
+`acr_manifests`. The authoritative list is the set of `MakeStore` calls in each
+simulator; every store a build creates joins the tracked set
+(`sim.TrackedStores`), which is what the Azure cross-resource-group move
+scans.
 
 ## Store Interface
 
@@ -81,45 +76,35 @@ type Store[T any] interface {
     Filter(fn func(T) bool) []T
     Len() int
     Update(id string, fn func(*T)) bool
+    Upsert(id string, fn func(*T))
+    Generation() uint64
 }
 ```
 
-Factory function selects implementation based on database availability:
+`Upsert` applies a read-modify-write under one lock, creating the row from the
+zero value when it is absent, so a create-or-modify never races a concurrent
+writer the way an `Update`-then-`Put` pair would.
+
+`Generation` is a process-wide counter every store advances on a write that
+changed it. `GenerationIndex` derives a keyed lookup from `List` and rebuilds
+only when the generation moves, which is how every handler wrapper that decides
+whether to claim a request avoids reading a whole store per request;
+`scripts/check-store-scans.sh` holds request-path full-store reads at zero.
+
+The factory selects the implementation:
 
 ```go
 func MakeStore[T any](db *sql.DB, table string) Store[T]
-// Returns SQLiteStore when db != nil, MemoryStore when nil
+// SQLiteStore when db != nil, MemoryStore when nil
 ```
 
-## Process Tracking
+## Workload Recovery
 
-Running processes (ECS tasks, Lambda invocations, Cloud Run executions) are tracked via PID files for recovery after restart.
-
-Source: `simulator-{aws,gcp,azure}/shared/process_tracker.go`
-
-### PID File Layout
-
-```
-{SIM_DATA_DIR}/pids/
-├── {taskID-1}.pid    # contains: 12345
-├── {taskID-2}.pid    # contains: 12346
-└── {execID-1}.pid    # contains: 12347
-```
-
-### Recovery Flow
-
-On simulator restart with persistence enabled:
-
-1. Open SQLite database (all resource state restored automatically)
-2. Scan PID directory for `.pid` files
-3. For each PID file, check if process is alive (`kill -0 $pid`)
-4. Live processes: re-attach to `sync.Map` for monitoring
-5. Dead processes: clean up PID file, update resource state to STOPPED
-
-### Naming Convention
-
-PID files use the same ID as the cloud resource:
-- AWS ECS: task ID (UUID portion of ARN)
-- AWS Lambda: request ID
-- GCP Cloud Run: execution name
-- Azure ACA: execution ID
+A persistent simulator's workloads are containers labelled with the state
+directory's identity and the cloud resource they belong to. On restart a
+service slice finds its containers through `sim.FindExistingContainers` by the
+same labels it supplied at creation, adopts a running one with
+`sim.AdoptContainer` so its exit is observed and recorded, and decides itself
+whether an exited workload stays terminal or resumes. Shutdown with persistence
+enabled leaves the containers running, since the next process will adopt them;
+without persistence it removes them.

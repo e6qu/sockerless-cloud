@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The verbs the load-balancing collections carry beyond their lifecycle:
@@ -70,17 +70,17 @@ func registerComputeTypedWriteVerbs[T any](srv *sim.Server, collection string, s
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			key := computeGlobalLink(project, collection, name)
 			found, err := computeTypedWrite(store, key, body, verb == "update")
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", collection, err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", collection, err)
 				return
 			}
 			if !found {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, key, verb))
@@ -97,7 +97,7 @@ func registerComputeURLMapVerbs(srv *sim.Server) {
 			Resource *ComputeURLMap `json:"resource"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil || req.Resource == nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"validate needs the URL map to check in its resource member")
 			return
 		}
@@ -112,7 +112,7 @@ func registerComputeURLMapVerbs(srv *sim.Server) {
 		project, name := sim.PathParam(r, "project"), sim.PathParam(r, "urlMap")
 		key := computeGlobalLink(project, "urlMaps", name)
 		if _, ok := gcpURLMaps.Get(key); !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "urlMaps %q not found", name)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "urlMaps %q not found", name)
 			return
 		}
 		var req struct {
@@ -120,11 +120,11 @@ func registerComputeURLMapVerbs(srv *sim.Server) {
 			Host string `json:"host"`
 		}
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if req.Path == "" {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"invalidateCache needs the path to invalidate")
 			return
 		}

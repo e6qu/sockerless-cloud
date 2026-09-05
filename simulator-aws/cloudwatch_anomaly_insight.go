@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sort"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch anomaly detectors and Contributor Insights rules.
@@ -89,7 +89,7 @@ func cwSetInsightRulesState(names []string, state string) {
 
 // ── awsJson1.0 surface ──────────────────────────────────────────────────────
 
-func registerCloudWatchAnomalyInsightJSON(r *sim.AWSRouter) {
+func registerCloudWatchAnomalyInsightJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutAnomalyDetector", handleCWJSONPutAnomalyDetector)
 	r.Register("GraniteServiceVersion20100801.DescribeAnomalyDetectors", handleCWJSONDescribeAnomalyDetectors)
 	r.Register("GraniteServiceVersion20100801.DeleteAnomalyDetector", handleCWJSONDeleteAnomalyDetector)
@@ -137,12 +137,12 @@ func (req cwAnomalyDetectorReq) resolve() CWAnomalyDetector {
 func handleCWJSONPutAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 	var req cwAnomalyDetectorReq
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	d := req.resolve()
 	if d.Namespace == "" || d.MetricName == "" || d.Stat == "" {
-		sim.AWSError(w, "MissingParameter", "Namespace, MetricName and Stat are required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "Namespace, MetricName and Stat are required.", http.StatusBadRequest)
 		return
 	}
 	cwAnomalyDetectors.Put(cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions), d)
@@ -155,7 +155,7 @@ func handleCWJSONDescribeAnomalyDetectors(w http.ResponseWriter, r *http.Request
 		MetricName string `json:"MetricName"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	out := make([]map[string]any, 0)
@@ -188,13 +188,13 @@ func cwJSONAnomalyDetector(d CWAnomalyDetector) map[string]any {
 func handleCWJSONDeleteAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 	var req cwAnomalyDetectorReq
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	d := req.resolve()
 	key := cwAnomalyKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
 	if _, ok := cwAnomalyDetectors.Get(key); !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "No anomaly detector found for the given metric.", http.StatusBadRequest)
+		AWSError(w, "ResourceNotFoundException", "No anomaly detector found for the given metric.", http.StatusBadRequest)
 		return
 	}
 	cwAnomalyDetectors.Delete(key)
@@ -210,15 +210,15 @@ func handleCWJSONPutInsightRule(w http.ResponseWriter, r *http.Request) {
 		Tags                   []cwTagKV `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.RuleName == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter RuleName is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter RuleName is required.", http.StatusBadRequest)
 		return
 	}
 	if req.RuleDefinition == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter RuleDefinition is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter RuleDefinition is required.", http.StatusBadRequest)
 		return
 	}
 	cwPutInsightRule(req.RuleName, req.RuleState, req.RuleDefinition, req.ApplyOnTransformedLogs, req.Tags)
@@ -251,7 +251,7 @@ func cwPutInsightRule(name, state, definition string, applyOnTransformed bool, t
 func handleCWJSONDescribeInsightRules(w http.ResponseWriter, r *http.Request) {
 	var req struct{}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	out := make([]map[string]any, 0)
@@ -273,7 +273,7 @@ func handleCWJSONEnableInsightRules(w http.ResponseWriter, r *http.Request) {
 		RuleNames []string `json:"RuleNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	cwSetInsightRulesState(req.RuleNames, "ENABLED")
@@ -285,7 +285,7 @@ func handleCWJSONDisableInsightRules(w http.ResponseWriter, r *http.Request) {
 		RuleNames []string `json:"RuleNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	cwSetInsightRulesState(req.RuleNames, "DISABLED")
@@ -297,7 +297,7 @@ func handleCWJSONDeleteInsightRules(w http.ResponseWriter, r *http.Request) {
 		RuleNames []string `json:"RuleNames"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	for _, n := range req.RuleNames {
@@ -506,7 +506,7 @@ func handleCWCBORDeleteInsightRules(w http.ResponseWriter, r *http.Request) {
 
 // ── query surface (older aws CLI) ───────────────────────────────────────────
 
-func registerCloudWatchAnomalyInsightQuery(r *sim.AWSQueryRouter) {
+func registerCloudWatchAnomalyInsightQuery(r *AWSQueryRouter) {
 	r.Register("PutAnomalyDetector", handleCWQueryPutAnomalyDetector)
 	r.Register("DescribeAnomalyDetectors", handleCWQueryDescribeAnomalyDetectors)
 	r.Register("DeleteAnomalyDetector", handleCWQueryDeleteAnomalyDetector)

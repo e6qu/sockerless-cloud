@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Amazon EC2 Transit Gateway family — faithful ec2Query (XML) CRUD.
@@ -166,7 +166,7 @@ var (
 	ec2TGWMulticastDomains       sim.Store[EC2TransitGatewayMulticastDomain]
 )
 
-func registerEC2TransitGateway(r *sim.AWSQueryRouter, srv *sim.Server) {
+func registerEC2TransitGateway(r *AWSQueryRouter, srv *sim.Server) {
 	ec2TransitGateways = sim.MakeStore[EC2TransitGateway](srv.DB(), "ec2_transit_gateways")
 	ec2TransitGatewayRouteTables = sim.MakeStore[EC2TransitGatewayRouteTable](srv.DB(), "ec2_transit_gateway_route_tables")
 	ec2TGWVpcAttachments = sim.MakeStore[EC2TransitGatewayVpcAttachment](srv.DB(), "ec2_tgw_vpc_attachments")

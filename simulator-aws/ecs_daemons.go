@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // ECS daemons — the managed cluster-wide "one task per host" workload (the
@@ -85,7 +85,7 @@ var (
 	ecsDaemonTDRevisions     map[string]int
 )
 
-func registerECSDaemons(r *sim.AWSRouter, srv *sim.Server) {
+func registerECSDaemons(r *AWSRouter, srv *sim.Server) {
 	ecsDaemons = sim.MakeStore[ECSDaemon](srv.DB(), "ecs_daemons")
 	ecsDaemonDeployments = sim.MakeStore[ECSDaemonDeployment](srv.DB(), "ecs_daemon_deployments")
 	ecsDaemonRevisions = sim.MakeStore[ECSDaemonRevision](srv.DB(), "ecs_daemon_revisions")
@@ -126,17 +126,17 @@ func handleECSCreateDaemon(w http.ResponseWriter, r *http.Request) {
 		Tags                    []ECSTag `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DaemonName == "" {
-		sim.AWSError(w, "InvalidParameterException", "daemonName is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "daemonName is required", http.StatusBadRequest)
 		return
 	}
 	clusterName := ecsClusterNameFromRef(req.ClusterArn)
 	cluster, ok := ecsClusters.Get(clusterName)
 	if !ok {
-		sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.ClusterArn)
+		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.ClusterArn)
 		return
 	}
 	now := float64(time.Now().Unix())
@@ -187,12 +187,12 @@ func handleECSDescribeDaemon(w http.ResponseWriter, r *http.Request) {
 		DaemonArn string `json:"daemonArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	d, ok := ecsDaemons.Get(req.DaemonArn)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "The specified daemon does not exist: %s", req.DaemonArn)
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "The specified daemon does not exist: %s", req.DaemonArn)
 		return
 	}
 	// DaemonDetail.currentRevisions uses the DaemonRevisionDetail shape, whose
@@ -227,12 +227,12 @@ func handleECSUpdateDaemon(w http.ResponseWriter, r *http.Request) {
 		CapacityProviderArns    []string `json:"capacityProviderArns"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	d, ok := ecsDaemons.Get(req.DaemonArn)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "The specified daemon does not exist: %s", req.DaemonArn)
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "The specified daemon does not exist: %s", req.DaemonArn)
 		return
 	}
 	now := float64(time.Now().Unix())
@@ -258,12 +258,12 @@ func handleECSDeleteDaemon(w http.ResponseWriter, r *http.Request) {
 		DaemonArn string `json:"daemonArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	d, ok := ecsDaemons.Get(req.DaemonArn)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "The specified daemon does not exist: %s", req.DaemonArn)
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "The specified daemon does not exist: %s", req.DaemonArn)
 		return
 	}
 	d.Status = "DELETE_IN_PROGRESS"
@@ -285,7 +285,7 @@ func handleECSListDaemons(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	clusterArn := ""
@@ -293,7 +293,7 @@ func handleECSListDaemons(w http.ResponseWriter, r *http.Request) {
 		clusterName := ecsClusterNameFromRef(req.ClusterArn)
 		c, ok := ecsClusters.Get(clusterName)
 		if !ok {
-			sim.AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.ClusterArn)
+			AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.ClusterArn)
 			return
 		}
 		clusterArn = c.ClusterArn
@@ -328,7 +328,7 @@ func handleECSDescribeDaemonDeployments(w http.ResponseWriter, r *http.Request) 
 		DaemonDeploymentArns []string `json:"daemonDeploymentArns"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var found []map[string]any
@@ -367,11 +367,11 @@ func handleECSListDaemonDeployments(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.DaemonArn == "" {
-		sim.AWSError(w, "InvalidParameterException", "daemonArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "daemonArn is required", http.StatusBadRequest)
 		return
 	}
 	var deps []ECSDaemonDeployment
@@ -408,7 +408,7 @@ func handleECSDescribeDaemonRevisions(w http.ResponseWriter, r *http.Request) {
 		DaemonRevisionArns []string `json:"daemonRevisionArns"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var found []ECSDaemonRevision
@@ -445,11 +445,11 @@ func handleECSRegisterDaemonTaskDefinition(w http.ResponseWriter, r *http.Reques
 		Tags                 []ECSTag        `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Family == "" {
-		sim.AWSError(w, "InvalidParameterException", "family is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "family is required", http.StatusBadRequest)
 		return
 	}
 	ecsDaemonTDRevisionMu.Lock()
@@ -491,12 +491,12 @@ func handleECSDescribeDaemonTaskDefinition(w http.ResponseWriter, r *http.Reques
 		DaemonTaskDefinition string `json:"daemonTaskDefinition"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	td, ok := ecsDaemonTaskDefinitions.Get(ecsDaemonTDRefKey(req.DaemonTaskDefinition))
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Unable to describe daemon task definition: %s", req.DaemonTaskDefinition)
 		return
 	}
@@ -508,13 +508,13 @@ func handleECSDeleteDaemonTaskDefinition(w http.ResponseWriter, r *http.Request)
 		DaemonTaskDefinition string `json:"daemonTaskDefinition"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := ecsDaemonTDRefKey(req.DaemonTaskDefinition)
 	td, ok := ecsDaemonTaskDefinitions.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
+		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"Unable to describe daemon task definition: %s", req.DaemonTaskDefinition)
 		return
 	}
@@ -534,7 +534,7 @@ func handleECSListDaemonTaskDefinitions(w http.ResponseWriter, r *http.Request) 
 		NextToken    string `json:"nextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	var tds []ECSDaemonTaskDefinition

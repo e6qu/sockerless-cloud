@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // web_plan_network.go serves the App Service plan networking and worker tail:
@@ -150,7 +150,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		if _, ok := azureAppServicePlans.Get(webPlanID(r)); ok {
 			return true
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Server farm '%s' not found.", sim.PathParam(r, "planName"))
 		return false
 	}
@@ -172,7 +172,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		conn, ok := planVnetConn(r)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Virtual network connection '%s' not found.", sim.PathParam(r, "vnetName"))
 			return
 		}
@@ -185,7 +185,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		gw, ok := webVnetGateways.Get(planVnetConnID(r) + "/gateways/" + sim.PathParam(r, "gatewayName"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Gateway '%s' not found on virtual network connection '%s'.",
 				sim.PathParam(r, "gatewayName"), sim.PathParam(r, "vnetName"))
 			return
@@ -197,7 +197,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			return
 		}
 		if _, ok := planVnetConn(r); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Virtual network connection '%s' not found.", sim.PathParam(r, "vnetName"))
 			return
 		}
@@ -221,7 +221,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		rt, ok := webPlanVnetRoutes.Get(planVnetConnID(r) + "/routes/" + sim.PathParam(r, "routeName"))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Route '%s' not found on virtual network connection '%s'.",
 				sim.PathParam(r, "routeName"), sim.PathParam(r, "vnetName"))
 			return
@@ -233,13 +233,13 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			return
 		}
 		if _, ok := planVnetConn(r); !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Virtual network connection '%s' not found.", sim.PathParam(r, "vnetName"))
 			return
 		}
 		var req WebVnetRoute
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		id := planVnetConnID(r) + "/routes/" + sim.PathParam(r, "routeName")
@@ -256,7 +256,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			}
 		}
 		if rt.Properties.StartAddress == "" {
-			sim.AzureError(w, "InvalidRequestContent", "startAddress is required.", http.StatusBadRequest)
+			AzureError(w, "InvalidRequestContent", "startAddress is required.", http.StatusBadRequest)
 			return
 		}
 		if rt.Properties.RouteType == "" {
@@ -275,7 +275,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			return
 		}
 		if !webPlanVnetRoutes.Delete(planVnetConnID(r) + "/routes/" + sim.PathParam(r, "routeName")) {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Route '%s' not found on virtual network connection '%s'.",
 				sim.PathParam(r, "routeName"), sim.PathParam(r, "vnetName"))
 			return
@@ -311,7 +311,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		hc, ok := planRelay(r)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Hybrid connection '%s/%s' not found.", sim.PathParam(r, "namespaceName"), sim.PathParam(r, "relayName"))
 			return
 		}
@@ -335,7 +335,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			}
 		}
 		if !deleted {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Hybrid connection '%s/%s' not found.", ns, relay)
 			return
 		}
@@ -348,7 +348,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		}
 		hc, ok := planRelay(r)
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Hybrid connection '%s/%s' not found.", sim.PathParam(r, "namespaceName"), sim.PathParam(r, "relayName"))
 			return
 		}
@@ -383,7 +383,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 	srv.HandleFunc("GET "+webPlanBase+"/hybridConnectionPlanLimits/limit", func(w http.ResponseWriter, r *http.Request) {
 		plan, ok := azureAppServicePlans.Get(webPlanID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Server farm '%s' not found.", sim.PathParam(r, "planName"))
 			return
 		}
@@ -401,7 +401,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 	srv.HandleFunc("GET "+webPlanBase+"/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		plan, ok := azureAppServicePlans.Get(webPlanID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Server farm '%s' not found.", sim.PathParam(r, "planName"))
 			return
 		}
@@ -411,7 +411,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 	srv.HandleFunc("GET "+webPlanBase+"/skus", func(w http.ResponseWriter, r *http.Request) {
 		plan, ok := azureAppServicePlans.Get(webPlanID(r))
 		if !ok {
-			sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"Server farm '%s' not found.", sim.PathParam(r, "planName"))
 			return
 		}
@@ -482,7 +482,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			inst.mu.Unlock()
 			return wk, true
 		}
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"Worker '%s' not found on server farm '%s'.", name, sim.PathParam(r, "planName"))
 		return webPlanWorker{}, false
 	}
@@ -521,7 +521,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 		if !planExists(w, r) {
 			return
 		}
-		sim.AzureError(w, "BadRequest",
+		AzureError(w, "BadRequest",
 			"RDP is only available on Windows Container App Service plans; this plan runs Linux workers.",
 			http.StatusBadRequest)
 	})

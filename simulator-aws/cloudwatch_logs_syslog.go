@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch Logs account storage-tier policy and VPC-endpoint syslog
@@ -30,7 +30,7 @@ var (
 	cwSyslogConfigurations sim.Store[CWSyslogConfiguration]
 )
 
-func registerCloudWatchLogsSyslog(r *sim.AWSRouter, srv *sim.Server) {
+func registerCloudWatchLogsSyslog(r *AWSRouter, srv *sim.Server) {
 	cwStorageTierPolicies = sim.MakeStore[CWStorageTierPolicy](srv.DB(), "cw_storage_tier_policies")
 	cwSyslogConfigurations = sim.MakeStore[CWSyslogConfiguration](srv.DB(), "cw_syslog_configurations")
 	r.Register("Logs_20140328.PutStorageTierPolicy", handleCWPutStorageTierPolicy)
@@ -45,11 +45,11 @@ func handleCWPutStorageTierPolicy(w http.ResponseWriter, r *http.Request) {
 		StorageTier string `json:"storageTier"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.StorageTier != "STANDARD" && req.StorageTier != "INTELLIGENT_TIERING" {
-		sim.AWSError(w, "InvalidParameterException", "storageTier must be STANDARD or INTELLIGENT_TIERING", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "storageTier must be STANDARD or INTELLIGENT_TIERING", http.StatusBadRequest)
 		return
 	}
 	policy := CWStorageTierPolicy{StorageTier: req.StorageTier, LastUpdatedTime: time.Now().UnixMilli()}
@@ -75,17 +75,17 @@ func handleCWPutSyslogConfiguration(w http.ResponseWriter, r *http.Request) {
 		VpcEndpointId      string `json:"vpcEndpointId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := cwResolveLogGroupIdentifier(req.LogGroupIdentifier)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "The specified log group does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "The specified log group does not exist.", http.StatusNotFound)
 		return
 	}
 	if req.VpcEndpointId != "" {
 		if _, ok := ec2VpcEndpoints.Get(req.VpcEndpointId); !ok {
-			sim.AWSError(w, "ResourceNotFoundException", "The specified VPC endpoint does not exist.", http.StatusNotFound)
+			AWSError(w, "ResourceNotFoundException", "The specified VPC endpoint does not exist.", http.StatusNotFound)
 			return
 		}
 	}
@@ -105,14 +105,14 @@ func handleCWListSyslogConfigurations(w http.ResponseWriter, r *http.Request) {
 		MaxResults         int    `json:"maxResults"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	logGroupARN := ""
 	if req.LogGroupIdentifier != "" {
 		name, ok := cwResolveLogGroupIdentifier(req.LogGroupIdentifier)
 		if !ok {
-			sim.AWSError(w, "ResourceNotFoundException", "The specified log group does not exist.", http.StatusNotFound)
+			AWSError(w, "ResourceNotFoundException", "The specified log group does not exist.", http.StatusNotFound)
 			return
 		}
 		logGroupARN = cwLogGroupArn(name)
@@ -139,12 +139,12 @@ func handleCWDeleteSyslogConfiguration(w http.ResponseWriter, r *http.Request) {
 		VpcEndpointId      string `json:"vpcEndpointId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	name, ok := cwResolveLogGroupIdentifier(req.LogGroupIdentifier)
 	if !ok {
-		sim.AWSError(w, "ResourceNotFoundException", "The specified log group does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "The specified log group does not exist.", http.StatusNotFound)
 		return
 	}
 	prefix := cwLogGroupArn(name) + "|"
@@ -158,7 +158,7 @@ func handleCWDeleteSyslogConfiguration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !deleted {
-		sim.AWSError(w, "ResourceNotFoundException", "The specified syslog configuration does not exist.", http.StatusNotFound)
+		AWSError(w, "ResourceNotFoundException", "The specified syslog configuration does not exist.", http.StatusNotFound)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})

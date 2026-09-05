@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Network Watcher's on-demand diagnostics. Every verdict here is computed from
@@ -78,7 +78,7 @@ func networkWatcherTargetNICs(targetResourceID, targetNICResourceID string) ([]N
 func networkWatcherResolveTarget(w http.ResponseWriter, targetResourceID, targetNICResourceID string) ([]NetworkInterface, bool) {
 	nics, ok := networkWatcherTargetNICs(targetResourceID, targetNICResourceID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource %q was not found.", targetResourceID)
 		return nil, false
 	}
@@ -404,11 +404,11 @@ func handleNetworkWatcherVerifyIPFlow(w http.ResponseWriter, r *http.Request) {
 		TargetNicResourceID string `json:"targetNicResourceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.TargetResourceID == "" || req.Direction == "" || req.Protocol == "" {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: targetResourceId, direction and protocol are required.")
 		return
 	}
@@ -457,11 +457,11 @@ func handleNetworkWatcherNextHop(w http.ResponseWriter, r *http.Request) {
 		TargetNicResourceID  string `json:"targetNicResourceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.TargetResourceID == "" || req.DestinationIPAddress == "" {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: targetResourceId and destinationIPAddress are required.")
 		return
 	}
@@ -541,7 +541,7 @@ func handleNetworkWatcherSecurityGroupView(w http.ResponseWriter, r *http.Reques
 		TargetResourceID string `json:"targetResourceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	nics, ok := networkWatcherResolveTarget(w, req.TargetResourceID, "")
@@ -633,7 +633,7 @@ func handleNetworkWatcherTopology(w http.ResponseWriter, r *http.Request) {
 		TargetSubnet            *SubResource `json:"targetSubnet"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	subscription := sim.PathParam(r, "subscriptionId")
@@ -646,7 +646,7 @@ func handleNetworkWatcherTopology(w http.ResponseWriter, r *http.Request) {
 	case req.TargetResourceGroupName != "":
 		scope = "/subscriptions/" + subscription + "/resourceGroups/" + req.TargetResourceGroupName + "/"
 	default:
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: a topology request must name a target resource group, virtual network or subnet.")
 		return
 	}
@@ -775,11 +775,11 @@ func handleNetworkWatcherConnectivityCheck(w http.ResponseWriter, r *http.Reques
 		Protocol string `json:"protocol"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Source.ResourceID == "" {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: source.resourceId is required.")
 		return
 	}
@@ -803,7 +803,7 @@ func handleNetworkWatcherConnectivityCheck(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if destinationAddress == "" {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: the destination must carry an address or a resource id.")
 		return
 	}
@@ -947,11 +947,11 @@ func handleNetworkWatcherConfigurationDiagnostic(w http.ResponseWriter, r *http.
 		} `json:"profiles"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if len(req.Profiles) == 0 {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: at least one diagnostic profile is required.")
 		return
 	}
@@ -1024,16 +1024,16 @@ func handleNetworkWatcherConfigureFlowLog(w http.ResponseWriter, r *http.Request
 		} `json:"properties"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.TargetResourceID == "" || req.Properties.StorageID == "" {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: a flow log configuration requires targetResourceId and storageId.")
 		return
 	}
 	if !networkWatcherFlowLogTargetExists(req.TargetResourceID) {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource %q was not found.", req.TargetResourceID)
 		return
 	}
@@ -1065,12 +1065,12 @@ func handleNetworkWatcherQueryFlowLogStatus(w http.ResponseWriter, r *http.Reque
 		TargetResourceID string `json:"targetResourceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	flowLog, ok := networkWatcherFlowLogForTarget(networkWatcherID(r), req.TargetResourceID)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"No flow log configuration exists for the resource %q.", req.TargetResourceID)
 		return
 	}
@@ -1112,11 +1112,11 @@ func networkWatcherFlowLogInformation(flowLog NetworkWatcherFlowLog) map[string]
 // not exist.
 func networkWatcherTroubleshootTarget(w http.ResponseWriter, targetResourceID string) bool {
 	if targetResourceID == "" {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: targetResourceId is required.")
 		return false
 	}
-	sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource %q was not found.", targetResourceID)
 	return false
 }
@@ -1129,7 +1129,7 @@ func handleNetworkWatcherTroubleshoot(w http.ResponseWriter, r *http.Request) {
 		TargetResourceID string `json:"targetResourceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	networkWatcherTroubleshootTarget(w, req.TargetResourceID)
@@ -1143,7 +1143,7 @@ func handleNetworkWatcherQueryTroubleshootResult(w http.ResponseWriter, r *http.
 		TargetResourceID string `json:"targetResourceId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	networkWatcherTroubleshootTarget(w, req.TargetResourceID)
@@ -1167,7 +1167,7 @@ func handleNetworkWatcherAvailableProviders(w http.ResponseWriter, r *http.Reque
 		City           string   `json:"city"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"countries": []map[string]any{}})
@@ -1194,11 +1194,11 @@ func handleNetworkWatcherReachabilityReport(w http.ResponseWriter, r *http.Reque
 		EndTime        string   `json:"endTime"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.ProviderLocation.Country == "" || req.StartTime == "" || req.EndTime == "" {
-		sim.AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
+		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,
 			"The request format was unexpected: providerLocation.country, startTime and endTime are required.")
 		return
 	}

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 type privateCASubject struct {
@@ -109,7 +109,7 @@ var (
 	privateCAIdempotency  sim.Store[string]
 )
 
-func registerACMPrivateCA(r *sim.AWSRouter, srv *sim.Server) {
+func registerACMPrivateCA(r *AWSRouter, srv *sim.Server) {
 	privateCAs = sim.MakeStore[privateCA](srv.DB(), "acmpca_certificate_authorities")
 	privateCACertificates = sim.MakeStore[privateCAIssuedCertificate](srv.DB(), "acmpca_certificates")
 	privateCAPermissions = sim.MakeStore[privateCAPermission](srv.DB(), "acmpca_permissions")
@@ -143,7 +143,7 @@ func registerACMPrivateCA(r *sim.AWSRouter, srv *sim.Server) {
 }
 
 func privateCAError(w http.ResponseWriter, code, message string) {
-	sim.AWSError(w, code, message, http.StatusBadRequest)
+	AWSError(w, code, message, http.StatusBadRequest)
 }
 
 func privateCAARN(id string) string {

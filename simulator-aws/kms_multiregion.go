@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // KMS multi-region keys, grant retirement, and last-usage. ReplicateKey /
@@ -13,7 +13,7 @@ import (
 // GetKeyLastUsage the recently-added usage-tracking op. These layer on the
 // existing key + grant stores — no new fakery.
 
-func registerKMSMultiRegion(r *sim.AWSRouter, srv *sim.Server) {
+func registerKMSMultiRegion(r *AWSRouter, srv *sim.Server) {
 	r.Register("TrentService.RetireGrant", handleKMSRetireGrant)
 	r.Register("TrentService.ListRetirableGrants", handleKMSListRetirableGrants)
 	r.Register("TrentService.ReplicateKey", handleKMSReplicateKey)
@@ -60,11 +60,11 @@ func handleKMSRetireGrant(w http.ResponseWriter, r *http.Request) {
 		KeyId      string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.GrantToken == "" && req.GrantId == "" {
-		sim.AWSError(w, "ValidationException",
+		AWSError(w, "ValidationException",
 			"Either GrantToken or GrantId+KeyId is required", http.StatusBadRequest)
 		return
 	}
@@ -72,14 +72,14 @@ func handleKMSRetireGrant(w http.ResponseWriter, r *http.Request) {
 		// Retire by GrantId (+ KeyId). The KeyId, when present, must match.
 		grant, ok := kmsGrants.Get(req.GrantId)
 		if !ok {
-			sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+			AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 				"Grant %q does not exist", req.GrantId)
 			return
 		}
 		if req.KeyId != "" {
 			keyId, ok := resolveKMSKey(req.KeyId)
 			if !ok || keyId != grant.KeyId {
-				sim.AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
+				AWSErrorf(w, "NotFoundException", http.StatusBadRequest,
 					"Grant %q is not on key %q", req.GrantId, req.KeyId)
 				return
 			}
@@ -104,11 +104,11 @@ func handleKMSListRetirableGrants(w http.ResponseWriter, r *http.Request) {
 		Marker            string `json:"Marker"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.RetiringPrincipal == "" {
-		sim.AWSError(w, "ValidationException", "RetiringPrincipal is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "RetiringPrincipal is required", http.StatusBadRequest)
 		return
 	}
 	var matched []KMSGrant
@@ -138,7 +138,7 @@ func handleKMSReplicateKey(w http.ResponseWriter, r *http.Request) {
 		Tags          []KMSTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -147,12 +147,12 @@ func handleKMSReplicateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	key, _ := kmsKeys.Get(keyId)
 	if !key.MultiRegion {
-		sim.AWSErrorf(w, "UnsupportedOperationException", http.StatusBadRequest,
+		AWSErrorf(w, "UnsupportedOperationException", http.StatusBadRequest,
 			"%s is not a multi-region key.", kmsKeyArn(keyId))
 		return
 	}
 	if req.ReplicaRegion == "" {
-		sim.AWSError(w, "ValidationException", "ReplicaRegion is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "ReplicaRegion is required", http.StatusBadRequest)
 		return
 	}
 	// Record the replica region on the primary so its MultiRegionConfiguration
@@ -220,7 +220,7 @@ func handleKMSUpdatePrimaryRegion(w http.ResponseWriter, r *http.Request) {
 		PrimaryRegion string `json:"PrimaryRegion"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)
@@ -229,12 +229,12 @@ func handleKMSUpdatePrimaryRegion(w http.ResponseWriter, r *http.Request) {
 	}
 	key, _ := kmsKeys.Get(keyId)
 	if !key.MultiRegion {
-		sim.AWSErrorf(w, "UnsupportedOperationException", http.StatusBadRequest,
+		AWSErrorf(w, "UnsupportedOperationException", http.StatusBadRequest,
 			"%s is not a multi-region key.", kmsKeyArn(keyId))
 		return
 	}
 	if req.PrimaryRegion == "" {
-		sim.AWSError(w, "ValidationException", "PrimaryRegion is required", http.StatusBadRequest)
+		AWSError(w, "ValidationException", "PrimaryRegion is required", http.StatusBadRequest)
 		return
 	}
 	kmsKeys.Update(keyId, func(k *KMSKey) {
@@ -251,7 +251,7 @@ func handleKMSGetKeyLastUsage(w http.ResponseWriter, r *http.Request) {
 		KeyId string `json:"KeyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := kmsResolveOr404(w, r, req.KeyId)

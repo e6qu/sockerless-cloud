@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Docker-free hosting data-plane tests: host matcher, custom-rule matcher,

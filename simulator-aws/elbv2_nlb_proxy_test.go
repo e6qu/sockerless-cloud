@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // elbv2InitStoresForTest initializes the ELBv2 stores (registerELBv2 calls
@@ -21,7 +21,7 @@ func elbv2InitStoresForTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	registerELBv2(sim.NewAWSQueryRouter(), srv)
+	registerELBv2(NewAWSQueryRouter(), srv)
 	// The Elastic Load Balancing target health checker runs under the
 	// server lifecycle; without this it outlives the test and keeps
 	// checking whatever the next test puts in the package stores.

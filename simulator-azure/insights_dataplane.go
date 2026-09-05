@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Application Insights data plane: what an application's telemetry says.
@@ -46,12 +46,12 @@ func registerInsightsDataPlane(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/apps/{appId}/query", func(w http.ResponseWriter, r *http.Request) {
 		var req QueryRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
-			sim.AzureError(w, "BadArgumentError",
+			AzureError(w, "BadArgumentError",
 				"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Query == "" {
-			sim.AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
+			AzureError(w, "BadArgumentError", "The 'query' property is required.", http.StatusBadRequest)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, runKQLQuery(sim.PathParam(r, "appId"), req.Query))
@@ -59,7 +59,7 @@ func registerInsightsDataPlane(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/apps/{appId}/query", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query().Get("query")
 		if query == "" {
-			sim.AzureError(w, "BadArgumentError", "The 'query' parameter is required.", http.StatusBadRequest)
+			AzureError(w, "BadArgumentError", "The 'query' parameter is required.", http.StatusBadRequest)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, runKQLQuery(sim.PathParam(r, "appId"), query))
@@ -165,7 +165,7 @@ func insightsGetEventsByType(w http.ResponseWriter, r *http.Request) {
 	eventType := sim.PathParam(r, "eventType")
 	rows, ok := insightsEventRows(sim.PathParam(r, "appId"), eventType)
 	if !ok {
-		sim.AzureError(w, "BadArgumentError",
+		AzureError(w, "BadArgumentError",
 			"The event type '"+eventType+"' is not one this API serves.", http.StatusBadRequest)
 		return
 	}
@@ -185,7 +185,7 @@ func insightsGetEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := sim.PathParam(r, "eventId")
 	rows, ok := insightsEventRows(sim.PathParam(r, "appId"), eventType)
 	if !ok {
-		sim.AzureError(w, "BadArgumentError",
+		AzureError(w, "BadArgumentError",
 			"The event type '"+eventType+"' is not one this API serves.", http.StatusBadRequest)
 		return
 	}
@@ -301,7 +301,7 @@ func insightsGetMetric(w http.ResponseWriter, r *http.Request) {
 	metricID := sim.PathParam(r, "metricId")
 	segment, ok := insightsMetricSegment(sim.PathParam(r, "appId"), metricID)
 	if !ok {
-		sim.AzureError(w, "BadArgumentError",
+		AzureError(w, "BadArgumentError",
 			"The metric '"+metricID+"' is not one this application reports.", http.StatusBadRequest)
 		return
 	}
@@ -318,7 +318,7 @@ func insightsGetMetrics(w http.ResponseWriter, r *http.Request) {
 		} `json:"parameters"`
 	}
 	if err := sim.ReadJSON(r, &body); err != nil {
-		sim.AzureError(w, "BadArgumentError",
+		AzureError(w, "BadArgumentError",
 			"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}

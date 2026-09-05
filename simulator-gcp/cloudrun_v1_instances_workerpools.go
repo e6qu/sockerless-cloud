@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Cloud Run Admin v1 (Knative) surface for instances and worker pools.
@@ -334,7 +334,7 @@ func knativeDryRun(w http.ResponseWriter, r *http.Request) (dryRun bool, ok bool
 	case "all":
 		return true, true
 	default:
-		sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"invalid dryRun %q: the only supported value is \"all\"", value)
 		return false, false
 	}
@@ -372,7 +372,7 @@ func knativeReplaceAllowed(w http.ResponseWriter, kind, name, namespace, current
 	if supplied == "" || supplied == current {
 		return true
 	}
-	sim.GCPErrorf(w, http.StatusConflict, "ABORTED",
+	GCPErrorf(w, http.StatusConflict, "ABORTED",
 		"metadata.resourceVersion %q does not match the current resourceVersion %q of %s %q in namespace %q",
 		supplied, current, kind, name, namespace)
 	return false
@@ -388,16 +388,16 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		}
 		var body CRInstance
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid instance body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid instance body: %v", err)
 			return
 		}
 		if body.Metadata.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", namespace, cloudRunDefaultLocation, body.Metadata.Name)
 		if _, exists := crv2Instances.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"instance %q already exists in namespace %q", body.Metadata.Name, namespace)
 			return
 		}
@@ -414,7 +414,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		id := sim.PathParam(r, "name")
 		instance, ok := crv2Instances.Get(fmt.Sprintf("projects/%s/locations/%s/instances/%s", namespace, cloudRunDefaultLocation, id))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"instance %q not found in namespace %q", id, namespace)
 			return
 		}
@@ -454,13 +454,13 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", namespace, cloudRunDefaultLocation, id)
 		existing, found := crv2Instances.Get(name)
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"instance %q not found in namespace %q", id, namespace)
 			return
 		}
 		var body CRInstance
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid instance body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid instance body: %v", err)
 			return
 		}
 		if !knativeReplaceAllowed(w, "instance", id, namespace,
@@ -500,7 +500,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", namespace, cloudRunDefaultLocation, id)
 		if _, found := crv2Instances.Get(name); !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"instance %q not found in namespace %q", id, namespace)
 			return
 		}
@@ -520,18 +520,18 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		namespace := sim.PathParam(r, "namespace")
 		id, action, found := strings.Cut(sim.PathParam(r, "nameAction"), ":")
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on instance %q", id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action on instance %q", id)
 			return
 		}
 		switch action {
 		case "start", "stop":
 		default:
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", namespace, cloudRunDefaultLocation, id)
 		if _, exists := crv2Instances.Get(name); !exists {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"instance %q not found in namespace %q", id, namespace)
 			return
 		}
@@ -559,16 +559,16 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		}
 		var body CRWorkerPool
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid worker pool body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid worker pool body: %v", err)
 			return
 		}
 		if body.Metadata.Name == "" {
-			sim.GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
+			GCPError(w, http.StatusBadRequest, "metadata.name is required", "INVALID_ARGUMENT")
 			return
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", namespace, cloudRunDefaultLocation, body.Metadata.Name)
 		if _, exists := crv2WorkerPools.Get(name); exists {
-			sim.GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
 				"worker pool %q already exists in namespace %q", body.Metadata.Name, namespace)
 			return
 		}
@@ -586,7 +586,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		id := sim.PathParam(r, "name")
 		pool, ok := crv2WorkerPools.Get(fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", namespace, cloudRunDefaultLocation, id))
 		if !ok {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"worker pool %q not found in namespace %q", id, namespace)
 			return
 		}
@@ -626,13 +626,13 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", namespace, cloudRunDefaultLocation, id)
 		existing, found := crv2WorkerPools.Get(name)
 		if !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"worker pool %q not found in namespace %q", id, namespace)
 			return
 		}
 		var body CRWorkerPool
 		if err := sim.ReadJSON(r, &body); err != nil {
-			sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid worker pool body: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid worker pool body: %v", err)
 			return
 		}
 		if !knativeReplaceAllowed(w, "worker pool", id, namespace,
@@ -677,7 +677,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		}
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", namespace, cloudRunDefaultLocation, id)
 		if _, found := crv2WorkerPools.Get(name); !found {
-			sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"worker pool %q not found in namespace %q", id, namespace)
 			return
 		}
@@ -697,7 +697,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 func writeCloudRunV1Instance(w http.ResponseWriter, instance InstanceV2) {
 	projected, ok := cloudRunV2InstanceToV1(instance)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 			"instance %q has an unreadable resource name", instance.Name)
 		return
 	}
@@ -707,7 +707,7 @@ func writeCloudRunV1Instance(w http.ResponseWriter, instance InstanceV2) {
 func writeCloudRunV1WorkerPool(w http.ResponseWriter, pool WorkerPoolV2) {
 	projected, ok := cloudRunV2WorkerPoolToV1(pool)
 	if !ok {
-		sim.GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
 			"worker pool %q has an unreadable resource name", pool.Name)
 		return
 	}

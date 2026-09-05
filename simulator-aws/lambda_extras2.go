@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // This file implements the remaining Lambda control-plane slices the AWS SDK,
@@ -122,7 +122,7 @@ func lambdaEICArn(name, qualifier string) string {
 func handleLambdaPutFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -133,7 +133,7 @@ func handleLambdaPutFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Req
 		DestinationConfig        *lambdaDestinationConfig `json:"DestinationConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	cfg := LambdaEventInvokeConfig{
@@ -150,7 +150,7 @@ func handleLambdaPutFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Req
 func handleLambdaUpdateFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -161,13 +161,13 @@ func handleLambdaUpdateFunctionEventInvokeConfig(w http.ResponseWriter, r *http.
 		DestinationConfig        *lambdaDestinationConfig `json:"DestinationConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	key := lambdaEICKey(name, qualifier)
 	cfg, ok := lambdaEICs.Get(key)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s does not have an EventInvokeConfig.", lambdaEICArn(name, qualifier))
 		return
 	}
@@ -189,14 +189,14 @@ func handleLambdaUpdateFunctionEventInvokeConfig(w http.ResponseWriter, r *http.
 func handleLambdaGetFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
 	qualifier := r.URL.Query().Get("Qualifier")
 	cfg, ok := lambdaEICs.Get(lambdaEICKey(name, qualifier))
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s does not have an EventInvokeConfig.", lambdaEICArn(name, qualifier))
 		return
 	}
@@ -206,7 +206,7 @@ func handleLambdaGetFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Req
 func handleLambdaDeleteFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -218,7 +218,7 @@ func handleLambdaDeleteFunctionEventInvokeConfig(w http.ResponseWriter, r *http.
 func handleLambdaListFunctionEventInvokeConfigs(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -264,7 +264,7 @@ func lambdaProvisionedConcurrencyBody(pc LambdaProvisionedConcurrency, includeAr
 func handleLambdaPutProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -272,7 +272,7 @@ func handleLambdaPutProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.
 	if qualifier == "" {
 		// Real Lambda rejects provisioned concurrency on the unpublished
 		// $LATEST version — a qualifier is required.
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"Qualifier is required for provisioned concurrency", http.StatusBadRequest)
 		return
 	}
@@ -280,11 +280,11 @@ func handleLambdaPutProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.
 		ProvisionedConcurrentExecutions *int `json:"ProvisionedConcurrentExecutions"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.ProvisionedConcurrentExecutions == nil || *req.ProvisionedConcurrentExecutions < 1 {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"'ProvisionedConcurrentExecutions' failed to satisfy constraint: Member must have value greater than or equal to 1",
 			http.StatusBadRequest)
 		return
@@ -303,7 +303,7 @@ func handleLambdaPutProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.
 func handleLambdaGetProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -315,7 +315,7 @@ func handleLambdaGetProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.
 	qualifier := r.URL.Query().Get("Qualifier")
 	pc, ok := lambdaPCs.Get(name + ":" + qualifier)
 	if !ok {
-		sim.AWSErrorf(w, "ProvisionedConcurrencyConfigNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ProvisionedConcurrencyConfigNotFoundException", http.StatusNotFound,
 			"No Provisioned Concurrency Config found for this function")
 		return
 	}
@@ -340,7 +340,7 @@ func lambdaListProvisionedConcurrencyConfigs(w http.ResponseWriter, name string)
 func handleLambdaDeleteProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -395,11 +395,11 @@ func handleLambdaCreateCodeSigningConfig(w http.ResponseWriter, r *http.Request)
 		CodeSigningPolicies *lambdaCodeSigningPolicies `json:"CodeSigningPolicies"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.AllowedPublishers == nil || len(req.AllowedPublishers.SigningProfileVersionArns) == 0 {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"AllowedPublishers must specify at least one SigningProfileVersionArn", http.StatusBadRequest)
 		return
 	}
@@ -425,7 +425,7 @@ func handleLambdaGetCodeSigningConfig(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
 	csc, ok := lambdaCSCStore.Get(arn)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The code signing configuration cannot be found.")
 		return
 	}
@@ -440,7 +440,7 @@ func handleLambdaUpdateCodeSigningConfig(w http.ResponseWriter, r *http.Request)
 		CodeSigningPolicies *lambdaCodeSigningPolicies `json:"CodeSigningPolicies"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	found := lambdaCSCStore.Update(arn, func(csc *LambdaCodeSigningConfig) {
@@ -456,7 +456,7 @@ func handleLambdaUpdateCodeSigningConfig(w http.ResponseWriter, r *http.Request)
 		csc.LastModified = time.Now().UTC().Format(time.RFC3339)
 	})
 	if !found {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The code signing configuration cannot be found.")
 		return
 	}
@@ -467,7 +467,7 @@ func handleLambdaUpdateCodeSigningConfig(w http.ResponseWriter, r *http.Request)
 func handleLambdaDeleteCodeSigningConfig(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
 	if !lambdaCSCStore.Delete(arn) {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The code signing configuration cannot be found.")
 		return
 	}
@@ -493,7 +493,7 @@ var lambdaFnCSC sim.Store[lambdaFunctionCodeSigningConfig]
 func handleLambdaPutFunctionCodeSigningConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -501,15 +501,15 @@ func handleLambdaPutFunctionCodeSigningConfig(w http.ResponseWriter, r *http.Req
 		CodeSigningConfigArn string `json:"CodeSigningConfigArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.CodeSigningConfigArn == "" {
-		sim.AWSError(w, "InvalidParameterValueException", "CodeSigningConfigArn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "CodeSigningConfigArn is required", http.StatusBadRequest)
 		return
 	}
 	if _, ok := lambdaCSCStore.Get(req.CodeSigningConfigArn); !ok {
-		sim.AWSErrorf(w, "CodeSigningConfigNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "CodeSigningConfigNotFoundException", http.StatusNotFound,
 			"The code signing configuration %s cannot be found.", req.CodeSigningConfigArn)
 		return
 	}
@@ -525,7 +525,7 @@ func handleLambdaPutFunctionCodeSigningConfig(w http.ResponseWriter, r *http.Req
 func handleLambdaGetFunctionCodeSigningConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -539,7 +539,7 @@ func handleLambdaGetFunctionCodeSigningConfig(w http.ResponseWriter, r *http.Req
 func handleLambdaDeleteFunctionCodeSigningConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -562,7 +562,7 @@ var lambdaRTMs sim.Store[lambdaRuntimeMgmt]
 func handleLambdaGetRuntimeManagementConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -586,7 +586,7 @@ func handleLambdaGetRuntimeManagementConfig(w http.ResponseWriter, r *http.Reque
 func handleLambdaPutRuntimeManagementConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -596,16 +596,16 @@ func handleLambdaPutRuntimeManagementConfig(w http.ResponseWriter, r *http.Reque
 		RuntimeVersionArn string `json:"RuntimeVersionArn"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.UpdateRuntimeOn == "" {
-		sim.AWSError(w, "InvalidParameterValueException", "UpdateRuntimeOn is required", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "UpdateRuntimeOn is required", http.StatusBadRequest)
 		return
 	}
 	// When UpdateRuntimeOn is Manual, RuntimeVersionArn is required.
 	if req.UpdateRuntimeOn == "Manual" && req.RuntimeVersionArn == "" {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"RuntimeVersionArn is required when UpdateRuntimeOn is Manual", http.StatusBadRequest)
 		return
 	}
@@ -658,7 +658,7 @@ var lambdaRecursion sim.Store[string]
 func handleLambdaGetFunctionRecursionConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -673,7 +673,7 @@ func handleLambdaGetFunctionRecursionConfig(w http.ResponseWriter, r *http.Reque
 func handleLambdaPutFunctionRecursionConfig(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The function %s could not be found.", lambdaArn(name))
 		return
 	}
@@ -681,11 +681,11 @@ func handleLambdaPutFunctionRecursionConfig(w http.ResponseWriter, r *http.Reque
 		RecursiveLoop string `json:"RecursiveLoop"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.RecursiveLoop != "Allow" && req.RecursiveLoop != "Terminate" {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"RecursiveLoop must be one of Allow or Terminate", http.StatusBadRequest)
 		return
 	}
@@ -763,7 +763,7 @@ func handleLambdaAddLayerVersionPermission(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if _, found := lambdaFindLayerVersion(layer, version); !found {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"The layer version %s:%d could not be found.", layer, version)
 		return
 	}
@@ -774,11 +774,11 @@ func handleLambdaAddLayerVersionPermission(w http.ResponseWriter, r *http.Reques
 		OrganizationId string `json:"OrganizationId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.StatementId == "" || req.Action == "" || req.Principal == "" {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			"StatementId, Action, and Principal are required", http.StatusBadRequest)
 		return
 	}
@@ -804,7 +804,7 @@ func handleLambdaAddLayerVersionPermission(w http.ResponseWriter, r *http.Reques
 		rev = policy.RevisionID
 	})
 	if conflict {
-		sim.AWSErrorf(w, "ResourceConflictException", http.StatusConflict,
+		AWSErrorf(w, "ResourceConflictException", http.StatusConflict,
 			"The statement id (%s) provided already exists.", req.StatementId)
 		return
 	}
@@ -823,7 +823,7 @@ func handleLambdaGetLayerVersionPolicy(w http.ResponseWriter, r *http.Request) {
 	key := lambdaLayerPolicyKey(layer, version)
 	policy, ok := lambdaLayerPolicies.Get(key)
 	if !ok || len(policy.Statements) == 0 {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"No policy is associated with the given resource.")
 		return
 	}
@@ -850,7 +850,7 @@ func handleLambdaRemoveLayerVersionPermission(w http.ResponseWriter, r *http.Req
 		}
 	}
 	if idx < 0 {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
 			"No statement (%s) is associated with the given resource.", statementID)
 		return
 	}
@@ -866,7 +866,7 @@ func lambdaParseLayerVersion(w http.ResponseWriter, r *http.Request) (int64, boo
 	raw := sim.PathParam(r, "version")
 	var v int64
 	if _, err := fmt.Sscanf(raw, "%d", &v); err != nil {
-		sim.AWSError(w, "InvalidParameterValueException",
+		AWSError(w, "InvalidParameterValueException",
 			fmt.Sprintf("Invalid version number: %q", raw), http.StatusBadRequest)
 		return 0, false
 	}

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 )
 
@@ -74,7 +74,7 @@ func glueSchemaVerMetadataKey(versionID, key, value string) string {
 }
 
 // registerGlueEntityCatalog2 registers this Glue sub-service's awsJson1.1 operations.
-func registerGlueEntityCatalog2(r *sim.AWSRouter, srv *sim.Server) {
+func registerGlueEntityCatalog2(r *AWSRouter, srv *sim.Server) {
 	glueCustomEntityTypes = sim.MakeStore[GlueCustomEntityType](srv.DB(), "glue_custom_entity_types")
 	glueUsageProfiles = sim.MakeStore[GlueUsageProfile](srv.DB(), "glue_usage_profiles")
 	glueIdentityCenter = sim.MakeStore[GlueIdentityCenterConfig](srv.DB(), "glue_identity_center")

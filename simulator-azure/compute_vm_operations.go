@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-azure/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The Microsoft.Compute virtual-machine operations beyond the lifecycle in
@@ -40,7 +40,7 @@ func azureLookupVM(w http.ResponseWriter, r *http.Request) (VirtualMachine, stri
 	id := azureVMResourceID(r)
 	vm, ok := azureVMs.Get(id)
 	if !ok {
-		sim.AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 		return VirtualMachine{}, id, false
 	}
 	return vm, id, true
@@ -99,7 +99,7 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 		}
 		state, _ := azureVMStates.Get(id)
 		if state == "PowerState/running" && azureRealVMAlive(id) {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"Generalize is not allowed on VM %q because it is not in a stopped state.", id)
 			return
 		}
@@ -118,7 +118,7 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 		}
 		state, _ := azureVMStates.Get(id)
 		if state == "PowerState/running" && azureRealVMAlive(id) {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"ConvertToManagedDisks is not allowed on VM %q because it is not in a deallocated state.", id)
 			return
 		}
@@ -213,7 +213,7 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 			wasRunning := !known || state == "PowerState/running"
 
 			if err := azureStopRealVM(r.Context(), id); err != nil {
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
 					"failed to stop the virtual machine for %s: %v", action, err)
 				return
 			}
@@ -224,7 +224,7 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 			if err := azureStartRealVM(r.Context(), vm); err != nil {
 				logger.Error().Err(err).Str("vm", id).Str("action", action).
 					Msg("failed to bring the virtual machine back up")
-				sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
+				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
 					"failed to bring the virtual machine back up after %s: %v", action, err)
 				return
 			}
@@ -242,13 +242,13 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 			return
 		}
 		if !strings.EqualFold(vm.Properties.Priority, "Spot") {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"Simulate Eviction is only supported for Spot VMs; %q has priority %q.",
 				id, vm.Properties.Priority)
 			return
 		}
 		if err := azureStopRealVM(r.Context(), id); err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
+			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
 				"failed to evict the virtual machine: %v", err)
 			return
 		}
@@ -283,12 +283,12 @@ func registerVirtualMachineBootDiagnostics(srv *sim.Server, armBase string) {
 		}
 		account, err := azureBootDiagnosticsAccount(vm)
 		if err != nil {
-			sim.AzureErrorf(w, "BadRequest", http.StatusBadRequest, "%v", err)
+			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "%v", err)
 			return
 		}
 		console, err := azureGuestConsoleOutput(id)
 		if err != nil {
-			sim.AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
+			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
 		}
 		container, blobName := azureBootDiagnosticsPath(vm)

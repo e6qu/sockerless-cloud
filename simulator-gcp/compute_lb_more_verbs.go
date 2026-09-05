@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The verbs the global load-balancing collections carry beyond what
@@ -24,23 +24,23 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			value, sent := body[member]
 			if !sent {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"%s needs %s in its request body", verb, member)
 				return
 			}
 			key := computeGlobalLink(project, collection, name)
 			found, err := apply(key, map[string]any{into: value})
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", collection, err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", collection, err)
 				return
 			}
 			if !found {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, key, verb))
@@ -85,18 +85,18 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			value, sent := body[member]
 			if !sent {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"%s needs %s in its request body", verb, member)
 				return
 			}
 			key := computeGlobalLink(project, "targetHttpsProxies", name)
 			if !gcpComputeTargetHTTPSProxies.Update(key, func(m *map[string]any) { (*m)[member] = value }) {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "targetHttpsProxies %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "targetHttpsProxies %q not found", name)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, key, verb))
@@ -113,17 +113,17 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 			var body map[string]any
 			if err := sim.ReadJSON(r, &body); err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 			key := computeGlobalLink(project, collection, name)
 			found, err := apply(key, body)
 			if err != nil {
-				sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", collection, err)
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", collection, err)
 				return
 			}
 			if !found {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", collection, name)
 				return
 			}
 			sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, key, "patch"))
@@ -142,7 +142,7 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 			key := computeGlobalLink(project, "backendServices", name)
 			held, ok := gcpBackendServices.Get(key)
 			if !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backendServices %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backendServices %q not found", name)
 				return
 			}
 			existing := []string{}
@@ -162,13 +162,13 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 					KeyValue string `json:"keyValue"`
 				}
 				if err := sim.ReadJSON(r, &req); err != nil || req.KeyName == "" || req.KeyValue == "" {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 						"a signed-URL key needs a keyName and a keyValue")
 					return
 				}
 				for _, already := range existing {
 					if already == req.KeyName {
-						sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+						GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 							"the backend service already has a signed-URL key named %q", req.KeyName)
 						return
 					}
@@ -177,7 +177,7 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 			} else {
 				wanted := r.URL.Query().Get("keyName")
 				if wanted == "" {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 						"deleteSignedUrlKey needs the keyName to remove")
 					return
 				}
@@ -190,7 +190,7 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 					kept = append(kept, already)
 				}
 				if !found {
-					sim.GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 						"the backend service has no signed-URL key named %q", wanted)
 					return
 				}
@@ -225,7 +225,7 @@ func registerComputeGlobalLBVerbs(srv *sim.Server) {
 		func(w http.ResponseWriter, r *http.Request) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 			if _, ok := gcpBackendServices.Get(computeGlobalLink(project, "backendServices", name)); !ok {
-				sim.GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backendServices %q not found", name)
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "backendServices %q not found", name)
 				return
 			}
 			w.WriteHeader(http.StatusOK)

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-gcp/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // A Discovery document expresses required-ness only for requests, and it does

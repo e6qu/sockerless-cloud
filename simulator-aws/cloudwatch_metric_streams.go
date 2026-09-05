@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	sim "github.com/e6qu/sockerless-cloud/simulator-aws/shared"
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // CloudWatch metric streams: a named stream resource (ARN, RUNNING/STOPPED
@@ -212,7 +212,7 @@ func cwJSONStreamFilters(f []CWMetricStreamFilter) []map[string]any {
 
 // ── awsJson1.0 surface ──────────────────────────────────────────────────────
 
-func registerCloudWatchMetricStreamsJSON(r *sim.AWSRouter) {
+func registerCloudWatchMetricStreamsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutMetricStream", handleCWJSONPutMetricStream)
 	r.Register("GraniteServiceVersion20100801.GetMetricStream", handleCWJSONGetMetricStream)
 	r.Register("GraniteServiceVersion20100801.DeleteMetricStream", handleCWJSONDeleteMetricStream)
@@ -232,20 +232,20 @@ func handleCWJSONPutMetricStream(w http.ResponseWriter, r *http.Request) {
 		Tags           []cwTagKV              `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {
-		sim.AWSError(w, "MissingParameter", "The parameter Name is required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "The parameter Name is required.", http.StatusBadRequest)
 		return
 	}
 	if req.FirehoseArn == "" || req.RoleArn == "" {
-		sim.AWSError(w, "MissingParameter", "FirehoseArn and RoleArn are required.", http.StatusBadRequest)
+		AWSError(w, "MissingParameter", "FirehoseArn and RoleArn are required.", http.StatusBadRequest)
 		return
 	}
 	arn, err := cwPutMetricStream(req.Name, req.FirehoseArn, req.RoleArn, req.OutputFormat, req.IncludeFilters, req.ExcludeFilters, req.Tags)
 	if err != nil {
-		sim.AWSError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Arn": arn})
@@ -256,12 +256,12 @@ func handleCWJSONGetMetricStream(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	s, ok := cwMetricStreams.Get(req.Name)
 	if !ok {
-		sim.AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Metric stream %s does not exist", req.Name)
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Metric stream %s does not exist", req.Name)
 		return
 	}
 	out := map[string]any{
@@ -288,7 +288,7 @@ func handleCWJSONDeleteMetricStream(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"Name"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	// DeleteMetricStream is idempotent — deleting an absent stream succeeds.
@@ -299,7 +299,7 @@ func handleCWJSONDeleteMetricStream(w http.ResponseWriter, r *http.Request) {
 func handleCWJSONListMetricStreams(w http.ResponseWriter, r *http.Request) {
 	var req struct{}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	entries := make([]map[string]any, 0)
@@ -322,7 +322,7 @@ func handleCWJSONStartMetricStreams(w http.ResponseWriter, r *http.Request) {
 		Names []string `json:"Names"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	cwSetMetricStreamState(req.Names, "running")
@@ -334,7 +334,7 @@ func handleCWJSONStopMetricStreams(w http.ResponseWriter, r *http.Request) {
 		Names []string `json:"Names"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
-		sim.AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
+		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
 	cwSetMetricStreamState(req.Names, "stopped")
@@ -488,7 +488,7 @@ func handleCWCBORStopMetricStreams(w http.ResponseWriter, r *http.Request) {
 
 // ── query surface (older aws CLI) ───────────────────────────────────────────
 
-func registerCloudWatchMetricStreamsQuery(r *sim.AWSQueryRouter) {
+func registerCloudWatchMetricStreamsQuery(r *AWSQueryRouter) {
 	r.Register("PutMetricStream", handleCWQueryPutMetricStream)
 	r.Register("GetMetricStream", handleCWQueryGetMetricStream)
 	r.Register("DeleteMetricStream", handleCWQueryDeleteMetricStream)
