@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.3](https://github.com/e6qu/sockerless-cloud/compare/v0.30.2...v0.30.3) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ci:** two quality gates could not fail and one hid a live panic ([#117](https://github.com/e6qu/sockerless-cloud/issues/117)) ([1695ffd](https://github.com/e6qu/sockerless-cloud/commit/1695ffd425fe0b4784cd3feb647a78bc9c860ddf))
+
 ## [0.30.2](https://github.com/e6qu/sockerless-cloud/compare/v0.30.1...v0.30.2) (2026-09-04)
 
 
