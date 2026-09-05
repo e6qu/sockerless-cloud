@@ -164,6 +164,9 @@ docker-test: docker-test-build ## run all tests inside docker
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \
 		$(DOCKER_TEST_IMAGE) make test-all
 
+# The shard filter and the deadline travel into the container: without them
+# the inner make ran the whole suite against the default deadline whatever the
+# caller asked for, so a sharded or long-budget local run was neither.
 docker-sdk-test: docker-test-build ## run SDK tests inside the Linux real-network docker harness
 	docker run --rm --network host \
 		$(DOCKER_REALNET_FLAGS) \
@@ -176,4 +179,4 @@ docker-sdk-test: docker-test-build ## run SDK tests inside the Linux real-networ
 		-w /src/simulator-azure \
 		$(DOCKER_REALNET_TEST_ENV) \
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \
-		$(DOCKER_TEST_IMAGE) make sdk-test-local
+		$(DOCKER_TEST_IMAGE) make sdk-test-local SDK_TEST_TIMEOUT="$(SDK_TEST_TIMEOUT)" SDK_TEST_ARGS="$(SDK_TEST_ARGS)"

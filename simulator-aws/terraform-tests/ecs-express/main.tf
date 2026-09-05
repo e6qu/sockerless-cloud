@@ -5,7 +5,7 @@ terraform {
       # aws_ecs_express_gateway_service was added in terraform-provider-aws
       # v6.23.0 (ECS Express Mode, launched 2025-11-21). Pin a version that has
       # the resource.
-      version = "6.62.0"
+      version = "6.63.0"
     }
   }
 }
