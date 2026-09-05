@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloudscape-design/components": "3.0.1362",
+    "@cloudscape-design/components": "3.0.1364",
     "@cloudscape-design/design-tokens": "^3.0.111",
     "@cloudscape-design/global-styles": "^1.0.67",
     "@sockerless/ui-core": "workspace:*",
