@@ -1,64 +1,23 @@
-# Cross-simulator feature parity matrix
+# Simulator cloud-slice inventory
 
-Source of truth for which cloud-API calls each simulator implements at the fidelity sockerless requires. The backend-dependency tables enumerate every cloud-API call made by one of the seven backends. The cloud-slice inventory links every simulator service to its complete registered-operation table and to its official SDK, vendor CLI, and Terraform-provider evidence.
+Which public API slices each simulator exposes, where every registered
+operation of a slice is tracked, and where the official-client evidence for it
+lives.
 
-Legend:
-- ✓ — sim implements the call at sockerless's required fidelity (used by integration tests; passes against the sim).
-- ⚠ — sim implements the call but with reduced fidelity (e.g. incomplete field coverage, missing pagination, or ignored filters). Filed as a bug.
-- ✗ — sim does not implement the call. Filed as a bug.
-- — — call is not made by any backend pointed at this cloud (not applicable).
+- Each per-operation table under [`SIM_SURFACE_TABLES/`](SIM_SURFACE_TABLES/)
+  is generated from the simulator's registered routes by
+  `scripts/seed-surface-tables.sh`; every row names the handler and marks
+  whether it reaches state. `scripts/check-surface-tables-generated.sh` fails a
+  commit whose tables are stale.
+- [`SIM_TEST_COVERAGE_MATRIX.md`](SIM_TEST_COVERAGE_MATRIX.md) records, per
+  surface, the official SDK, vendor CLI and Terraform provider flows that
+  exercise it. `scripts/check-simulator-coverage-matrix.sh` holds its rows to
+  exactly the set of surface tables and holds this inventory to every AWS
+  surface.
+- Which slices a simulator covers is this project's choice; nothing downstream
+  defines it. The inventory is exhaustive rather than consumer-driven.
 
-**Standing rules:** any new SDK call added to a backend must update this matrix and add the sim handler in the same commit (PLAN.md principle #10). Every simulator service slice must appear in the cloud-slice inventory; CI compares it with `specs/SIM_SURFACE_TABLES/`. Every ⚠ / ✗ row is a bug that gets a real fix in the same session per the no-defer rule.
-
-## AWS
-
-Backends: ECS (Fargate), Lambda. Sim: `simulator-aws/`. **33/33 ✓.**
-
-| Service | Method | Used by | Sim status | Notes |
-|---|---|---|---|---|
-| ECS | DescribeClusters | ECS | ✓ | `handleECSDescribeClusters` (ecs.go:281) |
-| ECS | DescribeTasks | ECS | ✓ | `handleECSDescribeTasks` (ecs.go:833) |
-| ECS | ListTasks | ECS | ✓ | `handleECSListTasks` (ecs.go:930) |
-| ECS | RunTask | ECS | ✓ | `handleECSRunTask` (ecs.go:473) — full task-def + VPC config |
-| ECS | StopTask | ECS | ✓ | `handleECSStopTask` (ecs.go:873) |
-| ECS | RegisterTaskDefinition | ECS | ✓ | revision tracking |
-| ECS | DeregisterTaskDefinition | ECS | ✓ | |
-| ECS | TagResource | ECS | ✓ | `handleECSTagResource` + `handleECSUntagResource` + `mergeECSTagsByKey` helper; rejects STOPPED / DEPROVISIONING tasks like real ECS. |
-| ECS | ListTagsForResource | ECS | ✓ | `handleECSListTagsForResource` (ecs.go:1020) |
-| ECS | ExecuteCommand | ECS | ✓ | sim parity via WebSocket + SSM AgentMessage frame writer + exit-code marker |
-| Lambda | CreateFunction | Lambda | ✓ | tags + VpcConfig + ImageConfig |
-| Lambda | DeleteFunction | Lambda | ✓ | |
-| Lambda | Invoke | Lambda | ✓ | container-based exec via Runtime API sidecar |
-| Lambda | UpdateFunctionConfiguration | Lambda | ✓ | |
-| Lambda | TagResource | Lambda | ✓ | InvocationResult persisted to tags for `docker wait` exit-code recovery. |
-| Lambda | ListTags | Lambda | ✓ | |
-| ECR | CreatePullThroughCacheRule | ECS, Lambda | ✓ | |
-| ECR | DescribePullThroughCacheRules | ECS, Lambda | ✓ | filters by prefix |
-| ECR | CreateRepository | aws-common | ✓ | |
-| ECR | BatchDeleteImage | aws-common | ✓ | Surfaces real errors via the ImageManager.Remove aggregator. |
-| ECR | GetAuthorizationToken | aws-common | ✓ | |
-| CloudWatch Logs | DescribeLogStreams | ECS, Lambda | ✓ | |
-| CloudWatch Logs | GetLogEvents | ECS, Lambda | ✓ | pagination |
-| EFS | DescribeFileSystems / CreateFileSystem / CreateMountTarget / DescribeMountTargets / CreateAccessPoint | aws-common | ✓ | All five EFS calls under `EnsureFilesystem` helper |
-| ServiceDiscovery (Cloud Map) | CreatePrivateDnsNamespace | ECS | ✓ | also creates Docker network for sim cross-talk |
-| ServiceDiscovery | DeleteNamespace | ECS | ✓ | |
-| ServiceDiscovery | GetNamespace | ECS | ✓ | |
-| ServiceDiscovery | ListNamespaces | ECS | ✓ | |
-| ServiceDiscovery | CreateService | ECS | ✓ | |
-| ServiceDiscovery | DeleteService | ECS | ✓ | |
-| ServiceDiscovery | ListServices | ECS | ✓ | filters by namespace |
-| ServiceDiscovery | RegisterInstance | ECS | ✓ | |
-| ServiceDiscovery | DeregisterInstance | ECS | ✓ | |
-| ServiceDiscovery | ListInstances | ECS | ✓ | |
-| ServiceDiscovery | DiscoverInstances | ECS | ✓ | DNS discovery |
-| ServiceDiscovery | ListTagsForResource | ECS | ✓ | |
-| ServiceDiscovery | GetOperation | ECS | ✓ | |
-
-### AWS simulator cloud-slice inventory
-
-The table above answers “can a client make every cloud call it needs?” This inventory answers the broader question “which AWS public API slices does the simulator expose, and where is every registered operation tracked?” The linked surface tables currently enumerate **42 AWS surfaces and 2,695 registered operations**. Each operation row names its handler and test status. [`SIM_TEST_COVERAGE_MATRIX.md`](SIM_TEST_COVERAGE_MATRIX.md) supplies the official AWS SDK, AWS CLI, and Terraform AWS Provider evidence for every surface.
-
-The inventory is intentionally exhaustive rather than customer-report-driven. It includes AWS Amplify, AWS WAF, AWS Step Functions, Amazon DynamoDB, Amazon Route 53, Amazon Relational Database Service (RDS), AWS Secrets Manager, AWS CodeBuild, Amazon CloudWatch, Amazon EventBridge, AWS CloudTrail, Amazon Simple Notification Service (SNS), Amazon Simple Queue Service (SQS), and every other registered AWS cloud slice.
+## AWS — 50 surfaces
 
 | AWS cloud slice | Per-operation inventory | External client evidence |
 |---|---|---|
@@ -113,77 +72,113 @@ The inventory is intentionally exhaustive rather than customer-report-driven. It
 | AWS Security Token Service (STS) | [`aws-sts`](SIM_SURFACE_TABLES/aws-sts.md) | [`aws-sts`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS WAF | [`aws-wafv2`](SIM_SURFACE_TABLES/aws-wafv2.md) | [`aws-wafv2`](SIM_TEST_COVERAGE_MATRIX.md) |
 
-## GCP
+## Google Cloud — 56 surfaces
 
-Backends: Cloud Run Jobs (cloudrun), Cloud Run Functions (cloudrun-functions). Sim: `simulator-gcp/`. **16/16 ✓ (current backends) + 8 forward-looking rows for Phase 126/127 prep, all ✓.**
+| Google Cloud surface | Per-operation inventory | External client evidence |
+|---|---|---|
+| `gcp-apigateway` | [`gcp-apigateway`](SIM_SURFACE_TABLES/gcp-apigateway.md) | [`gcp-apigateway`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-artifactregistry` | [`gcp-artifactregistry`](SIM_SURFACE_TABLES/gcp-artifactregistry.md) | [`gcp-artifactregistry`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-bigquery` | [`gcp-bigquery`](SIM_SURFACE_TABLES/gcp-bigquery.md) | [`gcp-bigquery`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-bigtable` | [`gcp-bigtable`](SIM_SURFACE_TABLES/gcp-bigtable.md) | [`gcp-bigtable`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudbilling` | [`gcp-cloudbilling`](SIM_SURFACE_TABLES/gcp-cloudbilling.md) | [`gcp-cloudbilling`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudbuild` | [`gcp-cloudbuild`](SIM_SURFACE_TABLES/gcp-cloudbuild.md) | [`gcp-cloudbuild`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudbuild_regional` | [`gcp-cloudbuild_regional`](SIM_SURFACE_TABLES/gcp-cloudbuild_regional.md) | [`gcp-cloudbuild_regional`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudfunctions` | [`gcp-cloudfunctions`](SIM_SURFACE_TABLES/gcp-cloudfunctions.md) | [`gcp-cloudfunctions`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudkms` | [`gcp-cloudkms`](SIM_SURFACE_TABLES/gcp-cloudkms.md) | [`gcp-cloudkms`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudresourcemanager` | [`gcp-cloudresourcemanager`](SIM_SURFACE_TABLES/gcp-cloudresourcemanager.md) | [`gcp-cloudresourcemanager`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudresourcemanager_folders_v2` | [`gcp-cloudresourcemanager_folders_v2`](SIM_SURFACE_TABLES/gcp-cloudresourcemanager_folders_v2.md) | [`gcp-cloudresourcemanager_folders_v2`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudrun` | [`gcp-cloudrun`](SIM_SURFACE_TABLES/gcp-cloudrun.md) | [`gcp-cloudrun`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute` | [`gcp-compute`](SIM_SURFACE_TABLES/gcp-compute.md) | [`gcp-compute`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_bulk_verbs` | [`gcp-compute_bulk_verbs`](SIM_SURFACE_TABLES/gcp-compute_bulk_verbs.md) | [`gcp-compute_bulk_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_catalogs` | [`gcp-compute_catalogs`](SIM_SURFACE_TABLES/gcp-compute_catalogs.md) | [`gcp-compute_catalogs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_disk_verbs` | [`gcp-compute_disk_verbs`](SIM_SURFACE_TABLES/gcp-compute_disk_verbs.md) | [`gcp-compute_disk_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_instance_verbs` | [`gcp-compute_instance_verbs`](SIM_SURFACE_TABLES/gcp-compute_instance_verbs.md) | [`gcp-compute_instance_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_interconnect_diagnostics` | [`gcp-compute_interconnect_diagnostics`](SIM_SURFACE_TABLES/gcp-compute_interconnect_diagnostics.md) | [`gcp-compute_interconnect_diagnostics`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_interconnect_locations` | [`gcp-compute_interconnect_locations`](SIM_SURFACE_TABLES/gcp-compute_interconnect_locations.md) | [`gcp-compute_interconnect_locations`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_interconnect_macsec` | [`gcp-compute_interconnect_macsec`](SIM_SURFACE_TABLES/gcp-compute_interconnect_macsec.md) | [`gcp-compute_interconnect_macsec`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_interconnect_remote_locations` | [`gcp-compute_interconnect_remote_locations`](SIM_SURFACE_TABLES/gcp-compute_interconnect_remote_locations.md) | [`gcp-compute_interconnect_remote_locations`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_last_verbs` | [`gcp-compute_last_verbs`](SIM_SURFACE_TABLES/gcp-compute_last_verbs.md) | [`gcp-compute_last_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_lb_more_verbs` | [`gcp-compute_lb_more_verbs`](SIM_SURFACE_TABLES/gcp-compute_lb_more_verbs.md) | [`gcp-compute_lb_more_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_lb_verbs` | [`gcp-compute_lb_verbs`](SIM_SURFACE_TABLES/gcp-compute_lb_verbs.md) | [`gcp-compute_lb_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_loadbalancing` | [`gcp-compute_loadbalancing`](SIM_SURFACE_TABLES/gcp-compute_loadbalancing.md) | [`gcp-compute_loadbalancing`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_members` | [`gcp-compute_members`](SIM_SURFACE_TABLES/gcp-compute_members.md) | [`gcp-compute_members`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_nested_prefixes` | [`gcp-compute_nested_prefixes`](SIM_SURFACE_TABLES/gcp-compute_nested_prefixes.md) | [`gcp-compute_nested_prefixes`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_policies` | [`gcp-compute_policies`](SIM_SURFACE_TABLES/gcp-compute_policies.md) | [`gcp-compute_policies`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_preview_features` | [`gcp-compute_preview_features`](SIM_SURFACE_TABLES/gcp-compute_preview_features.md) | [`gcp-compute_preview_features`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_project` | [`gcp-compute_project`](SIM_SURFACE_TABLES/gcp-compute_project.md) | [`gcp-compute_project`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_reads` | [`gcp-compute_reads`](SIM_SURFACE_TABLES/gcp-compute_reads.md) | [`gcp-compute_reads`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_region_instance_groups` | [`gcp-compute_region_instance_groups`](SIM_SURFACE_TABLES/gcp-compute_region_instance_groups.md) | [`gcp-compute_region_instance_groups`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_reservation_hosts` | [`gcp-compute_reservation_hosts`](SIM_SURFACE_TABLES/gcp-compute_reservation_hosts.md) | [`gcp-compute_reservation_hosts`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_reservation_verbs` | [`gcp-compute_reservation_verbs`](SIM_SURFACE_TABLES/gcp-compute_reservation_verbs.md) | [`gcp-compute_reservation_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_settings` | [`gcp-compute_settings`](SIM_SURFACE_TABLES/gcp-compute_settings.md) | [`gcp-compute_settings`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-dataflow` | [`gcp-dataflow`](SIM_SURFACE_TABLES/gcp-dataflow.md) | [`gcp-dataflow`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-dns` | [`gcp-dns`](SIM_SURFACE_TABLES/gcp-dns.md) | [`gcp-dns`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-eventarc` | [`gcp-eventarc`](SIM_SURFACE_TABLES/gcp-eventarc.md) | [`gcp-eventarc`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-firestore` | [`gcp-firestore`](SIM_SURFACE_TABLES/gcp-firestore.md) | [`gcp-firestore`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-firestore_change_streams` | [`gcp-firestore_change_streams`](SIM_SURFACE_TABLES/gcp-firestore_change_streams.md) | [`gcp-firestore_change_streams`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-firestore_document_verbs` | [`gcp-firestore_document_verbs`](SIM_SURFACE_TABLES/gcp-firestore_document_verbs.md) | [`gcp-firestore_document_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-gcs` | [`gcp-gcs`](SIM_SURFACE_TABLES/gcp-gcs.md) | [`gcp-gcs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-gcs_object_acls` | [`gcp-gcs_object_acls`](SIM_SURFACE_TABLES/gcp-gcs_object_acls.md) | [`gcp-gcs_object_acls`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-gcs_object_iam` | [`gcp-gcs_object_iam`](SIM_SURFACE_TABLES/gcp-gcs_object_iam.md) | [`gcp-gcs_object_iam`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-gcs_object_restore` | [`gcp-gcs_object_restore`](SIM_SURFACE_TABLES/gcp-gcs_object_restore.md) | [`gcp-gcs_object_restore`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-iam` | [`gcp-iam`](SIM_SURFACE_TABLES/gcp-iam.md) | [`gcp-iam`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-logging` | [`gcp-logging`](SIM_SURFACE_TABLES/gcp-logging.md) | [`gcp-logging`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-memorystore_redis` | [`gcp-memorystore_redis`](SIM_SURFACE_TABLES/gcp-memorystore_redis.md) | [`gcp-memorystore_redis`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-operations_cancel` | [`gcp-operations_cancel`](SIM_SURFACE_TABLES/gcp-operations_cancel.md) | [`gcp-operations_cancel`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-pubsub` | [`gcp-pubsub`](SIM_SURFACE_TABLES/gcp-pubsub.md) | [`gcp-pubsub`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-secretmanager` | [`gcp-secretmanager`](SIM_SURFACE_TABLES/gcp-secretmanager.md) | [`gcp-secretmanager`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-spanner` | [`gcp-spanner`](SIM_SURFACE_TABLES/gcp-spanner.md) | [`gcp-spanner`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-sqladmin` | [`gcp-sqladmin`](SIM_SURFACE_TABLES/gcp-sqladmin.md) | [`gcp-sqladmin`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-sqladmin_blue_green` | [`gcp-sqladmin_blue_green`](SIM_SURFACE_TABLES/gcp-sqladmin_blue_green.md) | [`gcp-sqladmin_blue_green`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-sts` | [`gcp-sts`](SIM_SURFACE_TABLES/gcp-sts.md) | [`gcp-sts`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-vpcaccess` | [`gcp-vpcaccess`](SIM_SURFACE_TABLES/gcp-vpcaccess.md) | [`gcp-vpcaccess`](SIM_TEST_COVERAGE_MATRIX.md) |
 
-| Service | Method | Used by | Sim status | Notes |
-|---|---|---|---|---|
-| Cloud Run | Jobs.CreateJob | cloudrun | ✓ | `registerCloudRunJobs` (cloudrunjobs.go:225) — full LRO + job metadata |
-| Cloud Run | Jobs.DeleteJob | cloudrun | ✓ | (cloudrunjobs.go:317) — cascades execution delete |
-| Cloud Run | Jobs.ListJobs | cloudrun | ✓ | (cloudrunjobs.go:302) — filters by project/location prefix |
-| Cloud Run | Jobs.RunJob | cloudrun | ✓ | (cloudrunjobs.go:344) — creates execution with task metadata |
-| Cloud Run | Executions.GetExecution | cloudrun | ✓ | (cloudrunjobs.go:539) — full execution state |
-| Cloud Run | Executions.CancelExecution | cloudrun | ✓ | (cloudrunjobs.go:571) — stops container + injects cancel log |
-| Cloud Run | Services.CreateService | cloudrun (UseService) | ✓ | v2 REST routes in `simulator-gcp/cloudrunservices.go::registerCloudRunServicesV2` covering Create/Get/List/Update/Delete on `/v2/projects/{p}/locations/{l}/services`. Returns proto-JSON shape `runpb.Service` expects (TerminalCondition=CONDITION_SUCCEEDED, LatestReadyRevision populated, generation as int64-string). |
-| Cloud Run | Services.GetService | cloudrun (UseService) | ✓ | (cloudrunservices.go) — service_discovery_cloud.go uses this for CNAME resolution |
-| Cloud Run | Services.UpdateService | cloudrun (declarative) | ✓ | (cloudrunservices.go) — terraform `google_cloud_run_v2_service` parity; backend recreates rather than patches today |
-| Cloud Run | Services.DeleteService | cloudrun (UseService) | ✓ | (cloudrunservices.go) — LRO + store delete |
-| Cloud Functions | CreateFunction | cloudrun-functions | ✓ | (cloudfunctions.go:57) — full LRO + function URI |
-| Cloud Functions | DeleteFunction | cloudrun-functions | ✓ | (cloudfunctions.go:181) — LRO |
-| Cloud Functions | ListFunctions | cloudrun-functions | ✓ | (cloudfunctions.go:114) — filters by project/location prefix |
-| Cloud Logging | LogAdmin.Entries | cloudrun, cloudrun-functions | ✓ | (logging.go:151) — REST ListLogEntries with filter + pageSize |
-| Cloud DNS | ManagedZones | cloudrun, cloudrun-functions | ✓ | (dns.go:44/96/114/128) — Create/Get/List/Delete + Docker network backing for private zones |
-| Cloud DNS | ResourceRecordSets | cloudrun, cloudrun-functions | ✓ | (dns.go:159/190/236) — List/Create/Delete + Docker network connection for A records |
+## Azure — 45 surfaces
 
-### Phase 126/127 forward-looking (no current backend caller; SDK-test-validated)
-
-| Service | Method | Phase | Sim status | Notes |
-|---|---|---|---|---|
-| IAM Credentials | ServiceAccounts.GenerateIdToken | 126 (Access driver `id-token`) | ✓ | `simulator-gcp/iam.go` — `:emailAction` switch handles `:generateIdToken` alongside existing `:generateAccessToken`. Mints HS256 JWT via `mintSimIdToken` in `oauth2.go`; `aud` claim equals request audience; `email` claim included when `includeEmail=true`. SDK test: `iam_test.go::TestIAMCredentials_GenerateIdToken*`. |
-| Compute | Disks.Insert | 127 (Storage `pd-ephemeral`) | ✓ | `simulator-gcp/compute.go::registerComputeDisks`. Default Type `pd-standard` when unset. Returns zonal LRO. |
-| Compute | Disks.Get | 127 | ✓ | (compute.go) |
-| Compute | Disks.List | 127 | ✓ | (compute.go) — zonal |
-| Compute | Disks.Delete | 127 | ✓ | (compute.go) — 404 on missing |
-| Compute | Disks.Resize | 127 | ✓ | (compute.go) — `DisksResizeRequest{SizeGb}` |
-| Compute | Disks.SetLabels | 127 | ✓ | (compute.go) — refreshes `LabelFingerprint` |
-| Compute | Disks.AggregatedList | 127 | ✓ | (compute.go) — `compute#diskAggregatedList` shape with `zones/<zone>` keys |
-
-## Azure
-
-Backends: Container Apps (aca), Azure Functions (azure-functions). Sim: `simulator-azure/`. **28/28 ✓.**
-
-| Service | Method | Used by | Sim status | Notes |
-|---|---|---|---|---|
-| Container Apps | Jobs.BeginCreateOrUpdate | aca | ✓ | (containerapps.go:240) — full LRO + JobProperties + provisioningState=Succeeded |
-| Container Apps | Jobs.BeginDelete | aca | ✓ | (containerapps.go:325) — cascades execution delete |
-| Container Apps | Jobs.BeginStart | aca | ✓ | (containerapps.go:347) — execution metadata + LRO; started containers derive Docker platform from the resolved local image manifest. |
-| Container Apps | Jobs.BeginStopExecution | aca | ✓ | (containerapps.go:592) |
-| Container Apps | Jobs.NewListByResourceGroupPager | aca | ✓ | (containerapps.go:310) — pagination |
-| Container Apps | ContainerApps.BeginCreateOrUpdate | aca (UseApp) | ✓ | `registerContainerAppsApps` in `simulator-azure/containerapps_apps.go`. Returns `provisioningState=Succeeded` + `LatestReadyRevisionName` + ARM-host-derived `LatestRevisionFqdn` so `appContainerState` reads "running" and `cloudServiceRegisterCNAME` can seed Private DNS. Started replicas derive Docker platform from the resolved local image manifest. |
-| Container Apps | ContainerApps.BeginDelete | aca (UseApp) | ✓ | `containerapps_apps.go` |
-| Container Apps | ContainerApps.Get | aca (UseApp) | ✓ | `containerapps_apps.go` — backend reads `LatestRevisionFqdn` for CNAME registration |
-| Container Apps | EnvStorages.CreateOrUpdate | aca | ✓ | (containerappsenv.go:210) |
-| Container Apps | EnvStorages.Delete | aca | ✓ | (containerappsenv.go:254) |
-| Container Apps | Executions.NewListPager | aca | ✓ | (containerapps.go:548) |
-| Network | NSG.BeginCreateOrUpdate | aca | ✓ | (network.go:276) — SecurityRules + provisioningState |
-| Network | NSG.BeginDelete | aca | ✓ | (network.go:329) |
-| Network | NSG.Get | aca | ✓ | (network.go:313) |
-| Network | NSGRules.BeginCreateOrUpdate | aca | ✓ | (network.go:353) |
-| Private DNS | PrivateDNSZones.BeginCreateOrUpdate | aca | ✓ | (dns.go:84) |
-| Private DNS | PrivateDNSZones.BeginDelete | aca | ✓ | (dns.go:176) |
-| Private DNS | PrivateDNSZones.Get | aca | ✓ | (dns.go:132) |
-| Private DNS | PrivateDNSRecords.CreateOrUpdate | aca | ✓ | (dns.go:192) — A + CNAME |
-| Private DNS | PrivateDNSRecords.Delete | aca | ✓ | (dns.go:232) |
-| Private DNS | PrivateDNSRecords.Get | aca | ✓ | (dns.go:212) |
-| Storage | StorageAccounts.ListKeys | aca, azure-functions | ✓ | (files.go:335) |
-| Log Analytics | Logs.QueryWorkspace | aca, azure-functions | ✓ | (monitor.go:349) — KQL parsing + Tables[0].Rows |
-| Log Analytics | LogsHTTP.QueryWorkspace | aca | ✓ | (monitor.go:349) — HTTP fallback for non-TLS sim runs |
-| App Service | WebApps.BeginCreateOrUpdate | azure-functions | ✓ | (functions.go:88) |
-| App Service | WebApps.Delete | azure-functions | ✓ | (functions.go:178) |
-| App Service | WebApps.NewListByResourceGroupPager | azure-functions | ✓ | (functions.go:163) |
-| App Service | WebApps.UpdateAzureStorageAccounts | azure-functions | ✓ | `PUT /sites/{name}/config/azurestorageaccounts` in `simulator-azure/functions.go`. Round-trip of `AzureStoragePropertyDictionaryResource` matches `armappservice` wire format. |
-
-## Closure tracking
-
-All 77 current-backend rows (33 AWS + 16 GCP + 28 Azure) ship ✓. The full AWS cloud-slice inventory additionally tracks 42 surfaces and 2,695 registered operations with official-client evidence. Plus 8 forward-looking GCP rows for Phase 126/127 driver work (no current backend caller — validated by SDK tests today; backend caller lands when those phases ship). Standing rule: any new SDK call added to a backend must update this matrix and add the sim handler in the same commit (PLAN.md principle #10). Forward-looking rows are sim-side prep only — they don't violate the rule because no backend uses them yet.
+| Azure surface | Per-operation inventory | External client evidence |
+|---|---|---|
+| `azure-acr` | [`azure-acr`](SIM_SURFACE_TABLES/azure-acr.md) | [`azure-acr`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-acr_dataplane_properties` | [`azure-acr_dataplane_properties`](SIM_SURFACE_TABLES/azure-acr_dataplane_properties.md) | [`azure-acr_dataplane_properties`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-acr_tasks` | [`azure-acr_tasks`](SIM_SURFACE_TABLES/azure-acr_tasks.md) | [`azure-acr_tasks`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-apim` | [`azure-apim`](SIM_SURFACE_TABLES/azure-apim.md) | [`azure-apim`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-appserviceplan` | [`azure-appserviceplan`](SIM_SURFACE_TABLES/azure-appserviceplan.md) | [`azure-appserviceplan`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-azure_dns` | [`azure-azure_dns`](SIM_SURFACE_TABLES/azure-azure_dns.md) | [`azure-azure_dns`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-cache_redis` | [`azure-cache_redis`](SIM_SURFACE_TABLES/azure-cache_redis.md) | [`azure-cache_redis`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute` | [`azure-compute`](SIM_SURFACE_TABLES/azure-compute.md) | [`azure-compute`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute_operations` | [`azure-compute_operations`](SIM_SURFACE_TABLES/azure-compute_operations.md) | [`azure-compute_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute_vm_extensions` | [`azure-compute_vm_extensions`](SIM_SURFACE_TABLES/azure-compute_vm_extensions.md) | [`azure-compute_vm_extensions`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute_vm_operations` | [`azure-compute_vm_operations`](SIM_SURFACE_TABLES/azure-compute_vm_operations.md) | [`azure-compute_vm_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute_vm_patches` | [`azure-compute_vm_patches`](SIM_SURFACE_TABLES/azure-compute_vm_patches.md) | [`azure-compute_vm_patches`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-containerapps` | [`azure-containerapps`](SIM_SURFACE_TABLES/azure-containerapps.md) | [`azure-containerapps`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-containerinstance` | [`azure-containerinstance`](SIM_SURFACE_TABLES/azure-containerinstance.md) | [`azure-containerinstance`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-cosmos` | [`azure-cosmos`](SIM_SURFACE_TABLES/azure-cosmos.md) | [`azure-cosmos`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-dns` | [`azure-dns`](SIM_SURFACE_TABLES/azure-dns.md) | [`azure-dns`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-dns_more` | [`azure-dns_more`](SIM_SURFACE_TABLES/azure-dns_more.md) | [`azure-dns_more`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-entra` | [`azure-entra`](SIM_SURFACE_TABLES/azure-entra.md) | [`azure-entra`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-eventgrid` | [`azure-eventgrid`](SIM_SURFACE_TABLES/azure-eventgrid.md) | [`azure-eventgrid`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-eventhub` | [`azure-eventhub`](SIM_SURFACE_TABLES/azure-eventhub.md) | [`azure-eventhub`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-eventhubs` | [`azure-eventhubs`](SIM_SURFACE_TABLES/azure-eventhubs.md) | [`azure-eventhubs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-functions` | [`azure-functions`](SIM_SURFACE_TABLES/azure-functions.md) | [`azure-functions`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-insights_dataplane` | [`azure-insights_dataplane`](SIM_SURFACE_TABLES/azure-insights_dataplane.md) | [`azure-insights_dataplane`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-keyvault` | [`azure-keyvault`](SIM_SURFACE_TABLES/azure-keyvault.md) | [`azure-keyvault`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-keyvault_managedhsm` | [`azure-keyvault_managedhsm`](SIM_SURFACE_TABLES/azure-keyvault_managedhsm.md) | [`azure-keyvault_managedhsm`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-keyvault_managedhsm_tail` | [`azure-keyvault_managedhsm_tail`](SIM_SURFACE_TABLES/azure-keyvault_managedhsm_tail.md) | [`azure-keyvault_managedhsm_tail`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-kv-data-plane` | [`azure-kv-data-plane`](SIM_SURFACE_TABLES/azure-kv-data-plane.md) | [`azure-kv-data-plane`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-logicapps` | [`azure-logicapps`](SIM_SURFACE_TABLES/azure-logicapps.md) | [`azure-logicapps`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-monitor` | [`azure-monitor`](SIM_SURFACE_TABLES/azure-monitor.md) | [`azure-monitor`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-network` | [`azure-network`](SIM_SURFACE_TABLES/azure-network.md) | [`azure-network`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-postgresql-flexible-server` | [`azure-postgresql-flexible-server`](SIM_SURFACE_TABLES/azure-postgresql-flexible-server.md) | [`azure-postgresql-flexible-server`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-private-dns` | [`azure-private-dns`](SIM_SURFACE_TABLES/azure-private-dns.md) | [`azure-private-dns`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-public_dns` | [`azure-public_dns`](SIM_SURFACE_TABLES/azure-public_dns.md) | [`azure-public_dns`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-resourcegroups` | [`azure-resourcegroups`](SIM_SURFACE_TABLES/azure-resourcegroups.md) | [`azure-resourcegroups`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-resources` | [`azure-resources`](SIM_SURFACE_TABLES/azure-resources.md) | [`azure-resources`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-servicebus` | [`azure-servicebus`](SIM_SURFACE_TABLES/azure-servicebus.md) | [`azure-servicebus`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-servicebus-admin` | [`azure-servicebus-admin`](SIM_SURFACE_TABLES/azure-servicebus-admin.md) | [`azure-servicebus-admin`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-servicebus-arm` | [`azure-servicebus-arm`](SIM_SURFACE_TABLES/azure-servicebus-arm.md) | [`azure-servicebus-arm`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-servicebus-data-plane` | [`azure-servicebus-data-plane`](SIM_SURFACE_TABLES/azure-servicebus-data-plane.md) | [`azure-servicebus-data-plane`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-storage` | [`azure-storage`](SIM_SURFACE_TABLES/azure-storage.md) | [`azure-storage`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-storage-data-plane` | [`azure-storage-data-plane`](SIM_SURFACE_TABLES/azure-storage-data-plane.md) | [`azure-storage-data-plane`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-subscription` | [`azure-subscription`](SIM_SURFACE_TABLES/azure-subscription.md) | [`azure-subscription`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-subscription_operations` | [`azure-subscription_operations`](SIM_SURFACE_TABLES/azure-subscription_operations.md) | [`azure-subscription_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-subscription_ownership` | [`azure-subscription_ownership`](SIM_SURFACE_TABLES/azure-subscription_ownership.md) | [`azure-subscription_ownership`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-subscription_policy` | [`azure-subscription_policy`](SIM_SURFACE_TABLES/azure-subscription_policy.md) | [`azure-subscription_policy`](SIM_TEST_COVERAGE_MATRIX.md) |
