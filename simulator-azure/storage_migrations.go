@@ -115,27 +115,35 @@ func handleStorageStartAccountMigration(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleStorageGetAccountMigration — StorageAccounts_GetCustomerInitiatedMigration.
+//
+// The `default` migration is a singleton every account carries; an account
+// nobody has migrated answers it with no status rather than 404.
+// terraform-provider-azurerm reads it on every storage-account read and treats
+// anything but 200 as a failed read of the account, and it reads real Azure —
+// so a plain account answers 200 there. A name other than `default` is the one
+// migration name the API does not have.
 func handleStorageGetAccountMigration(w http.ResponseWriter, r *http.Request) {
 	acctID, name, ok := requireStorageAccount(w, r)
 	if !ok {
 		return
 	}
 	migrationName := sim.PathParam(r, "migrationName")
-	held, found := storageAccountMigrations.Get(acctID)
-	if !found || !strings.EqualFold(held.Name, migrationName) {
+	if !strings.EqualFold(migrationName, "default") {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"No customer-initiated migration named '%s' was started on account '%s'.",
 			migrationName, name)
 		return
 	}
+	properties := map[string]any{}
+	if held, found := storageAccountMigrations.Get(acctID); found {
+		properties["targetSkuName"] = held.TargetSkuName
+		properties["migrationStatus"] = held.Status
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"id":   acctID + "/accountMigrations/" + held.Name,
-		"name": held.Name,
-		"type": "Microsoft.Storage/storageAccounts/accountMigrations",
-		"properties": map[string]any{
-			"targetSkuName":   held.TargetSkuName,
-			"migrationStatus": held.Status,
-		},
+		"id":         acctID + "/accountMigrations/default",
+		"name":       "default",
+		"type":       "Microsoft.Storage/storageAccounts/accountMigrations",
+		"properties": properties,
 	})
 }
 

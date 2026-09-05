@@ -88,7 +88,7 @@ func TestFirstPartyOIDCProtectsOperatorSurfacesOnly(t *testing.T) {
 	}
 	recorder = httptest.NewRecorder()
 	srv.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/ui/config.json", nil))
-	if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/auth/oidc/login?return_to=%2Fui%2F" {
+	if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/auth/oidc/login?return_to=%2Fui%2Fconfig.json" {
 		t.Fatalf("console config redirect = %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}
 	recorder = httptest.NewRecorder()

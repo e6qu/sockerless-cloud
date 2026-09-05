@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 77.
+Open: 11. Resolved: 78.
 
 ## Open
 
@@ -239,6 +239,18 @@ Open: 11. Resolved: 77.
   clean checkout and fails each corruption with the message that names it.
 
 ## Resolved history
+
+- ~~**BUG-2976 (a storage account with no migration answered its migration read
+  with 404):**~~ `StorageAccounts_GetCustomerInitiatedMigration` on
+  `accountMigrations/default` answered `ResourceNotFound` until a migration had
+  been started. terraform-provider-azurerm 5.4.0 reads that resource on every
+  storage-account read and treats anything but 200 as a failed read of the
+  account — and it reads real Azure, so a plain account answers 200 there. The
+  `default` migration is the singleton every account carries; an account nobody
+  has migrated now answers it with the resource envelope and no status, and only
+  a name other than `default` is not found. Found by the azurerm 5.4.0 bump the
+  freshness gate asked for, which failed the Azure Terraform stack on its first
+  storage account.
 
 - ~~**BUG-2975 (the default Google Cloud gRPC port collided with the default
   Azure port):**~~ The Google Cloud simulator derived its gRPC port as the HTTP
