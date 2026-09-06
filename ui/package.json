@@ -8,6 +8,6 @@
   "devDependencies": {
     "jscpd": "5.1.2",
     "turbo": "^2.10.12",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }

@@ -40,18 +40,14 @@ and commit the regenerated `simulator-aws/dist/` (see
 
 ## Held dependency versions
 
-Two pins are deliberately behind their newest release. Each is held because
-the newer version breaks something here, not because nobody looked — so before
-running `bun update --latest`, read this and put back whatever it moves.
+One pin is deliberately behind its newest release. It is held because the
+newer version breaks something here, not because nobody looked — so before
+running `bun update --latest`, read this and put back what it moves.
 
 - **`@tanstack/react-table` — held on 8.x.** v9 is an API redesign, not a
   version bump: `createColumnHelper` takes feature generics, and the table is
   constructed through a feature set. Adopting it is a migration of every
   console's tables, which is work to schedule rather than a dependency to take.
-- **`typescript` — held on 5.x.** TypeScript 7 rejects the side-effect CSS
-  imports every console entry point makes (`TS2882`, "Cannot find module or
-  type declarations for side-effect import of './index.css'"). Adopting it
-  needs module declarations for those imports first.
 
 Everything else tracks its newest release published more than 24 hours ago,
 which is the same adoption quarantine `scripts/check-latest-deps.sh` applies to

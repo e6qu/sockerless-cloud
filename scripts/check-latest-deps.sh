@@ -817,9 +817,6 @@ npm_hold_reason() {
     "@tanstack/react-table")
       printf '%s\n' "v9 is an API redesign — createColumnHelper takes feature generics and the table is built from a feature set — so adopting it is a migration of every console's tables. See ui/README.md."
       ;;
-    typescript)
-      printf '%s\n' "TypeScript 7 rejects the side-effect CSS imports every console entry point makes (TS2882); adopting it needs module declarations for those first. See ui/README.md."
-      ;;
     *) return 1 ;;
   esac
 }

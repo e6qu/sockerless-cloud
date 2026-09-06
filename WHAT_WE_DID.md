@@ -226,7 +226,9 @@ publication and broke `main` by being unpinned. A deliberate hold names its
 cause and goes when the cause does: Fluent UI 9.74.6 failed every Azure console
 test because tabster 8.8.0 shipped no `exports` map, so Vitest resolved its
 CommonJS entry and found no named `createTabster`; tabster 8.8.1 added the map
-and the Fluent pin went with it.
+and the Fluent pin went with it. TypeScript 7 rejected the consoles' side-effect
+`./index.css` imports (TS2882) until each console declared the `*.css` module;
+Vite bundles them regardless, so the built consoles did not change.
 
 ## Continuous integration
 
