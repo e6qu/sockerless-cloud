@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.5](https://github.com/e6qu/sockerless-cloud/compare/v0.30.4...v0.30.5) (2026-09-06)
+
+
+### Bug Fixes
+
+* re-pin sim onto the release commit, lift the Fluent UI hold and restore the BUG-2977 entry ([#122](https://github.com/e6qu/sockerless-cloud/issues/122)) ([b5b6fe5](https://github.com/e6qu/sockerless-cloud/commit/b5b6fe5d4fd631ab84f9e7ad34d192c9ad5e9681))
+
 ## [0.30.4](https://github.com/e6qu/sockerless-cloud/compare/v0.30.3...v0.30.4) (2026-09-05)
 
 
