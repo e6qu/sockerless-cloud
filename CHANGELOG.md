@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.7](https://github.com/e6qu/sockerless-cloud/compare/v0.30.6...v0.30.7) (2026-09-06)
+
+
+### Bug Fixes
+
+* **aws:** an Amazon ECS task starts in its container definition's workingDirectory ([#126](https://github.com/e6qu/sockerless-cloud/issues/126)) ([62c486d](https://github.com/e6qu/sockerless-cloud/commit/62c486d5716f9539fcab5ff9d81a4fc7a8b6c2e7))
+
 ## [0.30.6](https://github.com/e6qu/sockerless-cloud/compare/v0.30.5...v0.30.6) (2026-09-06)
 
 
