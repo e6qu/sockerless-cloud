@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.6](https://github.com/e6qu/sockerless-cloud/compare/v0.30.5...v0.30.6) (2026-09-06)
+
+
+### Bug Fixes
+
+* Google Cloud hosts pull as the service agent, the subnet reclaim spares live runs, and ACR serves the v2 catalog ([#124](https://github.com/e6qu/sockerless-cloud/issues/124)) ([3656fc3](https://github.com/e6qu/sockerless-cloud/commit/3656fc3fd8f6513494c3c92014eccb5debbe220a))
+
 ## [0.30.5](https://github.com/e6qu/sockerless-cloud/compare/v0.30.4...v0.30.5) (2026-09-06)
 
 
