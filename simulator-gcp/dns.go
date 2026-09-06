@@ -1380,7 +1380,7 @@ func dnsProjectResource(project string) map[string]any {
 	return map[string]any{
 		"kind":   "dns#project",
 		"id":     project,
-		"number": dnsProjectNumber(project),
+		"number": projectNumber(project),
 		"quota": map[string]any{
 			"kind":                                 "dns#quota",
 			"managedZones":                         10000,
@@ -1410,9 +1410,10 @@ func dnsProjectResource(project string) map[string]any {
 	}
 }
 
-// dnsProjectNumber derives a stable numeric project number from the project
-// id, the way Cloud DNS surfaces a server-assigned project number.
-func dnsProjectNumber(project string) string {
+// projectNumber derives a stable numeric project number from the project id,
+// the server-assigned number Cloud DNS surfaces and service-agent identities
+// carry.
+func projectNumber(project string) string {
 	h := sha256.Sum256([]byte("dns-project-number:" + project))
 	n := binary.BigEndian.Uint64(h[:8]) >> 1
 	return strconv.FormatUint(n, 10)

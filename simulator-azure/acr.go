@@ -466,39 +466,34 @@ func registerACR(srv *sim.Server) {
 	// OCI Distribution data plane — mounted from the shared registry library.
 	reg.Register(srv)
 
-	// GET /acr/v1/_catalog - List all repositories (ACR data-plane catalog API).
-	// Reading the catalog needs the registry-wide `registry:catalog:*` access
-	// the Bearer challenge asks for.
-	srv.HandleFunc("GET /acr/v1/_catalog", func(w http.ResponseWriter, r *http.Request) {
-		if !acrAuthorize(w, r, acrRegistryCatalogResource(acrActionAll)) {
-			return
-		}
-		// A registry's catalog is its own: only the manifests stored in the
-		// scope of the registry the Host addresses are enumerated.
-		scope := acrDataPlaneScope(r)
-		all := reg.Manifests.List()
-		seen := map[string]bool{}
-		var repos []string
-		for _, m := range all {
-			if m.Scope == scope && m.Repo != "" && !seen[m.Repo] {
-				seen[m.Repo] = true
-				repos = append(repos, m.Repo)
+	// The registry's catalog, served on both surfaces Azure Container Registry
+	// offers it — the Docker Registry HTTP API v2 `/v2/_catalog` and its own
+	// `/acr/v1/_catalog` — with the same registry-wide `registry:catalog:*`
+	// access the Bearer challenge asks for, and paged the same way.
+	catalog := func(path string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !acrAuthorize(w, r, acrRegistryCatalogResource(acrActionAll)) {
+				return
 			}
+			page, last := acrCatalogPage(r, acrRepositoriesOf(reg, acrDataPlaneScope(r)))
+			if page == nil {
+				page = []string{}
+			}
+			if last != "" {
+				q := r.URL.Query()
+				q.Set("last", last)
+				w.Header().Set("Link", fmt.Sprintf("<%s?%s>; rel=\"next\"", path, q.Encode()))
+			}
+			sim.WriteJSON(w, http.StatusOK, map[string]any{
+				"repositories": page,
+			})
 		}
-		page, last := acrCatalogPage(r, repos)
-		if page == nil {
-			page = []string{}
-		}
-		if last != "" {
-			q := r.URL.Query()
-			q.Set("last", last)
-			link := fmt.Sprintf("</acr/v1/_catalog?%s>; rel=\"next\"", q.Encode())
-			w.Header().Set("Link", link)
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"repositories": page,
-		})
+	}
+	srv.HandleFunc("GET /v2/_catalog", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
+		catalog("/v2/_catalog")(w, r)
 	})
+	srv.HandleFunc("GET /acr/v1/_catalog", catalog("/acr/v1/_catalog"))
 
 	// GET /acr/v1/{name}/_tags - List tags for a repository (ACR data-plane tags API)
 	// {name} can contain slashes (e.g. "myrepo/myimage"), so matched via {path...}.
@@ -1444,4 +1439,19 @@ func acrPrivateLinkResource(regID, group string) map[string]any {
 			"requiredZoneNames": []string{"privatelink.azurecr.io"},
 		},
 	}
+}
+
+// acrRepositoriesOf lists the repositories a registry holds. A registry's
+// catalog is its own: only the manifests stored in the scope of the registry
+// the Host addresses are enumerated.
+func acrRepositoriesOf(reg *sim.OCIRegistry, scope string) []string {
+	seen := map[string]bool{}
+	var repos []string
+	for _, m := range reg.Manifests.List() {
+		if m.Scope == scope && m.Repo != "" && !seen[m.Repo] {
+			seen[m.Repo] = true
+			repos = append(repos, m.Repo)
+		}
+	}
+	return repos
 }

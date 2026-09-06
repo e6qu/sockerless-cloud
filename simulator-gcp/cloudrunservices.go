@@ -328,11 +328,12 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	cloudRunServiceInstances.Unlock()
 	stopCloudRunServiceInstance(old)
 
+	project := resourceProject(name)
 	main := containers[0]
 	localImage := sim.ResolveLocalImage(main.Image)
 	env := containerEnvMap(main.Env)
 	bindsFor := serviceBindsFor(volumes)
-	platform, err := localImagePlatform(ctx, localImage)
+	platform, err := localImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +372,8 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	var sidecars []*sim.ContainerHandle
 	for i, sidecar := range containers[1:] {
 		sidecarImage := sim.ResolveLocalImage(sidecar.Image)
-		sidecarPlatform, err := localImagePlatform(ctx, sidecarImage)
+		sidecarAuth := workloadRegistryAuth(project, sidecarImage)
+		sidecarPlatform, err := localImagePlatform(ctx, sidecarImage, sidecarAuth)
 		if err != nil {
 			sim.StopAndRemoveContainer(containerID, cloudRunStopGrace)
 			for _, h := range sidecars {
@@ -383,6 +385,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			CancelGracePeriod: cloudRunStopGrace,
 			Image:             sidecarImage,
 			Architecture:      sidecarPlatform,
+			RegistryAuth:      sidecarAuth,
 			Command:           sidecar.Command,
 			Args:              sidecar.Args,
 			Env:               mergeEnv(containerEnvMap(sidecar.Env), hostMetadataEnv()),

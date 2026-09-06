@@ -88,10 +88,18 @@ Current state of the sockerless-cloud repository.
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;
   Artifact Registry refuses the second write into an upload session; ACR keys
-  its content per registry.
+  its content per registry and serves its catalog on `/v2/_catalog` as on
+  `/acr/v1/_catalog`.
+- **Workload hosts pull as the cloud pulls**: the Cloud Run job and service
+  hosts and the Cloud Functions host present the project's Cloud Run service
+  agent to Artifact Registry and Container Registry, and nothing to any other
+  registry; the framework carries the credential as the engine's
+  `RegistryAuth`.
 - **VPC networks** allocate bridge subnets from a host-side pool with the
   workload's elastic network interface address as a real secondary address,
-  so same-CIDR VPCs coexist.
+  so same-CIDR VPCs coexist; every simulator resource records its owning
+  process, and a slice is reclaimed only from an owner this host can see to
+  be gone.
 - **Declined surfaces are the ones whose required content is somebody else's
   data**: Cloud Spanner's Key Visualizer scans and wire-protocol adapter,
   Cloud KMS Key Access Justifications, Firestore's streaming REST spellings,

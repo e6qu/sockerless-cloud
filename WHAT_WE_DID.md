@@ -162,6 +162,25 @@ kernel allows it; a machine's disk outlives the guest process so a stopped
 machine can be generalized and captured, and a deallocated machine keeps its
 disk while a deleted one discards it.
 
+A workload host pulls its image the way the cloud pulls it. Cloud Run pulls as
+the project's Cloud Run service agent, so the simulator's Cloud Run and Cloud
+Functions hosts mint that identity's access token from the simulator's own
+signer and present it, as the `oauth2accesstoken` password the engine's
+`RegistryAuth` carries, to Artifact Registry and Container Registry — named by
+their hosts or by this simulator's own port — and present nothing anywhere
+else. Before that, an authenticating Artifact Registry accepted a build's push
+and refused the host's pull of the same image; the pull the registry's push
+test made went through the Docker CLI and its login, which is not the host's
+pull.
+
+A simulator resource records the process that owns it — hostname and pid —
+because a run id alone cannot say whether a run is over. The VPC subnet
+reclaim had read "a different run id and no attached container" as "a dead
+run's leftover" and taken a live neighbour's idle network between two of its
+workloads; it now reclaims only from an owner on this host whose pid no process
+holds, and leaves what it cannot check to the allocator, which takes the next
+slice.
+
 ## Authorization and authentication
 
 Every credential is verified. AWS requests are SigV4-verified against the

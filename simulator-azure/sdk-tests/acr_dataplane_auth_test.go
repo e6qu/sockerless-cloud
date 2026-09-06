@@ -411,3 +411,63 @@ func TestACR_RegenerateCredentialRevokesDerivedTokens(t *testing.T) {
 	assert.Equal(t, http.StatusOK, probe(fixture.basic(fixture.passwords[1])),
 		"the untouched slot must keep authenticating")
 }
+
+// TestACR_DockerRegistryCatalog reads the registry's catalog through the
+// Docker Registry HTTP API v2 `/v2/_catalog`, the listing a Docker-API client
+// reads before it reads any repository's tags: refused anonymously with the
+// challenge that names the registry-wide catalog scope, served to the token
+// that scope buys, holding the repositories pushed to this registry and no
+// other, and paged with `n` and `last` the way the registry pages it.
+func TestACR_DockerRegistryCatalog(t *testing.T) {
+	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrcatalogregistry",
+		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
+
+	for _, repo := range []string{"catalog/alpha", "catalog/beta"} {
+		token, status := acrTokenFromChallenge(t,
+			map[string]string{"realm": fixture.endpoint() + "/oauth2/token", "service": fixture.loginServer, "scope": "repository:" + repo + ":pull,push"},
+			fixture.basic(fixture.passwords[0]))
+		require.Equal(t, http.StatusOK, status)
+		push := acrDoRequest(t, http.MethodPut, fixture.endpoint()+"/v2/"+repo+"/manifests/v1", "Bearer "+token,
+			"application/vnd.docker.distribution.manifest.v2+json", []byte(acrAuthTestManifest))
+		push.Body.Close()
+		require.Equal(t, http.StatusCreated, push.StatusCode)
+	}
+
+	anonymous := acrDoRequest(t, http.MethodGet, fixture.endpoint()+"/v2/_catalog", "", "", nil)
+	anonymous.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, anonymous.StatusCode)
+	params := acrChallengeParams(t, anonymous.Header.Get("Www-Authenticate"))
+	assert.Equal(t, "registry:catalog:*", params["scope"])
+	assert.Equal(t, "registry/2.0", anonymous.Header.Get("Docker-Distribution-Api-Version"))
+
+	token, status := acrTokenFromChallenge(t, params, fixture.basic(fixture.passwords[0]))
+	require.Equal(t, http.StatusOK, status)
+
+	listing := acrDoRequest(t, http.MethodGet, fixture.endpoint()+"/v2/_catalog", "Bearer "+token, "", nil)
+	body, _ := io.ReadAll(listing.Body)
+	listing.Body.Close()
+	require.Equal(t, http.StatusOK, listing.StatusCode, "body: %s", body)
+	var catalog struct {
+		Repositories []string `json:"repositories"`
+	}
+	require.NoError(t, json.Unmarshal(body, &catalog))
+	assert.Equal(t, []string{"catalog/alpha", "catalog/beta"}, catalog.Repositories)
+
+	// One repository per page: the first page carries the link to the next,
+	// which starts after the last name served.
+	first := acrDoRequest(t, http.MethodGet, fixture.endpoint()+"/v2/_catalog?n=1", "Bearer "+token, "", nil)
+	body, _ = io.ReadAll(first.Body)
+	first.Body.Close()
+	require.Equal(t, http.StatusOK, first.StatusCode, "body: %s", body)
+	require.NoError(t, json.Unmarshal(body, &catalog))
+	assert.Equal(t, []string{"catalog/alpha"}, catalog.Repositories)
+	assert.Equal(t, `</v2/_catalog?last=catalog%2Falpha&n=1>; rel="next"`, first.Header.Get("Link"))
+
+	second := acrDoRequest(t, http.MethodGet, fixture.endpoint()+"/v2/_catalog?n=1&last=catalog%2Falpha", "Bearer "+token, "", nil)
+	body, _ = io.ReadAll(second.Body)
+	second.Body.Close()
+	require.Equal(t, http.StatusOK, second.StatusCode, "body: %s", body)
+	require.NoError(t, json.Unmarshal(body, &catalog))
+	assert.Equal(t, []string{"catalog/beta"}, catalog.Repositories)
+	assert.Empty(t, second.Header.Get("Link"))
+}

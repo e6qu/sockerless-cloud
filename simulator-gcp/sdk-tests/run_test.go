@@ -379,6 +379,11 @@ func createAndRunJobWithCommand(t *testing.T, jobID string, cmd []string, timeou
 
 func createAndRunJobWithImageAndCommand(t *testing.T, jobID string, image string, cmd []string, timeout string) string {
 	t.Helper()
+	return createAndRunJobInProject(t, "test-project", jobID, image, cmd, timeout)
+}
+
+func createAndRunJobInProject(t *testing.T, project, jobID string, image string, cmd []string, timeout string) string {
+	t.Helper()
 	containers := []map[string]any{
 		{
 			"image": image,
@@ -395,7 +400,7 @@ func createAndRunJobWithImageAndCommand(t *testing.T, jobID string, image string
 	}
 	body, _ := json.Marshal(job)
 	createReq, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/v2/projects/test-project/locations/us-central1/jobs?jobId="+jobID,
+		baseURL+"/v2/projects/"+project+"/locations/us-central1/jobs?jobId="+jobID,
 		strings.NewReader(string(body)))
 	createReq.Header.Set("Content-Type", "application/json")
 	createResp, err := http.DefaultClient.Do(createReq)
@@ -403,7 +408,7 @@ func createAndRunJobWithImageAndCommand(t *testing.T, jobID string, image string
 	createResp.Body.Close()
 
 	runReq, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID+":run",
+		baseURL+"/v2/projects/"+project+"/locations/us-central1/jobs/"+jobID+":run",
 		strings.NewReader("{}"))
 	runReq.Header.Set("Content-Type", "application/json")
 	runResp, err := http.DefaultClient.Do(runReq)
