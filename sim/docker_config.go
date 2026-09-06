@@ -22,18 +22,35 @@ type DockerCredential struct {
 // treats a stored secret as an identity token.
 const DockerIdentityTokenUsername = "<token>"
 
+// DockerConfigSpec describes the credential a build service's Docker
+// configuration answers with and the registries it answers for.
+type DockerConfigSpec struct {
+	// HostPatterns are shell patterns, matched against a registry host with
+	// and without its port, the credential helper answers with Credential.
+	HostPatterns []string
+	// Hosts are the registry hosts the configuration names outright, as
+	// `credHelpers` entries, so a client that enumerates configured
+	// registries before it starts — the legacy `docker build`, which sends
+	// the daemon the credentials of every registry the configuration
+	// names — carries the credential for them. Each is matched by
+	// HostPatterns too.
+	Hosts      []string
+	Credential DockerCredential
+}
+
 // WriteDockerConfig writes the Docker client configuration a build service's
 // docker steps run with: the host's own configuration — its CLI plugins,
 // contexts and every setting — with a credential helper in front that
-// answers the registry hosts matching hostPatterns (shell patterns, matched
-// against the host with and without its port) with credential, and hands any
-// other host to the helper the host configured, or to nothing, which the
-// client then reaches anonymously. The returned directory is DOCKER_CONFIG
-// for the steps and its bin/ joins their PATH (DockerConfigEnv); the caller
-// removes it after the build.
-func WriteDockerConfig(hostPatterns []string, credential DockerCredential) (string, error) {
+// answers the registry hosts the spec names with its credential, and hands
+// any other host to the helper the host configured, or to nothing, which
+// the client then reaches anonymously. The returned directory is
+// DOCKER_CONFIG for the steps and its bin/ joins their PATH
+// (DockerConfigEnv); the caller removes it after the build.
+func WriteDockerConfig(spec DockerConfigSpec) (string, error) {
+	hostPatterns := append(append([]string{}, spec.HostPatterns...), spec.Hosts...)
+	credential := spec.Credential
 	if len(hostPatterns) == 0 {
-		return "", fmt.Errorf("docker configuration: no registry host pattern")
+		return "", fmt.Errorf("docker configuration: no registry host")
 	}
 	dir, err := os.MkdirTemp("", "sim-docker-config-*")
 	if err != nil {
@@ -68,6 +85,16 @@ func WriteDockerConfig(hostPatterns []string, credential DockerCredential) (stri
 		return "", err
 	}
 	hostConfig["credsStore"] = dockerCredentialHelperName
+	if len(spec.Hosts) > 0 {
+		helpers, _ := hostConfig["credHelpers"].(map[string]any)
+		if helpers == nil {
+			helpers = map[string]any{}
+		}
+		for _, host := range spec.Hosts {
+			helpers[host] = dockerCredentialHelperName
+		}
+		hostConfig["credHelpers"] = helpers
+	}
 	config, err := json.MarshalIndent(hostConfig, "", "  ")
 	if err != nil {
 		os.RemoveAll(dir)

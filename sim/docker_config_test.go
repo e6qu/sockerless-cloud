@@ -13,7 +13,11 @@ import (
 // and gives the protocol's not-found answer for any other host.
 func TestWriteDockerConfigCredentialHelper(t *testing.T) {
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
-	dir, err := WriteDockerConfig([]string{"*.example.test", "registry.local:5000"}, DockerCredential{Username: DockerIdentityTokenUsername, Secret: "refresh-token"})
+	dir, err := WriteDockerConfig(DockerConfigSpec{
+		HostPatterns: []string{"*.example.test"},
+		Hosts:        []string{"registry.local:5000"},
+		Credential:   DockerCredential{Username: DockerIdentityTokenUsername, Secret: "refresh-token"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +33,10 @@ func TestWriteDockerConfigCredentialHelper(t *testing.T) {
 	}
 	if config["credsStore"] != dockerCredentialHelperName {
 		t.Fatalf("credsStore = %v", config["credsStore"])
+	}
+	helpers, _ := config["credHelpers"].(map[string]any)
+	if helpers["registry.local:5000"] != dockerCredentialHelperName {
+		t.Fatalf("credHelpers = %v: a named host is a credHelpers entry the legacy builder enumerates", config["credHelpers"])
 	}
 	helper := filepath.Join(dir, "bin", "docker-credential-"+dockerCredentialHelperName)
 
