@@ -93,6 +93,13 @@ Current state of the sockerless-cloud repository.
   Artifact Registry refuses the second write into an upload session; ACR keys
   its content per registry and serves its catalog on `/v2/_catalog` as on
   `/acr/v1/_catalog`.
+- **Cloud Build's docker steps run as the build's service account**: a
+  Docker configuration built on the host's own, whose credential helper
+  answers Artifact Registry and Container Registry with the build service
+  account's token and hands other registries to the host's helper.
+- **A bucket carries Cloud Storage's default policy** from creation — the
+  four legacy bindings for the project's owners, editors and viewers — so a
+  client revoking what it granted sets the defaults back, never nothing.
 - **Workload hosts pull as the cloud pulls**: the Cloud Run job and service
   hosts and the Cloud Functions host present the project's Cloud Run service
   agent to Artifact Registry and Container Registry, and nothing to any other

@@ -1127,15 +1127,7 @@ func registerIAM(srv *sim.Server) {
 
 		policy, ok := resourcePolicies.Get("bucket/" + bucket)
 		if !ok {
-			policy = IAMPolicy{
-				Bindings: []IAMBinding{},
-				Etag:     gcpPolicyETag(),
-				Version:  1,
-			}
-			// Persist the synthesized default so its etag is stable across
-			// reads — the optimistic-concurrency check on setIamPolicy
-			// validates against the etag a prior getIamPolicy returned.
-			resourcePolicies.Put("bucket/"+bucket, policy)
+			policy = gcsSeedDefaultBucketPolicy(bucket)
 		}
 		policy.Kind = "storage#policy"
 		policy.ResourceId = "projects/_/buckets/" + bucket
@@ -2755,7 +2747,10 @@ func gcpIAMETagConflict(w http.ResponseWriter, reqEtag, currentEtag string, pres
 // "domain:", "principal:", "principalSet:") must carry a non-empty identifier;
 // "allUsers" and "allAuthenticatedUsers" are the only bare (untyped) members.
 func validateIAMMembers(bindings []IAMBinding) error {
-	typedPrefixes := []string{"user:", "serviceAccount:", "group:", "domain:", "principal:", "principalSet:"}
+	typedPrefixes := []string{"user:", "serviceAccount:", "group:", "domain:", "principal:", "principalSet:",
+		// The project convenience members Cloud Storage grants a bucket's
+		// legacy roles to at creation.
+		"projectOwner:", "projectEditor:", "projectViewer:"}
 	for _, b := range bindings {
 		for _, m := range b.Members {
 			if m == "allUsers" || m == "allAuthenticatedUsers" {
