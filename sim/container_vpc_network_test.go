@@ -3,6 +3,9 @@ package sim
 import (
 	"context"
 	"net/netip"
+	"os"
+	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 
@@ -157,7 +160,9 @@ func TestEnsureVPCNetworkReclaimsASliceADeadRunLeftBehind(t *testing.T) {
 	defer cancel()
 
 	// The network a simulator that has since exited left behind, named for its
-	// own VPC and holding the slice.
+	// own VPC and holding the slice. Its owner is a process of this host that
+	// no longer exists.
+	asOwner(t, exitedPID(t))
 	orphan, err := cli.NetworkCreate(ctx, "sockerless-sim-vpc-vpc-dead", client.NetworkCreateOptions{
 		Driver: "bridge",
 		IPAM:   &network.IPAM{Config: []network.IPAMConfig{{Subnet: slice}}},
@@ -168,6 +173,7 @@ func TestEnsureVPCNetworkReclaimsASliceADeadRunLeftBehind(t *testing.T) {
 	}
 
 	// A later run, with a different VPC id and therefore a different name.
+	asOwner(t, os.Getpid())
 	simulatorRunID = "the-run-that-is-live"
 	t.Cleanup(func() { simulatorRunID = previousRun })
 
@@ -250,3 +256,76 @@ func TestEnsureVPCNetworkLeavesLiveAndForeignNetworksAlone(t *testing.T) {
 		t.Errorf("a foreign network was removed: %v", err)
 	}
 }
+
+// Another simulator that is still running has idle networks between two of
+// its workloads, and they are its: a different run id alone does not make a
+// network an orphan. Only an owner this host can see to be gone does, so a
+// network whose owner is alive, and one whose owner another host would have
+// to check, both stay.
+func TestEnsureVPCNetworkLeavesAnotherLiveRunsNetworkAlone(t *testing.T) {
+	cli := vpcTestDockerClient(t)
+	dockerClient = cli
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	previousRun := simulatorRunID
+	t.Cleanup(func() { simulatorRunID = previousRun; asOwner(t, os.Getpid()) })
+
+	cases := []struct {
+		name  string
+		host  string
+		pid   int
+		wants string
+	}{
+		{"live-owner-on-this-host", simulatorOwnerHost, os.Getpid(), "its owner is alive"},
+		{"owner-on-another-host", "some-other-host", exitedPID(t), "its owner cannot be checked from here"},
+		{"no-recorded-owner", "", 0, "an older release recorded no owner"},
+	}
+	for _, tc := range cases {
+		simulatorRunID = "another-live-run-" + tc.name
+		slice := firstFreePoolSlice(t, cli, "probe-"+tc.name)
+		labels := simulatorLabels(map[string]string{"sockerless-sim-vpc": "sockerless-sim-vpc-" + tc.name})
+		labels["sockerless-sim-host"] = tc.host
+		if tc.pid == 0 {
+			delete(labels, "sockerless-sim-host")
+			delete(labels, "sockerless-sim-pid")
+		} else {
+			labels["sockerless-sim-pid"] = itoa(tc.pid)
+		}
+		other, err := cli.NetworkCreate(ctx, "sockerless-sim-vpc-other-"+tc.name, client.NetworkCreateOptions{
+			Driver: "bridge",
+			IPAM:   &network.IPAM{Config: []network.IPAMConfig{{Subnet: slice}}},
+			Labels: labels,
+		})
+		if err != nil {
+			t.Fatalf("%s: create the other run's network: %v", tc.name, err)
+		}
+		t.Cleanup(func() { _, _ = cli.NetworkRemove(context.Background(), other.ID, client.NetworkRemoveOptions{}) })
+
+		simulatorRunID = "the-run-that-allocates"
+		if reclaimOrphanedSubnet(ctx, cli, slice.String()) {
+			t.Errorf("%s: the reclaim removed the network although %s", tc.name, tc.wants)
+		}
+		if _, err := cli.NetworkInspect(ctx, other.ID, client.NetworkInspectOptions{}); err != nil {
+			t.Errorf("%s: the other run's network is gone: %v", tc.name, err)
+		}
+	}
+}
+
+// asOwner records pid as the process that owns what this run creates.
+func asOwner(t *testing.T, pid int) {
+	t.Helper()
+	simulatorOwnerPID = pid
+}
+
+// exitedPID returns the pid of a process of this host that has already exited.
+func exitedPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run a process that exits: %v", err)
+	}
+	return cmd.Process.Pid
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }

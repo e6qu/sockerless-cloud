@@ -47,11 +47,30 @@ func newSimulatorRunID() (string, error) {
 	return hex.EncodeToString(value[:]), nil
 }
 
+// simulatorOwnerHost and simulatorOwnerPID identify the process that owns
+// what a run creates, so a later reclaim can ask whether that process still
+// exists: the same hostname is the same pid namespace, where a pid can be
+// checked, and a different hostname is one where it cannot.
+var (
+	simulatorOwnerHost = ownerHost()
+	simulatorOwnerPID  = os.Getpid()
+)
+
+func ownerHost() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return host
+}
+
 func simulatorLabels(extra map[string]string) map[string]string {
 	labels := map[string]string{
 		"sockerless-sim":          "true",
 		"sockerless-sim-provider": simulatorProvider,
 		"sockerless-sim-run":      simulatorRunID,
+		"sockerless-sim-host":     simulatorOwnerHost,
+		"sockerless-sim-pid":      strconv.Itoa(simulatorOwnerPID),
 	}
 	if simulatorStateID != "" {
 		labels["sockerless-sim-state"] = simulatorStateID
