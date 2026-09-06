@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@fluentui/react-components": "9.74.5",
+    "@fluentui/react-components": "^9.74.7",
     "@fluentui/react-icons": "^2.0.339",
     "@sockerless/ui-core": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
@@ -31,7 +31,7 @@
     "jsdom": "^30.0.1",
     "knip": "^6.34.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"
   }

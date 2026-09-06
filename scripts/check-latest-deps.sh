@@ -814,14 +814,8 @@ npm_release_versions() {
 # macOS ships, which is 3.2 and has none, and under zsh in its own CI job.
 npm_hold_reason() {
   case $1 in
-    "@fluentui/react-components")
-      printf '%s\n' "9.74.6 and later fail every Azure console test with \"tabster does not provide an export named createTabster\"; tabster 8.8.0 is the newest release and does export it, so the break is in Fluent's own build. See ui/README.md."
-      ;;
     "@tanstack/react-table")
       printf '%s\n' "v9 is an API redesign — createColumnHelper takes feature generics and the table is built from a feature set — so adopting it is a migration of every console's tables. See ui/README.md."
-      ;;
-    typescript)
-      printf '%s\n' "TypeScript 7 rejects the side-effect CSS imports every console entry point makes (TS2882); adopting it needs module declarations for those first. See ui/README.md."
       ;;
     *) return 1 ;;
   esac

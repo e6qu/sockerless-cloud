@@ -55,7 +55,9 @@ fails when it does not: `ui-auth` had changed twice after its last pin, so the
 installed binaries lacked the callback timeout fix while every workspace build
 passed. A support-module change therefore lands in two pushes — push, pin the
 pushed commit, push again — and a squash merge is content-identical to the
-branch head it squashed, so the pin stays current on `main`.
+branch head it squashed, so the pin stays current on `main`. The pin is then
+moved onto the merge commit itself, because a pin on a branch head stops
+resolving once that branch is deleted.
 
 ## Fidelity rules that came from bugs
 
@@ -220,7 +222,13 @@ Dependencies of every class — Go modules, Terraform providers, GitHub Actions,
 the tools a workflow installs, the consoles' npm packages — are held to their
 newest release that has cleared a 24-hour adoption quarantine, and an unpinned
 provider is a failure: `hashicorp/google` 8.0.0 reached CI 77 minutes after
-publication and broke `main` by being unpinned.
+publication and broke `main` by being unpinned. A deliberate hold names its
+cause and goes when the cause does: Fluent UI 9.74.6 failed every Azure console
+test because tabster 8.8.0 shipped no `exports` map, so Vitest resolved its
+CommonJS entry and found no named `createTabster`; tabster 8.8.1 added the map
+and the Fluent pin went with it. TypeScript 7 rejected the consoles' side-effect
+`./index.css` imports (TS2882) until each console declared the `*.css` module;
+Vite bundles them regardless, so the built consoles did not change.
 
 ## Continuous integration
 
