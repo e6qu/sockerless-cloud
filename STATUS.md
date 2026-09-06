@@ -22,7 +22,8 @@ Current state of the sockerless-cloud repository.
   fails when its content differs from the tree, and
   `scripts/check-installable-build.sh` builds each simulator with `GOWORK=off`
   the way `go install` and every SDK harness do. A support-module change lands
-  in two pushes: push, pin the pushed commit, push again.
+  in two pushes: push, pin the pushed commit, push again; after the merge the
+  pin moves onto the merge commit so it never names a deletable branch head.
 - **Console SPAs** build from `ui/` (Bun + Turborepo); they read only real
   cloud APIs and federate operator credentials through each cloud's own
   federation primitive. The consoles' OpenID Connect layer and the
