@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.8](https://github.com/e6qu/sockerless-cloud/compare/v0.30.7...v0.30.8) (2026-09-06)
+
+
+### Bug Fixes
+
+* **gcp:** Cloud Build's docker steps run as the build's service account, and a bucket carries its default policy ([#128](https://github.com/e6qu/sockerless-cloud/issues/128)) ([d5b0aa6](https://github.com/e6qu/sockerless-cloud/commit/d5b0aa692587815b91a9cecf8a02d82175323533))
+
 ## [0.30.7](https://github.com/e6qu/sockerless-cloud/compare/v0.30.6...v0.30.7) (2026-09-06)
 
 
