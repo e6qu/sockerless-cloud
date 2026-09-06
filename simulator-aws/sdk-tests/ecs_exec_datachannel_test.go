@@ -21,8 +21,15 @@ import (
 // does against real AWS.
 func dialExecDataChannel(t *testing.T, cluster, command string) (*websocket.Conn, string) {
 	t.Helper()
+	return dialExecDataChannelIn(t, cluster, command, "")
+}
+
+// dialExecDataChannelIn is dialExecDataChannel for a task whose container
+// definition names a workingDirectory.
+func dialExecDataChannelIn(t *testing.T, cluster, command, workingDirectory string) (*websocket.Conn, string) {
+	t.Helper()
 	client := ecsClient()
-	taskArn := runLongLivedECSTask(t, client, cluster, cluster, true)
+	taskArn := runLongLivedECSTaskIn(t, client, cluster, cluster, true, workingDirectory)
 
 	out, err := client.ExecuteCommand(ctx, &ecs.ExecuteCommandInput{
 		Cluster:     aws.String(cluster),
@@ -83,6 +90,30 @@ func TestECS_ExecDataChannelHandshake(t *testing.T) {
 		}
 	}
 	assert.True(t, gotHello, "exec output must stream after a valid OpenDataChannel handshake")
+}
+
+// TestECS_ExecRunsInTaskWorkingDirectory covers the container definition's
+// workingDirectory at the runtime: Amazon ECS starts the container's process
+// in it, creating it when the image does not hold it, and an ExecuteCommand
+// session inherits it, so `pwd` over the data channel reports that directory.
+func TestECS_ExecRunsInTaskWorkingDirectory(t *testing.T) {
+	const workDir = "/srv/sockerless-work"
+	conn, token := dialExecDataChannelIn(t, "exec-datachannel-workdir", "pwd", workDir)
+	sendOpenDataChannel(t, conn, token)
+
+	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	gotDir := false
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		if bytes.Contains(msg, []byte(workDir)) {
+			gotDir = true
+			break
+		}
+	}
+	assert.True(t, gotDir, "exec must run in the task definition's workingDirectory")
 }
 
 // TestECS_ExecDataChannelRejectsBadToken covers token validation: a client

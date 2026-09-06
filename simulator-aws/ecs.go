@@ -59,6 +59,9 @@ type ECSContainerDefinition struct {
 	PseudoTerminal    bool                 `json:"pseudoTerminal,omitempty"`
 	Interactive       bool                 `json:"interactive,omitempty"`
 	Privileged        bool                 `json:"privileged,omitempty"`
+	// WorkingDirectory is the directory the container's process starts in;
+	// the container runtime creates it when the image does not hold it.
+	WorkingDirectory string `json:"workingDirectory,omitempty"`
 	// StopTimeout is how many seconds Amazon ECS waits after SIGTERM before it
 	// kills the container; unset means the platform default.
 	StopTimeout *int `json:"stopTimeout,omitempty"`
@@ -2292,6 +2295,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 			Architecture:      platform,
 			Command:           cd.EntryPoint,
 			Args:              command,
+			WorkingDir:        cd.WorkingDirectory,
 			Env:               mergeEnv(cmdEnv, metadataEnv),
 			Name:              containerName,
 			Labels: map[string]string{

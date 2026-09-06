@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 82.
+Open: 11. Resolved: 83.
 
 ## Open
 
@@ -271,6 +271,16 @@ Open: 11. Resolved: 82.
   `TestEnsureVPCNetworkLeavesAnotherLiveRunsNetworkAlone` beside the dead-run
   reclaim test, which now records a dead owner. Filed downstream as sockerless
   BUG-2950.
+
+- ~~**BUG-2981 (an Amazon ECS task ignored its container definition's `workingDirectory`):**~~
+  The container definition kept `workingDirectory` only in the verbatim bytes
+  it echoes back, so the task's process started in the image's own directory
+  and an ExecuteCommand session with it. A consumer's `docker run -w /src`
+  produced a container whose `cd /src` failed, which the Terraform integration
+  harness in sockerless found when act started a job container in a checkout
+  directory the image did not hold. The runtime now hands the directory to
+  the engine, which creates it when the image lacks it, as Amazon ECS does.
+  Covered by `TestECS_ExecRunsInTaskWorkingDirectory`.
 
 - ~~**BUG-2980 (Azure Container Registry served no `GET /v2/_catalog`):**~~
   The registry served its own `/acr/v1/_catalog` but not the Docker Registry

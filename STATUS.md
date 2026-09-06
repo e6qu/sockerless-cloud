@@ -63,6 +63,9 @@ Current state of the sockerless-cloud repository.
   in any mode that executes workloads when no engine answers, after retrying
   the readiness ping for a budget. `SIM_RUNTIME=process` is API-only and says
   so.
+- **A workload starts where its definition says**: an Amazon ECS container
+  definition's `workingDirectory` reaches the engine, which creates the
+  directory when the image lacks it, and an ExecuteCommand session inherits it.
 - **A stopped workload gets its cloud's grace** between SIGTERM and SIGKILL:
   an Amazon ECS container definition's `stopTimeout`, Cloud Run's ten seconds,
   a Container App template's `terminationGracePeriodSeconds`, App Service's
