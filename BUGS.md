@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 12. Resolved: 83.
+Open: 12. Resolved: 86.
 
 ## Open
 
@@ -283,6 +283,49 @@ Open: 12. Resolved: 83.
   `TestEnsureVPCNetworkLeavesAnotherLiveRunsNetworkAlone` beside the dead-run
   reclaim test, which now records a dead owner. Filed downstream as sockerless
   BUG-2950.
+
+- ~~**BUG-2985 (an Azure Container Registry Tasks run pushed with the host's own docker configuration, and a run was scheduled on a registry that did not exist):**~~
+  A run's `docker build` and `docker push` carried whatever the simulator
+  host's docker configuration held, so once the registry enforced its
+  credential the push of a consumer's overlay image into the registry the
+  run belongs to was refused `unauthorized`; and `scheduleRun` answered a run
+  for a registry never created. The run's steps now use a Docker
+  configuration built on the host's own whose credential helper answers the
+  registry's login server with an identity token of the run, exchanged
+  through the registry's refresh-token grant the way `az acr login` stores
+  one, and `scheduleRun` names a missing registry `ResourceNotFound`. The
+  configuration is the framework's `sim.WriteDockerConfig`, which Cloud
+  Build's steps use too. Covered by
+  `TestACRTasks_RunPushesIntoItsRegistryAsTheRun`.
+
+- ~~**BUG-2983 (Cloud Build's docker steps pulled and pushed with the host's own docker configuration):**~~
+  A build step ran `docker build` and `docker push` with whatever the
+  simulator host's `~/.docker/config.json` held, so a Dockerfile whose base
+  image lives in Artifact Registry — sockerless's overlay build, whose `FROM`
+  names the `docker-hub` remote repository — was pulled anonymously and
+  refused once the registry enforced its credential (BUG-2951's release), and
+  the push would have been too. The steps now run with a Docker configuration
+  built on the host's own (its CLI plugins, contexts and settings kept) whose
+  credential helper answers Artifact Registry and Container Registry — by
+  their hosts, or by this simulator's own port — with an access token of the
+  build's service account (the one the build names, else
+  `PROJECT_NUMBER@cloudbuild.gserviceaccount.com`) as the `oauth2accesstoken`
+  password, and hands every other registry to the helper the host configured,
+  as Cloud Build's docker builder does through the gcloud helper. Covered by
+  `TestCloudBuild_DockerStepsPullAndPushAsTheBuildServiceAccount`.
+
+- ~~**BUG-2984 (a bucket carried no default IAM bindings, so revoking its only granted member set an empty policy):**~~
+  Cloud Storage grants a new bucket four legacy bindings — its project's
+  owners and editors hold `legacyBucketOwner` and `legacyObjectOwner`, its
+  viewers `legacyBucketReader` and `legacyObjectReader` — and the simulator's
+  bucket started with none. Terraform's `google_storage_bucket_iam_member`
+  destroy reads the policy, drops the member and sets the rest; against a real
+  bucket the rest is the defaults, against the simulator it was nothing, which
+  the setIamPolicy rule refuses, so every sockerless Google environment failed
+  to destroy. Buckets now carry the defaults from creation (the insert's
+  `project` parameter, which real Cloud Storage requires, names the project),
+  and the `projectOwner:`, `projectEditor:` and `projectViewer:` convenience
+  members are accepted. Covered by `TestGCS_BucketCarriesDefaultPolicyFromCreation`.
 
 - ~~**BUG-2981 (an Amazon ECS task ignored its container definition's `workingDirectory`):**~~
   The container definition kept `workingDirectory` only in the verbatim bytes

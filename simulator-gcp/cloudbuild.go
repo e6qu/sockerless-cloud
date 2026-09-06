@@ -31,6 +31,10 @@ type Build struct {
 	ID        string `json:"id"`
 	Name      string `json:"name,omitempty"`
 	ProjectID string `json:"projectId"`
+	// ServiceAccount is the identity the build runs as, as
+	// projects/{project}/serviceAccounts/{email}; empty means the project's
+	// Cloud Build service account.
+	ServiceAccount string `json:"serviceAccount,omitempty"`
 	// A trigger carries a build template, which has not run and has no status;
 	// omitting it is what the absence means. A build that has run always has
 	// one, so nothing that ran loses it — and "" is a value the enum does not
@@ -375,7 +379,7 @@ func registerCloudBuild(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"name":                fmt.Sprintf("projects/%s/locations/%s/defaultServiceAccount", project, location),
-			"serviceAccountEmail": fmt.Sprintf("projects/%s/serviceAccounts/%s@cloudbuild.gserviceaccount.com", project, project),
+			"serviceAccountEmail": fmt.Sprintf("projects/%s/serviceAccounts/%s@cloudbuild.gserviceaccount.com", project, projectNumber(project)),
 		})
 	})
 
@@ -1089,6 +1093,13 @@ func executeBuild(ctx context.Context, b Build) Build {
 	}
 	defer os.RemoveAll(workDir)
 
+	dockerConfigDir, err := cloudBuildDockerConfig(b)
+	if err != nil {
+		return fail(fmt.Sprintf("docker configuration: %v", err))
+	}
+	defer os.RemoveAll(dockerConfigDir)
+	dockerEnv := sim.DockerConfigEnv(dockerConfigDir)
+
 	if err := extractTarball(data, workDir); err != nil {
 		return fail(fmt.Sprintf("extract source: %v", err))
 	}
@@ -1140,7 +1151,7 @@ func executeBuild(ctx context.Context, b Build) Build {
 				i, step.Name))
 		}
 		markStep(i, "WORKING", true, false)
-		if err := runDockerStep(ctx, workDir, step, secretValues); err != nil {
+		if err := runDockerStep(ctx, workDir, step, secretValues, dockerEnv); err != nil {
 			markStep(i, "FAILURE", false, true)
 			return fail(fmt.Sprintf("step %d (%s %v): %v", i, step.Name, step.Args, err))
 		}
@@ -1218,18 +1229,20 @@ func extractTarball(data []byte, dir string) error {
 // dockerBuildxAvailable reports whether the host's docker CLI has the buildx
 // plugin, which decides how a `docker build` step must be invoked so the result
 // lands in the daemon image store on every builder driver (see runDockerStep).
-func dockerBuildxAvailable(ctx context.Context) bool {
-	return exec.CommandContext(ctx, "docker", "buildx", "version").Run() == nil
+func dockerBuildxAvailable(ctx context.Context, env []string) bool {
+	probe := exec.CommandContext(ctx, "docker", "buildx", "version")
+	probe.Env = env
+	return probe.Run() == nil
 }
 
-func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretValues map[string]string) error {
+func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretValues map[string]string, dockerEnv []string) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker CLI not available: %w", err)
 	}
 	if len(step.Args) >= 2 && step.Args[0] == "push" {
 		target := step.Args[1]
 		push := cancellableDockerCommand(ctx, "push", target)
-		push.Env = os.Environ()
+		push.Env = append(os.Environ(), dockerEnv...)
 		if out, err := push.CombinedOutput(); err != nil {
 			return fmt.Errorf("docker push %s failed: %w: %s", target, err, strings.TrimSpace(string(out)))
 		}
@@ -1251,8 +1264,9 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 	// every driver); when it's absent (the legacy `docker.io` builder), plain
 	// `docker build` writes to the store natively and rejects the buildx-only
 	// `--load` flag. Other steps run verbatim.
+	env := append(os.Environ(), dockerEnv...)
 	args := step.Args
-	if len(args) >= 1 && args[0] == "build" && dockerBuildxAvailable(ctx) {
+	if len(args) >= 1 && args[0] == "build" && dockerBuildxAvailable(ctx, env) {
 		args = append([]string{"buildx", "build", "--load"}, args[1:]...)
 		fmt.Fprintf(os.Stderr, "cloudbuild: building via `docker buildx build --load` (buildx present)\n")
 	}
@@ -1261,7 +1275,6 @@ func runDockerStep(ctx context.Context, workDir string, step *BuildStep, secretV
 	if step.Dir != "" {
 		cmd.Dir = filepath.Join(workDir, step.Dir)
 	}
-	env := os.Environ()
 	for _, e := range step.Env {
 		env = append(env, e)
 	}

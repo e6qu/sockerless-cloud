@@ -64,6 +64,42 @@ func GCSBucketHostDir(bucket string) string {
 // return every field the provider expects (id, selfLink, iamConfiguration, etc.).
 type Bucket struct {
 	Data map[string]any
+	// Project is the project the bucket was created in — the `project`
+	// parameter of the insert, which the bucket resource does not carry.
+	Project string
+}
+
+// gcsDefaultBucketPolicy is the IAM policy a bucket carries from creation, as
+// Cloud Storage grants it: the project's owners and editors own the bucket
+// and its objects through the legacy bucket and object roles, and its viewers
+// read them. It is what remains when a client removes the bindings it added,
+// so a policy is never set empty.
+func gcsDefaultBucketPolicy(project string) IAMPolicy {
+	owners := []string{"projectEditor:" + project, "projectOwner:" + project}
+	viewers := []string{"projectViewer:" + project}
+	return IAMPolicy{
+		Bindings: []IAMBinding{
+			{Role: "roles/storage.legacyBucketOwner", Members: owners},
+			{Role: "roles/storage.legacyBucketReader", Members: viewers},
+			{Role: "roles/storage.legacyObjectOwner", Members: owners},
+			{Role: "roles/storage.legacyObjectReader", Members: viewers},
+		},
+		Etag:    gcpPolicyETag(),
+		Version: 1,
+	}
+}
+
+// gcsSeedDefaultBucketPolicy stores and returns the bucket's default policy;
+// storing it keeps its etag stable across reads, which the optimistic
+// concurrency check on setIamPolicy compares against.
+func gcsSeedDefaultBucketPolicy(name string) IAMPolicy {
+	project := ""
+	if bucket, ok := gcsBuckets.Get(name); ok {
+		project = bucket.Project
+	}
+	policy := gcsDefaultBucketPolicy(project)
+	gcpResourcePolicies.Put("bucket/"+name, policy)
+	return policy
 }
 
 // GCSObject represents a Cloud Storage object (metadata).
@@ -677,6 +713,11 @@ func registerGCS(srv *sim.Server) {
 			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
 			return
 		}
+		project := r.URL.Query().Get("project")
+		if project == "" {
+			GCPError(w, http.StatusBadRequest, "Required parameter: project", "INVALID_ARGUMENT")
+			return
+		}
 
 		if _, exists := buckets.Get(name); exists {
 			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "bucket %q already exists", name)
@@ -704,9 +745,10 @@ func registerGCS(srv *sim.Server) {
 		}
 		gcsApplyDefaultSoftDeletePolicy(data)
 
-		bucket := Bucket{Data: data}
+		bucket := Bucket{Data: data, Project: project}
 		buckets.Put(name, bucket)
 		gcsSeedDefaultObjectACL(name, bucket)
+		gcsSeedDefaultBucketPolicy(name)
 		sim.WriteJSON(w, http.StatusOK, data)
 	})
 
