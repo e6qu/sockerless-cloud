@@ -20,7 +20,7 @@ import (
 //
 //	GET /oauth2/token (the Docker Registry v2 token endpoint)
 //	GET /v2/ and PUT|GET /v2/{name}/manifests/{reference}
-//	GET /acr/v1/_catalog and GET /acr/v1/{name}/_tags
+//	GET /v2/_catalog, GET /acr/v1/_catalog and GET /acr/v1/{name}/_tags
 //	POST …/providers/Microsoft.ContainerRegistry/registries/{name}/listcredentials
 
 // acrCLICredentials reads a registry's admin credential through the ARM action
@@ -115,6 +115,12 @@ func TestACRCLI_DataPlaneCredentialContract(t *testing.T) {
 		Repositories []string `json:"repositories"`
 	}
 	parseJSON(t, catalogOut, &catalog)
+	assert.Contains(t, catalog.Repositories, "cli/app")
+
+	// The Docker Registry HTTP API v2 catalog lists the same repositories.
+	v2CatalogOut := runCLI(t, azRest("GET", baseURL+"/v2/_catalog", "",
+		dataPlane("Authorization="+acrCLIBasic(username, password))...))
+	parseJSON(t, v2CatalogOut, &catalog)
 	assert.Contains(t, catalog.Repositories, "cli/app")
 
 	tagsOut := runCLI(t, azRest("GET", baseURL+"/acr/v1/cli/app/_tags", "",

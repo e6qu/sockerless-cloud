@@ -1406,9 +1406,11 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 		return mergeEnv(cmdEnv, hostMetadataEnv())
 	}
 
+	project := resourceProject(execID)
 	main := taskTmpl.Containers[0]
 	mainImage := sim.ResolveLocalImage(main.Image)
-	mainPlatform, err := localImagePlatform(context.Background(), mainImage)
+	mainAuth := workloadRegistryAuth(project, mainImage)
+	mainPlatform, err := localImagePlatform(context.Background(), mainImage, mainAuth)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve main container %q image platform: %w", main.Name, err)
 	}
@@ -1416,6 +1418,7 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 		CancelGracePeriod: cloudRunStopGrace,
 		Image:             mainImage,
 		Architecture:      mainPlatform,
+		RegistryAuth:      mainAuth,
 		Command:           main.Command,
 		Args:              main.Args,
 		Env:               envFor(main),
@@ -1436,7 +1439,8 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 	var sidecars []*sim.ContainerHandle
 	for i, c := range taskTmpl.Containers[1:] {
 		sidecarImage := sim.ResolveLocalImage(c.Image)
-		sidecarPlatform, err := localImagePlatform(context.Background(), sidecarImage)
+		sidecarAuth := workloadRegistryAuth(project, sidecarImage)
+		sidecarPlatform, err := localImagePlatform(context.Background(), sidecarImage, sidecarAuth)
 		if err != nil {
 			mainHandle.Cancel()
 			for _, h := range sidecars {
@@ -1448,6 +1452,7 @@ func startCloudRunJobContainers(execID, execShort string, taskTmpl *TaskTemplate
 			CancelGracePeriod: cloudRunStopGrace,
 			Image:             sidecarImage,
 			Architecture:      sidecarPlatform,
+			RegistryAuth:      sidecarAuth,
 			Command:           c.Command,
 			Args:              c.Args,
 			Env:               envFor(c),

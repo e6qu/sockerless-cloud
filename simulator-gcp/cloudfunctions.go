@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	dockerclient "github.com/moby/moby/client"
 )
 
 // Cloud Functions v2 types
@@ -613,7 +612,7 @@ func invokeCloudFunctionProcess(fn *storedFunction, project, functionID string) 
 	if fn.ServiceConfig != nil {
 		env = mergeEnv(fn.ServiceConfig.EnvironmentVariables, serviceEnv)
 	}
-	body, exitCode, err := invokeOverlayContainerHTTP(image, functionID, timeout, sink, env)
+	body, exitCode, err := invokeOverlayContainerHTTP(project, image, functionID, timeout, sink, env)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sim-gcf] invocation error fn=%s img=%s: %v\n", functionID, image, err)
 		injectCloudFunctionLog(project, functionID,
@@ -796,8 +795,8 @@ func injectCloudFunctionLog(project, functionName, text string) {
 // Errors are returned only for infrastructure failures (image pull,
 // container start, networking). Subprocess non-zero exit is NOT an
 // error — it surfaces via the `exitCode` return value.
-func invokeOverlayContainerHTTP(image, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string) (responseBody []byte, exitCode int, err error) {
-	return invokeOverlayContainerHTTPWithBody(image, functionID, timeout, sink, env, nil, "application/json")
+func invokeOverlayContainerHTTP(project, image, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string) (responseBody []byte, exitCode int, err error) {
+	return invokeOverlayContainerHTTPWithBody(project, image, functionID, timeout, sink, env, nil, "application/json")
 }
 
 // invokeOverlayContainerHTTPWithBody is the body-aware variant. The
@@ -805,7 +804,7 @@ func invokeOverlayContainerHTTP(image, functionID string, timeout time.Duration,
 // envelope-style POST body the gcf backend sends to the overlay
 // bootstrap. Cloud Functions Gen2 invocations have no useful body so
 // invokeOverlayContainerHTTP delegates here with `body=nil`.
-func invokeOverlayContainerHTTPWithBody(image, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string, body io.Reader, contentType string) (responseBody []byte, exitCode int, err error) {
+func invokeOverlayContainerHTTPWithBody(project, image, functionID string, timeout time.Duration, sink sim.LogSink, env map[string]string, body io.Reader, contentType string) (responseBody []byte, exitCode int, err error) {
 	cli := sim.DockerClient()
 	if cli == nil {
 		return nil, -1, fmt.Errorf("docker client not initialized")
@@ -825,7 +824,7 @@ func invokeOverlayContainerHTTPWithBody(image, functionID string, timeout time.D
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	platform, err := localImagePlatform(ctx, localImage)
+	platform, err := localImagePlatform(ctx, localImage, workloadRegistryAuth(project, localImage))
 	if err != nil {
 		return nil, -1, err
 	}
@@ -880,23 +879,18 @@ func invokeOverlayContainerHTTPWithBody(image, functionID string, timeout time.D
 	return postBootstrapWithRetry(ctx, bootstrapURL, body, contentType, timeout)
 }
 
-func localImagePlatform(ctx context.Context, image string) (string, error) {
+// localImagePlatform reports the platform of image, pulling it with
+// registryAuth — the credential the workload host holds for its registry —
+// when the host does not hold it yet.
+func localImagePlatform(ctx context.Context, image, registryAuth string) (string, error) {
 	cli := sim.DockerClient()
 	if cli == nil {
 		return "", fmt.Errorf("docker client not initialized")
 	}
 	inspect, err := cli.ImageInspect(ctx, image)
 	if err != nil {
-		rc, pullErr := cli.ImagePull(ctx, image, dockerclient.ImagePullOptions{})
-		if pullErr != nil {
+		if pullErr := sim.PullImageWithCredential(ctx, image, "", registryAuth); pullErr != nil {
 			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", image, err, pullErr)
-		}
-		if _, copyErr := io.Copy(io.Discard, rc); copyErr != nil {
-			_ = rc.Close()
-			return "", fmt.Errorf("pull image %q: %w", image, copyErr)
-		}
-		if closeErr := rc.Close(); closeErr != nil {
-			return "", fmt.Errorf("close image pull stream %q: %w", image, closeErr)
 		}
 		inspect, err = cli.ImageInspect(ctx, image)
 		if err != nil {

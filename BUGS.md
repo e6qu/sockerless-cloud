@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 11. Resolved: 79.
+Open: 11. Resolved: 82.
 
 ## Open
 
@@ -233,6 +233,55 @@ Open: 11. Resolved: 79.
   clean checkout and fails each corruption with the message that names it.
 
 ## Resolved history
+
+- ~~**BUG-2978 (the Google Cloud workload hosts pulled from Artifact Registry
+  with no credential, so no workload could start from the registry once it
+  authenticated its data plane):**~~ The Cloud Run job and service hosts and
+  the Cloud Functions host called the engine's `ImagePull` with empty options.
+  When the Artifact Registry data plane started refusing anonymous reads, a
+  consumer's Cloud Build push of an overlay image succeeded and every pull of it
+  by the host that runs it failed with `Unauthenticated request … does not have
+  permission "artifactregistry.repositories.downloadArtifacts"`; the push test
+  pulls with the Docker CLI, which reads a login, so nothing here exercised the
+  host's own pull. The hosts now pull the way real Cloud Run pulls — as the
+  project's Cloud Run service agent, `service-PROJECT_NUMBER@serverless-robot-
+  prod.iam.gserviceaccount.com`, presenting an access token the simulator's own
+  signer minted as the `oauth2accesstoken` password of the engine's
+  `RegistryAuth` — for an image on Artifact Registry or Container Registry (by
+  host, or by this simulator's own port at which a relocating coordinate reaches
+  it), and anonymously from any other registry. The framework's
+  `ContainerConfig.RegistryAuth` and `PullImageWithCredential` carry the
+  credential; `RegistryCredential` renders it. Covered by
+  `TestCloudRun_JobPullsItsImageFromArtifactRegistryAsTheServiceAgent`, which
+  runs a job from a repository whose anonymous pull the registry refuses, and
+  by unit tests of the credential and the registry recognition. Filed
+  downstream as sockerless BUG-2951.
+
+- ~~**BUG-2979 (`reclaimOrphanedSubnet` removed a live simulator's idle VPC
+  network):**~~ The reclaim took any simulator-made network holding a wanted
+  slice that had no attached container and a different run id, reading the
+  different run id as "the process that made it is gone". Another simulator
+  still running on the same host has idle networks between two of its
+  workloads, and a consumer's Amazon ECS suite lost `sockerless-sim-vpc-vpc-
+  sim` mid-run to a concurrent allocation. Every simulator resource now carries
+  its owner (`sockerless-sim-host`, `sockerless-sim-pid`), and the reclaim
+  removes only a network whose owner ran on this host and whose pid no process
+  holds; an owner it cannot check — another hostname, or none recorded — leaves
+  the network where it is and the allocator takes the next slice. Covered by
+  `TestEnsureVPCNetworkLeavesAnotherLiveRunsNetworkAlone` beside the dead-run
+  reclaim test, which now records a dead owner. Filed downstream as sockerless
+  BUG-2950.
+
+- ~~**BUG-2980 (Azure Container Registry served no `GET /v2/_catalog`):**~~
+  The registry served its own `/acr/v1/_catalog` but not the Docker Registry
+  HTTP API v2 catalog, which is the listing a Docker-API client reads first, so
+  a consumer's `docker images` could not be exercised against it. Both surfaces
+  now serve the same listing — the repositories holding manifests in the scope
+  of the registry the Host addresses, refused without the registry-wide
+  `registry:catalog:*` access the challenge names, paged with `n` and `last`
+  and a `Link` to the next page on the surface's own path. Covered by
+  `TestACR_DockerRegistryCatalog` and the CLI credential contract test. Filed
+  downstream as sockerless BUG-2945.
 
 - ~~**BUG-2970 (the stop and cancellation grace a workload got was a constant
   the framework copy hardcoded, not the cloud's own setting):**~~ Amazon ECS

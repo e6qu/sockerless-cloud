@@ -16,6 +16,7 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
@@ -51,8 +52,12 @@ func parsePlatform(s string) (*ocispec.Platform, error) {
 // in practice resolves to the host arch via Docker (treat that as a
 // not-yet-migrated caller).
 type ContainerConfig struct {
-	Image        string            // container image (e.g., "alpine:latest")
-	Architecture string            // OS/arch (e.g. "linux/arm64"); see field-level docstring above
+	Image        string // container image (e.g., "alpine:latest")
+	Architecture string // OS/arch (e.g. "linux/arm64"); see field-level docstring above
+	// RegistryAuth is the credential the engine presents to Image's registry
+	// when it pulls — the engine API's X-Registry-Auth value, which
+	// RegistryCredential renders. Empty pulls anonymously.
+	RegistryAuth string
 	Command      []string          // entrypoint override (empty = use image default)
 	Args         []string          // command/args (empty = use image default)
 	Env          map[string]string // environment variables
@@ -615,8 +620,8 @@ func drainImagePull(reader io.Reader, imageName string) error {
 // turns a moment of throttle into a failed workload. Bounded
 // exponential backoff per the strict rate-limit rule; everything
 // non-transient fails immediately.
-func pullImage(ctx context.Context, cli *client.Client, imageName, platform string) error {
-	pullOpts := client.ImagePullOptions{}
+func pullImage(ctx context.Context, cli *client.Client, imageName, platform, registryAuth string) error {
+	pullOpts := client.ImagePullOptions{RegistryAuth: registryAuth}
 	var wanted *ocispec.Platform
 	if platform != "" {
 		parsed, err := parsePlatform(platform)
@@ -925,11 +930,17 @@ func FindContainerByIP(ip string) string {
 // available to cloud-product translators that must inspect an image before
 // they can construct its container configuration.
 func PullImage(ctx context.Context, imageName, platform string) error {
+	return PullImageWithCredential(ctx, imageName, platform, "")
+}
+
+// PullImageWithCredential pulls like PullImage, presenting registryAuth (the
+// engine API's X-Registry-Auth value) to the image's registry.
+func PullImageWithCredential(ctx context.Context, imageName, platform, registryAuth string) error {
 	cli := DockerClient()
 	if cli == nil {
 		return fmt.Errorf("container runtime is not initialized")
 	}
-	return pullImage(ctx, cli, imageName, platform)
+	return pullImage(ctx, cli, imageName, platform, registryAuth)
 }
 
 // isTransientRegistryErr classifies pull failures worth retrying:
@@ -979,7 +990,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	}
 
 	if shouldPull {
-		if err := pullImage(ctx, cli, cfg.Image, cfg.Architecture); err != nil {
+		if err := pullImage(ctx, cli, cfg.Image, cfg.Architecture, cfg.RegistryAuth); err != nil {
 			return "", err
 		}
 	}
@@ -1639,11 +1650,15 @@ func subnetInUseError(err error) bool {
 //
 // All the conditions are load-bearing. The simulator label keeps the sweep
 // inside networks this project made. The exact subnet keeps it to the one
-// blocking the caller. No attached containers means nothing is using it, and a
-// different run id means the process that made it is not this one — together,
-// a network that only a dead run could still own. A live run's own empty
-// network is deliberately left alone: the pool allocator skips its slice and
-// takes another, so two live simulators never fight over a subnet.
+// blocking the caller. No attached containers means nothing is using it. A
+// different run id means the process that made it is not this one, and only
+// that process being gone makes the network an orphan: another live simulator
+// on the same host has idle networks between two of its workloads too, and
+// they are its. So the owner recorded on the network is checked — same
+// hostname, hence the same pid namespace, and a pid no process holds — and a
+// network whose owner cannot be checked (another hostname, or a network an
+// older release created without an owner) is left where it is; the pool
+// allocator skips its slice and takes another.
 func reclaimOrphanedSubnet(ctx context.Context, cli *client.Client, cidr string) bool {
 	nets, err := cli.NetworkList(ctx, client.NetworkListOptions{
 		Filters: client.Filters{}.Add("label", "sockerless-sim=true"),
@@ -1653,7 +1668,7 @@ func reclaimOrphanedSubnet(ctx context.Context, cli *client.Client, cidr string)
 	}
 	reclaimed := false
 	for _, n := range nets.Items {
-		if n.Labels["sockerless-sim-run"] == simulatorRunID {
+		if n.Labels["sockerless-sim-run"] == simulatorRunID || !ownerIsDead(n.Labels) {
 			continue
 		}
 		details, err := cli.NetworkInspect(ctx, n.ID, client.NetworkInspectOptions{})
@@ -1675,6 +1690,19 @@ func reclaimOrphanedSubnet(ctx context.Context, cli *client.Client, cidr string)
 		}
 	}
 	return reclaimed
+}
+
+// ownerIsDead reports whether the process recorded on a simulator resource's
+// labels is known to be gone: it ran on this host, and its pid is not held.
+func ownerIsDead(labels map[string]string) bool {
+	if labels["sockerless-sim-host"] == "" || labels["sockerless-sim-host"] != simulatorOwnerHost {
+		return false
+	}
+	pid, err := strconv.Atoi(labels["sockerless-sim-pid"])
+	if err != nil || pid <= 0 {
+		return false
+	}
+	return !realexec.ProcessAlive(pid)
 }
 
 // RemoveDockerNetwork removes a simulator-managed Docker network if
