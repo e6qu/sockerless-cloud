@@ -139,7 +139,7 @@ shape, and one whose scan set can go empty exits non-zero.
 ## Continuous integration
 
 Per-cloud lint and unit tests; the Google Cloud and Azure SDK and CLI suites;
-the AWS SDK suite in four shards and CLI suite in eleven; Terraform in fifteen
+the AWS SDK suite in four shards and CLI suite in twelve; Terraform in fifteen
 shards; console vitest, typecheck, build and Playwright; the race jobs per
 simulator and for `sim`; the quality gates; the one-open-pull-request and
 rebased-on-main checks; the nightly fuzz workflow across the four Go modules.
