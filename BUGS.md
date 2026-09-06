@@ -1,8 +1,20 @@
 # BUGS
 
-Open: 11. Resolved: 83.
+Open: 12. Resolved: 83.
 
 ## Open
+
+- **BUG-2982 (every release pull request's CI run expires unapproved):**
+  The run on each release-please pull request fails at startup with "This
+  workflow run required approval but was not approved before it expired"
+  (run 34005143376 on #123, and every release pull request back to August).
+  The repository's Actions approval policy is `first_time_contributors`, and
+  GitHub applies it to pull requests opened by `github-actions[bot]`, which
+  release-please uses through the default `GITHUB_TOKEN`. Fix shape is a
+  repository setting or a token only the repository owner can supply: a
+  fine-grained personal access token or a GitHub App token in
+  release-please-action's `token` input, or approving each release pull
+  request's run before merging it.
 
 - **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
   Three jobs failed on 2026-08-31 for the same reason, across two registries:
