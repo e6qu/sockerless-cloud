@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 12. Resolved: 85.
+Open: 12. Resolved: 86.
 
 ## Open
 
@@ -283,6 +283,20 @@ Open: 12. Resolved: 85.
   `TestEnsureVPCNetworkLeavesAnotherLiveRunsNetworkAlone` beside the dead-run
   reclaim test, which now records a dead owner. Filed downstream as sockerless
   BUG-2950.
+
+- ~~**BUG-2985 (an Azure Container Registry Tasks run pushed with the host's own docker configuration, and a run was scheduled on a registry that did not exist):**~~
+  A run's `docker build` and `docker push` carried whatever the simulator
+  host's docker configuration held, so once the registry enforced its
+  credential the push of a consumer's overlay image into the registry the
+  run belongs to was refused `unauthorized`; and `scheduleRun` answered a run
+  for a registry never created. The run's steps now use a Docker
+  configuration built on the host's own whose credential helper answers the
+  registry's login server with an identity token of the run, exchanged
+  through the registry's refresh-token grant the way `az acr login` stores
+  one, and `scheduleRun` names a missing registry `ResourceNotFound`. The
+  configuration is the framework's `sim.WriteDockerConfig`, which Cloud
+  Build's steps use too. Covered by
+  `TestACRTasks_RunPushesIntoItsRegistryAsTheRun`.
 
 - ~~**BUG-2983 (Cloud Build's docker steps pulled and pushed with the host's own docker configuration):**~~
   A build step ran `docker build` and `docker push` with whatever the

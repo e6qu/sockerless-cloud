@@ -1098,7 +1098,7 @@ func executeBuild(ctx context.Context, b Build) Build {
 		return fail(fmt.Sprintf("docker configuration: %v", err))
 	}
 	defer os.RemoveAll(dockerConfigDir)
-	dockerEnv := cloudBuildDockerEnv(dockerConfigDir)
+	dockerEnv := sim.DockerConfigEnv(dockerConfigDir)
 
 	if err := extractTarball(data, workDir); err != nil {
 		return fail(fmt.Sprintf("extract source: %v", err))

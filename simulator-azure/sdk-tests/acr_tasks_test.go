@@ -52,6 +52,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 		ctr     = "build-context"
 		regPort = "5099"
 	)
+	acrEnsureRegistry(t, rg, regName)
 	// A real registry the build host can push to / the test can read, served
 	// over TLS the way every Azure Container Registry login server is, so the
 	// push exercises the certificate-verifying client path a real registry
@@ -348,6 +349,7 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for ACR Tasks build test (no fallback): %v", err)
 	}
+	acrEnsureRegistry(t, "acr-tasks-rg", "acrbuildreg")
 	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 

@@ -180,7 +180,13 @@ The steps now run with a configuration built on the host's — CLI plugins,
 contexts and settings kept — whose credential helper answers Google's
 registries with the build service account's token and hands every other
 registry to the helper the host configured, as Cloud Build's builder does
-through the gcloud helper. And a bucket now carries the four legacy bindings
+through the gcloud helper. An Azure Container Registry Tasks run had the
+same gap: its push into the registry it runs in was refused once the
+registry enforced its credential, so its steps run with the same kind of
+configuration — the framework's `sim.WriteDockerConfig` — whose helper
+answers the registry's login server with an identity token of the run, the
+form `az acr login` stores, and a run scheduled on a registry that does not
+exist is refused as the service refuses it. And a bucket now carries the four legacy bindings
 Cloud Storage grants at creation, so Terraform's removal of the one member it
 added sets the defaults back instead of an empty policy the service refuses.
 
