@@ -63,6 +63,9 @@ Current state of the sockerless-cloud repository.
   in any mode that executes workloads when no engine answers, after retrying
   the readiness ping for a budget. `SIM_RUNTIME=process` is API-only and says
   so.
+- **A workload starts where its definition says**: an Amazon ECS container
+  definition's `workingDirectory` reaches the engine, which creates the
+  directory when the image lacks it, and an ExecuteCommand session inherits it.
 - **A stopped workload gets its cloud's grace** between SIGTERM and SIGKILL:
   an Amazon ECS container definition's `stopTimeout`, Cloud Run's ten seconds,
   a Container App template's `terminationGracePeriodSeconds`, App Service's
@@ -136,7 +139,7 @@ shape, and one whose scan set can go empty exits non-zero.
 ## Continuous integration
 
 Per-cloud lint and unit tests; the Google Cloud and Azure SDK and CLI suites;
-the AWS SDK suite in four shards and CLI suite in ten; Terraform in fifteen
+the AWS SDK suite in four shards and CLI suite in twelve; Terraform in fifteen
 shards; console vitest, typecheck, build and Playwright; the race jobs per
 simulator and for `sim`; the quality gates; the one-open-pull-request and
 rebased-on-main checks; the nightly fuzz workflow across the four Go modules.

@@ -1,8 +1,20 @@
 # BUGS
 
-Open: 11. Resolved: 82.
+Open: 12. Resolved: 83.
 
 ## Open
+
+- **BUG-2982 (every release pull request's CI run expires unapproved):**
+  The run on each release-please pull request fails at startup with "This
+  workflow run required approval but was not approved before it expired"
+  (run 34005143376 on #123, and every release pull request back to August).
+  The repository's Actions approval policy is `first_time_contributors`, and
+  GitHub applies it to pull requests opened by `github-actions[bot]`, which
+  release-please uses through the default `GITHUB_TOKEN`. Fix shape is a
+  repository setting or a token only the repository owner can supply: a
+  fine-grained personal access token or a GitHub App token in
+  release-please-action's `token` input, or approving each release pull
+  request's run before merging it.
 
 - **BUG-1702 (CI pulls its base images from registries that rate-limit it):**
   Three jobs failed on 2026-08-31 for the same reason, across two registries:
@@ -271,6 +283,16 @@ Open: 11. Resolved: 82.
   `TestEnsureVPCNetworkLeavesAnotherLiveRunsNetworkAlone` beside the dead-run
   reclaim test, which now records a dead owner. Filed downstream as sockerless
   BUG-2950.
+
+- ~~**BUG-2981 (an Amazon ECS task ignored its container definition's `workingDirectory`):**~~
+  The container definition kept `workingDirectory` only in the verbatim bytes
+  it echoes back, so the task's process started in the image's own directory
+  and an ExecuteCommand session with it. A consumer's `docker run -w /src`
+  produced a container whose `cd /src` failed, which the Terraform integration
+  harness in sockerless found when act started a job container in a checkout
+  directory the image did not hold. The runtime now hands the directory to
+  the engine, which creates it when the image lacks it, as Amazon ECS does.
+  Covered by `TestECS_ExecRunsInTaskWorkingDirectory`.
 
 - ~~**BUG-2980 (Azure Container Registry served no `GET /v2/_catalog`):**~~
   The registry served its own `/acr/v1/_catalog` but not the Docker Registry

@@ -16,6 +16,13 @@ const busyboxImage = "public.ecr.aws/docker/library/busybox:latest"
 
 func runLongLivedECSTask(t *testing.T, client *ecs.Client, cluster, family string, enableExec bool) string {
 	t.Helper()
+	return runLongLivedECSTaskIn(t, client, cluster, family, enableExec, "")
+}
+
+// runLongLivedECSTaskIn is runLongLivedECSTask with the container
+// definition's workingDirectory set when workingDirectory is not empty.
+func runLongLivedECSTaskIn(t *testing.T, client *ecs.Client, cluster, family string, enableExec bool, workingDirectory string) string {
+	t.Helper()
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	subnetID := createECSTestSubnet(t, family)
@@ -27,11 +34,12 @@ func runLongLivedECSTask(t *testing.T, client *ecs.Client, cluster, family strin
 		Cpu:                     aws.String("256"),
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			StopTimeout: aws.Int32(2),
-			Name:        aws.String("app"),
-			Image:       aws.String(busyboxImage),
-			EntryPoint:  []string{"sh", "-c"},
-			Command:     []string{"sleep 30"},
+			StopTimeout:      aws.Int32(2),
+			Name:             aws.String("app"),
+			Image:            aws.String(busyboxImage),
+			EntryPoint:       []string{"sh", "-c"},
+			Command:          []string{"sleep 30"},
+			WorkingDirectory: nilIfEmpty(workingDirectory),
 		}},
 	})
 	require.NoError(t, err)
@@ -124,4 +132,11 @@ func TestECS_ExecuteCommandRejectsUnknownContainer(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Container not found")
+}
+
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return aws.String(s)
 }

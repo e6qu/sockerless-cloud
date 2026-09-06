@@ -173,6 +173,13 @@ and refused the host's pull of the same image; the pull the registry's push
 test made went through the Docker CLI and its login, which is not the host's
 pull.
 
+An Amazon ECS container definition's `workingDirectory` had been kept only in
+the bytes the simulator echoes back; the task's process started in the
+image's directory and so did an ExecuteCommand session in it. The runtime
+now hands the directory to the engine, which creates it when the image does
+not hold it, the way Amazon ECS does — a consumer's `docker run -w /src`
+found the gap when act started a job container in a checkout directory.
+
 A simulator resource records the process that owns it — hostname and pid —
 because a run id alone cannot say whether a run is over. The VPC subnet
 reclaim had read "a different run id and no attached container" as "a dead

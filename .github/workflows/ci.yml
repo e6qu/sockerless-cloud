@@ -730,11 +730,16 @@ jobs:
             run: '^Test(CloudFront|CloudTrail|CodeBuild|ELBv2|Firehose)'
             timeout: 1200s
             timeout_minutes: 15
-          # AWS Glue and IAM moved out of the edge-delivery and appdata shards
-          # after both jobs reached their measured 15-minute budget edge
-          # (14.4m); together they run well inside one shard's budget.
-          - suite: glue-iam
-            run: '^Test(Glue|IAM)'
+          # AWS Glue and IAM each take a shard: the joint shard ran 14m03s on
+          # run 34000894945 (11m45s of go test holding 293s of Glue and 202s
+          # of IAM tests), so a slow base-image load pushed it past the
+          # 15-minute ceiling on run 34029419852.
+          - suite: glue
+            run: '^Test(Glue)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: iam
+            run: '^Test(IAM)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: ec2-a-m

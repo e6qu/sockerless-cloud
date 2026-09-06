@@ -17,12 +17,10 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `secretmanager-v1.discovery.json.gz` | `secretmanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260814` | 2026-08-29T12:37:40Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260828` | 2026-08-30T11:23:51Z |
 | `pubsub-v1.discovery.json.gz` | `pubsub.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260825` | 2026-08-31T13:30:02Z |
-| `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260829` | 2026-08-31T13:30:02Z |
 | `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260828` | 2026-09-01T11:06:02Z |
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260826` | 2026-09-01T11:06:02Z |
 | `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260828` | 2026-09-01T11:06:02Z |
 | `cloudfunctions-v2.discovery.json.gz` | `cloudfunctions.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260827` | 2026-09-02T11:08:27Z |
-| `apigateway-v1.discovery.json.gz` | `apigateway.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260826` | 2026-09-04T11:16:10Z |
 | `dns-v1.discovery.json.gz` | `dns.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260819` | 2026-09-04T11:16:10Z |
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260821` | 2026-09-04T11:16:10Z |
 | `compute-v1.discovery.json.gz` | `www.googleapis.com` | `discovery/v1/apis/compute/v1/rest` | Apache-2.0 | `revision 20260828` | 2026-09-04T11:16:10Z |
@@ -35,3 +33,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `bigtableadmin-v2.discovery.json.gz` | `bigtableadmin.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260829` | 2026-09-04T21:57:26Z |
 | `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260826` | 2026-09-04T21:57:29Z |
 | `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260830` | 2026-09-04T21:57:32Z |
+| `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260902` | 2026-09-06T10:47:04Z |
+| `apigateway-v1.discovery.json.gz` | `apigateway.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260902` | 2026-09-06T10:47:04Z |
