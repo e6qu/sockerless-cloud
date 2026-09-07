@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/e6qu/sockerless-cloud/compare/v0.30.10...v0.31.0) (2026-09-07)
+
+
+### Features
+
+* **aws:** CodeBuild runs docker steps that push to this ECR, and the Lambda and ECS hosts pull from it ([#137](https://github.com/e6qu/sockerless-cloud/issues/137)) ([e52e45b](https://github.com/e6qu/sockerless-cloud/commit/e52e45bbad4697752372fbcc196fd18141b5d656))
+
 ## [0.30.10](https://github.com/e6qu/sockerless-cloud/compare/v0.30.9...v0.30.10) (2026-09-07)
 
 
