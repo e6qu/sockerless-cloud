@@ -794,8 +794,17 @@ jobs:
             run: '^Test(EC2(CLI_[N-Z]|Nat|Network|Routing|Security|Subnet))'
             timeout: 1500s
             timeout_minutes: 15
+          # compute split in two after it reached the 15-minute job budget on
+          # a slow runner with every test passing. Measured warm: its tests
+          # ran 367s, and the split is by cost — CloudWatch Logs and Cloud Map
+          # are 215s together, the other four services 150s — so each half
+          # sits well under the budget with a slow runner's margin to spare.
           - suite: compute
-            run: '^Test(CloudMap|DynamoDB|CLI_ECR|ECR|EFS|Logs)'
+            run: '^Test(CLI_ECR|DynamoDB|ECR|EFS)'
+            timeout: 1200s
+            timeout_minutes: 15
+          - suite: observability
+            run: '^Test(CloudMap|Logs)'
             timeout: 1200s
             timeout_minutes: 15
           - suite: ecs
