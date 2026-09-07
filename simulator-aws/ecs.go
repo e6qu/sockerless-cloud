@@ -1325,28 +1325,25 @@ func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) sim.LogSink {
 
 		// Create log stream
 		key := cwEventsKey(logGroup, logStreamName)
+		// First/last event timestamps stay unset until the container writes;
+		// the sink stamps them on its first line, as CloudWatch does.
 		cwLogStreams.Put(key, CWLogStream{
 			LogStreamName:       logStreamName,
 			LogGroupName:        logGroup,
 			CreationTime:        nowMs,
-			FirstEventTimestamp: nowMs,
-			LastEventTimestamp:  nowMs,
 			Arn:                 cwLogStreamArn(logGroup, logStreamName),
 			UploadSequenceToken: "1",
 		})
 
-		// Insert initial log event
-		cmdDesc := strings.Join(append(cd.EntryPoint, cd.Command...), " ")
-		if cmdDesc == "" {
-			cmdDesc = "container started"
-		}
-		cwLogEvents.Put(key, []CWLogEvent{
-			{
-				Timestamp:     nowMs,
-				Message:       cmdDesc,
-				IngestionTime: nowMs,
-			},
-		})
+		// An empty event list, so ingestion (an Update on the key) has
+		// somewhere to append. No event yet: Amazon ECS writes nothing to the
+		// stream until the container itself writes, and the stream's first
+		// event is the application's first line. A seeded "container started"
+		// (or the joined entrypoint) stamped at RunTask time read as the
+		// container having been up for the whole provisioning window (185-239 s
+		// of simulator-side work on a 6 GB image was being blamed on the
+		// entrypoint), and was text the container never wrote.
+		cwLogEvents.Put(key, []CWLogEvent{})
 
 		sink = &cwLogSink{logGroup: logGroup, logStream: logStreamName}
 		break
@@ -2120,6 +2117,20 @@ func ecsTaskSandbox(launchType string, privileged bool) sim.SandboxProfile {
 	return sim.SandboxProfile{Privileged: privileged}
 }
 
+// ecsResolvedImage is a container definition's image as the local runtime
+// knows it: the workload reference mapped to a pullable name, and the
+// platform the pulled image reports.
+type ecsResolvedImage struct {
+	Image    string
+	Platform string
+}
+
+// ecsEpochSeconds is the ECS API's timestamp shape (seconds since the epoch,
+// fractional), as createdAt already is.
+func ecsEpochSeconds() float64 {
+	return float64(time.Now().UnixMilli()) / 1000
+}
+
 func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sink sim.LogSink, launchType string) (*ecsTaskProcesses, error) {
 	if len(td.ContainerDefinitions) == 0 {
 		return nil, nil
@@ -2230,6 +2241,31 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 	}
 	var mainDockerID string
 
+	// Pull every container image before any container starts, the way the
+	// ECS agent does, and report the window on the task: pullStartedAt when
+	// the first pull begins, pullStoppedAt when the last image is present.
+	// Amazon ECS populates both even when every image is cached, and it is
+	// how a caller attributes a slow start to the pull rather than to the
+	// container. Without it a 6 GB first pull read as three minutes of
+	// nothing between createdAt and startedAt.
+	pullStartedAt := ecsEpochSeconds()
+	ecsTasks.Update(taskID, func(t *ECSTask) { t.PullStartedAt = &pullStartedAt })
+	images := make(map[string]ecsResolvedImage, len(td.ContainerDefinitions))
+	for _, cd := range td.ContainerDefinitions {
+		if cd.Image == "" {
+			continue
+		}
+		localImage := ecrWorkloadImage(cd.Image)
+		platform, err := localImagePlatform(context.Background(), localImage)
+		if err != nil {
+			cleanupECSTaskProcesses(taskID, processes)
+			return nil, fmt.Errorf("resolve task container %q image platform: %w", cd.Name, err)
+		}
+		images[cd.Name] = ecsResolvedImage{Image: localImage, Platform: platform}
+	}
+	pullStoppedAt := ecsEpochSeconds()
+	ecsTasks.Update(taskID, func(t *ECSTask) { t.PullStoppedAt = &pullStoppedAt })
+
 	for i, cd := range td.ContainerDefinitions {
 		if cd.Image == "" {
 			continue
@@ -2278,12 +2314,8 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		if i > 0 {
 			containerName = fmt.Sprintf("%s-%s", containerName, cd.Name)
 		}
-		localImage := ecrWorkloadImage(cd.Image)
-		platform, err := localImagePlatform(context.Background(), localImage)
-		if err != nil {
-			cleanupECSTaskProcesses(taskID, processes)
-			return nil, fmt.Errorf("resolve task container %q image platform: %w", cd.Name, err)
-		}
+		localImage := images[cd.Name].Image
+		platform := images[cd.Name].Platform
 
 		command := cd.Command
 		if len(containerOverride.Command) > 0 {
