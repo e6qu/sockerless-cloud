@@ -190,6 +190,17 @@ exist is refused as the service refuses it. And a bucket now carries the four le
 Cloud Storage grants at creation, so Terraform's removal of the one member it
 added sets the defaults back instead of an empty policy the service refuses.
 
+The Azure workload hosts had pulled every image anonymously, whatever the
+workload declared — a Container App's or Job's `registries` entry, a site's
+Container Registry managed identity or `DOCKER_REGISTRY_SERVER_*` settings —
+so a consumer's overlay image in a registry that enforces its credential
+could not start. They now pull with what was declared: an identity token of
+the named managed identity, which the engine exchanges through the
+registry's refresh-token grant, or the named username and password. And the
+build services' docker configuration names its registries outright, because
+the legacy `docker build` a host without buildx runs sends the daemon only
+the credentials of registries the configuration names, and asks for nothing.
+
 An Amazon ECS container definition's `workingDirectory` had been kept only in
 the bytes the simulator echoes back; the task's process started in the
 image's directory and so did an ExecuteCommand session in it. The runtime

@@ -1093,16 +1093,15 @@ func executeBuild(ctx context.Context, b Build) Build {
 	}
 	defer os.RemoveAll(workDir)
 
-	dockerConfigDir, err := cloudBuildDockerConfig(b)
+	if err := extractTarball(data, workDir); err != nil {
+		return fail(fmt.Sprintf("extract source: %v", err))
+	}
+	dockerConfigDir, err := cloudBuildDockerConfig(b, workDir)
 	if err != nil {
 		return fail(fmt.Sprintf("docker configuration: %v", err))
 	}
 	defer os.RemoveAll(dockerConfigDir)
 	dockerEnv := sim.DockerConfigEnv(dockerConfigDir)
-
-	if err := extractTarball(data, workDir); err != nil {
-		return fail(fmt.Sprintf("extract source: %v", err))
-	}
 
 	// Resolve Secret Manager references for secretEnv expansion.
 	secretValues := map[string]string{}

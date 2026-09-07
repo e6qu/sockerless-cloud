@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 12. Resolved: 86.
+Open: 12. Resolved: 88.
 
 ## Open
 
@@ -283,6 +283,35 @@ Open: 12. Resolved: 86.
   `TestEnsureVPCNetworkLeavesAnotherLiveRunsNetworkAlone` beside the dead-run
   reclaim test, which now records a dead owner. Filed downstream as sockerless
   BUG-2950.
+
+- ~~**BUG-2986 (the Azure workload hosts pulled every image anonymously, whatever registry credential the workload declared):**~~
+  A Container App or Job names its registries with a managed identity or a
+  username and password secret, and an App Service site asks for Azure
+  Container Registry managed-identity credentials or names
+  `DOCKER_REGISTRY_SERVER_*` settings; the hosts ignored all of it and pulled
+  anonymously, so a consumer's overlay image in a registry that enforces its
+  credential — every registry since BUG-2980's release — could not start:
+  `Head …/manifests/…: unauthorized`. The hosts now pull with what the
+  workload declared: for a managed identity, an identity token of it the
+  engine exchanges through the registry's refresh-token grant
+  (`sim.RegistryIdentityToken`); for a username and password, that
+  credential; nothing for a registry the workload did not declare. The site
+  config models `acrUseManagedIdentityCreds` and `acrUserManagedIdentityID`.
+  Covered by `TestContainerApps_JobPullsFromItsRegistryAsItsIdentity` and
+  `TestFunctions_SitePullsFromItsRegistryAsItsIdentity`.
+
+- ~~**BUG-2987 (a build service's docker configuration answered its registries only on demand, which the legacy `docker build` never asks):**~~
+  The credential helper answered any matching host when asked, but the
+  legacy builder — the one a host without the buildx plugin runs, the
+  Terraform integration harness image among them — sends the daemon the
+  credentials of the registries the configuration names before it starts and
+  asks for nothing else, so a `FROM` on Artifact Registry was still pulled
+  anonymously. The configuration now names its registries outright as
+  `credHelpers` entries: Cloud Build the Google registries of the images its
+  steps tag, the build lists and its Dockerfiles' base images; an ACR Tasks
+  run its registry's login server. Covered by the credential tests of both
+  build services, which the framework's `TestWriteDockerConfigCredentialHelper`
+  joins.
 
 - ~~**BUG-2985 (an Azure Container Registry Tasks run pushed with the host's own docker configuration, and a run was scheduled on a registry that did not exist):**~~
   A run's `docker build` and `docker push` carried whatever the simulator

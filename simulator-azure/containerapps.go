@@ -517,7 +517,7 @@ func registerContainerApps(srv *sim.Server) {
 				}
 
 				sink := &acaLogSink{jobName: jobShortName}
-				handle, sidecars, err := startACAJobContainers(context.Background(), id, shortExecID, tmpl, envID, timeout, netName, netAliases, sink)
+				handle, sidecars, err := startACAJobContainers(context.Background(), id, shortExecID, tmpl, acaJobWorkloadRegistries(job.Properties.Configuration), envID, timeout, netName, netAliases, sink)
 				if err != nil {
 					succeeded = false
 				} else {
@@ -700,7 +700,7 @@ func registerContainerApps(srv *sim.Server) {
 	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/executions/{execName}/exec", handleACAJobExec)
 }
 
-func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl *JobTemplate, envID string, timeout time.Duration, netName string, netAliases []string, sink sim.LogSink) (*sim.ContainerHandle, []*sim.ContainerHandle, error) {
+func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl *JobTemplate, registries []acrWorkloadRegistry, envID string, timeout time.Duration, netName string, netAliases []string, sink sim.LogSink) (*sim.ContainerHandle, []*sim.ContainerHandle, error) {
 	if tmpl == nil || len(tmpl.Containers) == 0 {
 		return nil, nil, fmt.Errorf("execution has no containers")
 	}
@@ -734,13 +734,17 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 
 	main := tmpl.Containers[0]
 	mainImage := sim.ResolveLocalImage(main.Image)
-	mainPlatform, err := localImagePlatform(ctx, mainImage)
+	// The host pulls each container's image with the credential the job
+	// declared for its registry, as Container Apps does.
+	mainAuth := acrWorkloadRegistryAuth(main.Image, registries)
+	mainPlatform, err := localImagePlatform(ctx, mainImage, mainAuth)
 	if err != nil {
 		return nil, nil, fmt.Errorf("inspect main container %q image platform: %w", main.Name, err)
 	}
 	mainHandle, err := sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: acaDefaultTerminationGrace,
 		Image:             mainImage,
+		RegistryAuth:      mainAuth,
 		Architecture:      mainPlatform,
 		Command:           main.Command,
 		Args:              main.Args,
@@ -765,7 +769,8 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 	var sidecars []*sim.ContainerHandle
 	for i, c := range tmpl.Containers[1:] {
 		sidecarImage := sim.ResolveLocalImage(c.Image)
-		sidecarPlatform, err := localImagePlatform(ctx, sidecarImage)
+		sidecarAuth := acrWorkloadRegistryAuth(c.Image, registries)
+		sidecarPlatform, err := localImagePlatform(ctx, sidecarImage, sidecarAuth)
 		if err != nil {
 			mainHandle.Cancel()
 			for _, h := range sidecars {
@@ -776,6 +781,7 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, tmpl
 		handle, err := sim.StartContainerSync(sim.ContainerConfig{
 			CancelGracePeriod: acaDefaultTerminationGrace,
 			Image:             sidecarImage,
+			RegistryAuth:      sidecarAuth,
 			Architecture:      sidecarPlatform,
 			Command:           c.Command,
 			Args:              c.Args,
