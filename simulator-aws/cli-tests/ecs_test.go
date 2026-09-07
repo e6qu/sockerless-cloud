@@ -453,9 +453,15 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 		"--cpu", "256",
 		"--memory", "512",
 		"--volumes", `[{"name":"workspace","configuredAtLaunch":true}]`,
+		// alpine, not the eval image: that one is built FROM scratch and has no
+		// shell, so both containers of this round trip failed to start with
+		// 'exec: "sh": executable file not found', and the test still passed
+		// because the simulator seeded each log stream with the joined
+		// entrypoint+command text, which contains CLI_EBS_ROUNDTRIP_OK. The
+		// seed is gone; the round trip has to happen.
 		"--container-definitions", `[{
 			"name": "writer",
-			"image": "`+evalImageName+`",
+			"image": "alpine:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["printf 'cli-ebs-roundtrip' > /workspace/state.txt"],
 			"mountPoints": [{"sourceVolume":"workspace","containerPath":"/workspace"}]
@@ -534,7 +540,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 		"--volumes", `[{"name":"workspace","configuredAtLaunch":true}]`,
 		"--container-definitions", `[{
 			"name": "reader",
-			"image": "`+evalImageName+`",
+			"image": "alpine:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["test \"$(cat /workspace/state.txt)\" = \"cli-ebs-roundtrip\" && echo CLI_EBS_ROUNDTRIP_OK"],
 			"mountPoints": [{"sourceVolume":"workspace","containerPath":"/workspace"}],

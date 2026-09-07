@@ -972,7 +972,7 @@ func TestECS_TaskExitCodeNonZero(t *testing.T) {
 }
 
 func TestECS_TaskLogsToCloudWatch(t *testing.T) {
-	_, _, _ = ecsRunTaskHelper(t, "exec-logs", ecstypes.ContainerDefinition{
+	client, clusterName, taskArn := ecsRunTaskHelper(t, "exec-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
 		Image:       aws.String("alpine:latest"),
@@ -1014,6 +1014,30 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 		}
 		return false
 	}, 30*time.Second, 250*time.Millisecond, "process stdout should reach CloudWatch logs; saw=%v", messages)
+
+	// The stream's first event is the container's own first line. Amazon ECS
+	// seeds nothing at RunTask time; a synthetic "container started" (or the
+	// joined entrypoint) stamped then made the provisioning window read as the
+	// entrypoint's silence and was text the container never wrote.
+	require.Equal(t, "hello from process", messages[0],
+		"the log stream must begin with the container's first line, not a simulator marker")
+
+	// The pull window is reported on the task, so a slow start can be attributed
+	// to the image pull rather than to the container: both timestamps are set
+	// (even for a cached image), and they bracket the start in order.
+	described, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(clusterName), Tasks: []string{taskArn},
+	})
+	require.NoError(t, err)
+	require.Len(t, described.Tasks, 1)
+	task := described.Tasks[0]
+	require.NotNil(t, task.PullStartedAt, "DescribeTasks must report pullStartedAt")
+	require.NotNil(t, task.PullStoppedAt, "DescribeTasks must report pullStoppedAt")
+	require.NotNil(t, task.CreatedAt)
+	require.NotNil(t, task.StartedAt)
+	require.False(t, task.PullStartedAt.Before(*task.CreatedAt), "pull cannot begin before the task was created")
+	require.False(t, task.PullStoppedAt.Before(*task.PullStartedAt), "pull cannot stop before it started")
+	require.False(t, task.StartedAt.Before(task.PullStoppedAt.Truncate(time.Second)), "the container cannot start before its image is present")
 }
 
 // TestECS_RunningTaskStreamsLogsLive proves the awslogs contract for a

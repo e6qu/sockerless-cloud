@@ -56,13 +56,26 @@ func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 	if !ok {
 		t.Fatal("awslogs configuration did not create the task's log stream")
 	}
+	// Nothing has written yet, so the stream has nothing: Amazon ECS never
+	// seeds a task's stream. A synthetic "container started" stamped at
+	// RunTask time made a three-minute provisioning window read as the
+	// entrypoint's own silence.
+	if seeded, _ := cwLogEvents.Get(key); len(seeded) != 0 {
+		t.Fatalf("log stream holds %d events before the container wrote anything: %+v", len(seeded), seeded)
+	}
+	if created.FirstEventTimestamp != 0 || created.LastEventTimestamp != 0 {
+		t.Fatalf("stream reports event timestamps (%d, %d) with no events", created.FirstEventTimestamp, created.LastEventTimestamp)
+	}
 
 	sink.WriteLog(sim.LogLine{Stream: "stdout", Text: "listening on :3000"})
 	sink.WriteLog(sim.LogLine{Stream: "stderr", Text: "OAuthCallbackError"})
 
 	events, _ := cwLogEvents.Get(key)
-	if len(events) != 3 {
-		t.Fatalf("log stream holds %d events, want the container marker plus both workload lines", len(events))
+	if len(events) != 2 {
+		t.Fatalf("log stream holds %d events, want exactly the two workload lines", len(events))
+	}
+	if events[0].Message != "listening on :3000" {
+		t.Fatalf("first event message = %q, want the workload's first line", events[0].Message)
 	}
 	last := events[len(events)-1]
 	if last.Message != "OAuthCallbackError" {
@@ -72,6 +85,10 @@ func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 	stream, ok := cwLogStreams.Get(key)
 	if !ok {
 		t.Fatal("log stream disappeared after the workload wrote to it")
+	}
+	if stream.FirstEventTimestamp != events[0].Timestamp {
+		t.Errorf("stream FirstEventTimestamp = %d, want the first workload line's timestamp %d",
+			stream.FirstEventTimestamp, events[0].Timestamp)
 	}
 	if stream.LastEventTimestamp != last.Timestamp {
 		t.Errorf("stream LastEventTimestamp = %d, want the last ingested event's timestamp %d",

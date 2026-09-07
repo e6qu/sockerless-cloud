@@ -981,15 +981,12 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		pullPolicy = "if-not-present"
 	}
 
-	shouldPull := pullPolicy == "always"
-	if pullPolicy == "if-not-present" {
-		_, err := cli.ImageInspect(ctx, cfg.Image)
-		if err != nil {
-			shouldPull = true
-		}
-	}
-
-	if shouldPull {
+	// "if-not-present" is decided by pullImage, which holds the image
+	// present only when the host has it for the platform asked for: an
+	// image the host holds under the name for another architecture is not
+	// the image the workload asked for, and starting it would run the
+	// wrong binary — a Go program crashes at once under emulation.
+	if pullPolicy != "never" {
 		if err := pullImage(ctx, cli, cfg.Image, cfg.Architecture, cfg.RegistryAuth); err != nil {
 			return "", err
 		}

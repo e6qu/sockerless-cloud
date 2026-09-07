@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 12. Resolved: 91.
+Open: 12. Resolved: 94.
 
 ## Open
 
@@ -291,6 +291,41 @@ Open: 12. Resolved: 91.
   sitecontainers main container — and never by the reference's spelling.
   The CLI and SDK tests that leaned on the name declare the bootstrap
   through the app setting on the `registry.example/functions/azf:test` image.
+
+- ~~**BUG-2991 (a CodeBuild build environment could not run docker steps nor push to this simulator's ECR, and no host pulled from it):**~~
+  A privileged environment got no engine, a curated `aws/codebuild/<name>`
+  image was pulled from Docker Hub by that name, and a buildspec's `aws`
+  CLI reached real AWS; the Lambda and Amazon ECS hosts resolved every ECR
+  reference to a local engine name, so an image a build pushed into this
+  registry was never what a function ran (sockerless BUG-2978). Now:
+  `privilegedMode` hands the environment the engine this simulator runs on,
+  bound where its `docker` client looks (or `DOCKER_HOST` for a TCP engine),
+  under a privileged sandbox; a curated image resolves to its ECR Public
+  distribution, `public.ecr.aws/codebuild/<name>`; the environment gets the
+  simulator's service endpoint and instance-metadata credentials, as a
+  Lambda workload does; and a reference that names this simulator's own
+  port — the coordinate a relocated registry is reached at — is pulled by
+  the Lambda and ECS hosts from this registry with an ECR authorization
+  token, as the Cloud Run host pulls from Artifact Registry. Covered by
+  `TestCodeBuild_PrivilegedBuildPushesToECRAndLambdaRunsIt`: a privileged
+  build logs in, builds and pushes; a function created from the reference
+  runs the pushed image.
+
+- ~~**BUG-2992 (a workload asking for one architecture ran the image the host held for another):**~~
+  The framework's if-not-present pull policy inspected an image by name
+  only, so an `ARM_CONTAINER` build whose image the host held as amd64 ran
+  the amd64 binary under emulation and the Docker CLI crashed at once. The
+  policy now goes through `pullImage`, which holds an image present only
+  for the platform asked for.
+
+- ~~**BUG-2993 (CodeBuild reported its CloudWatch Logs disabled and discarded the build environment's output):**~~
+  The service enables CloudWatch Logs by default — group
+  `/aws/codebuild/<project>`, a stream named by the build's id, both
+  created before the build runs — and a project's `logsConfig` names
+  another group and stream prefix or disables them. A build's `logs` now
+  carries the group, stream, ARN and deep link, and the environment's
+  output streams into it; `TestCodeBuild_BuildLifecycle_SDK` reads the
+  buildspec's output back from the stream.
 
 - ~~**BUG-2990 (Cloud KMS accepted a key ring in a location the service does not have):**~~
   `CreateKeyRing` under `projects/{project}/locations/US` — Cloud Storage's

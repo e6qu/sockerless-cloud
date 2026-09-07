@@ -751,6 +751,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 		environmentAttempt++
 		return sim.StartContainerSync(sim.ContainerConfig{
 			Image:        ecrWorkloadImage(image),
+			RegistryAuth: ecrWorkloadRegistryAuth(ecrWorkloadImage(image)),
 			Architecture: platform,
 			Command:      entrypoint,
 			Args:         args,

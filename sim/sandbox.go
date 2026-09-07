@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"os"
 	"path"
 	"strings"
 
@@ -169,3 +170,29 @@ var (
 type sandboxErr string
 
 func (e sandboxErr) Error() string { return string(e) }
+
+// EngineSocketPath returns the host path of the container engine's control
+// socket this process talks to: the path DOCKER_HOST names when it is a
+// unix:// address, else the first of the canonical socket paths that exists.
+// Empty when the engine is reached over TCP or no socket is present — a
+// workload that is given the engine then needs DOCKER_HOST instead.
+func EngineSocketPath() string {
+	if host := os.Getenv("DOCKER_HOST"); host != "" {
+		if p, ok := strings.CutPrefix(host, "unix://"); ok {
+			return p
+		}
+		return ""
+	}
+	for _, sock := range dockerSocketPaths {
+		if _, err := os.Stat(sock); err == nil {
+			return sock
+		}
+	}
+	return ""
+}
+
+// EngineHost returns the DOCKER_HOST this process was started with, or ""
+// when the engine is reached at its default socket.
+func EngineHost() string {
+	return os.Getenv("DOCKER_HOST")
+}

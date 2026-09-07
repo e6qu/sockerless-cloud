@@ -807,12 +807,14 @@ func handleCBStartSandbox(w http.ResponseWriter, r *http.Request) {
 
 	var env map[string]any
 	var serviceRole string
+	var project CBProject
 	if req.ProjectName != "" {
 		p, ok := cbProjects.Get(req.ProjectName)
 		if !ok {
 			cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
 			return
 		}
+		project = p
 		env = p.Environment
 		serviceRole = p.ServiceRole
 	}
@@ -833,7 +835,7 @@ func handleCBStartSandbox(w http.ResponseWriter, r *http.Request) {
 			Status:       "RUNNING",
 			StartTime:    now,
 			CurrentPhase: "PROVISIONING",
-			Logs:         cbLogsLocation(),
+			Logs:         cbLogsLocation(project, ""),
 		},
 	}
 	cbSandboxes.Put(id, sb)
