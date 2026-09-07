@@ -3,6 +3,7 @@ package aws_sdk_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -44,7 +45,11 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
 				Image:       aws.String("alpine:latest"),
-				Command:     []string{"tail", "-f", "/dev/null"},
+				// The container announces itself, then idles. The stream's
+				// first event must be that line: Amazon ECS seeds nothing at
+				// RunTask time, and this test used to pass on a synthetic
+				// "container started" event from a container that wrote nothing.
+				Command: []string{"sh", "-c", "echo lifecycle-app-up; exec tail -f /dev/null"},
 				LogConfiguration: &ecstypes.LogConfiguration{
 					LogDriver: "awslogs",
 					Options: map[string]string{
@@ -100,14 +105,22 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, streams.LogStreams, "ECS should auto-create log stream")
 
-	// Get log events
-	events, err := cwC.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-		LogGroupName:  aws.String(logGroup),
-		LogStreamName: streams.LogStreams[0].LogStreamName,
-		StartFromHead: aws.Bool(true),
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, events.Events, "should have at least one log event")
+	// The container's own first line reaches the stream while the task runs,
+	// and it is the first event: nothing precedes what the container wrote.
+	var first string
+	require.Eventually(t, func() bool {
+		events, err := cwC.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
+			LogGroupName:  aws.String(logGroup),
+			LogStreamName: streams.LogStreams[0].LogStreamName,
+			StartFromHead: aws.Bool(true),
+		})
+		if err != nil || len(events.Events) == 0 {
+			return false
+		}
+		first = aws.ToString(events.Events[0].Message)
+		return true
+	}, 30*time.Second, 250*time.Millisecond, "the running container's stdout should reach its log stream")
+	require.Equal(t, "lifecycle-app-up", first, "the stream must begin with the container's first line")
 
 	// Stop task
 	_, err = ecsC.StopTask(ctx, &ecs.StopTaskInput{
