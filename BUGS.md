@@ -1,18 +1,8 @@
 # BUGS
 
-Open: 13. Resolved: 88.
+Open: 12. Resolved: 90.
 
 ## Open
-
-- **BUG-2988 (the Functions host decides a site runs an HTTP bootstrap by the image path containing `sockerless-overlay`):**
-  `functions.go` treats an image whose reference contains `/sockerless-overlay/`
-  as one that serves HTTP on its port and invokes it there; any other image is
-  run once per invocation with `SOCKERLESS_CMD`. That is a consumer's naming
-  convention baked into the simulator — sockerless-aware behaviour the
-  simulator rules forbid — and it misroutes any other image under that
-  repository name. Fix shape: decide by what the site declares (its site
-  config, its app settings) or by what the image itself does, never by the
-  reference's spelling.
 
 - **BUG-2982 (every release pull request's CI run expires unapproved):**
   The run on each release-please pull request fails at startup with "This
@@ -293,6 +283,24 @@ Open: 13. Resolved: 88.
   `TestEnsureVPCNetworkLeavesAnotherLiveRunsNetworkAlone` beside the dead-run
   reclaim test, which now records a dead owner. Filed downstream as sockerless
   BUG-2950.
+
+- ~~**BUG-2988 (the Functions host decided a site runs an HTTP bootstrap by the image path containing `sockerless-overlay`):**~~
+  A consumer's naming convention was baked into the simulator. The host now
+  decides by what the site declares — the `SOCKERLESS_USER_ENTRYPOINT` /
+  `SOCKERLESS_USER_CMD` app settings a bootstrap image carries, or a
+  sitecontainers main container — and never by the reference's spelling.
+  The CLI tests that leaned on the name declare the bootstrap.
+
+- ~~**BUG-2989 (the Lambda and Amazon ECS hosts ran a pull-through-cache reference as a Docker Hub name spelt from its path):**~~
+  `<account>.dkr.ecr.<region>.amazonaws.com/<prefix>/<path>` under a registered
+  rule names what the rule fetches from its upstream, and the framework's
+  resolver only knew the `docker-hub` spelling, so a reference through
+  `public-ecr-aws` — the rule sockerless's Lambda backend creates for the ECR
+  Public Gallery — became `public-ecr-aws/docker/library/alpine`, which no
+  registry holds (`pull access denied`; sockerless BUG-2957). `ecrWorkloadImage`
+  resolves the reference through the registered rule to `<upstream>/<path>`,
+  Docker Hub's upstream to the engine's default registry, and both hosts run
+  that. Covered by `TestLambda_ImageThroughPullThroughCacheRule`.
 
 - ~~**BUG-2986 (the Azure workload hosts pulled every image anonymously, whatever registry credential the workload declared):**~~
   A Container App or Job names its registries with a managed identity or a

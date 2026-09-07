@@ -750,7 +750,7 @@ func invokeLambdaViaRuntimeAPI(fn LambdaFunction, payload []byte) ([]byte, bool,
 	startExecutionEnvironment := func() (*sim.ContainerHandle, error) {
 		environmentAttempt++
 		return sim.StartContainerSync(sim.ContainerConfig{
-			Image:        sim.ResolveLocalImage(image),
+			Image:        ecrWorkloadImage(image),
 			Architecture: platform,
 			Command:      entrypoint,
 			Args:         args,

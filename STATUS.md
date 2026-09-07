@@ -103,6 +103,11 @@ Current state of the sockerless-cloud repository.
 - **A bucket carries Cloud Storage's default policy** from creation — the
   four legacy bindings for the project's owners, editors and viewers — so a
   client revoking what it granted sets the defaults back, never nothing.
+- **An Amazon ECR pull-through-cache reference runs its rule's upstream
+  image**: the Lambda and ECS hosts resolve `<prefix>/<path>` through the
+  registered rule, as ECR hydrates the cache from that upstream.
+- **A Functions site declares its HTTP bootstrap** through its app settings;
+  the host reads nothing from an image reference's spelling.
 - **Azure workload hosts pull with what the workload declared**: a
   Container App's or Job's `registries` entry — a managed identity, as an
   identity token the registry exchanges, or a username and password secret —
