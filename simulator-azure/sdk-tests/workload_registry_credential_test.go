@@ -18,19 +18,22 @@ func TestContainerApps_JobPullsFromItsRegistryAsItsIdentity(t *testing.T) {
 	loginServer, image := acrTasksPushImage(t, rg, "acaregidentityreg", "acaregidentityacct", "sockerless-overlay/aca")
 	identity := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aca-pull-identity"
 
+	// The anonymous control runs first, while the host engine holds no copy
+	// of the image: a job that names no credential pulls anonymously and the
+	// registry refuses it.
+	acaPutJob(t, rg, "registry-anonymous-job", image, []string{"cat", "/opt/payload"}, nil)
+	execName := acaStartExecution(t, rg, "registry-anonymous-job")
+	execution := acaWaitExecution(t, rg, "registry-anonymous-job", execName)
+	props, _ := execution["properties"].(map[string]any)
+	assert.Equal(t, "Failed", props["status"], "a job that names no registry credential pulls anonymously, which the registry refuses: %v", execution)
+
 	acaPutJob(t, rg, "registry-identity-job", image, []string{"cat", "/opt/payload"}, map[string]any{
 		"registries": []map[string]any{{"server": loginServer, "identity": identity}},
 	})
-	execName := acaStartExecution(t, rg, "registry-identity-job")
-	execution := acaWaitExecution(t, rg, "registry-identity-job", execName)
-	props, _ := execution["properties"].(map[string]any)
-	assert.Equal(t, "Succeeded", props["status"], "the job pulls its image as the identity its registry entry names: %v", execution)
-
-	acaPutJob(t, rg, "registry-anonymous-job", image, []string{"cat", "/opt/payload"}, nil)
-	execName = acaStartExecution(t, rg, "registry-anonymous-job")
-	execution = acaWaitExecution(t, rg, "registry-anonymous-job", execName)
+	execName = acaStartExecution(t, rg, "registry-identity-job")
+	execution = acaWaitExecution(t, rg, "registry-identity-job", execName)
 	props, _ = execution["properties"].(map[string]any)
-	assert.Equal(t, "Failed", props["status"], "a job that names no registry credential pulls anonymously, which the registry refuses: %v", execution)
+	assert.Equal(t, "Succeeded", props["status"], "the job pulls its image as the identity its registry entry names: %v", execution)
 }
 
 // acaPutJob creates a manual-trigger Job running image with args, with extra
@@ -68,7 +71,7 @@ func acaPutJob(t *testing.T, rg, jobName, image string, args []string, configura
 // host starts, as App Service does.
 func TestFunctions_SitePullsFromItsRegistryAsItsIdentity(t *testing.T) {
 	const rg = "functions-registry-identity-rg"
-	loginServer, image := acrTasksPushImage(t, rg, "funcregidentityreg", "funcregidentityacct", "sockerless-overlay/azf")
+	loginServer, image := acrTasksPushImage(t, rg, "funcregidentityreg", "funcregidentityacct", "functions/site")
 
 	props := map[string]any{
 		"serverFarmId": "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Web/serverFarms/test-plan",

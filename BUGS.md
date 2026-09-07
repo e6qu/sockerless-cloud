@@ -1,8 +1,18 @@
 # BUGS
 
-Open: 12. Resolved: 88.
+Open: 13. Resolved: 88.
 
 ## Open
+
+- **BUG-2988 (the Functions host decides a site runs an HTTP bootstrap by the image path containing `sockerless-overlay`):**
+  `functions.go` treats an image whose reference contains `/sockerless-overlay/`
+  as one that serves HTTP on its port and invokes it there; any other image is
+  run once per invocation with `SOCKERLESS_CMD`. That is a consumer's naming
+  convention baked into the simulator — sockerless-aware behaviour the
+  simulator rules forbid — and it misroutes any other image under that
+  repository name. Fix shape: decide by what the site declares (its site
+  config, its app settings) or by what the image itself does, never by the
+  reference's spelling.
 
 - **BUG-2982 (every release pull request's CI run expires unapproved):**
   The run on each release-please pull request fails at startup with "This

@@ -1695,7 +1695,10 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 
 	containerName := fmt.Sprintf("sockerless-sim-azure-func-%s-%d", site.Name, time.Now().UnixNano())
 	localImage := sim.ResolveLocalImage(containerImage)
-	platform, err := localImagePlatform(context.Background(), localImage)
+	// The host pulls the site's image with the credential the site declared
+	// for its registry, as App Service does.
+	registryAuth := acrWorkloadRegistryAuth(containerImage, siteWorkloadRegistries(site, containerImage))
+	platform, err := localImagePlatform(context.Background(), localImage, registryAuth)
 	if err != nil {
 		injectAppTrace(site.Name,
 			fmt.Sprintf("Function execution error: resolve image platform failed: %v", err))
@@ -1718,6 +1721,7 @@ func invokeAzureFunctionProcess(site *Site) ([]byte, int) {
 	handle, err := sim.StartContainerSync(sim.ContainerConfig{
 		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
+		RegistryAuth:      registryAuth,
 		Architecture:      platform,
 		Command:           entrypoint,
 		Args:              cmd,
