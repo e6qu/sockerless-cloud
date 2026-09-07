@@ -105,6 +105,18 @@ var ecrAuthorizationTokens sim.Store[ECRAuthorizationToken]
 // the wire form GetAuthorizationToken serves — base64 of `AWS:<password>` —
 // together with the moment it expires.
 func ecrIssueAuthorizationToken() (string, time.Time, error) {
+	password, expiresAt, err := ecrIssueAuthorizationPassword()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return base64.StdEncoding.EncodeToString(
+		[]byte(ecrDockerLoginUsername + ":" + password)), expiresAt, nil
+}
+
+// ecrIssueAuthorizationPassword mints one authorization token and returns
+// its password half — what `aws ecr get-login-password` prints — together
+// with the moment it expires.
+func ecrIssueAuthorizationPassword() (string, time.Time, error) {
 	raw := make([]byte, ecrAuthorizationTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", time.Time{}, err
@@ -118,8 +130,7 @@ func ecrIssueAuthorizationToken() (string, time.Time, error) {
 		IssuedAt:  now.Unix(),
 		ExpiresAt: expiresAt.Unix(),
 	})
-	return base64.StdEncoding.EncodeToString(
-		[]byte(ecrDockerLoginUsername + ":" + password)), expiresAt, nil
+	return password, expiresAt, nil
 }
 
 // ecrExpireAuthorizationTokens drops the tokens that are past their twelve

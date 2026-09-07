@@ -38,6 +38,9 @@ type CBProject struct {
 	BuildTimeout int            `json:"timeoutInMinutes"`
 	QueueTimeout int            `json:"queuedTimeoutInMinutes"`
 	Tags         []CBTag        `json:"tags,omitempty"`
+	// LogsConfig is the project's log settings as CreateProject received
+	// them; cbLogsLocation reads the CloudWatch Logs half.
+	LogsConfig map[string]any `json:"logsConfig,omitempty"`
 }
 
 type CBBuild struct {
@@ -87,13 +90,90 @@ type CBPhaseContext struct {
 	Message    string `json:"message"`
 }
 
-// cbLogsLocation is the LogsLocation the sim reports: builds run as local
-// processes without a CloudWatch log sink, so log enablement is the real
-// member cloudWatchLogs.status (not an invented boolean).
-func cbLogsLocation() map[string]any {
-	return map[string]any{
-		"cloudWatchLogs": map[string]any{"status": "DISABLED"},
+// cbLogsLocation is the LogsLocation of a build of project p: its build
+// environment's output streams to CloudWatch Logs — enabled by default, in
+// the group `/aws/codebuild/<project>` under a stream named by the build's
+// id, or in the group and stream prefix the project's logsConfig names —
+// unless the project's logsConfig disables them. The sandbox path passes no
+// build id and reports the status only.
+func cbLogsLocation(p CBProject, buildID string) map[string]any {
+	group, stream, enabled := cbCloudWatchLogsTarget(p, buildID)
+	cw := map[string]any{"status": "DISABLED"}
+	if enabled {
+		cw["status"] = "ENABLED"
+		if buildID != "" {
+			cw["groupName"] = group
+			cw["streamName"] = stream
+		}
 	}
+	logs := map[string]any{"cloudWatchLogs": cw}
+	if enabled && buildID != "" {
+		logs["groupName"] = group
+		logs["streamName"] = stream
+		logs["deepLink"] = "https://console.aws.amazon.com/cloudwatch/home?region=" + awsRegion() +
+			"#logEvent:group=" + group + ";stream=" + stream
+		logs["cloudWatchLogsArn"] = "arn:aws:logs:" + awsRegion() + ":" + awsAccountID() + ":log-group:" + group + ":log-stream:" + stream
+	}
+	return logs
+}
+
+// cbCloudWatchLogsTarget resolves where a build's CloudWatch logs go and
+// whether they are enabled: the project's logsConfig.cloudWatchLogs, whose
+// absence means enabled at the defaults, as the service documents.
+func cbCloudWatchLogsTarget(p CBProject, buildID string) (group, stream string, enabled bool) {
+	enabled = true
+	group = "/aws/codebuild/" + p.Name
+	streamPrefix := ""
+	if cw, ok := p.LogsConfig["cloudWatchLogs"].(map[string]any); ok {
+		if strings.EqualFold(cbString(cw["status"]), "DISABLED") {
+			enabled = false
+		}
+		if g := cbString(cw["groupName"]); g != "" {
+			group = g
+		}
+		streamPrefix = cbString(cw["streamName"])
+	}
+	stream = buildID
+	if _, id, found := strings.Cut(buildID, ":"); found {
+		stream = id
+	}
+	if streamPrefix != "" {
+		stream = streamPrefix + "/" + stream
+	}
+	return group, stream, enabled
+}
+
+// cbBuildLogSink is where a build environment's output goes: the build's
+// CloudWatch log stream, or nowhere when the project disabled the logs.
+func cbBuildLogSink(p CBProject, buildID string) sim.LogSink {
+	group, stream, enabled := cbCloudWatchLogsTarget(p, buildID)
+	if !enabled {
+		return sim.NoopSink{}
+	}
+	// CodeBuild creates the group and the stream itself before the build
+	// starts (its service role carries logs:CreateLogGroup and
+	// logs:CreateLogStream for that), so a build's stream exists — empty —
+	// even when the environment prints nothing.
+	nowMs := time.Now().UnixMilli()
+	if _, exists := cwLogGroups.Get(group); !exists {
+		cwLogGroups.Put(group, CWLogGroup{
+			LogGroupName: group,
+			Arn:          cwLogGroupArn(group),
+			CreationTime: nowMs,
+		})
+	}
+	key := cwEventsKey(group, stream)
+	if _, exists := cwLogStreams.Get(key); !exists {
+		cwLogStreams.Put(key, CWLogStream{
+			LogStreamName:       stream,
+			LogGroupName:        group,
+			CreationTime:        nowMs,
+			Arn:                 cwLogStreamArn(group, stream),
+			UploadSequenceToken: "1",
+		})
+		cwLogEvents.Put(key, []CWLogEvent{})
+	}
+	return &cwLogSink{logGroup: group, logStream: stream}
 }
 
 type CBTag struct {
@@ -332,6 +412,7 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 		BuildTimeout int            `json:"timeoutInMinutes"`
 		QueueTimeout int            `json:"queuedTimeoutInMinutes"`
 		Tags         []CBTag        `json:"tags"`
+		LogsConfig   map[string]any `json:"logsConfig"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
@@ -379,6 +460,7 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 		BuildTimeout: req.BuildTimeout,
 		QueueTimeout: req.QueueTimeout,
 		Tags:         req.Tags,
+		LogsConfig:   req.LogsConfig,
 	}
 	cbProjects.Put(req.Name, p)
 	cbWriteJSON(w, http.StatusOK, map[string]any{"project": p})
@@ -556,7 +638,7 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 			{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
 			{PhaseType: "BUILD", PhaseStatus: "IN_PROGRESS", StartTime: now},
 		},
-		Logs: cbLogsLocation(),
+		Logs: cbLogsLocation(p, buildID),
 	}
 	cbBuilds.Put(buildID, build)
 	go cbRunBuild(buildID, p, plan, runtimeEnvironment)
@@ -660,7 +742,7 @@ func handleCBRetryBuild(w http.ResponseWriter, r *http.Request) {
 			{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
 			{PhaseType: "BUILD", PhaseStatus: "IN_PROGRESS", StartTime: now},
 		},
-		Logs: cbLogsLocation(),
+		Logs: cbLogsLocation(p, buildID),
 	}
 	cbBuilds.Put(buildID, build)
 	go cbRunBuild(buildID, p, plan, runtimeEnvironment)
@@ -785,10 +867,27 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	if image == "" {
 		return -1, "build environment image is required"
 	}
+	image = cbEnvironmentImage(image)
 	architecture := "linux/amd64"
 	if strings.Contains(strings.ToUpper(cbString(project.Environment["type"])), "ARM") {
 		architecture = "linux/arm64"
 	}
+	privileged, _ := project.Environment["privilegedMode"].(bool)
+	sandbox := SandboxFargate
+	if privileged {
+		sandbox = SandboxCodeBuildPrivileged
+	}
+	engineBinds, engineEnv, err := cbEnvironmentEngine(privileged)
+	if err != nil {
+		return -1, err.Error()
+	}
+	serviceEnv, err := cbEnvironmentServiceEnv()
+	if err != nil {
+		return -1, fmt.Sprintf("build environment service endpoint: %v", err)
+	}
+	// The project's and the build's own variables win over what the
+	// environment provides.
+	env = mergeEnv(mergeEnv(serviceEnv, engineEnv), env)
 	env["CODEBUILD_BUILD_ID"] = buildID
 	env["CODEBUILD_PROJECT_NAME"] = project.Name
 	env["CODEBUILD_SRC_DIR"] = "/codebuild/output/src"
@@ -808,13 +907,13 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 		Command:      []string{"/bin/sh"},
 		Args:         []string{"-c", script.String()},
 		WorkingDir:   "/codebuild/output/src",
-		Binds:        []string{filepath.Clean(workDir) + ":/codebuild/output/src:z"},
+		Binds:        append([]string{filepath.Clean(workDir) + ":/codebuild/output/src:z"}, engineBinds...),
 		Env:          env,
 		ExtraHosts:   hostMetadataExtraHosts(),
 		Timeout:      cbBuildTimeout(project),
 		Labels:       map[string]string{"sockerless-codebuild-build": buildID},
-		Sandbox:      SandboxFargate,
-	}, sim.NoopSink{})
+		Sandbox:      sandbox,
+	}, cbBuildLogSink(project, buildID))
 	if err != nil {
 		return -1, fmt.Sprintf("start build environment %s: %v", image, err)
 	}

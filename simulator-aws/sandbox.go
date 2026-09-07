@@ -33,3 +33,17 @@ var SandboxFargate = sim.SandboxProfile{
 	DenyDockerSocket: true,
 	DenyHostNetwork:  true,
 }
+
+// SandboxCodeBuildPrivileged is the AWS CodeBuild build environment with
+// `privilegedMode` set: the environment runs privileged, which is what the
+// mode grants so a build can run the Docker daemon. The simulator hands such
+// an environment the engine it runs on, bound at the socket path a build's
+// `docker` client reads, so the environment's docker steps build and push
+// as they do in the daemon real CodeBuild starts.
+var SandboxCodeBuildPrivileged = sim.SandboxProfile{
+	Privileged:       true,
+	ReadonlyRootfs:   false,
+	NoNewPrivileges:  false,
+	DenyDockerSocket: false,
+	DenyHostNetwork:  true,
+}

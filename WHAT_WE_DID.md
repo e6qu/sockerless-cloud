@@ -200,6 +200,18 @@ declares in its app settings. Cloud KMS refuses a key ring in a location
 the service does not have — `US`, Cloud Storage's spelling of its
 multi-region, where Cloud KMS names it `us` — as the real service does.
 
+A privileged CodeBuild build environment runs docker steps against the
+engine the mode grants it, curated images resolve to their ECR Public
+distribution, a build's environment reaches this simulator's services with
+instance-metadata credentials, and its output streams to CloudWatch Logs
+as the service does by default; a reference that names the simulator's own
+port is pulled by the Lambda and ECS hosts from the simulator's ECR with an
+authorization token. Together these are the path a backend's bootstrap
+overlay takes — CodeBuild builds and pushes, Lambda pulls — with a
+relocated registry coordinate, the way Cloud Build and Cloud Run already
+did (BUG-2991, 2993). The framework pulls an image the host holds for
+another architecture rather than running it (BUG-2992).
+
 The Azure workload hosts had pulled every image anonymously, whatever the
 workload declared — a Container App's or Job's `registries` entry, a site's
 Container Registry managed identity or `DOCKER_REGISTRY_SERVER_*` settings —

@@ -2,10 +2,12 @@ package aws_sdk_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -134,9 +136,13 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 	require.NotNil(t, startResp.Build)
 	buildID := aws.ToString(startResp.Build.Id)
 	assert.NotEmpty(t, buildID)
+	// CloudWatch Logs are enabled by default, in the project's group under
+	// a stream named by the build's id.
 	require.NotNil(t, startResp.Build.Logs)
 	require.NotNil(t, startResp.Build.Logs.CloudWatchLogs)
-	assert.Equal(t, cbtypes.LogsConfigStatusTypeDisabled, startResp.Build.Logs.CloudWatchLogs.Status)
+	assert.Equal(t, cbtypes.LogsConfigStatusTypeEnabled, startResp.Build.Logs.CloudWatchLogs.Status)
+	assert.Equal(t, "/aws/codebuild/cb-sdk-build-project", aws.ToString(startResp.Build.Logs.GroupName))
+	assert.Equal(t, strings.TrimPrefix(buildID, "cb-sdk-build-project:"), aws.ToString(startResp.Build.Logs.StreamName))
 
 	var build cbtypes.Build
 	require.Eventually(t, func() bool {
@@ -154,7 +160,19 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 	// (the sim runs builds without a CloudWatch sink, so DISABLED).
 	require.NotNil(t, build.Logs)
 	require.NotNil(t, build.Logs.CloudWatchLogs)
-	assert.Equal(t, cbtypes.LogsConfigStatusTypeDisabled, build.Logs.CloudWatchLogs.Status)
+	assert.Equal(t, cbtypes.LogsConfigStatusTypeEnabled, build.Logs.CloudWatchLogs.Status)
+
+	// The build environment's output is in that stream.
+	logEvents, err := cwLogsClient().FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
+		LogGroupName:   aws.String("/aws/codebuild/cb-sdk-build-project"),
+		LogStreamNames: []string{aws.ToString(build.Logs.StreamName)},
+	})
+	require.NoError(t, err)
+	var logged []string
+	for _, e := range logEvents.Events {
+		logged = append(logged, aws.ToString(e.Message))
+	}
+	assert.Contains(t, strings.Join(logged, "\n"), "codebuild-sdk-ready", "the buildspec's output reached the build's log stream")
 
 	buildList, err := c.ListBuildsForProject(ctx, &codebuild.ListBuildsForProjectInput{
 		ProjectName: aws.String("cb-sdk-build-project"),

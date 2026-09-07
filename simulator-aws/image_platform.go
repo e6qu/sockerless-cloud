@@ -14,7 +14,7 @@ func localImagePlatform(ctx context.Context, imageRef string) (string, error) {
 	}
 	inspect, err := cli.ImageInspect(ctx, imageRef)
 	if err != nil {
-		if pullErr := sim.PullImage(ctx, imageRef, ""); pullErr != nil {
+		if pullErr := sim.PullImageWithCredential(ctx, imageRef, "", ecrWorkloadRegistryAuth(imageRef)); pullErr != nil {
 			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", imageRef, err, pullErr)
 		}
 		inspect, err = cli.ImageInspect(ctx, imageRef)

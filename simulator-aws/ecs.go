@@ -2292,6 +2292,7 @@ func startECSTaskContainers(taskID string, td ECSTaskDefinition, taskTags []ECST
 		cfg := sim.ContainerConfig{
 			CancelGracePeriod: ecsContainerStopGrace(cd),
 			Image:             localImage,
+			RegistryAuth:      ecrWorkloadRegistryAuth(localImage),
 			Architecture:      platform,
 			Command:           cd.EntryPoint,
 			Args:              command,
